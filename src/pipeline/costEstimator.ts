@@ -294,6 +294,97 @@ export function computeDelta(estimate: CostEstimate, actuals: CostActuals): Cost
   };
 }
 
+// ── Cost-aware tier downgrade (D7-SA7.4-F-7) ─────────────────────
+
+/**
+ * A graceful tier-downgrade proposal surfaced when the chosen tier's estimated
+ * cost would exceed the configured budget. The orchestrator presents this at an
+ * ASK checkpoint as one of three options — downgrade / raise budget / abort —
+ * instead of abort-only (D7-SA7.4-F-7).
+ */
+export interface TierAlternative {
+  /** Tier the orchestrator was about to run. */
+  currentTier: TriageTier;
+  /** Lower tier that fits within budget (always cheaper than `currentTier`). */
+  suggestedTier: TriageTier;
+  /** Estimated cost of the current tier (same units as the supplied budget). */
+  currentEstimate: number;
+  /** Estimated cost of the suggested tier (same units as the supplied budget). */
+  suggestedEstimate: number;
+  /** Absolute saving (`currentEstimate - suggestedEstimate`, always > 0). */
+  estimatedSaving: number;
+  /** Budget the current tier breached (echoed back for the ASK prompt). */
+  budget: number;
+}
+
+/** Tier ladder from cheapest to most expensive — used to walk downgrades. */
+const TIER_LADDER: readonly TriageTier[] = ["light", "standard", "deep"] as const;
+
+/**
+ * Propose a graceful tier downgrade when `currentEstimate` exceeds `budget`.
+ *
+ * Walks the tier ladder downward from `currentTier` and returns the HIGHEST
+ * lower tier whose proportionally-scaled estimate fits within `budget`. The
+ * lower-tier estimate is derived by scaling `currentEstimate` by the ratio of
+ * the lower tier's static-frame-token midpoint to the current tier's midpoint
+ * (the dominant cost driver), so the proposal stays consistent with whatever
+ * cost unit the caller passes (USD, tokens, sub-agent count).
+ *
+ * Returns `null` when:
+ * - the current estimate already fits within budget (no downgrade needed), OR
+ * - `currentTier` is the cheapest tier (nothing lower to downgrade to), OR
+ * - no lower tier fits within budget (caller should keep the abort / raise-budget
+ *   options; a downgrade that still overruns is not offered).
+ *
+ * Pure function — no I/O, never throws. `budget <= 0` and non-finite inputs
+ * yield `null` (no meaningful proposal).
+ */
+export function proposeAlternativeTier(
+  currentTier: TriageTier,
+  currentEstimate: number,
+  budget: number,
+): TierAlternative | null {
+  if (!Number.isFinite(currentEstimate) || !Number.isFinite(budget) || budget <= 0) {
+    return null;
+  }
+  // Within budget already — no downgrade needed.
+  if (currentEstimate <= budget) return null;
+
+  const currentIdx = TIER_LADDER.indexOf(currentTier);
+  // Unknown or cheapest tier — nothing lower to propose.
+  if (currentIdx <= 0) return null;
+
+  const currentMidpoint = midpoint(
+    TIER_BASELINES[currentTier].staticFrameTokensMin,
+    TIER_BASELINES[currentTier].staticFrameTokensMax,
+  );
+  if (currentMidpoint <= 0) return null;
+
+  // Walk downward from the tier just below current; prefer the highest tier
+  // that fits (closest quality to the original choice).
+  for (let i = currentIdx - 1; i >= 0; i--) {
+    const lowerTier = TIER_LADDER[i];
+    const lowerMidpoint = midpoint(
+      TIER_BASELINES[lowerTier].staticFrameTokensMin,
+      TIER_BASELINES[lowerTier].staticFrameTokensMax,
+    );
+    const suggestedEstimate = (currentEstimate * lowerMidpoint) / currentMidpoint;
+    if (suggestedEstimate <= budget) {
+      return {
+        currentTier,
+        suggestedTier: lowerTier,
+        currentEstimate,
+        suggestedEstimate,
+        estimatedSaving: currentEstimate - suggestedEstimate,
+        budget,
+      };
+    }
+  }
+
+  // No lower tier fits — caller keeps abort / raise-budget options.
+  return null;
+}
+
 // ── Persistence ──────────────────────────────────────────────────
 
 /**

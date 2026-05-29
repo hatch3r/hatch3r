@@ -301,6 +301,16 @@ export async function runSelfUpdate(
             cwd: rootDir,
           });
         },
+        // D8-SA8.4-F8.4.6 (Cycle 10 Wave 4, D8, P-CQ4): deliberate 2-attempt
+        // (1 initial + 1 retry) cap on the npm/registry install call, below
+        // retryWithBackoff's module default of 3. The tighter delay window
+        // here (initialDelayMs 500, maxDelayMs 2000) is tuned for the install
+        // path: a registry outage that survives one retry within ~2s is
+        // unlikely to clear on a 3rd same-second attempt, and self-update runs
+        // per-target sequentially — a 3rd attempt per target would compound
+        // wall time across N targets on a failing registry. Fast-fail with an
+        // actionable error (the recovery guidance below) is preferred over
+        // ride-out here.
         { maxAttempts: 2, initialDelayMs: 500, maxDelayMs: 2_000 },
       );
       s.succeed(step(offset + 1, total, `Updated ${label}`));

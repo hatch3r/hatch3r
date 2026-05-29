@@ -581,3 +581,5 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 > Full details: see `commands/revision/revision-modes.md`
 
 The modes file contains: auto-advance mode (`--auto`), safety guardrails, error handling, and session report format for revision.
+
+**Concurrent invocation guardrail:** before Step 6 fix delegation, acquire `.hatch3r/.lock` and detect-then-warn on a conflicting active pipeline (same branch / open `.hatch3r/hatch.json` board transaction) per `rules/hatch3r-agent-orchestration.md` → Parallel Safety → Concurrent Invocation Handling. Cross-task learnings consolidate at completion, never mid-pipeline.

@@ -271,6 +271,7 @@ The implementer prompt MUST include:
 - Explicit instruction: do NOT create branches, commits, or PRs.
 - **Reference conventions** from `similar-implementation` output (if step 2 ran) — triggers the implementer's Convention Lock step.
 - If no researcher ran: explicit instruction that no researcher context is available; work from the change description and codebase alone.
+- `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID; batch items share one id with a sub-task index).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 If multiple nontrivial items affect **independent areas** (no shared files), spawn one implementer per area and run them in parallel.
@@ -318,6 +319,7 @@ The reviewer prompt MUST include:
 - Focus areas: **correctness and code quality only**. Skip security deep-dive, performance profiling, and documentation review.
 - All `scope: always` rule directives from `rules/`.
 - Iteration number and previous findings (if not the first iteration).
+- `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 - Requirement that the reviewer output include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
 
@@ -343,9 +345,18 @@ After the review loop is clean, spawn both agents in parallel via the Task tool:
 Both prompts MUST include:
 - The diff of all changes made.
 - All `scope: always` rule directives from `rules/`.
+- `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Apply any resulting changes (new tests, security fixes). Re-run quality checks (Step 5a) if changes were made.
+
+#### 6c. Post-Write Duplication Scan (Decision 21)
+
+When the batch ran **2+ parallel implementers** (independent areas, per Step 4b), run a duplication scan before finishing — parallel implementers can each emit near-duplicate helpers that pass their own path independently (D13-SA13.2-F7). Skip when only one implementer ran or all items were trivial (no cross-file clone possible).
+
+1. Run `npx jscpd --min-lines 40 --threshold 80 --reporters json --silent <changed-paths>`. The gate fires on any cross-file clone block **≥40 lines OR ≥80% byte-similar**.
+2. **If detected:** route the report to `hatch3r-fixer` for a DRY refactor, then re-run quality checks (Step 5a). Max 1 iteration; if it persists, surface the clone locations to the user.
+3. **If not detected:** proceed to Step 7.
 
 ---
 
@@ -504,4 +515,5 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **No board operations.** Never create issues, update project boards, or sync with GitHub Projects.
 - **No PR creation.** Quick changes commit directly; PRs are the user's responsibility if needed.
 - **Respect `scope: always` rules** when delegating to sub-agents. Sub-agents do not inherit rules automatically.
+- **Concurrent invocation:** for Tier 2/3 batches, acquire `.hatch3r/.lock` and detect-then-warn on a conflicting active pipeline (same branch / open `.hatch3r/hatch.json` transaction) per `rules/hatch3r-agent-orchestration.md` → Parallel Safety → Concurrent Invocation Handling. Tier 1 inline edits with no checkpoint surface are exempt.
 - **This command composes existing hatch3r agents** (implementer, reviewer, lint-fixer) -- it does not replace them.

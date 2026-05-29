@@ -20,6 +20,12 @@ Two transport classes carry different security floors. The per-server blast radi
 
 Sources: [MCP 2025-06-18 transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports), [MCP 2025-06-18 authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) (accessed 2026-05-26).
 
+## Tool-poisoning mitigation: `_description` strip
+
+Tool poisoning ([Invariant Labs, 2025](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks)) plants attacker-controlled instructions inside an MCP server's tool/description metadata so the editor renders them into the agent's context. hatch3r blocks this at adapter emission: `BaseAdapter.readFilteredMcp` (`src/adapters/base.ts` → `const { _disabled, _description, ...clean } = entry;`) destructures `_description` out of every entry, so the field is **never written** to any generated `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json`.
+
+This is a positive control, not a best-effort scan: even a poisoned description that survives the sync-time deny-pattern scan (`src/pipeline/mcpDescriptionScan.ts`, which only warns) and canonical-file review cannot reach the editor's tool-description display surface, because the adapter output carries no description field at all. A contributor refactoring `readFilteredMcp` must preserve the `_description` strip — re-including the field would silently re-open the tool-poisoning display surface this control closes.
+
 ## Blast Radius Classification
 
 | Level    | Definition                                                       |

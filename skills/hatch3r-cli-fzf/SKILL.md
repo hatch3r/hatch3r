@@ -1,6 +1,7 @@
 ---
 id: hatch3r-cli-fzf
 name: hatch3r-cli-fzf
+type: skill
 description: "Interactive fuzzy finder for TTY pickers. Use when ad-hoc interactive picker over piped stdin streams from another command; invoke `fzf`. Requires a TTY; degrade gracefully to non-interactive batch in CI."
 tags: ["cli-tools", "interactive", "maintenance"]
 quality_charter: agents/shared/quality-charter.md

@@ -594,6 +594,29 @@ describe("BaseAdapter", () => {
       expect(adapter.warnings.some((w) => w.includes("managedContent is not a substring") && w.includes("dropped"))).toBe(true);
     });
 
+    // D2-SA2.1-F6 (P5): the invariant filter compares `managedContent.trim()`
+    // against `content` because `wrapInManagedBlock` trims the inner body
+    // before wrapping (src/merge/managedBlocks.ts::wrapInManagedBlock), so the
+    // legitimate adapter pattern `output(path, wrapInManagedBlock(x), x)` ships
+    // an `x` with leading/trailing whitespace that never appears verbatim in
+    // `content`. This locks the trim-tolerant survival path: an output whose
+    // managedContent has surrounding whitespace and whose content contains only
+    // the trimmed projection MUST survive. Without the `.trim()` in the filter
+    // (e.g. if a future managedBlocks change broke the coupling) this output
+    // would be wrongly dropped — the prior fixtures only exercised the
+    // exact-substring case and would not catch that regression.
+    it("keeps outputs whose managedContent has surrounding whitespace (trim-tolerant invariant)", async () => {
+      const adapter = new InvariantAdapter([
+        output("padded.md", "outer content here", "  content here  "),
+        output("multiline.md", "prefix\n\ncontent here\n\nsuffix", "\n\ncontent here\n\n"),
+      ]);
+      const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const paths = outs.map((o) => o.path);
+      expect(paths).toEqual(["padded.md", "multiline.md"]);
+      // The trim-tolerant survivors must NOT trigger the substring-mismatch drop.
+      expect(adapter.warnings.some((w) => w.includes("managedContent is not a substring"))).toBe(false);
+    });
+
     it("does not surface invariant warnings for valid outputs", async () => {
       const adapter = new InvariantAdapter([output("ok.md", "content")]);
       const outs = await adapter.generate(FIXTURES_DIR, makeManifest());

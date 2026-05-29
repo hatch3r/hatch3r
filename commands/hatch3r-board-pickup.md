@@ -341,7 +341,7 @@ Before delegating: scan `.hatch3r/learnings/` for matching `area`/`tags`, includ
 
 Execute Steps 7-10 in order after all implementation completes:
 
-- **Step 7:** Quality verification (lint, type check, tests, AC).
+- **Step 7:** Quality verification (lint, type check, tests, AC). **Post-write duplication scan (Decision 21 / D13-SA13.2-F7):** when batch mode ran 2+ parallel implementers (Step 6c), run `npx jscpd --min-lines 40 --threshold 80 --reporters json --silent <changed-paths>` on the combined diff before the review gate clears — parallel implementers can each emit near-duplicate code that passes its own review independently. Any cross-file clone **≥40 lines OR ≥80% byte-similar** routes back to `hatch3r-fixer` for a DRY refactor (max 1 iteration), then re-runs the quality check. Skip when a single issue/implementer ran.
 - **Step 7a:** Commit and push all changes to the remote branch.
 - **Step 8:** Create PR/MR with proper `Closes #N` references. See platform sub-files for CLI commands.
 - **Step 8a:** Transition labels to `status:in-review` and sync board. See platform sub-files.
@@ -436,3 +436,5 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 > Full details: see `commands/board/pickup-modes.md`
 
 The modes file contains: auto-advance mode (`--auto`/`--unattended`), safety guardrails, error handling, and operational guardrails for board-pickup.
+
+**Concurrent invocation guardrail:** before Step 6 delegation, acquire `.hatch3r/.lock` and detect-then-warn on a conflicting active pipeline (same branch / open `.hatch3r/hatch.json` board transaction) per `rules/hatch3r-agent-orchestration.md` → Parallel Safety → Concurrent Invocation Handling. Batch-mode parallel implementers (Step 6c) are one pipeline by design; the guardrail governs a *second* concurrent top-level invocation against the same repo. Cross-task learnings consolidate at completion, never mid-pipeline.

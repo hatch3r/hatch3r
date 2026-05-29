@@ -59,6 +59,8 @@ Platform is auto-detected from your git remote during `hatch3r init`. All board 
 
 Canonical content (agents, skills, rules, commands, hooks) lives inside the bundled npm package -- adapters read from there directly, so end-user repos no longer contain a `.agents/` mirror. The only hatch3r-managed directory in your repo is `.hatch3r/`. hatch3r can also manage multiple git repos from a single workspace root -- see the [Workspace guide](https://docs.hatch3r.com/docs/guides/workspace).
 
+**Where canonical content lives:** to inspect the exact agent/rule/skill files a generated output was produced from, look inside the installed package at `node_modules/hatch3r/dist/content/` (the `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, `mcp/` subtree). A global install resolves under your npm global prefix (`npm root -g` → `hatch3r/dist/content/`). This bundled tree is read-only and is the single source of truth for canonical inputs.
+
 ## Workflow
 
 hatch3r provides a full project lifecycle, from setup to release:

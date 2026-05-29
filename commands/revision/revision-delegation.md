@@ -68,12 +68,13 @@ Each sub-agent prompt MUST include:
 5. Relevant learnings from `.hatch3r/learnings/` (if found in Step 1d).
 6. Explicit instruction: do NOT create branches, commits, or PRs.
 7. Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
-8. Revision-specific constraint: "You are fixing existing code, not implementing new features. Stay within the architecture established by the original implementation."
+8. `correlation_id` (UUID v4 generated per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID) — the sub-agent echoes it in logs, outputs, and status reports for cross-phase attribution.
+9. Revision-specific constraint: "You are fixing existing code, not implementing new features. Stay within the architecture established by the original implementation."
 
 **When Tier 2/3 research was performed (6.pre):**
 
-9. Reference conventions from `similar-implementation` output — triggers the implementer's Convention Lock step.
-10. Blast radius data from `codebase-impact` output (Tier 3) — transitive dependency trace informing which consumers and contracts the fix must preserve.
+10. Reference conventions from `similar-implementation` output — triggers the implementer's Convention Lock step.
+11. Blast radius data from `codebase-impact` output (Tier 3) — transitive dependency trace informing which consumers and contracts the fix must preserve.
 
 ---
 

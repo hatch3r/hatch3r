@@ -168,17 +168,15 @@ Default is **linear per task** (Phase 1 → 2 → 3 → 4 serially) — `Pipelin
 
 ALL three must hold: (1) **read-only or disjoint writes** (no conflict zone); (2) **deterministic aggregation** (outputs merge without orchestrator intervention — tests pass-if-all-pass, findings union); (3) **no shared mutable state** (agents that mutate `PipelineContext.state`/`featureFlags`/`metadata` serialize; parallel agents only READ).
 
-**Parallel-safe:** Phase 4 specialists; intra-Phase-1 researcher modes on a self-contained task; per-module Phase 2 fan-out on disjoint `affectedFiles` (merged post-Phase-2); Tier 2/3 elicitation researchers (outputs tagged with confidence + perspective).
+**Parallel-safe:** Phase 4 specialists; intra-Phase-1 researcher modes on a self-contained task; per-module Phase 2 fan-out on disjoint `affectedFiles` (merged post-Phase-2); Tier 2/3 elicitation researchers (outputs tagged with confidence + perspective). **NOT parallel-safe:** cross-phase execution (each phase depends on the prior's output); Phase 3 review-loop iterations (reviewer → fixer → re-reviewer serial); overlapping-file implementers (serialize or use a merge-conflict gate); Phase 4 validation re-review.
 
-**NOT parallel-safe:** cross-phase execution (each phase depends on the prior's output); Phase 3 review-loop iterations (reviewer → fixer → re-reviewer serial); overlapping-file implementers (serialize or use a merge-conflict gate); Phase 4 validation re-review.
+**Cost-Dominance Principle.** Token cost of sub-agent invocation never justifies serialization of independent work. The three safety conditions govern WHEN parallelism is safe; cost does not govern WHETHER to parallelize. When in doubt, fan out. Serialization is only valid on true dependency edges.
 
-### Cost-Dominance Principle
+**Scaling Heuristic.** Sub-agent count tracks task decomposition: N independent modules → N parallel Phase-2 implementers; M specialist gates → M parallel Phase-4 specialists; K independent research questions → K parallel researcher modes. Orchestrators emit `sub_agents_spawned: {count, rationale}` in their structured output.
 
-Token cost of sub-agent invocation never justifies serialization of independent work. The three safety conditions govern WHEN parallelism is safe; cost does not govern WHETHER to parallelize. When in doubt, fan out. Serialization is only valid on true dependency edges.
+### Concurrent Invocation Handling
 
-### Scaling Heuristic
-
-Sub-agent count tracks task decomposition: N independent modules → N parallel Phase-2 implementers; M specialist gates → M parallel Phase-4 specialists; K independent research questions → K parallel researcher modes. Orchestrators emit `sub_agents_spawned: {count, rationale}` in their structured output.
+Two top-level pipelines running at once (e.g. `hatch3r-workflow` in one shell, `hatch3r-board-pickup` in another) are bounded by the same three conditions, applied cross-pipeline (D7-SA7.5-F7.5.6): (1) **Lockfile** — before Phase 1, the orchestrator acquires `.hatch3r/.lock` (JSON: `pid`, `command`, `branch`, `correlation_id`, `started_at`); release on completion/abort; a lock older than 6h is stale and reclaimable. (2) **Detect-then-warn** — if a live lock names the same branch or an open `.hatch3r/hatch.json` board transaction, WARN and ASK (proceed on a separate branch / wait / abort); never silently co-mutate shared state. (3) **Cache-sharing** — `.hatch3r/learnings/` is read-many, write-once-at-completion with timestamp-ordered conflict resolution. Cross-task context sharing is bounded by condition 3 (no shared mutable state): learnings consolidate at pipeline completion; mid-pipeline writes are out of scope to preserve parallel-safety determinism (D7-SA7.5-F7.5.8). Each command's Guardrails cite this subsection.
 
 ## Cross-Phase Error Propagation
 

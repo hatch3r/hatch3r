@@ -14,7 +14,7 @@ import type {
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
 import { readMaturityTier } from "../manifest/hatchJson.js";
-import { BaseAdapter, output, type AdapterContext } from "./base.js";
+import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
@@ -309,7 +309,7 @@ jobs:
     // or commands. Command emission to `.github/prompts/` is gated on
     // `features.commands` (D9-H-5 removed the dead canonical `prompts/`
     // read branch), so command companions follow `features.commands`.
-    const companionMappings: Array<[string, boolean, (f: string) => string]> = [
+    const companionMappings: Array<[CompanionSubdir, boolean, (f: string) => string]> = [
       ["agents/modes", ctx.features.agents, (f) => `.github/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.github/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.github/prompts/board/${f}`],

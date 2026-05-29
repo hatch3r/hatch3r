@@ -113,6 +113,26 @@ export interface ModelFormat {
 
 export type CleanMcpEntry = Omit<McpServerEntry, "_disabled" | "_description">;
 
+/**
+ * D2-SA2.1-F4 (P5): the canonical companion-content subdirectories every
+ * adapter mirrors under its native path via {@link BaseAdapter.processCompanionSubdir}.
+ * Hoisted to a single `as const` tuple so each adapter's `companionMappings`
+ * array references these members by name — a typo (e.g. `"agents/share"`) is a
+ * compile error instead of a silent zero-output emission, and the canonical
+ * set lives in one place (D02-SA2.1 checklist: walks `agents/modes/`,
+ * `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/`).
+ */
+export const KNOWN_COMPANION_SUBDIRS = [
+  "agents/modes",
+  "agents/shared",
+  "commands/board",
+  "commands/revision",
+  "checks",
+] as const;
+
+/** Union of the canonical companion-subdir literals (see {@link KNOWN_COMPANION_SUBDIRS}). */
+export type CompanionSubdir = (typeof KNOWN_COMPANION_SUBDIRS)[number];
+
 function defaultModelFormat(model: string): ModelFormat {
   return { text: `**Recommended model:** \`${model}\`` };
 }
@@ -524,16 +544,27 @@ export abstract class BaseAdapter implements Adapter {
     ];
   }
 
-  /** Read canonical rules and format them as inline markdown sections. */
+  /**
+   * Read canonical rules and format them as inline markdown sections.
+   *
+   * D6-SA6.1-F6.1.8 (P4): no current adapter calls this helper — the 3
+   * supported adapters (claude, cursor, copilot) each emit rules via their own
+   * per-rule loop. It is retained as a BaseAdapter utility exercised by the
+   * adapter test suite (`src/__tests__/adapters/base.test.ts` uses it to probe
+   * sourceFiles provenance, AbortSignal threading, and customization). The 7
+   * single-file inline adapters that originally consumed it (gemini, aider,
+   * amp, goose, zed, antigravity, amazonq) were removed in the 1.9.0 adapter
+   * cut (CONSTITUTION §6 Decision 12); removal of the helper itself is deferred
+   * because it would require rewriting those tests.
+   */
   protected async inlineRules(ctx: AdapterContext): Promise<string[]> {
     if (!ctx.features.rules) return [];
     const lines: string[] = [];
-    // Wave B4: sort rules by precedence (critical -> high -> normal -> low,
-    // id lexicographic tie-break) before concatenation so the 7 inline
-    // adapters that pipe this helper into a single file (gemini, aider,
-    // amp, goose, zed, antigravity, amazonq) emit rule sections in a
-    // deterministic priority order. Rules without a `precedence` field fall
-    // back to "normal" rank, so legacy fixtures keep their alphabetic order.
+    // Sort rules by precedence (critical -> high -> normal -> low, id
+    // lexicographic tie-break) before concatenation so a single-file inline
+    // emission would carry rule sections in deterministic priority order.
+    // Rules without a `precedence` field fall back to "normal" rank, so
+    // legacy fixtures keep their alphabetic order.
     const rules = sortByPrecedence(
       await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "rules", ctx.userRepoRoot),
     );
@@ -554,7 +585,16 @@ export abstract class BaseAdapter implements Adapter {
     return lines;
   }
 
-  /** Read canonical agents and format them as inline markdown sections with optional model annotations. */
+  /**
+   * Read canonical agents and format them as inline markdown sections with
+   * optional model annotations.
+   *
+   * D6-SA6.1-F6.1.8 (P4): like {@link inlineRules}, no current adapter calls
+   * this helper — claude/cursor/copilot each emit agents via their own loop.
+   * Retained as a BaseAdapter utility exercised by the adapter test suite;
+   * removal is deferred because the tests in
+   * `src/__tests__/adapters/base.test.ts` use it as a provenance/abort probe.
+   */
   protected async inlineAgents(
     ctx: AdapterContext,
     formatModel?: (model: string) => ModelFormat,
@@ -779,14 +819,16 @@ export abstract class BaseAdapter implements Adapter {
    *   directory so adapters can call this helper for every subdir
    *   without each one needing to probe existence first.
    *
-   * @param canonicalSubdir POSIX-style canonical-relative subdir (e.g.
-   *   `"agents/modes"`).
+   * @param canonicalSubdir A member of {@link KNOWN_COMPANION_SUBDIRS} — the
+   *   parameter is typed to that union (D2-SA2.1-F4) so a typo in any adapter's
+   *   `companionMappings` array fails the TypeScript compile rather than
+   *   silently emitting zero outputs for the mistyped subdir.
    * @param pathFn Mapping from companion file basename (e.g. `"architecture.md"`)
    *   to the adapter-native output path.
    */
   protected async processCompanionSubdir(
     ctx: AdapterContext,
-    canonicalSubdir: string,
+    canonicalSubdir: CompanionSubdir,
     pathFn: (filename: string) => string,
   ): Promise<AdapterOutput[]> {
     const fullDir = join(ctx.canonicalRoot, canonicalSubdir);
@@ -1000,7 +1042,7 @@ export abstract class BaseAdapter implements Adapter {
    *
    * Idempotent and a no-op when no token appears in the body. Called
    * after {@link substituteAskUserMarker} on every canonical body the
-   * BaseAdapter helpers inline/emit so all 15 adapters get parity.
+   * BaseAdapter helpers inline/emit so all 3 supported adapters get parity.
    *
    * See src/pipeline/repoSubstitution.ts for the token list and the
    * fallback / multi-value rendering contract.

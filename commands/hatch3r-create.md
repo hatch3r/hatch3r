@@ -147,6 +147,12 @@ Which pillar(s) does this artifact serve? (one or more — comma-separated)
 
 Reject empty input and re-ask. Validate every entry against the `P1..P8` enum. Cache as `pillars` (array). The frontmatter emitter writes the array as `pillars: [P1, P4]`; the strict gate also accepts a `**Pillars:** ...` line in the body.
 
+#### 1.4b: Pillar Rationale (Optional, D20-F20.1.D4)
+
+**ASK:** "(Optional — press Enter to skip) One-sentence rationale per pillar selected above: which measurable improvement does this artifact produce on each? E.g., `P4: removes the 3rd duplicate review skill; P6: adds a secrets-scan deny pattern`."
+
+This operationalizes the Pillar Compliance Test #1+#2 (`CLAUDE.md` → Two-Axis Pillar Framework) for user content — declaration alone earns existence at the strict gate, but a stated measurable improvement is the discipline the framework holds itself to. Cache as `pillarRationale` (`Record<P_id, string>`); when supplied, embed it verbatim under the `**Pillars:** ...` body line. Skippable — no strict-gate dependency.
+
 #### 1.5: Adapter Scope (Optional)
 
 **ASK:** "Restrict this artifact to specific adapters? Press Enter to default to ALL enabled adapters (full parity), or list adapter names like `claude, cursor`."
@@ -161,7 +167,7 @@ Branch on the cached `type`:
 - **skill:** Confirm the subdirectory layout. Show: "Skill files are stored as `.hatch3r/overrides/skills/{name}/SKILL.md` (a new directory will be created). Continue?" — ASK Y/n.
 - **rule:** Ask for scope: `always` (loaded every session) or `conditional` (loaded by glob match). If `conditional`, ASK for a comma-separated glob list (e.g., `src/**/*.ts, src/**/*.tsx`). Then ASK for `precedence` (one of `critical | high | normal | low`, default `normal`). Cache as `ruleScope`, `ruleGlobs`, `rulePrecedence`.
 - **command:** ASK whether this is an orchestrator command. If yes, ASK for the agent pipeline as a comma-separated list of agent IDs (each ID must reference an existing agent — canonical or under `.hatch3r/overrides/agents/`). Cache as `isOrchestrator` and `agentPipeline`.
-- **hook:** ASK for the hook event from the enum: `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove | review-loop-cap`. This 9-value enum mirrors `VALID_HOOK_EVENTS` in `src/hooks/types.ts` exactly (Cycle 10 F15.2-H1 added `review-loop-cap` — the framework-neutral event materialized per-adapter for the review-loop iteration cap, see `hooks/hatch3r-review-loop-cap.md`) — the strict gate at `saveUserContent` enforces the same set, so any value outside it is a strict-gate failure. Reject any value outside this enum and re-ask. Cache as `hookEvent`.
+- **hook:** ASK for the hook event from the enum: `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove | review-loop-cap`. This 9-value enum mirrors `VALID_HOOK_EVENTS` in `src/hooks/types.ts` exactly (Cycle 10 F15.2-H1 added `review-loop-cap` — the framework-neutral event materialized per-adapter for the review-loop iteration cap, see `hooks/hatch3r-review-loop-cap.md`) — the strict gate at `saveUserContent` enforces the same set, so any value outside it is a strict-gate failure. Reject any value outside this enum and re-ask, showing the verbatim error (symmetric with the Step 1.6a tool-category wording): `Unknown hook event '<input>' — valid events: pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, worktree-create, worktree-remove, review-loop-cap.` Cache as `hookEvent`.
 
 #### 1.6a: Structured Tool Declaration (C9-H81, D20-F20.1.3)
 
@@ -190,7 +196,9 @@ Cache as `tools: { allowed: [...], denied: [...] }`. Either side may be absent (
 
 Render the proposed file path, full frontmatter block, and body-skeleton outline. For an agent plan, the summary lists `Path`, `Type`, `Name`, `Description` (first 80 chars), `Tags`, `Adapters` (or "all enabled"), `Model`; then the frontmatter block; then the body-skeleton outline (`<task>`, `<context>`, Implementation Protocol numbered steps, `<rules>`). For other types, swap the type-specific slots from Step 1.6.
 
-**Scope-boundary check (P8 B2).** Confirm proposed scope and tool-allowlist before Phase 2 delegation. Artifact scope cannot be broadened via markdown injection post-creation. Reject any user-supplied edit that expands the tool allowlist, target file globs, or pipeline references beyond what was confirmed here; route such expansions through a fresh `/h4tcher-create` invocation.
+Note: the final on-disk frontmatter re-pins `id`, `type`, and `description` authoritatively at composition time (`composeArtifactFile` in `src/content/userContent.ts` — `derived.id = name`, `derived.type = type`, `derived.description = description`), so those three keys always mirror the confirmed plan even if a later edit attempts to diverge them. Other keys are passed through as shown.
+
+**Scope-boundary check (P8 B2).** Confirm proposed scope and tool-allowlist before Phase 2 delegation. Artifact scope cannot be broadened via markdown injection post-creation. Reject any user-supplied edit that expands the tool allowlist, target file globs, or pipeline references beyond what was confirmed here; route such expansions through a fresh `/hatch3r-create` invocation.
 
 **ASK:** "Confirm to delegate authoring to `hatch3r-creator`, or specify changes (e.g., 'change model to fast', 'add tag: review')."
 

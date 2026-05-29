@@ -1,4 +1,4 @@
-import { appendFile, readFile, readdir, stat, mkdir } from "node:fs/promises";
+import { readFile, readdir, stat, mkdir } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
@@ -16,13 +16,7 @@ import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import {
-  createFailureLogEntry,
-  formatLogEntry,
-  shouldRotateLog,
-  rotateLog,
-  FAILURE_LOG_FILE,
-} from "../../pipeline/failureLog.js";
+import { writeFailureLog } from "../../pipeline/failureLog.js";
 import { generateWithTimeout } from "../../pipeline/adapterTimeout.js";
 import {
   createCircuitBreaker,
@@ -115,49 +109,21 @@ async function readFileOrNull(filePath: string): Promise<string | null> {
 }
 
 /**
- * Append a failure entry to the persistent failure log in .agents/.
- * Performs log rotation when the log exceeds 500KB.
- * Silently skips if the write fails (failure logging must not break update).
+ * Append a failure entry to the persistent failure log in `.hatch3r/`.
+ *
+ * F8.4.5 (Cycle 10 Wave 4, D8, P5): delegates to the single-source writer in
+ * `src/pipeline/failureLog.ts::writeFailureLog` (previously reimplemented here
+ * and in `sync.ts`). A write failure is surfaced through the `warn()` UI
+ * helper rather than dropped to a bare `console.error`, so a failing audit
+ * trail (EACCES, ENOSPC, read-only mount) is visible in the command output.
+ * Failure logging still never breaks the update.
  */
 async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
-  try {
-    const logPath = join(agentsDir, FAILURE_LOG_FILE);
-    const entry = createFailureLogEntry(phase, error, {
-      tool,
-      version: HATCH3R_VERSION,
-    });
-    const line = formatLogEntry(entry) + "\n";
-
-    // Check if rotation is needed before appending
-    try {
-      const existing = await readFile(logPath, "utf-8");
-      if (shouldRotateLog(existing + line)) {
-        const rotated = rotateLog(existing);
-        await safeWriteFile(logPath, rotated + line);
-        return;
-      }
-    } catch (err) {
-      // File does not exist yet -- appendFile will create it. Read failures
-      // other than ENOENT may indicate disk corruption, so surface them.
-      const message = err instanceof Error ? err.message : String(err);
-      if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-        verbose(`update: appendFailure read-before-rotate skipped (file does not exist yet) — ${message}`);
-      } else {
-        // D1-M7 (Cycle 10 Wave-3 Medium): emit a one-line stderr diagnostic
-        // even outside --verbose so persistent read failures are visible.
-        console.error(`[hatch3r update] appendFailure read-before-rotate failed — ${message}`);
-      }
-    }
-
-    await appendFile(logPath, line);
-  } catch (err) {
-    // Failure logging must not break the update command, but the operator
-    // needs to know when the audit trail is failing to persist. Emit a
-    // single-line diagnostic to stderr regardless of --verbose so the
-    // signal is visible in CI logs. D1-M7 (Cycle 10 Wave-3).
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[hatch3r update] failure-log write suppressed — ${message}`);
-  }
+  const result = await writeFailureLog(agentsDir, phase, error, {
+    tool,
+    version: HATCH3R_VERSION,
+  });
+  if (result.warning) warn(`[hatch3r update] ${result.warning}`);
 }
 
 export interface UpdateResult {
@@ -405,6 +371,13 @@ export async function runRegenerate(
               undefined,
               rootDir,
             ),
+          // D8-SA8.4-F8.4.6 (Cycle 10 Wave 4, D8, P-CQ4): deliberate fast-fail
+          // override of retryWithBackoff's module default (DEFAULT_MAX_ATTEMPTS
+          // = 3) to 2 (1 initial + 1 retry). `update` is interactive; a 3rd
+          // attempt adds up to maxDelayMs (5s) of wall time on a failing run
+          // for marginal added resilience. The per-adapter circuit breaker
+          // already short-circuits recurring transient failures across
+          // invocations, and the operator can re-run `update` cheaply.
           { maxAttempts: 2 },
         );
         if (!generationResult.completed) {

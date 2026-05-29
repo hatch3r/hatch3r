@@ -4,7 +4,7 @@
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapInManagedBlock } from "../merge/managedBlocks.js";
-import { BaseAdapter, output, type AdapterContext } from "./base.js";
+import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
@@ -712,7 +712,7 @@ export class ClaudeAdapter extends BaseAdapter {
     // artifact it supports — disabling a feature also disables its
     // companion subtree. `checks/` is referenced from both agents
     // (reviewer) and commands (benchmark), so either gate keeps it.
-    const companionMappings: Array<[string, boolean, (f: string) => string]> = [
+    const companionMappings: Array<[CompanionSubdir, boolean, (f: string) => string]> = [
       ["agents/modes", ctx.features.agents, (f) => `.claude/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.claude/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.claude/commands/board/${f}`],

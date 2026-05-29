@@ -60,6 +60,7 @@ The implementer sub-agent prompt MUST include:
 - All `scope: always` rule directives from `rules/` — subagents do not inherit rules automatically.
 - Relevant learnings from `.hatch3r/learnings/` (from Step 6.pre).
 - Explicit instruction: do NOT create branches, commits, or PRs.
+- `correlation_id` (UUID v4 generated per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID; epic sub-issues get individual ids, batch tasks share one id with a sub-task index).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Await the implementer sub-agent. Collect its structured result (files changed, tests written, issues encountered).
@@ -100,6 +101,7 @@ Each specialist sub-agent prompt MUST include:
 - All `scope: always` rule directives from `rules/` (subagents do not inherit rules automatically).
 - The diff or file changes to review.
 - The issue's acceptance criteria.
+- `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Await all specialist sub-agents. Apply their feedback (fixes, additional tests, documentation updates) before proceeding to Step 7.

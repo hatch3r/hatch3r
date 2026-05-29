@@ -131,3 +131,5 @@ By signing off, you certify that your contribution is under the terms of the [DC
 ## Code of conduct
 
 Be respectful and constructive in all interactions. We aim to maintain a welcoming environment for everyone.
+
+See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for the full Contributor Covenant, the enforcement guidelines, and the escalation ladder. Report violations to conduct@hatch3r.dev.

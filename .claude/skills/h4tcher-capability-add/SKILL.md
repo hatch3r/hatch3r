@@ -52,8 +52,8 @@ Record tier in the Step 7 summary.
    cat governance/inventory.json
    grep -rE "<core-keyword>" agents/ skills/ rules/ commands/ hooks/ checks/ prompts/ github-agents/ src/adapters/ src/content/
    ```
-5. Score functional overlap against existing artifacts of the same type per the D16.3 cross-artifact overlap check (`governance/audit/domains/D16-compound-system.md:56`).
-6. **Block on >70% overlap.** Surface as a refactor recommendation per the D16.3 add-vs-remove bias check (`governance/audit/domains/D16-compound-system.md:60`) — recommend invoking `/h4tcher-capability-refactor` (merge path) instead. Do not proceed.
+5. Score functional overlap against existing artifacts of the same type per the D16.3 cross-artifact overlap check (`governance/audit/domains/D16-compound-system.md` §16.3 "Artifact Inventory & Redundancy").
+6. **Block on >70% overlap.** Surface as a refactor recommendation per the D16.3 add-vs-remove bias check (`governance/audit/domains/D16-compound-system.md` §16.3 "Removal candidate threshold") — recommend invoking `/h4tcher-capability-refactor` (merge path) instead. Do not proceed.
 
 ## Step 3: Web Research
 

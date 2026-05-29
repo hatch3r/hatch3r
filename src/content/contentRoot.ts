@@ -51,3 +51,19 @@ export function resolveBundledContentRoot(): string {
     "Reinstall hatch3r (`npm i -g hatch3r`) or run `npm run build` in the source checkout to stage the bundled content under `dist/content/`.",
   );
 }
+
+/**
+ * Reset the module-level resolution cache. Test-only (Node `__`-prefix
+ * convention marks a non-production export).
+ *
+ * 2.2-F8 (Cycle 10 Wave 4, D2, P2): {@link resolveBundledContentRoot} caches
+ * the first successful resolution for the process lifetime. A test that mocks
+ * `existsSync` or changes the layout AFTER the first resolution would
+ * otherwise observe the stale cached value (the resolver short-circuits at
+ * `if (cached !== null) return cached`). Call this in a `beforeEach` hook so
+ * each resolution-branch test starts from a clean cache, decoupling test
+ * correctness from vitest's `isolate` default.
+ */
+export function __resetCacheForTests(): void {
+  cached = null;
+}

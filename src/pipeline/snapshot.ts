@@ -33,7 +33,7 @@
  */
 
 import { join, dirname, relative, resolve, isAbsolute, sep } from "node:path";
-import { access, mkdir, readFile, readdir, stat, unlink, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rmdir, stat, unlink, writeFile } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { HATCH3R_DIR, HatchError } from "../types.js";
@@ -136,6 +136,27 @@ export const SNAPSHOT_FILES_DIR = "files";
 /** Schema version for `meta.json`. Bump on breaking field changes. */
 export const SNAPSHOT_SCHEMA_VERSION = 1 as const;
 
+/**
+ * Retention cap on the number of snapshot sessions kept under
+ * `.hatch3r/snapshots/`. When a fresh `createSnapshot` pushes the directory
+ * past this count, the oldest sessions (by `meta.timestamp`) are pruned so a
+ * long-lived repo cannot accumulate unbounded rollback state (D6-SA6.4-F5).
+ * Mirrors the `MAX_LEARNING_FILE_COUNT` ceiling in
+ * `src/content/learningsValidation.ts` so both durable on-disk stores share a
+ * single bounding discipline.
+ */
+export const MAX_SNAPSHOT_COUNT = 50;
+
+/**
+ * Retention cap on the total bytes occupied by snapshot session directories
+ * under `.hatch3r/snapshots/`. When the aggregate size exceeds this ceiling
+ * after a capture, the oldest sessions are pruned until the total falls back
+ * under it (D6-SA6.4-F5). 100 MB bounds the worst case (large repeated mutated
+ * payloads across many sessions) without truncating a realistic recent-history
+ * window of 1–50 KB-per-file captures.
+ */
+export const MAX_SNAPSHOT_BYTES = 100_000_000;
+
 // ── Helpers ──────────────────────────────────────────────────────
 
 /**
@@ -216,6 +237,155 @@ async function listSessionDirs(projectRoot: string = process.cwd()): Promise<str
     throw err;
   }
   return entries.filter((e) => e.isDirectory()).map((e) => e.name);
+}
+
+/**
+ * Recursively sum the byte size of every regular file under `dir`. Returns 0
+ * when the directory is absent. Used by {@link pruneSnapshots} to enforce the
+ * {@link MAX_SNAPSHOT_BYTES} ceiling. Symlinks are not followed — `stat` on a
+ * symlink target is intentional only for regular file entries discovered via
+ * `withFileTypes`, so a malicious symlink cannot inflate the count or escape
+ * the snapshot root.
+ */
+async function dirSizeBytes(dir: string): Promise<number> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return 0;
+    throw err;
+  }
+  let total = 0;
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await dirSizeBytes(full);
+    } else if (entry.isFile()) {
+      try {
+        total += (await stat(full)).size;
+      } catch (err) {
+        // A file vanishing mid-walk (concurrent prune / external cleanup) is
+        // benign for a size estimate — skip it rather than abort the sweep.
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT") throw err;
+      }
+    }
+  }
+  return total;
+}
+
+/** Recursively remove a session directory and everything under it. */
+async function removeSessionDir(dir: string): Promise<void> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return;
+    throw err;
+  }
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      await removeSessionDir(full);
+    } else {
+      await unlink(full).catch((err: NodeJS.ErrnoException) => {
+        if (err.code !== "ENOENT") throw err;
+      });
+    }
+  }
+  await rmdir(dir).catch((err: NodeJS.ErrnoException) => {
+    if (err.code !== "ENOENT") throw err;
+  });
+}
+
+/**
+ * Enforce the snapshot-store retention caps ({@link MAX_SNAPSHOT_COUNT} and
+ * {@link MAX_SNAPSHOT_BYTES}) by deleting the oldest sessions first (D6-SA6.4-F5).
+ *
+ * Ordering is by `meta.timestamp` ascending (oldest pruned first); sessions
+ * with an unparseable `meta.json` sort oldest so a corrupt directory is
+ * reclaimed ahead of a valid recent one. The most-recent session is never
+ * pruned even if it alone exceeds the byte ceiling — dropping the snapshot a
+ * caller just captured would silently void the rollback it was promised. Each
+ * pruned session is routed through `onPrune` (Silent Failure Contract) so the
+ * caller can surface "N old snapshot(s) pruned" without re-walking the root.
+ *
+ * Pruning never throws on a single-session removal failure; the error is
+ * routed to `onPrune` and the sweep continues, because a snapshot-capture
+ * success must not be downgraded to a failure by a janitorial side-effect.
+ */
+async function pruneSnapshots(
+  projectRoot: string,
+  onPrune?: (message: string) => void,
+): Promise<void> {
+  const sessions = await listSessionDirs(projectRoot);
+  if (sessions.length === 0) return;
+
+  interface Aged {
+    sessionId: string;
+    dir: string;
+    timestamp: string;
+    bytes: number;
+  }
+  const aged: Aged[] = [];
+  for (const sessionId of sessions) {
+    const dir = sessionDir(sessionId, projectRoot);
+    let timestamp = ""; // empty sorts oldest → corrupt sessions pruned first
+    try {
+      const raw = await readFile(join(dir, SNAPSHOT_META_FILE), "utf-8");
+      const parsed = JSON.parse(raw) as SnapshotMeta;
+      if (typeof parsed.timestamp === "string") timestamp = parsed.timestamp;
+    } catch (metaErr) {
+      // Unparseable / missing meta — leave timestamp empty so it prunes first.
+      // Surface the corrupt session per the Silent Failure Contract
+      // (CONSTITUTION.md §2 P5) via the in-scope onPrune channel rather than
+      // swallowing it; pruning continues regardless (best-effort cleanup).
+      if (onPrune) {
+        onPrune(
+          `Snapshot session ${sessionId} has unreadable meta.json ` +
+            `(${metaErr instanceof Error ? metaErr.message : String(metaErr)}); ` +
+            `sorting it oldest for prune-first reclaim.`,
+        );
+      }
+    }
+    aged.push({ sessionId, dir, timestamp, bytes: await dirSizeBytes(dir) });
+  }
+
+  // Oldest first. localeCompare matches listSnapshots' UTC ISO-8601 ordering.
+  aged.sort((a, b) => a.timestamp.localeCompare(b.timestamp));
+
+  let totalBytes = aged.reduce((sum, s) => sum + s.bytes, 0);
+  let count = aged.length;
+
+  const prune = async (entry: Aged, reason: string): Promise<void> => {
+    try {
+      await removeSessionDir(entry.dir);
+      count--;
+      totalBytes -= entry.bytes;
+      const msg =
+        `Pruned old snapshot session ${entry.sessionId} (${reason}). ` +
+        `\`hatch3r rollback --session=${entry.sessionId}\` is no longer available.`;
+      if (onPrune) onPrune(msg);
+    } catch (err) {
+      const msg =
+        `Failed to prune snapshot session ${entry.sessionId}: ` +
+        `${err instanceof Error ? err.message : String(err)}.`;
+      if (onPrune) onPrune(msg);
+    }
+  };
+
+  // Walk oldest→newest, but never prune the single most-recent session (the
+  // last element after the ascending sort) so a just-captured snapshot stays.
+  for (let i = 0; i < aged.length - 1; i++) {
+    if (count <= MAX_SNAPSHOT_COUNT && totalBytes <= MAX_SNAPSHOT_BYTES) break;
+    const reason =
+      count > MAX_SNAPSHOT_COUNT
+        ? `count cap ${MAX_SNAPSHOT_COUNT}`
+        : `size cap ${MAX_SNAPSHOT_BYTES} bytes`;
+    await prune(aged[i], reason);
+  }
 }
 
 // ── Public API ───────────────────────────────────────────────────
@@ -355,6 +525,12 @@ export async function createSnapshot(
   };
   await atomicWriteFile(join(dir, SNAPSHOT_META_FILE), JSON.stringify(meta, null, 2) + "\n");
 
+  // Enforce the retention caps after the capture lands so the store cannot
+  // grow without bound across sessions (D6-SA6.4-F5). Prune diagnostics route
+  // through the same warning channel as collision diagnostics; a prune failure
+  // never downgrades the capture's success.
+  await pruneSnapshots(projectRoot, emitWarning);
+
   return { snapshotPath: dir, count: unionAbs.length, warnings };
 }
 
@@ -367,6 +543,16 @@ export async function createSnapshot(
  *
  * The list is sorted by `timestamp` descending (newest first) so the
  * CLI can offer the most recent session as the default rollback target.
+ *
+ * **Sort assumption (D1-SA1.5-F11):** the ordering is a lexicographic
+ * `localeCompare` on the raw `timestamp` string. This is correct only because
+ * every `meta.timestamp` is emitted by `new Date().toISOString()`, which is
+ * always UTC (`Z`-suffixed) ISO-8601 at fixed millisecond precision — a format
+ * whose lexicographic order equals its chronological order. A future
+ * `schemaVersion: 2` that changes the timestamp source (local offsets,
+ * variable fractional-second precision, or a non-ISO format) MUST switch this
+ * comparison to `Date.parse(b.timestamp) - Date.parse(a.timestamp)`, because
+ * string-sort would no longer track chronology.
  */
 export async function listSnapshots(
   options: { projectRoot?: string } = {},

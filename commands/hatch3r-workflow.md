@@ -294,6 +294,7 @@ The implementer sub-agent prompt MUST include:
 - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
 - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3) — explicit decisions on ambiguities.
 - **Blast radius data** from enhanced `codebase-impact` (Tier 3) — transitive dependency trace and API consumer map.
+- `correlation_id` (UUID v4 generated per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID) — the sub-agent echoes it in logs, outputs, and status reports for cross-phase attribution.
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Await the implementer sub-agent. Collect its structured result.
@@ -331,7 +332,9 @@ Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "general
    - **0 Critical + 0 Warning AND reviewer confidence == low:** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
 3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings.
 4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.
-5. **Repeat** steps 2-4 for a maximum of **3 iterations**. If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort).
+5. **Repeat** steps 2-4 for a maximum of **3 iterations** (code-class cap). If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort).
+
+> **Iteration-cap rationale (D10-SA10.7-F10.7.7).** Code reviews diverge faster than spec reviews — a code finding can spawn a regression the next iteration must catch — so the code-class loop here caps at 3. The spec-class loop in `hatch3r-board-fill` Step 7.9d caps at 4 because issue-spec reviews converge more slowly and deterministically (text refinement, no runtime regressions). Both are bounded below `DEFAULT_MAX_REVIEW_ITERATIONS` (4) in `src/pipeline/reviewLoop.ts`, which keeps the oscillation detector reachable in default config. Expected convergence is 1–2 iterations; the cap is the divergence backstop, not the target.
 
 After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings. The reviewer sub-agent output MUST include a top-level `confidence: high | medium | low` field (not just per-finding) so step 2 can evaluate it deterministically.
 
@@ -340,6 +343,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 - All `scope: always` rule directives from `rules/`.
 - The diff or file changes to review/fix.
 - The task's acceptance criteria.
+- `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 #### 4b. Final Quality (Parallel Specialists)
@@ -368,6 +372,7 @@ Each specialist sub-agent prompt MUST include:
 - All `scope: always` rule directives from `rules/`.
 - The diff or file changes to review.
 - The task's acceptance criteria.
+- `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Await all specialist sub-agents. Apply their feedback (fixes, additional tests, documentation updates).
@@ -375,6 +380,14 @@ Await all specialist sub-agents. Apply their feedback (fixes, additional tests, 
 #### 4b.1. Re-Review After Phase 4 Fixes
 
 If any Phase 4 specialist produced fixes (not just findings), run a lightweight re-review to catch regressions introduced by the specialist changes. Spawn `hatch3r-reviewer` with a focused prompt covering only the files modified by Phase 4 specialists. If the re-review finds Critical findings, spawn `hatch3r-fixer` and re-review once more (max 1 additional iteration). This prevents Phase 4 fixes from bypassing the review gate.
+
+#### 4b.2. Post-Write Duplication Scan (Decision 21)
+
+Before clearing the review gate, run a duplication scan on the working-tree diff to catch near-duplicate code that parallel Phase-3 implementers (one per module) can each pass their own review independently (D13-SA13.2-F7). This operationalizes the CONSTITUTION §6 Decision 21 post-write duplication scan at runtime, not only at audit time.
+
+1. Run `npx jscpd --min-lines 40 --threshold 80 --reporters json --silent <changed-paths>` (or the project's configured duplication tool). The gate fires when any cross-file clone block is **≥40 lines OR ≥80% byte-similar**.
+2. **If a clone is detected:** route the duplication report back to `hatch3r-fixer` to extract the shared logic (DRY refactor), then re-run 4b.1 re-review on the refactored files. Max 1 duplication-fix iteration; if it persists, surface to the user with the clone locations.
+3. **If no clone is detected:** proceed to 4c. Skip silently when the diff touches a single file (no cross-file clone possible).
 
 #### 4c. Verify Against Acceptance Criteria
 
@@ -485,7 +498,7 @@ These checkpoints are NEVER skipped, even in auto mode:
 - **Breaking changes**: API contract changes, public interface modifications always require confirmation
 - **Open questions**: If Phase 1 analysis surfaces unresolvable ambiguity, stop and ASK regardless of mode
 - **Quality gate failures**: If lint/typecheck/test fail after 2 fix attempts, stop and ASK
-- **Cost thresholds**: Stop if estimated token cost exceeds configured limit (default: $10 per task)
+- **Cost thresholds**: When the estimated cost for the selected tier exceeds the configured limit (default: $10 per task), do NOT abort silently. Call `proposeAlternativeTier(currentTier, currentEstimate, budget)` from `src/pipeline/costEstimator.ts` and surface a 3-option ASK: **(a) downgrade** to the suggested lower tier (saves the reported delta — drops the deep researcher modes / Phase-4 specialist depth that the lower tier omits), **(b) raise the budget** and proceed at the current tier, **(c) abort**. Default-if-no-response: abort (preserves the fail-closed contract). When `proposeAlternativeTier` returns `null` (current tier is already the cheapest, or no lower tier fits), present only raise-budget / abort.
 
 ### Activation
 
@@ -611,4 +624,5 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **All phases produce structured output** that can feed into other hatch3r commands.
 - **Respect the project's tooling hierarchy** for knowledge augmentation (Context7 MCP for library docs, web research for current events).
 - **Never force a mode** — user always has final say at every ASK checkpoint.
+- **Concurrent invocation:** acquire `.hatch3r/.lock` before Phase 1 and detect-then-warn on a conflicting active pipeline (same branch / open `.hatch3r/hatch.json` transaction) per `rules/hatch3r-agent-orchestration.md` → Parallel Safety → Concurrent Invocation Handling. Cross-task learnings consolidate at completion, never mid-pipeline.
 - **This command composes existing hatch3r agents and skills** — it does not replace them.

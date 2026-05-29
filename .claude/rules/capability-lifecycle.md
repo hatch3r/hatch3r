@@ -29,7 +29,7 @@ When in doubt, run `/h4tcher-capability-discover` first — it is the only read-
 
 ## Removal threshold
 
-Source of truth: `governance/audit/domains/D16-compound-system.md:59` (SA 16.3 removal candidate threshold). An artifact qualifies for removal only when ALL three hold:
+Source of truth: `governance/audit/domains/D16-compound-system.md` §16.3 "Removal candidate threshold" (SA 16.3 Artifact Inventory & Redundancy). An artifact qualifies for removal only when ALL three hold:
 
 1. Zero unique value beyond an existing artifact
 2. ≤1 cross-reference from other artifacts

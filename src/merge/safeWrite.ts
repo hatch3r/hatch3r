@@ -420,6 +420,94 @@ export function formatOrphanTmpSweepDiagnostic(
 }
 
 /**
+ * Predict the {@link MergeResult.action} a {@link safeWriteFile} call would
+ * return for the given inputs — WITHOUT any disk I/O, throwing, deny-pattern
+ * scan, or auto-repair side effect. Pure: depends only on its arguments.
+ *
+ * D11-SA11.2-F9 (Cycle 10 Wave 4, D11, P1): `hatch3r sync --dry-run` recorded
+ * a generic `"dry-run"` row per output and never exercised the marker-merge
+ * decision, so a file whose `HATCH3R:BEGIN/END` markers were stripped showed
+ * `~ modified` in the dry-run summary while a live sync then reported a
+ * different disposition. This predictor lets the dry-run branch report the
+ * same action vocabulary the live write produces, closing the
+ * preview-vs-reality gap (Terraform `plan`-fidelity analogue).
+ *
+ * Decision logic mirrors {@link safeWriteFile} branch-for-branch:
+ * - `existingContent === null` (file absent) → `created`.
+ * - With `managedContent`:
+ *   - existing has no managed block + `appendIfNoBlock` → would prepend; if the
+ *     prepended bytes equal the existing file → `unchanged`, else `updated`.
+ *   - existing has no managed block + no `appendIfNoBlock` → `skipped`
+ *     (the would-be-skip case this finding is about).
+ *   - existing has a managed block → would merge; if the merged bytes equal the
+ *     existing file → `unchanged`, else `updated`. A corrupted block (the live
+ *     path auto-repairs) is reported as `updated`.
+ * - Without `managedContent`:
+ *   - hatch3r-managed filename OR `force` → `unchanged` when bytes match, else
+ *     `updated`.
+ *   - otherwise → `skipped`.
+ *
+ * The deny-pattern scan is intentionally NOT run here: a deny hit aborts the
+ * live write (throws) rather than producing an action, and the dry-run preview
+ * reports the disposition category, not the security verdict. `skipIfUnchanged`
+ * defaults to `true` to match {@link safeWriteFile}.
+ */
+export function predictMergeAction(
+  existingContent: string | null,
+  content: string,
+  filePath: string,
+  options: {
+    managedContent?: string;
+    appendIfNoBlock?: boolean;
+    force?: boolean;
+    skipIfUnchanged?: boolean;
+  } = {},
+): MergeResult["action"] {
+  const skipIfUnchanged = options.skipIfUnchanged ?? true;
+
+  if (existingContent === null) return "created";
+
+  if (options.managedContent) {
+    if (!hasManagedBlock(existingContent)) {
+      if (options.appendIfNoBlock) {
+        // Mirror the G6 trailing-\n parity the live appendIfNoBlock branch
+        // applies so an unchanged prediction matches an unchanged write.
+        let prepended = [content.trim(), "", existingContent.trimStart()].join("\n");
+        if (!prepended.endsWith("\n")) prepended += "\n";
+        if (skipIfUnchanged && prepended === existingContent) return "unchanged";
+        return "updated";
+      }
+      return "skipped";
+    }
+    let merged: string;
+    try {
+      merged = insertManagedBlock(existingContent, options.managedContent, filePath);
+    } catch (mergeErr) {
+      // Corrupted/duplicate markers: the live path auto-repairs by rewriting,
+      // i.e. it returns "updated". Predict the same — but surface the corrupt
+      // block per the Silent Failure Contract (CONSTITUTION.md §2 P5) using the
+      // file's standard non-fatal IO diagnostic channel, so a dry-run preview
+      // names the file the live sync would auto-repair rather than swallowing it.
+      console.error(
+        `hatch3r: managed-block merge prediction for ${filePath} hit a corrupted/duplicate ` +
+          `marker (${mergeErr instanceof Error ? mergeErr.message : String(mergeErr)}); ` +
+          `predicting 'updated' — the live write auto-repairs the block.`,
+      );
+      return "updated";
+    }
+    if (skipIfUnchanged && merged === existingContent) return "unchanged";
+    return "updated";
+  }
+
+  const fileName = basename(filePath) ?? "";
+  if (isManagedFileName(fileName) || options.force) {
+    if (skipIfUnchanged && content === existingContent) return "unchanged";
+    return "updated";
+  }
+  return "skipped";
+}
+
+/**
  * Safely write or merge a file, preserving user content outside managed blocks.
  *
  * **Concurrency:** Delegates atomic writes to {@link atomicWriteFile}. By

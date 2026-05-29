@@ -162,4 +162,4 @@ Next action (run manually):
 - Anti-slop wordlist: `.claude/rules/anti-slop-enforcement.md`
 - Pillar Compliance Test: `.claude/rules/pillar-compliance.md`
 - Commit conventions + DCO: `.claude/rules/commit-conventions.md`
-- Companion skill: `.claude/skills/release-prep/SKILL.md` (post-merge release cuts)
+- Companion skill: `.claude/skills/h4tcher-release-prep/SKILL.md` (post-merge release cuts)

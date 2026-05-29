@@ -1,4 +1,4 @@
-import { access, mkdir } from "node:fs/promises";
+import { access, mkdir, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import chalk from "chalk";
@@ -438,7 +438,12 @@ export async function runInit(options: RunInitOptions): Promise<void> {
       `runInit already in progress for ${rootDir}`,
       undefined,
       "CONFIG_ERROR",
-      "Wait for the in-flight init to finish, or check for a stale process holding the directory.",
+      // D1-SA1.1-F12: the guard is in-process only (a module-scope Set cleared
+      // in `finally`), so the only way to reach it is a concurrent/reentrant
+      // `runInit` call in the same process — not a filesystem lock or a stale
+      // OS process. Describe that condition + a bug-report path instead of
+      // implying a stale lockfile the implementation does not create.
+      "Wait for the concurrent runInit call in this process to finish. If you hit this consistently, the hatch3r process may be stuck — file a bug at https://github.com/hatch3r-dev/hatch3r/issues with steps to reproduce.",
     );
   }
   RUNNING_INITS.add(rootDir);
@@ -662,11 +667,23 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     }
     if (adapterFailures.length === tools.length) {
       s3.fail(step(3, totalSteps, "All adapters failed"));
+      // D1-SA1.1-F08: tailor the recovery hint to the failure class instead of
+      // always pointing at `hatch3r validate` (which only surfaces upstream
+      // content errors, never I/O faults). An I/O-class failure (ENOSPC /
+      // EACCES / EPERM / ENOENT / EROFS) is a filesystem problem `validate`
+      // cannot diagnose, so steer the user to permissions/free-space checks.
+      // Anything else keeps the content-oriented `validate` hint.
+      const ioFailure = adapterFailures.some((f) =>
+        /\b(ENOSPC|EACCES|EPERM|ENOENT|EROFS)\b/.test(f.error),
+      );
+      const recoveryHint = ioFailure
+        ? `Filesystem error writing adapter output. Check write permissions on \`${rootDir}\` and free disk space (\`df -h\`), then re-run \`hatch3r init\`.`
+        : "Re-run with `--verbose` to see per-adapter detail, then check `npx hatch3r validate` for upstream content errors.";
       throw new HatchError(
         "All adapters failed",
         undefined,
         "ADAPTER_ERROR",
-        "Re-run with `--verbose` to see per-adapter detail, then check `npx hatch3r validate` for upstream content errors.",
+        recoveryHint,
       );
     }
   }
@@ -879,8 +896,21 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // payload is a stable JSON schema for CI consumers.
   if (isJson()) {
     const isGreenfieldForJson = isGreenfield(repoInfo);
+    // D10-SA10.6-F10.6-9: surface a non-fatal degraded state in the machine
+    // payload so a `--yes`/CI caller can grep `status` instead of only the
+    // human stderr `warn()` stream. Orchestration-dependency warnings (a
+    // required agent missing from the selection) and partial adapter failures
+    // both escalate `status` from "ok" to "warning"; the install still
+    // completed (a total adapter failure throws earlier), so "warning" — not a
+    // non-zero exit — is the correct signal. `validateOrchestrationDependencies`
+    // is re-run here (cheap, pure) so every entry path (single-repo, workspace,
+    // interactive) reflects the same gate without threading the warnings in.
+    const jsonOrchWarnings = validateOrchestrationDependencies(contentSelection);
+    const jsonStatus: "ok" | "warning" =
+      jsonOrchWarnings.length > 0 || adapterFailures.length > 0 ? "warning" : "ok";
     const payload = {
-      status: "ok" as const,
+      status: jsonStatus,
+      orchestrationWarnings: jsonOrchWarnings,
       version: HATCH3R_VERSION,
       rootDir,
       platform,
@@ -984,6 +1014,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // `feature-plan` docs to learn the lite path skips Steps 5-7 of this guide.
   const repoIsGreenfield = isGreenfield(repoInfo);
   summaryLines.push("");
+  // D10-SA10.3-F-10: when some (but not all — all-failed throws above) adapters
+  // failed, the install is partial. Prepend a verification CTA above the agent
+  // CTA so the user confirms the generated setup before invoking an agent
+  // against a half-written configuration. The box is also re-styled as a
+  // warning below so the partial state is visually distinct from a clean run.
+  const initHadAdapterFailures = adapterFailures.length > 0;
+  if (initHadAdapterFailures) {
+    summaryLines.push(`${chalk.yellow("→")} ${chalk.bold(`Verify with: npx hatch3r validate`)} (${adapterFailures.length} adapter(s) failed — output may be incomplete)`);
+  }
   if (repoIsGreenfield) {
     summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to define your new project (routes greenfield/brownfield automatically), then ${chalk.bold(formatCommandHint(tools, "roadmap"))}`);
     summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "quick-change"))} for a tiny change`);
@@ -993,6 +1032,13 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "quick-change"))} for a tiny change`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "codebase-map"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "project-spec"))}`);
   }
+  // D10-SA10.3-F-10: on the clean path, offer the verification command as a
+  // dimmed alternate so users who want to confirm the install have a named
+  // command without cluttering the primary CTA. Skipped when failures already
+  // surfaced the verify CTA prominently above.
+  if (!initHadAdapterFailures) {
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Verify install: npx hatch3r validate")}`);
+  }
 
   if (envResult && envResult.newVars.length > 0) {
     summaryLines.push("");
@@ -1000,7 +1046,16 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     summaryLines.push(`  Then run: ${chalk.dim(getSourceEnvMcpCommand())}`);
   }
 
-  printBox("Hatch complete", summaryLines, "success");
+  // D10-SA10.3-F-10: partial-failure installs render a warning-styled box with
+  // an explicit "complete with N failure(s)" title so the degraded state is
+  // not disguised as a clean "Hatch complete". The clean path keeps the
+  // success box + title (preserves the `toContain("Hatch complete")` test
+  // contract for non-failure runs).
+  if (initHadAdapterFailures) {
+    printBox(`Hatch complete with ${adapterFailures.length} adapter failure(s)`, summaryLines, "warning");
+  } else {
+    printBox("Hatch complete", summaryLines, "success");
+  }
 
   if (cliTools && cliTools.selected.length > 0 && !isQuiet()) {
     const finalMissing = await findMissingCliTools(cliTools.selected);
@@ -1230,6 +1285,17 @@ export async function initCommand(
      */
     mcp?: boolean;
     /**
+     * D1-SA1.1-F13: explicit MCP opt-out, symmetric with `--no-cli-tools`.
+     * When true, MCP is forced off regardless of `--mcp` so a CI/audit config
+     * can self-document "no MCP" rather than relying on the implicit default.
+     * Commander's `--no-mcp` registration (program.ts) sets `opts.mcp = false`;
+     * this dedicated field additionally lets a programmatic caller force-off
+     * even if `mcp` is set, and makes the explicit-off intent legible at the
+     * resolution sites below. Honored on the `--yes` single-repo + workspace
+     * paths (the only paths that read `opts.mcp`).
+     */
+    noMcp?: boolean;
+    /**
      * C9-H26 (D10-SA10.2-F1): Suppress all stdout chrome (banner, spinner
      * text, success box, multi-CTA hints). Diagnostic warnings/errors still
      * route to stderr per POSIX. Useful for CI logs where the banner +
@@ -1394,7 +1460,20 @@ export async function initCommand(
     opts.yes = true;
   }
 
-  const rootDir = process.cwd();
+  // D1-SA1.1-F06: collapse symlinks in the working directory before it flows
+  // into ~10 `join(rootDir, ...)` write targets. `realpath` resolves a
+  // symlinked cwd (e.g. the user `cd`-ed into a symlink) to its canonical
+  // path so the success-box "State dir" line and every write land where the
+  // user can actually find them. Defensive fallback to the raw cwd: a
+  // realpath failure (deleted cwd, permission denied) should surface via the
+  // downstream write errors, not abort before any user-facing guidance.
+  const cwd = process.cwd();
+  let rootDir: string;
+  try {
+    rootDir = await realpath(cwd);
+  } catch {
+    rootDir = cwd;
+  }
 
   // Workspace auto-detection: if no .git but has git subdirectories, suggest workspace mode
   if (!opts.workspace) {
@@ -1482,8 +1561,9 @@ export async function initCommand(
     // CLI-tooling pivot (plan §4.3): MCP is now opt-in on `--yes`. Users
     // who still want MCP defaults pass `--mcp` explicitly. Without that
     // flag, MCP server list stays empty and no .env.mcp is generated.
+    // D1-SA1.1-F13: `--no-mcp` forces the list empty even when `--mcp` is set.
     const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpServers = features.mcp && opts.mcp
+    const mcpServers = features.mcp && opts.mcp && !opts.noMcp
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
 
@@ -1674,7 +1754,17 @@ export async function initCommand(
             choices: PRESETS.map((p) => {
               const excluded = countPresetExclusions(p, filterIndex);
               const estimated = p.id !== "custom" ? estimatePresetItemCount(p, inferredProjectType, inferredTeamSize, filterIndex, projectLanguages) : 0;
-              const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
+              // D1-SA1.1-F11: the `custom` preset has no fixed item count
+              // (the user picks per-item), so `estimatePresetItemCount` is not
+              // run for it. Surface the size of the universe the checkbox will
+              // present (`filterIndex.items.length`) so the user knows how
+              // many items they will choose from before entering the picker.
+              const countHint =
+                p.id === "custom"
+                  ? ` (${totalItems} items to choose from)`
+                  : estimated > 0
+                    ? ` (~${estimated} items)`
+                    : "";
               const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
               // F10.6-1 (D10): name WHAT each preset drops, not just a count, so
               // a user picking "Standard" sees it omits AI + performance before
@@ -1861,7 +1951,7 @@ async function runWorkspaceInit(
   rootDir: string,
   detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
   repoInfo: RepoInfo,
-  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; maturity?: string },
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string },
 ): Promise<void> {
   const headless = !!opts.yes;
 
@@ -1877,8 +1967,9 @@ async function runWorkspaceInit(
     const tools: Tool[] = resolveToolsFromOpts(opts.tools, repoInfo);
     const features = { ...DEFAULT_FEATURES };
     // CLI-tooling pivot: MCP opt-in via --mcp on `--yes`. Defaults empty.
+    // D1-SA1.1-F13: `--no-mcp` forces empty even with `--mcp`.
     const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpServers = features.mcp && opts.mcp
+    const mcpServers = features.mcp && opts.mcp && !opts.noMcp
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
     const cliToolsBase = opts.noCliTools
@@ -2000,8 +2091,9 @@ async function runWorkspaceInit(
     features = { ...DEFAULT_FEATURES };
     // CLI-tooling pivot (plan §4.3): MCP is opt-in on `--yes`; default to
     // empty server list unless `--mcp` is set. Mirrors single-repo flow.
+    // D1-SA1.1-F13: `--no-mcp` forces empty even with `--mcp`.
     const platformMcp = PLATFORM_MCP_SERVER[platform];
-    mcpServers = features.mcp && opts.mcp
+    mcpServers = features.mcp && opts.mcp && !opts.noMcp
       ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
       : [];
     if (opts.noCliTools) {
@@ -2092,7 +2184,15 @@ async function runWorkspaceInit(
               choices: PRESETS.map((p) => {
                 const excluded = countPresetExclusions(p, wsFilterIndex);
                 const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, wsInferredProjectType, wsInferredTeamSize, wsFilterIndex, projectLanguages) : 0;
-                const wsCountHint = wsEstimated > 0 ? ` (~${wsEstimated} items)` : "";
+                // D1-SA1.1-F11: workspace-flow parity with the single-repo
+                // picker — show the choose-from universe size for `custom`
+                // since it has no estimable fixed count.
+                const wsCountHint =
+                  p.id === "custom"
+                    ? ` (${wsTotalItems} items to choose from)`
+                    : wsEstimated > 0
+                      ? ` (~${wsEstimated} items)`
+                      : "";
                 const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
                 // F10.6-1 (D10): name the omitted capability clusters (not just a
                 // count) so the workspace operator sees what each preset drops.
@@ -2366,8 +2466,15 @@ async function runWorkspaceInit(
   // decorated box (printBox is already a no-op under quiet) and emit a
   // JSON line that lists every repo and the sync count.
   if (isJson()) {
+    // D10-SA10.6-F10.6-9: workspace-flow parity with the single-repo payload —
+    // escalate `status` to "warning" when orchestration-dependency warnings
+    // exist so a CI caller running `hatch3r init --workspace --yes --json` can
+    // grep the same signal.
+    const wsJsonOrchWarnings = validateOrchestrationDependencies(contentSelection);
+    const wsJsonStatus: "ok" | "warning" = wsJsonOrchWarnings.length > 0 ? "warning" : "ok";
     const payload = {
-      status: "ok" as const,
+      status: wsJsonStatus,
+      orchestrationWarnings: wsJsonOrchWarnings,
       version: HATCH3R_VERSION,
       mode: "workspace" as const,
       rootDir,

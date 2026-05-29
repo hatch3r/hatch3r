@@ -8,7 +8,11 @@
  * The log is append-only and auto-rotated when it exceeds MAX_LOG_SIZE.
  */
 
+import { appendFile, readFile } from "node:fs/promises";
+import { join } from "node:path";
+
 import { warn } from "../cli/shared/ui.js";
+import { safeWriteFile } from "../merge/safeWrite.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -192,4 +196,78 @@ export function rotateLog(content: string): string {
   const flooredCount = Math.min(entries.length, Math.max(halfCount, MIN_RETAINED_ENTRIES));
   const kept = entries.slice(-flooredCount);
   return kept.map(formatLogEntry).join("\n") + "\n";
+}
+
+/**
+ * Result of a {@link writeFailureLog} call.
+ *
+ * `written` is `true` when the entry reached disk. When `false`, `warning`
+ * carries an operator-facing message naming the underlying fs error so the
+ * caller can surface it (via the `warn()` UI helper + end-of-command summary)
+ * rather than the audit trail silently losing the entry.
+ */
+export interface WriteFailureLogResult {
+  written: boolean;
+  warning?: string;
+}
+
+/**
+ * Append a failure entry to the persistent failure log under `agentsDir`,
+ * rotating when the log exceeds the configured budget.
+ *
+ * F8.4.5 (Cycle 10 D8, P5): this is the single-source writer for the failure
+ * log. Previously `appendFailure` was reimplemented in both `sync.ts` and
+ * `update.ts`, each swallowing write failures (the inner `catch` emitted only
+ * a `console.error`/`verbose` line). Centralising here removes the duplication
+ * (CONSTITUTION §2 P5 single-source-of-truth) and, per the Silent Failure
+ * Contract, RETURNS the failure as `{ written: false, warning }` instead of
+ * swallowing it — so the caller can route it through the `warn()` channel and
+ * the end-of-command summary. The function never throws: failure-log I/O must
+ * not break the command it instruments, but the operator must still learn the
+ * audit trail did not persist.
+ */
+export async function writeFailureLog(
+  agentsDir: string,
+  phase: string,
+  error: unknown,
+  options?: { tool?: string; correlationId?: string; version?: string },
+): Promise<WriteFailureLogResult> {
+  const logPath = join(agentsDir, FAILURE_LOG_FILE);
+  let preRotateWarning: string | undefined;
+  try {
+    const entry = createFailureLogEntry(phase, error, options);
+    const line = formatLogEntry(entry) + "\n";
+
+    // Check whether rotation is needed before appending. A read failure other
+    // than ENOENT (the normal first-run path) may indicate disk corruption or
+    // a permission issue; capture it so it is surfaced alongside any later
+    // append failure rather than dropped.
+    try {
+      const existing = await readFile(logPath, "utf-8");
+      if (shouldRotateLog(existing + line)) {
+        const rotated = rotateLog(existing);
+        await safeWriteFile(logPath, rotated + line);
+        return { written: true };
+      }
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        const message = err instanceof Error ? err.message : String(err);
+        preRotateWarning =
+          `Failure-log read-before-rotate failed for ${logPath} — ${message}. ` +
+          `Rotation skipped; appending without it.`;
+      }
+    }
+
+    await appendFile(logPath, line);
+    return { written: true, warning: preRotateWarning };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      written: false,
+      warning:
+        `Failure-log entry was NOT persisted to ${logPath} — ${message}. ` +
+        `The audit trail is incomplete; check write permission / disk space on the .hatch3r/ directory.`,
+    };
+  }
 }

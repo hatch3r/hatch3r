@@ -1,6 +1,7 @@
 ---
 id: hatch3r-bug-fix
 name: hatch3r-bug-fix
+type: skill
 description: Step-by-step bug fix workflow. Diagnose root cause, implement minimal fix, write regression test. Use when fixing bugs, working on bug report issues, or when the user mentions a bug.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md

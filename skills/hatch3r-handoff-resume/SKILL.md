@@ -1,6 +1,7 @@
 ---
 id: hatch3r-handoff-resume
 name: hatch3r-handoff-resume
+type: skill
 description: Load and resume a handoff document from .hatch3r/handoffs/active/. Validates schema, integrity, expiry, and git_ref drift before surfacing content as user-tier context.
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md

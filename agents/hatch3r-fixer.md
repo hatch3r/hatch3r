@@ -286,6 +286,10 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 - Pagination uses createdAt cursor with stable ordering
 ```
 
+## Golden Test
+
+Rationale for absence (D5 universal checklist row 6): this agent is an LLM prompt whose fix output is non-deterministic, so a byte-exact golden-output fixture is not meaningful. The `## Example` above is the behavioral specification — a fresh run against the two Critical findings must return a `## Fix Result` with a populated `Delegation proof ID`, `Reviewer re-run required: true`, a `Findings addressed` line per Critical/Warning, and zero use of the §3 prohibited fix patterns. The deterministic contract surfaces (the typed `AgentStatus` enum, the review-loop continuation signal) are exercised by `src/__tests__/pipeline/` against `src/pipeline/pipelineContext.ts` and `reviewLoop.ts`, not by a prompt fixture.
+
 ## References
 
 - Conventional Comments. "Conventional Comments — a standard for formatting review feedback." `https://conventionalcomments.org/` (accessed 2026-05-28, Conventional Comments maintainers, established-library). Source for the labeled-finding model this agent consumes from `hatch3r-reviewer` — `issue` / `suggestion` / `nitpick` labels map to the Critical/Warning/Suggestion triage that decides which findings this agent fixes versus surfaces.

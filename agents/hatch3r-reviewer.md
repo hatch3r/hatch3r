@@ -420,6 +420,10 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 
 Each review field (`copy.review`, `observability.review`, `migration.review`, `api.review`, `eval.review`, `supply-chain.review`, `reliability.review`, `auth.review`, `ui-ux.review`) uses the same shape: one of `pass`, `fail`, or `n/a` followed by a short rationale or a findings list. Use `n/a` when the change does not touch that surface (e.g., `observability.review: n/a` for a doc-only change, `ui-ux.review: n/a` for a backend-only change). Use `fail` when any checklist item under the corresponding §12-§20 surfaces a Critical or Warning finding. A `fail` on any review field implies REQUEST CHANGES.
 
+## Golden Test
+
+Rationale for absence (D5 universal checklist row 6): this agent is an LLM prompt whose verdict is non-deterministic, so a byte-exact golden-output fixture is not meaningful. The `## Example` above is the behavioral specification — a fresh review of a diff with an IDOR and a missing ownership check must emit a `REQUEST CHANGES` verdict with those findings classified Critical, the Verification Results table, and a per-surface `pass`/`fail`/`n/a` line for every §12-§20 review field. The deterministic loop-termination contract (`DEFAULT_MAX_REVIEW_ITERATIONS`, `evaluateReviewGate`) is exercised by `src/__tests__/pipeline/reviewLoop.test.ts`, not by a prompt fixture.
+
 ## References
 
 - Google. "What to look for in a code review." `https://google.github.io/eng-practices/review/reviewer/looking-for.html` (accessed 2026-05-28, Google Engineering Practices, peer-reviewed-methodology). Source for this agent's review dimensions — design, functionality, complexity (no speculative generality), tests, naming, comments-explain-why, and the look-at-every-assigned-line discipline behind the checklist completeness rule.

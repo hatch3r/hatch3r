@@ -388,6 +388,10 @@ When encountering errors during implementation, follow these protocols:
 - Retry-After header returns seconds until next available request window
 ```
 
+## Golden Test
+
+Rationale for absence (D5 universal checklist row 6): this agent is an LLM prompt whose code output is non-deterministic, so a byte-exact golden-output fixture is not meaningful. The `## Example` above is the behavioral specification — a fresh run must return the `## Implementation Result` header with a populated `Delegation proof ID`, a `Files changed` list, a `Tests written` list, and the Step 5c UI/UX gate verdict when a UI surface is touched. The deterministic contract surfaces (the typed `AgentStatus` enum, `isHaltStatus`) are exercised by `src/__tests__/pipeline/` against `src/pipeline/pipelineContext.ts`, not by a prompt fixture.
+
 ## References
 
 - Anthropic. "Subagents in the SDK." `https://code.claude.com/docs/en/agent-sdk/subagents` (accessed 2026-05-28, Claude Code Docs, official-docs). Source for this agent's single-focused-task contract — a subagent receives an isolated brief, carries every needed file path and decision in its prompt, and returns a structured result to the parent, which underpins the implementer's one-issue-per-invocation boundary and Delegation proof ID handshake.

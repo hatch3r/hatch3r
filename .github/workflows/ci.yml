@@ -220,13 +220,19 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Cycle 10 L D3-SA3.1-F3.1.10 (D3): `--no-update` makes vitest fail (not
+      # silently rewrite) on any snapshot mismatch, so a developer-side
+      # `vitest -u` that updated `__snapshots__/*.snap` without review cannot
+      # pass CI. `vitest run` already fails on mismatch by default; the explicit
+      # flag removes the ambiguity and is the byte-validation gate for the
+      # committed snapshot artifact.
       - name: Test with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npx vitest run --coverage
+        run: npx vitest run --coverage --no-update
 
       - name: Test without coverage
         if: matrix.os != 'ubuntu-latest' || matrix.node-version != 22
-        run: npm test
+        run: npm run test:ci
 
       # Cycle 7 H10: filesystem-derived inventory must match committed copy.
       # Drift means CLAUDE.md / README.md counts can no longer be trusted.

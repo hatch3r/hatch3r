@@ -50,6 +50,7 @@ hatch3r includes several security layers:
 - **Pipeline prompt injection guards** -- ASI01-aligned input sanitization, output validation, and boundary markers for inter-agent communication
 - **Agent tool allowlists** -- ASI02-aligned per-agent capability restrictions enforcing least-privilege access
 - **Atomic file writes** -- all file operations use temp+rename to prevent corruption from interrupted writes
+- **Local-only snapshot store** -- snapshot/rollback files under `.hatch3r/snapshots/` are written locally with no network egress and inherit the user's filesystem permissions (process umask); keep your home directory non-world-readable when working in repos whose user-edited content may contain secrets
 
 ## Enforcement Model
 

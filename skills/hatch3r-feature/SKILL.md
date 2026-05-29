@@ -1,6 +1,7 @@
 ---
 id: hatch3r-feature
 name: hatch3r-feature
+type: skill
 description: End-to-end feature implementation workflow. Covers data model, domain logic, API, and UI as a vertical slice. Use when implementing new features or working on feature request issues.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md

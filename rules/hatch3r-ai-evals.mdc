@@ -21,7 +21,7 @@ Pick one tool by task class:
 - **promptfoo** — broad coverage, declarative YAML, model-comparison defaults
 - **DeepEval** — pytest-style assertions for CI gate integration
 - **RAGAS** — retrieval-augmented generation metrics (context_precision, context_recall, faithfulness, answer_relevance)
-- **Inspect** — UK AISI framework for safety and agentic evals
+- **Inspect** — UK AISI framework for safety and agentic evals. At `scaleup`/`enterprise` maturity (CONSTITUTION §6 Decision 16), use its external-agent runner (one harness drives Claude Code / Codex CLI / Gemini CLI) with bootstrap statistical scoring for multi-agent statistical-significance gating — point-estimate eval scores carry a confidence interval rather than a single number.
 - **braintrust** — SaaS + OSS hybrid, run history retained per prompt version
 - **TruLens** — observability-coupled, runs evals against live traces
 - **Arize Phoenix** — open-source observability with eval modules

@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { readFileSync, rmSync } from "node:fs";
 import { defineConfig } from "tsup";
 
 const pkg = JSON.parse(readFileSync("./package.json", "utf-8")) as {
@@ -45,4 +45,17 @@ export default defineConfig({
   // which a single ESM bundle cannot satisfy. Leaving them as runtime imports
   // makes Node resolve them from node_modules where their CJS works natively.
   external: ["@inquirer/core", "@inquirer/figures"],
+  // Cycle 10 L D4-SA4.1-F4.1.F2 (D4): prune stale empty output subdirectories.
+  // `dist/cli/commands/` and `dist/cli/shared/` are relics of a prior build
+  // shape (per-command/per-module entry points, before this config settled on
+  // a single `src/cli/index.ts` entry with `splitting: false`). tsup's
+  // `clean: true` removes files at the output paths but leaves these now-unused
+  // empty directories behind, so they survive every rebuild and mislead anyone
+  // inspecting `dist/`. Remove them after each successful build. `onSuccess`
+  // also runs on `--watch` rebuilds, keeping the dev tree clean.
+  onSuccess: async () => {
+    for (const stale of ["dist/cli/commands", "dist/cli/shared"]) {
+      rmSync(stale, { recursive: true, force: true });
+    }
+  },
 });

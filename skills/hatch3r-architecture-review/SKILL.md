@@ -1,6 +1,7 @@
 ---
 id: hatch3r-architecture-review
 name: hatch3r-architecture-review
+type: skill
 description: Evaluate architectural decisions and produce ADRs following the project template. Use when making architectural decisions, evaluating trade-offs, or creating ADRs.
 tags: [review]
 quality_charter: agents/shared/quality-charter.md

@@ -40,7 +40,7 @@ Record tier + rationale at the top of the workspace summary.
 
 ## Step 2: Removal-Qualification Gate (D16.3)
 
-Run the D16.3 removal-threshold check inline (`governance/audit/domains/D16-compound-system.md:59`). Removal qualifies only when ALL three criteria hold:
+Run the D16.3 removal-threshold check inline (`governance/audit/domains/D16-compound-system.md` §16.3 "Removal candidate threshold"). Removal qualifies only when ALL three criteria hold:
 
 - (a) Zero unique value beyond an existing artifact (run duplication scan; cite the artifact that subsumes the candidate).
 - (b) <=1 cross-reference from other artifacts (run `grep -r "<artifact-id>" agents/ skills/ rules/ commands/ hooks/ checks/ prompts/ github-agents/ src/ governance/ docs/ docs-site/ tests/ CLAUDE.md README.md CHANGELOG.md`; record the count).
@@ -139,7 +139,7 @@ Next action (maintainer runs manually):
 
 ## References
 
-- D16.3 removal-threshold + add-vs-remove bias check: `governance/audit/domains/D16-compound-system.md:59`
+- D16.3 removal-threshold + add-vs-remove bias check: `governance/audit/domains/D16-compound-system.md` §16.3 "Removal candidate threshold"
 - Web research mandate: `governance/audit/templates/rigor-contract.md`
 - Quality charter: `agents/shared/quality-charter.md`
 - Sibling presets: `.claude/skills/h4tcher-capability-discover/SKILL.md`, `.claude/skills/h4tcher-capability-refactor/SKILL.md`

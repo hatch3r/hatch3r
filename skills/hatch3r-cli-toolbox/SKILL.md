@@ -1,6 +1,7 @@
 ---
 id: hatch3r-cli-toolbox
 name: hatch3r-cli-toolbox
+type: skill
 description: "Category-indexed reference for 29 specialist CLI tools beyond the always-on five (ripgrep, jq, gh, fd, fzf). Use to pick the right tool for HTTP clients, ai-chat, structural-search, sed-style edits, data ops, browser automation, container ops, and more."
 tags: [cli-tools, reference, orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md

@@ -1,6 +1,7 @@
 ---
 id: hatch3r-customize
 name: hatch3r-customize
+type: skill
 description: Create and manage customization files for any hatch3r artifact type (agents, commands, rules, skills). Supports model overrides, description changes, scope overrides, enable/disable control, and project-specific markdown instructions.
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md

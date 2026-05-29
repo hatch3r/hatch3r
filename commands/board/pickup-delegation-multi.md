@@ -82,6 +82,7 @@ For each dependency level, starting at Level 1:
    - Relevant learnings from `.hatch3r/learnings/` (from Step 6.pre).
    - Instruction to use GitHub MCP for issue reads, and follow the project's tooling hierarchy for external knowledge augmentation.
    - Explicit instruction: do NOT create branches, commits, or PRs.
+   - `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID; each epic sub-issue gets its own id).
    - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 3. **Await all sub-agents in the current level.** Collect their structured results (files changed, tests written, issues encountered).
@@ -150,6 +151,7 @@ For each dependency level, starting at Level 1:
    - All `scope: always` rule directives from `rules/` — subagents do not inherit rules automatically.
    - Relevant learnings from `.hatch3r/learnings/` (from Step 6.pre).
    - Explicit instruction: do NOT create branches, commits, or PRs.
+   - `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID; batch tasks share one id with a per-issue sub-task index).
    - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 3. **Await all sub-agents in the current level.** Collect their structured results (files changed, tests written, issues encountered).

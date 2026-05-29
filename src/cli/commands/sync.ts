@@ -1,4 +1,4 @@
-import { appendFile, readFile, stat, readdir, mkdir } from "node:fs/promises";
+import { readFile, stat, readdir, mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { execFileSync } from "node:child_process";
 import chalk from "chalk";
@@ -18,7 +18,7 @@ import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatc
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
-import { safeWriteFile, enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
+import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -33,10 +33,7 @@ import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import { pruneArchives } from "../../archive/index.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
-  createFailureLogEntry,
-  formatLogEntry,
-  shouldRotateLog,
-  rotateLog,
+  writeFailureLog,
   FAILURE_LOG_FILE,
 } from "../../pipeline/failureLog.js";
 import { generateWithTimeout } from "../../pipeline/adapterTimeout.js";
@@ -119,7 +116,14 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
 
   // Get the latest commit timestamp
   try {
-    const commitDate = execFileSync("git", ["log", "-1", "--format=%ct"], { stdio: "pipe" })
+    // D1-SA1.3-F1.3.7 (Cycle 10 Wave 4, D1, P-CQ4): bound the synchronous git
+    // call with a 5s timeout. execFileSync defaults `timeout` to undefined,
+    // so without it a hung git (index-lock contention, slow git-LFS network,
+    // SIGSTOP'd child) blocks the event loop for the full pipeline budget
+    // (~120s) after all adapter work is done. Spec-freshness is a soft
+    // advisory (the warn() below is informational, not gating), so a timeout
+    // throw routes to the catch as a skip — the correct fallback.
+    const commitDate = execFileSync("git", ["log", "-1", "--format=%ct"], { stdio: "pipe", timeout: 5000 })
       .toString()
       .trim();
     const latestCommitMs = parseInt(commitDate, 10) * 1000;
@@ -140,53 +144,23 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
 }
 
 /**
- * Append a failure entry to the persistent failure log in .agents/.
- * Performs log rotation when the log exceeds 500KB.
- * Silently skips if the write fails (failure logging must not break sync).
+ * Append a failure entry to the persistent failure log in `.hatch3r/`.
+ *
+ * F8.4.5 (Cycle 10 Wave 4, D8, P5): the writer body now lives in
+ * `src/pipeline/failureLog.ts::writeFailureLog` (single source of truth — it
+ * was previously reimplemented here and in `update.ts`). Per the Silent
+ * Failure Contract, a write failure is no longer dropped to a bare
+ * `console.error`: `writeFailureLog` returns `{ written, warning? }` and this
+ * wrapper routes the warning through the `warn()` UI helper so a failing audit
+ * trail (EACCES, ENOSPC, read-only mount) is visible in the command output,
+ * not silently swallowed. Failure logging still never breaks the sync.
  */
 async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
-  try {
-    const logPath = join(agentsDir, FAILURE_LOG_FILE);
-    const entry = createFailureLogEntry(phase, error, {
-      tool,
-      version: HATCH3R_VERSION,
-    });
-    const line = formatLogEntry(entry) + "\n";
-
-    // Check if rotation is needed before appending
-    try {
-      const existing = await readFile(logPath, "utf-8");
-      if (shouldRotateLog(existing + line)) {
-        const rotated = rotateLog(existing);
-        await safeWriteFile(logPath, rotated + line);
-        return;
-      }
-    } catch (err) {
-      // File does not exist yet — that is fine, appendFile will create it.
-      // Read failures other than ENOENT may indicate disk corruption, so
-      // surface them. ENOENT is the normal first-run path; suppress under
-      // --verbose only.
-      const message = err instanceof Error ? err.message : String(err);
-      if (err instanceof Error && "code" in err && (err as NodeJS.ErrnoException).code === "ENOENT") {
-        verbose(`sync: appendFailure read-before-rotate skipped (file does not exist yet) — ${message}`);
-      } else {
-        // D1-M7 (Cycle 10 Wave-3 Medium): emit a one-line stderr diagnostic
-        // even outside --verbose mode so persistent read failures (perm
-        // denied, disk corruption) are visible. Prior behavior swallowed
-        // silently, masking the underlying fs error from operators.
-        console.error(`[hatch3r sync] appendFailure read-before-rotate failed — ${message}`);
-      }
-    }
-
-    await appendFile(logPath, line);
-  } catch (err) {
-    // Failure logging must not break the sync command, but the operator
-    // needs to know when the audit trail is failing to persist. Emit a
-    // single-line diagnostic to stderr regardless of --verbose so the
-    // signal is visible in CI logs. D1-M7 (Cycle 10 Wave-3).
-    const message = err instanceof Error ? err.message : String(err);
-    console.error(`[hatch3r sync] failure-log write suppressed — ${message}`);
-  }
+  const result = await writeFailureLog(agentsDir, phase, error, {
+    tool,
+    version: HATCH3R_VERSION,
+  });
+  if (result.warning) warn(`[hatch3r sync] ${result.warning}`);
 }
 
 /**
@@ -714,6 +688,15 @@ export async function syncCommand(
             undefined,
             rootDir,
           ),
+        // D8-SA8.4-F8.4.6 (Cycle 10 Wave 4, D8, P-CQ4): the call-site walks
+        // back retryWithBackoff's module default (DEFAULT_MAX_ATTEMPTS = 3) to
+        // 2 — i.e. 1 initial attempt + 1 retry — deliberately. `sync` is
+        // interactive; a 3rd attempt would add up to maxDelayMs (5s) of extra
+        // wall time on a failing run for marginal added resilience, while the
+        // per-adapter circuit breaker (recordFailure/shouldAllowRequest above)
+        // already absorbs recurring transient failures across invocations and
+        // the operator can re-run a failed sync cheaply. The fast-fail bias is
+        // intentional here, not a copy-paste of the module default.
         { maxAttempts: 2 },
       );
       if (!generationResult.completed) {
@@ -775,9 +758,24 @@ export async function syncCommand(
         // (`hatch3r sync --dry-run --format=json` keeps a clean stdout).
         const previewActive = !!opts.previewTool && opts.previewTool === tool;
         for (const out of outputs) {
-          results.push({ path: out.path, action: "dry-run" });
+          // D11-SA11.2-F9 (Cycle 10 Wave 4, D11, P1): predict the marker-aware
+          // action the live write would produce instead of a generic
+          // "dry-run" row, so a missing-marker file surfaces as a would-be
+          // `skipped` / `merged` here rather than diverging from the real
+          // sync. Uses the SAME options the live branch below passes
+          // (appendIfNoBlock + force for managed content; force otherwise) and
+          // is run through `renderAction` so the summary icon/tally match a
+          // live run exactly. `predictMergeAction` is pure (no disk write).
+          const isManagedMerge = Boolean(out.managedContent);
+          const existing = await readFileOrNull(join(rootDir, out.path));
+          const predicted = predictMergeAction(existing, out.content, join(rootDir, out.path), {
+            managedContent: out.managedContent,
+            appendIfNoBlock: out.managedContent ? true : undefined,
+            force: opts.force,
+          });
+          results.push({ path: out.path, action: renderAction(predicted, isManagedMerge) });
           if (opts.diff) {
-            diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
+            diffBefore.set(out.path, existing);
             diffAfter.set(out.path, out.content);
           }
           if (previewActive) {
@@ -847,9 +845,18 @@ export async function syncCommand(
         const perPackage = planPerPackageOutputs(m.packages, outputs);
         for (const p of perPackage) {
           if (opts.dryRun) {
-            results.push({ path: p.output.path, action: "dry-run" });
+            // D11-SA11.2-F9: marker-aware would-be action for per-package
+            // outputs too, matching the root dry-run path above.
+            const isManagedMerge = Boolean(p.output.managedContent);
+            const existing = await readFileOrNull(join(rootDir, p.output.path));
+            const predicted = predictMergeAction(existing, p.output.content, join(rootDir, p.output.path), {
+              managedContent: p.output.managedContent,
+              appendIfNoBlock: p.output.managedContent ? true : undefined,
+              force: opts.force,
+            });
+            results.push({ path: p.output.path, action: renderAction(predicted, isManagedMerge) });
             if (opts.diff) {
-              diffBefore.set(p.output.path, await readFileOrNull(join(rootDir, p.output.path)));
+              diffBefore.set(p.output.path, existing);
               diffAfter.set(p.output.path, p.output.content);
             }
             continue;

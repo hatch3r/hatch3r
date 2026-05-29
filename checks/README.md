@@ -1,3 +1,8 @@
+---
+id: checks-readme
+type: documentation
+description: Authoring guide and directory contract for the checks/ review-criteria files. Not a check itself — excluded from check enumeration by its documentation type.
+---
 # Checks
 
 Review criteria definitions for automated and agent-assisted code review. Each check file defines a set of criteria that agents reference when reviewing code changes.

@@ -43,7 +43,7 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Gate releases: status moves to `CRITICAL` on any mandate-map miss or AI-eval-coverage <100%; `FINDINGS` on a real-deal-ratio drop, coverage threshold miss, mutation kill-rate floor breach, or unowned flaky test.
 - Emit CQ5 progress on every finding (`progress_toward_pillar: content-quality.CQ5+<delta>`) so framework-level CQ5 movement aggregates across PRs and audit cycles.
 
-## When to Invoke
+## When to invoke
 
 - Reviewer on any PR that modifies test code, removes tests, or introduces a feature in a mandate-map class.
 - Implementer pre-write check when authoring new feature tests — confirms the mandated test class before writing so this agent (or the host implementer applying its guidance) produces the right shape on first pass.
@@ -88,11 +88,25 @@ See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost
 - **Contract specialist** (service boundaries) — runs Pact consumer + provider verification, then `pact-broker can-i-deploy`; verifies Schemathesis passes against staging.
 - **Property specialist** (pure functions with invariants) — runs fast-check or Hypothesis, reads shrinker output for counterexamples, confirms each invariant is named in a comment above the property.
 - **Visual-regression specialist** (UI) — runs the visual-regression suite (Playwright `--update-snapshots` diff, Chromatic, Percy, or per-repo equivalent), reads baseline diffs, reports per-component pixel deltas vs the documented tolerance budget.
-- **AI-eval specialist** (AI features) — runs the eval harness on golden + adversarial + regression sets (`promptfoo eval`, `deepeval test run`, or the project's harness), reads the hallucination SLI dashboard, compares against the per-release threshold.
+- **AI-eval specialist** (AI features) — runs the eval harness on golden + adversarial + regression sets (`promptfoo eval`, `deepeval test run`, or the project's harness), reads the hallucination SLI dashboard, compares against the per-release threshold. For multi-agent statistical-significance evals at `scaleup` / `enterprise` maturity (per CONSTITUTION §6 Decision 16), use Inspect AI's external-agent runner (drives Claude Code / Codex CLI / Gemini CLI under one harness) with its bootstrap statistical scoring so the per-release threshold comparison carries a confidence interval, not a point estimate.
 
 Mutation and fuzz runs are the longest specialists — return `status: FINDINGS` with measured classes marked and unmeasured classes listed under a `deferred:` note rather than exhausting the budget.
 
-## Audit Checklist
+## Mutation testing strategy
+
+This agent is the mutation-testing-first owner for the payment / auth / `critical`-labelled mandate class (`rules/hatch3r-testing.md` → payment→mutation). Line coverage measures lines executed; mutation score measures whether the tests would *fail* when the code is wrong — substituting one for the other is a Never-row in Boundaries.
+
+Protocol when the diff touches a payment, auth, or `critical`-labelled path:
+
+1. **Select the per-language tool.** JS/TS → Stryker; JVM → PIT/Pitest; Python → mutmut or cosmic-ray; PHP → Infection; Go → go-mutesting; Rust → cargo-mutants. Read the active tool from repo config (`stryker.conf.json`, `pom.xml`, `setup.cfg`, `infection.json5`) — never impose this agent's default when the repo already declares one. If no tool is configured on a payment/auth path, that is itself a CRITICAL mandate-map miss (the class has no mutation harness).
+2. **Read the documented kill-rate floor**, not this agent's default. The floor lives in the tool config; the common 2026 production target is mutation score ≥80% on payment + auth + `critical`-labelled paths. Mid-cycle floor changes break wave-to-wave comparison and require a documented baseline reset (see §0).
+3. **Run incrementally to stay within the CI time budget.** Prefer `stryker run --incremental` (and the per-tool equivalent) so the mutation pass scopes to changed files; coordinate with `agents/hatch3r-performance.md` when the run inflates CI time rather than skipping the gate.
+4. **Report surviving mutants by file + line** so the author can target the gap. A surviving mutant on a payment/auth path is a real test-quality defect, not noise.
+5. **Web-research per audit cycle (≤12 months).** Mutation-tool currency and kill-rate-floor benchmarks move quickly — re-verify the per-language tool choice and the floor against current vendor docs and benchmark publications before asserting a floor (see §Web research focus and References). Synthesize current guidance; do not pin a stale floor.
+
+When the gate fails on a missing or under-killing mutation suite, author the mutation tests directly (measure-then-author per the CQ5 contract) rather than deferring.
+
+## Audit checklist
 
 Run every check below. Each row is measurable; cite the command and the report path in the proof_trace.
 
@@ -111,7 +125,7 @@ Run every check below. Each row is measurable; cite the command and the report p
 7. **Contract tests on every service-to-service boundary.** Consumer-driven Pact pacts published to a broker (`pact-broker can-i-deploy --pacticipant <svc> --version <sha> --to production`) plus spec-driven Schemathesis (`schemathesis run --checks all <openapi.yaml>`) executed against staging. Broken contract or missing parity blocks merge per `rules/hatch3r-contract-testing.md`. Missing or failing → CRITICAL on auth/payment paths, FINDINGS elsewhere.
 8. **Determinism contract: 0 flaky tests over a 30-day window.** Read CI flake history (`gh run list --status failure --created >=$(date -d '30 days ago' +%Y-%m-%d) --json conclusion,name,startedAt | jq '[.[] | select(.conclusion=="failure")] | length'`). Quarantined tests carry a tracking issue assignee and a re-enable date, not `test.skip` / `test.todo` / `@pytest.mark.skip` in perpetuity. Flake count >0 with no owner → FINDINGS. Silenced flake (skip/todo without a tracking issue reference in the test name or adjacent comment) → FINDINGS per occurrence.
 
-## Output Contract
+## Output contract
 
 See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ5 specifics: `id` follows the canonical `cq5-test-<short-slug>-<3-digit-seq>` pattern (e.g., `cq5-test-payment-003`); `progress_toward_pillar: content-quality.CQ5+<delta>`. Every CQ5 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per mandate class (parser→fuzz, payment→mutation, RPC→contract, state-machine→property, UI→visual regression).
 

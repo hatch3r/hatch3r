@@ -22,7 +22,7 @@ This step precedes §0 Detect Ambiguity and supplements the deeper learnings con
 
 ## §0 Detect Ambiguity (P8 B1)
 
-See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Researcher-specific triggers: multi-interpretation subject, missing mode selection, contradictory specs. When triggers fire, invoke the `requirements-elicitation` mode (`agents/modes/requirements-elicitation.md`) — which routes structured questions to the user via `agents/shared/user-question-protocol.md` — instead of guessing. The Boundaries "Ask first" rule remains in force for blockers surfaced mid-research (Status `BLOCKED_AMBIGUITY` per §5 BLOCKED Output Schema).
+See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Researcher-specific triggers: multi-interpretation subject, missing mode selection, contradictory specs. When triggers fire, invoke the `requirements-elicitation` mode (`agents/modes/requirements-elicitation.md`) — which routes structured questions to the user via `agents/shared/user-question-protocol.md` — instead of guessing. Ambiguity questions are governed directly by `agents/shared/user-question-protocol.md` (the `requirements-elicitation` mode delegates its question routing to this protocol); follow it the same way the implementer, reviewer, and fixer §0 gates do. The Boundaries "Ask first" rule remains in force for blockers surfaced mid-research (Status `BLOCKED_AMBIGUITY` per §5 BLOCKED Output Schema).
 
 Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively.
 
@@ -222,3 +222,7 @@ This agent runs under the `research` phase budget (`src/pipeline/phaseTimeout.ts
 ```
 
 If the brief cannot be answered (missing spec, conflicting ADRs, unavailable Context7), emit the `Blocked Recovery` block instead of guessing.
+
+## Golden Test
+
+Rationale for absence (D5 universal checklist row 6): this agent is an LLM prompt whose output is non-deterministic, so a byte-exact golden-output fixture is not meaningful. The `## Example` above serves as the behavioral specification — a fresh run on that invocation must produce the `## Research Result` header with all required fields populated and a `## Breaking Change Candidates` block when (and only when) breaking changes are detected. The deterministic contract surfaces (the typed status enum, the BLOCKED schema fields) are exercised by `src/__tests__/pipeline/` against `src/pipeline/pipelineContext.ts`, not by a prompt fixture.
