@@ -49,6 +49,10 @@ Use the platform-native question tool per `agents/shared/user-question-protocol.
 
 Binds every hatch3r-invoked workflow that mutates artifacts in the end-user repo — every `agents/hatch3r-*.md`, every `commands/hatch3r-*.md` with `orchestrator: true`, and every mutating `skills/hatch3r-*/SKILL.md`. Read-only or report-only workflows ask only when the report would be meaningless without scope clarification.
 
+## Confidence-floor calibration (D13-SA13.3-F13.3.3)
+
+The four-trigger set above is the floor for *scope/intent* ambiguity. Orthogonally, the `--confidence-floor=any|medium|high` flag (and the persisted `hatch3r config confidence_floor=...` default) calibrates a *result-confidence* ASK surface in the core orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-quick-change`, `hatch3r-revision`). At floor `high`, the orchestrator ASKs the user on every low-confidence finding regardless of severity — an additional, user-selected ASK trigger layered on top of the always-on four-trigger set. The floor never relaxes the four triggers; it only adds ASK pressure on uncertain results. Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`.
+
 ## Exemptions (D5-M5)
 
 A subset of skills carry §0 only as a defensive Ambiguity & Safety Gate (Tier 1 reference cards) — they neither orchestrate sub-agents nor mutate files on their own. The exemption set:

@@ -261,6 +261,17 @@ const FS_ERRNO_MESSAGE: Record<string, (filePath: string) => string> = {
  * locking via `proper-lockfile` (D1-SA1.5.1). Locking is gated behind the env
  * var to keep the default behavior unchanged for single-process flows.
  *
+ * **Ordering (D3-SA3.4-F9, Cycle 10 Wave 4, P2):** the ordering of CONCURRENT
+ * writes to the same path is UNSPECIFIED. POSIX `rename(2)` is atomic per call
+ * (no torn content — a reader always sees one writer's complete bytes), but the
+ * OS does not guarantee that overlapping `rename` calls land in submission
+ * order. With `Promise.all([write(A), write(B)])` the final on-disk content is
+ * A or B, not deterministically the last-submitted. Callers that require
+ * last-write-wins MUST serialize: either `await` each write before the next, or
+ * acquire the cross-process lock (`HATCH3R_LOCK=1`). SEQUENTIALLY-awaited writes
+ * DO observe submission order — the last awaited write is the final content —
+ * because each `rename` completes before the next begins.
+ *
  * When locking is enabled and contention exceeds ~5s, throws {@link HatchError}
  * with code `LOCK_TIMEOUT`.
  *
@@ -598,6 +609,12 @@ export function predictMergeAction(
  * `HATCH3R_LOCK=1` to opt into file locking for scenarios like CI matrix runs
  * (D1-SA1.5.1). Workspace sync already processes repos sequentially internally,
  * so a single `hatch3r sync --repos` invocation is safe without the opt-in.
+ *
+ * **Ordering (D3-SA3.4-F9, Cycle 10 Wave 4, P2):** inherits the unspecified
+ * concurrent-write ordering of {@link atomicWriteFile} — overlapping writes to
+ * the same path resolve to one writer's complete bytes, but not deterministically
+ * the last-submitted. Serialize (await each write, or `HATCH3R_LOCK=1`) when
+ * last-write-wins matters.
  */
 export async function safeWriteFile(
   filePath: string,

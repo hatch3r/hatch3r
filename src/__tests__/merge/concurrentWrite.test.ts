@@ -225,5 +225,49 @@ describe("concurrent write safety", () => {
       const content = await readFile(filePath, "utf-8");
       expect(content).toBe("iteration-19");
     });
+
+    // D3-SA3.4-F9 (Cycle 10 Wave 4, P2): positive ordering contract for
+    // sequentially-awaited writes. Complements the concurrent "any-writer-wins"
+    // tests above (which assert no-corruption but NOT which writer wins). The
+    // documented contract on atomicWriteFile/safeWriteFile is: concurrent
+    // ordering is unspecified, but SEQUENTIALLY-AWAITED writes observe
+    // submission order (the last awaited write is the final content). This test
+    // pins that contract by reading back the file after each awaited write and
+    // asserting it matches the just-written, monotonically-increasing token —
+    // a regression that broke await-then-rename ordering (e.g. fire-and-forget
+    // rename) would surface here.
+    it("sequentially-awaited writes observe submission order (last-write-wins)", async () => {
+      const dir = await createTempDir();
+      const filePath = join(dir, "ordering.txt");
+
+      for (let i = 0; i < 25; i++) {
+        // Monotonically increasing ordering token; zero-padded so a lexical
+        // read-back comparison would also catch an out-of-order landing.
+        const token = `seq-${String(i).padStart(3, "0")}`;
+        await atomicWriteFile(filePath, token);
+        // Each awaited write must be fully visible before the next begins.
+        expect(await readFile(filePath, "utf-8")).toBe(token);
+      }
+
+      // Final content is the last submitted token — deterministic for the
+      // awaited-sequential path (unlike the concurrent path above).
+      expect(await readFile(filePath, "utf-8")).toBe("seq-024");
+    });
+
+    it("sequentially-awaited safeWriteFile to a managed path is last-write-wins", async () => {
+      const dir = await createTempDir();
+      const filePath = join(dir, "hatch3r-ordering.md");
+
+      let last = "";
+      for (let i = 0; i < 10; i++) {
+        last = `managed-seq-${String(i).padStart(2, "0")}`;
+        const result = await safeWriteFile(filePath, last);
+        // First write creates; subsequent writes update (content differs).
+        expect(result.action).toBe(i === 0 ? "created" : "updated");
+        expect(await readFile(filePath, "utf-8")).toBe(last);
+      }
+
+      expect(await readFile(filePath, "utf-8")).toBe("managed-seq-09");
+    });
   });
 });

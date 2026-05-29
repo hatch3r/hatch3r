@@ -144,6 +144,16 @@ Auto-tiering (Step 0 mode selection) can misclassify — a single-file edit scor
 - The override never disables the Safety Guardrails (destructive operations, breaking changes, open questions, quality-gate failures always stop) — those are mode-independent.
 - No override passed → the Step 0 auto-classification stands.
 
+### Step 0.7: Confidence Floor (Decision 16 / D13-SA13.3-F13.3.3)
+
+`--effort` calibrates work-effort depth; `--confidence-floor` calibrates the confidence threshold at which the review gate blocks. They are orthogonal — a Tier 1 typo fix and a Tier 3 refactor can each carry any floor. This is the user's pre-flight assertiveness knob (the forced-second-pass on low confidence in Phase 4a is post-hoc; the floor lets the user set the bar before the run):
+
+- `--confidence-floor=any|medium|high` (default `any`). Resolution order: explicit flag wins over the persisted `hatch3r config confidence_floor=...` default, which wins over the built-in `any`.
+- **`any`** (current behavior): the Phase 4a confidence-aware gate forces a second reviewer pass only when reviewer confidence `== low` with 0 Critical + 0 Warning.
+- **`medium`**: force a second pass on ANY finding rated `confidence == low`, even with 0 Critical + 0 Warning.
+- **`high`**: force a second pass on any finding rated `confidence != high`, AND ASK the user on every low-confidence finding regardless of severity.
+- Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`. The floor never relaxes a Safety Guardrail — it only tightens the second-pass / ASK trigger.
+
 ---
 
 ## Full Mode
@@ -328,8 +338,8 @@ Fix any issues before proceeding. If quality checks fail, loop back and resolve 
 Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Include the diff and acceptance criteria in the prompt.
 
 1. **Review:** Await the reviewer result. Extract Critical and Warning findings AND the reviewer's top-level `confidence` field (high/medium/low).
-2. **Confidence-aware gate:**
-   - **0 Critical + 0 Warning AND reviewer confidence != low:** Review loop is clean. Proceed to 4b.
+2. **Confidence-aware gate** (the second-pass trigger tightens with the `--confidence-floor` set in Step 0.7 — `any` = default below, `medium`/`high` raise the bar):
+   - **0 Critical + 0 Warning AND reviewer confidence != low:** Review loop is clean. Proceed to 4b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
    - **0 Critical + 0 Warning AND reviewer confidence == low:** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
 3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings.
 4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.

@@ -71,6 +71,8 @@ import {
   printBanner,
   createSpinner,
   printBox,
+  printNextSteps,
+  printTimingSummary,
   error as logError,
   info,
   step,
@@ -258,6 +260,13 @@ export async function syncCommand(
   }
 
   const rootDir = process.cwd();
+
+  // D10-SA10.2-F6 (Cycle 10 Wave 4, D10, P1): capture wall-clock at command
+  // entry so the success path can emit a `Completed in Xs` line via
+  // `printTimingSummary` — sync routinely exceeds the 1s threshold CLI
+  // Guidelines (clig.dev#output) cite for showing elapsed time. The helper is
+  // a no-op under quiet/json mode, so CI paths are unaffected.
+  const syncStartMs = Date.now();
 
   // F16.1-C1 (Decision 27 / Bucket 2.2): sync writes a checkpoint after each
   // mutation phase under `.sync-workspace/checkpoint.json` so `--resume` can
@@ -1537,6 +1546,20 @@ export async function syncCommand(
       }
     } catch (err) {
       verbose(`sync: customization confirmation skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+
+    // D10-SA10.2-F5 + F6 (Cycle 10 Wave 4, D10, P1/P4): on a clean sync, emit
+    // a next-steps ladder (closing the dead-code gap on `printNextSteps`,
+    // which init's inline ladder never routed through) and an elapsed-time
+    // read-out. Suppressed on dry-run and partial failure so the post-summary
+    // chrome only fires when there is a confirmed success to act on. Both
+    // helpers are no-ops under quiet/json mode.
+    if (!opts.dryRun && adapterFailures.length === 0) {
+      printNextSteps([
+        "Run `hatch3r status` to verify your generated files are in sync.",
+        "Run `hatch3r validate` to check canonical content + customizations.",
+      ]);
+      printTimingSummary(syncStartMs);
     }
   }
 

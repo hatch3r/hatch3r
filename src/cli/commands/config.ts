@@ -1,5 +1,5 @@
 import { fileURLToPath } from "node:url";
-import { readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
@@ -72,6 +72,7 @@ import { withSnapshot } from "../../pipeline/snapshot.js";
 import { writeCheckpoint, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
+import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -283,6 +284,27 @@ function parseScalarKeyValue(arg: string | undefined): { key: ScalarConfigKey; v
 }
 
 /**
+ * D1-SA1.2-L2: detect whether the leading argument(s) name a scalar config
+ * form (`<key>=<value>`, `get <key>`, or `set <key> ...`). Used to decide
+ * whether the workspace-member warning gate applies before the scalar
+ * dispatch — the interactive flow already warns at config.ts's
+ * workspace-context block, but `handleScalarConfig` short-circuits before
+ * that block runs. Returns false for non-scalar args so a fall-through to
+ * the interactive flow does not pay the workspace probe twice.
+ */
+function isScalarConfigForm(arg1?: string, arg2?: string): boolean {
+  if (parseScalarKeyValue(arg1)) return true;
+  if (arg1 === "get" && isScalarConfigKey((arg2 ?? "").trim())) return true;
+  if (arg1 === "set") {
+    const rest = (arg2 ?? "").trim();
+    const eq = rest.indexOf("=");
+    const key = eq !== -1 ? rest.slice(0, eq).trim() : rest.split(/\s+/)[0] ?? "";
+    return isScalarConfigKey(key);
+  }
+  return false;
+}
+
+/**
  * Validate and apply a scalar config write to the in-memory manifest. Throws
  * `HatchError` (VALIDATION_ERROR) on invalid input. Returns the previous
  * value so the caller can render a before/after diff.
@@ -338,9 +360,11 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
  * arguments were a known scalar form (caller short-circuits); false when
  * the call should fall through to the interactive flow.
  *
- * Accepts:
+ * Accepts four shapes (D1-SA1.2-L3 — the verb+eq form was reachable but
+ * previously undocumented):
  *   configCommand("maturity=team")        — set form (single arg with `=`)
- *   configCommand("set", "maturity team") — set form (verb + arg)
+ *   configCommand("set", "maturity team") — set form (verb + space-separated value)
+ *   configCommand("set", "maturity=team") — set form (verb + `=`-joined value)
  *   configCommand("get", "maturity")      — get form (verb + key)
  */
 async function handleScalarConfig(
@@ -368,6 +392,24 @@ async function handleScalarConfig(
       verbose(`config: scalar checkpoint write skipped — ${err instanceof Error ? err.message : String(err)}`);
     }
   };
+
+  // D1-SA1.2-L2: the interactive flow warns workspace members that local
+  // changes are overwritten on the next workspace sync (config.ts workspace-
+  // context block), but the scalar setter short-circuits before that block.
+  // Mirror the warning here for write forms (`<key>=<value>` and `set ...`) so
+  // a `hatch3r config maturity=team` run inside a workspace-member repo is not
+  // silently dropped on the next sync. Read-only `get` does not write, so it
+  // is excluded. Non-blocking: the write proceeds after the warning.
+  const isWriteScalarForm = Boolean(parseScalarKeyValue(arg1)) || arg1 === "set";
+  if (isWriteScalarForm && isScalarConfigForm(arg1, arg2)) {
+    const wsContext = await detectWorkspaceContext(rootDir);
+    if (wsContext.type === "workspace-member") {
+      warn(
+        `This repo is managed by workspace at ${wsContext.workspaceRoot}. ` +
+        `The scalar config write will be overwritten by next workspace sync.`,
+      );
+    }
+  }
 
   // Form 1: bare `key=value` ─ e.g. `hatch3r config maturity=team`
   const inlineSet = parseScalarKeyValue(arg1);
@@ -988,31 +1030,75 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     }
 
     if (pendingRemovals.length > 0) {
+      // F10.4-10 (Cycle 10): the body-reference dependency scan reads each KEPT
+      // item's source to check whether it free-references a REMOVED id. It
+      // previously read from `agentsDirLocal` (the legacy `.agents/` tree), which
+      // 1.9+ installs no longer materialize — so on every modern install the read
+      // ENOENT'd and the scan silently no-op'd (a verbose-only line per file). Read
+      // from the bundled content root instead (same canonical layout the content
+      // index is built against: `<type>/<id>` with `/SKILL.md` for skills), so the
+      // scan actually inspects bodies. Read failures are now counted and surfaced as
+      // ONE warning per config run rather than buried per-file at verbose level.
       const dependencyWarnings: string[] = [];
-      for (const removedId of pendingRemovals) {
-        const dependents: string[] = [];
-        for (const keepId of newIds) {
-          const keepItem = index.byId.get(keepId);
-          if (!keepItem) continue;
-          try {
-            const filePath = keepItem.type === "skill"
-              ? join(agentsDirLocal, keepItem.relativePath, "SKILL.md")
-              : join(agentsDirLocal, keepItem.relativePath);
-            const content = await readFile(filePath, "utf-8");
-            const refs = extractContentReferences(content);
-            if (refs.includes(removedId)) {
-              dependents.push(keepId);
+      // F10.4-10 gate-fix (Cycle 10 Wave 4 R3): the body-reference scan is an
+      // ADVISORY best-effort pass — its own warning copy says "may be
+      // incomplete". `resolveBundledContentRoot()` THROWS (HatchError "Bundled
+      // content not found") when no bundled content is locatable (e.g. a test
+      // harness pointing at a fake package root, or any env without the npm
+      // package's content shipped). A throw here previously crashed the entire
+      // `configCommand`, aborting the content removal + summary. Wrap the root
+      // resolution and the body-reference scan in try/catch so resolution
+      // failure degrades to ONE advisory warning and the config command
+      // continues. Orchestration dependency validation below does NOT need the
+      // content root, so it stays outside this guard.
+      try {
+        const bundledContentRoot = resolveBundledContentRoot();
+        // Track DISTINCT kept items whose body could not be read, so the
+        // single end-of-scan warning reports an item count (not an inflated
+        // per-(removed×kept) attempt count).
+        const unreadableKeepIds = new Set<string>();
+        for (const removedId of pendingRemovals) {
+          const dependents: string[] = [];
+          for (const keepId of newIds) {
+            const keepItem = index.byId.get(keepId);
+            if (!keepItem) continue;
+            try {
+              const filePath = keepItem.type === "skill"
+                ? join(bundledContentRoot, keepItem.relativePath, "SKILL.md")
+                : join(bundledContentRoot, keepItem.relativePath);
+              const content = await readFile(filePath, "utf-8");
+              const refs = extractContentReferences(content);
+              if (refs.includes(removedId)) {
+                dependents.push(keepId);
+              }
+            } catch (err) {
+              unreadableKeepIds.add(keepId);
+              const message = err instanceof Error ? err.message : String(err);
+              verbose(`config: dependency check readFile(${keepId}) skipped — ${message}`);
             }
-          } catch (err) {
-            const message = err instanceof Error ? err.message : String(err);
-            verbose(`config: dependency check readFile(${keepId}) skipped — ${message}`);
+          }
+          if (dependents.length > 0) {
+            dependencyWarnings.push(
+              `Removing "${removedId}" — referenced by: ${dependents.join(", ")}`,
+            );
           }
         }
-        if (dependents.length > 0) {
-          dependencyWarnings.push(
-            `Removing "${removedId}" — referenced by: ${dependents.join(", ")}`,
+
+        if (unreadableKeepIds.size > 0) {
+          warn(
+            `Dependency scan could not read ${unreadableKeepIds.size} kept item(s) from the bundled content root ` +
+            `(${bundledContentRoot}) — body-reference warnings may be incomplete. Re-run after \`npm i -g hatch3r\` ` +
+            `or \`npm run build\` if this persists.`,
           );
         }
+      } catch (err) {
+        // resolveBundledContentRoot() (or a wholesale read failure) — skip the
+        // advisory body-reference scan and continue. Content removal proceeds.
+        const message = err instanceof Error ? err.message : String(err);
+        verbose(`config: dependency scan skipped — ${message}`);
+        warn(
+          "Dependency scan skipped — bundled content root unavailable; body-reference warnings omitted.",
+        );
       }
 
       const orchWarnings = validateOrchestrationDependencies(newSelection);
@@ -1178,12 +1264,36 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
 
   await writeManifest(rootDir, manifest);
 
-  if (manifest.worktree?.enabled) {
+  const hasWorktreeCapableTool = tools.some((t) => WORKTREE_CAPABLE_TOOLS.has(t));
+  const worktreeActive = Boolean(manifest.worktree?.enabled) && hasWorktreeCapableTool;
+  if (worktreeActive) {
     const wtContent = await generateWorktreeInclude(manifest, rootDir);
     const wtManaged = extractManagedContent(wtContent);
     await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
       managedContent: wtManaged,
     });
+  } else {
+    // D10-SA10.5-F6: `.worktreeinclude` is emitted only while worktree isolation
+    // is active (a worktree-capable tool selected AND `worktree.enabled`). When a
+    // config run flips that off — worktree disabled, or (future tools) the last
+    // worktree-capable tool removed — the file has zero remaining consumers but
+    // was never swept: config archives per-tool outputs via `TOOL_PATH_PREFIXES`,
+    // which has no entry for this shared, adapter-neutral file. `hatch3r clean`
+    // reclaims it, but reconfigure-via-config left it dangling. Remove the stale
+    // file here, symmetric with the regeneration path. We only reach this block
+    // after a real config change (the `isDiffEmpty` early-return guards no-ops).
+    // Probe existence first so the confirmation line prints only when a managed
+    // `.worktreeinclude` was actually reclaimed.
+    const wtPath = join(rootDir, WORKTREE_INCLUDE_FILE);
+    const wtPresent = await access(wtPath).then(() => true).catch(() => false);
+    if (wtPresent) {
+      try {
+        await rm(wtPath, { force: true });
+        info(`Removed ${WORKTREE_INCLUDE_FILE} — worktree isolation is no longer active.`);
+      } catch (err) {
+        verbose(`config: .worktreeinclude cleanup skipped — ${err instanceof Error ? err.message : String(err)}`);
+      }
+    }
   }
 
   // --- Regenerate from currently-installed package (no network fetch) ---
@@ -1294,6 +1404,14 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       // guide so they know what carries forward, what is rebuilt, and that
       // learnings replay via .hatch3r/learnings/INDEX.md on the new tool.
       info(chalk.dim(`  See the "Switching tools" section of the Customization guide for what carries forward and how learnings replay.`));
+      // D10-SA10.5-F5 (Cycle 10 Wave 4): MCP servers are a flat list shared
+      // across tools (not per-tool scoped). Removing a tool does not prune them,
+      // so a server selected only for the removed tool stays enabled for the
+      // remaining tools. Remind the user they can deselect any now-unused server.
+      // Informational only — no behavior change.
+      if (manifest.mcp.servers.length > 0) {
+        info(chalk.dim(`  Selected MCP servers (${manifest.mcp.servers.join(", ")}) remain enabled for your remaining tools — run \`hatch3r config\` to deselect any you no longer need.`));
+      }
     }
     if (diff.addedTools.length > 0) {
       info(chalk.dim(`  New tool output generated. Restart your editor to pick up changes.`));

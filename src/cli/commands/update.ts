@@ -47,6 +47,8 @@ import {
   printBanner,
   createSpinner,
   printBox,
+  printNextSteps,
+  printTimingSummary,
   error as logError,
   info,
   warn,
@@ -988,6 +990,12 @@ export async function updateCommand(
   // true hang now aborts in-flight rather than being reported after the fact.
 
   const rootDir = process.cwd();
+  // D10-SA10.2-F6 (Cycle 10 Wave 4, D10, P1): capture wall-clock at command
+  // entry so the success path emits a `Completed in Xs` line via
+  // `printTimingSummary` (parity with init + sync). `update` fetches a package
+  // and regenerates every adapter, routinely exceeding the 1s threshold CLI
+  // Guidelines (clig.dev#output) cite for showing elapsed time.
+  const updateStartMs = Date.now();
   // Wave 6: relocate pre-1.9 `.agents/` state before reading the manifest.
   await migrateAgentsToHatch3r(rootDir);
   const manifest = await readManifest(rootDir);
@@ -1239,6 +1247,18 @@ export async function updateCommand(
   // and the info() output is one line.
   if (!m.cliTools || m.cliTools.selected.length === 0) {
     info("CLI tooling available as a token-efficient alternative to MCP — run `npx hatch3r cli-tools` to opt in.");
+  }
+
+  // D10-SA10.2-F5 + F6 (Cycle 10 Wave 4, D10, P1/P4): on a clean update, emit a
+  // next-steps ladder (routing the previously-dead `printNextSteps` helper) and
+  // an elapsed-time read-out (parity with init + sync). Suppressed on partial
+  // failure. Both helpers are no-ops under quiet/json mode.
+  if (result.failedTools === 0) {
+    printNextSteps([
+      "Run `hatch3r status` to confirm your generated files match the new version.",
+      "Run `hatch3r validate` to check canonical content + customizations.",
+    ]);
+    printTimingSummary(updateStartMs);
   }
 
   // F8.3.4: the pipeline-timeout advisory previously emitted here is now

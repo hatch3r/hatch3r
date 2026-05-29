@@ -124,6 +124,16 @@ Auto-tiering can misclassify — a multi-file change scored as Tier 1, or a one-
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
 - No override passed → the Triage auto-classification stands.
 
+### Confidence Floor (Decision 16 / D13-SA13.3-F13.3.3)
+
+`--effort` calibrates work-effort depth; `--confidence-floor` calibrates the confidence threshold at which the Step 6a review gate blocks. They are orthogonal. This is the user's pre-flight assertiveness knob (the forced-second-pass on low confidence in Step 6a is post-hoc; the floor sets the bar before the run):
+
+- `--confidence-floor=any|medium|high` (default `any`). Resolution order: explicit flag wins over the persisted `hatch3r config confidence_floor=...` default, which wins over the built-in `any`.
+- **`any`** (current behavior): Step 6a forces a second reviewer pass only when reviewer confidence `== low` with 0 Critical + 0 Warning.
+- **`medium`**: force a second pass on ANY finding rated `confidence == low`, even with 0 Critical + 0 Warning.
+- **`high`**: force a second pass on any finding rated `confidence != high`, AND ASK the user on every low-confidence finding regardless of severity.
+- Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`. Tier 1 trivial inline edits skip the review loop entirely, so the floor applies only to nontrivial items that reach Step 6a. The floor never relaxes a quality gate.
+
 ---
 
 ## Workflow
@@ -324,8 +334,8 @@ The reviewer prompt MUST include:
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 - Requirement that the reviewer output include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
 
-2. Process reviewer output (confidence-aware gate):
-   - If **0 Critical + 0 Warning AND reviewer confidence != low**: review loop is clean. Proceed to Step 6b.
+2. Process reviewer output (confidence-aware gate — the second-pass trigger tightens with the `--confidence-floor` set in the Effort Override section above; `any` = default below, `medium`/`high` raise the bar):
+   - If **0 Critical + 0 Warning AND reviewer confidence != low**: review loop is clean. Proceed to Step 6b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
    - If **0 Critical + 0 Warning AND reviewer confidence == low**: trigger a second reviewer pass before exiting. Do not proceed to 6b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them, then re-run the reviewer (next iteration).
      The fixer prompt MUST include: the reviewer findings, all `scope: always` rule directives, and the confidence expression requirement (high/medium/low per the quality charter).

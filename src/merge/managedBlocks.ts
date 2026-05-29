@@ -170,6 +170,21 @@ export function extractCustomContent(content: string): string {
  * Wrap content with HATCH3R:BEGIN / HATCH3R:END markers, choosing the
  * marker variant from {@link filePath}. Omit `filePath` to keep the
  * historical HTML-comment default (used by every markdown-producing adapter).
+ *
+ * **D11-SA11.2-F8 (Cycle 10 Wave 4, D11, P5) — filePath footgun for non-markdown
+ * outputs.** `filePath` is optional ONLY because every current adapter output is
+ * markdown, for which the HTML-comment default is correct. The argument is NOT
+ * optional for any non-`.md` output: `getMarkersForPath` selects YAML `#`
+ * markers for `.yml`/`.yaml` and HTML `<!-- -->` markers otherwise, so a
+ * future adapter that emits a `.yml`/`.yaml` file (or any format where an HTML
+ * comment is a syntax error) MUST pass `filePath`. Omitting it re-introduces
+ * issue #76 (HTML markers in a YAML file → GitHub Actions parse failure on
+ * line 2). The single existing YAML output —
+ * `copilot.ts` `copilot-setup-steps.yml` — correctly passes its path; copy that
+ * pattern, never the markdown-default call. There is no runtime guard for the
+ * omission: the type system cannot tell a `.yml` path from a `.md` one, so this
+ * contract is convention-enforced. When adding a `.yaml`-emitting adapter, also
+ * add a regression test asserting the emitted markers are the YAML variant.
  */
 export function wrapInManagedBlock(content: string, filePath?: string): string {
   const markers = getMarkersForPath(filePath);

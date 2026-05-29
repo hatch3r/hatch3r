@@ -28,6 +28,7 @@ import {
   printBanner,
   createSpinner,
   printBox,
+  printTimingSummary,
   error as logError,
   warn,
   info,
@@ -2039,6 +2040,13 @@ export async function validateCommand(opts?: {
 
   const rootDir = process.cwd();
   const timestamp = new Date().toISOString();
+  // D10-SA10.2-F6 (Cycle 10 Wave 4, D10, P1): capture wall-clock at command
+  // entry so the human-mode success paths emit a `Completed in Xs` line via
+  // `printTimingSummary`. Validating the full bundled canonical corpus +
+  // inline sub-validators exceeds the 1s threshold CLI Guidelines
+  // (clig.dev#output) cite for showing elapsed time. The helper is a no-op
+  // under quiet/json mode, so the single-JSON-document contract is preserved.
+  const validateStartMs = Date.now();
 
   if (opts?.docs) {
     const spinner = jsonMode ? null : createSpinner("Verifying documentation counts...");
@@ -2360,6 +2368,8 @@ export async function validateCommand(opts?: {
         "Sub-validators (rule-parity, rule-pillar-currency, efficiency-invariants, bridge-budget, fanout-emission) ran inline. Remaining framework-dev gates (validate:cli-skills, validate:wiring, validate:anti-slop, validate:specialist-roster) run under `npm run validate`.",
       );
     }
+    // D10-SA10.2-F6: elapsed-time read-out on the clean-pass path.
+    printTimingSummary(validateStartMs);
     return;
   }
 
@@ -2397,6 +2407,9 @@ export async function validateCommand(opts?: {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation passed", summaryLines, "success");
+    // D10-SA10.2-F6: elapsed-time read-out on the warnings-only pass path.
+    // Omitted on the error path above (the throw exits before any tail).
+    printTimingSummary(validateStartMs);
   }
 
   if (hasCustomizations) {

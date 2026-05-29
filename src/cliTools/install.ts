@@ -153,6 +153,11 @@ export function printMissingCliToolsDisclaimer(
     `Copy-paste to install everything (${osLabel}):`,
     "",
     ...oneLiner.split("\n").map((l) => `  ${l}`),
+    "",
+    // D10-SA10.3-F-7: give the user a post-install re-verify path so the
+    // disclaimer is actionable end-to-end (install → confirm) rather than a
+    // dead-end warning. `hatch3r cli-tools detect` re-probes PATH.
+    `After installing, verify with: hatch3r cli-tools detect`,
   ];
   printBox("CLI tools not installed", lines, "warning");
 }

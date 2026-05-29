@@ -202,17 +202,66 @@ export function printBox(
 // GitLab CI) can parse stderr for failure signals.
 // Reference: https://en.wikipedia.org/wiki/Standard_streams
 
+/**
+ * D10-SA10.2-F10 (Cycle 10 Wave 4, D10, P1): whether the active terminal
+ * renders Unicode glyphs. `error()`/`warn()`/`info()` use the glyphs `✖ ⚠ ℹ`,
+ * which Windows cmd.exe under a legacy code page (and some CI log pipelines
+ * that strip non-ASCII) render as `?`. chalk auto-strips ANSI colour under
+ * `NO_COLOR`/non-TTY but does NOT touch the glyph codepoints themselves, so a
+ * dedicated probe is required.
+ *
+ * Detection mirrors sindresorhus/is-unicode-supported without the dependency:
+ * non-Windows is assumed UTF-capable; on Windows, UTF-8 is signalled by
+ * Windows Terminal (`WT_SESSION`), modern terminals (`TERM_PROGRAM`), CI, or a
+ * UTF-8 locale on `LANG`/`LC_ALL`/`LC_CTYPE`. An explicit `HATCH3R_ASCII=1`
+ * (or NO_COLOR with a non-UTF Windows locale) forces the ASCII path so the
+ * fallback is testable via `HATCH3R_ASCII=1` / `LANG=C` without a real
+ * cmd.exe. Result is computed per-call (not cached) so tests can toggle env.
+ *
+ * Reference: https://github.com/sindresorhus/is-unicode-supported (accessed
+ * 2026-05-29) and https://no-color.org/ (accessed 2026-05-29).
+ */
+function supportsUnicode(): boolean {
+  if (process.env.HATCH3R_ASCII === "1") return false;
+  if (process.platform !== "win32") return true;
+  if (process.env.CI !== undefined) return true;
+  if (process.env.WT_SESSION !== undefined) return true; // Windows Terminal
+  if (process.env.TERM_PROGRAM === "vscode") return true;
+  const locale = process.env.LC_ALL || process.env.LC_CTYPE || process.env.LANG || "";
+  return /UTF-?8$/i.test(locale);
+}
+
+/**
+ * D10-SA10.2-F10: status glyphs with an ASCII fallback for terminals that do
+ * not render Unicode (legacy Windows cmd.exe, ASCII-only CI log sinks). Each
+ * accessor resolves at call time so a per-invocation env toggle (`HATCH3R_ASCII=1`)
+ * exercises the fallback. The glyphs keep their prior codepoints on capable
+ * terminals so no interactive UX changes.
+ */
+const GLYPHS = {
+  error: { unicode: "✖", ascii: "[X]" },
+  warn: { unicode: "⚠", ascii: "[!]" },
+  info: { unicode: "ℹ", ascii: "[i]" },
+  success: { unicode: "✔", ascii: "[OK]" },
+} as const;
+
+/** Resolve a status glyph to its Unicode or ASCII form for the active terminal. */
+export function glyph(kind: keyof typeof GLYPHS): string {
+  const g = GLYPHS[kind];
+  return supportsUnicode() ? g.unicode : g.ascii;
+}
+
 export function error(msg: string): void {
-  console.error(`  ${chalk.red("✖")} ${msg}`);
+  console.error(`  ${chalk.red(glyph("error"))} ${msg}`);
 }
 
 export function warn(msg: string): void {
-  console.error(`  ${chalk.yellow("⚠")} ${msg}`);
+  console.error(`  ${chalk.yellow(glyph("warn"))} ${msg}`);
 }
 
 export function info(msg: string): void {
   if (quietEnabled) return;
-  console.log(`  ${CYAN("ℹ")} ${msg}`);
+  console.log(`  ${CYAN(glyph("info"))} ${msg}`);
 }
 
 export function step(n: number, total: number, msg: string): string {

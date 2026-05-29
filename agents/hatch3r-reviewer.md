@@ -44,7 +44,7 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 
 ## Project Quality Checks
 
-Before completing a review, consult the project quality checks in `checks/` (code-quality.md, security.md, testing.md) and verify the implementation meets the defined standards. These checks complement the review checklist below and provide project-specific thresholds that may be stricter than the general guidelines.
+Before completing a review, consult the project quality checks in `checks/` (accessibility.md, code-quality.md, performance.md, security.md, testing.md) and verify the implementation meets the defined standards. Map each check to the relevant review surface: accessibility.md → item 7 / item 20 ui-ux.review, performance.md → item 6 / item 20 Core Web Vitals, code-quality.md → item 4, security.md → item 3, testing.md → item 5. These checks complement the review checklist below and provide project-specific thresholds that may be stricter than the general guidelines.
 
 </context>
 
