@@ -373,6 +373,20 @@ export async function syncCommand(
 
   verbose(`Manifest loaded: ${m.tools.length} tool(s), ${Object.keys(m.features).filter(k => m.features[k as keyof typeof m.features]).length} feature(s)`);
 
+  // D1-SA1.3-F1.3.10 (Cycle 10 Wave 4, D1, P1): `--clean-orphans` is still
+  // accepted at the commander surface for backward compatibility with legacy
+  // CI scripts, but it is a no-op since the user-side canonical orphan scan was
+  // retired (Wave 7) — orphan cleanup now runs automatically per adapter via
+  // `sweepOrphansForAdapter`. Silently discarding the flag violated the Silent
+  // Failure Contract (CONSTITUTION §2 P5); warn when the operator opts in so
+  // they can drop it from their invocation.
+  if (opts.cleanOrphans) {
+    warn(
+      "--clean-orphans is now a no-op; orphan cleanup runs automatically per adapter. " +
+      "Remove it from your invocation.",
+    );
+  }
+
   // D20: user-content discovery is informational here — adapters already
   // pick up `.agents/user/` items via readCanonicalFiles. Surface the count
   // so operators know whether their user artifacts are part of the run.

@@ -73,8 +73,7 @@ interface AdapterCapability {
   cliTools: boolean;
 }
 
-// Adapter capability matrix — last updated for hatch3r v1.6.0.
-// #260 (D9-9.31): Updated "last verified" version from v1.2.0 to v1.4.0.
+// Adapter capability matrix — last updated for hatch3r 2.0.0 (Decision 12 — 3-adapter scope).
 // Review this matrix when adding new adapters, removing adapters, or when
 // an existing tool gains/loses support for a feature (e.g. a tool ships
 // native hook support). Each row must match the adapter's doGenerate() output.
@@ -97,12 +96,11 @@ export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
  * by the given tool's adapter. Used during sync to surface capability gaps.
  *
  * Returns at most one combined warning per adapter listing all unsupported
- * features (e.g. `"amp: features enabled but not supported by this adapter:
- * agents, rules, hooks, commands, prompts, GitHub agents"`). When the
- * adapter supports every enabled feature, returns `[]`. This grouping keeps
- * the console output readable when many adapters and many features are
- * enabled (otherwise the cross-product produces ~42 lines for a full
- * 15-adapter / 8-feature run).
+ * features (e.g. `"cursor: features enabled but not supported by this
+ * adapter: prompts, GitHub agents"`). When the adapter supports every
+ * enabled feature, returns `[]`. This grouping keeps the console output
+ * readable when many adapters and many features are enabled (otherwise the
+ * cross-product produces ~24 lines for a full 3-adapter / 8-feature run).
  */
 export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManifest): string[] {
   const caps = ADAPTER_CAPABILITIES[tool as Tool];
@@ -126,19 +124,12 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
     }
   }
 
-  // CLI-tooling pivot: `cliTools` lives on `manifest.cliTools.enabled`, not
-  // `manifest.features`, so it is checked separately from the
-  // feature-label loop above. Warns only when the user has selected at
-  // least one CLI tool but the active adapter does not render the
-  // per-tool `hatch3r-cli-*` skills (e.g. `amp` reads them natively from
-  // the canonical tree; `zed` has no skills surface).
-  if (
-    manifest.cliTools?.enabled &&
-    (manifest.cliTools.selected?.length ?? 0) > 0 &&
-    !caps.cliTools
-  ) {
-    unsupported.push("CLI tool skills");
-  }
+  // CLI-tooling pivot: the `!caps.cliTools` warning branch was removed in
+  // 2.0.0 (D2-SA2.5-2.5.2, Cycle 10 Wave 4). All 3 retained adapters
+  // (cursor, claude, copilot) set `cliTools: true`, so the negative case
+  // was structurally unreachable dead code — `capability-matrix` drift test
+  // codifies the invariant (`falseCount === 0`). Restore a
+  // `manifest.cliTools` check here if a future adapter ships `cliTools: false`.
 
   if (unsupported.length === 0) return [];
 

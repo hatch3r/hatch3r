@@ -13,6 +13,10 @@ precedence: high
 
 Source: `governance/CONSTITUTION.md` §2 P8.
 
+## Canonical surface
+
+This rule lives under `.claude/rules/` — framework-dev only; adapters do not ship it to end-user repos (they read from canonical `rules/` via `src/adapters/canonical.ts::readCanonicalFiles`). End-user runtime agents that delegate via the Task tool inherit the identical P8 B2 directive from the canonical, shipped `rules/hatch3r-agent-orchestration.md` → §Scaling Heuristic + §Cost-Dominance Principle (both `scope: always`). A dedicated canonical `rules/hatch3r-fan-out-discipline.md` twin remains a tracked content-add candidate (D7-SA7.6-L-1 / C-1) via `/h4tcher-capability-add rule hatch3r-fan-out-discipline`.
+
 ## B2 directive (verbatim)
 
 > Sub-agent fan-out scales with task size; serialization is only valid on dependency edges. Token cost is never a valid reason to serialize independent work. Delegating artifacts emit sub-agent count + rationale as a first-class output field.

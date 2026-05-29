@@ -126,6 +126,7 @@ At the end of an auto session, generate a summary:
 - **Issue update failure:** warn and continue (labels not blocking).
 - **Quality verification failure:** fix before creating PR/MR.
 - **PR/MR creation failure:** present error and manual instructions.
+- **Context degradation (>25 turns):** inherit `hatch3r-workflow`'s threshold — suggest splitting the batch or starting a fresh context (with a progress summary of completed and remaining issues) per remaining issue.
 
 ---
 

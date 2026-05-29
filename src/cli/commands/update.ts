@@ -7,7 +7,7 @@ import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
-import { safeWriteFile } from "../../merge/safeWrite.js";
+import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { HATCH3R_DIR, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
@@ -126,6 +126,31 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
     version: HATCH3R_VERSION,
   });
   if (result.warning) warn(`[hatch3r update] ${result.warning}`);
+}
+
+/**
+ * SA12.1-F05 (Cycle 10 Wave 4, D12, P1): throw an exit-2 `HatchError` when some
+ * — but not all — adapters failed during a regenerate, mirroring the
+ * partial-failure contract `hatch3r sync` enforces (`sync.ts` terminal throw).
+ *
+ * Exit code 2 (usage-class, per POSIX/sysexits) lets a CI pipeline distinguish
+ * an incomplete update from a clean run by exit code alone — sync already does
+ * this, and the two commands sharing one convention prevents a partial update
+ * from being scored as success. The all-adapters-failed case is handled earlier
+ * (inside `runRegenerate`), so this only fires for a true partial failure. A
+ * no-op when `failedTools` is 0 or equals `totalTools`.
+ */
+function throwOnPartialAdapterFailure(failedTools: number, totalTools: number): void {
+  if (failedTools <= 0 || failedTools >= totalTools) return;
+  const guidance =
+    "Re-run `hatch3r update` (or `hatch3r update --offline` to regenerate without the package fetch); " +
+    "inspect the per-adapter messages above for any substantive failure before retrying.";
+  throw new HatchError(
+    `Update completed with ${failedTools} adapter failure(s). ${guidance}`,
+    2,
+    "ADAPTER_ERROR",
+    guidance,
+  );
 }
 
 export interface UpdateResult {
@@ -638,24 +663,24 @@ export async function runRegenerate(
  *                  differs from the generated output
  *   = unchanged  — adapter would write the same bytes already on disk
  *
- * Canonical content is enumerated via a dry-pass over the same source tree
- * that `runRegenerate` copies from; adapter outputs are produced in-memory
- * via the same `generateWithTimeout` pipeline used by sync/update.
+ * Adapter outputs are produced in-memory via the same `generateWithTimeout`
+ * pipeline used by sync/update.
  */
 export async function runUpdateDryRun(
   rootDir: string,
   manifest: HatchManifest,
   options: { offline?: boolean } = {},
 ): Promise<{
-  canonicalCandidates: string[];
   adapterChanges: Map<string, { added: string[]; modified: string[]; unchanged: string[]; error?: string }>;
 }> {
-  // Wave 3: dry-run no longer enumerates `.agents/` canonical copy candidates
-  // because the materialization is gone. canonicalCandidates stays empty;
-  // TODO Wave 7: re-derive a meaningful "candidates" list from the bundled
-  // content root or drop this column entirely.
+  // D1-SA1.3-F1.3.9 (Cycle 10 Wave 4, D1, P1): the dry-run previously carried
+  // a `canonicalCandidates: string[]` column that was hardcoded empty after
+  // Wave 3 removed user-repo `.agents/` materialization (the enumerator helper
+  // was deleted in a later wave). The "Canonical candidate files: 0" line was
+  // misleading — canonical content is now bundled with the npm package and
+  // immutable, so there is nothing to enumerate. Drop the dead column from the
+  // output and return type rather than print a permanently-zero count.
   const canonicalContentRoot = resolveBundledContentRoot();
-  const canonicalCandidates: string[] = [];
 
   const adapterChanges = new Map<
     string,
@@ -697,7 +722,6 @@ export async function runUpdateDryRun(
 
   const summaryLines: string[] = [];
   summaryLines.push(chalk.dim(`Offline: ${options.offline ? "yes" : "no"}`));
-  summaryLines.push(chalk.dim(`Canonical candidate files: ${canonicalCandidates.length}`));
   for (const [tool, bucket] of adapterChanges) {
     if (bucket.error) {
       summaryLines.push(`${chalk.red("x")} ${tool}: ${bucket.error}`);
@@ -713,7 +737,7 @@ export async function runUpdateDryRun(
   }
   console.log();
   printBox("Update dry run (no writes)", summaryLines.length > 0 ? summaryLines : [chalk.dim("No adapters configured.")], "info");
-  return { canonicalCandidates, adapterChanges };
+  return { adapterChanges };
 }
 
 /**
@@ -1022,6 +1046,24 @@ export async function updateCommand(
     );
   }
 
+  // D11-SA11.2-F13 (Cycle 10 Wave 4, D11, P6): sweep orphan `.tmp.<hex>` files
+  // left under the project root by a prior SIGKILL'd run before the regenerate
+  // writes begin — `update` writes through `atomicWriteFile`/`safeWriteFile`
+  // (temp+rename), so an interrupted update can strand temp files that the
+  // command had no entry-point sweep to reclaim. Best-effort: the sweep only
+  // removes files older than the in-flight-write floor, surfaces removals +
+  // any unlink failures via warn() per the Silent Failure Contract (P5), and
+  // never aborts the update. Skipped under --dry-run (which promises no writes).
+  if (!_opts?.dryRun) {
+    try {
+      const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+      const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+      if (tmpDiag) warn(tmpDiag);
+    } catch (err) {
+      verbose(`update: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   const headless = !!(_opts?.yes);
   const { manifest: migrated, allNotices } = await runMigrationCheckpoints(manifest, rootDir, headless);
   const m = migrated;
@@ -1141,6 +1183,16 @@ export async function updateCommand(
         stdio: "inherit",
         env: { ...process.env, HATCH3R_RE_EXEC: "1" },
       });
+      // D8-SA8.1-F8.1.9 (Cycle 10 Wave 4, D8, P1): when the re-exec'd child is
+      // terminated by a signal (e.g. the user hits Ctrl-C mid-regenerate),
+      // `child.status` is null and the signal name lives in `child.signal`.
+      // Propagate the POSIX 128+signal exit code (SIGINT → 130, SIGTERM → 143)
+      // instead of collapsing every signal death into a generic exit 1, so CI
+      // scripts can distinguish a user cancel from a real failure — matching
+      // the mainline handler in `src/cli/index.ts`.
+      if (child.signal) {
+        process.exit(child.signal === "SIGINT" ? 130 : child.signal === "SIGTERM" ? 143 : 1);
+      }
       process.exit(child.status ?? 1);
     }
     result = await runRegenerate(rootDir, m, {
@@ -1156,7 +1208,19 @@ export async function updateCommand(
   // canonical tree remains after Wave 3+4. The helper functions
   // (`scanOrphanFiles`, `formatOrphanScanDiagnostic`) are still exercised
   // by the `npx hatch3r validate` bundled-content gate.
-  void _opts?.cleanOrphans;
+  //
+  // D1-SA1.3-F1.3.10 / D11-SA11.4-10 (Cycle 10 Wave 4, D1+D11, P1): the
+  // `--clean-orphans` flag is still accepted at the commander surface for
+  // backward compatibility with legacy CI scripts, but it is a no-op since the
+  // user-side canonical scan was retired. Silently discarding it violated the
+  // Silent Failure Contract (CONSTITUTION §2 P5) — surface a one-line warning
+  // when the operator explicitly opts in so they can drop it from their script.
+  if (_opts?.cleanOrphans) {
+    warn(
+      "--clean-orphans is now a no-op; orphan cleanup runs automatically per adapter. " +
+      "Remove it from your invocation.",
+    );
+  }
   void scanOrphanFiles;
   void formatOrphanScanDiagnostic;
 
@@ -1236,6 +1300,12 @@ export async function updateCommand(
       hatch3rVersion: HATCH3R_VERSION,
       timestamp: new Date().toISOString(),
     });
+    // SA12.1-F05 (D12, P1): the JSON document carries `status: "partial"`, but
+    // a CI script gating on the exit code still needs the non-zero signal.
+    // Emit the structured payload first (CI consumers parse it from stdout),
+    // then throw the same partial-failure exit-2 sync uses — the top-level
+    // handler routes the error to stderr, keeping stdout a single JSON doc.
+    throwOnPartialAdapterFailure(result.failedTools, m.tools.length);
     return;
   }
 
@@ -1264,4 +1334,12 @@ export async function updateCommand(
   // F8.3.4: the pipeline-timeout advisory previously emitted here is now
   // enforced (not just reported) by the `runWithPipelineDeadman` wrapper
   // inside `runRegenerate`.
+
+  // SA12.1-F05 (Cycle 10 Wave 4, D12, P1): exit non-zero on a partial adapter
+  // failure (some-but-not-all adapters failed) so CI pipelines can detect an
+  // incomplete update the same way `hatch3r sync` does. The summary box above
+  // already rendered (parity with sync, which prints its box then throws).
+  // The all-adapters-failed case throws inside `runRegenerate` before reaching
+  // this point, so `failedTools > 0` here always denotes a partial failure.
+  throwOnPartialAdapterFailure(result.failedTools, m.tools.length);
 }
