@@ -3,18 +3,21 @@ import { access, readFile, readdir, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
-import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier } from "../../manifest/hatchJson.js";
+import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier, readConfidenceFloor } from "../../manifest/hatchJson.js";
 import {
+  CONFIDENCE_FLOORS,
   DEFAULT_FEATURES,
   HATCH3R_DIR,
   HatchError,
   MANIFEST_FILE,
   MATURITY_TIERS,
+  VALID_CONFIDENCE_FLOORS,
   VALID_MATURITY_TIERS,
   WORKTREE_CAPABLE_TOOLS,
   WORKTREE_INCLUDE_FILE,
   type CliToolId,
   type CliToolsConfig,
+  type ConfidenceFloor,
   type ContentSelection,
   type Features,
   type HatchManifest,
@@ -256,13 +259,17 @@ async function printCurrentConfig(rootDir: string, manifest: HatchManifest): Pro
  * `hatch3r config set <key> <value>`. Each entry validates its input and
  * mutates the manifest in place; the caller persists with `writeManifest`.
  *
- * Today only `maturity` is exposed; the structure is shaped so further
- * scalar keys (e.g. `costTracking.currency`) can be added without changing
- * the dispatch layer.
+ * - `maturity`         — Decision 4 / #16 content-admission tier.
+ * - `confidence_floor` — D13-SA13.3-F13.3.3 agent-assertiveness floor
+ *                        consumed by the core orchestrators when no explicit
+ *                        `--confidence-floor` run flag is given.
+ *
+ * The structure is shaped so further scalar keys (e.g. `costTracking.currency`)
+ * can be added without changing the dispatch layer.
  */
-type ScalarConfigKey = "maturity";
+type ScalarConfigKey = "maturity" | "confidence_floor";
 
-const SCALAR_CONFIG_KEYS = new Set<string>(["maturity"]);
+const SCALAR_CONFIG_KEYS = new Set<string>(["maturity", "confidence_floor"]);
 
 function isScalarConfigKey(key: string): key is ScalarConfigKey {
   return SCALAR_CONFIG_KEYS.has(key);
@@ -328,6 +335,21 @@ function applyScalarConfigWrite(
     manifest.maturity = value as MaturityTier;
     return { previous, next: value };
   }
+  if (key === "confidence_floor") {
+    // D13-SA13.3-F13.3.3: closed enum (any|medium|high). Reject anything else
+    // at write time so a typo never persists a floor the orchestrators ignore.
+    if (!VALID_CONFIDENCE_FLOORS.has(value)) {
+      throw new HatchError(
+        `Invalid confidence floor: "${value}". Valid: ${[...CONFIDENCE_FLOORS].join(", ")}`,
+        undefined,
+        "VALIDATION_ERROR",
+        `Re-run with one of: ${[...CONFIDENCE_FLOORS].join(", ")}.`,
+      );
+    }
+    const previous = manifest.confidenceFloor;
+    manifest.confidenceFloor = value as ConfidenceFloor;
+    return { previous, next: value };
+  }
   // Exhaustive guard for future keys — the type system enforces this branch
   // is unreachable today.
   throw new HatchError(
@@ -347,6 +369,11 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
   if (key === "maturity") {
     return readMaturityTier(manifest);
   }
+  if (key === "confidence_floor") {
+    // D13-SA13.3-F13.3.3: absent field reads back as the documented default
+    // ("any") rather than empty, so `config get confidence_floor` is actionable.
+    return readConfidenceFloor(manifest);
+  }
   throw new HatchError(
     `Unsupported config key: ${key}`,
     undefined,
@@ -362,11 +389,12 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
  * the call should fall through to the interactive flow.
  *
  * Accepts four shapes (D1-SA1.2-L3 — the verb+eq form was reachable but
- * previously undocumented):
+ * previously undocumented); `<key>` is any member of {@link SCALAR_CONFIG_KEYS}
+ * (`maturity`, `confidence_floor`):
  *   configCommand("maturity=team")        — set form (single arg with `=`)
  *   configCommand("set", "maturity team") — set form (verb + space-separated value)
  *   configCommand("set", "maturity=team") — set form (verb + `=`-joined value)
- *   configCommand("get", "maturity")      — get form (verb + key)
+ *   configCommand("get", "confidence_floor") — get form (verb + key)
  */
 async function handleScalarConfig(
   rootDir: string,

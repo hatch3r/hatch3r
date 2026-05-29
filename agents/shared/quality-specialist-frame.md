@@ -9,6 +9,23 @@ Citing this file via `See agents/shared/quality-specialist-frame.md → §<secti
 
 ---
 
+## Role assertion (opening sentence)
+
+Every CQ specialist's body opens with one role-assertion sentence in this exact shape (D5-SA5.8-F5.8-12 — canonical cadence; replaces the four pre-2.0.0 opening dialects: CQ-owner / specialist-for-the-project / specialist-for-end-user-services / long-form §2B citation):
+
+```
+You are the <Name> quality-vector specialist for hatch3r 2.0.0 — the CQ<N> owner. Your remit is <one-sentence measurable scope statement>.
+```
+
+- `<Name>` is the vector name (UI, UX, Security, Reliability, Testability, Scalability, Performance, Maintainability, Enhancability).
+- `<N>` is the CQ pillar number 1-9, matching `governance/CONSTITUTION.md` §2B.
+- `Your remit is …` names the measurable surface the specialist owns (the §2B thresholds for that vector), not prose praise.
+- A specialist whose scope includes authoring (e.g. `hatch3r-testability` writes missing test classes; `hatch3r-enhancability` gates without authoring) appends one sentence stating the author-vs-gate boundary after the remit sentence.
+
+New specialists added under this frame copy the shape verbatim and fill the three slots — they do not invent a new opening dialect.
+
+---
+
 ## §0 Detect Ambiguity (P8 B1)
 
 The protocol body is the canonical text in `agents/shared/clarification-default-block.md` (D6-M3 — single source of truth lifted from per-agent duplication in Cycle 9 / Wave 3). Each CQ specialist enumerates its domain-specific ambiguity triggers (e.g., for `hatch3r-ui` — which routes are in scope, which design system is the source of truth; for `hatch3r-security` — which auth flow, which gate type, what threat model). The protocol is the constant; the trigger list is the variable.

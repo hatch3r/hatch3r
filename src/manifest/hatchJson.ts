@@ -1,10 +1,12 @@
 import { access, mkdir, readFile, rename } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import {
+  DEFAULT_CONFIDENCE_FLOOR,
   DEFAULT_MATURITY_TIER,
   HATCH3R_DIR,
   HatchError,
   MANIFEST_FILE,
+  VALID_CONFIDENCE_FLOORS,
   VALID_MATURITY_TIERS,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
@@ -12,6 +14,7 @@ import {
   type BoardConfig,
   type ClaudeConfig,
   type CliToolsConfig,
+  type ConfidenceFloor,
   type ContentSelection,
   type CostTrackingConfig,
   type CustomizationManifest,
@@ -351,6 +354,12 @@ function collectManifestErrors(data: unknown): string[] {
   // D1-SA1.6-F5: routed through the shared validateStringUnion helper so the
   // membership-check pattern is reused (not copy-pasted) by future union fields.
   validateStringUnion(obj.maturity, VALID_MATURITY_TIERS, "maturity", errors);
+
+  // D13-SA13.3-F13.3.3: validate the optional `confidenceFloor` scalar at the
+  // persistence boundary via the same shared helper, so an out-of-enum value
+  // hand-edited into hatch.json is rejected on read rather than silently
+  // mis-driving the orchestrator assertiveness gate.
+  validateStringUnion(obj.confidenceFloor, VALID_CONFIDENCE_FLOORS, "confidenceFloor", errors);
 
   // #108: board sub-schema
   if (obj.board !== undefined) {
@@ -869,4 +878,20 @@ export function readMaturityTier(m: HatchManifest | null | undefined): MaturityT
     return value;
   }
   return DEFAULT_MATURITY_TIER;
+}
+
+/**
+ * D13-SA13.3-F13.3.3 (Pillar P1): read the persisted agent-assertiveness floor.
+ * Absence collapses to `DEFAULT_CONFIDENCE_FLOOR` ("any" — current behavior) so
+ * pre-2.0 manifests stay valid without a schema version bump. An out-of-enum
+ * persisted value is already rejected at the persistence boundary by
+ * `validateManifest`; the membership re-check here is defense-in-depth for the
+ * `null`/`undefined` and absent-field callers, mirroring `readMaturityTier`.
+ */
+export function readConfidenceFloor(m: HatchManifest | null | undefined): ConfidenceFloor {
+  const value = m?.confidenceFloor;
+  if (value && VALID_CONFIDENCE_FLOORS.has(value)) {
+    return value;
+  }
+  return DEFAULT_CONFIDENCE_FLOOR;
 }

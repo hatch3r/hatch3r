@@ -13,12 +13,15 @@ import {
   applyPreservedManifestFields,
   readCliToolsConfig,
   readMaturityTier,
+  readConfidenceFloor,
   isValidGitBranchName,
 } from "../../manifest/hatchJson.js";
 import {
+  DEFAULT_CONFIDENCE_FLOOR,
   DEFAULT_MATURITY_TIER,
   HatchError,
   type BoardConfig,
+  type ConfidenceFloor,
   type HatchManifest,
   type MaturityTier,
 } from "../../types.js";
@@ -669,6 +672,55 @@ describe("hatchJson", () => {
       const result = await readManifest(rootDir);
       expect(result).not.toBeNull();
       expect(result!.maturity).toBeUndefined();
+    });
+
+    // D13-SA13.3-F13.3.3 (Cycle 10 Wave 4): a hand-edited manifest with an
+    // out-of-enum `confidenceFloor` must be rejected at the persistence boundary
+    // with HatchError(CONFIG_ERROR) rather than silently mis-driving the
+    // orchestrator assertiveness gate. Mirrors the `maturity` guard above.
+    it("rejects an invalid confidenceFloor value with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        confidenceFloor: "paranoid",
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on invalid confidenceFloor");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/Invalid manifest/);
+      }
+    });
+
+    it("accepts a valid confidenceFloor and a manifest with no confidenceFloor field", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        confidenceFloor: "high",
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.confidenceFloor).toBe("high");
     });
   });
 
@@ -1626,6 +1678,38 @@ describe("hatchJson", () => {
       const manifest = createManifest({ tools: ["cursor"] });
       (manifest as unknown as { maturity: string }).maturity = "not-a-real-tier";
       expect(readMaturityTier(manifest)).toBe(DEFAULT_MATURITY_TIER);
+    });
+  });
+
+  // D13-SA13.3-F13.3.3 (Cycle 10 Wave 4): readConfidenceFloor mirrors
+  // readMaturityTier — absence / null / undefined / out-of-enum all collapse to
+  // DEFAULT_CONFIDENCE_FLOOR ("any") so the orchestrator assertiveness gate keeps
+  // its current default behavior on pre-2.0 and corrupt manifests.
+  describe("readConfidenceFloor", () => {
+    it("returns DEFAULT_CONFIDENCE_FLOOR when manifest is null or undefined", () => {
+      expect(readConfidenceFloor(null)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+      expect(readConfidenceFloor(undefined)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+    });
+
+    it("returns DEFAULT_CONFIDENCE_FLOOR when the field is absent", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      expect(manifest.confidenceFloor).toBeUndefined();
+      expect(readConfidenceFloor(manifest)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+    });
+
+    it("returns the manifest floor when set to a valid value", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      const floors: ConfidenceFloor[] = ["any", "medium", "high"];
+      for (const floor of floors) {
+        manifest.confidenceFloor = floor;
+        expect(readConfidenceFloor(manifest)).toBe(floor);
+      }
+    });
+
+    it("falls back to the default when a corrupt manifest carries an out-of-enum floor", () => {
+      const manifest = createManifest({ tools: ["cursor"] });
+      (manifest as unknown as { confidenceFloor: string }).confidenceFloor = "paranoid";
+      expect(readConfidenceFloor(manifest)).toBe(DEFAULT_CONFIDENCE_FLOOR);
     });
   });
 

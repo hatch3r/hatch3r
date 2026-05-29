@@ -54,6 +54,12 @@ vi.mock("../../manifest/hatchJson.js", () => ({
       ? value
       : "solo";
   }),
+  // D13-SA13.3-F13.3.3: scalar config `get confidence_floor` consults
+  // `readConfidenceFloor`; mirror the real helper (valid pass-through, else "any").
+  readConfidenceFloor: vi.fn((m: { confidenceFloor?: string } | null | undefined) => {
+    const value = m?.confidenceFloor;
+    return value && ["any", "medium", "high"].includes(value) ? value : "any";
+  }),
   isValidGitBranchName: vi.fn(() => true),
 }));
 
@@ -1846,6 +1852,22 @@ describe("config command", () => {
       expect(writtenManifest.maturity).toBe("team");
     });
 
+    it("sets maturity via `set` verb + `=`-joined form (D1-SA1.2-L3)", async () => {
+      // D1-SA1.2-L3: `set maturity=team` (verb + embedded `=`) is the fourth,
+      // previously-undocumented accepted shape. handleScalarConfig Form 3 splits
+      // the rest arg on `=` before falling back to whitespace, so this persists
+      // identically to the space form. Regression-guards the eq branch the
+      // finding flagged as reachable-but-untested.
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("set", "maturity=team");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("team");
+    });
+
     it("rejects invalid maturity tier with HatchError(VALIDATION_ERROR)", async () => {
       const manifest = makeManifest();
       vi.mocked(readManifest).mockResolvedValue(manifest);
@@ -1986,6 +2008,129 @@ describe("config command", () => {
 
       const configCommand = await importConfigCommand();
       await expect(configCommand("maturity=team")).rejects.toThrow(HatchError);
+    });
+  });
+
+  // D13-SA13.3-F13.3.3 (Pillar P1): `hatch3r config confidence_floor=<floor>` is
+  // the persisted half of the agent-assertiveness knob (the `--confidence-floor`
+  // run flag is documented in the core orchestrator command artifacts). It
+  // mirrors the `maturity` scalar contract: closed enum (any|medium|high),
+  // validated at write time, read back via `readConfidenceFloor`, default "any".
+  describe("confidence floor (D13-SA13.3-F13.3.3)", () => {
+    it("sets confidence_floor=any via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("confidence_floor=any");
+
+      expect(getWrittenManifest(writeManifest).confidenceFloor).toBe("any");
+    });
+
+    it("sets confidence_floor=medium via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("confidence_floor=medium");
+
+      expect(getWrittenManifest(writeManifest).confidenceFloor).toBe("medium");
+    });
+
+    it("sets confidence_floor=high via inline key=value form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("confidence_floor=high");
+
+      expect(getWrittenManifest(writeManifest).confidenceFloor).toBe("high");
+    });
+
+    it("sets confidence_floor via `set` verb (space) form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("set", "confidence_floor high");
+
+      expect(getWrittenManifest(writeManifest).confidenceFloor).toBe("high");
+    });
+
+    it("sets confidence_floor via `set` verb + `=`-joined form", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("set", "confidence_floor=medium");
+
+      expect(getWrittenManifest(writeManifest).confidenceFloor).toBe("medium");
+    });
+
+    it("rejects invalid confidence floor with HatchError, listing valid floors", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      try {
+        await configCommand("confidence_floor=paranoid");
+        expect.unreachable("Expected HatchError");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        const msg = (e as HatchError).message;
+        expect(msg).toContain("any");
+        expect(msg).toContain("medium");
+        expect(msg).toContain("high");
+      }
+      // Manifest is never persisted on validation failure.
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("rejects empty confidence_floor value with HatchError", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await expect(configCommand("confidence_floor=")).rejects.toThrow(HatchError);
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("prints current value via `get confidence_floor` form", async () => {
+      const manifest = makeManifest({ confidenceFloor: "high" });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "confidence_floor");
+
+      expect(logSpy).toHaveBeenCalledWith("high");
+      // `get` form does not mutate the manifest.
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("`get confidence_floor` defaults to 'any' when manifest has no field", async () => {
+      const manifest = makeManifest();
+      expect((manifest as unknown as Record<string, unknown>).confidenceFloor).toBeUndefined();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+
+      const configCommand = await importConfigCommand();
+      await configCommand("get", "confidence_floor");
+
+      expect(logSpy).toHaveBeenCalledWith("any");
+    });
+
+    it("persists confidence_floor to the manifest body", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("confidence_floor=high");
+
+      expect(vi.mocked(writeManifest)).toHaveBeenCalledWith(
+        tempDir,
+        expect.objectContaining({ confidenceFloor: "high" }),
+      );
     });
   });
 

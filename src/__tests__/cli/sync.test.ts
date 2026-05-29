@@ -621,6 +621,92 @@ describe("sync command", () => {
       // No actual cascade ran.
       expect(output).not.toContain("Workspace sync:");
     });
+
+    // D14-SA14.2-F4: the `--concurrency <n>` CLI flag surfaces the
+    // WorkspaceSyncOptions.concurrency override. The command coerces the
+    // commander string to a positive integer and forwards it; a non-numeric or
+    // non-positive value is ignored so syncWorkspaceRepos falls back to
+    // defaultSyncConcurrency(). Spy on syncWorkspaceRepos and assert the
+    // forwarded value (deterministic; no dependency on a real sub-repo).
+    const stageOnSyncWorkspace = async () => {
+      await createTestProject(tempDir);
+      const wsManifest = {
+        version: "1.0.0",
+        hatch3rVersion: "1.9.0",
+        name: "test-ws",
+        repos: [{ path: "api", sync: true }],
+        defaults: {
+          platform: "github",
+          tools: ["cursor"],
+          features: {
+            agents: true,
+            skills: true,
+            rules: true,
+            prompts: false,
+            commands: true,
+            mcp: false,
+            githubAgents: false,
+            hooks: false,
+          },
+          mcp: { servers: [] },
+        },
+        syncStrategy: "on-sync",
+      };
+      await writeFile(
+        join(tempDir, HATCH3R_DIR, "workspace.json"),
+        JSON.stringify(wsManifest, null, 2),
+      );
+    };
+
+    it("forwards a coerced positive integer --concurrency to syncWorkspaceRepos (D14-SA14.2-F4)", async () => {
+      await stageOnSyncWorkspace();
+      const wsSyncMod = await import("../../workspace/sync.js");
+      const spy = vi
+        .spyOn(wsSyncMod, "syncWorkspaceRepos")
+        .mockResolvedValue({ repos: [] });
+      try {
+        const { syncCommand } = await import("../../cli/commands/sync.js");
+        await syncCommand({ concurrency: "16" });
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][1]).toMatchObject({ concurrency: 16 });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("ignores a non-numeric --concurrency value (falls back to the default) (D14-SA14.2-F4)", async () => {
+      await stageOnSyncWorkspace();
+      const wsSyncMod = await import("../../workspace/sync.js");
+      const spy = vi
+        .spyOn(wsSyncMod, "syncWorkspaceRepos")
+        .mockResolvedValue({ repos: [] });
+      try {
+        const { syncCommand } = await import("../../cli/commands/sync.js");
+        // "abc" → NaN → undefined → defaultSyncConcurrency() fallback.
+        await syncCommand({ concurrency: "abc" });
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][1]).toMatchObject({ concurrency: undefined });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it("ignores a non-positive --concurrency value (falls back to the default) (D14-SA14.2-F4)", async () => {
+      await stageOnSyncWorkspace();
+      const wsSyncMod = await import("../../workspace/sync.js");
+      const spy = vi
+        .spyOn(wsSyncMod, "syncWorkspaceRepos")
+        .mockResolvedValue({ repos: [] });
+      try {
+        const { syncCommand } = await import("../../cli/commands/sync.js");
+        // "0" is an integer but not > 0 → undefined → default.
+        await syncCommand({ concurrency: "0" });
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy.mock.calls[0][1]).toMatchObject({ concurrency: undefined });
+      } finally {
+        spy.mockRestore();
+      }
+    });
   });
 
   describe("partial-failure classification (D3-M4)", () => {

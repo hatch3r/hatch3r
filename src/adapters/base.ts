@@ -9,7 +9,7 @@ import type {
 } from "../types.js";
 import { HatchError } from "../types.js";
 import { resolveAgentModel } from "../models/resolve.js";
-import { wrapInManagedBlock } from "../merge/managedBlocks.js";
+import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { resolveUserContentRoot } from "../content/index.js";
 import { filterUserFacing, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
@@ -249,13 +249,14 @@ export abstract class BaseAdapter implements Adapter {
         );
         continue;
       }
-      // `wrapInManagedBlock` trims the inner content before wrapping with
-      // markers (see src/merge/managedBlocks.ts::wrapInManagedBlock), so a
-      // legitimate adapter pattern is `output(path, wrapInManagedBlock(x), x)`
-      // where x has leading/trailing whitespace. We honour that by comparing
-      // the trimmed projection — only a genuine substring mismatch (e.g.
-      // managedContent contains characters that wrapInManagedBlock could not
-      // have produced) drops the output.
+      // The managed-block wrappers (`wrapManagedFor` / `wrapInManagedBlock`)
+      // trim the inner content before wrapping with markers (see
+      // src/merge/managedBlocks.ts::wrapWithMarkers), so a legitimate adapter
+      // pattern is `output(path, wrapManagedFor(path, x), x)` where x has
+      // leading/trailing whitespace. We honour that by comparing the trimmed
+      // projection — only a genuine substring mismatch (e.g. managedContent
+      // contains characters the wrapper could not have produced) drops the
+      // output.
       if (
         out.managedContent &&
         !out.content.includes(out.managedContent.trim())
@@ -639,7 +640,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(skill.id), wrapInManagedBlock(content), content));
+      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content));
     }
     return results;
   }
@@ -660,7 +661,7 @@ export abstract class BaseAdapter implements Adapter {
       const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
       const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
-      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapInManagedBlock(content)}`, content));
+      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content));
     }
     return results;
   }
@@ -712,7 +713,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(skill.id), wrapInManagedBlock(content), content));
+      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content));
     }
     return results;
   }
@@ -759,7 +760,7 @@ export abstract class BaseAdapter implements Adapter {
         fmLines.push(`allowed-tools: [${skill.allowedTools.map((t) => `"${t}"`).join(", ")}]`);
       }
       const fm = `---\n${fmLines.join("\n")}\n---`;
-      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapInManagedBlock(content)}`, content));
+      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content));
     }
     return results;
   }
@@ -781,7 +782,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(cmd.id), wrapInManagedBlock(content), content));
+      results.push(output(pathFn(cmd.id), wrapManagedFor(pathFn(cmd.id), content), content));
     }
     return results;
   }
@@ -862,7 +863,7 @@ export abstract class BaseAdapter implements Adapter {
       const substituted = this.substituteCanonicalContent(raw, ctx);
       const body = minimal ? this.stripMinimal(substituted) : substituted;
       this._trackedSourceFiles.add(src);
-      results.push(output(pathFn(entry.name), wrapInManagedBlock(body), body));
+      results.push(output(pathFn(entry.name), wrapManagedFor(pathFn(entry.name), body), body));
     }
     return results;
   }

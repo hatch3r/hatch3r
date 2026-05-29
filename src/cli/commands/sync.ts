@@ -238,6 +238,17 @@ export async function syncCommand(
      * `--dry-run`; passing without `--dry-run` is rejected as a usage error.
      */
     previewTool?: string;
+    /**
+     * D14-SA14.2-F4 (Low, CQ6): override the parallel workspace sub-repo sync
+     * limit. Surfaces the existing `WorkspaceSyncOptions.concurrency` override
+     * (previously test/programmatic-only) at the CLI so operators on SSD-bound
+     * runners that sustain more parallel small-file writes can raise the
+     * disk-bound default of `min(cpus, 8)` (see `defaultSyncConcurrency` for
+     * the cap rationale). Commander parses `--concurrency <n>` as a string;
+     * the body coerces it to a positive integer and ignores non-positive /
+     * non-numeric input (falls back to the default).
+     */
+    concurrency?: string;
   } = {},
 ): Promise<void> {
   // SA12.1-F-D12-M2: branch on `--format json` BEFORE banner/spinner so
@@ -1668,10 +1679,21 @@ export async function syncCommand(
   );
   wsSpinner.start();
 
+  // D14-SA14.2-F4: coerce the `--concurrency <n>` string to a positive
+  // integer. Non-numeric or non-positive input is ignored so syncWorkspaceRepos
+  // falls back to defaultSyncConcurrency() (min(cpus, 8)).
+  const parsedConcurrency =
+    opts.concurrency !== undefined ? Number.parseInt(opts.concurrency, 10) : NaN;
+  const concurrencyOverride =
+    Number.isInteger(parsedConcurrency) && parsedConcurrency > 0
+      ? parsedConcurrency
+      : undefined;
+
   const wsResult = await syncWorkspaceRepos(rootDir, {
     repos: repoPaths,
     dryRun: opts.dryRun,
     force: opts.force,
+    concurrency: concurrencyOverride,
     onWarn: (msg) => warn(msg),
   });
 

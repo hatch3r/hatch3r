@@ -15,7 +15,7 @@ Source: `governance/CONSTITUTION.md` §2 P8.
 
 ## Canonical surface
 
-This rule lives under `.claude/rules/` — framework-dev only; adapters do not ship it to end-user repos (they read from canonical `rules/` via `src/adapters/canonical.ts::readCanonicalFiles`). End-user runtime agents that delegate via the Task tool inherit the identical P8 B2 directive from the canonical, shipped `rules/hatch3r-agent-orchestration.md` → §Scaling Heuristic + §Cost-Dominance Principle (both `scope: always`). A dedicated canonical `rules/hatch3r-fan-out-discipline.md` twin remains a tracked content-add candidate (D7-SA7.6-L-1 / C-1) via `/h4tcher-capability-add rule hatch3r-fan-out-discipline`.
+This rule lives under `.claude/rules/` — framework-dev only; adapters do not ship it to end-user repos (they read from canonical `rules/` via `src/adapters/canonical.ts::readCanonicalFiles`). The end-user runtime surface ships the dedicated canonical twin `rules/hatch3r-fan-out-discipline.md` (+ `.mdc`, `scope: always`, `precedence: high`) — authored under D7-SA7.6-L-1 / C-1 — so runtime agents that delegate via the Task tool receive the identical P8 B2 directive directly, and not only by inheritance from `rules/hatch3r-agent-orchestration.md` → §Scaling Heuristic + §Cost-Dominance Principle. Keep this framework-dev rule and the canonical twin aligned on the B2 directive text when either changes.
 
 ## B2 directive (verbatim)
 

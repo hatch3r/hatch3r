@@ -30,6 +30,32 @@ export const MATURITY_TIER_RANK = Object.fromEntries(
   MATURITY_TIERS.map((tier, i): [MaturityTier, number] => [tier, i]),
 ) as Record<MaturityTier, number>;
 
+/**
+ * Agent assertiveness calibration — the result-confidence floor at which the
+ * core orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`,
+ * `hatch3r-quick-change`, `hatch3r-revision`) tighten their review/ASK gate
+ * (D13-SA13.3-F13.3.3, Pillar P1). Orthogonal to `--effort` (work-effort depth)
+ * and to the always-on four-trigger scope/intent ambiguity gate in
+ * `rules/hatch3r-clarification-default.md` — the floor only adds ASK pressure on
+ * uncertain results, it never relaxes those triggers.
+ *
+ * - `any`    — current behavior: forced second-pass only on a top-level
+ *              `confidence == low` reviewer finding. Default.
+ * - `medium` — force second-pass on any `confidence == low` finding even with
+ *              0 Critical + 0 Warning.
+ * - `high`   — force second-pass on `confidence != high` AND ASK on every
+ *              low-confidence finding regardless of severity.
+ *
+ * Persisted in `.hatch3r/hatch.json` under the `confidenceFloor` field.
+ * Set via `hatch3r config confidence_floor=<floor>`; an explicit
+ * `--confidence-floor=<floor>` run flag overrides the persisted default.
+ * Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise `high`.
+ */
+export const CONFIDENCE_FLOORS = ["any", "medium", "high"] as const;
+export type ConfidenceFloor = (typeof CONFIDENCE_FLOORS)[number];
+export const VALID_CONFIDENCE_FLOORS = new Set<string>(CONFIDENCE_FLOORS);
+export const DEFAULT_CONFIDENCE_FLOOR: ConfidenceFloor = "any";
+
 export interface ModelConfig {
   default?: string;
   agents?: Record<string, string>;
@@ -146,6 +172,14 @@ export interface HatchManifest {
    * Set via `hatch3r config maturity=<tier>`.
    */
   maturity?: MaturityTier;
+  /**
+   * D13-SA13.3-F13.3.3 (Pillar P1): persisted agent-assertiveness floor read by
+   * the core orchestrators when no explicit `--confidence-floor` run flag is
+   * given. Absence is treated as `DEFAULT_CONFIDENCE_FLOOR` ("any", current
+   * behavior) by consumers — see `readConfidenceFloor` in
+   * `src/manifest/hatchJson.ts`. Set via `hatch3r config confidence_floor=<floor>`.
+   */
+  confidenceFloor?: ConfidenceFloor;
   /** Detected project languages from repo analysis. */
   languages?: string[];
   /**

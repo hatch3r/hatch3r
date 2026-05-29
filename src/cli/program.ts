@@ -109,6 +109,10 @@ export function createProgram(): Command {
     .option("--verbose", "Show detailed output for each file processed")
     .option("--resume", "Resume from the last checkpoint in .sync-workspace/checkpoint.json (Decision 27)")
     .option(
+      "--concurrency <n>",
+      "Parallel workspace sub-repo sync limit (default: min(CPU count, 8); raise on SSD-bound runners) (D14-SA14.2-F4)",
+    )
+    .option(
       "--format <format>",
       "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
       "human",
@@ -124,10 +128,21 @@ export function createProgram(): Command {
     .description("Check sync status between bundled canonical content and generated files")
     .option("--verbose", "Show detailed per-file status information")
     .option("--deep", "Regenerate every adapter's output in-memory to compare byte-for-byte (slower; default uses integrity-manifest fast path)")
+    .option("--diff", "Show a before/after diff summary for each generated file (same box `hatch3r sync --diff` emits; D12-SA12.2-F5)")
     .option(
       "--format <format>",
       "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
       "human",
+    )
+    // D11-SA11.2-F10 (D11, P1): document drift scope in --help so an operator
+    // reading `hatch3r status --help` learns the check covers only the
+    // hatch3r-managed block before they run it — symmetric with the runtime
+    // scope-disclosure note status emits when drift exists.
+    .addHelpText(
+      "after",
+      "\nNote: status compares only the hatch3r-managed block (HATCH3R:BEGIN/END)\n" +
+        "against a fresh regeneration. Content you author OUTSIDE those markers is\n" +
+        "yours and is never reported here — use `git diff` to inspect it.\n",
     )
     .action(statusCommand);
 
@@ -184,6 +199,15 @@ export function createProgram(): Command {
       "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
       "human",
     )
+    // D11-SA11.2-F10 (D11, P1): mirror the status --help scope note so the two
+    // drift commands describe their scope identically. verify compares only the
+    // hatch3r-managed block; content outside the markers is the user's.
+    .addHelpText(
+      "after",
+      "\nNote: verify compares only the hatch3r-managed block (HATCH3R:BEGIN/END)\n" +
+        "against a fresh regeneration. Content you author OUTSIDE those markers is\n" +
+        "yours and is never reported here — use `git diff` to inspect it.\n",
+    )
     .action(verifyCommand);
 
   program
@@ -191,7 +215,8 @@ export function createProgram(): Command {
     .description(
       "Reconfigure tools, MCP servers, features, and platform. " +
       "Accepts scalar key/value forms: `config maturity=<tier>`, " +
-      "`config get maturity`, `config set maturity <tier>`. " +
+      "`config confidence_floor=<any|medium|high>`, " +
+      "`config get <key>`, `config set <key> <value>`. " +
       "With no args, runs the interactive flow.",
     )
     .action((arg1: string | undefined, arg2: string | undefined) => configCommand(arg1, arg2));

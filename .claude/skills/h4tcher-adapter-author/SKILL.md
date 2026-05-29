@@ -45,10 +45,10 @@ If any trigger fires, ask via the platform-native question tool per `agents/shar
 
 ## Step 3: Study Reference Implementations
 
-7. Read 2-3 existing adapters:
+7. Read the 3 supported adapters (per CONSTITUTION §6 Decision 12, 1.9.0 hard-cut):
    - `src/adapters/cursor.ts` — full-featured reference (rules, agents, skills, MCP, hooks)
    - `src/adapters/claude.ts` — CLAUDE.md output format
-   - `src/adapters/zed.ts` — minimal adapter (rules only)
+   - `src/adapters/copilot.ts` — GitHub Copilot custom-instructions output
 8. Read `governance/audit/domains/D09-platform-adapters.md` for per-adapter audit checklist
 
 ## Step 4: Implement

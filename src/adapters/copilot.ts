@@ -12,7 +12,7 @@ import type {
   CanonicalFile,
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
-import { wrapInManagedBlock } from "../merge/managedBlocks.js";
+import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { readMaturityTier } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank } from "./canonical.js";
@@ -165,7 +165,11 @@ export class CopilotAdapter extends BaseAdapter {
       "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
       "",
     ].join("\n");
-    results.push(output(".github/copilot-instructions.md", wrapInManagedBlock(innerContent), innerContent));
+    results.push(output(
+      ".github/copilot-instructions.md",
+      wrapManagedFor(".github/copilot-instructions.md", innerContent),
+      innerContent,
+    ));
 
     const pm = await detectPackageManager(ctx.projectRoot);
     const install = [pm.installCmd, ...pm.installArgs].join(" ");
@@ -181,13 +185,16 @@ jobs:
         run: ${install}
       - name: Build
         run: ${build}`;
-    // Issue #76: pass the workflow path so wrapInManagedBlock emits
-    // YAML `#`-prefixed markers instead of HTML `<!-- -->` markers,
-    // which GitHub Actions rejects as a YAML syntax error on line 2.
+    // Issue #76: wrapManagedFor derives the marker variant from the path, so
+    // this `.yml` output gets YAML `#`-prefixed markers instead of HTML
+    // `<!-- -->` markers, which GitHub Actions rejects as a YAML syntax error
+    // on line 2. The path-mandatory helper makes this correct-by-construction
+    // (D11-SA11.2-F8): an author cannot omit the path and fall back to the
+    // markdown default here.
     const copilotSetupStepsPath = ".github/workflows/copilot-setup-steps.yml";
     results.push(output(
       copilotSetupStepsPath,
-      wrapInManagedBlock(copilotSetupStepsInner, copilotSetupStepsPath),
+      wrapManagedFor(copilotSetupStepsPath, copilotSetupStepsInner),
       copilotSetupStepsInner,
     ));
 
@@ -200,10 +207,11 @@ jobs:
       const body = `# ${rule.id}\n\n${rule.description}\n\n${content}`;
       // Wave B3: NN- filename prefix on scoped per-file rule outputs.
       const nn = precedenceRank(rule.precedence) / 10;
+      const instrPath = `.github/instructions/${nn}-${toPrefixedId(rule.id)}.instructions.md`;
       results.push(
         output(
-          `.github/instructions/${nn}-${toPrefixedId(rule.id)}.instructions.md`,
-          `${fm}\n\n${wrapInManagedBlock(body)}`,
+          instrPath,
+          `${fm}\n\n${wrapManagedFor(instrPath, body)}`,
           body,
         ),
       );
@@ -250,7 +258,8 @@ jobs:
           lines.push("user-invocable: true");
         }
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(output(`.github/agents/${prefixedId}.agent.md`, `${fm}\n\n${wrapInManagedBlock(content)}`, content));
+        const agentPath = `.github/agents/${prefixedId}.agent.md`;
+        results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, content)}`, content));
       }
     }
 
@@ -271,7 +280,8 @@ jobs:
       const ghAgents = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "github-agents", ctx.userRepoRoot);
       for (const agent of ghAgents) {
         const body = agent.rawContent;
-        results.push(output(`.github/agents/${toPrefixedId(agent.id)}.agent.md`, wrapInManagedBlock(body), body));
+        const ghAgentPath = `.github/agents/${toPrefixedId(agent.id)}.agent.md`;
+        results.push(output(ghAgentPath, wrapManagedFor(ghAgentPath, body), body));
       }
     }
 

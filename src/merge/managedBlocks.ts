@@ -167,36 +167,59 @@ export function extractCustomContent(content: string): string {
 }
 
 /**
+ * Internal: wrap {@link content} between the supplied {@link markers}.
+ *
+ * G2: Trim for symmetry with extractManagedBlock to avoid asymmetric
+ * whitespace round-trips that produce spurious status drift.
+ * G6 (v1.7.1): trailing \n is POSIX-final-newline; see insertManagedBlock G6.
+ * D11-SA11.2-F12 (Cycle 10 Wave 4): the trim is unconditional, so canonical
+ * content must NOT rely on leading/trailing whitespace inside the managed
+ * block for semantic purposes — it is stripped on every sync. Documented for
+ * canonical authors in agents/shared/quality-charter.md ("Managed-block trim
+ * contract"). Put semantically-significant blank lines inside the body.
+ */
+function wrapWithMarkers(content: string, markers: ManagedBlockMarkers): string {
+  return `${markers.start}\n${content.trim()}\n${markers.end}\n`;
+}
+
+/**
+ * Wrap content with HATCH3R:BEGIN / HATCH3R:END markers, deriving the marker
+ * variant from {@link path} (REQUIRED). `getMarkersForPath` selects YAML `#`
+ * markers for `.yml`/`.yaml` and HTML `<!-- -->` markers otherwise.
+ *
+ * **D11-SA11.2-F8 (Cycle 10 Wave 4, D11, P5) — path-safe wrap.** This is the
+ * marker-emission entry point adapter authors MUST use: because `path` is a
+ * mandatory positional argument, an author cannot accidentally omit it and
+ * fall back to the markdown default on a `.yml`/`.yaml` output (which would
+ * re-introduce issue #76 — HTML markers in a YAML file → GitHub Actions parse
+ * failure on line 2). Pass the SAME path the output is written to
+ * (`output(path, wrapManagedFor(path, body), body)`); the markers then always
+ * match the file format. Adapter call sites in base.ts/claude.ts/copilot.ts/
+ * cursor.ts route through this helper for that reason.
+ */
+export function wrapManagedFor(path: string, content: string): string {
+  return wrapWithMarkers(content, getMarkersForPath(path));
+}
+
+/**
  * Wrap content with HATCH3R:BEGIN / HATCH3R:END markers, choosing the
  * marker variant from {@link filePath}. Omit `filePath` to keep the
- * historical HTML-comment default (used by every markdown-producing adapter).
+ * historical HTML-comment default.
  *
- * **D11-SA11.2-F8 (Cycle 10 Wave 4, D11, P5) — filePath footgun for non-markdown
- * outputs.** `filePath` is optional ONLY because every current adapter output is
- * markdown, for which the HTML-comment default is correct. The argument is NOT
- * optional for any non-`.md` output: `getMarkersForPath` selects YAML `#`
- * markers for `.yml`/`.yaml` and HTML `<!-- -->` markers otherwise, so a
- * future adapter that emits a `.yml`/`.yaml` file (or any format where an HTML
- * comment is a syntax error) MUST pass `filePath`. Omitting it re-introduces
- * issue #76 (HTML markers in a YAML file → GitHub Actions parse failure on
- * line 2). The single existing YAML output —
- * `copilot.ts` `copilot-setup-steps.yml` — correctly passes its path; copy that
- * pattern, never the markdown-default call. There is no runtime guard for the
- * omission: the type system cannot tell a `.yml` path from a `.md` one, so this
- * contract is convention-enforced. When adding a `.yaml`-emitting adapter, also
- * add a regression test asserting the emitted markers are the YAML variant.
+ * **D11-SA11.2-F8 (Cycle 10 Wave 4, D11, P5).** Prefer {@link wrapManagedFor},
+ * which makes `path` mandatory and therefore un-omittable. This optional-path
+ * form is retained for the few callers (and tests) that legitimately wrap
+ * markdown with no path in hand; `filePath` is optional ONLY because the
+ * HTML-comment default is correct for markdown. For any `.yml`/`.yaml` output
+ * (or any format where an HTML comment is a syntax error) you MUST pass
+ * `filePath` — or, better, call {@link wrapManagedFor}. There is no runtime
+ * guard for the omission: the type system cannot tell a `.yml` path from a
+ * `.md` one. When adding a `.yaml`-emitting adapter, route it through
+ * {@link wrapManagedFor} and add a regression test asserting the emitted
+ * markers are the YAML variant.
  */
 export function wrapInManagedBlock(content: string, filePath?: string): string {
-  const markers = getMarkersForPath(filePath);
-  // G2: Trim for symmetry with extractManagedBlock to avoid asymmetric
-  // whitespace round-trips that produce spurious status drift.
-  // G6 (v1.7.1): trailing \n is POSIX-final-newline; see insertManagedBlock G6.
-  // D11-SA11.2-F12 (Cycle 10 Wave 4): the trim is unconditional, so canonical
-  // content must NOT rely on leading/trailing whitespace inside the managed
-  // block for semantic purposes — it is stripped on every sync. Documented for
-  // canonical authors in agents/shared/quality-charter.md ("Managed-block trim
-  // contract"). Put semantically-significant blank lines inside the body.
-  return `${markers.start}\n${content.trim()}\n${markers.end}\n`;
+  return wrapWithMarkers(content, getMarkersForPath(filePath));
 }
 
 /** Check whether content contains both markers of any known variant. */

@@ -153,12 +153,16 @@ export function toCursorReadonlyFrontmatter(agentId: string): boolean | null {
 
 // ── Coverage-limit explainer (C9-H6 / D2-SA2.4-02) ─────────────────
 //
-// 6 of 15 adapters lack a per-agent tool-allowlist primitive. The
-// translator declines to emit a token rather than guess one, because
-// guessed names silently widen privilege when the downstream runtime
-// rejects them. Each entry below records WHY no translator exists so
-// audit reviewers can validate the gap is platform-imposed, not
-// hatch3r-imposed. P3 freshness: re-verify each link per cycle.
+// All 3 supported adapters (claude/cursor/copilot, per CONSTITUTION §6
+// Decision 12) currently have `coverage: "full"`. The matrix below is
+// kept as an explicit per-adapter coverage statement so that if a
+// future adapter exposes no per-agent allowlist primitive (`coverage:
+// "none"`), the translator declines to emit a token rather than guess
+// one — guessed names silently widen privilege when the downstream
+// runtime rejects them. Each entry records WHY its translator exists
+// (or would not) so audit reviewers can validate any future gap is
+// platform-imposed, not hatch3r-imposed. P3 freshness: re-verify each
+// link per cycle.
 
 /**
  * Per-adapter tool-allowlist coverage matrix surfaced to the operator

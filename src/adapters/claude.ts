@@ -3,7 +3,7 @@
 // assertions).
 import type { AdapterOutput } from "../types.js";
 import { toPrefixedId } from "../types.js";
-import { wrapInManagedBlock } from "../merge/managedBlocks.js";
+import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -47,9 +47,9 @@ import { HATCH3R_VERSION } from "../version.js";
  * end of the block it sits at.
  *
  * The sentinel is a markdown comment so it is invisible in rendered output
- * and idempotent under the existing `wrapInManagedBlock` trim pass — the
- * symmetric leading/trailing whitespace contract of the managed-block
- * helpers is preserved.
+ * and idempotent under the managed-block trim pass — the symmetric
+ * leading/trailing whitespace contract of the managed-block helpers is
+ * preserved.
  */
 export const CACHE_BREAKPOINT_SENTINEL = "<!-- HATCH3R-CACHE-BREAKPOINT -->";
 export const CACHE_BREAKPOINT_SENTINEL_START = "<!-- HATCH3R-CACHE-BREAKPOINT-START -->";
@@ -112,16 +112,19 @@ function withCacheBreakpoints(body: string): string {
  * sentinels without disturbing the shared base helpers.
  *
  * Strategy: take the existing `managedContent` (the raw body the helper
- * passed to `wrapInManagedBlock`), wrap it with sentinels, and rebuild
- * the full file `content` via `wrapInManagedBlock`. Outputs without
- * `managedContent` (no managed block) pass through unchanged.
+ * passed to the managed-block wrapper), wrap it with sentinels, and rebuild
+ * the full file `content` via `wrapManagedFor(out.path, …)`. Routing through
+ * the path-mandatory helper (D11-SA11.2-F8) keeps the marker variant correct
+ * for the output's extension even though every `.claude/` output is markdown
+ * today. Outputs without `managedContent` (no managed block) pass through
+ * unchanged.
  */
 function rewrapWithCacheBreakpoints(out: AdapterOutput): AdapterOutput {
   if (!out.managedContent) return out;
   const wrappedBody = withCacheBreakpoints(out.managedContent);
   return {
     ...out,
-    content: wrapInManagedBlock(wrappedBody),
+    content: wrapManagedFor(out.path, wrappedBody),
     managedContent: wrappedBody,
   };
 }
@@ -393,7 +396,7 @@ export class ClaudeAdapter extends BaseAdapter {
     // across syncs (diff-boundary purpose only — see the sentinel definition
     // comment re: caching being API-only).
     const innerContent = withCacheBreakpoints(innerParts.join("\n"));
-    results.push(output("CLAUDE.md", wrapInManagedBlock(innerContent), innerContent));
+    results.push(output("CLAUDE.md", wrapManagedFor("CLAUDE.md", innerContent), innerContent));
 
     if (ctx.features.rules) {
       // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
@@ -431,10 +434,11 @@ export class ClaudeAdapter extends BaseAdapter {
         // Claude Code's documented default. Customization-layer scope override
         // takes precedence over canonical scope (parity with cursor.ts).
         const pathsFm = claudeRulePathsFrontmatter(overrides.scope ?? rule.scope);
+        const rulePath = `.claude/rules/${nn}-${toPrefixedId(rule.id)}.md`;
         results.push(
           output(
-            `.claude/rules/${nn}-${toPrefixedId(rule.id)}.md`,
-            `${pathsFm}${wrapInManagedBlock(body)}`,
+            rulePath,
+            `${pathsFm}${wrapManagedFor(rulePath, body)}`,
             body,
           ),
         );
@@ -479,13 +483,15 @@ export class ClaudeAdapter extends BaseAdapter {
         if (minimal) {
           const modelNote = model ? `\nModel: \`${model}\`` : "";
           const body = withCacheBreakpoints(`${this.stripMinimal(content)}${modelNote}`);
-          results.push(output(`.claude/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
+          const agentPath = `.claude/agents/${agentId}.md`;
+          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body));
         } else {
           const modelGuidance = model
             ? `\n\n## Recommended Model\n\nPreferred: \`${model}\`. Set via \`/model ${model}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${model}\`.`
             : "";
           const body = withCacheBreakpoints(`${content}${modelGuidance}`);
-          results.push(output(`.claude/agents/${agentId}.md`, `${fm}\n\n${wrapInManagedBlock(body)}`, body));
+          const agentPath = `.claude/agents/${agentId}.md`;
+          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body));
         }
       }
     }
@@ -683,10 +689,10 @@ export class ClaudeAdapter extends BaseAdapter {
     ));
 
     // C9-M47 (P7): re-wrap skill/command outputs with cache-breakpoint
-    // sentinels. The base helpers emit `wrapInManagedBlock(content)` directly
-    // (shared across all 15 adapters); we post-process the Claude-specific
-    // results so the sentinels appear in this adapter's managed blocks only,
-    // without touching the cross-adapter helpers.
+    // sentinels. The base helpers emit `wrapManagedFor(path, content)` directly
+    // (shared across all 3 supported adapters); we post-process the
+    // Claude-specific results so the sentinels appear in this adapter's
+    // managed blocks only, without touching the cross-adapter helpers.
     const skillOutputs = await this.processSkillsRawCliFiltered(
       ctx,
       (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`,
@@ -788,7 +794,7 @@ export class ClaudeAdapter extends BaseAdapter {
 
     // C9-M47 (P7): agent-team command body gets cache-breakpoint sentinels too.
     const agentTeamBody = withCacheBreakpoints(AGENT_TEAM_COMMAND);
-    results.push(output(".claude/commands/hatch3r-agent-team.md", wrapInManagedBlock(agentTeamBody), agentTeamBody));
+    results.push(output(".claude/commands/hatch3r-agent-team.md", wrapManagedFor(".claude/commands/hatch3r-agent-team.md", agentTeamBody), agentTeamBody));
 
     return results;
   }

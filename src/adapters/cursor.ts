@@ -8,7 +8,7 @@ import type {
   CanonicalFile,
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
-import { wrapInManagedBlock } from "../merge/managedBlocks.js";
+import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { readMaturityTier } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank } from "./canonical.js";
@@ -119,7 +119,7 @@ function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): str
 }
 
 function mdcOutput(path: string, frontmatter: string, body: string): AdapterOutput {
-  return output(path, `${frontmatter}\n\n${wrapInManagedBlock(body)}`, body);
+  return output(path, `${frontmatter}\n\n${wrapManagedFor(path, body)}`, body);
 }
 
 export class CursorAdapter extends BaseAdapter {
