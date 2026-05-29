@@ -108,7 +108,7 @@ Three distinct affordances — do not collapse them into a single control:
 
 ## Verification Gate
 
-Before declaring an AI surface "done":
+These 7 checks are operationalized as Gate 8 of `skills/hatch3r-ui-ux-verify` — the skill executes all 7, not just the streaming/tool-call subset. Before declaring an AI surface "done":
 
 - Streaming verified end-to-end: scripted Playwright test that asserts progressive token render (first token <1s after request, last token marked complete).
 - Tool-call card snapshot per state (`pending`, `in-progress`, `complete`, `failed`) — missing any state is a blocker.
