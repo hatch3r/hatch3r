@@ -24,8 +24,11 @@ Pick the preset that matches the intent before editing any artifact:
 | Phase out an artifact | `/h4tcher-capability-remove` |
 | Holistic governance re-think (vision + pillars + audit + execution + lean + charters + anti-slop + closed-loop) | `/h4tcher-re-envision` |
 | Full framework audit cycle | `/h4tcher-audit-cycle` |
+| Regenerate the hatch3r docs site from this repo's corpus | `/h4tcher-docusaurus-generator` |
 
 When in doubt, run `/h4tcher-capability-discover` first — it is the only read-only lifecycle preset and surfaces duplication risk before any write.
+
+`/h4tcher-docusaurus-generator` is a maintainer utility (not a lifecycle add/refactor/remove preset and not delegated-to by the others): it builds or refreshes the framework's own Docusaurus site (`website/`) from `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`. Listed here so the maintainer-skill surface is enumerated in one place (D24-SA24.2-F07).
 
 ## Removal threshold
 

@@ -99,7 +99,9 @@ export const TAG_CTX_TEAM_ONLY       = "ctx:team-only";
 // The `customize` capability is materially distinct from other capabilities
 // because the maintainer locked it to specific presets. Encoded as its own
 // facet so the preset DSL can express "include customize" declaratively
-// (`ContentPreset.includeCustomize: boolean`).
+// (`ContentPreset.includeCustomize: boolean`). Full design rationale for the
+// typed-boolean-over-capability-tag choice (D2-SA2.6-F05) lives at the locus
+// of likely edit — the `ContentPreset.includeCustomize` JSDoc in presets.ts.
 
 export const TAG_CUSTOMIZE = "customize";
 

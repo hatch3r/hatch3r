@@ -42,6 +42,11 @@ export function buildTagGroupedCustomContentChoices(
 ): TagGroupedCustomContentChoice[] {
   const tagGroups = new Map<string, CatalogItem[]>();
   for (const item of items) {
+    // D10-SA10.6-F10.6-8: group under the item's PRIMARY tag = `tags[0]`.
+    // This is a documented authoring contract, not an arbitrary pick — the
+    // first tag must be a capability tag (never a `ctx:*` / `floor:*` tag),
+    // so grouping is deterministic. See `.claude/rules/content-authoring.md`
+    // item 12 (Tag ordering — primary classification first).
     const primaryTag = item.tags[0] ?? "other";
     if (!tagGroups.has(primaryTag)) tagGroups.set(primaryTag, []);
     tagGroups.get(primaryTag)!.push(item);

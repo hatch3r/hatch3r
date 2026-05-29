@@ -1,4 +1,4 @@
-import { access, mkdir, realpath } from "node:fs/promises";
+import { access, mkdir, readdir, realpath } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { basename, dirname, join } from "node:path";
 import chalk from "chalk";
@@ -363,6 +363,29 @@ function inferTeamSizeFromGit(cwd: string): "solo" | "team" {
     verbose(`init: inferTeamSizeFromGit fell back to "solo" — ${err instanceof Error ? err.message : String(err)}`);
     return "solo";
   }
+}
+
+/**
+ * D14-SA14.4-F7 (Pillar P1): true when at least one
+ * `.hatch3r/{type}/*.customize.yaml` Layer-2 override file exists on disk.
+ * Used to gate the post-init customization-discovery CTA so it shows only to
+ * users who have not already adopted the customization layer. Probe failures
+ * (dir absent, unreadable) resolve to `false` — i.e. "no customize files
+ * found, surface the hint" — and are non-fatal (verbose-only per the Silent
+ * Failure Contract). Mirrors the Layer-2 path in
+ * `src/adapters/customization.ts` (`.hatch3r/{type}/{id}.customize.yaml`).
+ */
+async function hasCustomizeFiles(rootDir: string): Promise<boolean> {
+  for (const type of ["agents", "skills", "rules", "commands"]) {
+    try {
+      const entries = await readdir(join(rootDir, HATCH3R_DIR, type));
+      if (entries.some((name) => name.endsWith(".customize.yaml"))) return true;
+    } catch (err) {
+      // Directory absent / unreadable — treat as "no customize file here".
+      verbose(`init: hasCustomizeFiles probe of ${type} fell through — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+  return false;
 }
 
 export interface RunInitOptions {
@@ -1038,6 +1061,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // surfaced the verify CTA prominently above.
   if (!initHadAdapterFailures) {
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Verify install: npx hatch3r validate")}`);
+  }
+
+  // D14-SA14.4-F7 (Pillar P1): surface the customization layer to first-time
+  // users. Shown only when no `.hatch3r/{type}/*.customize.yaml` exists yet, so
+  // users who already customize do not see redundant chrome. Dim bullet keeps
+  // it below the primary CTA (progressive disclosure).
+  if (!(await hasCustomizeFiles(rootDir))) {
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Customize: drop a .hatch3r/{agents,skills,rules,commands}/<id>.customize.yaml to tweak generated artifacts")}`);
   }
 
   if (envResult && envResult.newVars.length > 0) {

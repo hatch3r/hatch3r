@@ -40,8 +40,42 @@ async function fileExists(path: string): Promise<boolean> {
 const LOCK_RETRIES = 5;
 const LOCK_RETRY_MIN_MS = 100;
 const LOCK_RETRY_MAX_MS = 1500;
-/** Lock staleness threshold: a lock older than this is treated as abandoned. */
-const LOCK_STALE_MS = 15_000;
+/**
+ * Default lock staleness threshold: a lock older than this is treated as
+ * abandoned and may be stolen by another process. 15s is `proper-lockfile`'s
+ * sweet spot for hatch3r's typical 1-50KB managed-file writes, which complete
+ * in sub-second on healthy hardware.
+ *
+ * D1-SA1.5-F9 (Cycle 10, P6): this is an UPPER BOUND, not a guarantee. A
+ * multi-MB write (a large `CLAUDE.md` after heavy customization) to a slow
+ * filesystem (USB 2.0, NFS over WAN, a throttled CI volume) can exceed 15s for
+ * the `writeFile` + `fdatasync` + `rename` pipeline. `proper-lockfile` refreshes
+ * the lock mtime on an internal interval, but an event loop starved by heavy
+ * synchronous I/O may miss a refresh, after which a second process can see the
+ * lock as stale and acquire it — producing a last-writer-wins rename race.
+ * Operators on slow filesystems can raise the ceiling via the
+ * `HATCH3R_LOCK_STALE_MS` env var (see {@link resolveLockStaleMs}).
+ */
+const LOCK_STALE_DEFAULT_MS = 15_000;
+/** Floor for an operator-supplied {@link HATCH3R_LOCK_STALE_MS} override. Below
+ *  this, `proper-lockfile`'s own refresh interval cannot keep the lock alive,
+ *  so values under the floor are clamped up to it. */
+const LOCK_STALE_MIN_MS = 2_000;
+
+/**
+ * D1-SA1.5-F9 (Cycle 10, P6): resolve the lock staleness threshold. Defaults to
+ * {@link LOCK_STALE_DEFAULT_MS}; an operator on a slow filesystem can raise it
+ * via `HATCH3R_LOCK_STALE_MS=<milliseconds>`. A non-numeric, non-finite, or
+ * sub-{@link LOCK_STALE_MIN_MS} value falls back to the default (or the floor)
+ * rather than silently disabling stale detection.
+ */
+function resolveLockStaleMs(): number {
+  const raw = process.env.HATCH3R_LOCK_STALE_MS;
+  if (raw === undefined || raw.trim() === "") return LOCK_STALE_DEFAULT_MS;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed <= 0) return LOCK_STALE_DEFAULT_MS;
+  return Math.max(Math.trunc(parsed), LOCK_STALE_MIN_MS);
+}
 
 /**
  * F1.2-H1 (Cycle 10): Tracks file paths whose cross-process advisory lock is
@@ -124,6 +158,11 @@ function isLockingEnabled(): boolean {
  * Throws {@link HatchError} with code `LOCK_TIMEOUT` when contention exceeds
  * the retry budget (~5s).
  *
+ * D1-SA1.5-F9 (Cycle 10, P6): a held lock is considered stale (and stealable
+ * by another process) after {@link LOCK_STALE_DEFAULT_MS} (15s) by default.
+ * That ceiling can be too low for multi-MB writes on slow filesystems; raise
+ * it via `HATCH3R_LOCK_STALE_MS=<ms>` (see {@link resolveLockStaleMs}).
+ *
  * F1.2-H1 (Cycle 10): exported so multi-step read-modify-write critical
  * sections (e.g. `configCommand`) can hold the lock across the full
  * interactive window. Reentrant within a single process: a nested acquire
@@ -146,7 +185,7 @@ export async function acquireWriteLock(filePath: string): Promise<() => Promise<
     const release = await properLockfile.lock(filePath, {
       lockfilePath,
       realpath: false,
-      stale: LOCK_STALE_MS,
+      stale: resolveLockStaleMs(),
       retries: {
         retries: LOCK_RETRIES,
         minTimeout: LOCK_RETRY_MIN_MS,
@@ -179,6 +218,41 @@ export async function acquireWriteLock(filePath: string): Promise<() => Promise<
 }
 
 /**
+ * D8-SA8.2-F8.2.7 (Cycle 10, P1): errno → actionable-message table for
+ * write-side filesystem failures. The catch handler in {@link atomicWriteFile}
+ * previously classified only `ENOSPC` and `EACCES`; every other errno fell
+ * through as a bare Node message with no recovery guidance. Linux quota mounts
+ * raise `EDQUOT` (not `ENOSPC`) when a user quota is exhausted, so the old
+ * "Not enough disk space" message actively misled operators who saw free space
+ * in `df`. Read-only mounts (`EROFS`), FAT32 size ceilings (`EFBIG`), fd
+ * exhaustion (`EMFILE`), and failing disks (`EIO`) all reach this path too.
+ *
+ * Each entry returns a complete sentence naming the cause and the operator's
+ * next step. `ENOSPC` and `EACCES` keep their prior wording verbatim so no
+ * existing assertion changes. The table is module-local rather than hoisted to
+ * a shared `fsErrors.ts` because the other proposed consumers
+ * (`archiveToolOutputs`, `applyRollback`) are out of this finding's file scope;
+ * a future refactor can extract it.
+ */
+const FS_ERRNO_MESSAGE: Record<string, (filePath: string) => string> = {
+  ENOSPC: (p) => `Not enough disk space to write ${p}. Free up space and re-run the command.`,
+  EACCES: (p) =>
+    `Permission denied writing ${p}. Check file/directory permissions and ensure the current user has write access.`,
+  EDQUOT: (p) =>
+    `Filesystem quota exceeded writing ${p}. Free space under your quota or ask an admin to raise it, then re-run.`,
+  EROFS: (p) =>
+    `Read-only filesystem at ${p}. The mount may be in recovery/snapshot mode — remount read-write and re-run.`,
+  EFBIG: (p) =>
+    `File too large for the filesystem at ${p}. Move ${dirname(p)} to a filesystem that supports larger files (ext4/APFS/NTFS instead of FAT32).`,
+  EMFILE: (p) =>
+    `Too many open files writing ${p}. Raise the file-descriptor limit (\`ulimit -n\`) or close other tools holding descriptors, then re-run.`,
+  ENFILE: (p) =>
+    `System-wide open-file limit reached writing ${p}. Close other processes or raise the system fd limit, then re-run.`,
+  EIO: (p) =>
+    `Low-level I/O error writing ${p}. The disk may be failing — check kernel logs (dmesg / Console.app) and consider running fsck.`,
+};
+
+/**
  * Write a file atomically via tmp+rename with fsync.
  *
  * **Concurrency:** By default this function does not use file locking. Two
@@ -189,6 +263,11 @@ export async function acquireWriteLock(filePath: string): Promise<() => Promise<
  *
  * When locking is enabled and contention exceeds ~5s, throws {@link HatchError}
  * with code `LOCK_TIMEOUT`.
+ *
+ * Write-side filesystem failures (ENOSPC, EACCES, EDQUOT, EROFS, EFBIG, EMFILE,
+ * ENFILE, EIO) are mapped to actionable `FS_ERROR` HatchErrors via
+ * {@link FS_ERRNO_MESSAGE}; unrecognised errnos re-throw unchanged
+ * (D8-SA8.2-F8.2.7, P1).
  */
 export async function atomicWriteFile(filePath: string, content: string): Promise<void> {
   const release = await acquireWriteLock(filePath);
@@ -226,21 +305,14 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
       }
     }
   } catch (err) {
+    // #239 (D8-8.6) + D8-SA8.2-F8.2.7 (Cycle 10, P1): map known write-side
+    // errnos (ENOSPC/EACCES and the EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO family)
+    // to actionable FS_ERROR messages via {@link FS_ERRNO_MESSAGE}. ENOSPC and
+    // EACCES keep their prior wording verbatim. Unrecognised errnos re-throw.
     const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOSPC") {
-      throw new HatchError(
-        `Not enough disk space to write ${filePath}. Free up space and re-run the command.`,
-        1,
-        "FS_ERROR",
-      );
-    }
-    // #239 (D8-8.6): Actionable error for EACCES/permission-denied failures.
-    if (code === "EACCES") {
-      throw new HatchError(
-        `Permission denied writing ${filePath}. Check file/directory permissions and ensure the current user has write access.`,
-        1,
-        "FS_ERROR",
-      );
+    const messageFor = code ? FS_ERRNO_MESSAGE[code] : undefined;
+    if (messageFor) {
+      throw new HatchError(messageFor(filePath), 1, "FS_ERROR");
     }
     throw err;
   } finally {
@@ -289,8 +361,18 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
 // finds such orphans, removes them, and returns a diagnostic list so the
 // caller can emit a warning per the Silent Failure Contract.
 //
-// Callers (sync.ts, update.ts command entry points) should invoke this at
-// start-of-run and surface the returned entries via `warn()` / observability.
+// CALLER CONTRACT (D1-SA1.5-F10, Cycle 10, P6): EVERY CLI command entry point
+// that can reach `atomicWriteFile` — init, sync, update, clean, config,
+// worktree-setup, worktree-cleanup, rollback, mcp, cli-tools — should invoke
+// this at start-of-run against the repo root (and `.hatch3r/` /
+// `{ recursive: true }` where adapters write nested layouts) and surface the
+// returned entries via `warn()` / observability. A command that mutates files
+// but never sweeps lets an orphan from a prior interrupted run persist
+// indefinitely if the operator never re-runs a sweeping command. The sweep is
+// 60s-age-gated ({@link ORPHAN_MIN_AGE_MS}), so calling it on entry is safe
+// even when a concurrent write is in flight. Wiring the call into each command
+// entry point lives in those command files (outside this module's scope); this
+// contract names the required coverage so a future change can complete it.
 // ──────────────────────────────────────────────────────────────────────────
 
 /** Matches `<anything>.tmp.<8 hex chars>` — the exact pattern produced by atomicWriteFile. */

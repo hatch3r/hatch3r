@@ -1,5 +1,16 @@
 {
   "compilerOptions": {
+    // ignoreDeprecations "6.0" (D4-SA4.1-F4.1.F5): forward-compat acknowledgment
+    // for the TypeScript 6.x deprecation wave. As of TS 6.0.3 this config declares
+    // NONE of the options deprecated/removed in the 5.0->6.0 cycle (target ES3,
+    // out, charset, importsNotUsedAsValues, preserveValueImports, keyofStringsOnly,
+    // noImplicitUseStrict, suppressImplicitAnyIndexErrors, suppressExcessPropertyErrors,
+    // noStrictGenericChecks, prepend) — it uses target ES2022, moduleResolution
+    // "bundler", isolatedModules, and no legacy flags. Suppressed set: none today.
+    // Re-evaluate every audit cycle; remove this flag once TS 6.x is the floor and
+    // no deprecated option is in use (do not let a stop-gap become silent permanent
+    // suppression). Removing it without a tsc run was out of scope for the Low-wave
+    // fix that added this note.
     "ignoreDeprecations": "6.0",
     "target": "ES2022",
     "module": "ESNext",

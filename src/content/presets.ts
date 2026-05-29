@@ -43,6 +43,17 @@ export interface ContentPreset {
    * Whether the customize family (TAG_CUSTOMIZE-tagged artifacts) is included.
    * Locked decision: false for `minimal`, true for `standard` and `full`,
    * false for `custom` (honoured only when the explicit ID list is empty).
+   *
+   * Why a typed boolean rather than just another capability tag (D2-SA2.6-F05):
+   * capability tags express a semantic match against a *kind of work* the
+   * preset asks for (planning, review, devops…), and the capability gate
+   * admits an item when its tags intersect the preset's `capabilities`.
+   * `customize` is not a kind of work — it is a workflow facet: the user
+   * opting INTO the `.hatch3r/{type}/*.customize.yaml` authoring flow. Modeling
+   * it as a per-preset boolean keeps that opt-in a maintainer-locked decision
+   * (this field) instead of leaking it into the semantic-match capability set,
+   * where a future preset could admit it implicitly. Do not migrate this into
+   * `capabilities`; that would conflate workflow opt-in with work-type match.
    */
   includeCustomize: boolean;
   /**

@@ -68,6 +68,27 @@ export const HARD_MAX_REVIEW_ITERATIONS = 10;
 export const MIN_MAX_REVIEW_ITERATIONS = 1;
 
 /**
+ * Default cumulative-token-spend ceiling per maturity tier for the
+ * cost-budget escape (Finding D7-SA7.2-F-5). Solo-tier users carry the
+ * smallest token tolerance (Decision 4), so the default budget tightens as
+ * the tier narrows. A caller resolves its active tier and passes the matching
+ * value as `createReviewLoop`'s `costBudgetTokens` argument; passing
+ * `undefined` (the default) disables the cost-ceiling escape entirely, so the
+ * behaviour is opt-in and fully backward-compatible with the iteration-only
+ * cap. Units are total input+output tokens summed across review-fix
+ * iterations; integrate with `src/pipeline/costEstimator.ts` to convert the
+ * pre-execution estimate into the ceiling.
+ */
+export const DEFAULT_COST_BUDGET_TOKENS_BY_TIER: Readonly<
+  Record<"solo" | "team" | "scaleup" | "enterprise", number>
+> = Object.freeze({
+  solo: 200_000,
+  team: 600_000,
+  scaleup: 1_200_000,
+  enterprise: 2_400_000,
+});
+
+/**
  * Reproducible calibration record for `DEFAULT_MAX_REVIEW_ITERATIONS`.
  *
  * Finding C7.5-W2B2-H25 (D7-SA7.2-1): The prior comment-only calibration
@@ -202,17 +223,40 @@ export interface ReviewLoopState {
    *   premise itself is broken); halt the loop and surface the objection for
    *   user clarification. Mirrors the board-fill forced-termination case and
    *   the `BLOCKED_PREMISE_CHALLENGE` agent status in `pipelineContext.ts`.
+   * - `cost_budget_exceeded`: the cumulative token spend across review-fix
+   *   iterations crossed the configured `costBudgetTokens` ceiling before a
+   *   clean verdict. The loop halts early so a small number of expensive
+   *   non-converging findings cannot run the full iteration cap at runaway
+   *   cost (Finding D7-SA7.2-F-5). Complements the iteration ceiling: count is
+   *   bounded by `maxIterations`, spend is bounded by `costBudgetTokens`.
    */
   terminationReason?:
     | "clean"
     | "max_iterations"
     | "manual"
     | "oscillation"
-    | "design_objection";
+    | "design_objection"
+    | "cost_budget_exceeded";
   /** History of review iterations. */
   history: ReviewIterationEntry[];
   /** Unresolved findings after loop termination. */
   unresolvedFindings: number;
+  /**
+   * Cumulative review-fix token spend across all recorded iterations.
+   * Advanced by the optional `tokensUsedThisIteration` argument to
+   * `recordReviewIteration` / `enforceReviewIteration`. `0` when callers do
+   * not supply per-iteration spend (cost-ceiling escape inactive).
+   * Finding D7-SA7.2-F-5.
+   */
+  tokensUsedTotal: number;
+  /**
+   * Optional cumulative-token-spend ceiling for the loop. When set and
+   * `tokensUsedTotal` exceeds it after an iteration, the loop terminates with
+   * `terminationReason: "cost_budget_exceeded"`. `undefined` disables the
+   * cost-ceiling escape (iteration cap remains the only bound).
+   * Finding D7-SA7.2-F-5.
+   */
+  costBudgetTokens?: number;
   /**
    * Iteration-count-based confidence signal.
    * Populated when the loop terminates.
@@ -249,6 +293,10 @@ export function reviewLoopConfidence(state: ReviewLoopState): ReviewConfidenceLe
   if (state.terminationReason === "oscillation") return "low";
   if (state.terminationReason === "design_objection") return "low";
 
+  // Cost-budget exceeded — the loop halted on spend, not on a clean verdict;
+  // unresolved findings remain, so confidence is low (Finding D7-SA7.2-F-5).
+  if (state.terminationReason === "cost_budget_exceeded") return "low";
+
   // Confidence based on iteration count when terminated cleanly
   if (state.currentIteration <= 1) return "high";
   if (state.currentIteration <= 2) return "medium";
@@ -258,28 +306,45 @@ export function reviewLoopConfidence(state: ReviewLoopState): ReviewConfidenceLe
 // ── Implementation ───────────────────────────────────────────────
 
 /**
- * Create a new review loop state with configurable max iterations.
+ * Create a new review loop state with configurable max iterations and an
+ * optional cumulative-token-spend ceiling.
  *
  * The max is clamped to [MIN_MAX_REVIEW_ITERATIONS, HARD_MAX_REVIEW_ITERATIONS]
  * to prevent misconfiguration from causing runaway loops or zero-iteration
  * bypasses. Callers that want the pre-Cycle-7.5 default of 3 pass `3`
  * explicitly (see Finding C7.5-W2B2-H26 for the rationale for raising the
  * default to 4).
+ *
+ * `costBudgetTokens` (Finding D7-SA7.2-F-5) is the optional cumulative
+ * token-spend ceiling. When supplied (e.g. a value from
+ * {@link DEFAULT_COST_BUDGET_TOKENS_BY_TIER} resolved from the active maturity
+ * tier, or a `costEstimator` pre-execution figure), the loop terminates with
+ * `cost_budget_exceeded` once `tokensUsedTotal` crosses it. Omitting it (the
+ * default) leaves the iteration cap as the only bound — fully backward
+ * compatible. A non-positive or non-finite budget is treated as "no ceiling".
  */
 export function createReviewLoop(
   maxIterations: number = DEFAULT_MAX_REVIEW_ITERATIONS,
+  costBudgetTokens?: number,
 ): ReviewLoopState {
   const clamped = Math.max(
     MIN_MAX_REVIEW_ITERATIONS,
     Math.min(maxIterations, HARD_MAX_REVIEW_ITERATIONS),
   );
-  return {
+  const state: ReviewLoopState = {
     currentIteration: 0,
     maxIterations: clamped,
     terminated: false,
     history: [],
     unresolvedFindings: 0,
+    tokensUsedTotal: 0,
   };
+  // Only attach a budget when it is a usable positive ceiling; a non-finite
+  // or <= 0 value disables the cost-ceiling escape (treated as "no ceiling").
+  if (typeof costBudgetTokens === "number" && Number.isFinite(costBudgetTokens) && costBudgetTokens > 0) {
+    state.costBudgetTokens = costBudgetTokens;
+  }
+  return state;
 }
 
 /**
@@ -301,12 +366,21 @@ export function canContinueReview(state: ReviewLoopState): boolean {
  * If max iterations is reached with unresolved findings, the loop
  * terminates and surfaces remaining findings to the user.
  *
+ * `tokensUsedThisIteration` (Finding D7-SA7.2-F-5) is the optional token spend
+ * for the iteration being recorded. It accumulates into `state.tokensUsedTotal`.
+ * When the loop carries a `costBudgetTokens` ceiling and the running total
+ * crosses it on a non-clean verdict, the loop terminates early with
+ * `cost_budget_exceeded` — bounding spend the way `maxIterations` bounds count.
+ * Omitting the argument leaves spend tracking at 0 and the cost-ceiling escape
+ * inactive (backward compatible).
+ *
  * Throws if the loop has already terminated or would exceed max iterations.
  */
 export function recordReviewIteration(
   state: ReviewLoopState,
   verdict: ReviewVerdict,
   findingsCount: number,
+  tokensUsedThisIteration: number = 0,
 ): ReviewLoopState {
   if (state.terminated) {
     throw new HatchError(
@@ -334,14 +408,23 @@ export function recordReviewIteration(
     timestamp: new Date().toISOString(),
   };
 
+  // Accumulate spend. A negative or non-finite per-iteration value contributes
+  // 0 so a malformed input cannot reduce the running total below its prior value.
+  const iterSpend =
+    Number.isFinite(tokensUsedThisIteration) && tokensUsedThisIteration > 0
+      ? tokensUsedThisIteration
+      : 0;
+
   const newState: ReviewLoopState = {
     ...state,
     currentIteration: nextIteration,
     history: [...state.history, entry],
     unresolvedFindings: findingsCount,
+    tokensUsedTotal: state.tokensUsedTotal + iterSpend,
   };
 
-  // Clean verdict terminates the loop successfully
+  // Clean verdict terminates the loop successfully (a converged loop wins
+  // even if it crossed the cost ceiling on the final, resolving pass).
   if (verdict === "clean") {
     newState.terminated = true;
     newState.terminationReason = "clean";
@@ -354,6 +437,21 @@ export function recordReviewIteration(
   if (nextIteration >= state.maxIterations) {
     newState.terminated = true;
     newState.terminationReason = "max_iterations";
+    newState.unresolvedFindings = findingsCount;
+    newState.confidence = reviewLoopConfidence(newState);
+    return newState;
+  }
+
+  // Cost-budget ceiling crossed with unresolved findings (Finding D7-SA7.2-F-5):
+  // halt early rather than burning further iterations on an expensive
+  // non-converging loop. Checked after the clean + max-iteration gates so a
+  // clean verdict or a natural iteration-cap termination keeps its own reason.
+  if (
+    typeof newState.costBudgetTokens === "number" &&
+    newState.tokensUsedTotal > newState.costBudgetTokens
+  ) {
+    newState.terminated = true;
+    newState.terminationReason = "cost_budget_exceeded";
     newState.unresolvedFindings = findingsCount;
     newState.confidence = reviewLoopConfidence(newState);
     return newState;
@@ -414,6 +512,7 @@ export function enforceReviewIteration(
   state: ReviewLoopState,
   verdict: ReviewVerdict,
   findingsCount: number,
+  tokensUsedThisIteration: number = 0,
 ): EnforceReviewResult {
   if (state.terminated) {
     return { allowed: false, state, reason: "already_terminated" };
@@ -426,7 +525,11 @@ export function enforceReviewIteration(
     return { allowed: false, state, reason: "max_iterations_exceeded" };
   }
 
-  const advanced = recordReviewIteration(state, verdict, findingsCount);
+  // `tokensUsedThisIteration` (Finding D7-SA7.2-F-5) flows to
+  // recordReviewIteration so the cost-budget ceiling can terminate the loop;
+  // when the budget is crossed, recordReviewIteration returns a terminated
+  // state and `allowed` becomes false (same shape as the iteration-cap case).
+  const advanced = recordReviewIteration(state, verdict, findingsCount, tokensUsedThisIteration);
   return { allowed: !advanced.terminated, state: advanced };
 }
 
@@ -535,6 +638,40 @@ export function terminateReviewLoopDesignObjection(
   return newState;
 }
 
+/**
+ * Terminate the review loop with a cost-budget-exceeded verdict.
+ *
+ * Finding D7-SA7.2-F-5: explicit early-exit when an external cost monitor
+ * decides the cumulative token spend has crossed the acceptable ceiling before
+ * the loop reached a clean verdict (the complement of `terminateReviewLoop`'s
+ * iteration-driven exit). `recordReviewIteration` already terminates the loop
+ * automatically when its accumulated `tokensUsedTotal` exceeds
+ * `state.costBudgetTokens`; this helper covers the case where the caller tracks
+ * spend out-of-band (e.g. via `src/pipeline/costEstimator.ts` actuals) and
+ * wants to halt the loop directly. `tokensUsedTotal` is updated to the observed
+ * spend so `reviewLoopSummary` can report the actual against the budget.
+ */
+export function terminateReviewLoopCostBudget(
+  state: ReviewLoopState,
+  unresolvedFindings: number,
+  tokensUsedTotal?: number,
+): ReviewLoopState {
+  if (state.terminated) return state;
+
+  const newState: ReviewLoopState = {
+    ...state,
+    terminated: true,
+    terminationReason: "cost_budget_exceeded",
+    unresolvedFindings,
+    tokensUsedTotal:
+      typeof tokensUsedTotal === "number" && Number.isFinite(tokensUsedTotal) && tokensUsedTotal >= 0
+        ? tokensUsedTotal
+        : state.tokensUsedTotal,
+  };
+  newState.confidence = reviewLoopConfidence(newState);
+  return newState;
+}
+
 // ── Oscillation Detection (#244, D8-8.11) ───────────────────────
 
 /**
@@ -623,6 +760,19 @@ export function reviewLoopSummary(state: ReviewLoopState): string {
           "terminated: reviewer raised DESIGN_OBJECTION (premise itself is broken); user clarification required",
         );
         break;
+      case "cost_budget_exceeded": {
+        // Surface actual spend against the budget so the user sees how far the
+        // loop overran before the cost ceiling halted it (Finding D7-SA7.2-F-5).
+        const budget = state.costBudgetTokens;
+        const spendDetail =
+          typeof budget === "number"
+            ? `${state.tokensUsedTotal}/${budget} tokens, ${Math.max(0, budget - state.tokensUsedTotal)} remaining`
+            : `${state.tokensUsedTotal} tokens spent`;
+        parts.push(
+          `terminated: cost budget exceeded (${spendDetail}; ${state.unresolvedFindings} unresolved findings)`,
+        );
+        break;
+      }
     }
     // Include confidence signal in summary (Finding #68)
     if (state.confidence) {

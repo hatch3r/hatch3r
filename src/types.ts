@@ -19,13 +19,16 @@ export type MaturityTier = (typeof MATURITY_TIERS)[number];
 export const VALID_MATURITY_TIERS = new Set<string>(MATURITY_TIERS);
 export const DEFAULT_MATURITY_TIER: MaturityTier = "solo";
 
-/** Tier ordering — higher index = stricter / broader admission. */
-export const MATURITY_TIER_RANK: Record<MaturityTier, number> = {
-  solo: 0,
-  team: 1,
-  scaleup: 2,
-  enterprise: 3,
-};
+/**
+ * Tier ordering — higher index = stricter / broader admission. Derived from
+ * {@link MATURITY_TIERS} (single source of truth) so adding/removing a tier
+ * updates the rank automatically. Canary test in
+ * `src/__tests__/types.test.ts` asserts solo===0 and the last tier maps to
+ * the array's final index (Cycle 10 D1-SA1.8-F-1.8-7).
+ */
+export const MATURITY_TIER_RANK = Object.fromEntries(
+  MATURITY_TIERS.map((tier, i): [MaturityTier, number] => [tier, i]),
+) as Record<MaturityTier, number>;
 
 export interface ModelConfig {
   default?: string;
@@ -289,9 +292,19 @@ export interface Features {
   githubAgents: boolean;
   hooks: boolean;
   /**
-   * Controls whether adapter outputs surface active handoff documents from
-   * `.agents/handoffs/active/` in their primary tool-context file. Default
-   * `true`. Absent on pre-1.8.0 manifests; consumers treat absence as `true`.
+   * Intended to control whether adapter outputs surface active handoff
+   * documents from `.hatch3r/handoffs/active/` in their primary tool-context
+   * file. Default `true`. Absent on pre-1.8.0 manifests; consumers treat
+   * absence as `true`.
+   *
+   * Cycle 10 D11-SA11.1-05 (Pillar P4): no adapter (`claude.ts`/`cursor.ts`/
+   * `copilot.ts`) reads this flag — the actual handoff-directory listing is
+   * emitted unconditionally by the bridge-orchestration prep in
+   * `src/cli/shared/agentsContent.ts`, not gated here. Setting `false` has no
+   * effect today. Wiring the flag into the bridge prep (or relocating it to a
+   * `Manifest.handoffs.enabled` field matching the real control surface) is a
+   * tracked follow-up; the field is retained for manifest back-compat until
+   * then.
    */
   handoffs: boolean;
 }
@@ -480,9 +493,13 @@ export interface AdapterOutput {
    * adapter output has no canonical inputs (e.g. a pure-config file like
    * `.zed/mcp.json` assembled from `mcp.json`).
    *
-   * Consumers (`sync` -> `.agents/.provenance.json`) use this to answer
-   * "which canonical files shaped this generated file?" so operators can
-   * trace drift back to the source artifact without re-running generation.
+   * Consumed by `sync` to write `.hatch3r/provenance.json` (one entry per
+   * output pairing the path, the producing adapter, and the sorted
+   * `sourceFiles[]` set) so operators can trace drift back to the source
+   * artifact without re-running generation. (The pre-1.9.0
+   * `.agents/.provenance.json` writer was removed with the integrity
+   * subsystem in Wave 7 and restored at `.hatch3r/provenance.json` per
+   * Cycle 10 D12-SA12.4-F1; see `src/cli/commands/sync.ts`.)
    */
   sourceFiles?: string[];
 }

@@ -9,6 +9,7 @@ quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 parallel_tool_default: true
+efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:

@@ -90,6 +90,15 @@ Bound agents cite consulted entry IDs in the iteration summary's `Open Questions
 
 When `.hatch3r/learnings/INDEX.md` does not exist or contains zero entries: consultation step is recorded as "no learnings available" in the iteration summary and the agent proceeds.
 
+## Mid-Edit Learning Surfacing
+
+The Mandatory Consultation Gate fires once, before work starts (write-then-consult). State-of-art assistants additionally surface knowledge *during* the edit (ambient-teach). To close that gap without runtime support, bound agents surface relevant learnings inline as they touch files:
+
+- **Trigger:** while editing, when the file or pattern being changed matches a captured learning, surface that learning inline in the iteration summary BEFORE completing the edit (not only at Step 0).
+- **Relevant-learning criteria** (any one qualifies): (1) **path overlap** — the edited path matches the learning's `applies-to` glob; (2) **applies-to match** — an explicit module/path-prefix hit; (3) **semantic overlap** — the edit intent matches the learning `topic` (e.g. editing a retry path while a `topic: retry-backoff` learning exists).
+- **Surfacing format:** add a `Surfaced Learnings:` line to the iteration summary citing the entry IDs and a one-clause why-relevant; cite zero only when none matched.
+- **Bound agents:** `hatch3r-implementer`, `hatch3r-fixer` (the code-mutating agents whose edits benefit most). This complements — does not replace — the once-per-run Consultation Gate above.
+
 ## Auto-Consolidation
 
 Triggers consolidation when:

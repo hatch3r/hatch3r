@@ -142,7 +142,7 @@ findings:
       expected: "ratio ≥ 4.5:1 for normal text per SC 1.4.3"
       actual: "violation id=color-contrast nodes=1 ratio=3.8 expected=4.5 element=.cta-primary"
       verdict: mismatched
-      accessed: 2026-05-26
+      accessed: <YYYY-MM-DD>
     impact_horizon: short
     progress_toward_pillar: content-quality.CQ1+0.10
 status: FINDINGS

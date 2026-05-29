@@ -1,37 +1,38 @@
 ---
 name: h4tcher-docusaurus-generator
-description: Generate end-user documentation site using Docusaurus 3.x from the current project. Use this skill when the user asks to create documentation, generate docs, build a docs site, or set up Docusaurus for their project. Supports analyzing project structure, generating markdown docs, configuring Docusaurus, and creating user guides.
+description: Maintainer skill — generate or refresh the hatch3r project documentation site (Docusaurus 3.x) from this repo's canonical corpus (governance/, agents/, skills/, rules/, commands/, hooks/, docs/). Use when a hatch3r maintainer asks to build, regenerate, or update the framework's own docs site. Analyzes the hatch3r repo structure, generates markdown, configures Docusaurus, and previews the site.
 effort: medium
 allowed-tools: Read Grep Glob Bash(*) Write Edit
 ---
 
 > Last updated: 2026-05-29
 
-# Docusaurus Generator
+# Docusaurus Generator (hatch3r maintainer skill)
 
-This skill generates end-user documentation using Docusaurus 3.x by analyzing the current project.
+This skill generates or refreshes the **hatch3r project's own** documentation site using Docusaurus 3.x by analyzing this repository's canonical corpus. It is a framework-dev maintainer tool (hence the `h4tcher-` prefix per CLAUDE.md), not a generic per-project docs generator: it sources content from `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`.
 
 ## Workflow Overview
 
-1. **Analyze** the project structure to understand what to document
-2. **Initialize** a new Docusaurus 3.x project (or use existing)
-3. **Generate** documentation content from project analysis
+1. **Analyze** the hatch3r repo corpus to understand what to document
+2. **Initialize** a new Docusaurus 3.x project (or use the existing `website/` site)
+3. **Generate** documentation content from the corpus analysis
 4. **Configure** Docusaurus settings and theme
 5. **Build & Preview** the documentation site
 
-## Step 1: Analyze Project
+## Step 1: Analyze the hatch3r corpus
 
-Before generating docs, analyze the project to identify:
+Before generating docs, scan this repo to identify what to document:
 
-- **Package structure**: Check `package.json`, monorepo setup
-- **Existing docs**: Look for `docs/`, `README.md`, JSDoc comments
-- **Features**: Identify main features from routes, components, APIs
-- **Configuration**: Check for config files that reveal functionality
+- **CLI surface**: the commands under `src/cli/commands/` (mirror the `npx hatch3r <cmd>` help)
+- **Canonical content**: `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` — the artifacts hatch3r ships
+- **Governance**: `governance/VISION.md`, `CONSTITUTION.md`, and the audit-domain set under `governance/audit/domains/`
+- **Existing docs**: the `docs/` directory and `README.md` (do not duplicate; link or lift)
 
 ```bash
-# Key files to examine
-find . -name "README.md" -o -name "*.md" | head -20
-ls -la docs/ 2>/dev/null
+# Key sources to examine in the hatch3r repo
+ls src/cli/commands/*.ts
+ls agents/ skills/ rules/ commands/ hooks/
+ls governance/ docs/
 cat package.json | jq '.name, .description'
 ```
 

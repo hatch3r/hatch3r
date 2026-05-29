@@ -30,6 +30,14 @@ const MAX_FIX_ATTEMPTS_CEILING = 5;
  * (Silent-Failure-Contract, P5). `--fix` repairs drift by regenerating adapter
  * output (the same in-memory regeneration `hatch3r sync` performs) up to
  * `--max-fix-attempts` times, re-checking drift after each pass.
+ *
+ * D12-SA12.1-F04 (Cycle 10, P1): verify is READ-ONLY in its default (no
+ * `--fix`) mode — it only reads the manifest and compares regenerated output
+ * against on-disk files, never writing. There is therefore intentionally NO
+ * `--dry-run` flag: verify IS the preview (analogous to `git status` having no
+ * `--dry-run`). The write-side preview lives on the destructive twins,
+ * `hatch3r sync --dry-run` and `hatch3r update --dry-run`; a `verify --dry-run`
+ * would be a tautology of the default report.
  */
 export interface VerifyOptions {
   /** Auto-repair drifted/missing adapter output by regenerating it. */
@@ -63,6 +71,30 @@ function buildSummaryLines(report: DriftReport): string[] {
 
 function driftCountOf(report: DriftReport): number {
   return report.counts.modified + report.counts.missing + report.counts.unexpected;
+}
+
+/**
+ * D1-SA1.4-F10 (Cycle 10, P1): build the recovery hint for a drifted report.
+ * `hatch3r sync` regenerates drifted/missing managed output but does NOT remove
+ * orphan (`unexpected`) files — those are cleared by `hatch3r clean`. The prior
+ * verify hint pointed every drift category at `sync`, so an operator whose only
+ * drift was orphan files ran `sync`, saw it do nothing, and was left confused.
+ * This mirrors the per-category guidance status already emits (status.ts: sync
+ * for missing, clean for unexpected): emit `clean` when the drift is purely
+ * orphan files, `sync` when drift includes drifted/missing output (and append a
+ * `clean` note when orphans also coexist).
+ */
+function buildRecoveryHint(report: DriftReport): string {
+  const { modified, missing, unexpected } = report.counts;
+  const hasSyncable = modified > 0 || missing > 0;
+  if (!hasSyncable && unexpected > 0) {
+    return "Run `hatch3r clean` to remove unexpected files no longer produced by any adapter.";
+  }
+  const base =
+    "Run `hatch3r sync` to regenerate drifted/missing files, or `hatch3r verify --fix` to auto-repair.";
+  return unexpected > 0
+    ? `${base} Run \`hatch3r clean\` to remove the unexpected (orphan) file(s).`
+    : base;
 }
 
 /**
@@ -105,18 +137,23 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     if (jsonMode) {
       emitJson({
         status: "failed",
-        error: "No .hatch3r/hatch.json found",
+        // D8-SA8.1-F8.1.8 (Cycle 10, P1): align the JSON `error` string with the
+        // human-mode message and status's JSON payload (trailing period).
+        error: "No .hatch3r/hatch.json found.",
         errorCode: "CONFIG_ERROR",
         recoveryHint: "Run `npx hatch3r init` to set up your project first.",
         hatch3rVersion: HATCH3R_VERSION,
         timestamp: new Date().toISOString(),
       });
     } else {
-      logError("No .hatch3r/hatch.json found — run `hatch3r init` first.");
-      console.log();
+      // D8-SA8.1-F8.1.8 (Cycle 10, P1): emit the same two-line missing-manifest
+      // message the other manifest-required commands use (status, mcp,
+      // cli-tools, config) so first-run stderr is consistent across the CLI.
+      logError("No .hatch3r/hatch.json found.");
+      console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
     }
     throw new HatchError(
-      "No .hatch3r/hatch.json found",
+      "No .hatch3r/hatch.json found.",
       undefined,
       "CONFIG_ERROR",
       "Run `npx hatch3r init` to set up your project first.",
@@ -152,7 +189,7 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
       `Adapter output drift detected (${driftCount} file(s))`,
       undefined,
       "INTEGRITY_ERROR",
-      "Run `hatch3r sync` to regenerate drifted/missing files, or `hatch3r verify --fix` to auto-repair.",
+      buildRecoveryHint(report),
     );
   }
 
@@ -161,17 +198,21 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     return;
   }
 
+  // D1-SA1.4-F10 (P1): the recovery hint is now drift-category-aware so an
+  // orphan-only failure points at `hatch3r clean`, not `hatch3r sync` (which
+  // would do nothing). Mirrors status.ts per-category guidance.
+  const recoveryHint = buildRecoveryHint(report);
   printBox(`verify: FAIL (${driftCount} drift(s))`, summaryLines, "error");
   if (options.fix) {
     info(`--fix could not clear all drift — run ${chalk.bold("hatch3r sync")} or inspect the failing tool(s).`);
   } else {
-    info(`Run ${chalk.bold("hatch3r sync")} to regenerate drifted/missing files, or ${chalk.bold("hatch3r verify --fix")} to auto-repair.`);
+    info(recoveryHint);
   }
   console.log();
   throw new HatchError(
     `Adapter output drift detected (${driftCount} file(s))`,
     undefined,
     "INTEGRITY_ERROR",
-    "Run `hatch3r sync` to regenerate drifted/missing files, or `hatch3r verify --fix` to auto-repair.",
+    recoveryHint,
   );
 }

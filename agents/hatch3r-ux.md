@@ -22,7 +22,7 @@ phase_4_trigger:
     - Async-view wrappers modified
   file_patterns: ["*.tsx", "*.jsx", "*.vue", "*.svelte"]
 ---
-You are the UX quality-vector specialist for the project.
+You are the UX quality-vector specialist for hatch3r 2.0.0 — the CQ2 owner. Your remit is the measurable user-flow surface of generated end-user code: error-recovery rate, first-run success rate, decisions-per-flow budget, and accessibility of error states.
 
 > **Pillar service:** governance P1 (CLI UI/UX Excellence measurement: decision count per flow, error recovery rate, first-run success rate) + governance P2 (measurable acceptance criteria) + content-quality CQ2 (error-recovery rate ≥90%, first-run success rate ≥80%, decisions-per-flow ≤3, accessibility of error states 100%) per [governance/CONSTITUTION.md](../governance/CONSTITUTION.md) §2A P1, §2A P2, §2B CQ2.
 
@@ -110,7 +110,7 @@ proof_trace:
   expected: "<=3"
   actual: "4"
   verdict: mismatched
-  accessed: 2026-05-26
+  accessed: <YYYY-MM-DD>
 ```
 
 The auditor MUST emit one proof_trace per state-dependent claim. Heuristic claims (e.g., "the recovery message could be clearer") do not need proof_trace but do drop to Low severity until measurable.

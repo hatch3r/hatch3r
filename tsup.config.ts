@@ -19,6 +19,18 @@ export default defineConfig({
   // tarball and shortens the build. Re-introduce only alongside a real
   // library `exports` entry filed as a PRD CL-1.
   clean: true,
+  // Cycle 10 L D4-SA4.1-F4.1.F6 (D4): esbuild-only tree-shaking, explicit.
+  // tsup's `treeshake` option adds a second Rollup AST pass on top of the
+  // tree-shaking esbuild already performs during bundling. For this single-
+  // entry (`splitting: false`) `bin`-only CLI the Rollup pass is not enabled:
+  // esbuild's pass is the chosen tree-shaker, traded in favour of build speed
+  // (esbuild bundles the ~700 KB output in tens of ms; the Rollup pass would
+  // dominate build time the way the removed `dts` pass did). The Rollup-pass
+  // size delta has not been A/B-measured this cycle — re-run the benchmark
+  // (build with `treeshake: true` vs this baseline, compare `dist/cli/index.js`
+  // size) and flip to `treeshake: true` only if the measured gain exceeds 5%.
+  // See governance/audit/domains/D04-build-cicd.md SA 4.1 "Tree-shaking".
+  treeshake: false,
   // Cycle 10 M D4-M1 (D4): the previous `sourcemap: true` produced
   // dist/cli/index.js.map at 2.49 MB — 271 % of the 919 KB runtime bundle —
   // and `package.json` "files: [\"dist/\"]" published that map to npm on every

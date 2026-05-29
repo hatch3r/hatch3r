@@ -139,7 +139,7 @@ findings:
       expected: "query count ≤ 3 per list request (1 products + 1 categories join)"
       actual: "[prisma:query] SELECT ... FROM products LIMIT 50 ; then 50× SELECT ... FROM categories WHERE id = $1"
       verdict: mismatched
-      accessed: 2026-05-26
+      accessed: <YYYY-MM-DD>
     impact_horizon: short
     progress_toward_pillar: content-quality.CQ7+0.15
 status: FINDINGS

@@ -754,6 +754,19 @@ async function runUserContentGates(
     }
   }
 
+  // Body-only invariant guard (F20.1.E2). `artifact.body` is contracted as
+  // the markdown body WITHOUT frontmatter (see the `UserContentArtifact.body`
+  // JSDoc and `composeArtifactFile`, which re-emits `---\n${yaml}\n---\n${body}`).
+  // The lean line-count gate below counts `artifact.body` verbatim, so a buggy
+  // caller (or a future refactor) that passed the full file — frontmatter
+  // included — would inflate the count and produce false lean warnings. Fail
+  // fast on the leading `---` fence rather than silently miscounting.
+  if (artifact.body.startsWith("---")) {
+    strict.push(
+      "artifact.body must not include YAML frontmatter — pass the body-only markdown to saveUserContent (the `---` fence belongs in composeArtifactFile output, not the body slot)",
+    );
+  }
+
   // Lean line threshold (per-type, C9-M45). Falls back to the default cap
   // when the artifact type is missing from the registry — defensive only;
   // every value of UserArtifactType is keyed.
@@ -784,13 +797,22 @@ async function runUserContentGates(
 
   // Pillar declaration (strict). F20.2.A2: the two-axis framework accepts a
   // governance-axis pillar (P1–P8) AND/OR a content-quality-axis pillar
-  // (CQ1–CQ9) per CONSTITUTION §2A/§2B.
+  // (CQ1–CQ9) per CONSTITUTION §2A/§2B. F20.2.B3: the D20.2 checklist row 5
+  // ("declares ≥1 of P1–P8 … in tags or body") names THREE satisfaction
+  // surfaces, but the gate previously honored only `pillars` frontmatter and a
+  // `**Pillars:**` body line. The `tags` path is the third: a pillar token
+  // (`P1`…`P8` / `CQ1`…`CQ9`) carried directly in the `tags` array satisfies
+  // the declaration, matching the checklist wording so a tags-only author is
+  // not rejected on a surface the audit doc advertises.
   const hasPillarFm = Array.isArray(fm.pillars) && fm.pillars.length > 0;
   const hasPillarBody = /(^|\n)\s*##\s*Pillar/i.test(artifact.body) ||
     /\*\*Pillars?:\*\*/i.test(artifact.body);
-  if (!hasPillarFm && !hasPillarBody) {
+  const hasPillarTags =
+    Array.isArray(fm.tags) &&
+    fm.tags.some((t) => /^(?:P[1-8]|CQ[1-9])$/.test(String(t)));
+  if (!hasPillarFm && !hasPillarBody && !hasPillarTags) {
     strict.push(
-      "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ9]` to frontmatter or a `**Pillars:**` line in the body",
+      "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ9]` to frontmatter, a `P1...P8`/`CQ1...CQ9` tag in `tags`, or a `**Pillars:**` line in the body",
     );
   }
 

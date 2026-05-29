@@ -330,6 +330,49 @@ export interface VarianceBudget {
 }
 
 /**
+ * Phase-level snapshot reference (Finding D7-SA7.1-F-9).
+ *
+ * Records which `src/pipeline/snapshot.ts` session captures the disk state at a
+ * given phase exit, so the orchestrator can offer "roll back to Phase 3 clean"
+ * (via `applyRollback(sessionId)`) instead of a whole-session restart when a
+ * downstream phase fails. The orchestrator populates one entry as each phase
+ * completes, calling `withSnapshot` / `createSnapshot` with a session id it
+ * derives from `correlationId` + the phase number. The CLI itself never writes
+ * this — it is part of the canonical handoff schema consumed by the host
+ * coding tool and downstream pack integrators (see the module header).
+ */
+export interface SnapshotRef {
+  /** Phase whose post-completion disk state this snapshot captures. */
+  afterPhase: 1 | 2 | 3 | 4;
+  /** Snapshot session id, restorable via `applyRollback(snapshotId)`. */
+  snapshotId: string;
+}
+
+/**
+ * Pending user-input request accumulated across phases (Finding D7-SA7.1-F-10).
+ *
+ * The shape mirrors the Plain-Text Fallback Template in
+ * `agents/shared/user-question-protocol.md`: each request carries the options
+ * and the mandatory default-if-no-response. Phases push a request here instead
+ * of emitting a direct prompt when they need input; the orchestrator drains the
+ * array between phases (paginating when more than 3 accumulate) so multiple
+ * ASK checkpoints across a Tier 3 run can be batched rather than each rendered
+ * independently. This is the cross-phase aggregation layer the per-question
+ * protocol does not itself define.
+ */
+export interface PendingUserInput {
+  phase: 1 | 2 | 3 | 4;
+  /** Agent (or orchestrator step) that raised the request. */
+  agent: string;
+  /** One-sentence reason the input is needed. */
+  reason: string;
+  /** 2-4 candidate options per the user-question-protocol. */
+  options: { label: string; value: string }[];
+  /** Option `value` applied on non-response (lowest-blast-radius choice). */
+  defaultIfNoResponse: string;
+}
+
+/**
  * The PipelineContext is the canonical handoff object passed between
  * all four pipeline phases. Each phase populates its section.
  */
@@ -367,6 +410,23 @@ export interface PipelineContext {
   // Phase 4 outputs (Quality)
   qualityResults?: QualityResults;
 
+  /**
+   * Per-phase snapshot references for phase-level rollback (Finding
+   * D7-SA7.1-F-9). Populated by the orchestrator after each phase completes;
+   * `null`/absent means no phase snapshots were captured (e.g. a dry run or a
+   * Tier 1 carve-out). Enables "roll back to Phase N clean" instead of a full
+   * session restart on a downstream-phase failure.
+   */
+  snapshotRefs?: SnapshotRef[];
+
+  /**
+   * User-input requests awaiting an answer, aggregated across phases (Finding
+   * D7-SA7.1-F-10). Phases push to this array rather than emitting direct
+   * prompts; the orchestrator drains it between phases. Empty/absent means no
+   * phase is currently blocked on user input.
+   */
+  pendingUserInputs?: PendingUserInput[];
+
   // Metadata
   /** ISO-8601 timestamp. */
   startedAt: string;
@@ -382,6 +442,16 @@ export interface PipelineContext {
  *
  * Each phase has documented conditions under which it can be safely skipped.
  * Commands reference these criteria to maintain consistency.
+ *
+ * The "documentation-only" and "trivial single-line edit" conditions below are
+ * backed by the programmatic predicates {@link isDocumentationOnly} /
+ * {@link isTrivialChange} (Finding D7-SA7.1-F-4); the orchestrator resolves a
+ * skip via {@link shouldSkipPhase} rather than re-classifying the diff in
+ * prose. For Phase 4 specifically, a `true` documentation-only verdict makes
+ * the phase fully skippable and the mandatory-minimum (testability + security)
+ * does not apply, while a `false` verdict binds the mandatory-minimum —
+ * dissolving the mixed-change ambiguity the prose table alone left open
+ * (Finding D7-SA7.3-F-9).
  */
 export interface PhaseSkipCriteria {
   phase: 1 | 2 | 3 | 4;
@@ -940,6 +1010,144 @@ export function shouldTriggerSpecialist(
   }
 
   return { triggered: reasons.length > 0, reasons };
+}
+
+// ── Skip-decision predicates (Finding D7-SA7.1-F-4 / D7-SA7.3-F-9) ────
+
+/**
+ * Verdict returned by the programmatic skip-decision predicates. `canSkip`
+ * is the machine-checkable answer the orchestrator records in the iteration
+ * summary; `reason` is the human-readable justification (cited per Charter
+ * directive 20 — never skip a phase without naming why).
+ */
+export interface SkipVerdict {
+  canSkip: boolean;
+  reason: string;
+}
+
+/**
+ * File extensions + path prefixes treated as documentation rather than code.
+ * Used by {@link isDocumentationOnly} to give `shouldSkipPhase`-style callers
+ * a typed verdict instead of relying on the orchestrator LLM to re-classify a
+ * diff under token pressure (Finding D7-SA7.1-F-4 causal chain: LLM mis-classifies
+ * mixed docs+code as docs-only → review skipped on a code change → regression).
+ *
+ * Conservative by construction: anything NOT matching this allow-list counts as
+ * a code modification, so the predicate fails safe toward running the phase.
+ */
+const DOC_FILE_SUFFIXES: readonly string[] = [
+  ".md",
+  ".mdx",
+  ".markdown",
+  ".txt",
+  ".rst",
+  ".adoc",
+];
+
+const DOC_PATH_PREFIXES: readonly string[] = ["docs/", "doc/"];
+
+/**
+ * Classify a change set as documentation-only by inspecting file paths against
+ * a code-extension allow-list (Finding D7-SA7.1-F-4). Returns `canSkip: true`
+ * only when EVERY changed file is documentation; a single code file flips the
+ * verdict to `false`. An empty change set is not skippable (nothing to assert
+ * about an unknown diff).
+ *
+ * Pure function with no I/O — safe to call from read-only orchestrator paths.
+ * The orchestrator consults this at the Phase 3 / Phase 4 skip-decision boundary
+ * (Finding D7-SA7.3-F-9): `canSkip === true` → the "documentation-only" skip
+ * condition in {@link PHASE_SKIP_CRITERIA} is satisfied programmatically and the
+ * Phase 4 mandatory-minimum (testability + security) does NOT apply; `canSkip
+ * === false` → the change touches code, so the mandatory-minimum binds and the
+ * docs-only skip is rejected. This dissolves the mixed-change ambiguity between
+ * the skip condition and the mandatory-minimum that the prose table alone left open.
+ */
+export function isDocumentationOnly(filesChanged: string[]): SkipVerdict {
+  if (filesChanged.length === 0) {
+    return { canSkip: false, reason: "no changed files supplied; cannot assert documentation-only" };
+  }
+  const codeFiles = filesChanged.filter((file) => {
+    const normalized = file.replace(/\\/g, "/").toLowerCase();
+    const isDocByPrefix = DOC_PATH_PREFIXES.some((prefix) => normalized.startsWith(prefix) || normalized.includes(`/${prefix}`));
+    const isDocBySuffix = DOC_FILE_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+    return !(isDocByPrefix || isDocBySuffix);
+  });
+  if (codeFiles.length > 0) {
+    return {
+      canSkip: false,
+      reason: `change touches ${codeFiles.length} non-documentation file(s): ${codeFiles.slice(0, 5).join(", ")}`,
+    };
+  }
+  return { canSkip: true, reason: `all ${filesChanged.length} changed file(s) are documentation` };
+}
+
+/**
+ * Classify a change set as trivial by file count + per-file churn (Finding
+ * D7-SA7.1-F-4). A trivial change is at most one file with at most
+ * {@link TRIVIAL_MAX_LINES} changed lines — the Tier 1 "single-line edit (typo,
+ * comment, single-value config)" carve-out in {@link PHASE_SKIP_CRITERIA} made
+ * programmatic. `linesChangedPerFile` maps a changed file to its added+removed
+ * line count; a file absent from the map is treated as 0 changed lines.
+ *
+ * Pure function with no I/O. Fails safe: any file exceeding the line budget, or
+ * more than one changed file, yields `canSkip: false`.
+ */
+export const TRIVIAL_MAX_LINES = 3;
+
+export function isTrivialChange(
+  filesChanged: string[],
+  linesChangedPerFile: Record<string, number> = {},
+): SkipVerdict {
+  if (filesChanged.length === 0) {
+    return { canSkip: false, reason: "no changed files supplied; cannot assert trivial change" };
+  }
+  if (filesChanged.length > 1) {
+    return { canSkip: false, reason: `change spans ${filesChanged.length} files (>1); not trivial` };
+  }
+  const file = filesChanged[0];
+  const lines = linesChangedPerFile[file] ?? 0;
+  if (lines > TRIVIAL_MAX_LINES) {
+    return { canSkip: false, reason: `${file} changed ${lines} lines (> ${TRIVIAL_MAX_LINES}); not trivial` };
+  }
+  return { canSkip: true, reason: `single file ${file} with ${lines} changed line(s)` };
+}
+
+/**
+ * Resolve whether a given phase may be skipped for a change set, combining the
+ * documented {@link PHASE_SKIP_CRITERIA} with the programmatic predicates above
+ * (Finding D7-SA7.1-F-4 / D7-SA7.3-F-9). Only the predicate-backed skip
+ * conditions are evaluated here — conditions that depend on runtime signals the
+ * orchestrator holds (cached research, user-chose-manual, all-items-trivial in a
+ * quick-change batch) remain the orchestrator's call and are reported as
+ * `canSkip: false` with a reason pointing the orchestrator at the residual
+ * decision so a skip is never granted on an unverified premise.
+ *
+ * Phase 2 is never skippable (returns `canSkip: false`). Phases 3 and 4 are
+ * skippable when {@link isDocumentationOnly} holds; Phase 1 is additionally
+ * skippable when {@link isTrivialChange} holds.
+ */
+export function shouldSkipPhase(
+  phase: 1 | 2 | 3 | 4,
+  filesChanged: string[],
+  linesChangedPerFile: Record<string, number> = {},
+): SkipVerdict {
+  if (phase === 2) {
+    return { canSkip: false, reason: "Phase 2 (Implement) is never skippable for code changes" };
+  }
+  const docsOnly = isDocumentationOnly(filesChanged);
+  if (docsOnly.canSkip) {
+    return { canSkip: true, reason: `documentation-only: ${docsOnly.reason}` };
+  }
+  if (phase === 1) {
+    const trivial = isTrivialChange(filesChanged, linesChangedPerFile);
+    if (trivial.canSkip) {
+      return { canSkip: true, reason: `trivial change: ${trivial.reason}` };
+    }
+  }
+  return {
+    canSkip: false,
+    reason: `${docsOnly.reason}; remaining skip conditions for Phase ${phase} require an orchestrator runtime decision (see PHASE_SKIP_CRITERIA)`,
+  };
 }
 
 /**

@@ -148,7 +148,7 @@ Status: COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLIC
 - `BLOCKED_MISSING_CONTEXT` — required artifact (file, prior decision, baseline) not found; orchestrator routes to researcher or asks user.
 - `BLOCKED_CONFLICTING_SPECS` — two or more requirements cannot all hold; orchestrator routes to architect / human reviewer.
 - `BLOCKED_MISSING_TOOL` — required CLI tool, MCP server, or permission absent; orchestrator routes to setup or downgrades scope.
-- `BLOCKED_PREMISE_CHALLENGE` — §0.5 architectural premise concern surfaced (per `agents/shared/user-question-protocol.md` "Architectural premise concern" trigger); orchestrator pauses for user decision.
+- `BLOCKED_PREMISE_CHALLENGE` — §0.5 architectural premise concern surfaced (per `agents/shared/user-question-protocol.md` "Architectural premise concern" trigger); orchestrator pauses for user decision. This is the researcher/implementer/fixer-side half of the framework's premise-challenge surface; the reviewer's Phase-3 counterpart is the `DESIGN_OBJECTION` review verdict (`agents/hatch3r-reviewer.md`), which terminates the review loop and surfaces the objection + ≥1 alternative for an architectural decision. The two cover non-overlapping phases (pre- vs post-implementation) and together form the complete premise-challenge capability — see `rules/hatch3r-agent-orchestration.md` Status Codes for the consolidated cross-reference (Finding D7-SA7.1-F-7).
 - `BLOCKED_OTHER` — escape hatch with a one-sentence reason field. Use sparingly; if a class repeats, codify it as a new enum value at the next audit cycle.
 
 Free-form "stuck" or "failed" prose substitution is rejected at the orchestrator boundary. Every Phase-2/3/4 agent in `agents/hatch3r-*.md` honors this enum.

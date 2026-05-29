@@ -644,6 +644,45 @@ export function formatCostBlock(estimate: CostEstimate, actuals?: CostActuals): 
   return lines.join("\n");
 }
 
+// ── Review-loop cost-ceiling bridge (D7-SA7.2-F-5) ───────────────
+
+/**
+ * Default number of LLM passes per review-fix iteration used when deriving a
+ * review-loop token ceiling — one reviewer pass + one fixer pass.
+ */
+export const DEFAULT_REVIEW_PASSES_PER_ITERATION = 2;
+
+/**
+ * Derive a cumulative-token-spend ceiling for the review loop from a
+ * pre-execution {@link CostEstimate} (Finding D7-SA7.2-F-5). This is the bridge
+ * that lets the pre-execution estimate flow into `reviewLoop.createReviewLoop`'s
+ * `costBudgetTokens` argument so the loop can terminate with
+ * `cost_budget_exceeded` before runaway spend.
+ *
+ * The ceiling is the static-frame input estimate multiplied by the iteration
+ * cap and the per-iteration LLM pass count (reviewer + fixer). It is an upper
+ * bound on the static-frame token spend a fully-utilised loop would incur; the
+ * caller passes the returned value to `createReviewLoop(maxIterations, ceiling)`.
+ *
+ * Pure function — no I/O, never throws. Returns `0` (no ceiling) when the
+ * estimate's static-frame figure or either multiplier is non-positive.
+ */
+export function reviewLoopBudgetFromEstimate(
+  estimate: CostEstimate,
+  maxIterations: number,
+  passesPerIteration: number = DEFAULT_REVIEW_PASSES_PER_ITERATION,
+): number {
+  const perPass = estimate.estimated_input_tokens_static_frame;
+  if (
+    !Number.isFinite(perPass) || perPass <= 0 ||
+    !Number.isFinite(maxIterations) || maxIterations <= 0 ||
+    !Number.isFinite(passesPerIteration) || passesPerIteration <= 0
+  ) {
+    return 0;
+  }
+  return Math.round(perPass * maxIterations * passesPerIteration);
+}
+
 // ── Token → USD cost conversion (single source of truth) ─────────
 // F3.4-F2 (Cycle 10 Wave 2): merged from pipeline/observability.ts so the
 // canonical cost module (Decision 24) owns ALL cost computation. The

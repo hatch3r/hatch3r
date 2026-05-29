@@ -99,6 +99,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ## Structural search & rewrite
 
 ### ast-grep
+- **Binary:** `sg` (the `ast-grep` package installs the binary as `sg` — run `command -v sg` to detect it, not `command -v ast-grep`).
 - **When to use:** Tree-sitter AST pattern matches and rewrites scoped to a single grammar (TS, Python, Rust, Go).
 - **Recipe:** `sg run -p 'await $FN()' -r 'await ($FN()).catch(e => log(e))' --update-all src/`
 - **Wrong choice when:** plain literal text — use `hatch3r-cli-ripgrep`; multi-language SAST rule packs — use `semgrep`.

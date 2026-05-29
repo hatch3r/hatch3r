@@ -100,6 +100,10 @@ The "Default if no response" line is mandatory in every plain-text fallback ques
 
 The §8 log is the audit-visible evidence that the default-if-no-response contract was honored; absence of the log when a default was applied is a P8 B1 gate failure.
 
+## Cross-Phase Aggregation
+
+This protocol defines the *shape* of a single question (numbered options, mandatory default). It does not define where pending questions accumulate when several fire across one pipeline run. That cross-phase aggregation layer is the `PipelineContext.pendingUserInputs: PendingUserInput[]` field (`src/pipeline/pipelineContext.ts`, Finding D7-SA7.1-F-10): each phase pushes a `PendingUserInput` — whose `options` + `defaultIfNoResponse` mirror the Plain-Text Fallback Template above — instead of emitting a direct prompt mid-phase. The orchestrator drains the array between phases, paginating when more than three accumulate, so a Tier 3 run's multiple ASK checkpoints are batched rather than each rendered independently. Per-question UX (this file) and cross-phase batching (the field) are complementary: author each request to this template, enqueue it on the field.
+
 ## Anti-Patterns
 
 - **Multi-question barrage** — asking five questions in one turn. Ask the highest-leverage one first; the answer often collapses the rest.

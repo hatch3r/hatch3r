@@ -873,6 +873,9 @@ export function resolveSelection(
       } else if (hasMatchingFacet) {
         admitted.add(item.id);
       } else if (isCustomizeItem && preset.includeCustomize) {
+        // Customize is gated by a typed boolean, not the capability set, by
+        // design — see the `ContentPreset.includeCustomize` JSDoc in
+        // presets.ts for the rationale (D2-SA2.6-F05).
         admitted.add(item.id);
       } else if (includeIdSet.has(item.id)) {
         admitted.add(item.id);
