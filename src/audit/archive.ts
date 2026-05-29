@@ -411,8 +411,7 @@ export async function archiveCycle(
  * collision with `src/archive/index.ts::pruneArchives`, which is a distinct
  * production function that actually deletes tool-output archives. This stub
  * only enumerates; the descriptive name reflects its real behavior (D2-SA2.7
- * F2). The legacy `pruneArchives` alias below is retained for backward
- * compatibility and is deprecated.
+ * F2).
  */
 export async function enumerateAuditArchives(
   paths: ArchivePaths,
@@ -438,14 +437,6 @@ export async function enumerateAuditArchives(
     });
   return { kept: cycleFiles, coldArchived: [] };
 }
-
-/**
- * @deprecated Renamed to {@link enumerateAuditArchives} to resolve the symbol
- * collision with `src/archive/index.ts::pruneArchives` (D2-SA2.7 F2). This
- * alias preserves the old call site; migrate callers to `enumerateAuditArchives`
- * and remove this alias in a follow-up.
- */
-export const pruneArchives = enumerateAuditArchives;
 
 interface AnchorLine {
   phase?: string;

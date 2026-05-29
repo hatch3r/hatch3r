@@ -2,7 +2,8 @@
 id: hatch3r-ci-cd
 type: rule
 description: CI/CD pipeline standards covering stage gates, deployment strategies, and rollback procedures
-scope: "**/.github/workflows/**,**/Dockerfile*,**/docker-compose*,**/.gitlab-ci*,**/Jenkinsfile,**/azure-pipelines*,**/.circleci/**,**/deploy/**,**/*pipeline*"
+scope: conditional
+globs: "**/.github/workflows/**,**/Dockerfile*,**/docker-compose*,**/.gitlab-ci*,**/Jenkinsfile,**/azure-pipelines*,**/.circleci/**,**/deploy/**,**/*pipeline*"
 tags: [devops]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

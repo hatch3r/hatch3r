@@ -10,7 +10,13 @@
     "commands": 23,
     "hooks": 7,
     "pipeline": 22,
-    "cliCommands": 18
+    "cliCommands": 18,
+    "agentsModes": 21,
+    "agentsShared": 9,
+    "commandsBoard": 11,
+    "commandsRevision": 4,
+    "checks": 6,
+    "githubAgents": 4
   },
   "files": {
     "adapters": [
@@ -308,6 +314,73 @@
       "verify.ts",
       "worktreeCleanup.ts",
       "worktreeSetup.ts"
+    ],
+    "agentsModes": [
+      "architecture.md",
+      "boundary-analysis.md",
+      "codebase-impact.md",
+      "complexity-risk.md",
+      "coverage-analysis.md",
+      "current-state.md",
+      "feature-design.md",
+      "impact-analysis.md",
+      "library-docs.md",
+      "migration-path.md",
+      "prior-art.md",
+      "refactoring-strategy.md",
+      "regression.md",
+      "requirements-elicitation.md",
+      "risk-assessment.md",
+      "risk-prioritization.md",
+      "root-cause.md",
+      "similar-implementation.md",
+      "symptom-trace.md",
+      "test-pattern.md",
+      "user-flows.md"
+    ],
+    "agentsShared": [
+      "clarification-default-block.md",
+      "efficiency-patterns.md",
+      "external-knowledge.md",
+      "injection-patterns.md",
+      "prompt-structure.md",
+      "quality-charter.md",
+      "quality-specialist-frame.md",
+      "user-content-templates.md",
+      "user-question-protocol.md"
+    ],
+    "commandsBoard": [
+      "pickup-azure-devops.md",
+      "pickup-delegation-multi.md",
+      "pickup-delegation.md",
+      "pickup-github.md",
+      "pickup-gitlab.md",
+      "pickup-modes.md",
+      "pickup-post-impl.md",
+      "shared-azure-devops.md",
+      "shared-board-overview.md",
+      "shared-github.md",
+      "shared-gitlab.md"
+    ],
+    "commandsRevision": [
+      "revision-board-integration.md",
+      "revision-delegation.md",
+      "revision-modes.md",
+      "revision-quality.md"
+    ],
+    "checks": [
+      "accessibility.md",
+      "code-quality.md",
+      "performance.md",
+      "README.md",
+      "security.md",
+      "testing.md"
+    ],
+    "githubAgents": [
+      "hatch3r-docs-agent.md",
+      "hatch3r-lint-agent.md",
+      "hatch3r-security-agent.md",
+      "hatch3r-test-agent.md"
     ]
   }
 }

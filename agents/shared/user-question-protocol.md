@@ -6,9 +6,9 @@ tags: [shared, ux, p1, p4]
 cache_friendly: true
 ---
 
-> Last updated: 2026-05-26
-
 ## Purpose
+
+> Last updated: 2026-05-26
 
 This protocol defines how hatch3r agents and commands surface clarifying or triage questions to the user across the 15 supported AI coding platforms. It is the single source of truth for the *how* of asking; the *whether* is governed by [quality-charter §3 "Question Unclear Requirements"](./quality-charter.md) and §8 "Escalate Ambiguity Early". Files that reference this protocol: the requirements-elicitation mode (`agents/modes/requirements-elicitation.md`), the five ASK-checkpoint commands, and the four ask-prone agents — researcher, fixer, architect, implementer.
 

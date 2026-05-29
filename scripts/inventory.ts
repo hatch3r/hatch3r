@@ -53,6 +53,21 @@ interface InventoryCounts {
   hooks: number;
   pipeline: number;
   cliCommands: number;
+  /**
+   * Companion-content directories (F16.3-L2 / F16.3-M3, Cycle 10). These ship
+   * with the framework as reference material outside the top-level
+   * agent/skill/rule/command/hook counts (per CLAUDE.md), but were previously
+   * untracked — a rename/add/delete inside any of them escaped the CI drift
+   * gate. Counting them here closes the capability-lifecycle drift gap while
+   * preserving their "reference material, not standalone published artifact"
+   * classification.
+   */
+  agentsModes: number;
+  agentsShared: number;
+  commandsBoard: number;
+  commandsRevision: number;
+  checks: number;
+  githubAgents: number;
 }
 
 interface InventoryFiles {
@@ -67,6 +82,13 @@ interface InventoryFiles {
   hooks: string[];
   pipeline: string[];
   cliCommands: string[];
+  /** File lists backing the companion-content counts (F16.3-L2 / F16.3-M3). */
+  agentsModes: string[];
+  agentsShared: string[];
+  commandsBoard: string[];
+  commandsRevision: string[];
+  checks: string[];
+  githubAgents: string[];
 }
 
 interface InventoryDocument {
@@ -115,6 +137,27 @@ async function listMdcFiles(relDir: string, prefix: string): Promise<string[]> {
   const results: string[] = [];
   for (const name of entries) {
     if (!name.startsWith(prefix) || !name.endsWith(".mdc")) continue;
+    const full = join(dir, name);
+    const s = await stat(full);
+    if (s.isFile()) results.push(name);
+  }
+  return results;
+}
+
+/**
+ * List every `*.md` file directly inside a companion-content directory
+ * (F16.3-L2 / F16.3-M3). Unlike `listTopLevelMd`, companion files carry no
+ * `hatch3r-` prefix requirement (they are reference material under named
+ * support subdirectories per `.claude/rules/content-authoring.md`), so this
+ * lists all top-level markdown, including any `README.md`. Returns `[]` for a
+ * missing directory so the inventory stays stable if a directory is removed.
+ */
+async function listCompanionMd(relDir: string): Promise<string[]> {
+  const dir = join(ROOT, relDir);
+  const entries = await listEntries(dir);
+  const results: string[] = [];
+  for (const name of entries) {
+    if (!name.endsWith(".md")) continue;
     const full = join(dir, name);
     const s = await stat(full);
     if (s.isFile()) results.push(name);
@@ -171,6 +214,12 @@ async function buildInventory(): Promise<InventoryDocument> {
     hooks,
     pipeline,
     cliCommands,
+    agentsModes,
+    agentsShared,
+    commandsBoard,
+    commandsRevision,
+    checks,
+    githubAgents,
   ] = await Promise.all([
     listAdapters(),
     listTopLevelMd("agents", "hatch3r-"),
@@ -181,6 +230,12 @@ async function buildInventory(): Promise<InventoryDocument> {
     listTopLevelMd("hooks", "hatch3r-"),
     listSrcDirTs("src/pipeline"),
     listSrcDirTs("src/cli/commands"),
+    listCompanionMd("agents/modes"),
+    listCompanionMd("agents/shared"),
+    listCompanionMd("commands/board"),
+    listCompanionMd("commands/revision"),
+    listCompanionMd("checks"),
+    listCompanionMd("github-agents"),
   ]);
 
   // Use a date-only stamp (UTC) so the file is stable across same-day runs
@@ -202,6 +257,12 @@ async function buildInventory(): Promise<InventoryDocument> {
       hooks: hooks.length,
       pipeline: pipeline.length,
       cliCommands: cliCommands.length,
+      agentsModes: agentsModes.length,
+      agentsShared: agentsShared.length,
+      commandsBoard: commandsBoard.length,
+      commandsRevision: commandsRevision.length,
+      checks: checks.length,
+      githubAgents: githubAgents.length,
     },
     files: {
       adapters,
@@ -214,6 +275,12 @@ async function buildInventory(): Promise<InventoryDocument> {
       hooks,
       pipeline,
       cliCommands,
+      agentsModes,
+      agentsShared,
+      commandsBoard,
+      commandsRevision,
+      checks,
+      githubAgents,
     },
   };
 }

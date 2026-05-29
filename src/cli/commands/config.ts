@@ -22,6 +22,7 @@ import {
   type Platform,
   type Tool,
 } from "../../types.js";
+import { assertManifest } from "../shared/requireManifest.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import {
   printBanner,
@@ -67,7 +68,7 @@ import {
   getAllContentIds,
 } from "../../content/index.js";
 import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
-import { acquireWriteLock, safeWriteFile } from "../../merge/safeWrite.js";
+import { acquireWriteLock, safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { writeCheckpoint, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { HATCH3R_VERSION } from "../../version.js";
@@ -512,6 +513,23 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
   printBanner(true);
 
   const rootDir = process.cwd();
+
+  // D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
+  // left under the project root by a prior SIGKILL'd run. `config` mutates
+  // `hatch.json` via `writeManifest` → `atomicWriteFile` (temp+rename), so an
+  // interrupted config write can strand a `hatch.json.tmp.<hex>` orphan. Best-
+  // effort: only removes files older than the 60s in-flight-write floor
+  // ({@link ORPHAN_MIN_AGE_MS}), surfaces removals + unlink failures via
+  // `warn()` per the Silent Failure Contract (P5), never aborts the command.
+  // Mirrors the `update`/`sync`/`init` entry-point sweep.
+  try {
+    const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+    const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+    if (tmpDiag) warn(tmpDiag);
+  } catch (err) {
+    verbose(`config: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   // F1.2-H1 (Cycle 10): Hold a cross-process advisory lock on `hatch.json`
   // across the full read-modify-write window — `readManifest` happens after
   // acquire, every `writeManifest` happens before release. Without this, a
@@ -551,16 +569,9 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
 async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string): Promise<void> {
   const manifest = await readManifest(rootDir);
 
-  if (!manifest) {
-    logError("No .hatch3r/hatch.json found.");
-    console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError(
-      "No .hatch3r/hatch.json found.",
-      undefined,
-      "CONFIG_ERROR",
-      "Run `npx hatch3r init` to set up your project first.",
-    );
-  }
+  // D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): shared missing-manifest preflight —
+  // identical message + CONFIG_ERROR exit across every manifest-required command.
+  assertManifest(manifest);
 
   // Scalar key/value dispatch — handles `hatch3r config <key>=<value>`,
   // `hatch3r config set <key> <value>`, and `hatch3r config get <key>`.

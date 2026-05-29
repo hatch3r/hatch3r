@@ -1,15 +1,24 @@
 import chalk from "chalk";
 import { HatchError, type HatchManifest } from "../../types.js";
 import { readManifest } from "../../manifest/hatchJson.js";
-import { computeAdapterDrift, renderDiffSummaryLines, type DriftReport } from "./status.js";
+import {
+  computeAdapterDrift,
+  renderDiffSummaryLines,
+  renderDriftLines,
+  type DriftReport,
+} from "./status.js";
 import { runRegenerate } from "./update.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import {
+  assertManifest,
+  MISSING_MANIFEST_MESSAGE,
+  MISSING_MANIFEST_HINT,
+} from "../shared/requireManifest.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
   createSpinner,
   printBox,
-  error as logError,
   info,
   warn,
 } from "../shared/ui.js";
@@ -62,6 +71,15 @@ export interface VerifyOptions {
    * (added/modified/unchanged/orphan per file) after the PASS/FAIL box.
    */
   diff?: boolean;
+  /**
+   * D1-SA1.4-F11 (Cycle 10 Wave 4, P1): when set, print the per-tool / per-file
+   * drift breakdown ({@link renderDriftLines}) before the PASS/FAIL summary box
+   * in human mode — the same detail `hatch3r status` shows — so an operator who
+   * sees `verify: FAIL (3 drift(s))` learns WHICH files drifted without
+   * re-running `status`. CI brevity is preserved: the breakdown is opt-in and
+   * JSON mode already carries the full `entries` list.
+   */
+  verbose?: boolean;
 }
 
 /** Render the drift counts as boxed summary lines (shared by report + fix paths). */
@@ -126,6 +144,23 @@ function maybePrintDiffSummary(options: VerifyOptions, report: DriftReport): voi
 }
 
 /**
+ * D1-SA1.4-F11 (Cycle 10 Wave 4, P1): print the per-tool / per-file drift
+ * breakdown when `--verbose` is set, mirroring what `hatch3r status` shows.
+ * Shared renderer ({@link renderDriftLines}) so status and verbose-verify emit
+ * identical per-file lines. No-op in JSON mode (the per-entry list is already
+ * in the JSON payload), when `--verbose` is absent, or when there are no
+ * entries to show.
+ */
+function maybePrintVerboseDrift(options: VerifyOptions, report: DriftReport): void {
+  if (!options.verbose) return;
+  const driftLines = renderDriftLines(report);
+  if (driftLines.length > 0) {
+    for (const line of driftLines) console.log(line);
+    console.log();
+  }
+}
+
+/**
  * Bounded regenerate→re-check loop backing `verify --fix`. Each iteration
  * regenerates adapter output from the bundled canonical content (no network)
  * and recomputes drift. Returns the final report; the caller decides PASS/FAIL.
@@ -162,30 +197,22 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
   if (!manifest) {
+    // D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): in JSON mode emit the structured
+    // error payload first, then delegate the throw (and, in human mode, the
+    // canonical two-line stderr) to the shared `assertManifest` helper so the
+    // message + exit-code contract is byte-identical across every
+    // manifest-required command.
     if (jsonMode) {
       emitJson({
         status: "failed",
-        // D8-SA8.1-F8.1.8 (Cycle 10, P1): align the JSON `error` string with the
-        // human-mode message and status's JSON payload (trailing period).
-        error: "No .hatch3r/hatch.json found.",
+        error: MISSING_MANIFEST_MESSAGE,
         errorCode: "CONFIG_ERROR",
-        recoveryHint: "Run `npx hatch3r init` to set up your project first.",
+        recoveryHint: MISSING_MANIFEST_HINT,
         hatch3rVersion: HATCH3R_VERSION,
         timestamp: new Date().toISOString(),
       });
-    } else {
-      // D8-SA8.1-F8.1.8 (Cycle 10, P1): emit the same two-line missing-manifest
-      // message the other manifest-required commands use (status, mcp,
-      // cli-tools, config) so first-run stderr is consistent across the CLI.
-      logError("No .hatch3r/hatch.json found.");
-      console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
     }
-    throw new HatchError(
-      "No .hatch3r/hatch.json found.",
-      undefined,
-      "CONFIG_ERROR",
-      "Run `npx hatch3r init` to set up your project first.",
-    );
+    assertManifest(manifest, { jsonMode });
   }
 
   let report: DriftReport;
@@ -222,11 +249,18 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   }
 
   if (driftCount === 0) {
+    // D1-SA1.4-F11 (P1): `--verbose` prints the per-tool breakdown even on PASS
+    // so an operator can confirm exactly which adapter outputs were checked.
+    maybePrintVerboseDrift(options, report);
     printBox("verify: PASS", summaryLines, "success");
     maybePrintDiffSummary(options, report);
     return;
   }
 
+  // D1-SA1.4-F11 (P1): on FAIL, `--verbose` prints WHICH files drifted (per
+  // tool) before the summary box, so the operator does not have to re-run
+  // `hatch3r status` to learn the drift detail.
+  maybePrintVerboseDrift(options, report);
   // D1-SA1.4-F10 (P1): the recovery hint is now drift-category-aware so an
   // orphan-only failure points at `hatch3r clean`, not `hatch3r sync` (which
   // would do nothing). Mirrors status.ts per-category guidance.

@@ -2,7 +2,8 @@
 id: hatch3r-secrets-management
 type: rule
 description: Secret management, rotation, and secure handling patterns for the project
-scope: "**/.env*,**/*secret*,**/*credential*,**/*token*,**/config/**,**/.gitignore,**/vault/**,**/*auth*.config*"
+scope: conditional
+globs: "**/.env*,**/*secret*,**/*credential*,**/*token*,**/config/**,**/.gitignore,**/vault/**,**/*auth*.config*"
 tags: [floor:security]
 precedence: critical
 quality_charter: agents/shared/quality-charter.md

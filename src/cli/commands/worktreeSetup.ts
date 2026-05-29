@@ -19,6 +19,10 @@ import {
   isInsideWorktree,
   findMainWorktree,
 } from "../../worktree/resolve.js";
+import type {
+  WorktreeSkipReason,
+  WorktreeSkippedEntry,
+} from "../../worktree/types.js";
 import {
   printBanner,
   createSpinner,
@@ -107,6 +111,7 @@ interface SetupOptions {
   force?: boolean;
   yes?: boolean;
   fromPath?: string;
+  verbose?: boolean;
 }
 
 async function readIncludeOrThrow(mainRoot: string): Promise<string> {
@@ -196,12 +201,27 @@ function syncWorktree(targetRoot: string): { ok: boolean; output: string } {
   }
 }
 
+// F-1.10.12 (D1 cycle 10): human-readable label per skip reason for the
+// `--verbose` breakdown. Keep in lock-step with the WorktreeSkipReason union
+// in src/worktree/types.ts.
+const SKIP_REASON_LABELS: Record<WorktreeSkipReason, string> = {
+  exists: "already present (idempotent re-run)",
+  "eexist-race": "concurrent write won the race (use --force to overwrite)",
+};
+
 function printSetupSuccessBox(
   targetRoot: string,
-  result: { copied: string[]; symlinked: string[]; skipped: string[]; errors: string[] },
+  result: {
+    copied: string[];
+    symlinked: string[];
+    skipped: string[];
+    skippedDetails: WorktreeSkippedEntry[];
+    errors: string[];
+  },
   syncOk: boolean,
   syncOutput: string,
   clipboardTool: string | null,
+  verbose = false,
 ): void {
   const cdLine = `cd ${targetRoot}`;
   const lines: string[] = [
@@ -216,7 +236,20 @@ function printSetupSuccessBox(
     lines.push(chalk.bold("Files:"));
     if (result.copied.length) lines.push(`  ${chalk.green("+")} copied: ${result.copied.length}`);
     if (result.symlinked.length) lines.push(`  ${chalk.cyan("→")} symlinked: ${result.symlinked.length}`);
-    if (result.skipped.length) lines.push(`  ${chalk.dim("·")} skipped: ${result.skipped.length}`);
+    if (result.skipped.length) {
+      lines.push(`  ${chalk.dim("·")} skipped: ${result.skipped.length}`);
+      // F-1.10.12: progressive disclosure — the bare count by default, the
+      // per-reason breakdown (idempotent re-run vs TOCTOU race) under --verbose.
+      if (verbose) {
+        const byReason = new Map<WorktreeSkipReason, number>();
+        for (const entry of result.skippedDetails) {
+          byReason.set(entry.reason, (byReason.get(entry.reason) ?? 0) + 1);
+        }
+        for (const [reason, count] of byReason) {
+          lines.push(`      ${chalk.dim("·")} ${count} ${SKIP_REASON_LABELS[reason]}`);
+        }
+      }
+    }
   }
   if (!syncOk) {
     lines.push(
@@ -262,7 +295,7 @@ async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void
   const sync = syncWorktree(targetPath);
   const cdLine = `cd ${targetPath}`;
   const tool = copyToClipboard(cdLine);
-  printSetupSuccessBox(targetPath, result, sync.ok, sync.output, tool);
+  printSetupSuccessBox(targetPath, result, sync.ok, sync.output, tool, opts.verbose);
 
   if (!sync.ok) {
     throw new HatchError(
@@ -337,7 +370,7 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
   const sync = syncWorktree(targetRoot);
   const cdLine = `cd ${targetRoot}`;
   const tool = copyToClipboard(cdLine);
-  printSetupSuccessBox(targetRoot, result, sync.ok, sync.output, tool);
+  printSetupSuccessBox(targetRoot, result, sync.ok, sync.output, tool, opts.verbose);
 
   if (!sync.ok) {
     throw new HatchError(

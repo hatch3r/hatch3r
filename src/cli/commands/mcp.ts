@@ -3,11 +3,14 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
+import { sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import {
   AVAILABLE_MCP_SERVERS,
   HatchError,
-  type HatchManifest,
 } from "../../types.js";
+// D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): shared missing-manifest preflight,
+// replacing the per-command copy that previously lived in this file.
+import { assertManifest } from "../shared/requireManifest.js";
 import {
   ensureEnvMcp,
   ensureGitignoreEntry,
@@ -19,6 +22,8 @@ import {
   printBanner,
   printBox,
   info,
+  warn,
+  verbose,
   error as logError,
   label,
 } from "../shared/ui.js";
@@ -38,30 +43,38 @@ import { isWSL } from "../shared/constants.js";
  * delegated to `hatch3r sync` (the next run picks up the manifest change).
  */
 
-function requireManifest(rootDir: string, manifest: HatchManifest | null): asserts manifest {
-  if (!manifest) {
-    logError("No .hatch3r/hatch.json found.");
-    console.log(chalk.dim(`  Run \`npx hatch3r init\` to set up your project first.\n`));
-    throw new HatchError(
-      "No .hatch3r/hatch.json found.",
-      undefined,
-      "CONFIG_ERROR",
-      "Run `npx hatch3r init` to set up your project first.",
-    );
-  }
-}
-
 function wslThemeOrUndefined(): unknown {
   return isWSL()
     ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
     : undefined;
 }
 
+/**
+ * D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
+ * left under the project root by a prior SIGKILL'd run before a mutating MCP
+ * subcommand writes. `mcp setup` / `mcp remove` persist via `writeManifest`
+ * → `atomicWriteFile` (temp+rename), so an interrupted write can strand a
+ * `hatch.json.tmp.<hex>` orphan. Best-effort: only removes files older than
+ * the 60s in-flight-write floor ({@link ORPHAN_MIN_AGE_MS}), surfaces removals
+ * + unlink failures via `warn()` per the Silent Failure Contract (P5), never
+ * aborts the command. Mirrors the `update`/`sync`/`init`/`config` sweep.
+ */
+async function sweepOrphanTmpAtEntry(rootDir: string): Promise<void> {
+  try {
+    const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+    const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+    if (tmpDiag) warn(tmpDiag);
+  } catch (err) {
+    verbose(`mcp: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 export async function mcpSetupCommand(): Promise<void> {
   printBanner(true);
   const rootDir = process.cwd();
+  await sweepOrphanTmpAtEntry(rootDir);
   const manifest = await readManifest(rootDir);
-  requireManifest(rootDir, manifest);
+  assertManifest(manifest);
 
   const platform = manifest.platform ?? "github";
   const selectedResult = await pickMcpServers({
@@ -111,7 +124,7 @@ export async function mcpListCommand(): Promise<void> {
   printBanner(true);
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
-  requireManifest(rootDir, manifest);
+  assertManifest(manifest);
 
   const servers = manifest.mcp.servers;
   const envPath = join(rootDir, ".env.mcp");
@@ -149,8 +162,9 @@ export async function mcpListCommand(): Promise<void> {
 export async function mcpRemoveCommand(id: string): Promise<void> {
   printBanner(true);
   const rootDir = process.cwd();
+  await sweepOrphanTmpAtEntry(rootDir);
   const manifest = await readManifest(rootDir);
-  requireManifest(rootDir, manifest);
+  assertManifest(manifest);
 
   const before = manifest.mcp.servers;
   if (!before.includes(id)) {
@@ -182,7 +196,7 @@ export async function mcpEnvCheckCommand(): Promise<void> {
   printBanner(true);
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
-  requireManifest(rootDir, manifest);
+  assertManifest(manifest);
 
   const servers = manifest.mcp.servers;
   const envPath = join(rootDir, ".env.mcp");

@@ -17,7 +17,7 @@ import {
 import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
-import { safeWriteFile } from "../../merge/safeWrite.js";
+import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import {
   DEFAULT_FEATURES,
@@ -485,6 +485,23 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // success path can emit a `Completed in Xs` line via `printTimingSummary`.
   // Pairs with the SPACE-framework "Efficiency" dimension in D10.8.
   const initStartMs = Date.now();
+
+  // D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
+  // left under the project root by a prior SIGKILL'd run before the init writes
+  // begin. `init` writes through `safeWriteFile`/`atomicWriteFile` (temp+rename),
+  // so an interrupted init can strand temp files that no entry-point sweep would
+  // otherwise reclaim if the operator never re-runs a sweeping command. Best-
+  // effort: the sweep only removes files older than the 60s in-flight-write floor
+  // ({@link ORPHAN_MIN_AGE_MS}), surfaces removals + any unlink failures via
+  // `warn()` per the Silent Failure Contract (P5), and never aborts init.
+  // Mirrors the `update`/`sync` entry-point sweep.
+  try {
+    const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+    const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+    if (tmpDiag) warn(tmpDiag);
+  } catch (err) {
+    verbose(`init: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+  }
 
   // Decision 24 / Bucket 2.x: surface a pre-execution cost estimate so an
   // operator sees the fan-out and token envelope before mutations begin.

@@ -6,7 +6,7 @@ import {
   archiveCycle,
   ArchiveError,
   isLiveEntry,
-  pruneArchives,
+  enumerateAuditArchives,
   rotateAnchorLog,
   type ArchivePaths,
 } from "../../audit/archive.js";
@@ -471,7 +471,7 @@ describe("rotateAnchorLog", () => {
   });
 });
 
-describe("pruneArchives", () => {
+describe("enumerateAuditArchives", () => {
   let fx: Fixture;
 
   beforeEach(async () => {
@@ -499,7 +499,7 @@ describe("pruneArchives", () => {
     // A non-cycle file should be ignored.
     await writeFile(join(fx.paths.archiveDir, "index.json"), "{}");
 
-    const r = await pruneArchives(fx.paths, { keep: 10 });
+    const r = await enumerateAuditArchives(fx.paths, { keep: 10 });
     expect(r.kept).toEqual([
       "cycle-8-finding-registry.json",
       "cycle-7-finding-registry.json",
@@ -512,7 +512,7 @@ describe("pruneArchives", () => {
     const { rm } = await import("node:fs/promises");
     await rm(fx.paths.archiveDir, { recursive: true, force: true });
 
-    const r = await pruneArchives(fx.paths);
+    const r = await enumerateAuditArchives(fx.paths);
     expect(r.kept).toEqual([]);
     expect(r.coldArchived).toEqual([]);
   });

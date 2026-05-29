@@ -1,10 +1,12 @@
 import chalk from "chalk";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
+import { sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import {
-  HatchError,
   type CliToolsConfig,
-  type HatchManifest,
 } from "../../types.js";
+// D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): shared missing-manifest preflight,
+// replacing the per-command copy that previously lived in this file.
+import { assertManifest } from "../shared/requireManifest.js";
 import { detectCliTools, findMissingCliTools } from "../../cliTools/detect.js";
 import {
   offerInstaller,
@@ -21,7 +23,7 @@ import {
   createSpinner,
   info,
   warn,
-  error as logError,
+  verbose,
   label,
 } from "../shared/ui.js";
 import { pickCliTools } from "../shared/pickers.js";
@@ -35,19 +37,6 @@ import { isWSL } from "../shared/constants.js";
  * delegated to `hatch3r sync` (the next run picks up the manifest
  * change and `readCliFilteredSkills` filters skills accordingly).
  */
-
-function requireManifest(_rootDir: string, manifest: HatchManifest | null): asserts manifest {
-  if (!manifest) {
-    logError("No .hatch3r/hatch.json found.");
-    console.log(chalk.dim(`  Run \`npx hatch3r init\` to set up your project first.\n`));
-    throw new HatchError(
-      "No .hatch3r/hatch.json found.",
-      undefined,
-      "CONFIG_ERROR",
-      "Run `npx hatch3r init` to set up your project first.",
-    );
-  }
-}
 
 function wslThemeOrUndefined(): unknown {
   return isWSL()
@@ -63,8 +52,25 @@ function wslThemeOrUndefined(): unknown {
 export async function cliToolsCommand(): Promise<void> {
   printBanner(true);
   const rootDir = process.cwd();
+
+  // D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
+  // left under the project root by a prior SIGKILL'd run. `cli-tools` persists
+  // the selection via `writeManifest` → `atomicWriteFile` (temp+rename), so an
+  // interrupted write can strand a `hatch.json.tmp.<hex>` orphan. Best-effort:
+  // only removes files older than the 60s in-flight-write floor
+  // ({@link ORPHAN_MIN_AGE_MS}), surfaces removals + unlink failures via
+  // `warn()` per the Silent Failure Contract (P5), never aborts the command.
+  // Mirrors the `update`/`sync`/`init`/`config`/`mcp` entry-point sweep.
+  try {
+    const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+    const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+    if (tmpDiag) warn(tmpDiag);
+  } catch (err) {
+    verbose(`cli-tools: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+  }
+
   const manifest = await readManifest(rootDir);
-  requireManifest(rootDir, manifest);
+  assertManifest(manifest);
 
   const existing = manifest.cliTools?.selected ?? [];
   const selectedResult = await pickCliTools({
@@ -130,7 +136,7 @@ export async function cliToolsListCommand(): Promise<void> {
   printBanner(true);
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
-  requireManifest(rootDir, manifest);
+  assertManifest(manifest);
 
   const selected = manifest.cliTools?.selected ?? [];
   if (selected.length === 0) {
@@ -176,7 +182,7 @@ export async function cliToolsInstallCommand(): Promise<void> {
   printBanner(true);
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
-  requireManifest(rootDir, manifest);
+  assertManifest(manifest);
 
   const selected = manifest.cliTools?.selected ?? [];
   if (selected.length === 0) {
@@ -204,7 +210,7 @@ export async function cliToolsDetectCommand(): Promise<void> {
   printBanner(true);
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
-  requireManifest(rootDir, manifest);
+  assertManifest(manifest);
 
   const selected = manifest.cliTools?.selected ?? [];
   if (selected.length === 0) {

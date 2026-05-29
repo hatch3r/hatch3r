@@ -32,14 +32,16 @@ When creating or modifying canonical content artifacts in `agents/`, `skills/`, 
 
 ## Rule Scope Transform (`.md` -> `.mdc`)
 
-Canonical `.md` files declare rule scope using one of three frontmatter shapes. The corresponding `.mdc` frontmatter is deterministic.
+Canonical `.md` files declare rule scope using one of the frontmatter shapes below. The corresponding `.mdc` frontmatter is deterministic.
 
-| `.md` shape | `.mdc` frontmatter |
-|-------------|--------------------|
-| `scope: always` | `alwaysApply: true` (no `globs`) |
-| `scope: "<g1>,<g2>,..."` (CSV string) | `globs: ["<g1>", "<g2>", ...]` + `alwaysApply: false` |
-| `scope: conditional` + `globs: "<g1>,<g2>,..."` | `globs: ["<g1>", "<g2>", ...]` + `alwaysApply: false` |
-| `scope: conditional` with no `globs:` (deprecated rules) | `alwaysApply: false` (no `globs`) |
+| `.md` shape | `.mdc` frontmatter | Status |
+|-------------|--------------------|--------|
+| `scope: always` | `alwaysApply: true` (no `globs`) | canonical |
+| `scope: conditional` + `globs: "<g1>,<g2>,..."` | `globs: ["<g1>", "<g2>", ...]` + `alwaysApply: false` | canonical (use for all glob-scoped rules) |
+| `scope: "<g1>,<g2>,..."` (inline CSV string) | `globs: ["<g1>", "<g2>", ...]` + `alwaysApply: false` | **deprecated** — do not author new rules in this form |
+| `scope: conditional` with no `globs:` (deprecated rules) | `alwaysApply: false` (no `globs`) | deprecated |
+
+**Canonical spelling for glob-scoped rules is `scope: conditional` + a separate `globs:` line** (D5-SA5.4-F5, Cycle 10): it is more scannable and reads identically to the `globs:`-bearing-conditional row of the transform. The inline-CSV form (`scope: "<csv>"`) produces a byte-identical `.mdc` (the validator at `scripts/validate-rule-parity.ts` derives the same glob set from either form via `csvToSet`), so the parity gate still accepts legacy inline-CSV `.md` files for back-compat — but new and edited rules MUST use the canonical two-line form. The Cycle 10 corpus migration left 0 inline-CSV `.md` rules; the validator's continued acceptance of the form is the only reason this row remains documented.
 
 Precedence (`precedence: critical|high|normal|low`, optional, default `normal`) is passed through to `.mdc` unchanged. Validated by `scripts/validate-rule-parity.ts`.
 

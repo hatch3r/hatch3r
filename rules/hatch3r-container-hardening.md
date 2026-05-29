@@ -2,7 +2,8 @@
 id: hatch3r-container-hardening
 type: rule
 description: Container image hardening — digest pinning, distroless / Wolfi base, non-root user, SBOM-in-image, cosign signing + verification, multi-stage builds, CVE scanning
-scope: "**/Dockerfile*,**/docker-compose*,**/*.containerfile,**/charts/**,**/k8s/**,**/kubernetes/**,**/manifests/**"
+scope: conditional
+globs: "**/Dockerfile*,**/docker-compose*,**/*.containerfile,**/charts/**,**/k8s/**,**/kubernetes/**,**/manifests/**"
 tags: [devops, floor:security]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

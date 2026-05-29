@@ -81,7 +81,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ5
 
 ## Sub-agent delegation
 
-See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ5 unit of decomposition: **mandate class** present in the diff. Per-class specialist briefs:
+See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). CQ5 unit of decomposition: **mandate class** present in the diff. Per-class specialist briefs:
 
 - **Fuzz specialist** (parsers, decoders, untrusted-byte boundaries) — runs the fuzz harness (`go test -fuzz`, `cargo fuzz run`, `jazzer`, or per-repo equivalent), checks corpus presence and freshness, reads crash logs, verifies `// fuzz:corpus` markers point to a persisted corpus directory.
 - **Mutation specialist** (payment, auth, `critical`-labelled) — runs `stryker run` (JS/TS) or `mvn org.pitest:pitest-maven:mutationCoverage` (JVM), compares the kill-rate against the documented per-repo floor (default 80%), reports surviving mutants by file with line numbers.
@@ -160,7 +160,7 @@ findings:
 - **CQ5 Testability Quality (primary, content-quality axis).** This agent is the named primary owner per CONSTITUTION §2B CQ5. Every audit checklist row maps to a CQ5 measurement statement: row 1 → per-feature test-class mandate compliance; row 2 → real-deal ratio; row 3 → coverage thresholds; row 4 → AI feature eval coverage; rows 5–7 → mandate-class implementations; row 8 → determinism contract. `progress_toward_pillar: content-quality.CQ5+<delta>` is emitted on every finding so framework-level CQ5 movement aggregates without re-derivation.
 - **P2 Scientific & Practical Quality (supporting, governance axis).** Every finding satisfies the Scientific Rigor Contract from `governance/audit/templates/rigor-contract.md`: ≥2 sources per empirical claim, proof_trace on state-dependent claims, ≥3-step causal chain on root-cause findings, bias check, adversarial counter-argument. Mutation and property tests are themselves implementations of P2 — they enforce the falsifiability test the charter requires.
 - **P4 Lean Coverage (supporting, governance axis).** The mandate-map rejects over-fitted test suites — fewer real-deal tests with mandate-correct class beats many redundant unit tests with mandate-wrong class. Eval harness duplication (same golden set under multiple harness configs) is flagged as an Info finding.
-- **P8 Clarification & Fan-out Discipline (supporting, governance axis).** §0 enforces B1; the Sub-Agent Delegation block enforces B2. Sub-agent count tracks present mandate-class count; the `sub_agents_spawned` field carries count + per-class rationale on every invocation.
+- **P8 Clarification & Fan-out Discipline (supporting, governance axis).** §0 enforces B1; the Sub-agent delegation block enforces B2. Sub-agent count tracks present mandate-class count; the `sub_agents_spawned` field carries count + per-class rationale on every invocation.
 
 ## Coordination With Adjacent Agents
 

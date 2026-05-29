@@ -665,4 +665,69 @@ describe("update command", () => {
       expect(output).toContain("Update complete");
     });
   });
+
+  // D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): every CLI command entry point that
+  // reaches atomicWriteFile sweeps orphan `.tmp.<8-hex>` files at start-of-run.
+  // This integration test fabricates an orphan from a prior interrupted session
+  // and asserts a command-entry invocation reclaims it — the contract the
+  // finding requires ("a deliberately-fabricated orphan from a prior session is
+  // swept on next command entry regardless of which command runs").
+  describe("orphan-tmp entry-point sweep (D1-SA1.5-F10)", () => {
+    /**
+     * Write a file that looks like a real orphan tmp (the exact `.tmp.<8-hex>`
+     * suffix atomicWriteFile produces) and backdate its mtime past the 60s
+     * orphan-age gate so the sweep treats it as abandoned.
+     */
+    async function fabricateOrphan(base: string, suffix = "deadbeef"): Promise<string> {
+      const { writeFile: wf, utimes } = await import("node:fs/promises");
+      const path = join(tempDir, `${base}.tmp.${suffix}`);
+      await wf(path, "orphan content from a prior interrupted run", "utf-8");
+      const past = new Date(Date.now() - 120_000);
+      await utimes(path, past, past);
+      return path;
+    }
+
+    async function exists(path: string): Promise<boolean> {
+      const { access } = await import("node:fs/promises");
+      return access(path).then(() => true).catch(() => false);
+    }
+
+    it("sweeps a fabricated prior-session orphan on update entry", async () => {
+      await createTestProject(tempDir);
+      const orphan = await fabricateOrphan("CLAUDE.md");
+      expect(await exists(orphan)).toBe(true);
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ offline: true, force: true });
+
+      // The entry-point sweep reclaimed the orphan from the prior run.
+      expect(await exists(orphan)).toBe(false);
+    });
+
+    it("does NOT sweep a fresh (in-flight) tmp file younger than the age gate", async () => {
+      await createTestProject(tempDir);
+      // No backdate: mtime is "now", well under the 60s in-flight-write floor.
+      const { writeFile: wf } = await import("node:fs/promises");
+      const fresh = join(tempDir, "live.md.tmp.abcd1234");
+      await wf(fresh, "in-flight write from a concurrent worker", "utf-8");
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ offline: true, force: true });
+
+      // A live atomicWriteFile on another worker is never swept out from under it.
+      expect(await exists(fresh)).toBe(true);
+    });
+
+    it("skips the sweep under --dry-run (which promises no writes)", async () => {
+      await createTestProject(tempDir);
+      const orphan = await fabricateOrphan("AGENTS.md", "0badf00d");
+      expect(await exists(orphan)).toBe(true);
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ offline: true, dryRun: true });
+
+      // --dry-run must not mutate the filesystem, including the orphan sweep.
+      expect(await exists(orphan)).toBe(true);
+    });
+  });
 });

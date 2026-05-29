@@ -33,7 +33,7 @@ Confidence appears on every audit-checklist row, every finding's `proof_trace`, 
 
 ---
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 When the review surface decomposes into independent units (routes, flows, services, dependency layers, mandate classes, surfaces), fan out one sub-agent per unit:
 

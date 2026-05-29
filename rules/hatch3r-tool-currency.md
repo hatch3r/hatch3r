@@ -2,7 +2,8 @@
 id: hatch3r-tool-currency
 type: rule
 description: CLI-tool version pinning, vendor-release research cadence (≤90 days), CVE feed acknowledgement (≤90 days), and release-readiness gate for any new tool added to src/cliTools/
-scope: "src/cliTools/**,skills/hatch3r-cli-*/SKILL.md,.audit-workspace/**"
+scope: conditional
+globs: "src/cliTools/**,skills/hatch3r-cli-*/SKILL.md,.audit-workspace/**"
 tags: [security, currency, maintenance]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

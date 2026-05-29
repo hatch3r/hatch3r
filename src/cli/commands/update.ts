@@ -57,6 +57,11 @@ import {
   verbose,
 } from "../shared/ui.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import {
+  assertManifest,
+  MISSING_MANIFEST_MESSAGE,
+  MISSING_MANIFEST_HINT,
+} from "../shared/requireManifest.js";
 import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
@@ -1025,25 +1030,20 @@ export async function updateCommand(
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
+    // D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): JSON payload first, then the
+    // shared `assertManifest` helper handles the human stderr + CONFIG_ERROR
+    // throw so the missing-manifest contract is identical across commands.
     if (jsonMode) {
       emitJson({
         status: "failed",
-        error: `No ${HATCH3R_DIR}/hatch.json found.`,
+        error: MISSING_MANIFEST_MESSAGE,
         errorCode: "CONFIG_ERROR",
-        recoveryHint: "Run `npx hatch3r init` to set up your project first.",
+        recoveryHint: MISSING_MANIFEST_HINT,
         hatch3rVersion: HATCH3R_VERSION,
         timestamp: new Date().toISOString(),
       });
-    } else {
-      logError(`No ${HATCH3R_DIR}/hatch.json found.`);
-      console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
     }
-    throw new HatchError(
-      `No ${HATCH3R_DIR}/hatch.json found.`,
-      undefined,
-      "CONFIG_ERROR",
-      "Run `npx hatch3r init` to set up your project first.",
-    );
+    assertManifest(manifest, { jsonMode });
   }
 
   // D11-SA11.2-F13 (Cycle 10 Wave 4, D11, P6): sweep orphan `.tmp.<hex>` files

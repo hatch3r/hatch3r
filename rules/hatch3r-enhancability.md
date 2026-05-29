@@ -2,7 +2,8 @@
 id: hatch3r-enhancability-rule
 type: rule
 description: CQ9 Enhancability Quality measurement rule — feature-flag adoption on user-visible behavior, config externalization, API versioning + deprecation policy, forward-compat patterns, extension-point definition
-scope: "src/**,**/config/**,**/openapi.yaml,**/openapi.json,**/*.proto,**/schema.graphql,**/asyncapi.yaml,**/flags*,**/plugins/**,**/extensions/**"
+scope: conditional
+globs: "src/**,**/config/**,**/openapi.yaml,**/openapi.json,**/*.proto,**/schema.graphql,**/asyncapi.yaml,**/flags*,**/plugins/**,**/extensions/**"
 tags: [review, enhancability, code-standards, floor:content-quality]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

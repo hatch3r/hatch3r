@@ -4,18 +4,22 @@ import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { getAdapter } from "../../adapters/index.js";
-import { HATCH3R_DIR, HatchError, type HatchManifest } from "../../types.js";
+import { HATCH3R_DIR, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { discoverUserContent } from "../../content/userContent.js";
 import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import {
+  assertManifest,
+  MISSING_MANIFEST_MESSAGE,
+  MISSING_MANIFEST_HINT,
+} from "../shared/requireManifest.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
   printBanner,
   createSpinner,
   printBox,
-  error as logError,
   info,
   label,
   setVerbose,
@@ -309,8 +313,15 @@ export function renderDiffSummaryLines(report: DriftReport): string[] {
   return lines;
 }
 
-/** Render the per-file drift lines for printing in status / verify output. */
-function renderDriftLines(report: DriftReport): string[] {
+/**
+ * Render the per-file drift lines for printing in status / verify output.
+ *
+ * D1-SA1.4-F11 (Cycle 10 Wave 4, P1): exported so `hatch3r verify --verbose`
+ * reuses the identical per-tool breakdown status emits, instead of forcing the
+ * operator to re-run `status` to see WHICH files drifted. Shared renderer keeps
+ * a future drift-category addition landing in one place.
+ */
+export function renderDriftLines(report: DriftReport): string[] {
   const byTool = new Map<string, DriftEntry[]>();
   for (const entry of report.entries) {
     const arr = byTool.get(entry.tool) ?? [];
@@ -353,25 +364,21 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
   const manifest = await readManifest(rootDir);
 
   if (!manifest) {
+    // D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): emit the structured payload first
+    // in JSON mode, then delegate the human stderr + throw to the shared
+    // `assertManifest` helper so every manifest-required command prints the
+    // identical missing-manifest message and CONFIG_ERROR exit code.
     if (jsonMode) {
       emitJson({
         status: "failed",
-        error: "No .hatch3r/hatch.json found.",
+        error: MISSING_MANIFEST_MESSAGE,
         errorCode: "CONFIG_ERROR",
-        recoveryHint: "Run `npx hatch3r init` to set up your project first.",
+        recoveryHint: MISSING_MANIFEST_HINT,
         timestamp: new Date().toISOString(),
         hatch3rVersion: HATCH3R_VERSION,
       });
-    } else {
-      logError("No .hatch3r/hatch.json found.");
-      console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
     }
-    throw new HatchError(
-      "No .hatch3r/hatch.json found.",
-      undefined,
-      "CONFIG_ERROR",
-      "Run `npx hatch3r init` to set up your project first.",
-    );
+    assertManifest(manifest, { jsonMode });
   }
 
   const spinner = jsonMode ? null : createSpinner("Checking adapter-output drift...");

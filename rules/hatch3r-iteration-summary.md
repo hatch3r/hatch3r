@@ -80,6 +80,10 @@ Schema: `ts` ISO-8601 UTC timestamp; `command` the orchestrator command id; `ver
 
 A skill or command that omits the 9-section block fails the lifecycle gate (`.claude/rules/capability-lifecycle.md`). Prose substitution is rejected. The orchestrator catches the omission before declaring SUCCESS.
 
+## Emission-Rate Telemetry
+
+The validation gate above asserts the block is present per run; it does not measure the emission rate across runs. The SPACE-class telemetry pipeline (`src/pipeline/spaceTelemetry.ts`, Decision 24 sibling of cost-visibility) records that rate: each orchestrator/meaningful-skill run emits one `activity`-axis metric `iterationSummaryEmitted` (value `1` when the 9-section block was produced, `0` when skipped) via `recordSpaceMetric`, persisted to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl` and aggregated by `getSpaceSummary`. The audit cycle reads the aggregate to verify the CONSTITUTION §2 P5 "Sub-agent count emission on delegating artifacts: 100%" target is met in practice rather than only mandated (D10-SA10.8-F-6). Persistence honours the Silent Failure Contract — telemetry I/O never throws.
+
 ## Pillar Service
 - P5 — standardised reporting prevents drift across orchestrators
 - P7 — cost section surfaces token + duration deltas to user per Decision 24

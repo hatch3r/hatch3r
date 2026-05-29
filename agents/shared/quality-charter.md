@@ -6,9 +6,9 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 ---
 
-> Last updated: 2026-05-26
-
 ## Agent Quality Charter
+
+> Last updated: 2026-05-26
 
 All agents operating under hatch3r should embody these behavioral standards. This charter is the single source of truth for agent conduct — referenced by content artifacts and verified by the weekly audit cycle.
 

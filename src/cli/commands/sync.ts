@@ -18,11 +18,12 @@ import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatc
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
-import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
+import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { HATCH3R_DIR, HatchError, WORKTREE_INCLUDE_FILE, type AdapterOutput, type GenerationMode } from "../../types.js";
+import { assertManifest } from "../shared/requireManifest.js";
 import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
@@ -261,6 +262,26 @@ export async function syncCommand(
 
   const rootDir = process.cwd();
 
+  // D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
+  // left under the project root by a prior SIGKILL'd run before the regenerate
+  // writes begin. `sync` writes through `safeWriteFile`/`atomicWriteFile`
+  // (temp+rename), so an interrupted sync can strand temp files; without an
+  // entry-point sweep an operator who never re-runs a sweeping command leaves
+  // the orphan on disk indefinitely. Best-effort: the sweep only removes files
+  // older than the 60s in-flight-write floor ({@link ORPHAN_MIN_AGE_MS}),
+  // surfaces removals + any unlink failures via `warn()` per the Silent Failure
+  // Contract (P5), and never aborts the sync. Skipped under --dry-run (which
+  // promises no writes). Mirrors the `update` entry-point sweep.
+  if (!opts.dryRun) {
+    try {
+      const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+      const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+      if (tmpDiag) warn(tmpDiag);
+    } catch (err) {
+      verbose(`sync: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
+
   // D10-SA10.2-F6 (Cycle 10 Wave 4, D10, P1): capture wall-clock at command
   // entry so the success path can emit a `Completed in Xs` line via
   // `printTimingSummary` — sync routinely exceeds the 1s threshold CLI
@@ -358,16 +379,9 @@ export async function syncCommand(
   const hatch3rDir = join(rootDir, HATCH3R_DIR);
   const manifest = await readManifest(rootDir);
 
-  if (!manifest) {
-    logError(`No ${HATCH3R_DIR}/hatch.json found.`);
-    console.log(chalk.dim("  Run `npx hatch3r init` to set up your project first.\n"));
-    throw new HatchError(
-      `No ${HATCH3R_DIR}/hatch.json found.`,
-      undefined,
-      "CONFIG_ERROR",
-      "Run `npx hatch3r init` to set up your project first.",
-    );
-  }
+  // D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): shared missing-manifest preflight —
+  // identical message + CONFIG_ERROR exit across every manifest-required command.
+  assertManifest(manifest);
 
   const m = manifest;
 

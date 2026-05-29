@@ -2,7 +2,8 @@
 id: hatch3r-contract-testing
 type: rule
 description: Consumer-driven and spec-driven contract testing between services — Pact, Schemathesis, Dredd, pact-broker can-i-deploy gate
-scope: "**/contracts/**,**/pacts/**,**/api/**,**/openapi*,**/asyncapi*,**/*.proto,**/__tests__/contract/**"
+scope: conditional
+globs: "**/contracts/**,**/pacts/**,**/api/**,**/openapi*,**/asyncapi*,**/*.proto,**/__tests__/contract/**"
 tags: [review, implementation]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

@@ -121,6 +121,10 @@ A change to a `commands/hatch3r-*.md` orchestrator or to a meaningful state-muta
 4. Telemetry persists to `.hatch3r/telemetry/<session-id>.json` even under `--quiet`.
 5. Delta thresholds beyond 25% absolute value carry an explicit `flagged_for_review: true` annotation in the iteration summary.
 
+## Emission-Rate Telemetry
+
+The acceptance criteria above are checked per run; they do not measure the cost-block emission rate across runs. The SPACE-class telemetry pipeline (`src/pipeline/spaceTelemetry.ts`) records that rate: each orchestrator/meaningful-skill run emits one `activity`-axis metric `costVisibilityEmitted` (value `1` when both `cost_estimate` and `cost_actuals` blocks were produced, `0` otherwise) via `recordSpaceMetric`, persisted to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl` and aggregated by `getSpaceSummary`. The audit cycle reads the aggregate to confirm the 100% cost-visibility emission target holds in practice rather than only being mandated (D10-SA10.8-F-6). Persistence honours the Silent Failure Contract — telemetry I/O routes through `src/pipeline/failureLog.ts` and never throws.
+
 ## Pillar Service
 
 - **P7** — surfaces token + duration measurements to the user; closes the loop on token-economy claims in VISION Principle 19 and CONSTITUTION §2 P7. Estimation accuracy improves cycle-over-cycle via the past-cycle telemetry baseline.

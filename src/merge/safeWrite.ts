@@ -372,18 +372,26 @@ export async function atomicWriteFile(filePath: string, content: string): Promis
 // finds such orphans, removes them, and returns a diagnostic list so the
 // caller can emit a warning per the Silent Failure Contract.
 //
-// CALLER CONTRACT (D1-SA1.5-F10, Cycle 10, P6): EVERY CLI command entry point
-// that can reach `atomicWriteFile` — init, sync, update, clean, config,
-// worktree-setup, worktree-cleanup, rollback, mcp, cli-tools — should invoke
-// this at start-of-run against the repo root (and `.hatch3r/` /
-// `{ recursive: true }` where adapters write nested layouts) and surface the
-// returned entries via `warn()` / observability. A command that mutates files
-// but never sweeps lets an orphan from a prior interrupted run persist
-// indefinitely if the operator never re-runs a sweeping command. The sweep is
-// 60s-age-gated ({@link ORPHAN_MIN_AGE_MS}), so calling it on entry is safe
-// even when a concurrent write is in flight. Wiring the call into each command
-// entry point lives in those command files (outside this module's scope); this
-// contract names the required coverage so a future change can complete it.
+// CALLER CONTRACT (D1-SA1.5-F10, Cycle 10 Wave 4, P6): EVERY CLI command entry
+// point that reaches `atomicWriteFile` in-process invokes this at start-of-run
+// against the repo root with `{ recursive: true }` and surfaces the returned
+// entries via `warn()`. As of Cycle 10 Wave 4 the wiring is COMPLETE for the
+// full in-process write surface:
+//   - init   (runInitInner)      — safeWriteFile
+//   - sync   (syncCommand)       — safeWriteFile (skipped under --dry-run)
+//   - update (updateCommand)     — safeWriteFile/atomicWriteFile (skipped under --dry-run)
+//   - config (configCommand)     — writeManifest → atomicWriteFile
+//   - mcp    (setup/remove)      — writeManifest → atomicWriteFile
+//   - cli-tools (cliToolsCommand)— writeManifest → atomicWriteFile
+//   - rollback (rollbackCommand) — applyRollback → atomicWriteFile (skipped under --dry-run)
+// `clean` reaches `atomicWriteFile` only via `runInit`, which sweeps; `add` is
+// a stub that writes nothing; `worktree-setup`/`worktree-cleanup` shell out to
+// `npx hatch3r sync` (a child process that sweeps in its own run) rather than
+// writing managed files in-process — so none of those needs its own sweep.
+// A command that mutates files but never sweeps would let an orphan from a
+// prior interrupted run persist indefinitely if the operator never re-runs a
+// sweeping command. The sweep is 60s-age-gated ({@link ORPHAN_MIN_AGE_MS}), so
+// calling it on entry is safe even when a concurrent write is in flight.
 // ──────────────────────────────────────────────────────────────────────────
 
 /** Matches `<anything>.tmp.<8 hex chars>` — the exact pattern produced by atomicWriteFile. */

@@ -3,6 +3,8 @@ import {
   HatchError,
   ERROR_CODE_TO_EXIT_CODE,
   exitCodeForErrorCode,
+  MATURITY_TIERS,
+  MATURITY_TIER_RANK,
   type HatchErrorCode,
 } from "../types.js";
 
@@ -148,5 +150,39 @@ describe("HatchError.recoveryHint (C9-H27 / D10-SA10.2-F2)", () => {
     // TypeScript marks recoveryHint as readonly; this runtime check guards
     // the contract that the CLI top-level handler observes a stable value.
     expect(err.recoveryHint).toBe("hint-A");
+  });
+});
+
+describe("MATURITY_TIER_RANK (D1-SA1.8-F-1.8-7)", () => {
+  // D1-SA1.8-F-1.8-7 (Cycle 10 Wave 4, content-quality CQ8 / DRY): the rank map
+  // is derived from MATURITY_TIERS (single source of truth) rather than a
+  // hand-maintained literal, so adding/removing a tier updates the rank
+  // automatically. This canary fails if the derivation ever drifts from the
+  // canonical array — guarding the rank-comparison gates that admit content
+  // (src/content/resolveSelection.ts, src/manifest/hatchJson.ts consume it).
+  it("maps the first tier (solo) to rank 0", () => {
+    expect(MATURITY_TIER_RANK.solo).toBe(0);
+  });
+
+  it("maps the last tier to the array's final index", () => {
+    const lastTier = MATURITY_TIERS[MATURITY_TIERS.length - 1];
+    expect(MATURITY_TIER_RANK[lastTier]).toBe(MATURITY_TIERS.length - 1);
+  });
+
+  it("assigns every tier a contiguous rank equal to its array index", () => {
+    // Stronger than the two endpoint checks: every entry must equal its
+    // position, and the key set must match MATURITY_TIERS exactly (no extra
+    // or missing keys after a future tier edit).
+    MATURITY_TIERS.forEach((tier, i) => {
+      expect(MATURITY_TIER_RANK[tier]).toBe(i);
+    });
+    expect(new Set(Object.keys(MATURITY_TIER_RANK))).toEqual(new Set(MATURITY_TIERS));
+  });
+
+  it("produces a strictly increasing rank across the tier ladder", () => {
+    const ranks = MATURITY_TIERS.map((t) => MATURITY_TIER_RANK[t]);
+    const sorted = [...ranks].sort((a, b) => a - b);
+    expect(ranks).toEqual(sorted);
+    expect(new Set(ranks).size).toBe(ranks.length); // no duplicate ranks
   });
 });

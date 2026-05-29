@@ -246,4 +246,55 @@ describe("verify command", () => {
     const restored = await readdir(cursorRulesDir);
     expect(restored).toContain(ruleFile!);
   });
+
+  // D1-SA1.4-F11 (Cycle 10 Wave 4, P1): verify only printed aggregate drift
+  // counts, so an operator who saw `verify: FAIL (N drift(s))` had to re-run
+  // `hatch3r status` to learn WHICH files drifted. `--verbose` now prints the
+  // same per-tool / per-file breakdown status emits, before the summary box.
+  it("prints the per-tool drift breakdown on FAIL only when --verbose is set", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const cursorRulesDir = join(tempDir, ".cursor", "rules");
+    const entries = await readdir(cursorRulesDir);
+    const ruleFile = entries.find((f) => f.endsWith(".mdc"));
+    expect(ruleFile).toBeDefined();
+    // Delete one output so verify reports a `missing` drift entry.
+    await rm(join(cursorRulesDir, ruleFile!));
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+
+    // Without --verbose: aggregate counts only, no per-file path line.
+    consoleSpy.mockClear();
+    await expect(verifyCommand()).rejects.toThrow(HatchError);
+    const plain = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(plain).toMatch(/verify: FAIL/);
+    expect(plain).not.toContain(ruleFile!);
+
+    // With --verbose: the per-tool breakdown names the drifted file + tool.
+    consoleSpy.mockClear();
+    await expect(verifyCommand({ verbose: true })).rejects.toThrow(HatchError);
+    const verbose = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(verbose).toContain(ruleFile!);
+    expect(verbose).toContain("cursor:");
+    expect(verbose).toContain("(missing)");
+  });
+
+  it("prints the per-tool breakdown on PASS when --verbose is set", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    consoleSpy.mockClear();
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    await expect(verifyCommand({ verbose: true })).resolves.toBeUndefined();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("verify: PASS");
+    // The in-sync breakdown lists the cursor adapter's checked outputs.
+    expect(output).toContain("cursor:");
+  });
 });

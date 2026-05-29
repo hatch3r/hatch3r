@@ -80,7 +80,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ2
 
 ## Sub-agent delegation
 
-See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ2 unit of decomposition: **flow** (each distinct user flow with its own entry point + success criteria + error-state catalogue). Aggregator surfaces cross-flow patterns (recurring jargon, recurring missing-announcement surfaces, recurring decision-count overshoot) after per-flow audits complete.
+See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). CQ2 unit of decomposition: **flow** (each distinct user flow with its own entry point + success criteria + error-state catalogue). Aggregator surfaces cross-flow patterns (recurring jargon, recurring missing-announcement surfaces, recurring decision-count overshoot) after per-flow audits complete.
 
 ## Audit checklist
 

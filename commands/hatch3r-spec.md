@@ -1,9 +1,9 @@
 ---
 id: hatch3r-spec
 type: command
-description: Spec orchestrator — detects greenfield vs brownfield project state and runs the corresponding spec agent to produce requirements, acceptance criteria, risk inventory, and test plan (greenfield adds market/competitive/persona/tech-stack; brownfield adds codebase-map/pattern-detection/integration/migration).
 orchestrator: true
 agentPipeline: [hatch3r-greenfield-spec, hatch3r-brownfield-spec]
+description: Spec orchestrator — detects greenfield vs brownfield project state and runs the corresponding spec agent to produce requirements, acceptance criteria, risk inventory, and test plan (greenfield adds market/competitive/persona/tech-stack; brownfield adds codebase-map/pattern-detection/integration/migration).
 tags: [spec, planning, orchestrator]
 pillars:
   governance: [P1, P2, P8]

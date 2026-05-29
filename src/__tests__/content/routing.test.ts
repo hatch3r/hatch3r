@@ -45,6 +45,19 @@ function ids(items: readonly RoutableItem[]): string[] {
   return items.map((i) => i.id);
 }
 
+/**
+ * Look up the single structured rationale entry for an item id. Structural
+ * assertions on `{decision, reason}` decouple tests from the free-text
+ * `rationale` format string (F3.3-L1) — a format tweak no longer fans out
+ * failures across the rationale-reason tests.
+ */
+function findStructured(
+  result: CandidateSet,
+  id: string,
+): CandidateSet["rationaleStructured"][number] | undefined {
+  return result.rationaleStructured.find((e) => e.id === id);
+}
+
 const emptyProject: ProjectDetection = {
   techStack: [],
   lifecycleStage: "unknown",
@@ -397,7 +410,7 @@ describe("buildCandidateSet", () => {
     expect(last).toMatch(/^routing: final candidates=\d+/);
   });
 
-  it("rationale records floor admission with a distinct reason string", () => {
+  it("rationale records floor admission with a distinct reason", () => {
     const task: TaskDescription = { tags: [TAG_AI] };
     const project: ProjectDetection = {
       techStack: [],
@@ -405,15 +418,18 @@ describe("buildCandidateSet", () => {
       maturityTier: "team",
     };
     const result = buildCandidateSet(items, task, project);
-    const floorLine = result.rationale.find(
-      (r) => r.startsWith("admit security-floor"),
-    );
-    expect(floorLine).toBeDefined();
-    expect(floorLine).toContain("floor tag");
-    expect(floorLine).toContain("bypass capability gate");
+    // Human-readable line still emitted; reason-correctness asserted structurally.
+    expect(
+      result.rationale.some((r) => r.startsWith("admit security-floor")),
+    ).toBe(true);
+    expect(findStructured(result, "security-floor")).toEqual({
+      id: "security-floor",
+      decision: "admit",
+      reason: "floor",
+    });
   });
 
-  it("rationale records capability-match admission with the matched tags listed", () => {
+  it("rationale records capability-match admission structurally", () => {
     const task: TaskDescription = { tags: [TAG_REVIEW] };
     const project: ProjectDetection = {
       techStack: [],
@@ -421,9 +437,14 @@ describe("buildCandidateSet", () => {
       maturityTier: "team",
     };
     const result = buildCandidateSet(items, task, project);
-    const aiLine = result.rationale.find((r) => r.startsWith("admit ai-feature"));
-    expect(aiLine).toBeDefined();
-    expect(aiLine).toContain("capability match [review]");
+    expect(
+      result.rationale.some((r) => r.startsWith("admit ai-feature")),
+    ).toBe(true);
+    expect(findStructured(result, "ai-feature")).toEqual({
+      id: "ai-feature",
+      decision: "admit",
+      reason: "capability-match",
+    });
   });
 
   it("rationale records empty-tag drop with a no-capability-match reason", () => {
@@ -434,10 +455,14 @@ describe("buildCandidateSet", () => {
       maturityTier: "team",
     };
     const result = buildCandidateSet(items, task, project);
-    const drop = result.rationale.find((r) => r.startsWith("drop untagged"));
-    expect(drop).toBeDefined();
-    expect(drop).toContain("no capability-tag match");
-    expect(drop).toContain("no floor/protected admission");
+    expect(result.rationale.some((r) => r.startsWith("drop untagged"))).toBe(
+      true,
+    );
+    expect(findStructured(result, "untagged")).toEqual({
+      id: "untagged",
+      decision: "drop",
+      reason: "no-capability-match",
+    });
   });
 
   it("rationale records lang-mismatch drop separately from capability drop", () => {
@@ -448,11 +473,14 @@ describe("buildCandidateSet", () => {
       maturityTier: "team",
     };
     const result = buildCandidateSet(items, task, project);
-    const drop = result.rationale.find((r) => r.startsWith("drop review-ts"));
-    expect(drop).toBeDefined();
-    expect(drop).toContain("lang tags");
-    expect(drop).toContain("lang:typescript");
-    expect(drop).toContain("techStack [python]");
+    expect(result.rationale.some((r) => r.startsWith("drop review-ts"))).toBe(
+      true,
+    );
+    expect(findStructured(result, "review-ts")).toEqual({
+      id: "review-ts",
+      decision: "drop",
+      reason: "lang-mismatch",
+    });
   });
 
   it("rationale records lifecycle-stage drop with a context-tag reason", () => {
@@ -463,9 +491,14 @@ describe("buildCandidateSet", () => {
       maturityTier: "team",
     };
     const result = buildCandidateSet(items, task, project);
-    const drop = result.rationale.find((r) => r.startsWith("drop gf-only-review"));
-    expect(drop).toBeDefined();
-    expect(drop).toContain("ctx:greenfield-only on brownfield project");
+    expect(
+      result.rationale.some((r) => r.startsWith("drop gf-only-review")),
+    ).toBe(true);
+    expect(findStructured(result, "gf-only-review")).toEqual({
+      id: "gf-only-review",
+      decision: "drop",
+      reason: "ctx-greenfield-only",
+    });
   });
 
   it("rationale records lifecycle-stage drop on greenfield projects too", () => {
@@ -479,9 +512,14 @@ describe("buildCandidateSet", () => {
       maturityTier: "solo",
     };
     const result = buildCandidateSet(fixture, task, project);
-    const drop = result.rationale.find((r) => r.startsWith("drop bf-only"));
-    expect(drop).toBeDefined();
-    expect(drop).toContain("ctx:brownfield-only on greenfield project");
+    expect(result.rationale.some((r) => r.startsWith("drop bf-only"))).toBe(
+      true,
+    );
+    expect(findStructured(result, "bf-only")).toEqual({
+      id: "bf-only",
+      decision: "drop",
+      reason: "ctx-brownfield-only",
+    });
   });
 
   it("rationale records protected-bypass admission distinctly from capability admission", () => {
@@ -490,9 +528,12 @@ describe("buildCandidateSet", () => {
     ];
     const task: TaskDescription = { tags: [TAG_REVIEW] };
     const result = buildCandidateSet(fixture, task, emptyProject);
-    const admit = result.rationale.find((r) => r.startsWith("admit prot"));
-    expect(admit).toBeDefined();
-    expect(admit).toContain("protected bypass");
+    expect(result.rationale.some((r) => r.startsWith("admit prot"))).toBe(true);
+    expect(findStructured(result, "prot")).toEqual({
+      id: "prot",
+      decision: "admit",
+      reason: "protected",
+    });
   });
 
   it("returns an empty candidate set with rationale header on empty items", () => {

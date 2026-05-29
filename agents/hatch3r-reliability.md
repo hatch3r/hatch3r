@@ -99,7 +99,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ4
 
 ## Sub-agent delegation
 
-See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ4 unit of decomposition: **service** when the review covers multiple services; **dependency layer** (inbound handlers vs outbound clients vs persistence vs cache vs queue) when reviewing a single complex service. The cross-service `trace_id`-propagation aggregator runs after per-unit span-emission audits complete.
+See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). CQ4 unit of decomposition: **service** when the review covers multiple services; **dependency layer** (inbound handlers vs outbound clients vs persistence vs cache vs queue) when reviewing a single complex service. The cross-service `trace_id`-propagation aggregator runs after per-unit span-emission audits complete.
 
 **Worked examples of fan-out:**
 

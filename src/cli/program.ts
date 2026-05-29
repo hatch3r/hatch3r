@@ -177,6 +177,8 @@ export function createProgram(): Command {
     .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
     .option("--fix", "Auto-fix integrity issues by running hatch3r update")
     .option("--max-fix-attempts <n>", "Maximum verify-fix cycles (default: 2, max: 5)", parseInt)
+    .option("--verbose", "Show the per-tool / per-file drift breakdown (same detail as `hatch3r status`) before the PASS/FAIL summary (D1-SA1.4-F11)")
+    .option("--diff", "Show a before/after diff summary for each generated file (D12-SA12.2-F5)")
     .option(
       "--format <format>",
       "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
@@ -236,6 +238,7 @@ export function createProgram(): Command {
     .option("--dry-run", "Show what would be done without changes")
     .option("--force", "Overwrite existing files in the worktree")
     .option("--yes", "Skip the secret-propagation confirmation prompt")
+    .option("--verbose", "Break the skipped-files count down by reason (idempotent re-run vs concurrent-write race)")
     .action(worktreeSetupCommand);
 
   program

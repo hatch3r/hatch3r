@@ -2,7 +2,8 @@
 id: hatch3r-security-rule
 type: rule
 description: CQ3 Security Quality measurement rule — supply-chain integrity, auth depth, secret hygiene, OWASP ASI controls; specialist routing to hatch3r-security
-scope: "src/**,**/auth/**,**/.github/workflows/**,**/Dockerfile*,**/package.json,**/package-lock.json,**/pnpm-lock.yaml,**/yarn.lock"
+scope: conditional
+globs: "src/**,**/auth/**,**/.github/workflows/**,**/Dockerfile*,**/package.json,**/package-lock.json,**/pnpm-lock.yaml,**/yarn.lock"
 tags: [floor:security, floor:content-quality, security]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

@@ -2,7 +2,8 @@
 id: hatch3r-learning-consult
 type: rule
 description: Consult .hatch3r/learnings/ for pitfalls, patterns, and past decisions before implementation with frontmatter-first scan and priority ordering
-scope: "**/.hatch3r/learnings/**,**/learnings/**"
+scope: conditional
+globs: "**/.hatch3r/learnings/**,**/learnings/**"
 precedence: high
 tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md

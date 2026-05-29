@@ -27,6 +27,7 @@ import {
   type SnapshotMeta,
 } from "../../pipeline/snapshot.js";
 import { HatchError } from "../../types.js";
+import { sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import {
   createSpinner,
   error as logError,
@@ -34,6 +35,7 @@ import {
   printBanner,
   printBox,
   warn,
+  verbose,
 } from "../shared/ui.js";
 
 // ── Options ──────────────────────────────────────────────────────
@@ -127,6 +129,26 @@ export async function rollbackCommand(opts: RollbackOptions = {}): Promise<void>
     if (!ok) {
       info("Rollback cancelled.");
       return;
+    }
+  }
+
+  // D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
+  // under the project root before the restore writes begin. `applyRollback`
+  // restores each captured file via `atomicWriteFile` (temp+rename), so an
+  // interrupted rollback can strand `<target>.tmp.<hex>` orphans that no
+  // entry-point sweep would otherwise reclaim. Best-effort: only removes files
+  // older than the 60s in-flight-write floor ({@link ORPHAN_MIN_AGE_MS}),
+  // surfaces removals + unlink failures via `warn()` per the Silent Failure
+  // Contract (P5), never aborts the rollback. Skipped under --dry-run (which
+  // promises no writes). Mirrors the `update`/`sync`/`init`/`config`/`mcp`/
+  // `cli-tools` entry-point sweep.
+  if (!opts.dryRun) {
+    try {
+      const sweptTmp = await sweepOrphanTmpFiles(process.cwd(), { recursive: true });
+      const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+      if (tmpDiag) warn(tmpDiag);
+    } catch (err) {
+      verbose(`rollback: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

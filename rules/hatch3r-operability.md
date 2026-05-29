@@ -2,7 +2,8 @@
 id: hatch3r-operability
 type: rule
 description: Operability patterns in user code — liveness / readiness / startup probes, graceful shutdown, feature flags, runbook URL annotations, health endpoints
-scope: "**/services/**,**/handlers/**,**/health*,**/probes/**,**/k8s/**,**/manifests/**,**/charts/**,**/feature*,**/flags/**"
+scope: conditional
+globs: "**/services/**,**/handlers/**,**/health*,**/probes/**,**/k8s/**,**/manifests/**,**/charts/**,**/feature*,**/flags/**"
 tags: [implementation, devops]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

@@ -122,9 +122,9 @@ Reject and re-ask if the description is shorter than 60 characters. Cache as `de
 
 #### 1.4: Tags
 
-Present the known tag set: `core, customization, planning, implementation, review, performance, a11y, security, board`.
+Present the known capability tags (the registered set in `src/content/tags.ts::TAG_REGISTRY` — single source of truth): `orchestration, planning, implementation, review, devops, maintenance, board, performance, ai` plus the content-quality vectors `security, reliability, testing, scalability, maintainability, enhancability` and work-type tags `spec, migration`. Lead with a capability tag (it is the primary classification — `tags[0]` groups the artifact in the picker per `.claude/rules/content-authoring.md` item 12). Append context facets (`ctx:team-only`, `ctx:greenfield-only`, `ctx:brownfield-only`) and floor facets (`floor:security`, `floor:ui-ux`, `floor:protocol`, `floor:content-quality`) after the primary, never first.
 
-**ASK:** "Select one or more tags (comma-separated). You may add custom project tags after the known set, e.g., `implementation, my-team`."
+**ASK:** "Select one or more tags (comma-separated), capability tag first. You may add custom project tags after the known set, e.g., `implementation, my-team`."
 
 Cache as `tags` (array).
 

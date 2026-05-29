@@ -2,7 +2,8 @@
 id: hatch3r-data-classification
 type: rule
 description: Data classification standards covering PII handling, encryption, retention policies, and regulatory compliance
-scope: "**/models/**,**/schemas/**,**/schema*,**/database/**,**/db/**,**/*model*,**/*entity*,**/prisma/**,**/drizzle/**,**/*migration*"
+scope: conditional
+globs: "**/models/**,**/schemas/**,**/schema*,**/database/**,**/db/**,**/*model*,**/*entity*,**/prisma/**,**/drizzle/**,**/*migration*"
 tags: [floor:security]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

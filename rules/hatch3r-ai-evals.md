@@ -2,7 +2,8 @@
 id: hatch3r-ai-evals
 type: rule
 description: AI feature evaluation, prompt versioning, cost telemetry, prompt caching, model fallback, and hallucination-as-SLI for end-user projects shipping LLM features
-scope: "**/ai/**,**/llm/**,**/chat/**,**/assistant/**,**/agents/**,**/copilot/**,**/evals/**,**/prompts/**,**/rag/**"
+scope: conditional
+globs: "**/ai/**,**/llm/**,**/chat/**,**/assistant/**,**/agents/**,**/copilot/**,**/evals/**,**/prompts/**,**/rag/**"
 tags: [review, implementation, ai]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

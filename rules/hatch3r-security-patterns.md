@@ -2,7 +2,8 @@
 id: hatch3r-security-patterns
 type: rule
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
-scope: "**/security/**,**/*guard*,**/*policy*,**/*permission*,**/*sanitiz*,**/*validat*"
+scope: conditional
+globs: "**/security/**,**/*guard*,**/*policy*,**/*permission*,**/*sanitiz*,**/*validat*"
 tags: [floor:security]
 precedence: critical
 quality_charter: agents/shared/quality-charter.md

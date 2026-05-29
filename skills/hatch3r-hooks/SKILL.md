@@ -76,6 +76,9 @@ Present available events with descriptions:
 | `on-dependency-change` | Triggered when dependencies are added/updated/removed | Security audit, compatibility check, license validation |
 | `on-security-finding` | Triggered when a security issue is discovered | Alert escalation, auto-fix suggestions, incident creation |
 
+> [!IMPORTANT]
+> Claude Code only maps `session-start` → `SessionStart` semantically. Every other event above (pre-commit, post-merge, ci-failure, file-save, pre-push, etc.) is a git/project lifecycle event with NO native Claude Code mapping — the adapter emits a no-op or alternative strategy, NOT a PreToolUse/PostToolUse binding. If the user picks one of these and targets Claude Code, say so before writing the definition. Full detail: the "Claude Code event mapping" note in Step 2d below.
+
 **ASK:** "Select an event for this hook."
 
 ### 2b. Select Agent
@@ -166,6 +169,9 @@ For editing an existing hook:
    - **Cursor:** Glob-based `.mdc` rule files in `.cursor/rules/hatch3r-hook-*.mdc`
    - **Others:** No-op (hook definitions stored for future adapter support)
 3. Present the list of files that will be generated/updated.
+
+> [!IMPORTANT]
+> For Claude Code, only `session-start` becomes an executable native hook. Git/project-event hooks (pre-commit, post-merge, ci-failure, file-save, pre-push, etc.) are written to `CLAUDE.md` as documentation, NOT registered as native Claude Code hooks — they do not fire on the named event. State this explicitly when listing the generated Claude Code output (see the "Claude Code event mapping" note in Step 2d).
 
 **ASK:** "Hooks will generate these files: {list}. Run `npx hatch3r sync` to apply. (understood / sync now)"
 

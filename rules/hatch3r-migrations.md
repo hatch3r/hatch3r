@@ -2,7 +2,8 @@
 id: hatch3r-migrations
 type: rule
 description: Database migration and schema change patterns — expand-contract, online DDL, backfills, compatibility windows, reversibility, multi-region, tooling
-scope: "**/migrations/**,**/*migration*,**/migrate/**,**/seeds/**,**/seeders/**,**/prisma/migrations/**,**/drizzle/**,**/knex/**"
+scope: conditional
+globs: "**/migrations/**,**/*migration*,**/migrate/**,**/seeds/**,**/seeders/**,**/prisma/migrations/**,**/drizzle/**,**/knex/**"
 tags: [implementation, ctx:brownfield-only]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
