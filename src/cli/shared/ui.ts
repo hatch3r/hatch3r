@@ -107,6 +107,29 @@ export function isJson(): boolean {
   return jsonEnabled;
 }
 
+/**
+ * D1-SA1.1-F09 (CQ8 maintainability): reset EVERY module-global UI flag to its
+ * default in one place. The module-global chrome flags (`quietEnabled`,
+ * `jsonEnabled`, `verboseEnabled`) persist for the process lifetime; under
+ * vitest the ui module is shared across tests in the same worker, so a test
+ * that sets `--json`/`--quiet`/`--verbose` and forgets to reset leaks state
+ * into the next test. The prior mitigation reset json+quiet inline in
+ * `initCommand` but (a) omitted `verbose` and (b) lived in the command file, so
+ * any FUTURE ui-flag added here could be forgotten at the call site.
+ *
+ * Centralizing the reset next to the flag declarations closes that leak class:
+ * a new flag is added beside `quietEnabled`/`jsonEnabled`/`verboseEnabled` AND
+ * to this function in the same edit. Command entry points call this once at the
+ * top before deriving their own values; tests call it in `beforeEach`. The CI
+ * guard at `src/__tests__/cli/ui.test.ts` asserts all getters read false after
+ * a reset so an omitted flag fails loudly.
+ */
+export function resetUiState(): void {
+  quietEnabled = false;
+  jsonEnabled = false;
+  verboseEnabled = false;
+}
+
 export function printBanner(compact = false): void {
   if (quietEnabled) return;
   if (compact) {
@@ -278,6 +301,15 @@ let verboseEnabled = false;
 /** Enable or disable verbose output. Call before command execution. */
 export function setVerbose(enabled: boolean): void {
   verboseEnabled = enabled;
+}
+
+/**
+ * Read the current verbose flag. Symmetric with {@link isQuiet} /
+ * {@link isJson}; lets the D1-SA1.1-F09 leak-class guard assert that
+ * {@link resetUiState} cleared verbose along with quiet+json.
+ */
+export function isVerbose(): boolean {
+  return verboseEnabled;
 }
 
 /** Print a verbose-only message to stderr. No-op when verbose is off. */

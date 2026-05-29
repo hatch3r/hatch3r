@@ -144,7 +144,7 @@ Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (defaul
 
 ### Phase 4 Validation Pass
 
-After all Phase 4 specialists complete, run a validation pass: run the test suite + type checker against the Phase 3 baseline cached in `PipelineContext`. No new failures → complete. New failures → identify the causing specialist, spawn `hatch3r-fixer`, re-validate (max 2 iterations); persistent regressions surface to user (never silently accept). If any specialist produced code fixes (not just findings), spawn a lightweight `hatch3r-reviewer` re-review scoped to the specialist-modified files (prevents specialist fixes bypassing the Phase 3 gate; max 1 re-review iteration, Critical findings trigger a single fixer pass).
+After all Phase 4 specialists complete, run a validation pass: run the test suite + type checker against the Phase 3 baseline cached in `PipelineContext`. No new failures → complete. New failures → identify the causing specialist, spawn `hatch3r-fixer`, re-validate (max 2 iterations, matches `DEFAULT_MAX_VALIDATION_PASS_ITERATIONS` in `src/pipeline/pipelineContext.ts`; basis + recalibration triggers in `VALIDATION_PASS_CALIBRATION`; kept in sync by `src/__tests__/pipeline/pipelineContext.test.ts`, CI-enforced); persistent regressions surface to user (never silently accept). If any specialist produced code fixes (not just findings), spawn a lightweight `hatch3r-reviewer` re-review scoped to the specialist-modified files (prevents specialist fixes bypassing the Phase 3 gate; max 1 re-review iteration, Critical findings trigger a single fixer pass).
 
 ### Specialist Success Criteria
 

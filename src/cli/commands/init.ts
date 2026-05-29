@@ -56,6 +56,7 @@ import {
   verbose,
   setQuiet,
   setJson,
+  resetUiState,
   isJson,
   isQuiet,
   printTimingSummary,
@@ -1404,9 +1405,12 @@ export async function initCommand(
   // - `--json` implies `--quiet` (the structured emission replaces all chrome).
   // - `--quiet` implies `--no-banner` (banner is chrome).
   // - `--no-banner` alone keeps spinner/success-box output.
-  // Reset state explicitly each call so flags from a previous invocation
-  // never leak into the current one (matters under vitest where the module
-  // is shared across tests in the same process).
+  // D1-SA1.1-F09: reset EVERY module-global UI flag in one call so no flag
+  // from a previous invocation leaks into the current one (matters under
+  // vitest where the ui module is shared across tests in the same worker).
+  // `resetUiState()` is the single source of truth in `shared/ui.ts` — a
+  // future ui-flag is reset there, not re-listed at each command call site.
+  resetUiState();
   const jsonMode = opts.json === true;
   const quietMode = jsonMode || opts.quiet === true;
   const skipBanner = quietMode || opts.noBanner === true;

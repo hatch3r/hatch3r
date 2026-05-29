@@ -38,8 +38,16 @@
  *                     (Cycle 10 F16.1-H1 — 19/23 commands still lack it; the
  *                     command retrofit lands in a separate work unit, so a
  *                     hard error here would block on out-of-scope debt).
+ *   --efficiency-tier Every `orchestrator: true` command and every
+ *                     `agents/hatch3r-*.md` agent declares a valid
+ *                     `efficiency_tier` (light|standard|deep). Audit Cycle 10
+ *                     D6-SA6.6-Finding4 — agents declared all five efficiency
+ *                     fields but orchestrator commands omitted efficiency_tier,
+ *                     so the SA6.6 audit signal could not triangulate command
+ *                     tiers. Error-level: all 23 commands + 30 agents now carry
+ *                     the field, so a missing/invalid one is a real regression.
  *
- * No flags → all six modes run. Exit 0 unless >=1 error-level finding;
+ * No flags → all seven modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
  * `governance/RE-ENVISION.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
@@ -112,6 +120,8 @@ interface ModeFlags {
   ruleNarrative?: boolean;
   /** Mode F — orchestrator-command Constitutional-contract scan (F16.1-H1). */
   orchContract?: boolean;
+  /** Mode G — efficiency_tier presence on orchestrator commands + agents (D6-SA6.6-Finding4). */
+  efficiencyTier?: boolean;
 }
 
 interface RunOptions {
@@ -141,13 +151,13 @@ interface RunResult {
 function parseArgs(argv: readonly string[]): ModeFlags {
   const known = new Set([
     "--triage-first", "--static-first", "--parallel-tool", "--proof-id",
-    "--rule-narrative", "--orch-contract",
+    "--rule-narrative", "--orch-contract", "--efficiency-tier",
   ]);
   const requested = new Set(argv.filter((a) => known.has(a)));
   if (requested.size === 0) {
     return {
       triageFirst: true, staticFirst: true, parallelTool: true, proofId: true,
-      ruleNarrative: true, orchContract: true,
+      ruleNarrative: true, orchContract: true, efficiencyTier: true,
     };
   }
   return {
@@ -157,6 +167,7 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     proofId: requested.has("--proof-id"),
     ruleNarrative: requested.has("--rule-narrative"),
     orchContract: requested.has("--orch-contract"),
+    efficiencyTier: requested.has("--efficiency-tier"),
   };
 }
 
@@ -467,6 +478,47 @@ function checkOrchContract(file: ParsedFile): Finding[] {
   return out;
 }
 
+// ── Mode G: efficiency-tier ─────────────────────────────────────────
+//
+// Audit Cycle 10 D6-SA6.6-Finding4 — 30/30 agents declared all five
+// efficiency frontmatter fields but the orchestrator commands omitted
+// `efficiency_tier`, so the SA6.6 audit signal could not triangulate a
+// command's tier. This mode asserts the field is present AND valid
+// (light|standard|deep) on every `orchestrator: true` command and every
+// `agents/hatch3r-*.md` agent. The caller decides which file set to run it
+// over (commands are gated on `orchestrator: true` here; agents are gated by
+// the runner passing only agent files). Error-level — all 23 commands and 30
+// agents carry the field, so a missing/invalid one is a real regression.
+
+const EFFICIENCY_TIER_VALUES: ReadonlySet<string> = new Set(["light", "standard", "deep"]);
+
+function checkEfficiencyTier(file: ParsedFile, requireOrchestrator: boolean): Finding[] {
+  // Scope is the canonical command/agent corpus only. The injected
+  // `governance/AUDIT-EXECUTE.md` prompt is `orchestrator: true` for the
+  // triage/static/parallel modes but is NOT a `commands/hatch3r-*.md`
+  // artifact, so it is outside the D6-SA6.6-Finding4 efficiency_tier contract.
+  if (!file.relPath.startsWith("commands/hatch3r-") && !file.relPath.startsWith("agents/hatch3r-")) {
+    return [];
+  }
+  if (requireOrchestrator && !isOrchestrator(file.frontmatter)) return [];
+  const tier = file.frontmatter.efficiency_tier;
+  if (tier === undefined) {
+    return [{
+      level: "error", code: "P5-EFFICIENCY-TIER-MISS", file: file.relPath,
+      message:
+        "missing `efficiency_tier` (light|standard|deep) in frontmatter " +
+        "(D6-SA6.6-Finding4 — required on orchestrator commands + agents for the SA6.6 efficiency signal)",
+    }];
+  }
+  if (typeof tier !== "string" || !EFFICIENCY_TIER_VALUES.has(tier)) {
+    return [{
+      level: "error", code: "P5-EFFICIENCY-TIER-INVALID", file: file.relPath,
+      message: `invalid \`efficiency_tier\` ${JSON.stringify(tier)}; expected one of light|standard|deep`,
+    }];
+  }
+  return [];
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 async function loadDir(dir: string, baseDir: string, sink: Finding[]): Promise<ParsedFile[]> {
@@ -561,6 +613,11 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
   }
   if (opts.flags.orchContract) {
     for (const f of commandFiles) findings.push(...checkOrchContract(f));
+  }
+  if (opts.flags.efficiencyTier) {
+    // Commands: gated on `orchestrator: true`. Agents: every agent file.
+    for (const f of commandFiles) findings.push(...checkEfficiencyTier(f, true));
+    for (const f of agentFiles) findings.push(...checkEfficiencyTier(f, false));
   }
 
   let errorCount = 0, warningCount = 0;

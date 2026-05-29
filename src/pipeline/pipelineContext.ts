@@ -114,6 +114,94 @@ export interface ValidationPass {
   regressionsPersist: boolean;
 }
 
+/**
+ * Default maximum Phase 4 Validation Pass fixer iterations.
+ *
+ * Finding D7-SA7.3-F-7 (Cycle 10): the "max 2 iterations" Phase 4 Validation
+ * Pass bound in `rules/hatch3r-agent-orchestration.md` (Phase 4 Validation
+ * Pass) previously had no calibration anchor, unlike the sibling review-loop
+ * bound which cites `DEFAULT_MAX_REVIEW_ITERATIONS` in `reviewLoop.ts`. This
+ * constant is that anchor: the rule prose references it by name and
+ * `pipelineContext.test.ts` asserts rule↔code parity (CI-enforced), closing the
+ * same "unjustified prose-only bound" failure class SA7.2 F-4 closed for the
+ * review loop. The validation pass re-runs the test suite + type checker after
+ * a `hatch3r-fixer` pass on Phase-4-introduced regressions; the cap bounds how
+ * many fixer→re-validate cycles run before persistent regressions surface to
+ * the user. Lower than the review-loop cap (4) because a validation-pass
+ * iteration only re-runs the fixer on the same diff — no specialist re-spawn —
+ * so the per-iteration cost and the expected convergence count are both small.
+ *
+ * See `VALIDATION_PASS_CALIBRATION` below for the empirical basis and the
+ * recalibration triggers that, if observed, invalidate this default.
+ */
+export const DEFAULT_MAX_VALIDATION_PASS_ITERATIONS = 2;
+
+/**
+ * Reproducible calibration record for `DEFAULT_MAX_VALIDATION_PASS_ITERATIONS`.
+ *
+ * Finding D7-SA7.3-F-7 (Cycle 10): same failure class as the review-loop
+ * calibration (D7-SA7.2-1 / C7.5-W2B2-H25). Per the Scientific Rigor Contract
+ * (`governance/audit/templates/rigor-contract.md`) a numeric bound must carry
+ * a reproducible basis or be downgraded to an informed estimate. No historical
+ * validation-pass iteration-count dataset exists, so `basis` is
+ * `"informed_estimate"` with `sampleSize: 0`; the record captures the
+ * measurement method a future implementer uses to replace the estimate with
+ * measured data and the runtime conditions that invalidate the current default.
+ * Structure mirrors `src/pipeline/reviewLoop.ts::CALIBRATION` so both bounds are
+ * audited the same way.
+ */
+export interface ValidationPassCalibration {
+  /** Whether the cap is measured from data or an informed estimate. */
+  readonly basis: "measured" | "informed_estimate";
+  /** Source dataset identifier for re-derivation. */
+  readonly source: string;
+  /** Number of observations underlying the claim (0 when basis=informed_estimate). */
+  readonly sampleSize: number;
+  /** ISO date of most recent measurement (null when basis=informed_estimate). */
+  readonly measuredAt: string | null;
+  /**
+   * Observable conditions under which the current default must be re-derived.
+   * If any trigger is observed in production, the default is not safe.
+   */
+  readonly recalibrationTriggers: Readonly<{
+    /** Re-derive if the fraction of validation passes that converge within the cap falls below this value. */
+    convergeWithinCapRateBelow: number;
+    /** Re-derive if validation-pass fixer iterations hit the cap on more than this fraction of runs. */
+    capHitRateAbove: number;
+  }>;
+  /** Path (relative to repo root) documenting the measurement method. */
+  readonly measurementMethodRef: string;
+}
+
+export const VALIDATION_PASS_CALIBRATION: Readonly<ValidationPassCalibration> = Object.freeze({
+  basis: "informed_estimate",
+  // Honest non-citation per Charter directive 20 — no historical validation-
+  // pass iteration-count dataset exists. The cap of 2 is an author judgment:
+  // a validation-pass regression is normally a single localized break the
+  // fixer resolves in one pass; a second pass covers a follow-on break the
+  // first fix surfaces. When validation-pass telemetry lands per the CL-2 spec
+  // below, replace this with the path to the produced dataset.
+  source:
+    "no historical dataset; informed_estimate based on author judgment pending validation-pass iteration-count telemetry (CL-2 spec in measurementMethodRef)",
+  sampleSize: 0,
+  measuredAt: null,
+  recalibrationTriggers: Object.freeze({
+    convergeWithinCapRateBelow: 0.9,
+    capHitRateAbove: 0.1,
+  }),
+  // CL-2 spec for validation-pass iteration-count telemetry (Finding D7-SA7.3-F-7),
+  // identical mechanism to the review-loop calibration (D7-SA7.2-1):
+  // (1) Add `validation_pass_iteration_count: number` to per-finding records in
+  //     `governance/audit/finding-registry.json`.
+  // (2) Add `scripts/calibrate-validation-pass.ts` that reads the registry,
+  //     emits the measured iteration distribution, and writes a candidate
+  //     VALIDATION_PASS_CALIBRATION update PR once the sample crosses 30 findings.
+  // (3) Promote `basis` to `"measured"` and set `measuredAt` once the script
+  //     runs against a 30+ finding sample.
+  measurementMethodRef:
+    "CL-2 spec: per-finding validation_pass_iteration_count column in governance/audit/finding-registry.json + scripts/calibrate-validation-pass.ts (D7-SA7.3-F-7)",
+});
+
 export interface QualityResults {
   specialists: SpecialistResult[];
   validationPass: ValidationPass;
@@ -135,8 +223,9 @@ export interface QualityResults {
  *    (test suite + type checker pass against the Phase 3 baseline cached in
  *    `PipelineContext.implementationResult.filesChanged`).
  * 2. `validationPass.regressionsPersist === false` (no Phase-4-introduced
- *    failures persist after up to 2 validation-pass fixer iterations per
- *    `rules/hatch3r-agent-orchestration.md` Phase 4 Validation Pass).
+ *    failures persist after up to `DEFAULT_MAX_VALIDATION_PASS_ITERATIONS`
+ *    validation-pass fixer iterations per `rules/hatch3r-agent-orchestration.md`
+ *    Phase 4 Validation Pass; see `VALIDATION_PASS_CALIBRATION` for the basis).
  * 3. `mandatoryFloorsSatisfied === true` (always-mode floor specialists —
  *    `hatch3r-security` and `hatch3r-testability` — returned `SUCCESS` per
  *    `rules/hatch3r-agent-orchestration.md` Specialist Success Criteria).

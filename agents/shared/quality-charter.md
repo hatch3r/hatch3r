@@ -38,7 +38,7 @@ Never rely solely on training data for technical decisions. Libraries change API
 Before building anything, verify that the requirements are clear and well-founded:
 
 - If a requirement is ambiguous, ask for clarification rather than guessing.
-- If a requirement seems misguided (solving the wrong problem, using an inappropriate pattern), raise the concern before implementing — this is the §0.5 Challenge the Premise trigger added to `agents/shared/user-question-protocol.md` "When To Ask" (architectural premise concern). Building the wrong thing well is worse than asking a clarifying question.
+- If a requirement seems misguided (solving the wrong problem, using an inappropriate pattern), raise the concern before implementing — this is the §0.5 Challenge the Premise trigger added to `agents/shared/user-question-protocol.md` "When To Ask" (architectural premise concern). Building the wrong thing well is worse than asking a clarifying question. The framework's full premise-challenge surface — the pre-implementation `BLOCKED_PREMISE_CHALLENGE` agent status and the post-implementation `DESIGN_OBJECTION` reviewer verdict, enumerated together as one capability — is in §17 below.
 - Frame challenges constructively: "Before I implement this, I want to confirm the approach because [specific concern]."
 - When asking, use the platform-native question tool documented in `agents/shared/user-question-protocol.md` rather than free-form prose.
 

@@ -483,4 +483,125 @@ Single-pass report. No sub-agent delegation.
     expect(errorCount).toBe(0);
     expect(warningCount).toBe(0);
   });
+
+  // ── Mode G: efficiency-tier (D6-SA6.6-Finding4) ─────────────────
+
+  const TIER_FLAGS = {
+    triageFirst: false, staticFirst: false, parallelTool: false, efficiencyTier: true,
+  } as const;
+
+  it("Mode G: ERRORs on orchestrator command missing efficiency_tier", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-workflow.md"),
+      `id: hatch3r-workflow
+type: command
+description: Workflow command
+tags: [workflow]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]`,
+      `# Workflow\n\nBody.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: TIER_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const miss = findings.filter((f) => f.code === "P5-EFFICIENCY-TIER-MISS");
+    expect(miss).toHaveLength(1);
+    expect(miss[0].level).toBe("error");
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode G: ERRORs on invalid efficiency_tier value", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-workflow.md"),
+      `id: hatch3r-workflow
+type: command
+description: Workflow command
+tags: [workflow]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+efficiency_tier: turbo`,
+      `# Workflow\n\nBody.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: TIER_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.some((f) => f.code === "P5-EFFICIENCY-TIER-INVALID" && f.level === "error")).toBe(true);
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode G: PASSes when orchestrator command declares a valid efficiency_tier", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-workflow.md"),
+      `id: hatch3r-workflow
+type: command
+description: Workflow command
+tags: [workflow]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+efficiency_tier: deep`,
+      `# Workflow\n\nBody.\n`,
+    );
+
+    const { findings, errorCount, warningCount } = await runValidator({
+      flags: TIER_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code.startsWith("P5-EFFICIENCY-TIER"))).toHaveLength(0);
+    expect(errorCount).toBe(0);
+    expect(warningCount).toBe(0);
+  });
+
+  it("Mode G: non-orchestrator command is exempt from the efficiency_tier requirement", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-report.md"),
+      `id: hatch3r-report
+type: command
+description: Report command
+tags: [report]
+orchestrator: false`,
+      `# Report\n\nSingle-pass; no efficiency_tier.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: TIER_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code.startsWith("P5-EFFICIENCY-TIER"))).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("Mode G: ERRORs on agent missing efficiency_tier", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-implementer.md"),
+      `id: hatch3r-implementer
+type: agent
+description: Implementer agent
+tags: [implementation]`,
+      `# Implementer\n\nBody.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: TIER_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const miss = findings.filter(
+      (f) => f.code === "P5-EFFICIENCY-TIER-MISS" && f.file === "agents/hatch3r-implementer.md",
+    );
+    expect(miss).toHaveLength(1);
+    expect(errorCount).toBe(1);
+  });
 });

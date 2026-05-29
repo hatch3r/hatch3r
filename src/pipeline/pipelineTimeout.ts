@@ -55,8 +55,6 @@ export interface PhaseProgress {
   startedAt?: string;
   completedAt?: string;
   elapsedMs?: number;
-  /** Partial results for in-progress phases. */
-  partialResult?: string;
 }
 
 export interface PipelineExecutionState {
@@ -301,10 +299,15 @@ export function markPhaseSkipped(
  *
  * Records what was completed, what was in progress, and what
  * was pending. Returns the updated state and a termination report.
+ *
+ * D8-SA8.3-F8.3.8 (P4 Earn-Your-Existence): the former `partialResult` param +
+ * `PhaseProgress.partialResult` field were dead surface. F8.3.4 replaced every
+ * production `terminatePipeline` call site with `runWithPipelineDeadman`
+ * (Promise.race + AbortController), so nothing ever flushed a partial result
+ * here; removed rather than wired (re-adding a call site would regress F8.3.4).
  */
 export function terminatePipeline(
   state: PipelineExecutionState,
-  partialResult?: string,
 ): { state: PipelineExecutionState; report: PipelineTerminationReport } {
   const now = new Date().toISOString();
   const totalElapsedMs = Date.now() - new Date(state.startedAt).getTime();
@@ -319,7 +322,6 @@ export function terminatePipeline(
         elapsedMs: p.startedAt
           ? Date.now() - new Date(p.startedAt).getTime()
           : undefined,
-        partialResult,
       };
     }
     return p;

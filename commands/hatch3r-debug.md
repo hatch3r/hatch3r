@@ -163,7 +163,7 @@ You can also paste an error log, stack trace, or screenshot description and I'll
    - `docs/specs/` — project specifications (read TOC/headers first, expand relevant sections only)
    - `README.md` — project overview and setup instructions
    - `AGENTS.md` or `rules/` — agent rules and project conventions
-2. If `.hatch3r/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug description.
+2. If `.hatch3r/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug description. Learnings are **consulted only** in this command — debug fixes the immediate defect and does not write new learnings (deliberate skip, parallel to `hatch3r-quick-change` Token-Saving Directive 4); durable bug-pattern learnings are captured by `hatch3r-workflow` Phase 4e and `hatch3r-revision` Step 10 when a fix lands through those flows. Iteration-summary item 9 ("Learnings Captured") therefore reads `None` for a standalone debug run.
 3. Scan the affected code area — read the primary files involved, trace imports and dependencies one level deep.
 
 **Knowledge hierarchy:** project specs → codebase exploration → Context7 MCP (`resolve-library-id` then `query-docs`) → web research. Exhaust each level before escalating to the next.

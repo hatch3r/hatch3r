@@ -11,6 +11,7 @@ import {
   sortByPrecedence,
 } from "../../adapters/canonical.js";
 import type { CanonicalFile } from "../../types.js";
+import { HatchError } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -806,6 +807,69 @@ describe("readCanonicalFiles", () => {
       expect(ids).toContain("real-hook");
       // The symlink path is skipped — not duplicated.
       expect(ids.filter((id) => id === "real-hook").length).toBe(1);
+    });
+  });
+
+  // F2.2-F7 (Cycle 10 Wave 4): opt-in strict mode promotes the soft-warning
+  // channel to a hard HatchError(VALIDATION_ERROR). Backs the
+  // `validate:canonical` release gate (scripts/validate-canonical.ts).
+  describe("F2.2-F7 strict mode", () => {
+    it("throws HatchError(VALIDATION_ERROR) when a warning is collected under strict mode", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      // Unbalanced quotes → YAML_PARSE_ERROR warning.
+      const badYaml = `---\nid: bad-yaml\ntype: rule\ndescription: "unterminated\n---\n# Body`;
+      await writeFile(join(dir, "rules", "bad-yaml.md"), badYaml);
+
+      await expect(
+        readCanonicalFiles(dir, "rules", undefined, undefined, { strict: true }),
+      ).rejects.toBeInstanceOf(HatchError);
+      await expect(
+        readCanonicalFiles(dir, "rules", undefined, undefined, { strict: true }),
+      ).rejects.toMatchObject({ errorCode: "VALIDATION_ERROR" });
+    });
+
+    it("does not throw under strict mode when there are no warnings", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "good.md"),
+        "---\nid: good\ntype: rule\ndescription: ok\n---\n# OK",
+      );
+
+      const results = await readCanonicalFiles(dir, "rules", undefined, undefined, { strict: true });
+      expect(results.map((r) => r.id)).toContain("good");
+    });
+
+    it("preserves resilient soft-warning behavior when strict is omitted (no throw, degraded list returned)", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      const badYaml = `---\nid: bad-yaml\ntype: rule\ndescription: "unterminated\n---\n# Body`;
+      await writeFile(join(dir, "rules", "bad-yaml.md"), badYaml);
+      await writeFile(
+        join(dir, "rules", "good.md"),
+        "---\nid: good\ntype: rule\ndescription: ok\n---\n# OK",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+      // No throw: the good file still loads, the bad one surfaces as a warning.
+      expect(results.map((r) => r.id)).toContain("good");
+      expect(warnings.some((w) => w.includes("YAML_PARSE_ERROR"))).toBe(true);
+    });
+
+    it("mirrors collected warnings into the caller array even when strict throws", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      const badYaml = `---\nid: bad-yaml\ntype: rule\ndescription: "unterminated\n---\n# Body`;
+      await writeFile(join(dir, "rules", "bad-yaml.md"), badYaml);
+
+      const warnings: string[] = [];
+      await expect(
+        readCanonicalFiles(dir, "rules", warnings, undefined, { strict: true }),
+      ).rejects.toBeInstanceOf(HatchError);
+      // The caller's warnings array is still populated before the throw.
+      expect(warnings.some((w) => w.includes("YAML_PARSE_ERROR"))).toBe(true);
     });
   });
 });

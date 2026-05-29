@@ -35,6 +35,7 @@ npm run lint                # eslint
 npx tsc --noEmit            # typecheck
 npm run build               # tsup
 npx hatch3r validate        # content structure + frontmatter + cross-ref
+npm run validate:canonical  # strict canonical-read gate: 0 warnings across published content types (release integrity)
 ```
 
 Critical module thresholds: `src/merge/` (90/80/90/90), `src/content/` `src/adapters/customization.ts` (85/75/85/85).

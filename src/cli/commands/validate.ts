@@ -398,10 +398,14 @@ export function validateEfficiencyFrontmatter(
 
   if ("efficiency_tier" in parsedFm) {
     const tier = parsedFm.efficiency_tier;
+    // D6-SA6.6-Finding4: efficiency_tier is valid on agents/*.md AND on
+    // orchestrator commands (`orchestrator: true`). It carries no meaning on
+    // any other file class, so the "unexpected" advisory fires only there.
+    const tierAllowed = dir === "agents" || parsedFm.orchestrator === true;
     if (typeof tier !== "string" || !EFFICIENCY_TIER_VALUES.has(tier)) {
       verboseWarn(result, `Invalid 'efficiency_tier' in ${fileLabel}: expected one of light|standard|deep, got ${typeof tier === "string" ? `"${tier}"` : typeof tier}`);
-    } else if (dir !== "agents") {
-      verboseWarn(result, `Unexpected 'efficiency_tier' in ${fileLabel}: field applies to agents/*.md only`);
+    } else if (!tierAllowed) {
+      verboseWarn(result, `Unexpected 'efficiency_tier' in ${fileLabel}: field applies to agents/*.md or orchestrator commands only`);
     }
   }
 

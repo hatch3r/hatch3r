@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   validatePhaseTransition,
@@ -8,6 +10,8 @@ import {
   PHASE_SKIP_CRITERIA,
   SPECIALIST_TRIGGER_TABLE,
   LANGUAGE_SPECIALIST_CONFIGS,
+  DEFAULT_MAX_VALIDATION_PASS_ITERATIONS,
+  VALIDATION_PASS_CALIBRATION,
   type AgentStatus,
   type PipelineContext,
   type ProjectTypeContext,
@@ -635,5 +639,75 @@ describe("validatePhaseTransition with BLOCKED_PREMISE_CHALLENGE", () => {
     };
     const errors = validatePhaseTransition(ctx, 3);
     expect(errors.filter((e) => e.field === "implementationResult.status")).toHaveLength(0);
+  });
+});
+
+describe("Phase 4 Validation Pass calibration (Finding D7-SA7.3-F-7)", () => {
+  it("DEFAULT_MAX_VALIDATION_PASS_ITERATIONS is the documented cap of 2", () => {
+    // The Phase 4 Validation Pass fixer-iteration cap. Lower than the
+    // review-loop cap (4) because a validation-pass iteration only re-runs the
+    // fixer on the same diff — no specialist re-spawn.
+    expect(DEFAULT_MAX_VALIDATION_PASS_ITERATIONS).toBe(2);
+  });
+
+  it("rules/hatch3r-agent-orchestration.{md,mdc} anchor the validation-pass cap to DEFAULT_MAX_VALIDATION_PASS_ITERATIONS", () => {
+    // Finding D7-SA7.3-F-7 (Cycle 10): the Phase 4 Validation Pass "max 2
+    // iterations" bound previously had no calibration source, unlike the
+    // sibling review-loop bound which cites DEFAULT_MAX_REVIEW_ITERATIONS.
+    // This assertion makes the rule prose reference the code constant by name
+    // and fails if the two ever drift — the same drift guard reviewLoop.test.ts
+    // applies to the review-loop cap. The regex is anchored to the Phase 4
+    // Validation Pass line and matches both the .md canonical and the .mdc
+    // Cursor parity copy.
+    const repoRoot = process.cwd();
+    const pattern =
+      /re-validate\s+\(max\s+(\d+)\s+iterations,\s+matches\s+`DEFAULT_MAX_VALIDATION_PASS_ITERATIONS`/;
+    for (const relPath of [
+      "rules/hatch3r-agent-orchestration.md",
+      "rules/hatch3r-agent-orchestration.mdc",
+    ]) {
+      const body = readFileSync(join(repoRoot, relPath), "utf-8");
+      const match = body.match(pattern);
+      expect(
+        match,
+        `${relPath} must contain "re-validate (max <N> iterations, matches \`DEFAULT_MAX_VALIDATION_PASS_ITERATIONS\`...)" in the Phase 4 Validation Pass`,
+      ).not.toBeNull();
+      const declared = Number(match![1]);
+      expect(
+        declared,
+        `${relPath} declared "max ${declared} iterations" but code has DEFAULT_MAX_VALIDATION_PASS_ITERATIONS=${DEFAULT_MAX_VALIDATION_PASS_ITERATIONS}`,
+      ).toBe(DEFAULT_MAX_VALIDATION_PASS_ITERATIONS);
+    }
+  });
+
+  it("VALIDATION_PASS_CALIBRATION declares a reproducible, honest basis", () => {
+    expect(VALIDATION_PASS_CALIBRATION).toBeDefined();
+    expect(["measured", "informed_estimate"]).toContain(VALIDATION_PASS_CALIBRATION.basis);
+    expect(typeof VALIDATION_PASS_CALIBRATION.source).toBe("string");
+    expect(VALIDATION_PASS_CALIBRATION.source.length).toBeGreaterThan(0);
+    expect(typeof VALIDATION_PASS_CALIBRATION.sampleSize).toBe("number");
+    expect(typeof VALIDATION_PASS_CALIBRATION.measurementMethodRef).toBe("string");
+    expect(VALIDATION_PASS_CALIBRATION.measurementMethodRef.length).toBeGreaterThan(0);
+  });
+
+  it("VALIDATION_PASS_CALIBRATION recalibration triggers are valid fractions", () => {
+    const t = VALIDATION_PASS_CALIBRATION.recalibrationTriggers;
+    expect(t.convergeWithinCapRateBelow).toBeGreaterThan(0);
+    expect(t.convergeWithinCapRateBelow).toBeLessThanOrEqual(1);
+    expect(t.capHitRateAbove).toBeGreaterThanOrEqual(0);
+    expect(t.capHitRateAbove).toBeLessThanOrEqual(1);
+  });
+
+  it("VALIDATION_PASS_CALIBRATION is an honest informed_estimate (no fabricated dataset)", () => {
+    // Charter directive 20: until validation-pass telemetry lands, the basis
+    // must remain informed_estimate with sampleSize 0 and no measuredAt date.
+    expect(VALIDATION_PASS_CALIBRATION.basis).toBe("informed_estimate");
+    expect(VALIDATION_PASS_CALIBRATION.sampleSize).toBe(0);
+    expect(VALIDATION_PASS_CALIBRATION.measuredAt).toBeNull();
+  });
+
+  it("VALIDATION_PASS_CALIBRATION is frozen against mutation", () => {
+    expect(Object.isFrozen(VALIDATION_PASS_CALIBRATION)).toBe(true);
+    expect(Object.isFrozen(VALIDATION_PASS_CALIBRATION.recalibrationTriggers)).toBe(true);
   });
 });

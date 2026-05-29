@@ -197,6 +197,21 @@ describe("validateEfficiencyFrontmatter", () => {
     expect(r.errors).toHaveLength(0);
   });
 
+  it("accepts efficiency_tier on an orchestrator command (D6-SA6.6-Finding4)", () => {
+    const r = makeResult();
+    // The field is valid on agents AND on `orchestrator: true` commands; the
+    // relaxed branch must not raise the "unexpected" advisory for the latter.
+    expect(() =>
+      validateEfficiencyFrontmatter(
+        { efficiency_tier: "deep", orchestrator: true },
+        "commands/hatch3r-workflow.md",
+        "commands",
+        r,
+      ),
+    ).not.toThrow();
+    expect(r.errors).toHaveLength(0);
+  });
+
   it("does not throw when cache_friendly is a boolean", () => {
     const r = makeResult();
     expect(() => validateEfficiencyFrontmatter({ cache_friendly: true }, "agents/x.md", "agents", r)).not.toThrow();

@@ -173,13 +173,13 @@ describe("pipelineTimeout", () => {
       expect(report.pendingPhases).toHaveLength(0);
     });
 
-    it("should include partial result in timed_out phase", () => {
-      let state = createPipelineExecution(["generation"]);
-      state = markPhaseStarted(state, "generation");
-
-      const { state: terminated } = terminatePipeline(state, "partial output here");
-      expect(terminated.phases[0].partialResult).toBe("partial output here");
-    });
+    // D8-SA8.3-F8.3.8: removed "should include partial result in timed_out
+    // phase" — the `partialResult` param + PhaseProgress field it exercised
+    // were dead surface (zero production callers after F8.3.4 replaced every
+    // terminatePipeline call site with runWithPipelineDeadman) and were deleted
+    // per Anti-Bloat Earn-Your-Existence. The in-progress→timed_out transition
+    // it touched is already covered by "should mark in-progress phases as
+    // timed_out" above.
 
     it("should handle skipped phases in report", () => {
       let state = createPipelineExecution(["generation", "merge", "review"]);
