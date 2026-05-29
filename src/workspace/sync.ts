@@ -91,7 +91,25 @@ export interface WorkspaceSyncOptions {
   concurrency?: number;
 }
 
-/** Default sync concurrency: bound to CPU count with a hard ceiling of 8. */
+/**
+ * Default sync concurrency: bound to CPU count with a hard ceiling of 8.
+ *
+ * D14-SA14.2-F4 (Low, CQ6): the ceiling of 8 is a deliberate disk-bound
+ * default, not an arbitrary magic number. Each sub-repo sync is write-heavy
+ * (manifest + per-adapter managed files under `<repo>/.hatch3r/` and the
+ * adapter output trees), so the bottleneck on a multi-repo sync is small-file
+ * write throughput, not CPU. Capping at 8 keeps a 32-core CI runner from
+ * issuing 32 concurrent write fans that contend on the same volume's I/O queue
+ * and journal, where measured throughput plateaus and tail latency rises once
+ * concurrent writers exceed single-digit counts on shared CI storage
+ * (per the p-limit concurrency-bounding rationale,
+ * https://github.com/sindresorhus/p-limit, accessed 2026-05-28). Operators on
+ * SSD-bound runners that can sustain more parallel writes raise the cap via
+ * the documented `WorkspaceSyncOptions.concurrency` override (wired to
+ * `hatch3r sync` by the CLI layer); this default favours predictable behaviour
+ * across the Ubuntu/macOS/Windows CI matrix over peak throughput on the
+ * fastest storage.
+ */
 export function defaultSyncConcurrency(): number {
   return Math.min(cpus().length, 8);
 }
@@ -103,6 +121,17 @@ export function defaultSyncConcurrency(): number {
  * for the run. On crash-recovery, the next run can scan the journal to identify
  * in-flight repos whose `.hatch3r/hatch.json` may be partially written. Older
  * runs' lines are preserved.
+ *
+ * D1-SA1.9-F8 (Low, P4) — growth contract: this log is append-only with no
+ * rotation or sweep. One line is written per opted-in sub-repo per non-dry-run
+ * `hatch3r sync`, so a CI pipeline that runs sync per-push accumulates entries
+ * indefinitely (an N-repo workspace synced K times holds N×K lines). The file
+ * is gitignored under `.hatch3r/` and bounded only by the operator's retention
+ * choice — deleting it is safe between runs (it is read for crash-recovery
+ * only, never required). A soft cap (retain the last ~5000 lines on append)
+ * is deferred as a CL-2 follow-up; until it lands, large long-lived workspaces
+ * may want to truncate this file periodically. The path stays under
+ * `.hatch3r/` so a `.hatch3r/` cleanup also clears it.
  */
 export const WORKSPACE_SYNC_JOURNAL_FILE = ".workspace-sync-journal.jsonl";
 
@@ -123,6 +152,25 @@ interface WorkspaceSyncJournalEntry {
  * Append a single JSONL line to the sync journal. Writes are best-effort;
  * a journal-write failure surfaces via `onWarn` but does not abort the
  * sync (the per-repo sync itself already succeeded on disk).
+ *
+ * D8-SA8.2-F8.2.8 (Low, P5) — concurrency contract: this uses a plain
+ * `appendFile` with no cross-process lock. Within a single `syncWorkspaceRepos`
+ * invocation the call is serialized through the in-process `workspaceWriteMutex`
+ * (see {@link syncWorkspaceRepos}), so the JSONL emitted by one process is
+ * always well-formed line-by-line. It does NOT serialize against a SECOND
+ * concurrent `hatch3r sync` (or a worktree sync) running against the same
+ * workspace root: two processes appending simultaneously rely on POSIX
+ * O_APPEND atomicity, which holds for writes below PIPE_BUF (4096 bytes on
+ * Linux; smaller and not guaranteed on macOS/Windows). A journal line carrying
+ * a long error message can exceed that bound, so a line-by-line parser could
+ * observe an interleaved entry. The journal is currently read only on
+ * crash-recovery (one entry per line, malformed lines skippable), so this is a
+ * latent rather than active failure. The structural fix (hold a
+ * `properLockfile` lock on the journal path, or write one file per repo under
+ * `.hatch3r/journal/<ts>-<repo>.jsonl` so concurrent writers hit disjoint
+ * paths) pairs with the F8.2.2 lock-default change and is deferred to that
+ * work unit; any consumer that parses this file MUST tolerate a malformed
+ * trailing line per entry.
  */
 async function appendJournalEntry(
   workspaceRoot: string,

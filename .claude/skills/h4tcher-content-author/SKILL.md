@@ -5,6 +5,8 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit
 ---
 
+> Last updated: 2026-05-29
+
 # Content Author
 
 Author or modify a hatch3r canonical content artifact.

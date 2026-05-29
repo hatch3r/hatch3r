@@ -198,4 +198,4 @@ Mirrors `governance/CONSTITUTION.md` §2 P5 verbatim (validator `scripts/validat
   - `/h4tcher-capability-refactor` — rename/split/merge/restructure with cross-reference scrubbing
   - `/h4tcher-capability-remove` — phase out with migration notes and reference cleanup
   - `/h4tcher-scoped-audit` — bounded focused audit of a maintainer-described slice (read-only, in-chat report)
-- **Hooks:** `.claude/settings.json` — SessionStart loads governance context, Pre/PostToolUse inject reminders.
+- **Hooks:** `.claude/settings.json` — a single SessionStart hook loads governance context (CONSTITUTION preview + audit finding-registry summary). No PreToolUse, PostToolUse, or SubagentStart channels are configured.

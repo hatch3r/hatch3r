@@ -99,7 +99,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ3
 - **Medium:** OWASP ASI control pattern match without verified exploit — the pattern in code matches a documented ASI01-10 violation but runtime configuration may mitigate (upstream WAF, reverse proxy hardening not visible in audited scope).
 - **Low:** Heuristic — code shape suggests a finding but auth flow is not fully traced or runtime configuration is unknown. Recommend security-team review before prioritising.
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-domain audits run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ3 unit of decomposition: **security domain**. Default decomposition: (a) authentication flows (OAuth 2.1 + OIDC + DPoP + JWT BCP + cookies), (b) WebAuthn server ceremony, (c) supply-chain floor (SBOM + provenance + SHA-pin + cosign + license allow-list), (d) OWASP ASI01-10 control coverage on agent-produced code, (e) CVE advisory acknowledgement. Cross-cutting analysis (session-fixation spanning auth + cookie + WebAuthn) runs after per-domain audits complete.
 

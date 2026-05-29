@@ -5,6 +5,8 @@ alwaysApply: false
 ---
 # API Design
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ9 (Enhancability Quality)
+
 - Use consistent request/response schemas. Document in spec files.
 - All endpoints versioned (URL prefix or header). Backward-compatible changes only.
 - Additive changes only: add fields, never rename or remove without migration.

@@ -234,6 +234,8 @@ GITLAB_HOST=https://gitlab.example.com
 
 ## Server details
 
+> **Transport trust floor.** GitHub uses HTTP transport (TLS + a fine-grained PAT); the other nine servers use STDIO transport, which carries **no authentication or encryption** and runs the server as a child process with the editor's full privileges. STDIO is not "safer" than HTTP because it has no `url:` — see [mcp-server-blast-radius.md → MCP transport trust model](mcp-server-blast-radius.md#mcp-transport-trust-model) for the per-transport security floors.
+
 - **GitHub** — Remote server at `https://api.githubcopilot.com/mcp/`. Uses `X-MCP-Toolsets` for repos, issues, pull_requests, projects.
 - **Azure DevOps** — STDIO server via `@tiberriver256/mcp-server-azure-devops`. Requires `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_ORG`.
 - **GitLab** — STDIO server via `glab mcp`. Requires `GITLAB_TOKEN`. Supports self-hosted instances via `GITLAB_HOST`.

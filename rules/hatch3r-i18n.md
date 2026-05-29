@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Internationalization & RTL
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ2 (UX Quality)
+
 ## Locale Management
 
 - Detect locale via resolution chain: explicit user preference → `Accept-Language` header (server) → `navigator.language` (client) → default locale.

@@ -56,7 +56,11 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 - Define clear module boundaries with explicit public interfaces (barrel exports).
 - Design data models with migration paths from the current schema.
 - Specify API contracts with request/response shapes, error codes, and pagination.
-- Address cross-cutting concerns: auth, logging, error handling, caching, rate limiting.
+- Address cross-cutting concerns: auth, logging, caching, rate limiting.
+- Treat error handling as a first-class design concern, not an appendix:
+  - **Define error boundaries.** For each module in the design, specify where errors are caught, logged, and transformed. Errors should not propagate across module boundaries without being mapped to the consuming module's error vocabulary.
+  - **Specify error contracts.** For each API or interface in the design, define the error types it can return. Include these in the ADR alongside the success-path contracts.
+  - **Design for partial failure.** When the architecture involves multiple services or data sources, specify how the system behaves when one component fails. Include fallback strategies, circuit breaker placement, and graceful degradation behavior.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) to verify API capabilities and constraints of frameworks, databases, and infrastructure libraries involved in the design.
 - Use web research for architecture pattern comparisons, scalability benchmarks, and technology evaluation when making trade-off decisions.
 
@@ -165,14 +169,6 @@ When this agent produces an ADR or design artifact that includes companion file 
 **Issues encountered:**
 - (conflicting requirements, missing context, etc.)
 ```
-
-## Error Handling Architecture
-
-When designing architecture for new modules or services, include error handling as a first-class design concern:
-
-- **Define error boundaries.** For each module in the design, specify where errors are caught, logged, and transformed. Errors should not propagate across module boundaries without being mapped to the consuming module's error vocabulary.
-- **Specify error contracts.** For each API or interface in the design, define the error types it can return. Include these in the ADR alongside the success-path contracts.
-- **Design for partial failure.** When the architecture involves multiple services or data sources, specify how the system behaves when one component fails. Include fallback strategies, circuit breaker placement, and graceful degradation behavior.
 
 <rules>
 

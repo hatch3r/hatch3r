@@ -10,7 +10,14 @@ export default defineConfig({
   format: ["esm"],
   target: "node22",
   splitting: false,
-  dts: true,
+  // Cycle 10 L D4-SA4.1-F4.1.F4 (D4): no `dts` emission. hatch3r is a
+  // `bin`-only package (no `exports` field, no library API surface) — its
+  // single entry `src/cli/index.ts` is a side-effect module (program.parse)
+  // with zero named exports, so tsup's `dts` pass compiled it to a 13-byte
+  // `export {  }` while consuming the longest single build phase (~2.1s).
+  // Removing it drops the empty `.d.ts` from `dist/` and the published
+  // tarball and shortens the build. Re-introduce only alongside a real
+  // library `exports` entry filed as a PRD CL-1.
   clean: true,
   // Cycle 10 M D4-M1 (D4): the previous `sourcemap: true` produced
   // dist/cli/index.js.map at 2.49 MB — 271 % of the 919 KB runtime bundle —

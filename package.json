@@ -3,12 +3,6 @@
   "version": "2.0.0",
   "description": "Agentic coding setup framework audited each release across 24 governance domains. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for Claude Code, Cursor, and GitHub Copilot.",
   "type": "module",
-  "exports": {
-    ".": {
-      "import": "./dist/cli/index.js",
-      "types": "./dist/cli/index.d.ts"
-    }
-  },
   "bin": {
     "hatch3r": "./dist/cli/index.js"
   },
@@ -18,7 +12,7 @@
     "dev": "tsup --watch",
     "lint": "eslint src/",
     "typecheck": "tsc --noEmit",
-    "prepublishOnly": "npm run build",
+    "prepublishOnly": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npm run build",
     "test": "vitest run",
     "test:watch": "vitest",
     "inventory": "tsx scripts/inventory.ts",
@@ -107,6 +101,7 @@
     "flatted": "^3.4.2"
   },
   "comments": {
-    "overrides/flatted": "Pinned to >=3.4.2 to resolve security advisory in transitive eslint > flat-cache > flatted dependency"
+    "overrides/flatted": "Pinned to >=3.4.2 to resolve security advisory in transitive eslint > flat-cache > flatted dependency",
+    "dependencies/p-limit": "Cycle 10 L D4-SA4.2-F4.2.5 (D4): p-limit held at 3.1.0 is 4 majors behind 7.3.0 (no CVE — pure P3 currency hygiene). The bump is API-compatible (the only delta across 4 to 7 is the CJS drop, non-applicable: hatch3r is pure ESM, engines node >=22). Deferred from this Low wave because the spec bump must regenerate package-lock.json + its transitive yocto-queue pin, and `release.yml` 'Verify lockfile sync' (git diff --exit-code package-lock.json) plus `npm ci` fail closed on a spec-only change. Follow-up: run `npm install` to land both package.json (^7.3.0) and the regenerated lockfile in one commit, then `npm test` to confirm src/workspace/sync.ts pLimit(concurrency) call site."
   }
 }

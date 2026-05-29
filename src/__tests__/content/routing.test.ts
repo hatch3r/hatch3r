@@ -507,6 +507,55 @@ describe("buildCandidateSet", () => {
     expect(result.rationale[1]).toMatch(/final candidates=0/);
   });
 
+  it("rationaleStructured records every per-item decision with a stable id+decision+reason (no header/footer noise)", () => {
+    const task: TaskDescription = { tags: [TAG_REVIEW] };
+    const project: ProjectDetection = {
+      techStack: ["python"],
+      lifecycleStage: "brownfield",
+      maturityTier: "team",
+    };
+    const result = buildCandidateSet(items, task, project);
+    // One structured entry per fixture item (8) — header/footer log lines
+    // are excluded from the structured array.
+    expect(result.rationaleStructured.length).toBe(items.length);
+    // The structured admit set matches the candidate set exactly.
+    const admitted = result.rationaleStructured
+      .filter((e) => e.decision === "admit")
+      .map((e) => e.id)
+      .sort();
+    expect(admitted).toEqual(ids(result.candidates).sort());
+    // Each decision is asserted structurally — no coupling to the free-text
+    // rationale format string (the point of F3.3-L1).
+    const byId = new Map(result.rationaleStructured.map((e) => [e.id, e]));
+    expect(byId.get("security-floor")).toEqual({ id: "security-floor", decision: "admit", reason: "floor" });
+    expect(byId.get("ai-feature")).toEqual({ id: "ai-feature", decision: "admit", reason: "capability-match" });
+    expect(byId.get("untagged")).toEqual({ id: "untagged", decision: "drop", reason: "no-capability-match" });
+    expect(byId.get("review-ts")).toEqual({ id: "review-ts", decision: "drop", reason: "lang-mismatch" });
+    expect(byId.get("gf-only-review")).toEqual({ id: "gf-only-review", decision: "drop", reason: "ctx-greenfield-only" });
+  });
+
+  it("rationaleStructured records protected-bypass and brownfield-only drop reasons", () => {
+    const fixture: RoutableItem[] = [
+      item("prot", [], { protected: true }),
+      item("bf-only", [TAG_REVIEW, TAG_CTX_BROWNFIELD_ONLY]),
+    ];
+    const task: TaskDescription = { tags: [TAG_REVIEW] };
+    const project: ProjectDetection = {
+      techStack: [],
+      lifecycleStage: "greenfield",
+      maturityTier: "solo",
+    };
+    const result = buildCandidateSet(fixture, task, project);
+    const byId = new Map(result.rationaleStructured.map((e) => [e.id, e]));
+    expect(byId.get("prot")).toEqual({ id: "prot", decision: "admit", reason: "protected" });
+    expect(byId.get("bf-only")).toEqual({ id: "bf-only", decision: "drop", reason: "ctx-brownfield-only" });
+  });
+
+  it("rationaleStructured is empty (no per-item entries) when items is empty", () => {
+    const result = buildCandidateSet([], { tags: [TAG_REVIEW] }, emptyProject);
+    expect(result.rationaleStructured).toEqual([]);
+  });
+
   it("does not mutate the input items array", () => {
     const fixture: RoutableItem[] = [
       item("a", [TAG_REVIEW]),

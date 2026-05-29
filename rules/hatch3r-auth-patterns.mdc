@@ -147,6 +147,7 @@ Required event set: login success, login failure, MFA challenge issued, MFA veri
 
 ## Cross-References
 
+- `rules/hatch3r-security-patterns.md` — general application security (input validation, output encoding, OWASP/ASI). Auth middleware, token validation, session security, and MFA/AAL mapping live here, not there; security-patterns delegates them to this rule to avoid double-firing on `**/auth/**` + `**/middleware/**`.
 - `rules/hatch3r-passkey-server.md` — server-side WebAuthn ceremony (paired companion).
 - `rules/hatch3r-ux-states-and-flows.md` — frontend identifier-first login + Conditional UI.
 - `rules/hatch3r-ai-ux-patterns.md` — frontend WebAuthn UX patterns.

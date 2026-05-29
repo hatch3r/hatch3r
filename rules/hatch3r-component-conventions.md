@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Component Conventions
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ1 (UI Quality)
+
 ## Library and Token Detection (Mandatory Pre-Author Step)
 
 Before authoring any new UI primitive, complete this scan and reuse > extend > create:

@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Rust Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships a Rust crate or workspace. Detection signals: `Cargo.toml` at repo root, `*.rs` source files, or `rust-toolchain.toml` pinning a specific toolchain.
 
 ## Rust Language Floor

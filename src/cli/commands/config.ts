@@ -1290,6 +1290,10 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     if (diff.removedTools.length > 0) {
       info(chalk.dim(`  Removed tool output archived to .hatch3r-archive/ (recoverable).`));
       info(chalk.dim(`  Customizations in .hatch3r/ are tool-agnostic and carry forward.`));
+      // D10-SA10.5-F4 (Cycle 10 Wave 4): point users at the "Switching tools"
+      // guide so they know what carries forward, what is rebuilt, and that
+      // learnings replay via .hatch3r/learnings/INDEX.md on the new tool.
+      info(chalk.dim(`  See the "Switching tools" section of the Customization guide for what carries forward and how learnings replay.`));
     }
     if (diff.addedTools.length > 0) {
       info(chalk.dim(`  New tool output generated. Restart your editor to pick up changes.`));

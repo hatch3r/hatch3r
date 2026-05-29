@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Theming & Dark Mode
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ1 (UI Quality)
+
 ## Color System
 
 - Define all colors as semantic CSS custom properties (`--color-surface`, `--color-text-primary`, `--color-text-secondary`, `--color-border`, `--color-brand`, `--color-error`, `--color-success`, `--color-warning`).

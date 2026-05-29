@@ -120,6 +120,8 @@ Cross-references in canonical content, framework-dev docs, website docs, governa
 
 agents 19 → 25 (30 transient peak in the CQ-specialist rollout reduced by 5 legacy retirements per Bucket 3.1); skills 39 → 40; rules 40 → 45; commands 25 → 26; pipeline modules 18 → 21; CLI commands 14 → 15; audit domains 21 → 24.
 
+`.cursor-plugin/plugin.json` synced to 2.0.0 — `version` bumped 1.9.0 → 2.0.0 and the `description` count metadata regenerated from `governance/inventory.json` (D10-SA10.1-F-11).
+
 ### Gates
 
 - `npx tsc --noEmit` — 0 errors

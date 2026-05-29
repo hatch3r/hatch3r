@@ -78,7 +78,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ2
 
 **Confidence downgrade rules:** screen-reader pass log older than the latest flow commit → downgrade from High to Medium and re-run; keyboard trace captured before a focus-trap dependency upgrade → downgrade; microcopy lint on a stale message catalogue → downgrade; missing verbatim `proof_trace.actual` → caps at Low regardless of reasoning persuasiveness.
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ2 unit of decomposition: **flow** (each distinct user flow with its own entry point + success criteria + error-state catalogue). Aggregator surfaces cross-flow patterns (recurring jargon, recurring missing-announcement surfaces, recurring decision-count overshoot) after per-flow audits complete.
 

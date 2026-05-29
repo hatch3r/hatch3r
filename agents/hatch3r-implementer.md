@@ -231,7 +231,12 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 
 **Notes:**
 - (any context the parent needs for PR description or follow-up)
+
+**Self-Reflection (optional):**
+- (one line per acceptance criterion: which the written tests cover vs. which remain unverified by this change — e.g., "AC1 rate-limit-on-burst: covered by rateLimiter.test.ts; AC2 Redis-failover: NOT covered, deferred to integration tier")
 ```
+
+The **Self-Reflection** block is optional and may be omitted. When present, it narrows the gap between the Phase 2 self-report and the Phase 3 `hatch3r-reviewer` critique by stating up front which acceptance criteria the test set verifies and which it does not — the reviewer then targets the unverified surfaces first. Phase 3 review remains the authoritative critique; this block does not replace it (D23-SA23.1-F23.1-01).
 
 ## Wall-Clock Advisory
 

@@ -65,6 +65,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### xh
 - **When to use:** fast Rust client with HTTPie-compatible syntax — single static binary (no Python runtime), HTTP/2 default, HTTP/3 opt-in via `--http3`, JSON output (`--json`), resume-on-416 download recovery.
 - **Recipe:** `xh --http3 GET api.example.com/v1/runs Authorization:"Bearer $TOKEN" | jq '.runs[] | {id, status}'`
+- **Install (D21-SA21.4-F07):** mac `brew install xh`; linux `cargo install xh --locked`; Windows `winget install ducaale.xh` (signed first-party channel) with `cargo install xh --locked` as the fallback when winget is unavailable — Windows users are not forced onto a Rust-toolchain-only path.
 - **Wrong choice when:** existing `httpie` workflows that depend on a Python plugin — keep `httpie`; environments without a Rust toolchain (or no Homebrew/winget) — use `curl`. **Version floor:** >=0.25.3 (2025-12-16) — earlier 0.24.x builds miss recent `--http3` and resume fixes.
 
 ---
@@ -273,6 +274,7 @@ docker run --rm --network none -v "$PWD:/work:ro" -w /work \
 ### stagehand
 - **When to use:** natural-language browser steering with on-the-fly DOM reasoning; v3 (2025-10-29) talks Chrome DevTools Protocol directly. Drivers (`playwright-core`, `puppeteer-core`, `patchright-core`) are peer deps — install only the one you need.
 - **Recipe:** `npx create-browser-app` scaffolds a v3 project; runtime: `stagehand.act("click the login button")`.
+- **Driver trust (D15-SA15.7-F-15.7-08):** prefer `playwright-core` (Microsoft) as the default driver. `puppeteer-core` (Google) is also vendor-maintained; `patchright-core` is a less-vetted community detection-bypass fork with a different supply-chain trust profile. Pin whichever driver you install.
 - **Wrong choice when:** high-volume scraping — use Browserbase managed browsers or v3 action cache; air-gapped CI — pre-record then replay; existing stable Playwright suite — keep it.
 
 ---

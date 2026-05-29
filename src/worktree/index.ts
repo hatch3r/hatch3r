@@ -1,4 +1,4 @@
-import { readFile, mkdir, copyFile, symlink, lstat, unlink, writeFile, appendFile } from "node:fs/promises";
+import { readFile, mkdir, copyFile, symlink, lstat, unlink } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, relative, dirname } from "node:path";
@@ -9,7 +9,8 @@ import {
   HatchError,
   type HatchManifest,
 } from "../types.js";
-import type { WorktreeEntry, WorktreeSetupResult } from "./types.js";
+import { atomicWriteFile } from "../merge/safeWrite.js";
+import type { WorktreeEntry, WorktreeSetupResult, WorktreeSkipReason } from "./types.js";
 import { resolvePatterns, findMainWorktree } from "./resolve.js";
 import { verbose } from "../cli/shared/ui.js";
 
@@ -243,7 +244,16 @@ export async function setupWorktree(
     copied: [],
     symlinked: [],
     skipped: [],
+    skippedDetails: [],
     errors: [],
+  };
+
+  // F-1.10.12 (D1 cycle 10 wave 4): record a skip in both the flat `skipped`
+  // list (back-compat) and the annotated `skippedDetails` list so consumers
+  // can tell an idempotent re-run skip apart from a TOCTOU race outcome.
+  const recordSkipped = (relPath: string, reason: WorktreeSkipReason): void => {
+    result.skipped.push(relPath);
+    result.skippedDetails.push({ path: relPath, reason });
   };
 
   const includePath = join(mainRoot, WORKTREE_INCLUDE_FILE);
@@ -367,7 +377,7 @@ export async function setupWorktree(
       // first.outcome === "exists": destination already present. Honor
       // --force by unlinking and retrying; otherwise treat as skipped.
       if (!options.force) {
-        result.skipped.push(relPath);
+        recordSkipped(relPath, "exists");
         continue;
       }
       try {
@@ -383,7 +393,9 @@ export async function setupWorktree(
       } else {
         // Another writer beat us to it after the unlink — accept the
         // existing entry and record as skipped rather than overwriting blindly.
-        result.skipped.push(relPath);
+        // This is the TOCTOU race outcome (F-1.10.3 / F-1.10.12), distinct
+        // from the idempotent "exists" skip above.
+        recordSkipped(relPath, "eexist-race");
       }
     } catch (err) {
       result.errors.push(`${relPath}: ${(err as Error).message}`);
@@ -583,9 +595,9 @@ export async function ensureWorktreesIgnored(mainRoot: string): Promise<boolean>
     const code = (err as NodeJS.ErrnoException).code;
     if (code !== "ENOENT") throw err;
     // No exclude file yet — git creates it on `git init` by default, but bare
-    // repos or oddly-initialized clones may lack it. Create with empty body.
+    // repos or oddly-initialized clones may lack it. Ensure the parent dir
+    // exists; the atomic write below materializes the file body.
     await mkdir(dirname(excludePath), { recursive: true });
-    await writeFile(excludePath, "", "utf-8");
   }
 
   if (existing.includes(EXCLUDE_BLOCK_START)) return false;
@@ -597,7 +609,14 @@ export async function ensureWorktreesIgnored(mainRoot: string): Promise<boolean>
     EXCLUDE_BLOCK_END,
     "",
   ].join("\n");
-  await appendFile(excludePath, block, "utf-8");
+  // F-1.10.11 (D1, audit cycle 10 wave 4): build the full content in memory and
+  // write via the temp-file + atomic-rename path (atomicWriteFile) instead of a
+  // non-atomic appendFile. A crash mid-append previously left a partial managed
+  // block whose missing EXCLUDE_BLOCK_END went undetected on the next run
+  // (the START-marker presence check short-circuits). The atomic rename makes
+  // the block all-or-nothing, matching the framework's safe-write invariant
+  // (CLAUDE.md key-patterns; src/merge/safeWrite.ts).
+  await atomicWriteFile(excludePath, existing + block);
   return true;
 }
 

@@ -1,3 +1,12 @@
+---
+id: adapter-development
+type: rule
+description: Procedure for creating or modifying a platform adapter in src/adapters/ — extend BaseAdapter, read canonical content, apply customization, wrap in managed blocks, register, web-research currency, write tests, run gates.
+tags: [maintainer, adapters, p3, p2]
+scope: always
+precedence: high
+---
+
 # Adapter Development
 
 **Pillars:** P3 (Adapter Currency), P2 (Scientific Quality)

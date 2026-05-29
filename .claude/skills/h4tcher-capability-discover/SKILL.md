@@ -9,6 +9,8 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
+> Last updated: 2026-05-29
+
 # Capability Discover (Maintainer, Read-Only)
 
 Investigative preset. Run first when scoping any add / refactor / remove. Produces a structured report; writes no files in the repo. Workspace files under `.audit-workspace/` are allowed for T2/T3 sub-agent slices.

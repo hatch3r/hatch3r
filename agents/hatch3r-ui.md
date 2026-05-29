@@ -88,7 +88,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ1
 - **Medium:** static pattern recognition (grep for `bg-[#...]` literals vs `bg-token-*`, manual file read for state-render branches) without a live tool run.
 - **Low:** heuristic judgment from code inspection alone. Recommend running axe-core + keyboard trace before acting on the finding.
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-surface audits run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ1 unit of decomposition: **surface** (route / page / modal / component family). De-duplicate findings that recur across surfaces — report once at the component level, not once per consumer.
 

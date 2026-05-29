@@ -244,6 +244,8 @@ Day-to-day commands you will run as you edit `.hatch3r/overrides/` content or ro
 
 ## Step 9 — Release
 
+Prerequisite: `npm run lint && npm run typecheck && npm run test && npm run build` must pass — the release skill verifies these and halts on failure. Before invoking it, also run `npx hatch3r validate` to confirm canonical content has not drifted (it is the framework's drift-detection gate and the release skill does not run it for you).
+
 Invoke the `hatch3r-release` skill.
 
 The release skill reads the conventional-commit history since the last tag, decides the semver bump (patch / minor / major), generates a changelog entry, tags, and publishes per your project's release config.

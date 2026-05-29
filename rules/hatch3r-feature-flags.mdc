@@ -5,6 +5,8 @@ alwaysApply: false
 ---
 # Feature Flags
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ9 (Enhancability Quality)
+
 - Use flags for gradual rollout of user-facing changes. Not for A/B experiments without tracking.
 - Naming: `FF_{AREA}_{FEATURE}` (e.g., `FF_PET_NEW_CELEBRATION`).
 - Store flags in remote config or user document in your backend.

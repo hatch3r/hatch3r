@@ -9,6 +9,8 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
+> Last updated: 2026-05-29
+
 # Capability Remove (Maintainer)
 
 Maintainer preset for phasing out a hatch3r artifact. Hardest preset to invoke: a D16.3 gate blocks removal unless three criteria all hold, and migration notes plus reference scrubbing run before the maintainer is allowed to commit.

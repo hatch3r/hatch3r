@@ -530,17 +530,18 @@ export async function generateBridgeOrchestration(
     }
   }
 
-  // Insert skill table after the Agent Quick Reference table
-  const insertPoint = "Do not edit `hatch3r-` prefixed files";
-  const idx = base.indexOf(insertPoint);
-  if (idx === -1) return base;
-
-  return (
-    base.slice(0, idx) +
-    skillTable.join("\n") +
-    "\n\n" +
-    base.slice(idx)
-  );
+  // F6.1.7 (D6-SA6.1, cycle 10 wave 4): append the dynamic Skill Dispatch
+  // Table + Task Type → Routing section at the very END of the bridge body,
+  // AFTER the static "Getting Started" appendix. Previously this content was
+  // spliced mid-body (before the "Do not edit hatch3r- prefixed files"
+  // anchor), which placed variable-length content (skill-row count grows with
+  // the canonical catalogue) inside the otherwise-static frame. Keeping all
+  // variable content at the bottom preserves a stable static prefix for
+  // prompt-cache reuse per the static-first principle
+  // (agents/shared/efficiency-patterns.md P1; Anthropic/OpenAI prompt-caching
+  // guidance: place static content first, variable content last).
+  const trimmedBase = base.replace(/\s+$/, "");
+  return trimmedBase + "\n" + skillTable.join("\n") + "\n";
 }
 
 // Wave 4: kept for back-compat with external tooling/tests. Sync paths no

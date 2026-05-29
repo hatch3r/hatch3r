@@ -5,6 +5,8 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit
 ---
 
+> Last updated: 2026-05-29
+
 # Release Prep
 
 Prepare a hatch3r framework release with full quality gates. The dev runs Steps 1-10 locally; CI (`.github/workflows/release.yml`) re-runs the publish-critical subset and extracts the `CHANGELOG.md` section authored here as the GitHub release body.

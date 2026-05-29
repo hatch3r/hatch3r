@@ -263,8 +263,9 @@ export async function readCustomizationSnapshot(
     if (mdChanged) which.push(".customize.md");
     warnings.push(
       `Customization file(s) for "${id}" changed during sync (${which.join(", ")}). ` +
-      `Snapshot may be inconsistent. Do not edit .customize.yaml/.customize.md while a ` +
-      `sync/update/init is running; re-run the command after edits complete.`,
+      `Snapshot may be inconsistent — the output for this run is based on a partial read. ` +
+      `To regenerate cleanly: save all .hatch3r/${type}/*.customize.{yaml,md} edits, then ` +
+      `run \`hatch3r sync\` (no flags needed).`,
     );
   }
 

@@ -195,6 +195,7 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | **all** | guardrails | No adapter emits policy files. Canonical location `policy/` exists in bundled content for future use. |
 | **all** | prompts (except copilot) | Only Copilot has a dedicated prompts format (`.github/prompts/`). Cursor and Claude map prompts to commands or skills. |
 | **all** | githubAgents (except copilot) | Copilot-specific capability; only the Copilot adapter emits. |
+| **gemini → antigravity** | (retired adapter migration) | Gemini CLI (removed in the 1.9.0 hard cut) sunsets for AI Pro/Ultra/free tiers on 2026-06-18; Google's sanctioned migration target is Antigravity CLI ([Google Developers Blog](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), accessed 2026-05-26). Antigravity is tracked but not re-introduced: its config surface launched <30 days before assessment and fails the SA9.5 re-introduction trigger T2 (stable config surface ≥6 months). Surveillance for the Gemini market position transfers from `gemini` to `antigravity`. Re-evaluation cadence: D09 SA9.5, each audit cycle. |
 
 ---
 

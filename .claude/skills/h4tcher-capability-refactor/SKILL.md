@@ -9,6 +9,8 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
+> Last updated: 2026-05-29
+
 # Capability Refactor (Maintainer)
 
 Lifecycle preset for renaming, splitting, merging, or restructuring an existing artifact (agent, skill, rule, command, hook, adapter, pipeline module, governance file). Owns the cross-reference scrubber. Stops before commit so the maintainer reviews the rename map and diff.

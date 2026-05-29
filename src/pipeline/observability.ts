@@ -248,6 +248,95 @@ export function formatTokenSummary(summary: PipelineTokenSummary): string {
   return lines.join("\n");
 }
 
+// ── Phase Handoff Metrics (D7-SA7.4-F-6) ─────────────────────────
+// Pillar P5 (Governance Self-Quality) + P7 (Speed & Token Efficiency).
+//
+// `rules/hatch3r-agent-orchestration-detail.md` § Context Token Optimization
+// prescribes lossy compression strategies that fire when pipeline context
+// exceeds 50% of the window (summarise Phase 1 output, prune resolved
+// findings, collapse specialist results). The compression is lossy by design
+// but the byte-loss between two phases was previously unmeasured, so a
+// downstream phase could silently receive a summary when it needed the full
+// upstream output. These types quantify the loss at each handoff so the
+// orchestrator can surface a soft warning when too much context was dropped.
+
+/** Soft-warning threshold: information loss above this fraction is flagged. */
+export const PHASE_HANDOFF_LOSS_WARN_THRESHOLD = 0.3;
+
+/**
+ * Byte-loss measurement for a single phase-to-phase handoff.
+ *
+ * Captured when the orchestrator passes context from one phase to the next.
+ * `informationLossEstimate` is a 0-1 fraction: the proportion of input bytes
+ * NOT carried into the output (e.g. 0.4 = the handoff dropped 40% of the
+ * upstream bytes through summarisation/pruning).
+ */
+export interface PhaseHandoffMetrics {
+  /** Phase producing the context (handoff source). */
+  fromPhase: PhaseName;
+  /** Phase receiving the context (handoff target). */
+  toPhase: PhaseName;
+  /** Byte count of the context entering the handoff. */
+  inputBytes: number;
+  /** Byte count of the context leaving the handoff (post-compression). */
+  outputBytes: number;
+  /** True when a compression strategy was applied at this handoff. */
+  summarisationApplied: boolean;
+  /** Fraction (0-1) of input bytes not carried into the output. */
+  informationLossEstimate: number;
+}
+
+/**
+ * Compute phase-handoff metrics from the input/output byte counts.
+ *
+ * `informationLossEstimate` is clamped to [0, 1]; an output larger than the
+ * input (e.g. the phase added analysis rather than compressing) yields a loss
+ * estimate of 0 — handoffs never report negative loss. Pure function; no I/O.
+ */
+export function createPhaseHandoffMetrics(
+  fromPhase: PhaseName,
+  toPhase: PhaseName,
+  inputBytes: number,
+  outputBytes: number,
+  summarisationApplied: boolean,
+): PhaseHandoffMetrics {
+  const safeInput = inputBytes > 0 ? inputBytes : 0;
+  const safeOutput = outputBytes > 0 ? outputBytes : 0;
+  const lost = safeInput - safeOutput;
+  const informationLossEstimate =
+    safeInput === 0 || lost <= 0 ? 0 : Math.min(1, lost / safeInput);
+
+  return {
+    fromPhase,
+    toPhase,
+    inputBytes: safeInput,
+    outputBytes: safeOutput,
+    summarisationApplied,
+    informationLossEstimate,
+  };
+}
+
+/**
+ * Produce a single-line health indicator for a phase handoff, or `null` when
+ * the loss is within budget. The orchestrator surfaces the returned string in
+ * the iteration summary (per `rules/hatch3r-agent-orchestration-detail.md`
+ * § Context Token Optimization) when loss exceeds
+ * {@link PHASE_HANDOFF_LOSS_WARN_THRESHOLD}. Pure function; never throws.
+ */
+export function formatPhaseHandoffWarning(
+  metrics: PhaseHandoffMetrics,
+): string | null {
+  if (metrics.informationLossEstimate <= PHASE_HANDOFF_LOSS_WARN_THRESHOLD) {
+    return null;
+  }
+  const pct = Math.round(metrics.informationLossEstimate * 100);
+  return (
+    `Phase ${metrics.fromPhase}→${metrics.toPhase} compressed input by ${pct}% ` +
+    `(>${Math.round(PHASE_HANDOFF_LOSS_WARN_THRESHOLD * 100)}%) — ` +
+    `downstream phases should validate critical context survived.`
+  );
+}
+
 // ── Budget Tracking (D12 Medium: #315-#330) ──────────────────────
 // F3.4-F2 (Cycle 10 Wave 2): the token→USD cost converter and its rate
 // constants moved to pipeline/costEstimator.ts so the canonical cost module

@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Browser Verification
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ1 (UI Quality)
+
 ## When Required
 
 Browser verification is required when changes touch user-facing surfaces:

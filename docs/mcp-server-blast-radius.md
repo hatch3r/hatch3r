@@ -11,6 +11,15 @@ misused by an agent.
 
 This document provides per-server capability analysis and security guidance.
 
+## MCP transport trust model
+
+Two transport classes carry different security floors. The per-server blast radius below is **in addition to** these floors, not a substitute for them.
+
+- **STDIO transport** (every `command`-launched server — `context7`, `filesystem`, `playwright`, `brave-search`, `sentry`, `postgres`, `linear`, `azure-devops`, `gitlab`): **no authentication, no encryption**. The MCP 2025-06-18 specification defines authorization only for HTTP-based transports; a STDIO server is trusted purely because it is a locally spawned child process, and it **inherits the editor's full privileges** (file system, network, environment). The absence of a `url:` is not a security claim — a STDIO server has the same host access as the editor that launched it.
+- **HTTP transport** (`url`-based servers — `github`): subject to TLS, optional OAuth 2.1 per the MCP spec, and hatch3r's C9-M34 endpoint policy (`src/adapters/mcp-utils.ts::validateMcpHttpEndpoint`) which requires a `_pinned_sha256` artifact hash unless `_trust_bypass: true` is set with a documented Trust Rationale.
+
+Sources: [MCP 2025-06-18 transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports), [MCP 2025-06-18 authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) (accessed 2026-05-26).
+
 ## Blast Radius Classification
 
 | Level    | Definition                                                       |

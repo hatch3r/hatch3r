@@ -239,3 +239,5 @@ When pipeline context exceeds 50% of the available context window, apply these c
 4. **Never truncate security findings.** Security auditor output is always included in full regardless of context pressure.
 
 These strategies preserve decision-critical information while reducing token overhead for long pipelines.
+
+**Handoff loss measurement.** Compression is lossy by design, so measure it. At each phase transition the orchestrator records a `PhaseHandoffMetrics` record (`src/pipeline/observability.ts::createPhaseHandoffMetrics`) capturing input bytes, output bytes, whether summarisation was applied, and an `informationLossEstimate` (0-1 fraction of input bytes dropped). When `informationLossEstimate` exceeds `0.3`, surface the single-line warning from `formatPhaseHandoffWarning` in the iteration summary so downstream phases validate that critical context survived. This closes the gap where a downstream phase silently receives a summary when it needed the full upstream output.

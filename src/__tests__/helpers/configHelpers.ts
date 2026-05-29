@@ -10,8 +10,16 @@
  * helper). This helper provides the per-test wiring only.
  */
 import { vi, expect, type MockInstance } from "vitest";
-import type { ContentSelection, Features, HatchManifest } from "../../types.js";
+import type { ContentSelection, Features, HatchManifest, RepoEntry } from "../../types.js";
 import { DEFAULT_FEATURES, WORKTREE_CAPABLE_TOOLS } from "../../types.js";
+import type { AdapterContext } from "../../adapters/base.js";
+import type {
+  PipelineContext,
+  TaskType,
+  DeepContextTier,
+} from "../../pipeline/pipelineContext.js";
+import type { CheckpointMeta } from "../../pipeline/checkpoint.js";
+import type { SnapshotMeta } from "../../pipeline/snapshot.js";
 
 // Loose mock type used for helpers that accept any vi-mocked function without
 // pinning its exact signature (test code only).
@@ -67,6 +75,79 @@ export function makeContentSelection(overrides: Partial<ContentSelection> = {}):
       hooks: [],
       githubAgents: [],
     },
+    ...overrides,
+  };
+}
+
+// ─── Central fixture factory (D3-SA3.5-F11) ────────────────────
+// Builders for the high-recurrence object shapes that test files otherwise
+// hand-roll. `makeManifest` above is the HatchJson builder; the five below
+// cover AdapterContext, PipelineContext, RepoEntry (manifest sub-repo entry),
+// CheckpointMeta, and SnapshotMeta. Each returns a minimal-VALID instance and
+// accepts shallow `overrides` so call sites stay self-documenting.
+
+/**
+ * Minimal-valid {@link AdapterContext}. `features`/`mcp` derive from the
+ * manifest the factory builds so the three stay mutually consistent.
+ */
+export function makeAdapterContext(overrides: Partial<AdapterContext> = {}): AdapterContext {
+  const manifest = overrides.manifest ?? makeManifest();
+  return {
+    canonicalRoot: "/tmp/hatch3r-test/canonical",
+    projectRoot: "/tmp/hatch3r-test/project",
+    manifest,
+    features: manifest.features,
+    generationMode: "standard",
+    ...overrides,
+  };
+}
+
+/**
+ * Minimal-valid {@link PipelineContext} at run start (pre-Phase-1, no phase
+ * outputs). Defaults to a `feature` task at deep-context tier 2.
+ */
+export function makePipelineContext(overrides: Partial<PipelineContext> = {}): PipelineContext {
+  return {
+    correlationId: "00000000-0000-4000-8000-000000000000",
+    taskType: "feature" as TaskType,
+    issueRef: null,
+    deepContextTier: 2 as DeepContextTier,
+    startedAt: "2026-01-01T00:00:00.000Z",
+    completedAt: null,
+    totalDuration: null,
+    ...overrides,
+  };
+}
+
+/** Minimal-valid manifest {@link RepoEntry} (workspace sub-repo record). */
+export function makeManifestEntry(overrides: Partial<RepoEntry> = {}): RepoEntry {
+  return {
+    owner: "test-org",
+    repo: "test-repo",
+    ...overrides,
+  };
+}
+
+/** Minimal-valid {@link CheckpointMeta} (audit-execute resumability checkpoint). */
+export function makeCheckpointMeta(overrides: Partial<CheckpointMeta> = {}): CheckpointMeta {
+  return {
+    baselineSha: "0".repeat(40),
+    lastPassedGateN: 0,
+    registrySha: "0".repeat(40),
+    timestamp: "2026-01-01T00:00:00.000Z",
+    ...overrides,
+  };
+}
+
+/** Minimal-valid {@link SnapshotMeta} (per-session rollback snapshot). */
+export function makeSnapshotMeta(overrides: Partial<SnapshotMeta> = {}): SnapshotMeta {
+  return {
+    schemaVersion: 1,
+    sessionId: "test-session",
+    timestamp: "2026-01-01T00:00:00.000Z",
+    paths: [],
+    relativePaths: [],
+    projectRoot: "/tmp/hatch3r-test/project",
     ...overrides,
   };
 }

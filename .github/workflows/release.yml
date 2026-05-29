@@ -115,8 +115,11 @@ jobs:
       - name: Verify lockfile sync
         run: git diff --exit-code package-lock.json
 
+      # Cycle 10 L F4.3.9 (D4): `time` captures the tsup build duration in the
+      # ubuntu-only release log — the baseline for the build-output caching
+      # decision (add actions/cache only if >60s; see ci.yml Build rationale).
       - name: Build
-        run: npm run build
+        run: time npm run build
 
       - name: Test
         run: npm test

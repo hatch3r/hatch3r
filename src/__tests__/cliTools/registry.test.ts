@@ -177,6 +177,30 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(gh.securityNote).toContain("2.92.0");
   });
 
+  it("gh + glab entries are annotated releaseCadence:'rapid' (D21-SA21.5-F-21.5.2, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.5-F-21.5.2: gh (~30-day mean) and glab (~6-day mean)
+    // both ship at rapid cadence per the registry's own ReleaseCadence
+    // definition ("monthly or faster"). Tagging both `rapid` lets a
+    // cadence-aware staleness heuristic treat a short pause as an anomaly
+    // instead of falling back to the default 90/180-day window.
+    const gh = AVAILABLE_CLI_TOOLS.gh;
+    const glab = AVAILABLE_CLI_TOOLS.glab;
+    expect(gh.releaseCadence).toBe("rapid");
+    expect(glab.releaseCadence).toBe("rapid");
+  });
+
+  it("glab + az-devops carry tested-against minVersion documentation pins (D21-SA21.5-F-21.5.3, Cycle 10)", () => {
+    // Cycle 10 D21-SA21.5-F-21.5.3: these are documentation pins recording the
+    // version Cycle 10 verified (glab 1.99.0, az-devops 1.0.4 / tag
+    // 20260514.1), NOT CVE-driven floors — the installer surfaces them as
+    // advisory text and the next cycle measures drift against them.
+    const glab = AVAILABLE_CLI_TOOLS.glab;
+    const azDevops = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)["az-devops"];
+    expect(glab.minVersion).toBe("1.99.0");
+    expect(azDevops).toBeDefined();
+    expect(azDevops!.minVersion).toBe("1.0.4");
+  });
+
   it("docker entry floors at >=29.5.2 + securityNote cites the docker cp host-root CVE cluster (D21-SA21.6-F02, Cycle 10)", () => {
     // C9-H91: Docker engine 29.5.0 patches CVE-2026-32288 (DoS via crafted
     // image manifest). Cycle 10 F21.6.F02: the 2026-05-18 announcement added

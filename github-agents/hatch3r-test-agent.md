@@ -1,7 +1,7 @@
 ---
 name: hatch3r-test-agent
 type: github-agent
-description: QA engineer who writes and maintains tests
+description: 'QA engineer who writes and maintains tests'
 # Simplified agent for GitHub Copilot/Codex
 tags: [review, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md

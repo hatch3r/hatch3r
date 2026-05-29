@@ -5,6 +5,8 @@ alwaysApply: false
 ---
 # AI/Agentic UX Patterns (2026)
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ2 (UX Quality)
+
 ## Scope
 
 This rule applies when the end-user project ships LLM-driven UI — chat, assistant, copilot, agent dashboards, generative UI surfaces. It does NOT govern the LLM backend itself (model selection, prompt engineering, retrieval pipeline). For non-AI UX rules (loading, empty, error, partial states; form patterns; microcopy), cross-reference `rules/hatch3r-ux-states-and-flows.md`. When both rules apply to the same surface, the non-AI rule sets the baseline and this rule layers AI-specific behavior on top.

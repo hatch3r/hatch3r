@@ -87,7 +87,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ7
 - **Medium:** Static bundle analysis (size-limit numeric output), an ORM query-log scan, or a query-count test assertion without live load-test confirmation.
 - **Low:** Heuristic judgment from code inspection alone (e.g., "this loop looks N+1") without measurement.
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-surface measurements run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ7 unit of decomposition: **surface** — frontend page/route, backend route/service, data-access path. Measurements are independent across surfaces (Lighthouse CI per route, bundle-analyzer per build target, OTel histogram queries per backend route, ORM query-log scans per data-access module). De-duplicate findings on shared dependencies (one heavy vendor lib affecting three routes → reported once at the dependency level). Root-cause investigation on any breach (profile, flame-graph, microbenchmark) runs in-agent rather than delegating outward — the perf-profiler delegate was retired in 2.0.0; its scope is now part of CQ7.
 

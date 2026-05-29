@@ -57,7 +57,16 @@ export function createProgram(): Command {
     .description(
       "Battle-tested agentic coding setup framework. Crack the egg. Hatch better agents.",
     )
-    .version(HATCH3R_VERSION);
+    .version(HATCH3R_VERSION)
+    // D1-SA1.8-F-1.8-4 / D10-SA10.2-F9 (Cycle 10 Wave 4, P1): declare the
+    // global `--no-update-check` flag so `hatch3r --help` enumerates it.
+    // The flag's behavior is implemented by a pre-parse argv-strip in
+    // `src/cli/index.ts` that sets HATCH3R_NO_UPDATE_CHECK=1 — that path runs
+    // BEFORE `program.parseAsync()` because the update probe (`checkForUpdates`)
+    // fires at startup, so it cannot wait for `program.opts()`. This option
+    // registration exists for discoverability only; the strip is the source of
+    // truth for the runtime effect.
+    .option("--no-update-check", "Skip the daily update-notifier probe for this run");
 
   program
     .command("init")

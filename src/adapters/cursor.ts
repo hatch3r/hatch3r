@@ -343,11 +343,14 @@ New to this project's agent setup? Progress through these stages:
     results.push(mdcOutput(".cursor/rules/hatch3r-bridge.mdc", bridgeFm, bridgeBody));
 
     if (ctx.manifest.tools.includes("cursor")) {
+      // F9.2.8 (Cycle 10 D9, P3): no `mcpServers` key here. MCP server config
+      // is emitted to `.cursor/mcp.json` (above); a redundant empty
+      // `mcpServers: {}` in environment.json declared the same surface twice
+      // and risked drift between the two files.
       const envConfig = {
         instructions: [
           "Read .cursor/rules/hatch3r-bridge.mdc for project agent orchestration; per-artifact rules, agents, skills, and commands live under .cursor/.",
         ],
-        mcpServers: {},
       };
       results.push(output(".cursor/environment.json", JSON.stringify(envConfig, null, 2) + "\n"));
     }

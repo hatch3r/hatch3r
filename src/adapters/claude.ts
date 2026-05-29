@@ -25,10 +25,20 @@ import { HATCH3R_VERSION } from "../version.js";
  * .claude/agents/*.md, .claude/skills/*\/SKILL.md, .claude/commands/*.md,
  * .claude/commands/hatch3r-agent-team.md).
  *
- * The sentinel marks the deterministic, hatch3r-managed prefix that the
- * Claude Code runtime can fingerprint for prompt-cache reuse. A static
- * boundary on both sides of the managed block lets the cache layer detect
- * unchanged prefixes across syncs without scanning the entire file body.
+ * The sentinel marks the deterministic, hatch3r-managed prefix as a stable
+ * diff boundary: a static marker on both sides of the managed block lets
+ * operators (and sync tooling) detect whether the hatch3r-managed region
+ * changed across syncs without scanning the entire file body.
+ *
+ * D6-SA6.6-F3 (Cycle 10, P5): these markers have NO runtime effect on prompt
+ * caching. Anthropic prompt caching is an API-level feature applied via the
+ * `cache_control` field on system/tools/messages content blocks
+ * (platform.claude.com/docs/en/build-with-claude/prompt-caching, accessed
+ * 2026-05-28); an HTML comment inside rendered CLAUDE.md / rules content
+ * cannot reach that request layer, and Claude Code memory docs
+ * (code.claude.com/docs/en/memory, accessed 2026-05-28) document no scanner
+ * that translates these markers into `cache_control`. The defensible value
+ * is the diff-boundary use above.
  *
  * Format is a balanced pair (`-START`/`-END`) so consumers can split on the
  * outer markers without ambiguity when both appear in the same emitted file.
@@ -302,7 +312,12 @@ function mapToClaudeEvent(event: HookEvent): string {
     "worktree-remove": "WorktreeRemove",
     "review-loop-cap": "Stop",
   };
-  return mapping[event] || event;
+  // D9-L-3 (Cycle 10, P5): no `|| event` fallback. `mapping` is typed
+  // Record<HookEvent, string>, so a future HookEvent added to the closed
+  // union (src/hooks/types.ts) without a branch here fails the Record-literal
+  // completeness check at compile time — fail-loud rather than silently
+  // emitting an unmapped canonical event name Claude Code would not recognise.
+  return mapping[event];
 }
 
 function getClaudeToolMatcher(hook: HookDefinition): string {
@@ -319,7 +334,11 @@ function getClaudeToolMatcher(hook: HookDefinition): string {
     // review-loop-cap maps to Claude Code Stop event; no tool matcher needed.
     "review-loop-cap": ".*",
   };
-  return eventToolMap[hook.event] || ".*";
+  // D9-L-3 (Cycle 10, P5): no `|| ".*"` fallback — Record<HookEvent, string>
+  // completeness is the fail-loud gate (see mapToClaudeEvent above). A new
+  // HookEvent without a matcher here breaks the build instead of silently
+  // matching every tool.
+  return eventToolMap[hook.event];
 }
 
 export class ClaudeAdapter extends BaseAdapter {
@@ -364,14 +383,15 @@ export class ClaudeAdapter extends BaseAdapter {
           "New to this project's agent setup? Progress through these stages:",
           "",
           "**Start here:** Rules in `.claude/rules/` are loaded automatically. The orchestration bridge above guides your workflow.",
-          "**Next:** Use `/hatch3r-feature` or `/hatch3r-bug-fix` commands for guided workflows.",
+          "**Next:** Use `/hatch3r-feature-plan` or `/hatch3r-bug-plan` commands for guided workflows.",
           "**Then:** Delegate to agents in `.claude/agents/` — use Agent Teams for parallel execution.",
           "**Later:** Customize agent behavior via `.hatch3r/{type}/{id}.customize.yaml` without editing managed files.",
           "",
         ];
     // C9-M47 (P7): wrap inner content with cache-breakpoint sentinels before
-    // emission so the Claude Code prompt-cache layer sees a deterministic
-    // hatch3r-managed prefix across syncs.
+    // emission so the hatch3r-managed prefix has a deterministic diff boundary
+    // across syncs (diff-boundary purpose only — see the sentinel definition
+    // comment re: caching being API-only).
     const innerContent = withCacheBreakpoints(innerParts.join("\n"));
     results.push(output("CLAUDE.md", wrapInManagedBlock(innerContent), innerContent));
 
@@ -401,7 +421,7 @@ export class ClaudeAdapter extends BaseAdapter {
           ? `# ${rule.id}\n\n${this.stripMinimal(content)}`
           : `# ${rule.id}\n\n${desc}\n\n${content}`;
         // C9-M47 (P7): cache-breakpoint sentinels wrap every rule body so the
-        // managed-block payload fingerprint stays stable for prompt-cache reuse.
+        // managed-block payload has a stable diff boundary across syncs.
         const body = withCacheBreakpoints(rawBody);
         const nn = precedenceRank(rule.precedence) / 10;
         // F6.6-H1 (D6, P7): prepend Claude Code `paths:` frontmatter for

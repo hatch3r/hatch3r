@@ -373,7 +373,6 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   {
     "action": "create",
     "contentMarkers": [
-      "MCP_CONFIG",
       "VALID_JSON",
     ],
     "hasManagedContent": false,

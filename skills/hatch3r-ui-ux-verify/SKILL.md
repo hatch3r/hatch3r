@@ -76,7 +76,7 @@ No duplication: the agent decides WHEN, this skill defines HOW. The agent bodies
   - **partial** (banner + degraded data)
 - Missing snapshot = blocker.
 - Convention: `src/__tests__/states/<feature>.<state>.spec.ts`.
-- Discovery: a pre-test script greps for async data hooks (`useQuery`, `useSWR`, `fetch`, `axios`) and emits the list of features that must have all four state files. Missing files fail the gate before any test runs.
+- Discovery (reviewer-driven; no shipped script): grep the project for async data hooks — `rg -l 'useQuery|useSWR|\bfetch\(|axios'` — and list the surfaces that read remote data. Each listed surface must have all four state files under the convention path above. The reviewer flags any surface missing a state file as a Gate-4 failure. Projects that want this enforced pre-test author their own discovery check wired into CI; hatch3r ships the pattern, not the script (the framework does not own the project's data-fetch taxonomy).
 
 ## Gate 5: Visual regression baseline
 
@@ -103,14 +103,17 @@ No duplication: the agent decides WHEN, this skill defines HOW. The agent bodies
 
 ## Gate 8: AI-UX checks (when applicable)
 
-Applies only when the feature ships LLM-driven UI:
+Applies only when the feature ships LLM-driven UI. These 7 checks mirror the Verification Gate in `rules/hatch3r-ai-ux-patterns.md` one-for-one — running Gate 8 means executing all 7, not just the streaming/tool-call subset:
 
 - Streaming hooks in use — grep for `useChat`, `useCompletion`, `streamUI`, or the framework equivalent.
-- Tool-call cards visible by default — assert at least one rendered card per tool invocation in fixtures.
+- Tool-call cards visible by default — assert at least one rendered card per tool invocation in fixtures, with a snapshot per state (`pending`, `in-progress`, `complete`, `failed`).
 - Human-approval gates present for side-effectful tools — assert an approval card before `write`, `send`, or `post` tool calls.
-- Cancel/abort controls present and wired to an `AbortController`.
+- Cancel/abort/undo controls present and wired to an `AbortController` — cancellation produces a transcript marker, not a silent terminate.
+- Citation rendering — a grounded response renders an inline citation with source URL or anchor (snapshot test); an ungroundable claim renders the not-found flag string rather than emitting silently.
+- Failure-mode coverage — at least one test per AI failure mode: timeout, rate limit, token budget, tool unavailability, stream interruption, content-policy refusal, stale session. Missing coverage on any mode is a blocker.
+- Accessibility on AI states — axe-core scan against each AI surface state (idle, streaming, tool-call pending, approval-card open, error) returns 0 serious or critical violations.
 
-Cross-reference: `rules/hatch3r-ai-ux-patterns.md` (Slice 5).
+Cross-reference: `rules/hatch3r-ai-ux-patterns.md` — the "Verification Gate" section is the canonical 7-item list this gate executes; the "Cancel / Abort / Undo", "Citations and Grounding", and "Failure Modes and Degradation" sections define the expected behavior each check asserts.
 
 ## Gate 9: Manual screen-reader pass (per release, not per PR)
 

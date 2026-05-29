@@ -10,9 +10,11 @@ cache_friendly: true
 
 Canonical reference for the body and frontmatter shapes `hatch3r-creator` produces when a user invokes `/hatch3r-create`. Five sections, one per artifact type. Each provides the minimum frontmatter (YAML), a body skeleton with `<PLACEHOLDER>` substitution slots, and notes on required versus optional fields. Placeholder convention: `<NAME>` is replaced at composition time; `[<TAG-1>, <TAG-2>]` indicates an array.
 
+The `type` field appears in the Required list and skeleton of all five sections, but the author never sets it by hand: `composeArtifactFile` (`src/content/userContent.ts`) re-pins `derived.type = artifact.type` from the type branch the user already selected at Step 1.1, so a user-supplied value is authoritatively overridden. It is listed as Required because every on-disk artifact carries it, not because the user types it (D20-SA20.1-F20.1.C1).
+
 ### 1. Agent Skeleton
 
-**Path:** `.hatch3r/overrides/agents/<NAME>.md`. **Required:** `id`, `description`, `model`, `tags`. **Optional:** `protected` (always `false` for user agents), `quality_charter` (auto-injected), `adapters` (restricts adapter propagation when present), `tools` (per-agent allow/deny allowlist — when `tools.allow` cardinality exceeds 3, a **Security baseline:** body reference is required, see below).
+**Path:** `.hatch3r/overrides/agents/<NAME>.md`. **Required:** `id`, `type`, `description`, `model`, `tags`. **Optional:** `protected` (always `false` for user agents), `quality_charter` (auto-injected), `adapters` (restricts adapter propagation when present), `tools` (per-agent allow/deny allowlist — when `tools.allow` cardinality exceeds 3, a **Security baseline:** body reference is required, see below).
 
 **Security baseline (tool-grant inheritance).** A user agent that grants more than 3 tools in `tools.allow` MUST cite `rules/hatch3r-security-patterns.md` in a `**Security baseline:**` body line and inherit its deny-by-default posture (no unscoped `Bash`, no destructive subcommands, secrets via `${env:VAR}` only). `hatch3r-creator` surfaces a gentle warning when a wide `tools.allow` ships without this citation; at maturity tier `team`/`scaleup`/`enterprise` the warning is promoted to a strict gate per F20.2.A1's tier-aware floor (gate path: `src/content/userContent.ts`). Without this slot a broad tool grant is an unbounded-grant risk (audit Cycle 10 F20.2.A3).
 
@@ -90,7 +92,7 @@ The three sections above (Confidence Expression, Failure Modes, Quality Charter)
 
 ### 2. Skill Skeleton
 
-**Path:** `.hatch3r/overrides/skills/<NAME>/SKILL.md` inside a new directory created via `mkdir -p`. The layout matches the canonical pattern at `skills/hatch3r-<name>/SKILL.md`. **Required:** `id`, `description`, `tags`. **Optional:** `quality_charter` (auto-injected).
+**Path:** `.hatch3r/overrides/skills/<NAME>/SKILL.md` inside a new directory created via `mkdir -p`. The layout matches the canonical pattern at `skills/hatch3r-<name>/SKILL.md`. **Required:** `id`, `type`, `description`, `tags`. **Optional:** `quality_charter` (auto-injected).
 
 ```yaml
 ---

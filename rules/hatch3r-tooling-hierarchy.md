@@ -9,6 +9,8 @@ cache_friendly: true
 ---
 # Tooling Hierarchy
 
+**Pillars:** P3 (Adapter & External Tool Currency), P7 (Speed & Token Efficiency)
+
 ## A. Platform MCP-First (when available)
 
 **Prefer platform MCP tools over the platform CLI** when the MCP server provides typed tools with structured input/output. Use them as the primary interface for issue tracker and repository operations.

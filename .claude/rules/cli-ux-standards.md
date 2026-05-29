@@ -1,3 +1,12 @@
+---
+id: cli-ux-standards
+type: rule
+description: Requirements for all CLI code in src/cli/ — actionable errors with HatchError, progressive disclosure, existing UI dependencies only, first-run success on Node 22+, minimized decisions, standard exit codes.
+tags: [maintainer, cli, p1]
+scope: always
+precedence: high
+---
+
 # CLI UX Standards
 
 **Pillars:** P1 (CLI UX Excellence)

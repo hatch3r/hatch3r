@@ -654,6 +654,12 @@ describe("workspace sync", () => {
             inFlight++;
             if (inFlight > peakInFlight) peakInFlight = inFlight;
             try {
+              // Real-timer delay is intentional here (not a flake risk): it
+              // forces concurrent generate() calls to overlap so peakInFlight
+              // measures actual sub-repo concurrency against the cap. Fake
+              // timers would collapse the overlap and defeat the assertion;
+              // this is the same "real timers are correct for the behavior
+              // under test" case as the pipeline timeout-feature tests.
               await new Promise((resolve) => setTimeout(resolve, 25));
               return await real.generate(...args);
             } finally {

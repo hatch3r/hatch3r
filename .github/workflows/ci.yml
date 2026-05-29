@@ -204,6 +204,13 @@ jobs:
       - name: Security audit
         run: npm audit --audit-level=moderate --omit=dev
 
+      # Cycle 10 L F4.3.9 (D4): build-output caching is gated on a measurement
+      # — GitHub Actions records this step's wall-clock duration per matrix
+      # entry in the run log, which is the baseline the cache decision needs.
+      # If `npm run build` exceeds 60s per matrix entry, add actions/cache@<sha>
+      # keyed on package-lock.json + tsup sources for dist/; below 60s the
+      # esbuild/tsup build is fast enough that cache-invalidation overhead would
+      # cost more than it saves, so leave as-is. Re-evaluate each cycle.
       - name: Build
         run: npm run build
 

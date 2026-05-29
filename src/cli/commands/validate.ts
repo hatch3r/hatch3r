@@ -7,7 +7,7 @@ import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { isValidHookEvent, VALID_HOOK_EVENTS } from "../../hooks/types.js";
-import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError } from "../../types.js";
+import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError, exitCodeForErrorCode } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
@@ -2058,10 +2058,16 @@ export async function validateCommand(opts?: {
             timestamp,
           },
         });
-      } else {
-        spinner?.fail("Documentation count mismatches found");
-        for (const m of mismatches) logError(m);
+        // D1-SA1.4-F12 (Cycle 10 Wave 4, P5): in JSON mode the single payload
+        // above IS the contract (validate.ts:1467 "Do NOT interleave other
+        // stdout writes"). Throwing here would propagate to the top-level CLI
+        // handler, which prints a human-readable error to stderr — polluting
+        // the stream a CI parser consumes. Exit cleanly with the same sysexits
+        // code the HatchError would have carried (VALIDATION_ERROR → 64).
+        process.exit(exitCodeForErrorCode("VALIDATION_ERROR"));
       }
+      spinner?.fail("Documentation count mismatches found");
+      for (const m of mismatches) logError(m);
       throw new HatchError(
         "Documentation counts do not match",
         undefined,
@@ -2118,10 +2124,12 @@ export async function validateCommand(opts?: {
           timestamp,
         },
       });
-    } else {
-      logError(message);
-      console.log();
+      // D1-SA1.4-F12: exit cleanly after the single JSON payload rather than
+      // throwing into the stderr-printing top-level handler (CONFIG_ERROR → 65).
+      process.exit(exitCodeForErrorCode("CONFIG_ERROR"));
     }
+    logError(message);
+    console.log();
     throw new HatchError(
       message,
       undefined,
@@ -2324,12 +2332,11 @@ export async function validateCommand(opts?: {
       },
     });
     if (hasErrors) {
-      throw new HatchError(
-        "Validation failed",
-        undefined,
-        "VALIDATION_ERROR",
-        "Fix the errors listed in the JSON `errors` array, then re-run `hatch3r validate`.",
-      );
+      // D1-SA1.4-F12: the JSON `errors` array is the machine-readable contract;
+      // exit with the sysexits code instead of throwing into the top-level
+      // handler, which would write a duplicate human-readable error to stderr
+      // and break CI parsers that read the combined stream (VALIDATION_ERROR → 64).
+      process.exit(exitCodeForErrorCode("VALIDATION_ERROR"));
     }
     return;
   }

@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { parse as parseYaml } from "yaml";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
@@ -101,10 +102,30 @@ describe("CopilotAdapter", () => {
     // The first non-comment line must be the YAML payload, not a marker.
     const firstLine = setupSteps!.content.split("\n", 1)[0];
     expect(firstLine).toBe(MANAGED_BLOCK_START_YAML);
-    expect(setupSteps!.content).toContain("jobs:");
-    expect(setupSteps!.content).toContain("npm install");
-    expect(setupSteps!.content).toContain("npm run build");
     expect(setupSteps!.managedContent).toBeDefined();
+
+    // C9-SA9.3-L2 (D9, P5): parse the workflow payload as YAML and assert
+    // its root structure rather than substring-matching the serialized text.
+    // A regression that wrapped the steps under an extra key (or dropped the
+    // `copilot-setup-steps` job GitHub Actions requires) could still satisfy
+    // the old `toContain("jobs:")` check; parsing catches it. The `yaml`
+    // 2.x core schema keeps `on` as a string key (not the YAML-1.1 boolean
+    // coercion), so the GitHub Actions trigger key survives the round-trip.
+    const workflow = parseYaml(setupSteps!.managedContent!) as {
+      name?: unknown;
+      on?: unknown;
+      jobs?: Record<string, { steps?: Array<{ run?: string }> }>;
+    };
+    expect(workflow.name).toBe("Copilot Setup Steps");
+    expect(Object.prototype.hasOwnProperty.call(workflow, "on")).toBe(true);
+    expect(workflow.jobs).toBeDefined();
+    const setupJob = workflow.jobs!["copilot-setup-steps"];
+    expect(setupJob).toBeDefined();
+    // The build job must keep its install + build run-steps (package-manager
+    // agnostic): assert a build-running step exists rather than substring the
+    // serialized text against a hardcoded `npm` command.
+    const runSteps = (setupJob!.steps ?? []).map((s) => s.run).filter(Boolean);
+    expect(runSteps.some((cmd) => /\brun build\b/.test(cmd!))).toBe(true);
   });
 
   // D9-H-5 (D9, P4): the dead canonical `prompts/` read branch was removed —

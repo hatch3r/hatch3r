@@ -9,6 +9,8 @@ cache_friendly: true
 ---
 # Progressive Delivery
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ4 (Reliability Quality)
+
 ## Three Rollout Strategies
 
 Choose one per service based on risk profile and resource budget:

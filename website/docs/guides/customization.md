@@ -115,6 +115,19 @@ Files under `.hatch3r/overrides/` are preserved across `hatch3r update` and `hat
 
 See the [create command reference](../reference/commands/agent-commands#create) for the full input contract and gate behavior.
 
+## Switching tools
+
+When you change your selected tools with `hatch3r config` (for example, dropping Claude Code and adding Cursor), your project-level work is tool-agnostic and is not lost. Here is what happens to each category:
+
+| Category | What happens on switch |
+|----------|------------------------|
+| `.hatch3r/overrides/`, `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/` | **Carries forward unconditionally.** These directories are tool-neutral state — `hatch3r config` never archives or rewrites them. |
+| Removed tool's adapter output (`.claude/`, `.cursor/`, `.github/`, bridge files) | **Archived to `.hatch3r-archive/`** (recoverable). The removed tool's native files are swept per its archive prefix set. |
+| Added tool's adapter output | **Generated from bundled canonical content** on the next sync. Restart your editor to pick it up. |
+| `.env.mcp` MCP secrets | **Shared across tools** — no re-entry needed. Cursor and Claude Code require sourcing `.env.mcp` before launch (`set -a && source .env.mcp && set +a`); VS Code / Copilot auto-load it via `.vscode/mcp.json`. |
+
+How learnings replay on the new tool: the canonical agents (`hatch3r-reviewer`, `hatch3r-researcher`, `hatch3r-implementer`, `hatch3r-fixer`, and others) read `.hatch3r/learnings/INDEX.md` on their first invocation, per the mandatory consultation gate in `rules/hatch3r-learning-system.md`. You do not re-point the new tool's agents at your learnings; they consult `INDEX.md` automatically when it is present. The same is true of handoff documents under `.hatch3r/handoffs/`.
+
 ## Composable Recipes
 
 Recipes are reusable workflow templates that chain multiple commands and skills into repeatable sequences. Use the `recipe` command to create and manage them.

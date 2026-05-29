@@ -4,6 +4,8 @@ alwaysApply: true
 ---
 # Deep Context Analysis
 
+**Pillars:** P2 (Scientific & Practical Quality), P7 (Speed & Token Efficiency)
+
 Before implementing any non-trivial task, assess its complexity and run proportional pre-implementation analysis. This rule ensures the agent asks the right questions, discovers existing patterns to follow, and maps the full blast radius before writing code.
 
 ## Complexity Scoring

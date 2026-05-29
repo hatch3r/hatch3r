@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Flutter Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships a Flutter app or Dart package. Detection signals: `pubspec.yaml` with `flutter:` block, `lib/main.dart` entrypoint, or `pubspec.yaml` at repo root.
 
 ## Dart Language Floor

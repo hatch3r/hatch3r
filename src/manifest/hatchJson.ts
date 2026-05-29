@@ -287,6 +287,27 @@ export function migrateManifest(raw: Record<string, unknown>): Record<string, un
  * message naming every field that failed schema. The boolean wrapper
  * preserves the existing `data is HatchManifest` type-guard contract.
  */
+/**
+ * D1-SA1.6-F5 (Low, CQ8): shared validator for an optional string field that
+ * must belong to a fixed value set (a "string union" in the TypeScript type).
+ * Pushes a single error naming the field and the offending value when present
+ * and out of set. Centralising this keeps the per-field membership checks in
+ * {@link collectManifestErrors} from being copy-pasted as new union fields are
+ * added (the larger zod migration is deferred post-2.0 per the same finding).
+ * `undefined` is treated as "absent → valid" so optional fields stay optional.
+ */
+function validateStringUnion(
+  value: unknown,
+  validValues: ReadonlySet<string>,
+  fieldName: string,
+  errors: string[],
+): void {
+  if (value === undefined) return;
+  if (typeof value !== "string" || !validValues.has(value)) {
+    errors.push(`\`${fieldName}\` is not a known value (got ${JSON.stringify(value)})`);
+  }
+}
+
 function collectManifestErrors(data: unknown): string[] {
   const errors: string[] = [];
   if (!data || typeof data !== "object") {
@@ -327,11 +348,9 @@ function collectManifestErrors(data: unknown): string[] {
   }
 
   // F1.2-H2: validate optional `maturity` scalar at the persistence boundary.
-  if (obj.maturity !== undefined) {
-    if (typeof obj.maturity !== "string" || !VALID_MATURITY_TIERS.has(obj.maturity)) {
-      errors.push(`\`maturity\` is not a known tier (got ${JSON.stringify(obj.maturity)})`);
-    }
-  }
+  // D1-SA1.6-F5: routed through the shared validateStringUnion helper so the
+  // membership-check pattern is reused (not copy-pasted) by future union fields.
+  validateStringUnion(obj.maturity, VALID_MATURITY_TIERS, "maturity", errors);
 
   // #108: board sub-schema
   if (obj.board !== undefined) {
@@ -802,14 +821,33 @@ export function applyPreservedManifestFields(
 }
 
 /**
+ * D1-SA1.6-F9 (Low, CQ8): named sentinel for the CLI-tooling default, mirroring
+ * the named-constant fallback pattern that {@link readMaturityTier} already uses
+ * via `DEFAULT_MATURITY_TIER`. Before this, `readCliToolsConfig` inlined the
+ * `{ enabled: false, selected: [] }` literal while `readMaturityTier` used a
+ * named constant — two "optional field with safe default" readers exposing two
+ * different patterns. Defining the default once here gives both readers one
+ * consistent rule (named constant) without widening scope into `types.ts`.
+ *
+ * Frozen so an accidental mutation of the returned default by a future caller
+ * fails loudly rather than silently corrupting the sentinel for every other
+ * caller; `readCliToolsConfig` returns a fresh shallow copy to preserve the
+ * prior "new object per call" semantics for callers that mutate the result.
+ */
+const DEFAULT_CLI_TOOLS_CONFIG: Readonly<CliToolsConfig> = Object.freeze({
+  enabled: false,
+  selected: [] as CliToolsConfig["selected"],
+});
+
+/**
  * Read the manifest's CLI-tooling pivot config, falling back to the
- * `{enabled: false, selected: []}` default when absent. Plan §4.2 — keeps
+ * {@link DEFAULT_CLI_TOOLS_CONFIG} default when absent. Plan §4.2 — keeps
  * pre-1.7.5 manifests valid (no version bump required) by returning a
  * disabled-config sentinel rather than `undefined`. Centralises the
  * default so adapters and CLI commands do not duplicate the literal.
  */
 export function readCliToolsConfig(m: HatchManifest): CliToolsConfig {
-  return m.cliTools ?? { enabled: false, selected: [] };
+  return m.cliTools ?? { ...DEFAULT_CLI_TOOLS_CONFIG, selected: [...DEFAULT_CLI_TOOLS_CONFIG.selected] };
 }
 
 /**

@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # React Native Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships a React Native or Expo app. Detection signals: `react-native` in `package.json` dependencies, `app.json` / `app.config.{ts,js}`, `metro.config.js`, `ios/` + `android/` workspace folders, or `.expo/` directory.
 
 ## New Architecture (Fabric + TurboModules)

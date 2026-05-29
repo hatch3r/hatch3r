@@ -1,3 +1,12 @@
+---
+id: commit-conventions
+type: rule
+description: Commit and PR conventions for framework development — Conventional Commits format, mandatory DCO sign-off, audit-wave commit format, CI PR checks, no force-push to main.
+tags: [maintainer, governance, p2, p5]
+scope: always
+precedence: normal
+---
+
 # Commit Conventions
 
 **Pillars:** P2 (Scientific Quality), P5 (Governance Self-Quality)

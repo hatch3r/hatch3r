@@ -336,6 +336,20 @@ describe("content/index", () => {
       expect(rule!.companionPath).toBeUndefined();
     });
 
+    it("surfaces probe failures on index.warnings (D2-SA2.6-2.6-F10)", async () => {
+      // hatch3r-testing.md ships without a companion .mdc, so the companion
+      // probe fails and recordContentProbeFailure pushes to the warnings sink
+      // in addition to the verbose() stderr stream.
+      const dir = await makeTempDir();
+      const contentRoot = await createContentRoot(dir);
+      const index = await buildContentIndex(contentRoot);
+
+      expect(Array.isArray(index.warnings)).toBe(true);
+      expect(
+        index.warnings!.some((w) => w.includes("no companion .mdc for hatch3r-testing.md")),
+      ).toBe(true);
+    });
+
     it("skips non-.md files in glob directories", async () => {
       const dir = await makeTempDir();
       await mkdir(join(dir, "agents"), { recursive: true });
@@ -2238,6 +2252,43 @@ describe("content/index", () => {
       expect(refs).toContain("hatch3r-alpha");
       expect(refs).toContain("hatch3r-beta");
     });
+
+    // D2-SA2.6-2.6-F03 (Cycle 10 Wave 4): frontmatter + fenced-block strip.
+    it("ignores backticked ids inside leading YAML frontmatter", () => {
+      const content =
+        "---\n" +
+        "id: hatch3r-example\n" +
+        "description: see `hatch3r-future-thing` once authored\n" +
+        "---\n" +
+        "Body delegates to `hatch3r-implementer`.";
+      const refs = extractContentReferences(content);
+      expect(refs).toEqual(["hatch3r-implementer"]);
+    });
+
+    it("ignores backticked ids inside fenced code blocks", () => {
+      const content =
+        "Use `hatch3r-implementer` in prose.\n\n" +
+        "```bash\n" +
+        "# example: `hatch3r-future-cmd` is not yet authored\n" +
+        "hatch3r-not-a-real-id --flag\n" +
+        "```\n\n" +
+        "And `hatch3r-reviewer` after.";
+      const refs = extractContentReferences(content);
+      expect(refs).toContain("hatch3r-implementer");
+      expect(refs).toContain("hatch3r-reviewer");
+      expect(refs).not.toContain("hatch3r-future-cmd");
+      expect(refs).not.toContain("hatch3r-not-a-real-id");
+    });
+
+    it("ignores backticked ids inside tilde-fenced code blocks", () => {
+      const content =
+        "~~~text\n" +
+        "`hatch3r-placeholder` example only\n" +
+        "~~~\n" +
+        "Real reference: `hatch3r-fixer`.";
+      const refs = extractContentReferences(content);
+      expect(refs).toEqual(["hatch3r-fixer"]);
+    });
   });
 
   // D2-M10 (D2 Medium, Cycle 10 Wave 3 rollover): bare prose scanner used
@@ -2321,7 +2372,9 @@ describe("content/index", () => {
       const result = await validateCrossReferences(dir, index);
       expect(result.warnings.length).toBe(1);
       expect(result.warnings[0]).toContain("hatch3r-nonexistent");
-      expect(result.warnings[0]).toContain("does not exist");
+      // D2-SA2.6-2.6-F03: warning text softened to flag possible example /
+      // future-id false positives instead of asserting hard non-existence.
+      expect(result.warnings[0]).toContain("not in the content index");
     });
 
     it("self-references do not trigger warnings", async () => {
@@ -2770,12 +2823,13 @@ describe("content/index", () => {
       expect(applyCommandPrefix("hatch3r-hook", "hook")).toBe("hatch3r-hook");
     });
 
-    it("does not double-prefix already-prefixed command IDs", () => {
-      // applyCommandPrefix always adds the prefix for command type,
-      // so passing an already-prefixed ID will double-prefix it.
-      // This documents the behavior — callers should not pass pre-prefixed IDs.
+    it("is idempotent on already-prefixed command IDs", () => {
+      // D2-SA2.6-2.6-F04: applyCommandPrefix only prepends when the id does
+      // not already start with COMMAND_ID_PREFIX, so re-indexing an
+      // already-prefixed id (e.g. a round-trip through user-content authoring)
+      // cannot produce a `cmd-cmd-` double prefix.
       const result = applyCommandPrefix("cmd-hatch3r-feature-plan", "command");
-      expect(result).toBe("cmd-cmd-hatch3r-feature-plan");
+      expect(result).toBe("cmd-hatch3r-feature-plan");
     });
   });
 });

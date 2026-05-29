@@ -14,7 +14,12 @@ import { dirname, basename, join } from "node:path";
 import { createHash, randomBytes } from "node:crypto";
 import * as properLockfile from "proper-lockfile";
 import { HATCH3R_PREFIX, HatchError, type MergeResult } from "../types.js";
-import { insertManagedBlock, hasManagedBlock, extractCustomContent } from "./managedBlocks.js";
+import {
+  insertManagedBlock,
+  hasManagedBlock,
+  extractCustomContent,
+  wouldChangeMarkerVariant,
+} from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 
 /** Check whether a file exists. Returns false for ENOENT, throws for other errors. */
@@ -529,6 +534,12 @@ export async function safeWriteFile(
         "VALIDATION_ERROR",
       );
     }
+    // D11-SA11.2-F11 (Cycle 10 Wave 4, D11, P5): detect the issue #76
+    // legacy-state auto-repair BEFORE the merge so we can attribute the
+    // on-disk marker rewrite (HTML `<!-- -->` → YAML `#` in a `.yml` file)
+    // on the MergeResult.warning channel. Without this the variant flip lands
+    // in the user's `git diff` with no signal that hatch3r rewrote the syntax.
+    const variantChanged = wouldChangeMarkerVariant(existingContent, filePath);
     let merged: string;
     try {
       merged = insertManagedBlock(existingContent, options.managedContent, filePath);
@@ -583,6 +594,16 @@ export async function safeWriteFile(
       return { path: filePath, action: "unchanged" };
     }
     await atomicWriteFile(filePath, merged);
+    // D11-SA11.2-F11: surface the issue #76 marker-syntax auto-repair on the
+    // existing warning channel (callers aggregate MergeResult.warning into the
+    // sync-completion summary) so the operator can attribute the rewrite.
+    if (variantChanged) {
+      return {
+        path: filePath,
+        action: "updated",
+        warning: `Auto-repaired marker syntax in ${filePath}: legacy HATCH3R:BEGIN/END markers used the wrong comment style for this file type and were rewritten to match (issue #76 legacy state). No action required.`,
+      };
+    }
     return { path: filePath, action: "updated" };
   }
 

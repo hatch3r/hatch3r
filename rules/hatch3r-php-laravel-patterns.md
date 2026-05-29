@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # PHP / Laravel Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships a PHP application. Detection signals: `composer.json` at repo root, `artisan` script (Laravel), or any `*.php` source file. Symfony and Symfony-based projects also follow most of the language-level guidance here.
 
 ## PHP Language Floor

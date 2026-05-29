@@ -79,7 +79,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ8
 - **Medium:** File-pattern recognition — the diff was read and a named pattern recognized (or missing) without running the verifying tool. Acceptable for pattern-reuse audit on a small diff where grep alone is sufficient.
 - **Low:** Heuristic — judgment based on code shape without verification. Stale source (>12 months for tooling docs) downgrades High one band per `governance/audit/templates/rigor-contract.md` §Recency windows.
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ8 unit of decomposition: **concern** — the four independent concerns are duplication scan (jscpd), complexity scan (ESLint / radon / lizard), migration audit (expand-contract conformance), API-breaking audit (oasdiff / buf / graphql-inspector). Add a **directory** axis when source directories partition the diff. ESLint passes on the same files race — colocate same-file passes in one sub-agent. The jscpd duplication scan over a large tree is the longest specialist; defer under a `deferred:` note when budget is exhausted.
 

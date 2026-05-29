@@ -72,6 +72,24 @@ export interface RegistrySummary {
   pendingCurrentCycle: number;
   /** Critical-severity entries scoped to `currentCycle` regardless of status. */
   criticalCurrentCycle: number;
+  /**
+   * F8 (D1-SA1.7, cycle 10 wave 4): count of structurally malformed rows — an
+   * entry that is not an object, or whose `finding_id` is missing or not a
+   * string. Such rows cannot be bucketed by cycle and therefore drop out of the
+   * cycle-scoped counters (`pendingCurrentCycle`, `criticalCurrentCycle`); a
+   * malformed row carrying an unresolved Critical would otherwise hide from the
+   * session-start banner. The summarizer counts them and {@link formatSummary}
+   * surfaces the count so the tolerance is no longer silent (P5 Silent Failure
+   * Contract). Optional so pre-existing `RegistrySummary` literals stay valid;
+   * {@link summarizeRegistry} always populates it.
+   *
+   * NOTE: a *legitimate* non-cycle id (legacy `#1` from C1–C6, or the
+   * domain/finding-prefixed `D…`/`F…`/`SA…` ids that `extractCycle` returns
+   * `null` for by design) is NOT malformed — only a missing/non-string id is.
+   * Keying off "`extractCycle` returned null" would false-positive on the
+   * hundreds of legitimate non-`C<n>` ids in the registry.
+   */
+  malformedRowCount?: number;
 }
 
 /**
@@ -126,12 +144,19 @@ export function summarizeRegistry(registry: unknown): RegistrySummary {
   let pendingTotal = 0;
   let pendingCurrentCycle = 0;
   let criticalCurrentCycle = 0;
+  let malformedRowCount = 0;
   for (const e of entries) {
-    const isPending = e.execution_status === "pending";
+    // F8: a row with a missing/non-string finding_id (or a non-object entry)
+    // cannot be cycle-bucketed and silently drops out of the cycle-scoped
+    // counters below. Count it so the tolerance is surfaced, not hidden.
+    if (typeof e !== "object" || e === null || typeof e.finding_id !== "string") {
+      malformedRowCount += 1;
+    }
+    const isPending = e?.execution_status === "pending";
     if (isPending) pendingTotal += 1;
-    if (currentCycle !== null && extractCycle(e) === currentCycle) {
+    if (currentCycle !== null && extractCycle(e ?? {}) === currentCycle) {
       if (isPending) pendingCurrentCycle += 1;
-      if (e.severity === "Critical") criticalCurrentCycle += 1;
+      if (e?.severity === "Critical") criticalCurrentCycle += 1;
     }
   }
 
@@ -143,6 +168,7 @@ export function summarizeRegistry(registry: unknown): RegistrySummary {
     currentCycle,
     pendingCurrentCycle,
     criticalCurrentCycle,
+    malformedRowCount,
   };
 }
 
@@ -153,11 +179,18 @@ export function summarizeRegistry(registry: unknown): RegistrySummary {
  *
  * Example output:
  *   "Audit registry v2.0.0: 415 entries, 82 pending (Cycle 9: 80 pending, 0 critical)"
+ *
+ * When malformed rows are present (F8), a trailing note is appended so the
+ * operator sees the count rather than having those rows silently drop out of
+ * the cycle-scoped counters:
+ *   "... (Cycle 9: 80 pending, 0 critical) (2 malformed rows)"
  */
 export function formatSummary(s: RegistrySummary): string {
   const head = `Audit registry v${s.schemaVersion}: ${s.totalEntries} entries, ${s.pendingTotal} pending`;
-  if (s.currentCycle === null) return head;
-  return `${head} (Cycle ${s.currentCycle}: ${s.pendingCurrentCycle} pending, ${s.criticalCurrentCycle} critical)`;
+  const malformed = s.malformedRowCount ?? 0;
+  const malformedSuffix = malformed > 0 ? ` (${malformed} malformed row${malformed === 1 ? "" : "s"})` : "";
+  if (s.currentCycle === null) return head + malformedSuffix;
+  return `${head} (Cycle ${s.currentCycle}: ${s.pendingCurrentCycle} pending, ${s.criticalCurrentCycle} critical)${malformedSuffix}`;
 }
 
 /**

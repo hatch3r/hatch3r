@@ -5,6 +5,8 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit WebSearch WebFetch
 ---
 
+> Last updated: 2026-05-29
+
 # Adapter Author
 
 Create or modify a platform adapter for hatch3r.

@@ -135,7 +135,7 @@ Unlike epics (which share a single researcher), standalone issues in a batch are
 
 For each dependency level, starting at Level 1:
 
-1. **Spawn one hatch3r-implementer sub-agent per issue in the current level.** Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many sub-agents concurrently as the platform supports.
+1. **Sort the level by priority, then spawn one hatch3r-implementer sub-agent per issue.** Within each level, sort issues by priority (`p0` > `p1` > `p2` > `p3`) before dispatching. When the platform concurrency limit caps the level, fill the in-flight pool with the highest-priority issues first and queue the rest for the next dispatch slot as in-flight sub-agents return. Issues within a level are independent for correctness; this ordering only governs which independent issues land first when concurrency is the binding constraint. Use the Task tool with `subagent_type: "generalPurpose"`. Launch as many sub-agents concurrently as the platform supports.
 
 2. **Each sub-agent prompt must include:**
    - The issue number, title, full body, and acceptance criteria.

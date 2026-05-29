@@ -5,6 +5,8 @@ alwaysApply: false
 ---
 # SwiftUI Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships a SwiftUI/UIKit app or Swift package. Detection signals: `Package.swift`, `*.xcodeproj`, `*.xcworkspace`, or `*.swift` files at repo root.
 
 ## Swift Language Floor

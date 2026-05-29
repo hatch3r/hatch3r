@@ -43,10 +43,15 @@ export function resolveRepoConfig(
   const mcp = overrides?.mcp ?? defaults.mcp;
   const platform = overrides?.platform ?? defaults.platform;
 
-  // Models: deep merge (agent-level overrides take precedence)
+  // Models: deep merge (agent-level overrides take precedence).
+  // D1-SA1.9-F9 (Cycle 10): structuredClone the assembled result so the
+  // returned config shares no nested object references with `defaults.models`
+  // or `overrides.models`. The object spread only copies one level, so without
+  // the clone a caller mutating `result.models.agents.<id>.<field>` would
+  // corrupt the workspace defaults in memory across `syncSingleRepo` calls.
   let models: ModelConfig | undefined;
   if (defaults.models || overrides?.models) {
-    models = {
+    const merged: ModelConfig = {
       ...defaults.models,
       ...overrides?.models,
       agents: {
@@ -54,6 +59,7 @@ export function resolveRepoConfig(
         ...overrides?.models?.agents,
       },
     };
+    models = structuredClone(merged);
     if (!models.default && !models.agents) models = undefined;
   }
 

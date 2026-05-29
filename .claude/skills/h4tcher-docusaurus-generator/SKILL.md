@@ -5,6 +5,8 @@ effort: medium
 allowed-tools: Read Grep Glob Bash(*) Write Edit
 ---
 
+> Last updated: 2026-05-29
+
 # Docusaurus Generator
 
 This skill generates end-user documentation using Docusaurus 3.x by analyzing the current project.

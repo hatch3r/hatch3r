@@ -9,6 +9,8 @@ cache_friendly: true
 ---
 # Git Conventions
 
+**Pillars:** P2 (Scientific & Practical Quality), P5 (Governance Self-Quality)
+
 ## Commit Messages
 
 Follow [Conventional Commits](https://www.conventionalcommits.org/):

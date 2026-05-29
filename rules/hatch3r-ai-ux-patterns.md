@@ -9,6 +9,8 @@ cache_friendly: true
 ---
 # AI/Agentic UX Patterns (2026)
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ2 (UX Quality)
+
 ## Scope
 
 This rule applies when the end-user project ships LLM-driven UI — chat, assistant, copilot, agent dashboards, generative UI surfaces. It does NOT govern the LLM backend itself (model selection, prompt engineering, retrieval pipeline). For non-AI UX rules (loading, empty, error, partial states; form patterns; microcopy), cross-reference `rules/hatch3r-ux-states-and-flows.md`. When both rules apply to the same surface, the non-AI rule sets the baseline and this rule layers AI-specific behavior on top.
@@ -110,7 +112,7 @@ Three distinct affordances — do not collapse them into a single control:
 
 ## Verification Gate
 
-Before declaring an AI surface "done":
+These 7 checks are operationalized as Gate 8 of `skills/hatch3r-ui-ux-verify` — the skill executes all 7, not just the streaming/tool-call subset. Before declaring an AI surface "done":
 
 - Streaming verified end-to-end: scripted Playwright test that asserts progressive token render (first token <1s after request, last token marked complete).
 - Tool-call card snapshot per state (`pending`, `in-progress`, `complete`, `failed`) — missing any state is a blocker.

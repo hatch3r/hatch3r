@@ -12,6 +12,15 @@
  *
  * Usage: `npm run validate:cli-skills` (invokes via tsx). Exits 0 on a
  * clean pass, 1 on any drift with a per-file failure summary.
+ *
+ * Audit confirmation contract (D21-SA21.7-F-21.7.7): the single-line
+ * "validate:cli-skills: <N> registry entries checked ..., 0 drift" summary
+ * printed on a clean pass is the stable capture target for the audit-execute
+ * Phase 0 pre-flight, which records this line + exit code to
+ * `.audit-workspace/precheck-results.json::validate_cli_skills`. D21 SA21.7
+ * reads that record to discharge its capability-matrix-verification step
+ * (D21-cli-tool-currency.md line 56). Keep the summary line and exit-code
+ * contract stable so the confirmation stays evidenced, not inferred.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";

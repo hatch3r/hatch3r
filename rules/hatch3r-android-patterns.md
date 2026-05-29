@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Android Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships an Android app or Kotlin library. Detection signals: `build.gradle` / `build.gradle.kts`, `AndroidManifest.xml`, `app/` module, or any `*.kt` file paired with Gradle wrapper. Native Android takes precedence over Flutter/React-Native cross-platform shells.
 
 ## Kotlin Language Floor

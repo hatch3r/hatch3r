@@ -10,6 +10,7 @@ efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
 parallel_tool_default: true
+consults_cross_pr_findings: true
 wall_clock_advisory_ms: 600000
 ---
 > **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
@@ -64,6 +65,27 @@ Before reviewing, scan `docs/specs/` (if present) for specifications relevant to
 3. Read the full content of every matched learning file and apply it as an additional review lens (a recorded pitfall in scope is a Critical-or-Warning candidate if the diff reintroduces it).
 4. Cite each consulted learning ID in the review output's `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
 
+## Cross-PR Finding Memory (D13-SA13.1-F08)
+
+This agent declares `consults_cross_pr_findings: true` in its frontmatter: review history is not per-invocation. When the orchestrator (`commands/hatch3r-pr-resolve.md` or `commands/hatch3r-board-pickup.md`) supplies a Cross-PR Findings block in the review prompt, weigh those prior same-file findings as an additional review lens — a defect class flagged on this file in a prior PR is a Critical-or-Warning candidate if reintroduced, and a previously-accepted resolution pattern is a precedent to honor rather than re-litigate.
+
+`.hatch3r/review-findings/` format (project-local, mirrors the `.hatch3r/learnings/` schema; the orchestrator owns the lookup, this agent consumes the supplied rows):
+
+```yaml
+---
+id: <YYYY-MM-DD-pr<N>-short-slug>
+applies-to: <file globs OR module paths the finding touched, e.g., "src/auth/**">
+severity: Critical | Warning | Suggestion
+pr: <PR number the finding originated on>
+verdict: addressed | declined-outdated | declined-disagree | accepted-risk
+created: YYYY-MM-DD
+---
+
+<one-paragraph finding summary + resolution outcome>
+```
+
+Cite any consulted cross-PR finding ID in the review summary's `Consulted Cross-PR Findings:` line (or `none supplied` when the orchestrator passed no block). This is a read-only consumption surface — the reviewer never writes to `.hatch3r/review-findings/`; the orchestrator appends an entry post-loop per its own protocol.
+
 ## Review Checklist
 
 Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code-standards.md`, and `rules/hatch3r-testing.md` across all review items:
@@ -77,6 +99,7 @@ Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code
 7. **Accessibility (quick-scan):** Reduced motion respected, WCAG 2.2 AA contrast, keyboard accessible, ARIA attributes present. Full UI/UX conformance — axe-core, WCAG 2.2 SC 2.5.8/2.4.11/2.5.7, four-state contract, design-token adoption, AI-UX patterns, Core Web Vitals — is reviewed under the `ui-ux.review` surface (item 20).
 8. **Dead code:** No unused imports, obsolete comments, or abandoned logic.
 9. **Root-cause verification:** Do the changes address the underlying cause of the issue, not just the symptom? Identify what the original issue was (from the issue body, acceptance criteria, or diff context), then verify the change fixes the root cause. Flag superficial fixes -- e.g., adding a try-catch that swallows errors, adding a comment saying "fixed", disabling a test, or suppressing a warning without resolving the underlying condition. If the change treats only the symptom, classify as Critical and specify what root-cause fix is needed.
+    - **Prohibited-fix-pattern cross-check (review-loop integrity):** in a review-loop iteration (iteration ≥ 2), verify the diff introduces none of the five patterns `hatch3r-fixer` is barred from using as fix shortcuts when the prior iteration did not contain them: `eslint-disable`/`@ts-ignore` comments, `as any` casts, `.skip()`/`.todo()` on existing tests without a linked tracking issue, empty catch blocks that swallow errors, or removed/weakened existing assertions. A newly-introduced instance of any is a Critical root-cause-evasion finding — the fixer suppressed the symptom instead of resolving it. Cross-reference: `agents/hatch3r-fixer.md` → Fix Protocol §3 "Prohibited fix patterns". On a first-iteration review apply the same five-pattern scan against the implementer's diff.
 10. **Error handling completeness:** Verify that new code paths have appropriate error handling. Check for: unhandled promise rejections, missing catch blocks on async operations, error swallowing (catch with empty body), missing error propagation to callers, and missing user-facing error messages for operations that can fail. Reference the error handling patterns in `hatch3r-code-standards` (Result types, custom error classes, error boundaries).
 11. **Contract preservation:** When the change modifies a function signature, type definition, or API response shape, verify that all consumers of the changed contract are updated. Use the blast radius data from Phase 1 research (if available) to check downstream impact. Flag missing consumer updates as Critical.
 12. **copy.review:** Evaluate user-visible strings produced by the implementation:

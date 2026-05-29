@@ -52,8 +52,12 @@ if (nodeVersion < 22) {
 }
 
 let shuttingDown = false;
-const SIGNAL_EXIT_CODES: Record<string, number> = { SIGINT: 130, SIGTERM: 143 };
-for (const signal of ["SIGINT", "SIGTERM"] as const) {
+// D1-SA1.8-F-1.8-8 (Cycle 10 Wave 4, CQ4): handle SIGHUP (controlling terminal
+// closed, SSH disconnect, container shutdown) alongside SIGINT/SIGTERM so a
+// terminal-close mid-command flushes buffered output and exits with the
+// POSIX-correct code 129 (128 + 1) instead of Node's default abrupt exit 1.
+const SIGNAL_EXIT_CODES: Record<string, number> = { SIGINT: 130, SIGTERM: 143, SIGHUP: 129 };
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   process.on(signal, () => {
     if (shuttingDown) return;
     shuttingDown = true;
@@ -88,7 +92,11 @@ process.on("unhandledRejection", (reason) => {
 // --no-update-check: a quiet global flag that maps to HATCH3R_NO_UPDATE_CHECK=1
 // for the lifetime of the run. Stripped from argv before the program parses
 // so commander does not flag it as unknown when individual commands haven't
-// declared it.
+// declared it. D1-SA1.8-F-1.8-4 / D10-SA10.2-F9 (Cycle 10 Wave 4, P1): the
+// flag is now declared on the program in `program.ts` so `hatch3r --help`
+// enumerates it. The strip below must remain the runtime source of truth —
+// `checkForUpdates()` reads HATCH3R_NO_UPDATE_CHECK at startup, BEFORE
+// `program.parseAsync()`, so the value cannot come from `program.opts()`.
 const argvNoCheck = process.argv.indexOf("--no-update-check");
 if (argvNoCheck !== -1) {
   process.env.HATCH3R_NO_UPDATE_CHECK = "1";

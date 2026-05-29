@@ -76,7 +76,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ9
 - **Medium:** Static scan only — frontmatter map, file existence, grep matches against flag client / config schema / deprecation header names, OpenAPI spec read without re-running diff.
 - **Low:** Heuristic — pattern recognition without command execution.
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). Independent specialist briefs run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ9 unit of decomposition: **enhancability surface** present in the diff. Per-surface specialist briefs:
 

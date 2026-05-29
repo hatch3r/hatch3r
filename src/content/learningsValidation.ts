@@ -323,6 +323,13 @@ export async function validateLearningsDirectory(
  * Trim leading/trailing whitespace before hashing so the digest is stable
  * across editors that strip or add trailing newlines, matching the
  * `computeHandoffIntegrity` pattern in `src/content/handoffs/validation.ts`.
+ *
+ * Canonical contract (D13-SA13.4-F10): the algorithm (SHA-256), hash scope
+ * (trimmed body only), format (`sha256:{hex}`), and the role of this function
+ * as the enforcement point are defined once in
+ * `rules/hatch3r-learning-system.md` → "Integrity Hash — Single Source of
+ * Truth". This implementation IS that enforcement point; the rule and the
+ * `hatch3r-learnings-loader` agent reference it rather than restating it.
  */
 export function computeLearningIntegrity(body: string): string {
   const trimmed = body.trim();

@@ -100,8 +100,20 @@ export async function detectProjectType(
   const total = signals.reduce((s, x) => s + x.weight, 0);
   const top = [...signals].sort((a, b) => b.weight - a.weight).slice(0, 3).map((s) => s.label);
 
+  // F8 (D1-SA1.6, cycle 10 wave 4): brownfield threshold calibration basis.
+  // BROWNFIELD_THRESHOLD = 0.40 is tuned so that any TWO independent weak
+  // signals (e.g. a detected language at 0.25 + a `src/` dir at 0.20 = 0.45),
+  // or one strong signal (>10 commits OR an existing-agent layout, each 0.30)
+  // paired with any other signal, classify as brownfield — while a single
+  // weak signal in isolation (one `src/` dir, one dep, a >2KB README) stays
+  // greenfield. It is a heuristic cutoff, not a value derived from a labelled
+  // corpus; the weights above (0.15–0.30) sum so that 0.40 sits just above the
+  // "one strong signal alone" floor (0.30) and at/below the "two weak signals"
+  // floor. Tune both this constant and the per-signal weights together.
+  const BROWNFIELD_THRESHOLD = 0.4;
+
   return {
-    type: total >= 0.40 ? "brownfield" : "greenfield",
+    type: total >= BROWNFIELD_THRESHOLD ? "brownfield" : "greenfield",
     confidence: Math.min(1, total),
     signals: top,
   };

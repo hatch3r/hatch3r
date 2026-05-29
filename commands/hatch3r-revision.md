@@ -2,7 +2,7 @@
 id: hatch3r-revision
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-performance]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-performance]
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness. Delegation, quality pipeline, modes, and board integration details are in commands/revision/.
 tags: [implementation, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -12,8 +12,8 @@ parallel_tool_default: true
 triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:
-  count: 9
-  rationale: Per-revision fanout — implementer, lint-fixer, testability (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality CQ specialists (security, docs-writer, ui, performance) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 10
+  rationale: Per-revision fanout — researcher (conditional, Tier 2/3 pre-implementation context per commands/revision/revision-delegation.md Step 6.pre), implementer, lint-fixer, testability (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality CQ specialists (security, docs-writer, ui, performance) bounded by max_phase4_parallel. Tier 1 cleanup-only revisions spawn a subset. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -105,7 +105,7 @@ Before the first sub-agent dispatch (Step 6 fix delegation), surface the cost pr
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <triage tier → Tier 1 cleanup-only ~0, Tier 2 ~4, Tier 3 up to 9>
+  expected_sa_count: <triage tier → Tier 1 cleanup-only ~0, Tier 2 ~5, Tier 3 up to 10>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
@@ -572,7 +572,7 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 6 fix delegation).
 - **Post-execution `cost_actuals` + `delta`** — appended to the Step 9 merge-readiness assessment's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 9` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 cleanup-only ≈ 0 (inline fixes, no sub-agent); Tier 2 ≈ 4 (implementer/lint-fixer/test-writer fix group + reviewer); Tier 3 up to 9 (full pipeline including the parallel Stage 2 final-quality specialists bounded by `max_phase4_parallel`). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 10` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 cleanup-only ≈ 0 (inline fixes, no sub-agent); Tier 2 ≈ 5 (conditional researcher + implementer/lint-fixer/test-writer fix group + reviewer); Tier 3 up to 10 (conditional researcher + full pipeline including the parallel Stage 2 final-quality specialists bounded by `max_phase4_parallel`). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

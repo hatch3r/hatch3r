@@ -1,7 +1,7 @@
 ---
 name: hatch3r-security-agent
 type: github-agent
-description: Security analyst who audits code, rules, and data flows
+description: 'Security analyst who audits code, rules, and data flows'
 # Simplified agent for GitHub Copilot/Codex
 tags: [devops, floor:security, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md

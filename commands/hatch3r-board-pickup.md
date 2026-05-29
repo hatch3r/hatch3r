@@ -321,6 +321,8 @@ Use the issue type to select the appropriate hatch3r skill: `type:bug` → the h
 
 Before delegating: scan `.hatch3r/learnings/` for matching `area`/`tags`, include relevant learnings (especially `pitfall` category) in sub-agent context. Skip silently if no learnings directory exists.
 
+**Cross-PR finding memory (D13-SA13.1-F08).** Also scan `.hatch3r/review-findings/` (skip silently if absent) for entries whose `applies-to` glob matches the issue's target files; carry the 5 most-recent matches (by `created` descending) forward into the Step 7a reviewer prompt as a `## Cross-PR Findings` block so the reviewer — which declares `consults_cross_pr_findings: true` — weighs prior same-file findings as organisational memory. After the Step 7a review loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved (atomic write via `src/merge/safeWrite.ts`), mirroring the Step 10 learnings-capture pattern.
+
 > **Audit epics:** Audit epics produce findings (issues) rather than code changes — adjust delegation and skip Steps 7-8a if no code changes.
 
 **Do NOT execute the skill's PR creation steps.** Steps 7-8 handle board-specific requirements (epic linking, label transitions, board sync).

@@ -108,7 +108,8 @@ Output a one-line topology summary: `impacted: {node} | upstream callers: {list}
 
 - **Immediate actions:** Rollback last deploy, disable feature flag, revert config, scale up, or apply hotfix.
 - **Verification:** Confirm mitigation works — error rate drops, affected flow recovers.
-- **Communication:** Notify stakeholders if P0/P1. Document status in incident channel or issue.
+- **Communication:** Notify stakeholders per the page-target SLA below. Document status in incident channel or issue.
+  - Default page-target by severity (tune per org): P0 — page on-call ≤5 min after detection; P1 — ≤15 min; P2 — ≤1 h; P3 — next business day.
 - Do not spend time on perfect fixes during active incident — stabilize first.
 
 ## Step 4: Root Cause Analysis

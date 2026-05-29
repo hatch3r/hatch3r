@@ -240,6 +240,22 @@ describe("transformEnvVarSyntax", () => {
       expect(result.env.KEY).toBe("${SECRET}");
       expect(result.headers.Auth).toBe("Bearer ${TOKEN}");
     });
+
+    it("round-trips ${env:VAR:-default} to the valid Claude Code ${VAR:-default} form (D11-SA11.3-F11.3-8)", () => {
+      // The `[^}]+` capture spans `VAR:-default`, so the default-value form
+      // documented for Claude Code MCP (${VAR:-default}, code.claude.com/docs/en/mcp,
+      // accessed 2026-05-28) survives the transform. This compatibility is
+      // incidental, not designed; the test pins it so a regex change that
+      // narrows the capture group fails loudly rather than dropping defaults.
+      expect(transformEnvVarSyntax("${env:HOST:-localhost}", "claude"))
+        .toBe("${HOST:-localhost}");
+      expect(
+        transformEnvVarSyntax("${env:GITHUB_URL:-https://api.github.com}", "claude"),
+      ).toBe("${GITHUB_URL:-https://api.github.com}");
+      // Default-form reference embedded in a larger value also round-trips.
+      expect(transformEnvVarSyntax("Bearer ${env:TOKEN:-anon}", "claude"))
+        .toBe("Bearer ${TOKEN:-anon}");
+    });
   });
 
   describe("shell format", () => {

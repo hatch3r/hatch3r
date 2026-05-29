@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Performance Budgets
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ7 (Performance Quality)
+
 ## Application Budgets
 
 | Metric                            | Budget               |

@@ -5,6 +5,8 @@ alwaysApply: false
 ---
 # Ruby / Rails Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships a Ruby application. Detection signals: `Gemfile` at repo root, `config/application.rb` (Rails), `.ruby-version`, or any `*.rb` file. Sinatra and Hanami projects share most of the Ruby-level guidance here.
 
 ## Ruby Language Floor

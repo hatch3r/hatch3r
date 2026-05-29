@@ -2,6 +2,7 @@ import { readFile, readdir, lstat } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { CanonicalFile, CanonicalMetadata, RulePrecedence } from "../types.js";
+import { HatchError } from "../types.js";
 
 /**
  * Set of valid rule precedence values. Kept in one place so the parser,
@@ -300,6 +301,19 @@ export function parseFrontmatter(
 
   const match = cleaned.match(FRONTMATTER_REGEX);
   if (!match) {
+    // F2.2-F10 (Cycle 10 Wave 4): a `.md` file with no YAML frontmatter at all
+    // loads with an empty `id`, default `type: "rule"`, and empty description.
+    // `readSingleMd` recovers `id` from the filename and overrides `type` with
+    // the reader bucket, but `rawType` stays undefined so the file flows
+    // through `filterUserFacing`'s back-compat keep path and can surface in the
+    // user-invocable picker as if it were a declared artifact. Surface the
+    // missing frontmatter on the warning channel rather than coercing silently
+    // (CONSTITUTION §2 P5 Silent Failure Contract).
+    if (typeMismatches) {
+      typeMismatches.push(
+        "file lacks YAML frontmatter; id falling back to filename, type defaulting to caller bucket",
+      );
+    }
     return {
       metadata: { id: "", type: "rule", description: "" },
       content: cleaned,
@@ -578,6 +592,10 @@ async function readSingleMd(
   // sequences, chat template tokens, and tool-call delimiters, all of
   // which are smoking-gun indicators that a canonical file was
   // adversarially modified post-SHA-256 verification (or pre-publish).
+  // The trust-delegation rationale for the narrow scope (canonical content
+  // is trusted at the npm-tarball-signature layer via
+  // resolveBundledContentRoot) is documented in governance/pack-trust-model.md
+  // §3.4 (D11-SA11.1-07, Cycle 10 Wave 4).
   //
   // D2-M04 (D2 Medium, Cycle 10 Wave 3 rollover): emit injection findings
   // with the dedicated `INJECTION_TOKEN` code instead of overloading
@@ -604,6 +622,11 @@ async function readSingleMd(
  * are limited to structural tokens that have no business appearing in
  * canonical markdown and therefore produce zero false positives on the
  * hatch3r content library.
+ *
+ * The trust delegation that justifies this narrow scope — canonical content
+ * is trusted at the npm-tarball-signature layer, not by per-file body
+ * inspection — is governed in governance/pack-trust-model.md §3.4
+ * (D11-SA11.1-07).
  */
 function scanCanonicalInjectionTokens(body: string): string[] {
   const violations: string[] = [];
@@ -770,12 +793,24 @@ async function readUserCanonicalResults(
  * (treated as `"canonical"` by consumers). Wave 5 wires the
  * `.hatch3r/overrides/` path through adapters; for now most call sites pass
  * `undefined` (no overrides).
+ *
+ * F2.2-F7 (Cycle 10 Wave 4): pass `{ strict: true }` to promote the
+ * soft-warning channel to a hard failure — when strict mode is on and ANY
+ * non-skip warning (YAML parse error, permission denied, type mismatch,
+ * injection token) is collected, the function throws a `HatchError`
+ * (`VALIDATION_ERROR`) instead of returning a degraded file list. The default
+ * (`strict` omitted/false) preserves the resilient soft-warning behavior every
+ * current caller relies on — sync/init/update continue to surface warnings and
+ * proceed. Strict mode is opt-in tooling for a release/CI integrity gate (e.g.
+ * a future `validate:canonical` step asserting `0` canonical warnings); see the
+ * recommendation in `.audit-workspace/.../D2-SA2.2` finding 2.2-F7.
  */
 export async function readCanonicalFiles(
   canonicalRoot: string,
   type: CanonicalType,
   warnings?: string[],
   userContentRoot?: string,
+  opts?: { strict?: boolean },
 ): Promise<CanonicalFile[]> {
   const canonical = await readCanonicalResults(canonicalRoot, type);
   const user = userContentRoot ? await readUserCanonicalResults(userContentRoot, type) : [];
@@ -786,21 +821,39 @@ export async function readCanonicalFiles(
   // canonical/user split for adapters that emit unsorted lists).
   const results = [...canonical, ...user];
   const files: CanonicalFile[] = [];
+  // F2.2-F7: collect warnings locally so strict mode can inspect them even
+  // when the caller did not pass a `warnings` array. When `warnings` IS
+  // provided, every collected line is also mirrored into it — identical to
+  // the prior push-into-caller-array behavior, so non-strict callers are
+  // unaffected.
+  const collected: string[] = [];
+  const collect = (line: string): void => {
+    collected.push(line);
+    if (warnings) warnings.push(line);
+  };
   for (const r of results) {
     if (r.canonical) {
       files.push(r.canonical);
       // C7.5-W2B2-H8: surface non-fatal type mismatches even on success.
       // The canonical is still loaded (with the offending field coerced
       // to its empty fallback), so the warning is advisory, not blocking.
-      if (warnings && r.typeMismatches) {
-        for (const m of r.typeMismatches) warnings.push(formatWarning(m));
+      if (r.typeMismatches) {
+        for (const m of r.typeMismatches) collect(formatWarning(m));
       }
-    } else if (r.error && warnings) {
+    } else if (r.error) {
       // Suppress NOT_FOUND for the skills strategy (missing SKILL.md or
       // skipped symlink) — this is normal directory layout, not an error.
       if (r.error.code === "NOT_FOUND") continue;
-      warnings.push(formatWarning(r.error));
+      collect(formatWarning(r.error));
     }
+  }
+  if (opts?.strict && collected.length > 0) {
+    throw new HatchError(
+      `Canonical read for "${type}" produced ${collected.length} warning(s) under strict mode:\n${collected.join("\n")}`,
+      undefined,
+      "VALIDATION_ERROR",
+      `Fix the canonical content issues above, or drop --strict to treat them as non-blocking warnings.`,
+    );
   }
   return files;
 }

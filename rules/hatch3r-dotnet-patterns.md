@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # .NET Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships a .NET / C# solution. Detection signals: `*.csproj` / `*.sln` files, `global.json`, or any `*.cs` source at repo root. Includes ASP.NET Core, console apps, libraries, and Blazor projects.
 
 ## .NET / C# Language Floor

@@ -101,6 +101,7 @@ When modifying code that is consumed by other modules, agents, or external syste
 - Verify existing consumers before changing function signatures, type shapes, event schemas, or API responses.
 - If a contract change is necessary, document it explicitly in the structured output and flag for reviewer attention.
 - Prefer additive changes (new optional fields, overloaded signatures) over breaking changes.
+- **Managed-block trim contract (D11-SA11.2-F12):** content placed inside a `HATCH3R:BEGIN`/`HATCH3R:END` managed block is `trim()`'d at wrap time by `src/merge/managedBlocks.ts::wrapInManagedBlock` (and symmetrically by `extractManagedBlock`) to keep the sync→commit→sync round-trip byte-stable. Canonical content authored for an adapter-wrapped payload must not rely on leading or trailing whitespace inside the managed block for semantic purposes — it will be stripped on every sync. Put semantically-significant blank lines inside the body, never at its outer edges.
 
 ### 10. Consult Prior Learnings
 

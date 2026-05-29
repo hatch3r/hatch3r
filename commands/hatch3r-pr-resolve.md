@@ -512,6 +512,7 @@ Spawn `hatch3r-reviewer` -> `hatch3r-fixer` per `commands/revision/revision-qual
 - All `scope: always` rule directives.
 - Iteration number and prior findings.
 - The Confidence expression requirement (verbatim).
+- **Cross-PR Findings block (D13-SA13.1-F08).** Before the first reviewer spawn, scan `.hatch3r/review-findings/` (skip silently if the directory is absent) for entries whose `applies-to` glob matches any file in the cached diff; pass the 5 most-recent matches (by `created` descending) into the reviewer prompt as a `## Cross-PR Findings` block of `{id, applies-to, severity, pr, verdict, summary}` rows. The reviewer (which declares `consults_cross_pr_findings: true`) weighs these as prior organisational memory per its Cross-PR Finding Memory section. After the loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved this run (atomic write via `src/merge/safeWrite.ts`), so the next PR on the same files inherits the memory.
 
 The reviewer's output MUST include a top-level `confidence: high | medium | low` so the gate evaluates pass/second_pass/escalate per `src/pipeline/reviewLoop.ts` semantics.
 

@@ -64,6 +64,19 @@ Migration targets — fields some consumers still emit or scan that MUST converg
 
 Enforcement gap (open): no validator binds learning files to this schema. A schema check (proposed for `scripts/` alongside `validate-rule-parity.ts`) must assert every `.hatch3r/learnings/*.md` carries `id`/`topic`/`applies-to`/`confidence`/`created` and rejects the divergent field names above. Until that validator ships, schema conformance is audit-time only.
 
+## Integrity Hash — Single Source of Truth (D13-SA13.4-F10)
+
+This section is the sole authoritative contract for the optional `integrity` frontmatter field on a learning file. Every other artifact that generates, verifies, or documents the integrity hash MUST reference this section rather than restate the contract (the restated-contract-drifts vs pointer-only-documents principle, CONSTITUTION §2 P5 Anti-Bloat Principle 1 Single Source of Truth). Consuming artifacts: `agents/hatch3r-learnings-loader.md` (verification on read), the `hatch3r-learn` skill (generation on write), and the enforcement implementation `src/content/learningsValidation.ts::persistLearning` (the runtime gate).
+
+| Property | Contract |
+|----------|----------|
+| Algorithm | SHA-256. |
+| Scope | The learning **body** content only — everything after the closing `---` of the frontmatter — `.trim()`-normalized (leading/trailing whitespace stripped) before hashing, so editors that add or strip a trailing newline do not change the digest. |
+| Format | `integrity: sha256:{hex}` where `{hex}` is 64 lowercase hex chars. |
+| Enforcement | `src/content/learningsValidation.ts::persistLearning` computes the digest via `computeLearningIntegrity(body)` and, when an `expectedIntegrity` is supplied, refuses to write on mismatch (closes the in-memory tamper window between extract and write). The digest is always computed for audit visibility even when not compared. |
+| Verification on read | A reader (e.g., `hatch3r-learnings-loader`) recomputes the digest of the trimmed body and compares against the field; a mismatch or a missing field downgrades the entry to `confidence: low` (it is not excluded — missing integrity is a quality issue, not an injection trigger). |
+| Threat model | Tamper DETECTION (accidental or unnoticed edits), not cryptographic signing. Rationale + the forward-compatible upgrade path to `hmac-sha256:`/`ed25519:` are documented in `agents/hatch3r-learnings-loader.md` → "Design Choice: Hash-Based Integrity". |
+
 ## Mandatory Consultation Gate
 
 Before answering project-specific questions, these agents MUST read `.hatch3r/learnings/INDEX.md` and any `applies-to` matched entries:

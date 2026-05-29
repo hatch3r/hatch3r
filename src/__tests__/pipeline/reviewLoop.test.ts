@@ -288,6 +288,31 @@ describe("reviewLoop", () => {
         expect(declared, `${relPath} declared "max ${declared} iterations" but code has DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
       }
     });
+
+    it("agents/hatch3r-{reviewer,fixer}.md Review Loop Termination cap matches DEFAULT_MAX_REVIEW_ITERATIONS", () => {
+      // Finding D15-SA15.2-F15.2-06 / D5-SA5.1-F1 (Cycle 10, Low/Medium): the
+      // reviewer and fixer agent prompts previously hard-coded "max 3
+      // review-fix cycles" while the code default was 4 (raised in
+      // C7.5-W2B2-H26). The prompt text was realigned to 4, but the parity
+      // test only covered the orchestration rule — leaving the agent prompts
+      // free to drift again. This assertion extends the guard to both
+      // code-mutating-loop agent files so the prompt-stated cap cannot
+      // silently diverge from the code constant + the rule.
+      const repoRoot = process.cwd();
+      const pattern = /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/;
+      for (const relPath of [
+        "agents/hatch3r-reviewer.md",
+        "agents/hatch3r-fixer.md",
+      ]) {
+        const body = readFileSync(join(repoRoot, relPath), "utf-8");
+        const match = body.match(pattern);
+        expect(match, `${relPath} must contain "After <N> review-fix cycles (default \`DEFAULT_MAX_REVIEW_ITERATIONS=<N>\`...)" in Review Loop Termination Conditions`).not.toBeNull();
+        const declaredCycles = Number(match![1]);
+        const declaredConstant = Number(match![2]);
+        expect(declaredCycles, `${relPath} declared "After ${declaredCycles} review-fix cycles" but code has DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+        expect(declaredConstant, `${relPath} inline DEFAULT_MAX_REVIEW_ITERATIONS=${declaredConstant} must match code constant ${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+      }
+    });
   });
 
   describe("reviewLoopConfidence (Finding #68)", () => {

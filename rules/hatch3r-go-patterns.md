@@ -10,6 +10,8 @@ cache_friendly: true
 ---
 # Go Patterns
 
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
 > Applies when the project ships a Go module or binary. Detection signals: `go.mod` at repo root, `*.go` source files, or `go.work` for multi-module workspaces.
 
 ## Go Language Floor

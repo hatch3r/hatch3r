@@ -19,18 +19,18 @@ import {
   isCapabilityTag,
   isCustomizeTag,
   isFloorTag,
+  isTierTag,
   type RoleId,
   FACET_TAG_ADMISSIONS,
   type FacetId,
 } from "./tags.js";
 
 /**
- * Maturity-tier admission tags. These are plain string tag values consumed by
- * `resolveSelection`'s tier gate (Decision 4 / #16). They are NOT registered
- * in `TAG_REGISTRY` (yet) — admission is matched by string prefix below so the
- * canonical corpus can adopt them without a parallel registry change. A
- * follow-up commit will promote them into the registry once content carries
- * the tags.
+ * Maturity-tier admission tags. These tag values are consumed by
+ * `resolveSelection`'s tier gate (Decision 4 / #16) via string equality.
+ * Each tag is also registered in `TAG_REGISTRY` under the `"tier"` facet
+ * (`src/content/tags.ts`), so `facetOf()` / `tagsForFacet("tier")` / `isTierTag()`
+ * enumerate them and introspection tooling can list every tier-conditional tag.
  *
  * - `tier:enterprise-only`     — admitted only at maturity=enterprise.
  * - `tier:scaleup-plus`        — admitted at scaleup and enterprise.
@@ -44,6 +44,11 @@ import {
  * table can be unit-tested directly instead of only end-to-end through
  * `resolveSelection`. A refactor that reorders these rows or adds a fifth tier
  * rank now has direct test signal (`content/maturityTier.test.ts`).
+ *
+ * D14-SA14.3-09 (Cycle 10 Wave 4): a module-load assertion below verifies
+ * every tag here resolves to the `"tier"` facet in `TAG_REGISTRY`, so a typo
+ * on either side (requirement row OR registry entry) fails fast at import time
+ * instead of silently mis-admitting content once tier tagging is adopted.
  */
 export const TIER_TAG_REQUIREMENTS: ReadonlyArray<{ tag: string; minTier: MaturityTier }> = [
   { tag: "tier:enterprise-only", minTier: "enterprise" },
@@ -51,6 +56,21 @@ export const TIER_TAG_REQUIREMENTS: ReadonlyArray<{ tag: string; minTier: Maturi
   { tag: "tier:scaleup-plus", minTier: "scaleup" },
   { tag: "tier:team-plus", minTier: "team" },
 ];
+
+// D14-SA14.3-09: fail fast if a tier-admission requirement tag is not
+// registered under the `"tier"` facet in TAG_REGISTRY. This binds the
+// string-equality gate above to the registry so the two cannot drift —
+// a typo (`tier:scaleup-plu`) becomes a load-time error, not a silent
+// admission bug.
+for (const { tag } of TIER_TAG_REQUIREMENTS) {
+  if (!isTierTag(tag)) {
+    throw new HatchError(
+      `TIER_TAG_REQUIREMENTS tag "${tag}" is not registered under the "tier" facet in TAG_REGISTRY (src/content/tags.ts). Add it to the registry or fix the spelling.`,
+      1,
+      "VALIDATION_ERROR",
+    );
+  }
+}
 
 /**
  * Determine whether an item's tier tags are admitted at the given maturity
@@ -82,14 +102,25 @@ import { verbose } from "../cli/shared/ui.js";
 
 /**
  * Record a content-probe failure: emit a verbose() line to stderr (visible
- * only with --verbose). Per D8-H8.4.6 (C9-H19) Silent Failure Contract — probes
- * for "does file/dir exist?" cannot push to caller warnings channels (none are
- * wired through buildContentIndex / buildSelectionsFromDisk), so verbose() is
- * the minimum-viable diagnostic surface.
+ * only with --verbose) AND, when a `warnings` sink is supplied, push the same
+ * diagnostic to it.
+ *
+ * Per D8-H8.4.6 (C9-H19) Silent Failure Contract the warnings[] array is the
+ * first-class channel; D2-SA2.6-2.6-F10 (Cycle 10 Wave 4) wires that sink
+ * through `buildContentIndex` / `getAvailableItems` / `buildSelectionsFromDisk`
+ * so probe diagnostics reach a programmatic channel (tests, `--json` output)
+ * in addition to the verbose stderr stream. When no sink is supplied the
+ * helper degrades to verbose-only — no behavioural change for existing callers.
  */
-function recordContentProbeFailure(operation: string, err: unknown): void {
+function recordContentProbeFailure(
+  operation: string,
+  err: unknown,
+  warnings?: string[],
+): void {
   const message = err instanceof Error ? err.message : String(err);
-  verbose(`content: ${operation} — ${message}`);
+  const line = `content: ${operation} — ${message}`;
+  verbose(line);
+  warnings?.push(line);
 }
 
 /**
@@ -133,15 +164,41 @@ export function assertSafePath(relativePath: string, label: string): void {
  * "hatch3r-managed file", "hatch3r-driven workflow") that broadening this
  * primary scanner would create — those phrases are prose modifiers, not
  * delegations, and have no corresponding id in the index.
+ *
+ * D2-SA2.6-2.6-F03 (Cycle 10 Wave 4): YAML frontmatter and fenced code
+ * blocks are stripped before the regex runs. A backticked `hatch3r-foo`
+ * inside a ```bash example or a frontmatter value is illustrative, not a
+ * cross-reference — scanning it would let {@link validateCrossReferences}
+ * emit a "references X which does not exist" warning for a documentation
+ * example or future-id placeholder. Stripping both contexts keeps the
+ * scanner scoped to prose-level delegation references.
  */
 export function extractContentReferences(content: string): string[] {
   const refs = new Set<string>();
+  const scannable = stripFrontmatterAndFences(content);
   const pattern = /`((?:cmd-)?hatch3r-[a-z0-9-]+)`/g;
   let match: RegExpExecArray | null;
-  while ((match = pattern.exec(content)) !== null) {
+  while ((match = pattern.exec(scannable)) !== null) {
     refs.add(match[1]);
   }
   return [...refs];
+}
+
+/**
+ * Remove a single leading YAML frontmatter block (`---\n...\n---`) and every
+ * fenced code block (``` … ``` or ~~~ … ~~~) from markdown so a reference
+ * scanner sees only prose. Used by {@link extractContentReferences} and
+ * {@link extractBareContentReferences} to keep illustrative ids inside
+ * examples/frontmatter off the cross-reference channel (D2-SA2.6-2.6-F03).
+ */
+function stripFrontmatterAndFences(content: string): string {
+  let body = content;
+  // Leading frontmatter: anchored at start, `---` line .. next `---` line.
+  body = body.replace(/^﻿?---\r?\n[\s\S]*?\r?\n---\r?\n?/, "");
+  // Fenced code blocks: backtick or tilde fences, non-greedy to the closer.
+  body = body.replace(/^[ \t]*```[\s\S]*?^[ \t]*```[ \t]*$/gm, "");
+  body = body.replace(/^[ \t]*~~~[\s\S]*?^[ \t]*~~~[ \t]*$/gm, "");
+  return body;
 }
 
 /**
@@ -174,14 +231,17 @@ export function extractContentReferences(content: string): string[] {
 export function extractBareContentReferences(content: string): string[] {
   const refs = new Set<string>();
   const FILE_EXT = /\.(?:md|mdc|json|ya?ml|tsx?|jsx?)\b/;
+  // D2-SA2.6-2.6-F03: strip frontmatter + fenced blocks so bare mentions
+  // inside examples/frontmatter never surface as typo candidates.
+  const scannable = stripFrontmatterAndFences(content);
   const barePattern = /\b((?:cmd-)?hatch3r-[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)/g;
   let match: RegExpExecArray | null;
-  while ((match = barePattern.exec(content)) !== null) {
+  while ((match = barePattern.exec(scannable)) !== null) {
     const ref = match[1];
     const start = match.index;
-    const prev = start > 0 ? content[start - 1] : "";
+    const prev = start > 0 ? scannable[start - 1] : "";
     if (prev === "/" || prev === "\\" || prev === ":" || prev === "`") continue;
-    const after = content.slice(start + ref.length);
+    const after = scannable.slice(start + ref.length);
     if (FILE_EXT.test(after.slice(0, 6))) continue;
     if (after.startsWith("-")) continue;
     if (after.startsWith("`")) continue;
@@ -284,7 +344,7 @@ export async function validateCrossReferences(
       // Check both the raw ref and the cmd-prefixed form (command IDs are prefixed during indexing)
       if (!allIds.has(ref) && !allIds.has(`${COMMAND_ID_PREFIX}${ref}`)) {
         warnings.push(
-          `${item.type} "${item.id}" references "${ref}" which does not exist in the content index`,
+          `${item.type} "${item.id}" references "${ref}" which is not in the content index — verify it is a real artifact id and not an example or future id`,
         );
       }
     }
@@ -416,6 +476,15 @@ export interface ContentIndex {
   byTypeAndId: Map<string, CatalogItem>;
   /** Structured records of ID collisions detected during indexing. */
   collisions: ContentCollision[];
+  /**
+   * Diagnostic lines for content-probe failures encountered during indexing
+   * (e.g. a rule missing its companion `.mdc`). Populated via the Silent
+   * Failure Contract warnings[] channel (D2-SA2.6-2.6-F10); an empty array
+   * when no probe failed. Optional so legacy ContentIndex literals (tests,
+   * fixtures) remain valid; `buildContentIndex` always populates it. Callers
+   * MAY surface these to the user or a `--json` envelope.
+   */
+  warnings?: string[];
 }
 
 /**
@@ -446,9 +515,14 @@ export const COMMAND_ID_PREFIX = "cmd-";
 /**
  * Apply the command ID prefix if the content type is "command".
  * Other content types are returned unchanged.
+ *
+ * Idempotent: a command id that already starts with `COMMAND_ID_PREFIX` is
+ * returned unchanged, so re-indexing an already-prefixed id (e.g. a round-trip
+ * through user-content authoring) cannot produce a `cmd-cmd-` double prefix.
  */
 export function applyCommandPrefix(id: string, type: string): string {
-  return type === "command" ? `${COMMAND_ID_PREFIX}${id}` : id;
+  if (type !== "command" || id.startsWith(COMMAND_ID_PREFIX)) return id;
+  return `${COMMAND_ID_PREFIX}${id}`;
 }
 
 // ── Content type configs ───────────────────────────────────────
@@ -483,6 +557,7 @@ async function scanContentRoot(
   rootPath: string,
   source: "canonical" | "user",
   items: CatalogItem[],
+  warnings?: string[],
 ): Promise<void> {
   for (const config of CONTENT_TYPE_CONFIGS) {
     // User-tier scan only covers the 5 authoring types (agent/skill/rule/
@@ -567,6 +642,7 @@ async function scanContentRoot(
             recordContentProbeFailure(
               `buildContentIndex: no companion .mdc for ${file}`,
               err,
+              warnings,
             );
           }
         }
@@ -599,8 +675,9 @@ export async function buildContentIndex(
   options?: { userRoot?: string },
 ): Promise<ContentIndex> {
   const items: CatalogItem[] = [];
+  const warnings: string[] = [];
 
-  await scanContentRoot(contentRoot, "canonical", items);
+  await scanContentRoot(contentRoot, "canonical", items, warnings);
 
   if (options?.userRoot) {
     let userRootExists = true;
@@ -614,7 +691,7 @@ export async function buildContentIndex(
       }
     }
     if (userRootExists) {
-      await scanContentRoot(options.userRoot, "user", items);
+      await scanContentRoot(options.userRoot, "user", items, warnings);
     }
   }
 
@@ -669,7 +746,7 @@ export async function buildContentIndex(
     byId.set(item.id, item);
   }
 
-  return { items, byType, byId, byTypeAndId, collisions };
+  return { items, byType, byId, byTypeAndId, collisions, warnings };
 }
 
 // ── Shared type-to-key mapping ──────────────────────────────────
@@ -689,8 +766,8 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
 /**
  * Apply preset + context filters to determine which IDs to include.
  *
- * Four-stage pipeline (Wave 1 of content-pack redesign; see
- * `.audit-workspace/council-D-architect.md` §3):
+ * Seven-stage pipeline (Wave 1 content-pack redesign + Bucket 2.x maturity-tier
+ * + D14-M6 role extensions):
  *
  *   1. Custom path — explicit ID list plus protected + floor passthrough.
  *      For `preset.id === "custom"` with `customSelections` provided.
@@ -700,7 +777,8 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
  *   3. Capability gate — non-floor items pass when their capability tags
  *      intersect the preset's `capabilities` positive list. Customize-family
  *      items (carrying `TAG_CUSTOMIZE`) pass only when `preset.includeCustomize`
- *      is true. Per-id `includeIds` / `excludeIds` provide additive /
+ *      is true. Facet admission (`options.facets`) admits items carrying any
+ *      mapped facet tag. Per-id `includeIds` / `excludeIds` provide additive /
  *      subtractive carve-outs but cannot remove floor or protected items.
  *      Items with zero capability tags AND zero floor tags AND not protected
  *      AND not in `includeIds` are DROPPED — this is a deliberate reversal
@@ -709,9 +787,15 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
  *      with the project type. Team-size filter applies to `ctx:team-only`
  *      items but is bypassed for floor-admitted items (security & UI/UX
  *      apply to everyone, even solo developers).
- *   5. Language filter — unchanged from v1; see `filterByLanguages`.
+ *   5. Language filter — items with `lang:*` tags pass only when the project's
+ *      detected languages match; see `filterByLanguages`.
+ *   6. Maturity-tier filter — items carrying a `tier:*` / `floor:enterprise-only`
+ *      admission tag are dropped when the project's maturity rank is below the
+ *      tag's minimum tier; see `isAdmittedByMaturityTier` (Decision 4 / #16).
+ *   7. Role filter — when `options.role` is set, keep only floor-admitted,
+ *      protected, or matching `role:<id>`-tagged items (D14-M6).
  *
- * Skipped when `options.skipContextFilters` is set (e.g. from
+ * Stages 4 and 5 are skipped when `options.skipContextFilters` is set (e.g. from
  * `hatch3r config` — the user is explicitly choosing a preset and should
  * not have items silently removed by stored context filters).
  */
@@ -1180,6 +1264,7 @@ export async function getAvailableItems(
   contentRoot: string,
   agentsDir: string,
   index: ContentIndex,
+  warnings?: string[],
 ): Promise<CatalogItem[]> {
   const installed = new Set<string>();
 
@@ -1201,6 +1286,7 @@ export async function getAvailableItems(
               recordContentProbeFailure(
                 `getRemovableContent: skipped ${dirPath}/${d.name}/SKILL.md`,
                 err,
+                warnings,
               );
             }
           }
@@ -1209,6 +1295,7 @@ export async function getAvailableItems(
         recordContentProbeFailure(
           `getRemovableContent: readdir(${dirPath}) — directory missing`,
           err,
+          warnings,
         );
       }
     } else {
@@ -1224,6 +1311,7 @@ export async function getAvailableItems(
         recordContentProbeFailure(
           `getRemovableContent: readdir(${dirPath}) — directory missing`,
           err,
+          warnings,
         );
       }
     }
@@ -1240,6 +1328,7 @@ export async function getAvailableItems(
  */
 export async function buildSelectionsFromDisk(
   agentsDir: string,
+  warnings?: string[],
 ): Promise<ContentSelection> {
   const items: ContentSelection["items"] = {
     agents: [],
@@ -1270,6 +1359,7 @@ export async function buildSelectionsFromDisk(
             recordContentProbeFailure(
               `buildSelectionsFromDisk: skipped ${dirPath}/${d.name}/SKILL.md`,
               err,
+              warnings,
             );
           }
         }
@@ -1277,6 +1367,7 @@ export async function buildSelectionsFromDisk(
         recordContentProbeFailure(
           `buildSelectionsFromDisk: readdir(${dirPath}) — directory missing`,
           err,
+          warnings,
         );
       }
     } else {
@@ -1292,6 +1383,7 @@ export async function buildSelectionsFromDisk(
         recordContentProbeFailure(
           `buildSelectionsFromDisk: readdir(${dirPath}) — directory missing`,
           err,
+          warnings,
         );
       }
     }

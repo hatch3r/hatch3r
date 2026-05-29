@@ -99,15 +99,43 @@ export interface ProjectDetection {
 }
 
 /**
+ * A single per-item routing decision in machine-readable form. `decision`
+ * is `"admit"` or `"drop"`; `reason` is a short stable token describing the
+ * cause (e.g. `"protected"`, `"floor"`, `"capability-match"`,
+ * `"no-capability-match"`, `"ctx-greenfield-only"`, `"ctx-brownfield-only"`,
+ * `"lang-mismatch"`, `"project-detection"`). Consumers assert on `decision`
+ * + `reason` instead of substring-matching the free-text `rationale` lines,
+ * which decouples tests and tooling from the human-readable format string.
+ */
+export interface RationaleEntry {
+  id: string;
+  decision: "admit" | "drop";
+  reason:
+    | "protected"
+    | "floor"
+    | "capability-match"
+    | "no-capability-match"
+    | "ctx-greenfield-only"
+    | "ctx-brownfield-only"
+    | "lang-mismatch"
+    | "project-detection";
+}
+
+/**
  * The output of `buildCandidateSet`. `candidates` is the filtered subset
  * suitable for the LLM final-pick step; `rationale` is a parallel array of
  * one-line strings recording every admission / drop decision the routing
  * made. Rationale order is NOT guaranteed to align 1:1 with `candidates`
  * — callers consume it as a debug log, not a per-item annotation.
+ * `rationaleStructured` carries the same per-item admit/drop decisions in a
+ * machine-readable shape (one entry per admitted/dropped item, excluding the
+ * `routing:` header/footer log lines) so callers can assert decisions
+ * structurally without coupling to the `rationale` string format.
  */
 export interface CandidateSet {
   candidates: RoutableItem[];
   rationale: string[];
+  rationaleStructured: RationaleEntry[];
 }
 
 // ── Helpers (internal) ───────────────────────────────────────────
@@ -257,6 +285,7 @@ export function buildCandidateSet(
   project: ProjectDetection,
 ): CandidateSet {
   const rationale: string[] = [];
+  const rationaleStructured: RationaleEntry[] = [];
   rationale.push(
     `routing: input items=${items.length} taskTags=[${task.tags.join(", ")}] ` +
       `techStack=[${project.techStack.join(", ")}] lifecycle=${project.lifecycleStage} ` +
@@ -270,13 +299,26 @@ export function buildCandidateSet(
     rationale.push(
       `drop ${item.id}: no capability-tag match for task tags [${task.tags.join(", ")}] and no floor/protected admission`,
     );
+    rationaleStructured.push({ id: item.id, decision: "drop", reason: "no-capability-match" });
   }
+
+  // Stage 2: project-detection narrowing. Compute the final survivor set
+  // before recording structured admit entries so an item admitted by the
+  // capability gate but then dropped here yields a single (drop) structured
+  // entry — one entry per item, reflecting its FINAL decision (F3.3-L1).
+  const afterProject = narrowByProjectDetection(afterTags, project);
+
   for (const item of afterTags) {
+    // Items dropped by project narrowing are recorded as drops below; skip
+    // the transient capability-stage admit so each item appears once.
+    if (!afterProject.includes(item)) continue;
     if (item.protected) {
       rationale.push(`admit ${item.id}: protected bypass`);
+      rationaleStructured.push({ id: item.id, decision: "admit", reason: "protected" });
     } else if (item.tags.some(isFloorTag)) {
       const floors = item.tags.filter(isFloorTag).join(", ");
       rationale.push(`admit ${item.id}: floor tag(s) [${floors}] bypass capability gate`);
+      rationaleStructured.push({ id: item.id, decision: "admit", reason: "floor" });
     } else {
       const matched = item.tags
         .filter(isCapabilityTag)
@@ -284,29 +326,34 @@ export function buildCandidateSet(
       rationale.push(
         `admit ${item.id}: capability match [${matched.join(", ")}]`,
       );
+      rationaleStructured.push({ id: item.id, decision: "admit", reason: "capability-match" });
     }
   }
 
-  // Stage 2: project-detection narrowing.
-  const afterProject = narrowByProjectDetection(afterTags, project);
   const droppedByProject = afterTags.filter((i) => !afterProject.includes(i));
   for (const item of droppedByProject) {
     const langs = item.tags.filter(isLanguageTag);
     const ctxGf = item.tags.includes("ctx:greenfield-only");
     const ctxBf = item.tags.includes("ctx:brownfield-only");
     let reason: string;
+    let structuredReason: RationaleEntry["reason"];
     if (ctxGf && project.lifecycleStage === "brownfield") {
       reason = "ctx:greenfield-only on brownfield project";
+      structuredReason = "ctx-greenfield-only";
     } else if (ctxBf && project.lifecycleStage === "greenfield") {
       reason = "ctx:brownfield-only on greenfield project";
+      structuredReason = "ctx-brownfield-only";
     } else if (langs.length > 0) {
       reason = `lang tags [${langs.join(", ")}] do not match techStack [${project.techStack.join(", ")}]`;
+      structuredReason = "lang-mismatch";
     } else {
       reason = "project-detection narrowing";
+      structuredReason = "project-detection";
     }
     rationale.push(`drop ${item.id}: ${reason}`);
+    rationaleStructured.push({ id: item.id, decision: "drop", reason: structuredReason });
   }
 
   rationale.push(`routing: final candidates=${afterProject.length}`);
-  return { candidates: afterProject, rationale };
+  return { candidates: afterProject, rationale, rationaleStructured };
 }

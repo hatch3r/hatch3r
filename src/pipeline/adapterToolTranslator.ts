@@ -58,8 +58,10 @@ const CLAUDE_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
   execute: ["Bash"],
   web: ["WebSearch", "WebFetch"],
   mcp: [], // MCP tools are scoped via the `mcpServers` frontmatter field, not `tools`.
-  git: ["Bash"], // Git is driven via Bash; callers that grant git retain execute semantics.
-  board: [], // Project-board tooling is MCP-driven; see mcp mapping.
+  // Reserved categories (RESERVED_TOOL_CATEGORIES in agentToolAllowlist.ts):
+  // no current policy grants these; they collapse onto execute/mcp here.
+  git: ["Bash"], // Reserved. Git is driven via Bash; callers that grant git retain execute semantics.
+  board: [], // Reserved. Project-board tooling is MCP-driven; see mcp mapping.
 };
 
 /**
@@ -74,8 +76,10 @@ const COPILOT_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
   execute: ["execute"],
   web: ["web"],
   mcp: [], // MCP exposure is controlled via `mcp-servers`, not `tools`.
-  git: ["execute"],
-  board: [],
+  // Reserved categories (RESERVED_TOOL_CATEGORIES in agentToolAllowlist.ts):
+  // no current policy grants these; they collapse onto execute/mcp here.
+  git: ["execute"], // Reserved. Collapses to execute semantics.
+  board: [], // Reserved. Project-board tooling is MCP-driven; no distinct token.
 };
 
 // Wave 3 / W1-C: per-adapter category maps for the 12 removed adapters

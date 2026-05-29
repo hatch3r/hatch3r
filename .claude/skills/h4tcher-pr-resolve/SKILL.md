@@ -5,6 +5,8 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit Task
 ---
 
+> Last updated: 2026-05-29
+
 # PR Resolve (Maintainer)
 
 Maintainer-facing wrapper around `commands/hatch3r-pr-resolve.md` for resolving PR comments **on the hatch3r repo itself**. Invokes the canonical workflow through reply-posting, layers in hatch3r-development quality gates, then stops before commit so the maintainer reviews the diff.

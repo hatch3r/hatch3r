@@ -13,7 +13,7 @@ parallel_tool_default: true
 Shared context for `hatch3r-board-fill`, `hatch3r-board-groom`, `hatch3r-board-pickup`, `hatch3r-board-refresh`, and related board commands. Read once per run and cache.
 
 
-## Prerequisite Check (run at the start of every board command)
+## §0 Detect Ambiguity + Prerequisite Check (P8 B1) — run at the start of every board command
 
 Before reading configuration, validate that prerequisites are met. If any check fails, stop immediately with an actionable error message. For interactive sessions where credentials are missing, use the `agents/shared/user-question-protocol.md` plain-text fallback shape to offer the user a numbered choice (interactive login / paste-token / abort) instead of a bare stop message.
 

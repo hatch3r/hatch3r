@@ -97,7 +97,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ4
 | RFC 9457 shape on error | Contract test with Schemathesis or Pact validates `application/problem+json` Content-Type + required fields on every 4xx/5xx |
 | Circuit breaker present | Grep for resilience4j `@CircuitBreaker` / opossum `new CircuitBreaker(` / pybreaker `CircuitBreaker(` / Polly `CircuitBreakerAsync` on every outbound client wrapper |
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ4 unit of decomposition: **service** when the review covers multiple services; **dependency layer** (inbound handlers vs outbound clients vs persistence vs cache vs queue) when reviewing a single complex service. The cross-service `trace_id`-propagation aggregator runs after per-unit span-emission audits complete.
 

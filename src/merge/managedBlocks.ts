@@ -84,25 +84,39 @@ export function insertManagedBlock(
       "Content must contain managed block markers (HATCH3R:BEGIN and HATCH3R:END)",
       1,
       "VALIDATION_ERROR",
+      "Restore the HATCH3R:BEGIN/HATCH3R:END markers around the hatch3r content, then re-run the command.",
     );
   }
 
   const { variant, startIdx, endIdx } = detected;
 
-  const secondStart = existingContent.indexOf(variant.start, startIdx + 1);
-  const secondEnd = existingContent.indexOf(variant.end, endIdx + 1);
-  if (secondStart !== -1) {
+  // D1-SA1.5-F7 (Cycle 10 Wave 4, D1, content-quality.CQ8): scan for a second
+  // occurrence of each marker from position 0 (not from after the first hit)
+  // and treat any second index distinct from the detected one as a duplicate.
+  // The prior `indexOf(..., startIdx + 1)` form missed a duplicate that
+  // appears BEFORE the detected marker (the reversed-corruption case
+  // `END … BEGIN … END … BEGIN`), where detectMarkers locks onto the first
+  // BEGIN and the earlier END is the detected end — the second-end scan from
+  // `endIdx + 1` then reported a false negative and the operator saw the
+  // generic "must appear before" message instead of the duplicate diagnostic.
+  const firstStart = existingContent.indexOf(variant.start);
+  const lastStart = existingContent.lastIndexOf(variant.start);
+  const firstEnd = existingContent.indexOf(variant.end);
+  const lastEnd = existingContent.lastIndexOf(variant.end);
+  if (lastStart !== firstStart) {
     throw new HatchError(
       "Corrupted managed block: duplicate start marker found. Remove the duplicate before syncing.",
       1,
       "VALIDATION_ERROR",
+      "Open the file, delete the extra HATCH3R:BEGIN line so only one remains, then re-run the command.",
     );
   }
-  if (secondEnd !== -1) {
+  if (lastEnd !== firstEnd) {
     throw new HatchError(
       "Corrupted managed block: duplicate end marker found. Remove the duplicate before syncing.",
       1,
       "VALIDATION_ERROR",
+      "Open the file, delete the extra HATCH3R:END line so only one remains, then re-run the command.",
     );
   }
 
@@ -111,6 +125,7 @@ export function insertManagedBlock(
       "Corrupted managed block: start marker must appear before end marker",
       1,
       "VALIDATION_ERROR",
+      "Reorder the markers so HATCH3R:BEGIN precedes HATCH3R:END, or delete both and re-run to regenerate the block.",
     );
   }
 
@@ -161,10 +176,38 @@ export function wrapInManagedBlock(content: string, filePath?: string): string {
   // G2: Trim for symmetry with extractManagedBlock to avoid asymmetric
   // whitespace round-trips that produce spurious status drift.
   // G6 (v1.7.1): trailing \n is POSIX-final-newline; see insertManagedBlock G6.
+  // D11-SA11.2-F12 (Cycle 10 Wave 4): the trim is unconditional, so canonical
+  // content must NOT rely on leading/trailing whitespace inside the managed
+  // block for semantic purposes — it is stripped on every sync. Documented for
+  // canonical authors in agents/shared/quality-charter.md ("Managed-block trim
+  // contract"). Put semantically-significant blank lines inside the body.
   return `${markers.start}\n${content.trim()}\n${markers.end}\n`;
 }
 
 /** Check whether content contains both markers of any known variant. */
 export function hasManagedBlock(content: string): boolean {
   return detectMarkers(content) !== null;
+}
+
+/**
+ * D11-SA11.2-F11 (Cycle 10 Wave 4, D11, governance.P5): report whether an
+ * {@link insertManagedBlock} write would flip the on-disk marker variant —
+ * the issue #76 legacy-state auto-repair (HTML markers in a `.yml` file get
+ * silently rewritten to YAML `#` markers). The repair is correct, but it was
+ * previously invisible: the on-disk byte change shows up in `git diff` with
+ * no attribution to hatch3r. Callers (safeWriteFile) use this to surface a
+ * one-line "auto-repaired marker syntax" warning on the existing
+ * {@link MergeResult.warning} channel so the rewrite is observable.
+ *
+ * Returns `false` when {@link existingContent} has no detectable managed block
+ * (the no-block branch is handled separately) or when the detected variant
+ * already matches the variant {@link getMarkersForPath} would emit.
+ */
+export function wouldChangeMarkerVariant(existingContent: string, filePath?: string): boolean {
+  const detected = detectMarkers(existingContent);
+  if (!detected) return false;
+  const outputMarkers = getMarkersForPath(filePath);
+  return (
+    detected.variant.start !== outputMarkers.start || detected.variant.end !== outputMarkers.end
+  );
 }

@@ -332,9 +332,22 @@ async function addPackageIfPresent(
   found.set(normalized, { name, path: normalized });
 }
 
-/** Check whether a `.agents/` directory already exists in the repo root. */
+/**
+ * Check whether a hatch3r state layout already exists in the repo root.
+ *
+ * F10 (D1-SA1.6, cycle 10 wave 4): Wave 6 relocated user-side state from
+ * `.agents/` to `.hatch3r/` (manifest, learnings, handoffs, mcp). Probing
+ * `.agents/` alone returned `false` on a fully-migrated 1.9+ install, dropping
+ * one brownfield-detection signal for upgraded users. Probe BOTH the new
+ * `.hatch3r/` layout and the legacy `.agents/` layout so the signal survives
+ * the relocation while staying backward-compatible with pre-migration repos.
+ */
 async function detectExistingAgents(rootDir: string): Promise<boolean> {
-  return pathExists(join(rootDir, ".agents"));
+  const [hasNew, hasLegacy] = await Promise.all([
+    pathExists(join(rootDir, ".hatch3r")),
+    pathExists(join(rootDir, ".agents")),
+  ]);
+  return hasNew || hasLegacy;
 }
 
 const TOOL_INDICATORS: { tool: Tool; paths: string[] }[] = [

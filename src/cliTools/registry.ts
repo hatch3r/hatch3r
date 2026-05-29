@@ -250,6 +250,11 @@ export const AVAILABLE_CLI_TOOLS = {
     // Cycle 9 D21-SA21.5-F01 (C9-H88): gh <2.92.0 is exposed to
     // GHSA-crc3-h8v6-qh57; the 2.92.0 release (2026-05-06) ships the fix.
     minVersion: ">=2.92.0",
+    // Cycle 10 D21-SA21.5-F-21.5.2: gh ships at rapid cadence (~30-day mean,
+    // 7 releases across 2025-06 → 2026-04). Tagged `rapid` so a cadence-aware
+    // staleness heuristic treats a 45-day pause as an anomaly rather than
+    // waiting for the default 90/180-day window.
+    releaseCadence: "rapid",
     securityNote:
       "GHSA-crc3-h8v6-qh57: gh CLI before 2.92.0 may leak authentication tokens via auxiliary host extension calls. Upgrade to 2.92.0 or later before using gh against untrusted GitHub Enterprise hosts.",
     homepage: "https://cli.github.com/",
@@ -317,6 +322,12 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "cargo", command: "cargo install ast-grep" }],
       win: [{ manager: "scoop", command: "scoop install ast-grep" }],
     },
+    // Cycle 10 D21-SA21.1-F-21.1.2: ast-grep ships at rapid cadence — five
+    // tags in 71 days at audit (0.42.0 2026-03-16, 0.42.1 2026-04-04,
+    // 0.42.2 2026-05-10, 0.42.3 2026-05-19, 0.43.0 2026-05-25; ~14-day mean).
+    // Tagged `rapid` so a cadence-aware staleness heuristic can treat a short
+    // pause (e.g. 45 days) as a stronger anomaly than the default 180-day gate.
+    releaseCadence: "rapid",
     homepage: "https://ast-grep.github.io/",
   },
   zstd: {
@@ -398,7 +409,14 @@ export const AVAILABLE_CLI_TOOLS = {
     install: {
       mac: [{ manager: "brew", command: "brew install xh" }],
       linux: [{ manager: "cargo", command: "cargo install xh --locked" }],
-      win: [{ manager: "winget", command: "winget install ducaale.xh" }],
+      // Cycle 10 D21-SA21.4-F07: Windows lists winget (ducaale.xh) first as the
+      // signed first-party channel, with cargo as the fallback for machines
+      // without winget so Windows users are not forced onto a Rust-toolchain-
+      // only path. Mirrors the delta / ast-grep multi-channel Windows precedent.
+      win: [
+        { manager: "winget", command: "winget install ducaale.xh" },
+        { manager: "cargo", command: "cargo install xh --locked" },
+      ],
     },
     // Cycle 10 D21-SA21.4-F04: xh v0.25.3 (2025-12-16) — 162 days at audit,
     // mid-Medium-band per D21 currency check (90-180 days). Cadence is roughly
@@ -470,6 +488,14 @@ export const AVAILABLE_CLI_TOOLS = {
       win: [{ manager: "winget", command: "winget install GitLab.GLab" }],
     },
     requiresEnv: ["GITLAB_TOKEN"],
+    // Cycle 10 D21-SA21.5-F-21.5.3: tested-against version per D21 checklist
+    // row 6 (documentation pin, not a CVE-driven floor) — Cycle 10 verified
+    // glab 1.99.0 (2026-05-20). The installer surfaces this as advisory text.
+    minVersion: "1.99.0",
+    // Cycle 10 D21-SA21.5-F-21.5.2: glab ships at rapid cadence (~6-day mean,
+    // 11 releases across 2026-03-23 → 2026-05-20). Tagged `rapid` so a
+    // cadence-aware staleness heuristic treats a short pause as an anomaly.
+    releaseCadence: "rapid",
     homepage: "https://gitlab.com/gitlab-org/cli",
   },
   "az-devops": {
@@ -485,6 +511,12 @@ export const AVAILABLE_CLI_TOOLS = {
       win: [{ manager: "winget", command: "winget install Microsoft.AzureCLI && az extension add --name azure-devops" }],
     },
     requiresEnv: ["AZURE_DEVOPS_PAT", "AZURE_DEVOPS_ORG"],
+    // Cycle 10 D21-SA21.5-F-21.5.3: tested-against version per D21 checklist
+    // row 6 (documentation pin, not a CVE-driven floor) — Cycle 10 verified
+    // az-devops 1.0.4 (release tag 20260514.1, 2026-05-15). The az-devops
+    // extension version floats under `az extension update`; this records the
+    // verified baseline for next-cycle drift measurement.
+    minVersion: "1.0.4",
     // Cycle 10 D21-M6: the base `command -v az` probe resolves whenever Azure
     // CLI is on PATH, even if the azure-devops extension is missing — a false
     // positive for users who install `azure-cli` standalone (e.g. via apt
@@ -617,11 +649,20 @@ export const AVAILABLE_CLI_TOOLS = {
     description: "Browserbase Stagehand — AI-driven browser automation",
     category: "browser",
     tier: 3,
+    caveat: "browser-driver-peer-dep-trust",
     install: {
       mac: [{ manager: "npm", command: "npm install -g @browserbasehq/stagehand" }],
       linux: [{ manager: "npm", command: "npm install -g @browserbasehq/stagehand" }],
       win: [{ manager: "npm", command: "npm install -g @browserbasehq/stagehand" }],
     },
+    // Cycle 10 D15-SA15.7-F-15.7-08: Stagehand selects one of three browser-
+    // driver peer deps — `playwright-core` (Microsoft) and `puppeteer-core`
+    // (Google) are vendor-maintained, but `patchright-core` is a community
+    // detection-bypass fork with a different vetting profile. The peer-dep
+    // choice influences browser-sandbox supply-chain trust, so the entry
+    // carries this securityNote like the tier-3 rtk caveat precedent.
+    securityNote:
+      "Browser-driver peer-dep trust: Stagehand runs against one of playwright-core (Microsoft), puppeteer-core (Google), or patchright-core (community fork). Prefer playwright-core as the default — patchright-core is a less-vetted community detection-bypass fork with a different supply-chain trust profile than the vendor-maintained drivers. Install only the driver you need and pin it.",
     homepage: "https://github.com/browserbase/stagehand",
   },
   aichat: {

@@ -2,7 +2,7 @@
 id: hatch3r-security-patterns
 type: rule
 description: Security patterns including input validation, auth enforcement, and AI/agentic security for the project
-scope: "**/auth/**,**/security/**,**/middleware/**,**/*auth*,**/*guard*,**/*policy*,**/*permission*,**/*sanitiz*,**/*validat*"
+scope: "**/security/**,**/*guard*,**/*policy*,**/*permission*,**/*sanitiz*,**/*validat*"
 tags: [floor:security]
 precedence: critical
 quality_charter: agents/shared/quality-charter.md
@@ -29,12 +29,7 @@ cache_friendly: true
 
 ## Authentication Enforcement
 
-- Auth middleware on every route by default. Public routes require explicit opt-out with code review justification.
-- Token validation: pin allowed algorithms (reject `none`), enforce expiry (`exp`), verify audience (`aud`) and issuer (`iss`) claims. Reject tokens failing any check.
-- Session security: `HttpOnly`, `Secure`, `SameSite=Strict` (or `Lax` with justification) cookies. Rotate session ID on privilege change (login, role switch).
-- Multi-factor authentication for sensitive operations: admin actions, payment, account deletion, API key generation.
-- Rate-limit authentication endpoints (login, token refresh, password reset). Lock accounts or add progressive delays after repeated failures.
-- Invalidate all sessions on password change. Provide "sign out everywhere" capability.
+Authentication and authorization patterns (auth middleware, token validation, session security, MFA/AAL mapping, rate-limiting auth endpoints) are owned canonically by `rules/hatch3r-auth-patterns.md`. That rule activates on `**/auth/**`, `**/login/**`, `**/session/**`, `**/middleware/**`, and related globs; this rule no longer restates them, so the two no longer double-fire on the same files. For OWASP A07 in the web-app context see the §A07 section below.
 
 ## Fail-Closed Defaults
 

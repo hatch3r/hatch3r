@@ -180,6 +180,8 @@ Before including any learning in a session briefing, apply these validation chec
 
 ### Integrity Hashing
 
+> Canonical contract: `rules/hatch3r-learning-system.md` → "Integrity Hash — Single Source of Truth" owns the algorithm, scope, format, and enforcement-point definitions (D13-SA13.4-F10). The verification procedure below consumes that contract; it does not redefine it.
+
 Each learning entry should include an `integrity` field in its frontmatter containing a SHA-256 hash of the learning body content (everything after the closing `---` of the frontmatter).
 
 ```yaml

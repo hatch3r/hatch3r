@@ -27,8 +27,50 @@ export function getSourceEnvMcpCommand(): string {
 }
 
 /**
+ * Shells the disclaimer knows how to lead with. `posix` covers bash/zsh on
+ * macOS/Linux and Git Bash on Windows (the `SOURCE_POSIX` form works in all
+ * three); `powershell` is Windows PowerShell / pwsh; `auto` detects from the
+ * runtime; `all` (the default) emits every shell block unconditionally so a
+ * file written on one machine stays useful when opened on another. `cmd.exe`
+ * is intentionally unsupported — see {@link getSourceEnvMcpDisclaimer}.
+ */
+export type EnvMcpShell = "posix" | "powershell" | "git-bash" | "auto" | "all";
+
+/**
+ * Resolve `"auto"` to a concrete shell from the runtime. PowerShell exposes
+ * `PSModulePath`; otherwise we assume a POSIX-compatible shell (bash/zsh, or
+ * Git Bash on Windows, all of which accept `SOURCE_POSIX`). `cmd.exe` is not
+ * detected here because it is unsupported (no single-line `source` analogue).
+ */
+function detectActiveShell(): Exclude<EnvMcpShell, "auto"> {
+  if (process.platform === "win32") {
+    return process.env.PSModulePath ? "powershell" : "all";
+  }
+  return "posix";
+}
+
+const POSIX_DISCLAIMER_LINES = [
+  "# macOS/Linux (bash/zsh):",
+  `#   ${SOURCE_POSIX}`,
+];
+const POWERSHELL_DISCLAIMER_LINES = [
+  "# Windows (PowerShell):",
+  `#   ${SOURCE_POWERSHELL}`,
+];
+const GIT_BASH_DISCLAIMER_LINE = "# Windows (Git Bash): same as macOS/Linux";
+
+/**
  * Returns the sourcing disclaimer block for the .env.mcp template.
- * Includes both POSIX and Windows commands so the file is useful on any OS.
+ *
+ * D1-SA1.7-F7 (Low, P1): the disclaimer is platform-aware. By default
+ * (`activeShell: "all"`) it emits every shell block so a file authored on one
+ * machine stays useful when opened on another. When the caller knows the
+ * operator's shell (or passes `"auto"`), the matching command leads and the
+ * remaining shells follow as a labelled fallback so the user is not left
+ * scanning a wall of commands for the one line that applies to them. `cmd.exe`
+ * has no single-line `source` equivalent and is documented as unsupported
+ * (use PowerShell or Git Bash). The PowerShell one-liner remains a fallback,
+ * not the only Windows path.
  *
  * D11-M7 (Cycle 10 Wave-3 Medium, P2): the prior disclaimer told users to
  * "source then start your editor" without explaining the GUI-launch failure
@@ -40,14 +82,43 @@ export function getSourceEnvMcpCommand(): string {
  * spawns inherit the parent process env directly. The expanded block calls
  * out the GUI-launch caveat and documents the two reliable workarounds.
  */
-export function getSourceEnvMcpDisclaimer(): string {
+export function getSourceEnvMcpDisclaimer(
+  options: { activeShell?: EnvMcpShell } = {},
+): string {
+  const requested = options.activeShell ?? "all";
+  const shell = requested === "auto" ? detectActiveShell() : requested;
+
+  // Assemble shell blocks, leading with the operator's shell when known.
+  let shellBlocks: string[];
+  if (shell === "posix" || shell === "git-bash") {
+    shellBlocks = [
+      ...POSIX_DISCLAIMER_LINES,
+      GIT_BASH_DISCLAIMER_LINE,
+      "# Other shells:",
+      ...POWERSHELL_DISCLAIMER_LINES,
+      "# Windows cmd.exe is not supported — use PowerShell or Git Bash.",
+    ];
+  } else if (shell === "powershell") {
+    shellBlocks = [
+      ...POWERSHELL_DISCLAIMER_LINES,
+      "# Other shells:",
+      ...POSIX_DISCLAIMER_LINES,
+      GIT_BASH_DISCLAIMER_LINE,
+      "# Windows cmd.exe is not supported — use PowerShell or Git Bash.",
+    ];
+  } else {
+    // "all" — every shell unconditionally (default; cross-machine portable).
+    shellBlocks = [
+      ...POSIX_DISCLAIMER_LINES,
+      ...POWERSHELL_DISCLAIMER_LINES,
+      GIT_BASH_DISCLAIMER_LINE,
+      "# Windows cmd.exe is not supported — use PowerShell or Git Bash.",
+    ];
+  }
+
   return [
     "# Cursor / Claude Code: Source this file, then start or restart your editor (VS Code/Copilot auto-loads it).",
-    "# macOS/Linux (bash/zsh):",
-    `#   ${SOURCE_POSIX}`,
-    "# Windows (PowerShell):",
-    `#   ${SOURCE_POWERSHELL}`,
-    "# Windows (Git Bash): same as macOS/Linux",
+    ...shellBlocks,
     "",
     "# macOS GUI-launched editors (Finder, Dock, Spotlight) do NOT inherit shell-sourced env vars.",
     "# Two reliable workarounds:",
@@ -87,6 +158,30 @@ export function collectRequiredEnvVars(servers: string[]): EnvVar[] {
 }
 
 /**
+ * D1-SA1.7-F10 (Low, P6): defense-in-depth sanitizer for the comment/url
+ * fields that {@link generateEnvMcpContent} interpolates into `.env.mcp`
+ * comment lines. `comment`/`url` originate from `ENV_VAR_HELP`, which is
+ * developer-controlled today but is the natural extension point for
+ * third-party packs (per `governance/pack-trust-model.md`). A pack-supplied
+ * value containing a newline followed by `KEY=value` would inject an
+ * attacker-controlled assignment into the rendered file, which the operator
+ * then `source`s into their shell environment. Stripping `\n`, `\r`, and `=`
+ * (replacing each with a space) at the render boundary collapses any injected
+ * line back into the single comment line it belongs to. A diagnostic is
+ * surfaced under `--verbose` when stripping occurs (Silent Failure Contract).
+ */
+function sanitizeEnvMcpComment(value: string, fieldLabel: string): string {
+  const sanitized = value.replace(/[\r\n=]/g, " ");
+  if (sanitized !== value) {
+    verbose(
+      `mcpEnv: stripped newline/'=' characters from ${fieldLabel} before ` +
+        `rendering .env.mcp (comment-injection guard)`,
+    );
+  }
+  return sanitized;
+}
+
+/**
  * Renders the contents of a `.env.mcp` file.
  * Existing values (from a prior file) are preserved; new vars get empty placeholders.
  */
@@ -105,8 +200,12 @@ export function generateEnvMcpContent(
   ];
 
   for (const v of vars) {
-    const urlPart = v.url ? ` — ${v.url}` : "";
-    lines.push(`# ${v.comment}${urlPart}`);
+    // F10: sanitize comment/url at the interpolation boundary so a
+    // pack-supplied value cannot inject an extra `KEY=value` line.
+    const comment = sanitizeEnvMcpComment(v.comment, `comment for ${v.name}`);
+    const url = v.url ? sanitizeEnvMcpComment(v.url, `url for ${v.name}`) : "";
+    const urlPart = url ? ` — ${url}` : "";
+    lines.push(`# ${comment}${urlPart}`);
     lines.push(`${v.name}=${existing[v.name] ?? ""}`);
     lines.push("");
   }

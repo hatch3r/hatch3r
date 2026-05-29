@@ -16,7 +16,7 @@ Zero tolerance for filler phrases in all `.md` files under `governance/`, `agent
 | Banned Phrase | Replacement |
 |---------------|-------------|
 | "best possible", "best-in-class", "world-class" | Specific measurable target (e.g., "95th percentile response time under 200ms") |
-| "comprehensive and thorough", "exhaustive" | Specific scope (e.g., "covers all 15 adapters" or "validates 11 ASI controls") |
+| "comprehensive and thorough", "exhaustive" | Specific scope (e.g., "covers all 3 adapters (cursor, claude, copilot)" or "validates 11 ASI controls") |
 | "robust and resilient" | Named pattern (e.g., "circuit breaker with 3-failure threshold and 30s cooldown") |
 | "high-quality" (without measure) | Specific metric (e.g., "90% branch coverage", "0 type errors") |
 | "ensure" (without method) | Specific verification step (e.g., "run `npm test` and verify 0 failures") |

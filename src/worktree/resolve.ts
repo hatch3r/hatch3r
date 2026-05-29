@@ -228,16 +228,27 @@ export function isGitIgnored(rootDir: string, filePath: string): boolean {
 
 /**
  * Enumerates all git worktrees attached to the repo at `mainRoot` by parsing
- * `git worktree list --porcelain`. The porcelain format is record-per-blank-line
+ * `git worktree list --porcelain -z`. The porcelain format is record-per-blank-line
  * with `worktree`, `HEAD`, `branch`, and zero or more flag lines (`detached`,
  * `bare`, `locked`, `prunable`).
+ *
+ * F-1.10.10 (Cycle 10 D1): the `-z` flag makes git NUL-terminate every
+ * attribute line and use an empty NUL-terminated line (yielding `\0\0`) as the
+ * record separator. Splitting on `\0` instead of `\n` is the git-documented
+ * machine-parse mode (`git-worktree(1)`, https://git-scm.com/docs/git-worktree,
+ * accessed 2026-05-28) and is the only safe parse for worktree paths that
+ * legally contain a newline on POSIX — the prior `\n` split truncated such a
+ * path at the embedded newline. On platforms where newlines in paths are
+ * impossible (Windows) the flag is a no-op. The empty-token boundary maps
+ * exactly onto the old empty-line boundary, so the per-record state machine is
+ * unchanged below.
  *
  * The first record is always the main worktree.
  */
 export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
   let raw: string;
   try {
-    raw = execFileSync("git", ["worktree", "list", "--porcelain"], {
+    raw = execFileSync("git", ["worktree", "list", "--porcelain", "-z"], {
       cwd: mainRoot,
       encoding: "utf-8",
       maxBuffer: 10 * 1024 * 1024,
@@ -268,7 +279,7 @@ export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
     current = null;
   };
 
-  for (const line of raw.split("\n")) {
+  for (const line of raw.split("\0")) {
     if (line === "") {
       flush();
       continue;

@@ -148,6 +148,8 @@ Execute `--dry-run` to validate:
 - Variables are referenced with valid names that resolve to defined values
 - Prerequisites are checkable
 
+The recipe runner MUST resolve every `command:` and `skill:` reference against `governance/inventory.json` before execution and raise on any missing ID, so a deprecated or renamed reference fails at parse time rather than mid-workflow.
+
 ## Step 5: Validate with Real Execution
 
 Run the recipe on a test project to verify:

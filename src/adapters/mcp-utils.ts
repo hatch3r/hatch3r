@@ -110,6 +110,18 @@ function transformEnvVarSyntaxInner(
   }
   if (typeof value === "string") {
     switch (format) {
+      // D11-SA11.3-F11.3-8 (Cycle 10, P3): the `[^}]+` capture group spans
+      // everything between `env:` and the closing `}`, so a default-form
+      // reference like `${env:HOST:-localhost}` round-trips to the valid
+      // Claude Code form `${HOST:-localhost}` (Claude Code MCP supports
+      // `${VAR:-default}` per code.claude.com/docs/en/mcp, accessed
+      // 2026-05-28). This compatibility is INCIDENTAL, not designed — the
+      // regex was authored for the no-default form and the default suffix
+      // survives only because it lives inside the braces. The round-trip is
+      // pinned by an explicit test in
+      // `src/__tests__/adapters/mcp-utils.test.ts` so a future regex tweak
+      // that narrows the capture group breaks the test rather than silently
+      // dropping defaults.
       case "claude":
         return value.replace(/\$\{env:([^}]+)\}/g, "${$1}");
       case "shell":

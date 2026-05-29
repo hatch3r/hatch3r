@@ -8,7 +8,7 @@
  * The log is append-only and auto-rotated when it exceeds MAX_LOG_SIZE.
  */
 
-import { verbose } from "../cli/shared/ui.js";
+import { warn } from "../cli/shared/ui.js";
 
 // ── Types ────────────────────────────────────────────────────────
 
@@ -82,7 +82,7 @@ export function getMaxLogSize(): number {
   return parsed;
 }
 
-/** Default log file name within the .agents directory. */
+/** Default log file name within the .hatch3r/ user-state directory (Wave 6+ path). */
 export const FAILURE_LOG_FILE = ".failure-log.jsonl";
 
 // ── Implementation ───────────────────────────────────────────────
@@ -126,10 +126,21 @@ export function createFailureLogEntry(
 /**
  * Parse a JSONL failure log into entries.
  *
- * Tolerant of malformed lines (skips them silently).
+ * Tolerant of malformed lines (skips them rather than throwing).
+ *
+ * F8.3.7 (Cycle 10 D8, P5): corruption of the audit trail itself is
+ * operator-relevant regardless of the `--verbose` flag — an operator who
+ * does not yet know the log is corrupt has no reason to re-run with verbose.
+ * Each malformed line therefore emits via {@link warn} (stderr, always on)
+ * rather than the prior `verbose()` (stderr, flag-gated). The first malformed
+ * line keeps its specific parse error for diagnosis; a trailing summary
+ * self-describes how many lines were dropped so the warning is self-contained
+ * without the pure parser acquiring a file-write side effect.
  */
 export function parseFailureLog(content: string): FailureLogEntry[] {
   const entries: FailureLogEntry[] = [];
+  let skipped = 0;
+  let firstError = "";
   for (const line of content.split("\n")) {
     const trimmed = line.trim();
     if (!trimmed) continue;
@@ -140,10 +151,15 @@ export function parseFailureLog(content: string): FailureLogEntry[] {
       }
     } catch (err) {
       // Skip malformed lines -- do not let log parsing errors break the pipeline.
-      // Surface under --verbose so operators see the underlying corruption.
-      const message = err instanceof Error ? err.message : String(err);
-      verbose(`failureLog: parseFailureLog skipped malformed line — ${message}`);
+      skipped += 1;
+      if (!firstError) firstError = err instanceof Error ? err.message : String(err);
     }
+  }
+  if (skipped > 0) {
+    warn(
+      `failureLog: parseFailureLog skipped ${skipped} malformed line${skipped === 1 ? "" : "s"} ` +
+        `in the failure log (audit trail may be corrupt) — first error: ${firstError}`,
+    );
   }
   return entries;
 }

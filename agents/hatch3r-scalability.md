@@ -81,7 +81,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ6
 
 Calibration examples: "Pool size sufficient for 500 RPS — k6 run at 500 RPS held p99 at 180ms with `pool.waiting = 0` sustained" is High; "Pool size likely sufficient based on Little's-law calculation against documented avg query time" is Medium; "Pool size of 20 looks reasonable for a typical app" with no measurement is Low.
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ6 unit of decomposition: **scaling concern** — state (handler statelessness + session storage), pools (DB + cache + downstream HTTP), queues (offloading + retry + DLQ), idempotency (header acceptance + dedup store), bulkheads (resource-pool isolation), load-test verification — OR **service** when multiple services are in scope. The load-test verifier is the longest sub-agent; defer it under a `deferred:` note when budget is exhausted before completion.
 

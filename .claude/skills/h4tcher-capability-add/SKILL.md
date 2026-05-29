@@ -9,6 +9,8 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
+> Last updated: 2026-05-29
+
 # Capability Add (Maintainer)
 
 Lifecycle preset for adding new framework artifacts. Owns the >70% overlap block, the inventory regen requirement, and cross-skill delegation to `h4tcher-content-author` / `h4tcher-adapter-author` / `h4tcher-domain-author`. Triage-first hybrid modeled on `.claude/skills/h4tcher-pr-resolve/SKILL.md`.

@@ -375,18 +375,43 @@ export function toFailureLogEntry(
 }
 
 /**
- * Canonical tool category registry. Adding a new runtime tool category
- * requires adding it here so `validateToolPolicies` accepts it.
+ * Functionally distinct runtime tool categories — every category that maps to
+ * a unique adapter-native tool set. These six are the privilege envelope a
+ * policy can actually grant; the "all categories" least-privilege warning in
+ * `validateToolPolicies` is computed against this set (D2-SA2.4 F5).
  */
-export const ALL_TOOL_CATEGORIES = [
+export const FUNCTIONAL_TOOL_CATEGORIES = [
   "read",
   "search",
   "write",
   "execute",
   "web",
   "mcp",
-  "git",
-  "board",
+] as const;
+
+/**
+ * Reserved tool categories. Declared for forward compatibility but unused by
+ * any current `AGENT_TOOL_POLICY` and collapsed at the translator layer
+ * (`adapterToolTranslator.ts`): `git` maps to the same native tools as
+ * `execute` (git is driven via Bash), and `board` is MCP-driven (no distinct
+ * native token). A policy that grants either gains no privilege beyond
+ * `execute`/`mcp` respectively. Retained as reserved rather than removed to
+ * preserve design optionality for a future git/board-specialist agent
+ * (D2-SA2.4 F3).
+ */
+export const RESERVED_TOOL_CATEGORIES = ["git", "board"] as const;
+
+/**
+ * Canonical tool category registry — the union of functional and reserved
+ * categories. Adding a new runtime tool category requires adding it here so
+ * `validateToolPolicies` accepts it. `git`/`board` are reserved (see
+ * {@link RESERVED_TOOL_CATEGORIES}); the least-privilege warning gate uses
+ * {@link FUNCTIONAL_TOOL_CATEGORIES} so granting all six functional categories
+ * trips the warning even though it omits the two reserved aliases.
+ */
+export const ALL_TOOL_CATEGORIES = [
+  ...FUNCTIONAL_TOOL_CATEGORIES,
+  ...RESERVED_TOOL_CATEGORIES,
 ] as const;
 
 /**
@@ -474,7 +499,13 @@ export function validateToolPolicies(
       warnings.push(`Agent "${policy.agentId}" has an empty tool allowlist — it cannot invoke any tools.`);
     }
 
-    const hasAll = ALL_TOOL_CATEGORIES.every((cat) =>
+    // Least-privilege warning: gate on the functionally distinct categories
+    // only. The reserved `git`/`board` aliases collapse to `execute`/`mcp` at
+    // the translator layer (see RESERVED_TOOL_CATEGORIES), so a policy granting
+    // all six functional categories is the broadest realistic privilege
+    // envelope and must trip this warning even when it omits git/board
+    // (D2-SA2.4 F5).
+    const hasAll = FUNCTIONAL_TOOL_CATEGORIES.every((cat) =>
       policy.allowedTools.includes(cat),
     );
     if (hasAll) {

@@ -79,7 +79,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ5
 - **Medium:** Static scan only — frontmatter map, file existence, grep against mandate vocabulary, coverage report read without re-running tests, eval manifest read without running the harness.
 - **Low:** Heuristic — pattern recognition without command execution. Use Low only when tooling is unavailable in the current environment.
 
-## Sub-Agent Delegation
+## Sub-agent delegation
 
 See `agents/shared/quality-specialist-frame.md` → §Sub-Agent Delegation (cost-dominance, wall-clock advisory, attestation included). CQ5 unit of decomposition: **mandate class** present in the diff. Per-class specialist briefs:
 

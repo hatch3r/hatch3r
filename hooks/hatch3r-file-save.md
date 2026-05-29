@@ -32,4 +32,4 @@ When this hook fires, the assigned agent should:
 
 - **Globs**: Controlled by the `globs` frontmatter field. Adjust to match your project's source file extensions.
 - **Rule sources**: Reads from `rules/`. Rules with matching `globs` or `scope: always` are activated.
-- **Debounce**: To avoid excessive processing during rapid saves, the agent debounces with a 2-second window (configurable via `debounceMs`).
+- **Debounce**: To avoid excessive processing during rapid saves, the agent debounces with a 2-second window (configurable via `debounceMs`). Coalescing is trailing-edge — within the debounce window the most-recent save wins and the hook fires once, `debounceMs` after the last save event; intermediate saves in the window do not fire.
