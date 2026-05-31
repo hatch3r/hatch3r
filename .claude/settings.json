@@ -17,11 +17,22 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": ".*",
+        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "head -90 governance/CONSTITUTION.md 2>/dev/null && echo '---' && (node .claude/hooks/session-start-registry.mjs governance/audit/finding-registry.json 2>/dev/null || echo 'Audit registry unavailable')"
+            "command": "(head -90 governance/CONSTITUTION.md 2>&1 || echo 'CONSTITUTION primer unavailable'); echo '---'; (node .claude/hooks/session-start-registry.mjs governance/audit/finding-registry.json 2>/dev/null || echo 'Audit registry unavailable')"
+          }
+        ]
+      }
+    ],
+    "ConfigChange": [
+      {
+        "matcher": "user_settings",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'hatch3r: .claude/settings.json changed — review new allow entries'"
           }
         ]
       }
