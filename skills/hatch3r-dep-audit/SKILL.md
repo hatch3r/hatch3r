@@ -113,3 +113,8 @@ For CVEs or outdated packages not addressed in this session, create a tracking i
 - [ ] `package-lock.json` committed
 - [ ] PR includes upgrade rationale and bundle impact
 - [ ] No duplicate packages; unused deps removed
+
+## References
+
+- [npm audit — npm CLI docs](https://docs.npmjs.com/cli/v10/commands/npm-audit) — accessed 2026-05-31, official-docs (npm, Inc.). Source for the `npm audit` severity buckets (critical/high/moderate/low) and `npm outdated` semantics used in Step 1.
+- [GitHub security advisories REST API](https://docs.github.com/en/rest/security-advisories/repository-advisories) — accessed 2026-05-31, official-docs (GitHub). Source for the `gh api /repos/{owner}/{repo}/security-advisories` CVE-research path in Step 2.

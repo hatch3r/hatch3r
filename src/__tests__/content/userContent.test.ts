@@ -3,7 +3,7 @@
 //
 // Each test gets its own temp directory under os.tmpdir() and tears it down
 // in afterEach, mirroring the existing pattern in
-// `src/__tests__/integrity/index.test.ts` and `src/__tests__/content/index.test.ts`.
+// `src/__tests__/integrity/index.test.ts` and the `src/__tests__/content/index.*.test.ts` suite.
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, stat, rm, access } from "node:fs/promises";

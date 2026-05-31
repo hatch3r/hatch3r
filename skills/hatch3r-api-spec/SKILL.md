@@ -167,3 +167,8 @@ Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency
 - [ ] Example requests/responses included
 - [ ] No breaking changes to existing API consumers
 - [ ] `oasdiff breaking` CI gate is wired and fails on any `ERR`-level breaking change on stable endpoints (CONSTITUTION §2 P5: 0 per release)
+
+## References
+
+- [OpenAPI Specification 3.1.0](https://spec.openapis.org/oas/v3.1.0) — accessed 2026-05-31, official-docs (OpenAPI Initiative). Source for the 3.1 `info`/`components/schemas`/`$ref`/`security` structures and the JSON-Schema-aligned validation keywords used in Steps 2–3.
+- [oasdiff breaking-change detection](https://github.com/Tufin/oasdiff) — accessed 2026-05-31, independent-analysis (Tufin). Source for the `oasdiff breaking --fail-on ERR` CI-gate behavior, `--format githubactions` annotations, and ignore-rules file in Step 6.

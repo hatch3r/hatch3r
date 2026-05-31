@@ -336,3 +336,8 @@ All mutating board commands MUST maintain a run cache with the following entries
 | `errors` | `{step, issue?, message, recoverable}[]` | All errors encountered during the run |
 
 Initialize all entries at the start of the run. Populate incrementally as operations execute. The reconciliation procedure reads these entries to detect and fix drift.
+
+## References
+
+- [gh auth refresh — GitHub CLI manual](https://cli.github.com/manual/gh_auth_refresh) — accessed 2026-05-31, official-docs (GitHub). Source for the `project` scope requirement (`gh auth refresh -s project`), the classic-PAT `admin:org` note, and the `GITHUB_TOKEN`/`GH_TOKEN` fallback in the prerequisites/authentication section.
+- [Using the API to manage Projects (GraphQL) — GitHub docs](https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-api-to-manage-projects) — accessed 2026-05-31, official-docs (GitHub). Source for the Projects V2 IDs, status-field sync, and built-in "Item closed" / "Pull request merged" workflow behavior the shared board config and sync procedures depend on.

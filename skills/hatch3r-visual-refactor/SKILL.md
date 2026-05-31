@@ -113,3 +113,8 @@ Use the project's PR template. Include:
 - [ ] Snapshot tests updated
 - [ ] No visual regressions
 - [ ] Design system tokens used (no ad-hoc styling)
+
+## References
+
+- [Understanding SC 1.4.3: Contrast (Minimum) — W3C WCAG 2.2](https://www.w3.org/WAI/WCAG22/Understanding/contrast-minimum.html) — accessed 2026-05-31, official-docs (W3C). Source for the 4.5:1 AA text-contrast threshold verified in Step 1 and the Definition of Done.
+- [Design Tokens Format Module — W3C Design Tokens Community Group](https://tr.designtokens.org/format/) — accessed 2026-05-31, official-docs (W3C DTCG). Source for the design-token-over-ad-hoc-styling discipline (color, spacing, typography) the reuse/extend/create path enforces.

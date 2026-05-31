@@ -1,13 +1,13 @@
 {
-  "lastUpdated": "2026-05-29",
+  "lastUpdated": "2026-05-31",
   "counts": {
     "adapters": 3,
     "agents": 25,
-    "skills": 48,
+    "skills": 49,
     "cliSkills": 6,
     "rules": 63,
     "rulesMdc": 63,
-    "commands": 23,
+    "commands": 24,
     "hooks": 7,
     "pipeline": 22,
     "cliCommands": 18,
@@ -53,6 +53,7 @@
     ],
     "skills": [
       "hatch3r-a11y-audit/SKILL.md",
+      "hatch3r-adhoc-orchestrate/SKILL.md",
       "hatch3r-ai-feature/SKILL.md",
       "hatch3r-api-spec/SKILL.md",
       "hatch3r-architecture-review/SKILL.md",
@@ -244,6 +245,7 @@
       "hatch3r-benchmark.md",
       "hatch3r-board-fill.md",
       "hatch3r-board-pickup.md",
+      "hatch3r-bug-pipeline.md",
       "hatch3r-bug-plan.md",
       "hatch3r-codebase-map.md",
       "hatch3r-create.md",

@@ -16,7 +16,7 @@ import {
   writeManifest,
   addManagedFile,
 } from "../manifest/hatchJson.js";
-import { safeWriteFile } from "../merge/safeWrite.js";
+import { safeWriteFile, acquireWriteLock } from "../merge/safeWrite.js";
 import { HATCH3R_DIR } from "../types.js";
 import { migrateAgentsToHatch3r } from "../migration/agentsToHatch3r.js";
 import { HATCH3R_VERSION } from "../version.js";
@@ -153,24 +153,29 @@ interface WorkspaceSyncJournalEntry {
  * a journal-write failure surfaces via `onWarn` but does not abort the
  * sync (the per-repo sync itself already succeeded on disk).
  *
- * D8-SA8.2-F8.2.8 (Low, P5) — concurrency contract: this uses a plain
- * `appendFile` with no cross-process lock. Within a single `syncWorkspaceRepos`
- * invocation the call is serialized through the in-process `workspaceWriteMutex`
- * (see {@link syncWorkspaceRepos}), so the JSONL emitted by one process is
- * always well-formed line-by-line. It does NOT serialize against a SECOND
- * concurrent `hatch3r sync` (or a worktree sync) running against the same
- * workspace root: two processes appending simultaneously rely on POSIX
- * O_APPEND atomicity, which holds for writes below PIPE_BUF (4096 bytes on
- * Linux; smaller and not guaranteed on macOS/Windows). A journal line carrying
- * a long error message can exceed that bound, so a line-by-line parser could
- * observe an interleaved entry. The journal is currently read only on
- * crash-recovery (one entry per line, malformed lines skippable), so this is a
- * latent rather than active failure. The structural fix (hold a
- * `properLockfile` lock on the journal path, or write one file per repo under
- * `.hatch3r/journal/<ts>-<repo>.jsonl` so concurrent writers hit disjoint
- * paths) pairs with the F8.2.2 lock-default change and is deferred to that
- * work unit; any consumer that parses this file MUST tolerate a malformed
- * trailing line per entry.
+ * D8-SA8.2-F8.2.8 (Low, P5) — concurrency contract: the append is serialized
+ * on TWO axes. (1) In-process: within a single `syncWorkspaceRepos` invocation
+ * every call chains through the in-process `workspaceWriteMutex`
+ * (see {@link syncWorkspaceRepos}), so per-process the JSONL is written one
+ * line at a time. (2) Cross-process: the `appendFile` is wrapped in
+ * `acquireWriteLock(journalPath)` — the same advisory `proper-lockfile` lock
+ * `writeWorkspaceManifest` already holds on the manifest path, the other shared
+ * workspace-root resource serialized through this mutex. Workspace and worktree
+ * command entry points call `enableDefaultCrossProcessLocking()`
+ * (`src/cli/commands/sync.ts`, `worktreeSetup.ts`, `worktreeCleanup.ts`), so a
+ * SECOND concurrent `hatch3r sync` (or a worktree sync) against the same
+ * workspace root blocks on the lock instead of racing the file, removing the
+ * prior reliance on POSIX O_APPEND/PIPE_BUF atomicity (which is not guaranteed
+ * on macOS/Windows for lines that exceed the bound). The lock is reentrant
+ * within a process (no-op if a caller already holds `journalPath`) and a no-op
+ * when locking is disabled (single-repo / non-workspace context, or
+ * `HATCH3R_LOCK=0`), so single-process behaviour is unchanged. This is the
+ * `properLockfile`-lock option from the finding recommendation; it does NOT
+ * depend on the F8.2.2 global lock-default flip (that flips the default for
+ * `atomicWriteFile`; this call site takes the lock explicitly regardless). A
+ * `LOCK_TIMEOUT` HatchError from lock contention is caught and surfaced via
+ * `onWarn` like any other journal-write failure — the per-repo sync has already
+ * succeeded on disk, so a missed journal line does not abort the run.
  */
 async function appendJournalEntry(
   workspaceRoot: string,
@@ -180,7 +185,16 @@ async function appendJournalEntry(
   // Wave 6: journal lives in `.hatch3r/` alongside the rest of workspace state.
   const journalPath = join(workspaceRoot, HATCH3R_DIR, WORKSPACE_SYNC_JOURNAL_FILE);
   try {
-    await appendFile(journalPath, JSON.stringify(entry) + "\n", "utf-8");
+    // F8.2.8: take the cross-process advisory lock around the append so two
+    // concurrent workspace syncs cannot interleave JSONL lines. Mirrors the
+    // acquire/finally pattern in `writeWorkspaceManifest`; reentrant + no-op
+    // when locking is disabled (acquireWriteLock returns a no-op release).
+    const release = await acquireWriteLock(journalPath);
+    try {
+      await appendFile(journalPath, JSON.stringify(entry) + "\n", "utf-8");
+    } finally {
+      await release();
+    }
   } catch (err) {
     onWarn?.(
       `Failed to append sync-journal entry for ${entry.repo}: ` +

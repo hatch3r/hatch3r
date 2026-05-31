@@ -99,3 +99,8 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 - [ ] Artifact management with retention policies
 - [ ] Pipeline duration meets performance targets
 - [ ] Documentation updated with pipeline architecture
+
+## References
+
+- [Caching dependencies to speed up workflows — GitHub Actions docs](https://docs.github.com/en/actions/using-workflows/caching-dependencies-to-speed-up-workflows) — accessed 2026-05-31, official-docs (GitHub). Source for the lockfile-hash cache-key strategy and cache-hit reporting behind the >80% cache-hit-ratio target.
+- [actionlint — GitHub Actions workflow linter](https://github.com/rhysd/actionlint) — accessed 2026-05-31, independent-analysis (rhysd). Source for the local workflow-YAML validation step in Error Handling.

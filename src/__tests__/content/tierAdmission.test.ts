@@ -15,7 +15,7 @@
 // real canonical corpus, not synthetic fixtures.
 //
 // Unit-level admission semantics are exercised in
-// `src/__tests__/content/index.test.ts` under "maturity tier admission" —
+// `src/__tests__/content/index.selection.test.ts` under "maturity tier admission" —
 // this file complements those by binding the invariant to the live corpus.
 
 import { describe, it, expect } from "vitest";

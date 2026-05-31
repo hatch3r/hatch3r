@@ -228,3 +228,8 @@ If a release introduces critical issues:
 - [ ] Deployed to production and verified
 - [ ] Post-deploy monitoring completed (no critical regressions)
 - [ ] All release gates satisfied
+
+## References
+
+- [Semantic Versioning 2.0.0](https://semver.org/) — accessed 2026-05-31, official-docs (Tom Preston-Werner / SemVer). Source for the MAJOR.MINOR.PATCH bump rules and the pre-release suffix grammar (`-alpha.N`, `-beta.N`, `-rc.N`) in Step 3 and Pre-Release Support.
+- [npm sbom — npm CLI docs](https://docs.npmjs.com/cli/v10/commands/npm-sbom) — accessed 2026-05-31, official-docs (npm, Inc.). Source for the `npm sbom` CycloneDX 1.5 / SPDX 2.3 output and the >=10.5.0 CLI floor cited in the supply-chain step (5b).

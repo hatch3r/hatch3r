@@ -162,3 +162,8 @@ Store in project incident docs or as an issue/wiki page on the platform. Follow 
 - Privacy/security specs: project documentation
 - Observability: project logging and correlation conventions
 - Error handling: project error handling patterns
+
+## References
+
+- [Managing Incidents — Google SRE Book, ch. 14](https://sre.google/sre-book/managing-incidents/) — accessed 2026-05-31, official-docs (Google SRE). Source for the severity-tiered incident command structure and the timeline / post-mortem discipline in Steps 1–5.
+- [Monitoring distributed systems (RED / USE / four golden signals) — Google SRE Book, ch. 6](https://sre.google/sre-book/monitoring-distributed-systems/) — accessed 2026-05-31, official-docs (Google SRE). Source for the RED/USE metric classes in the Telemetry Sources adapter and the blast-radius signal capture in Step 1b.

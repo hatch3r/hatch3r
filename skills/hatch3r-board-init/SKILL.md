@@ -556,3 +556,8 @@ Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency
 - **Never skip Planning questions or the plan confirmation step.**
 - **Require proper authentication** for the configured platform. If mutations fail with permission errors, surface platform-specific auth requirements.
 - **Preserve existing `.hatch3r/hatch.json` content** outside the `board` key when writing config back.
+
+## References
+
+- [Using the API to manage Projects (GraphQL) — GitHub docs](https://docs.github.com/en/issues/planning-and-tracking-with-projects/automating-your-project/using-the-api-to-manage-projects) — accessed 2026-05-31, official-docs (GitHub). Source for the `createProjectV2` / `addProjectV2ItemById` / `updateProjectV2ItemFieldValue` mutations and the owner-node-ID requirement in Phase 2.
+- [gh auth refresh — GitHub CLI manual](https://cli.github.com/manual/gh_auth_refresh) — accessed 2026-05-31, official-docs (GitHub). Source for the `project` scope requirement (`gh auth refresh -s project`) and the `GITHUB_TOKEN`/`GH_TOKEN` PAT fallback in the authentication and error-handling steps.

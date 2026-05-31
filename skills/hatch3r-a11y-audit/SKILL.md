@@ -121,3 +121,8 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 - [ ] ARIA live regions for dynamic content
 - [ ] Automated scan clean for critical/major
 - [ ] Manual verification completed
+
+## References
+
+- [WCAG 2.2 — W3C Recommendation](https://www.w3.org/TR/WCAG22/) — accessed 2026-05-31, official-docs (W3C). Source for the success criteria (1.1.1, 1.4.3, 2.1.1, 4.1.2) and the 4.5:1 AA text-contrast ratio cited above.
+- [axe-core rules and WCAG mapping](https://github.com/dequelabs/axe-core/blob/develop/doc/rule-descriptions.md) — accessed 2026-05-31, independent-analysis (Deque Systems). Source for the automated-scan rule IDs and impact levels mapped to WCAG criteria in Step 2.

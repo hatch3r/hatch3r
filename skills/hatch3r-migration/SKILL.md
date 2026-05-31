@@ -99,3 +99,8 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 - [ ] No backward-compatibility shims remain
 - [ ] Documentation updated
 - [ ] Performance verified against baseline
+
+## References
+
+- [Evolutionary Database Design — Martin Fowler](https://martinfowler.com/articles/evodb.html) — accessed 2026-05-31, independent-analysis (Martin Fowler / Pramod Sadalage). Source for the expand-contract / parallel-change phasing and reversible `up`/`down` migration pattern in Steps 3–4.
+- [The expand/contract pattern for zero-downtime migrations — PlanetScale](https://planetscale.com/blog/the-expand-contract-pattern-for-zero-downtime-migrations) — accessed 2026-05-31, vendor-note (PlanetScale). Source for the backward-compatible transition window (both old and new code paths working) in Step 4.

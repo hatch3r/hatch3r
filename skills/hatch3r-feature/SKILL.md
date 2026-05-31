@@ -186,3 +186,8 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 - [ ] Privacy invariants respected
 - [ ] Rollout plan documented
 - [ ] Relevant spec docs updated
+
+## References
+
+- [WCAG 2.2 — W3C Recommendation](https://www.w3.org/TR/WCAG22/) — accessed 2026-05-31, official-docs (W3C). Source for the WCAG 2.2 AA target and the specific success criteria (SC 2.5.8 Target Size (Minimum), SC 2.4.11 Focus Not Obscured (Minimum), SC 2.5.7 Dragging Movements) named in Gate 1.
+- [Core Web Vitals — web.dev](https://web.dev/articles/vitals) — accessed 2026-05-31, official-docs (Google / Chrome team). Source for the Gate 7 p75 thresholds (LCP ≤2.5s, INP ≤200ms, CLS ≤0.1) and the mobile-throttle measurement basis.

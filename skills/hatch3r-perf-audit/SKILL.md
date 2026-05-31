@@ -138,3 +138,8 @@ You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`
 - [ ] No functional regressions
 - [ ] Bundle size within budget (if defined)
 - [ ] Key metrics within project targets
+
+## References
+
+- [Core Web Vitals — web.dev](https://web.dev/articles/vitals) — accessed 2026-05-31, official-docs (Google / Chrome team). Source for the LCP, INP/FCP/TTI metric definitions and the field-vs-lab measurement guidance behind Step 2.
+- [Lighthouse performance scoring](https://developer.chrome.com/docs/lighthouse/performance/performance-scoring) — accessed 2026-05-31, official-docs (Google / Chrome team). Source for the 60fps/16ms frame target and the metric-weighting model used when prioritising violations in Step 3.

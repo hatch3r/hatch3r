@@ -187,3 +187,8 @@ Platform-equivalent rollback for ADO/GitLab: see the platform reference files.
 - [ ] Workflow tested via manual dispatch with expected outcomes verified
 - [ ] Monitoring configured (platform notifications or Slack integration)
 - [ ] Documentation updated (README or CONTRIBUTING) to describe the new workflow
+
+## References
+
+- [Workflow syntax for GitHub Actions](https://docs.github.com/en/actions/using-workflows/workflow-syntax-for-github-actions) — accessed 2026-05-31, official-docs (GitHub). Source for the `on:` triggers, `permissions:` scoping, `workflow_dispatch`, and `timeout-minutes` / concurrency controls in the templates.
+- [GitHub Agentic Workflows](https://githubnext.com/projects/agentic-workflows/) — accessed 2026-05-31, official-docs (GitHub Next). Source for the technical-preview status, markdown-with-frontmatter compile model, and multi-engine (Copilot/Claude/Codex) + MCP tool-access claims in the Overview.

@@ -130,3 +130,8 @@ When `board-pickup` operates in auto-advance mode, context health is checked bet
 ## Related Skills & Agents
 
 - **Command**: `hatch3r-board-pickup` -- auto-advance mode uses context health for session management
+
+## References
+
+- [Token counting — Anthropic API docs](https://docs.anthropic.com/en/docs/build-with-claude/token-counting) — accessed 2026-05-31, official-docs (Anthropic). Source for treating the 1-token-per-4-characters figure as an approximation when the platform does not expose exact token counts (Error Handling, Step 1).
+- [Effective context engineering for AI agents — Anthropic engineering](https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents) — accessed 2026-05-31, official-docs (Anthropic). Source for the context-degradation and context-window-pressure signals behind the model-aware threshold profiles and the context-poisoning detection table.

@@ -82,7 +82,7 @@ Every assistant turn in this repo that causes a file mutation AND operates as an
 
 Ad-hoc multi-phase workflows do not exempt these requirements. If you are running research and review sub-agents but inlining implementation, you are in bypass mode (CHANGELOG #73). Halt and re-delegate.
 
-The three numbered steps above ARE the ad-hoc orchestrator scaffold — apply them in order from any session, no registered command required. A turnkey `/h4tcher-adhoc-orchestrate` skill that pre-fills the header + delegation directive + attestation templates is a tracked content-add candidate (D24-SA24.2-F11) via `/h4tcher-capability-add skill h4tcher-adhoc-orchestrate`; until it lands, this numbered list is the scaffold.
+The three numbered steps above ARE the ad-hoc orchestrator scaffold — apply them in order from any session, no registered command required. The `hatch3r-adhoc-orchestrate` skill (`skills/hatch3r-adhoc-orchestrate/SKILL.md`, D24-SA24.2-F11) pre-fills the Per-Turn Pipeline-State Header, the no-inline delegation plan, and the End-of-Turn Delegation Attestation templates as a turnkey starting point; this numbered list remains the authoritative contract.
 
 ---
 

@@ -144,3 +144,8 @@ Include total estimated tokens (input + output), estimated cost at current model
 ## Related Skills & Agents
 
 - **Skill**: `hatch3r-context-health` — context health monitoring complements cost tracking for session management
+
+## References
+
+- [Anthropic API pricing](https://www.anthropic.com/pricing) — accessed 2026-05-31, official-docs (Anthropic). Source for the per-million-token input/output rates in the model-tier table; these are reference rates and drift between releases — re-verify at the access date when running a cost report.
+- [Token counting — Anthropic API docs](https://docs.anthropic.com/en/docs/build-with-claude/token-counting) — accessed 2026-05-31, official-docs (Anthropic). Source for treating the ~4-characters-per-token figure as an approximation; the documented count-tokens endpoint is authoritative when exact counts are required.
