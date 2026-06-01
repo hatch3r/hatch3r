@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-05-31",
+  "lastUpdated": "2026-06-01",
   "counts": {
     "adapters": 3,
     "agents": 25,
@@ -12,7 +12,7 @@
     "pipeline": 22,
     "cliCommands": 18,
     "agentsModes": 21,
-    "agentsShared": 9,
+    "agentsShared": 12,
     "commandsBoard": 11,
     "commandsRevision": 4,
     "checks": 6,
@@ -347,9 +347,12 @@
       "efficiency-patterns.md",
       "external-knowledge.md",
       "injection-patterns.md",
+      "principles.md",
       "prompt-structure.md",
       "quality-charter.md",
       "quality-specialist-frame.md",
+      "rigor-contract.md",
+      "severity-mapping.md",
       "user-content-templates.md",
       "user-question-protocol.md"
     ],

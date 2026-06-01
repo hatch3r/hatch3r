@@ -28,15 +28,22 @@ coverage/
 # OS files
 Thumbs.db
 
-# Internal files (not for public repo)
-governance/hatch3r-prd.md
-governance/COMPETITIVE-ANALYSIS.md
+# Private governance IP (source of truth: hatch3r/hatch3r-governance) — only inventory.json stays public
+governance/*
+!governance/inventory.json
+
+# Private audit methodology (source of truth: hatch3r/hatch3r-governance)
+.claude/skills/h4tcher-audit-cycle/
+.claude/skills/h4tcher-audit-execute/
+.claude/skills/h4tcher-re-envision/
+.claude/skills/h4tcher-domain-author/
+.claude/skills/h4tcher-governance-check/
+.claude/skills/h4tcher-scoped-audit/
+.claude/rules/audit-cycle-awareness.md
+
+# Other internal/scratch files (not for public repo)
 todo.md
 social_preview.png
-
-# Audit scratch files
-governance/AUDIT-REPORT.md
-governance/EVOLVE-REPORT.md
 .audit-workspace/
 .re-envision-workspace/
 .agents/
