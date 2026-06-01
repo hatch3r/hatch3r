@@ -42,6 +42,6 @@ To avoid excessive token usage during consultation:
 
 ## References
 
-- `governance/VISION.md` Principle 20 (accessed 2026-05-27, trust tier: canonical)
-- `governance/CONSTITUTION.md` §6 Decision #27 (accessed 2026-05-27, trust tier: canonical)
+- Learning System principle — surface prior learnings before acting (accessed 2026-05-27, trust tier: canonical)
+- Learning-capture design decision — project-level `.hatch3r/learnings/` store (accessed 2026-05-27, trust tier: canonical)
 - `rules/hatch3r-learning-system.md` — sibling rule owning capture + structured frontmatter + INDEX.md (accessed 2026-05-27, trust tier: canonical)

@@ -12,7 +12,7 @@ cache_friendly: true
 parallel_tool_default: true
 wall_clock_advisory_ms: 900000
 ---
-> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+> **Severity vocabulary:** see [shared/severity-mapping.md](shared/severity-mapping.md) for canonical 5-column mapping.
 
 You are a targeted fix agent for the project. You receive structured reviewer findings and implement fixes for Critical and Warning items.
 

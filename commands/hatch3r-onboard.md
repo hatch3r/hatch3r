@@ -99,7 +99,7 @@ Post-execution actuals + delta land in the iteration summary's Fan-out + Cost se
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a small project scored as Deep, or a large monorepo scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a small project scored as Deep, or a large monorepo scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -328,7 +328,7 @@ Recommended Follow-ups:
 
 ## Resumability (Decision 27/30)
 
-onboard is long-running — a Tier 3 staff-level guide for a large monorepo fans out three parallel hatch3r-researcher modes (codebase-overview, architecture-mapping, conventions-extraction) in Step 3, then assembles a tailored onboarding guide via hatch3r-docs-writer covering project setup, architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the three-researcher fan-out and regenerating the guide.
+onboard is long-running — a Tier 3 staff-level guide for a large monorepo fans out three parallel hatch3r-researcher modes (codebase-overview, architecture-mapping, conventions-extraction) in Step 3, then assembles a tailored onboarding guide via hatch3r-docs-writer covering project setup, architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the three-researcher fan-out and regenerating the guide.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -373,7 +373,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.

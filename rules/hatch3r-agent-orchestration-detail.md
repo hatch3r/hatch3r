@@ -213,7 +213,7 @@ Finding D7-M13 / D7-SA7.5-3: the orchestration rule's `Task Context Protocols` p
 
 **Review loop coordination.** After all level-N implementers complete, the orchestrator runs ONE consolidated Phase 3 review loop covering the union diff produced by the level. Per-unit Phase 4 specialist dispatch then runs in parallel bounded by `max_phase4_parallel`. Level-N+1 begins only after Level-N reaches Phase 4 completion (validated by `evaluatePhase4Completion`).
 
-**Concurrent-invocation handling.** Cross-pipeline (two `hatch3r` commands in two shells against the same repo) is deferred to a future cycle pending the Decision 27 resumability work — see CL-2 spec at the end of `governance/AUDIT-EXECUTE.md`.
+**Concurrent-invocation handling.** Cross-pipeline (two `hatch3r` commands in two shells against the same repo) is deferred to a future cycle pending the Decision 27 resumability work, tracked in the audit closed-loop CL-2 spec.
 
 ## Pipeline Pattern (Cross-Command Consistency)
 

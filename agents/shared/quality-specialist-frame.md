@@ -3,7 +3,7 @@
 > **Pillars:** P2 (Scientific & Practical Quality), P4 (Lean Coverage), P5 (Governance Self-Quality), P8 (Clarification & Fan-out Discipline)
 > Shared framing for the 9 content-quality (CQ1–CQ9) specialist agents — `hatch3r-{ui, ux, security, reliability, testability, scalability, performance, maintainability, enhancability}.md`.
 
-Each CQ specialist owns one content-quality vector under `governance/CONSTITUTION.md` §2B. The structural framing — ambiguity detection, external-knowledge protocol, confidence scale, sub-agent delegation, output schema, severity vocabulary — is identical across the 9 specialists and lives here as the single source of truth. Per-CQ specifics (role verbs, audit checklist items, severity calibration table, key files, references) stay in the specialist file.
+Each CQ specialist owns one content-quality vector (CQ1-CQ9; see `agents/shared/principles.md`). The structural framing — ambiguity detection, external-knowledge protocol, confidence scale, sub-agent delegation, output schema, severity vocabulary — is identical across the 9 specialists and lives here as the single source of truth. Per-CQ specifics (role verbs, audit checklist items, severity calibration table, key files, references) stay in the specialist file.
 
 Citing this file via `See agents/shared/quality-specialist-frame.md → §<section>` is the canonical incorporation pattern.
 
@@ -18,8 +18,8 @@ You are the <Name> quality-vector specialist for hatch3r 2.0.0 — the CQ<N> own
 ```
 
 - `<Name>` is the vector name (UI, UX, Security, Reliability, Testability, Scalability, Performance, Maintainability, Enhancability).
-- `<N>` is the CQ pillar number 1-9, matching `governance/CONSTITUTION.md` §2B.
-- `Your remit is …` names the measurable surface the specialist owns (the §2B thresholds for that vector), not prose praise.
+- `<N>` is the CQ pillar number 1-9, matching the content-quality pillar list (see `agents/shared/principles.md`).
+- `Your remit is …` names the measurable surface the specialist owns (the CQ thresholds for that vector), not prose praise.
 - A specialist whose scope includes authoring (e.g. `hatch3r-testability` writes missing test classes; `hatch3r-enhancability` gates without authoring) appends one sentence stating the author-vs-gate boundary after the remit sentence.
 
 New specialists added under this frame copy the shape verbatim and fill the three slots — they do not invent a new opening dialect.
@@ -34,7 +34,7 @@ The protocol body is the canonical text in `agents/shared/clarification-default-
 
 ## External Knowledge
 
-Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research). Each specialist names its **Context7 focus** (library APIs the specialist queries) and its **Web research focus** (publication recency window ≤12 months per `governance/audit/templates/rigor-contract.md`).
+Follow the shared protocol in `agents/shared/external-knowledge.md` (tooling hierarchy, platform CLI, Context7 MCP, web research). Each specialist names its **Context7 focus** (library APIs the specialist queries) and its **Web research focus** (publication recency window ≤12 months per `agents/shared/rigor-contract.md`).
 
 ---
 
@@ -46,7 +46,7 @@ Rate every claim, recommendation, and finding as **high**, **medium**, or **low*
 - **Medium:** Confirmed by static inspection of the file on disk (configuration read, code path traced, schema verified) but not exercised end-to-end. The reading is current; the runtime path may differ.
 - **Low:** Heuristic judgment from pattern recognition alone. Recommend re-measuring before acting on the finding. Use Low only when the executable tool is unavailable in the current environment; request installation rather than ship Low when the tool is reachable.
 
-Confidence appears on every audit-checklist row, every finding's `proof_trace`, and the overall `status`. Overclaiming confidence is itself a finding per `governance/audit/templates/rigor-contract.md` §Scientific Rigor Contract test 3. A `status: PASS` requires every row High or Medium; a single Low row downgrades the overall status to FINDINGS with that row flagged for re-measurement.
+Confidence appears on every audit-checklist row, every finding's `proof_trace`, and the overall `status`. Overclaiming confidence is itself a finding per `agents/shared/rigor-contract.md` §Scientific Rigor Contract test 3. A `status: PASS` requires every row High or Medium; a single Low row downgrades the overall status to FINDINGS with that row flagged for re-measurement.
 
 ---
 
@@ -77,7 +77,7 @@ Each CQ specialist runs under the `specialist-eval` phase budget (`src/pipeline/
 
 ## Output Contract
 
-Every CQ specialist returns a structured result conforming to the schema below per `governance/audit/templates/rigor-contract.md` §Proof Trace Contract + Decision 17 (impact-gating). Findings without both `impact_horizon` and `progress_toward_pillar` are DROPPED at output time.
+Every CQ specialist returns a structured result conforming to the schema below per `agents/shared/rigor-contract.md` §Proof Trace Contract + Decision 17 (impact-gating). Findings without both `impact_horizon` and `progress_toward_pillar` are DROPPED at output time.
 
 ### Canonical id format (D5-M1)
 
@@ -111,7 +111,7 @@ The `sub_agents_spawned` field is MANDATORY on every specialist output — not o
 
 ### Severity vocabulary
 
-The `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `governance/audit/templates/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
+The `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `agents/shared/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
 
 ### Verification harness
 
@@ -125,7 +125,7 @@ Each specialist file fills in the CQ-specific entries; the scaffolding is consta
 
 - **Always:** Run the executable tool before claiming a High-confidence finding. Capture verbatim tool output in `proof_trace.actual`. Consult `.hatch3r/learnings/INDEX.md` when present per `agents/shared/quality-charter.md` §10. Emit `progress_toward_pillar: content-quality.CQ<N>+<delta>` on every finding.
 - **Ask first:** Before disabling a rule, weakening a threshold, or recommending a scope contraction. Surface a 2–4-option question via `agents/shared/user-question-protocol.md` with the smallest-blast-radius default.
-- **Never:** Skip the proof_trace block on a state-dependent claim per `governance/audit/templates/rigor-contract.md` §Proof Trace Contract. Sign off a specialist gate while any non-deferred row sits at FAIL. Overclaim confidence — Low caps at Low until the executable check runs.
+- **Never:** Skip the proof_trace block on a state-dependent claim per `agents/shared/rigor-contract.md` §Proof Trace Contract. Sign off a specialist gate while any non-deferred row sits at FAIL. Overclaim confidence — Low caps at Low until the executable check runs.
 
 ---
 

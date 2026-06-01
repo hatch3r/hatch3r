@@ -90,7 +90,7 @@ Post-execution actuals + delta land in the iteration summary's Fan-out + Cost se
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a single-module feature scored as Deep, or a cross-cutting feature scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a single-module feature scored as Deep, or a cross-cutting feature scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -482,7 +482,7 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 
 ## Resumability (Decision 27/30)
 
-feature-plan is long-running — a Tier 3 cross-cutting feature fans out four parallel hatch3r-researcher modes (codebase-impact, feature-design, architecture, risk-pitfalls) in Step 3, then assembles the spec via docs-writer with the 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) advising pre-write on the measurable floors the spec must encode. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the four-researcher + nine-specialist fan-out.
+feature-plan is long-running — a Tier 3 cross-cutting feature fans out four parallel hatch3r-researcher modes (codebase-impact, feature-design, architecture, risk-pitfalls) in Step 3, then assembles the spec via docs-writer with the 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) advising pre-write on the measurable floors the spec must encode. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the four-researcher + nine-specialist fan-out.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -527,7 +527,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.

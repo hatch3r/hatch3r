@@ -173,7 +173,7 @@ Post-execution actuals + delta land in the Step 10 Resolution Summary's Fan-out 
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a 40-comment PR of pure nits scored as Tier 3, or a 3-comment PR with a hidden Critical scored as Tier 1. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a 40-comment PR of pure nits scored as Tier 3, or a 3-comment PR with a hidden Critical scored as Tier 1. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0/Step 4e auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -322,7 +322,7 @@ finding:
 
 ## Step 4: Comment Evaluation (Rigor Contract Applied)
 
-For each normalized finding, evaluate against the current code in the working tree using the six-test Scientific Rigor Contract from `governance/audit/templates/rigor-contract.md`.
+For each normalized finding, evaluate against the current code in the working tree using the six-test Scientific Rigor Contract from `agents/shared/rigor-contract.md`.
 
 #### 4a. Targeted Code Read
 
@@ -678,7 +678,7 @@ Status decision rules:
 
 ## Resumability (Decision 27/30)
 
-pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the only mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), and commit + push (Step 9). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
+pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the only mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), and commit + push (Step 9). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -723,7 +723,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.

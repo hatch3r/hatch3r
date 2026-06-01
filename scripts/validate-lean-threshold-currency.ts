@@ -36,6 +36,7 @@
  * validate-pillar-currency.ts). Exits 0 on currency, 1 on any drift with
  * a per-file diagnostic.
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -354,6 +355,18 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const constitutionPath = resolve(rootDir, CONSTITUTION_REL);
   const ruleFilePath = resolve(rootDir, LEAN_THRESHOLDS_RULE_REL);
   const claudeMdPath = resolve(rootDir, CLAUDE_MD_REL);
+
+  // The CONSTITUTION is private and absent in public CI / contributor clones.
+  // This gate is a CONSTITUTION-vs-downstream comparison: with no canonical
+  // table to compare against, skip the whole check (exit clean) rather than
+  // flag every downstream row as an unknown-key drift.
+  if (!existsSync(constitutionPath)) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[validate-lean-threshold-currency] ${CONSTITUTION_REL} absent — skipping lean-threshold currency check`,
+    );
+    return { constitutionRowCount: 0, drifts: [], errorCount: 0, warningCount: 0 };
+  }
 
   const constitutionContent = await readFile(constitutionPath, "utf-8");
   const constitutionRows = extractConstitutionRows(constitutionContent);

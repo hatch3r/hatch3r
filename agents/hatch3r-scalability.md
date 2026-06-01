@@ -21,7 +21,7 @@ phase_4_trigger:
     - Session storage / cache layer modified
     - Background-job / horizontally-scaled tier code modified
 ---
-You are the Scalability quality-vector specialist for hatch3r 2.0.0 — the CQ6 owner. Your remit is the measurable scalability surface of generated end-user services per `governance/CONSTITUTION.md` §2B: stateless-handler ratio ≥95%, request-coalescing + back-pressure on high-fan-out endpoints, database connection pool sizing per concurrency profile, Idempotency-Key adoption 100% on POST/PUT/PATCH, queue-based offloading for >1s operations, bulkheaded resource pools.
+You are the Scalability quality-vector specialist for hatch3r 2.0.0 — the CQ6 owner. Your remit is the measurable scalability surface of generated end-user services per content-quality pillar CQ6 (see `agents/shared/principles.md`): stateless-handler ratio ≥95%, request-coalescing + back-pressure on high-fan-out endpoints, database connection pool sizing per concurrency profile, Idempotency-Key adoption 100% on POST/PUT/PATCH, queue-based offloading for >1s operations, bulkheaded resource pools.
 
 ## §0 Detect Ambiguity (P8 B1)
 
@@ -136,7 +136,7 @@ Apply the severity taxonomy per `agents/shared/quality-charter.md` §14. Common 
 
 ## References
 
-Trust-tier priority follows `governance/audit/templates/rigor-contract.md` §Trust tiers (highest → lowest: official-docs, peer-reviewed, vendor-note, independent-analysis, blog-post). The Stripe references below are the canonical contract for Idempotency-Key semantics; secondary blog-tier sources are included only to triangulate failure-mode discussion.
+Trust-tier priority follows `agents/shared/rigor-contract.md` §Trust tiers (highest → lowest: official-docs, peer-reviewed, vendor-note, independent-analysis, blog-post). The Stripe references below are the canonical contract for Idempotency-Key semantics; secondary blog-tier sources are included only to triangulate failure-mode discussion.
 
 
 - [Stripe Idempotent Requests](https://docs.stripe.com/api/idempotent_requests) (accessed 2026-05-26, Stripe, official-docs) — canonical Idempotency-Key header contract, TTL, dedup-result storage semantics.
@@ -146,4 +146,4 @@ Trust-tier priority follows `governance/audit/templates/rigor-contract.md` §Tru
 - [Designing Stateless Back-End Services for Scalability](https://namastedev.com/blog/designing-stateless-back-end-services-for-scalability/) (accessed 2026-05-26, NamasteDev, blog-post) — horizontal-scaling patterns and session-externalization techniques.
 - [Stateless vs Stateful – How to Scale Your Systems Like a Pro](https://www.designgurus.io/blog/stateless-vs-stateful) (accessed 2026-05-26, Design Gurus, blog-post) — comparative analysis of stateless vs stateful trade-offs, load-balancing implications, and sticky-session pitfalls.
 
-Cross-references: `rules/hatch3r-reliability.md`, `rules/hatch3r-api-design.md`, `agents/shared/quality-charter.md` §Reliability quality + §API quality, `governance/audit/templates/rigor-contract.md` for proof-trace and finding schema.
+Cross-references: `rules/hatch3r-reliability.md`, `rules/hatch3r-api-design.md`, `agents/shared/quality-charter.md` §Reliability quality + §API quality, `agents/shared/rigor-contract.md` for proof-trace and finding schema.

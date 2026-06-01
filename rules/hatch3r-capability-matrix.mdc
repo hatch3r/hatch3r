@@ -76,7 +76,7 @@ Each capability resolves to one of: utilized, partially-utilized, unutilized. Pe
 
 Per-cycle delta computation:
 
-1. Load prior cycle's matrix from `governance/audit/execution-insights.json::d9_adapter_capability_matrix.{adapter}` — this key is populated by the D09 SA 9.4 synthesis agent at the end of each cycle that audits this matrix. On the first cycle that runs this procedure the key is absent: skip steps 2-3 (no prior baseline) and record the current matrix as the baseline for next cycle.
+1. Load prior cycle's matrix from the audit execution-insights store (key `d9_adapter_capability_matrix.{adapter}`) — this key is populated by the platform-adapters domain SA 9.4 synthesis agent at the end of each cycle that audits this matrix. On the first cycle that runs this procedure the key is absent: skip steps 2-3 (no prior baseline) and record the current matrix as the baseline for next cycle.
 2. Compute `utilization_ratio` delta cycle-over-cycle
 3. Regression (current < prior) = Medium finding with root-cause analysis required
 4. Currency `delta_days > 90` = Medium finding per P3
@@ -92,8 +92,8 @@ D09 SA 9.4 (Capability Matrix Verification, SEQUENTIAL) aggregates unutilized ca
 
 ## Cross-Reference
 
-- `governance/audit/domains/D09-platform-adapters.md` — D09 SA-{Cursor, Claude, Copilot} per cycle runs this procedure
-- `governance/audit/domains/D21-cli-tool-currency.md` — sibling cycle for CLI tool currency
+- The platform-adapters audit domain — its per-adapter SA-{Cursor, Claude, Copilot} per cycle runs this procedure
+- The CLI-tool-currency audit domain — sibling cycle for CLI tool currency
 - `.claude/rules/adapter-development.md` — adapter authoring conventions
 
 ## Pillar Service

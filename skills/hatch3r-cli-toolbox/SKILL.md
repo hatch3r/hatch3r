@@ -285,7 +285,7 @@ docker run --rm --network none -v "$PWD:/work:ro" -w /work \
 
 ### zstd
 - **When to use:** high-ratio compression with single-digit-millisecond decompress speeds — cold-storage payloads, CI artifact upload.
-- **Recipe:** `tar --zstd -cf bundle.tar.zst dist/ governance/`
+- **Recipe:** `tar --zstd -cf bundle.tar.zst dist/ docs/`
 - **Wrong choice when:** distribution where every byte counts and decompress speed is irrelevant — use `xz -9e`; legacy Windows recipients — use `zip`; already-compressed payloads — skip compression.
 
 ---
@@ -369,4 +369,4 @@ This skill synthesizes 25 pre-existing in-repo per-tool skills (collapsed in v1.
 - skills/hatch3r-cli-yq/SKILL.md
 - skills/hatch3r-cli-zstd/SKILL.md
 
-Per `governance/audit/domains/D16-compound-system.md` SA 16.3, the rejected merge alternative (keep every tool as a standalone skill) was rejected because the 25 collapsed entries averaged 75 lines each (1.9k lines total) with >70% structural duplication of the same "When to Use / Token Cost / Recipes / Wrong Choice / Alternatives / Install" frame — collapse into a single category-indexed reference cuts the surface to ~250 lines while preserving the discriminator that picks one tool over another.
+Per hatch3r's artifact-inventory and redundancy analysis, the rejected merge alternative (keep every tool as a standalone skill) was rejected because the 25 collapsed entries averaged 75 lines each (1.9k lines total) with >70% structural duplication of the same "When to Use / Token Cost / Recipes / Wrong Choice / Alternatives / Install" frame — collapse into a single category-indexed reference cuts the surface to ~250 lines while preserving the discriminator that picks one tool over another.

@@ -67,7 +67,7 @@ Produce all eight as separate markdown files under `docs/specs/` (paths returned
 - **SAM** (Serviceable Addressable Market): subset of TAM the product can serve given current geography, language, regulation.
 - **SOM** (Serviceable Obtainable Market): realistic 3-year capture estimate with assumptions documented.
 - **Macro trends**: 3–5 trends with citations, each tagged confidence (H/M/L) per quality charter §1.
-- Each claim carries ≥2 independent sources per `governance/audit/templates/rigor-contract.md` (URL + access date + author/org + trust tier).
+- Each claim carries ≥2 independent sources per `agents/shared/rigor-contract.md` (URL + access date + author/org + trust tier).
 
 ### 2. Competitive Analysis (`docs/specs/competitive-analysis.md`)
 
@@ -127,7 +127,7 @@ Per-risk row in a table:
 | ID | Risk | Severity | Likelihood | Mitigation | Owner | Trigger to escalate |
 |----|------|----------|------------|------------|-------|---------------------|
 
-- **Severity**: Critical / High / Medium / Low per quality charter §14 (`governance/AUDIT.md` §Severity Taxonomy).
+- **Severity**: Critical / High / Medium / Low per quality charter §14 (the canonical severity taxonomy, `agents/shared/severity-mapping.md`).
 - **Mitigation**: specific action — not "monitor", not "be careful".
 - **Owner**: role or named persona-of-record.
 - Cover at minimum: market risk, competitive risk, tech-stack risk, regulatory risk, team-capacity risk, supply-chain risk per `agents/shared/quality-charter.md` §Supply-chain floor.
@@ -224,7 +224,7 @@ confidence_aggregate:
 open_questions: <list routed back to user per user-question-protocol.md>
 ```
 
-Cite each state-dependent claim with a `proof_trace` block per `governance/audit/templates/rigor-contract.md` §Proof Trace Contract. Citation alone is insufficient — verification commands close the loop.
+Cite each state-dependent claim with a `proof_trace` block per `agents/shared/rigor-contract.md` §Proof Trace Contract. Citation alone is insufficient — verification commands close the loop.
 
 </context>
 
@@ -246,7 +246,7 @@ Cite each state-dependent claim with a `proof_trace` block per `governance/audit
 - `rules/hatch3r-api-design.md` — API contract patterns referenced when the PRD scope includes external APIs.
 - `agents/shared/quality-charter.md` — confidence levels, stakeholder framing, supply-chain floor, severity discipline.
 - `agents/shared/user-question-protocol.md` — §0 ambiguity gate routing.
-- `governance/audit/templates/rigor-contract.md` — citation format, trust tiers, proof-trace contract.
+- `agents/shared/rigor-contract.md` — citation format, trust tiers, proof-trace contract.
 
 ## References
 

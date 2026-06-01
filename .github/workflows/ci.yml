@@ -287,4 +287,9 @@ jobs:
       # tooling lands (plan-implementing-a-sofficticated-ancient-penguin.md).
       - name: Finding registry drift check
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npm run audit:validate-registry
+        run: |
+          if [ -f governance/audit/finding-registry.json ]; then
+            npm run audit:validate-registry
+          else
+            echo "finding-registry absent — skipping"
+          fi

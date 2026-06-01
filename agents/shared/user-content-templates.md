@@ -65,7 +65,7 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 </rules>
 
 ## Confidence Expression
-Per `agents/shared/quality-charter.md` §1 and `governance/audit/templates/rigor-contract.md`, rate every recommendation and decision as **high**, **medium**, or **low** confidence and name the basis (direct measurement, sampled observation, inference from analogue).
+Per `agents/shared/quality-charter.md` §1 and `agents/shared/rigor-contract.md`, rate every recommendation and decision as **high**, **medium**, or **low** confidence and name the basis (direct measurement, sampled observation, inference from analogue).
 
 - **High:** Verified against the specific code/document path read this turn (<FILE-OR-FIXTURE-VERIFIED>).
 - **Medium:** Pattern-based on convention or analogue (<NAMED-PATTERN-OR-ANALOGUE>); not fully traced.

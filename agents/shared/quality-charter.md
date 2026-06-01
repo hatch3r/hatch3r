@@ -125,7 +125,7 @@ For any non-trivial design choice, hold an internal adversarial review: what is 
 
 ### 14. Severity Discipline
 
-When classifying issues (bugs, code smells, design concerns), apply the severity taxonomy from `governance/AUDIT.md` §Severity Taxonomy (Critical / High / Medium / Low / Info). Calibrate against blast radius + reversibility + user impact. Critical reserved for production-blocking; Low/Info for cosmetic-only.
+When classifying issues (bugs, code smells, design concerns), apply the canonical severity taxonomy from `severity-mapping.md` (Critical / High / Medium / Low / Info). Calibrate against blast radius + reversibility + user impact. Critical reserved for production-blocking; Low/Info for cosmetic-only.
 
 ### 15. Currency Verification
 
@@ -164,7 +164,7 @@ When an agent produces UI for an end-user project, the charter binds it to these
 - **AI-UX patterns (when applicable):** streaming responses via AI SDK UI hooks plus AI Elements; tool-call UI cards; human-approval gates for side-effectful tools; cancel, abort, and undo affordances; span-grounded citations. Reference `rules/hatch3r-ai-ux-patterns.md`.
 - **Verification gate:** a feature is not done until `skills/hatch3r-ui-ux-verify` passes all 9 gates — axe-core, keyboard trace, a11y-tree snapshot, four-state coverage, visual regression, microcopy lint, Core Web Vitals, AI-UX checks (when applicable), and one human screen-reader pass per release.
 
-Cross-reference: this section is audited under D10 SA10.9 (`governance/audit/domains/D10-documentation-devex.md`) and CONSTITUTION §2 P2 measurement.
+Cross-reference: this section is audited under the documentation/dev-experience audit domain and P2 measurement (see `principles.md`).
 
 ### Observability quality (for agent-produced services)
 

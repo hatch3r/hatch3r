@@ -49,7 +49,7 @@ Loaded on demand during Step 3 of the accessibility audit workflow when a detail
 
 ## Severity Cataloging
 
-WCAG conformance levels map to the canonical audit severity 5-tier via `governance/audit/templates/severity-mapping.md` — `Critical → Critical`, `Major → Medium` (escalate to High when blocking a critical user journey per the table's A11y-Auditor row), `Minor → Low`. Findings reported to consumers (`hatch3r-fixer`, audit registry) MUST use the canonical 5-tier or carry the mapping reference; this file documents the local WCAG vocabulary alongside the canonical pointer.
+WCAG conformance levels map to the canonical audit severity 5-tier via `agents/shared/severity-mapping.md` — `Critical → Critical`, `Major → Medium` (escalate to High when blocking a critical user journey per the table's A11y-Auditor row), `Minor → Low`. Findings reported to consumers (`hatch3r-fixer`, audit registry) MUST use the canonical 5-tier or carry the mapping reference; this file documents the local WCAG vocabulary alongside the canonical pointer.
 
 | Severity (local WCAG) | Canonical map         | Definition                              | Examples                                                      |
 | --------------------- | --------------------- | --------------------------------------- | ------------------------------------------------------------- |

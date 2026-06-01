@@ -142,8 +142,8 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 
 ### Quality bar
 - Test suite: 3877+ tests passing (vitest), coverage thresholds at 78/65/80/80 statements/branches/functions/lines globally with a critical-module floor of 90/80/90/90 for `src/merge/`.
-- Security: OWASP ASI01-10 controls (`governance/audit/domains/D15-agentic-security.md`), atomic file writes, prompt injection guards, tool allowlists per agent.
-- Governance: 8 Binding Pillars (`governance/CONSTITUTION.md`), 24 audit domains, closed-loop self-evolution audits.
+- Security: OWASP ASI01-10 controls (D15 agentic-security audit domain), atomic file writes, prompt injection guards, tool allowlists per agent.
+- Governance: 8 Binding Pillars (the Constitution), 24 audit domains, closed-loop self-evolution audits.
 - License: MIT, DCO sign-off enforced on commits.
 
 ### Cross-platform

@@ -90,7 +90,7 @@ Post-execution actuals + delta land in the iteration summary's Fan-out + Cost se
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a focused greenfield scored as Deep, or a regulated multi-platform project scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a focused greenfield scored as Deep, or a regulated multi-platform project scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -1228,7 +1228,7 @@ Which would you like to run next? (or none)"
 
 ## Resumability (Decision 27/30)
 
-project-spec is long-running — a Tier 3 enterprise-scale greenfield fans out seven parallel hatch3r-researcher domains in Step 3 (stack, features, architecture, pitfalls, UX, business-model-and-market, production-and-scale), then runs a second parallel batch of docs-writers in Step 7 (one per document category: business spec, technical spec, ADRs) plus an AGENTS.md generation pass. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the seven-researcher + docs-writer-batch fan-out.
+project-spec is long-running — a Tier 3 enterprise-scale greenfield fans out seven parallel hatch3r-researcher domains in Step 3 (stack, features, architecture, pitfalls, UX, business-model-and-market, production-and-scale), then runs a second parallel batch of docs-writers in Step 7 (one per document category: business spec, technical spec, ADRs) plus an AGENTS.md generation pass. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the seven-researcher + docs-writer-batch fan-out.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -1273,7 +1273,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.

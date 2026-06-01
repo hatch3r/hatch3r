@@ -93,7 +93,7 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 **progress_toward_pillar:** governance.P7+<delta>
 ```
 
-Per CONSTITUTION §6 Decision 17 + AUDIT.md charter directive 18, `impact_horizon` defaults to `medium` (a handoff persists across context windows and can be resumed days later); use `long` for handoffs that capture multi-week initiatives. `progress_toward_pillar` records the pillar-delta on the governance axis — handoff-preparer output advances P7 (Speed & Token Efficiency) because the externalized session-state lets a fresh context window resume without re-deriving prior work.
+Per the impact-horizon and pillar-progress emission convention, `impact_horizon` defaults to `medium` (a handoff persists across context windows and can be resumed days later); use `long` for handoffs that capture multi-week initiatives. `progress_toward_pillar` records the pillar-delta on the governance axis — handoff-preparer output advances P7 (Speed & Token Efficiency) because the externalized session-state lets a fresh context window resume without re-deriving prior work.
 
 ## Outputs
 

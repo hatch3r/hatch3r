@@ -117,7 +117,7 @@ The Step 3 user-feedback interview is user-driven and excluded from the duration
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a cleanup-only revision scored as Deep, or a revision with critical findings scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a cleanup-only revision scored as Deep, or a revision with critical findings scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -335,7 +335,7 @@ If the user attempts to defer a Critical finding, execute the Critical Deferral 
    Critical Deferral Warning:
      Finding: {description}
      Risk: {specific consequence of deferral — e.g., "unvalidated auth tokens may allow unauthorized access"}
-     Policy: Critical findings should resolve before merge (CONSTITUTION.md, quality philosophy).
+     Policy: Critical findings should resolve before merge (hatch3r quality philosophy).
    ```
 
 2. **Require rationale.** Do not accept a bare "yes" or "defer" — the user must provide a written reason explaining why deferral is acceptable in this context.
@@ -508,7 +508,7 @@ Capture revision-specific learnings. Focus on patterns that inform future implem
 
 ## Resumability (Decision 27/30)
 
-revision is long-running — a Tier 2/3 run walks 10 sequential steps (context reconstruction → user feedback → proactive scan → consolidated triage → multi-agent fix loops → quality verification → commit & push → merge-readiness → learnings) and delegates to multiple sub-agents per finding. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-interviewing the user or re-running the proactive scan.
+revision is long-running — a Tier 2/3 run walks 10 sequential steps (context reconstruction → user feedback → proactive scan → consolidated triage → multi-agent fix loops → quality verification → commit & push → merge-readiness → learnings) and delegates to multiple sub-agents per finding. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-interviewing the user or re-running the proactive scan.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -553,7 +553,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.

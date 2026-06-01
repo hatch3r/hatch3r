@@ -19,9 +19,9 @@ This rule binds every CLI tool entry in `src/cliTools/registry.ts::AVAILABLE_CLI
 
 ## Vendor-Release Research Cadence
 
-Source of truth: `governance/CONSTITUTION.md` §2 P3 ("vendor changelogs ≤12 months old, CVE feeds ≤90 days old, staleness >90 days for any tier-1 tool is a Medium finding"). D21 owns the per-cycle verification (`governance/audit/domains/D21-cli-tooling-recency.md`).
+Source of truth: pillar P3 (see `agents/shared/principles.md`) — "vendor changelogs ≤12 months old, CVE feeds ≤90 days old, staleness >90 days for any tier-1 tool is a Medium finding". The CLI-tooling-recency audit domain owns the per-cycle verification.
 
-Per-cycle research-date promotion is required for every tool listed in the registry. The audit workspace `.audit-workspace/current-insights.json::d21_tool_research_dates.{tool_id}` must carry an ISO date ≤90 days from cycle start. Records >120 days from cycle start trigger a regression-gate failure per `governance/AUDIT-EXECUTE.md` Regression Gates table.
+Per-cycle research-date promotion is required for every tool listed in the registry. The audit workspace `.audit-workspace/current-insights.json::d21_tool_research_dates.{tool_id}` must carry an ISO date ≤90 days from cycle start. Records >120 days from cycle start trigger a regression-gate failure per the audit Regression Gates table.
 
 | Tier | Staleness threshold | Action on breach |
 |------|---------------------|------------------|
@@ -75,17 +75,17 @@ Demotion is irreversible at the audit-cycle granularity per `rules/hatch3r-clari
 
 ## Cross-Cycle Currency Records
 
-`governance/audit/execution-insights.json::d21_tool_research_dates` stores the per-cycle research-date promotion log; per CONSTITUTION §2 P3 and D21 SA21.7, the promotion is the only audit artifact that survives between cycles. Wave-level findings in `.audit-workspace/wave-{N}/` are ephemeral.
+The audit execution-insights store (key `d21_tool_research_dates`) holds the per-cycle research-date promotion log; per pillar P3 and the CLI-tooling-recency domain's SA21.7, the promotion is the only audit artifact that survives between cycles. Wave-level findings in `.audit-workspace/wave-{N}/` are ephemeral.
 
 ## D09 + D21 Boundary
 
-D09 (`governance/audit/domains/D09-platform-adapters.md`) audits the per-adapter render of `hatch3r-cli-{id}` skills. D21 audits whether the underlying tool registry is current, accurate, and safe. A render-path bug routes to D09; a stale-tool finding routes to D21. Cross-cycle escalation between D09 and D21 happens via the registry-vs-skills drift check in D21 SA21.7 — drift is a Medium finding regardless of which side is out of sync.
+The platform-adapters audit domain (D09) audits the per-adapter render of `hatch3r-cli-{id}` skills. The CLI-tooling-recency domain (D21) audits whether the underlying tool registry is current, accurate, and safe. A render-path bug routes to D09; a stale-tool finding routes to D21. Cross-cycle escalation between D09 and D21 happens via the registry-vs-skills drift check in D21 SA21.7 — drift is a Medium finding regardless of which side is out of sync.
 
 ## References
 
-- `governance/CONSTITUTION.md` §2 P3 (currency policy + Decision 21 capability matrix metric).
-- `governance/CONSTITUTION.md` §6 Decision 26 (Conventional Commits + supply-chain floor + CI matrix).
-- `governance/audit/domains/D21-cli-tooling-recency.md` (per-category sub-agent checklists).
+- Pillar P3 (currency policy + Decision 21 capability matrix metric; see `agents/shared/principles.md`).
+- Decision 26 (Conventional Commits + supply-chain floor + CI matrix).
+- The CLI-tooling-recency audit domain (per-category sub-agent checklists).
 - `src/cliTools/registry.ts` (`AVAILABLE_CLI_TOOLS` schema + tier definitions + cadence enum).
 - `src/cliTools/triggers.ts` (tier-2 conditional evaluation + alternative-tool monitor).
 - `scripts/validate-cli-skills.ts` (CI gate verifying registry-vs-skill drift).

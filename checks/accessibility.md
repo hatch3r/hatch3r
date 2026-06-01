@@ -6,7 +6,7 @@ cache_friendly: true
 ---
 # Accessibility Check
 
-> **Severity vocabulary:** see [governance/audit/templates/severity-mapping.md](../governance/audit/templates/severity-mapping.md) for canonical 5-column mapping.
+> **Severity vocabulary:** see [agents/shared/severity-mapping.md](../agents/shared/severity-mapping.md) for canonical 5-column mapping.
 
 Review criteria for evaluating accessibility in pull requests.
 

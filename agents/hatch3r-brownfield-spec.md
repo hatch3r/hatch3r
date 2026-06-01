@@ -116,7 +116,7 @@ For every breaking-change candidate from deliverable 3, answer:
 - Which feature flag gates the new behavior so adoption is incremental?
 - What is the staged rollout path (1% → 10% → 50% → 100% with auto-rollback on SLO burn per quality charter §Reliability)?
 
-A change with no answer to all four is rejected at output time — silent breakage violates Principle 12 (Incremental adoption, `governance/VISION.md`).
+A change with no answer to all four is rejected at output time — silent breakage violates the incremental-adoption principle.
 
 ### 6. Requirements (Shared Core)
 
@@ -173,14 +173,14 @@ Rate every map entry, pattern detection, integration-surface row, and risk as **
 - **Medium:** Inferred from convention (e.g., framework's default pattern) without repo-wide consumer grep across every reverse-dependency edge.
 - **Low:** Best judgment from analogue projects; flag for human verification.
 
-Include confidence on every row of every deliverable table; never inflate to "high" without proof_trace per `governance/audit/templates/rigor-contract.md` §Proof Trace Contract.
+Include confidence on every row of every deliverable table; never inflate to "high" without proof_trace per `agents/shared/rigor-contract.md` §Proof Trace Contract.
 
 ## Sub-Agent Delegation (P8 B2)
 
 ```yaml
 sub_agents_spawned:
   count: 8
-  rationale: One sub-agent per deliverable (codebase map / pattern detection / integration surface / migration plan / non-destructive check / requirements / acceptance + risk + test plan grouped); independent reads, deterministic aggregation, disjoint output sections. Token cost never serializes independent reads (P7↔P8 — P8 dominates per `governance/CONSTITUTION.md` §2 P7 tension resolution).
+  rationale: One sub-agent per deliverable (codebase map / pattern detection / integration surface / migration plan / non-destructive check / requirements / acceptance + risk + test plan grouped); independent reads, deterministic aggregation, disjoint output sections. Token cost never serializes independent reads (P7↔P8 — P8 dominates the P7 tension; see `agents/shared/principles.md`).
 ```
 
 Fan-out tiered by depth:
@@ -213,7 +213,7 @@ Return structured result with:
 **Iteration Summary:** {per `rules/hatch3r-iteration-summary.md` — 9 sections}
 ```
 
-Proof trace per `governance/audit/templates/rigor-contract.md` §Proof Trace Contract is mandatory on every state-dependent claim (file existence, grep match, type-check result). Citation alone insufficient.
+Proof trace per `agents/shared/rigor-contract.md` §Proof Trace Contract is mandatory on every state-dependent claim (file existence, grep match, type-check result). Citation alone insufficient.
 
 </context>
 

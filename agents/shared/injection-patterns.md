@@ -76,5 +76,5 @@ Category C-UI-04 (encoded payloads) is not covered by regex Section A or B — i
 
 - OWASP Agentic Security Initiative (ASI) Top 10 — ASI01 (Goal Hijack), ASI06 (Memory Poisoning), ASI07 (Insecure Inter-Agent Communication).
 - `rules/hatch3r-security-patterns.md` §ASI01 — defense-in-depth for agent goal hijack, references this catalog for pattern enumeration.
-- `governance/audit/domains/D15-agentic-security.md` — audit domain covering ASI01-10 controls.
-- `governance/audit/domains/D05-prompt-engineering.md` — audit domain covering prompt quality; this catalog supports SA5.5 de-duplication.
+- the agentic-security audit domain — covers ASI01-10 controls.
+- the prompt-engineering audit domain — covers prompt quality; this catalog supports its sub-agent de-duplication checklist.

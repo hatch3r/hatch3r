@@ -25,7 +25,7 @@ This rule binds the CQ5 measurement set across end-user code that hatch3r genera
 
 ## Per-Feature Test-Class Mandate Map
 
-Source: `governance/CONSTITUTION.md` §2B CQ5 + `rules/hatch3r-testing.md` mandate table. Every changed feature is classified, and the mandated test class MUST be present. Missing the mandated class is a CRITICAL finding from the specialist.
+Source: pillar CQ5 (see `agents/shared/principles.md`) + `rules/hatch3r-testing.md` mandate table. Every changed feature is classified, and the mandated test class MUST be present. Missing the mandated class is a CRITICAL finding from the specialist.
 
 | Feature class | Mandated test class | Tooling per ecosystem |
 |---------------|---------------------|-----------------------|
@@ -85,7 +85,7 @@ The CQ5 specialist authors mandated tests, reviews coverage, and gates releases;
 
 ## Per-Finding Output Format
 
-Every finding emitted under this rule MUST include the rigor-contract fields per `governance/audit/templates/rigor-contract.md`:
+Every finding emitted under this rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`:
 
 - `proof_trace`: test-file:line citation + runner-output excerpt.
 - `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
@@ -95,7 +95,7 @@ Every finding emitted under this rule MUST include the rigor-contract fields per
 
 ## Severity Mapping
 
-Source: `governance/audit/templates/severity-mapping.md`.
+Source: `agents/shared/severity-mapping.md`.
 
 | Specialist Status | Canonical Severity | Action |
 |-------------------|--------------------|--------|
@@ -114,8 +114,8 @@ Source: `governance/audit/templates/severity-mapping.md`.
 
 ## References
 
-- `governance/CONSTITUTION.md` §2B CQ5 (measurement set + specialist owner).
-- `governance/audit/domains/D03-test-coverage-quality.md` (D03 testability domain).
+- Pillar CQ5 (measurement set + specialist owner; see `agents/shared/principles.md`).
+- The test-coverage-quality audit domain (testability domain).
 - `agents/hatch3r-testability.md` (CQ5 reviewer / gate).
 - `agents/hatch3r-testability.md` (CQ5 test-authoring + gate agent — single owner).
 - `rules/hatch3r-testing.md` (broad coverage + determinism + flaky policy).

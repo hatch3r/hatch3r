@@ -10,7 +10,7 @@ scope: always
 
 **Pillars:** P5 (Governance Self-Quality), P4 (Lean Coverage)
 
-Project-level learnings live in the project's `.hatch3r/learnings/` directory. Canonical content authoring lives in this rule. Source: `governance/VISION.md` Principle 20, `governance/CONSTITUTION.md` §6 Decision #27.
+Project-level learnings live in the project's `.hatch3r/learnings/` directory. Canonical content authoring lives in this rule. Source: the Learning System principle and the learning-capture design decision (Decision #27).
 
 ## Learning Capture Triggers
 
@@ -168,7 +168,7 @@ Outcome telemetry never leaves the project boundary. The `.usage.jsonl` is proje
 
 ## References
 
-- `governance/VISION.md` §Learning System + Principle 20 (accessed 2026-05-26, trust tier: canonical)
-- `governance/CONSTITUTION.md` §6 Decision #27 + §2A P5 (accessed 2026-05-26, trust tier: canonical)
+- The Learning System principle — surface prior learnings before acting (accessed 2026-05-26, trust tier: canonical)
+- The learning-capture design decision (Decision #27) + pillar P5 (accessed 2026-05-26, trust tier: canonical)
 - `agents/shared/quality-charter.md` §10 Consult Prior Learnings (accessed 2026-05-26, trust tier: canonical)
 - `rules/hatch3r-learning-consult.md` — companion rule for consultation procedure (accessed 2026-05-26, trust tier: canonical)

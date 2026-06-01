@@ -69,7 +69,7 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - `rules/hatch3r-performance-budgets.md` — Core Web Vitals targets + API response-time table + bundle-size budgets + Lighthouse CI gates
 - `rules/hatch3r-api-design.md` — RFC 9457 problem details + idempotency + spec-first contracts (touches p95/p99 envelope discipline)
 - `agents/shared/quality-charter.md` §UI/UX quality (CWV verification gate) + §Observability quality (latency histograms)
-- `governance/CONSTITUTION.md` §2B CQ7 — Performance Quality pillar definition and measurement
+- CQ7 Performance Quality pillar definition and measurement (see `agents/shared/principles.md`)
 
 ## External Knowledge
 

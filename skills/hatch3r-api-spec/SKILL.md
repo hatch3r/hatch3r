@@ -19,7 +19,7 @@ This skill shares the `id: hatch3r-api-spec` with the orchestrator command `comm
 - **This skill (inline procedure):** the single-pass reference body the command's docs-writer and reviewer stages follow when assembling and validating the spec. Use the skill directly for Tier 1 single-endpoint spec edits where no fan-out is needed, OR as the step-by-step procedure cited inside the command's Step 5 (OpenAPI Assembly) and Step 6 (Validation).
 - **Unique to this skill:** Step 6 (`oasdiff` breaking-change CI gate wiring) is the inline-procedure detail the command references rather than restates.
 
-The merge-candidate review (F16.3-H3) flagged the shared id; this handoff documentation is the explicit workflow-split declaration that disambiguates the pair. A future collapse into a single command appendix requires coordinated edits to the command body, `governance/inventory.json` (skills count), and the Decision-13 anti-duplicate-id gate in `src/cli/commands/validate.ts`.
+The merge-candidate review (F16.3-H3) flagged the shared id; this handoff documentation is the explicit workflow-split declaration that disambiguates the pair. A future collapse into a single command appendix requires coordinated edits to the command body, the bundled content inventory (skills count), and the Decision-13 anti-duplicate-id gate in `src/cli/commands/validate.ts`.
 
 ## Quick Start
 
@@ -80,7 +80,7 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Step 6: Wire `oasdiff` Breaking-Change CI Gate
 
-Breaking changes on stable endpoints must trip CI before merge. This step enforces the CONSTITUTION §2 P5 lean-thresholds row "API breaking-change events on stable endpoints = 0 per release" (governance/CONSTITUTION.md:80, verified by `oasdiff / buf breaking / graphql-inspector CI gate`).
+Breaking changes on stable endpoints must trip CI before merge. This step enforces the canonical lean-threshold floor "API breaking-change events on stable endpoints = 0 per release" (see `agents/shared/principles.md`, verified by `oasdiff / buf breaking / graphql-inspector CI gate`).
 
 ### 6.1 Install `oasdiff`
 

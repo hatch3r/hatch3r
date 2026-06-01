@@ -12,12 +12,12 @@ cache_friendly: true
 
 **Pillars:** P2 (Scientific & Practical Quality), P5 (Governance Self-Quality)
 
-A reviewer's `confidence` rating is self-assigned by the same model that produced the verdict. Without an out-of-band check it is structurally over-trusted, and over-confident models systematically under-emit `confidence: low` (arxiv:2508.06225). This rule is the canonical, always-on source for the **runtime** (within-loop) bound that closes that gap before the review loop exits on a clean PASS. It owns the N-default and the directive that `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration and `governance/audit/templates/calibration-protocol.md` cite.
+A reviewer's `confidence` rating is self-assigned by the same model that produced the verdict. Without an out-of-band check it is structurally over-trusted, and over-confident models systematically under-emit `confidence: low` (arxiv:2508.06225). This rule is the canonical, always-on source for the **runtime** (within-loop) bound that closes that gap before the review loop exits on a clean PASS. It owns the N-default and the directive that `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration and the across-cycle calibration protocol cite.
 
 Scope split (do not duplicate across the two artifacts):
 
 - **Runtime, within-loop (this rule + `agents/hatch3r-reviewer.md`):** bounds an unbounded run of self-trusted clean verdicts inside one review-loop session. Fires before loop exit.
-- **Across-cycle measurement (`governance/audit/templates/calibration-protocol.md`):** samples N=20 prior-cycle PASS findings at cycle close and scores realized over-claim rate. Fires at cycle archive time.
+- **Across-cycle measurement (the across-cycle calibration protocol):** samples N=20 prior-cycle PASS findings at cycle close and scores realized over-claim rate. Fires at cycle archive time.
 
 The two are complements, not substitutes — neither replaces the other.
 
@@ -27,7 +27,7 @@ The two are complements, not substitutes — neither replaces the other.
 
 ## N-default (authoritative)
 
-`N = 5` consecutive clean PASS verdicts. This is the single source of truth for the default; `agents/hatch3r-reviewer.md` and `governance/audit/templates/calibration-protocol.md` cite this value rather than redeclaring it.
+`N = 5` consecutive clean PASS verdicts. This is the single source of truth for the default; `agents/hatch3r-reviewer.md` and the across-cycle calibration protocol cite this value rather than redeclaring it.
 
 - **Counter scope:** count consecutive clean PASS verdicts across the loop, not per-iteration. A REQUEST CHANGES or DESIGN_OBJECTION verdict resets the counter to 0.
 - **Project override:** a project may set a different cadence via its own config; the override widens or narrows the cadence but never disables the second pass while a second pass remains available (see Unavailability below).
@@ -64,7 +64,7 @@ The project-local over-claim rate derived from this log feeds the iteration-summ
 
 ## Unavailability (visible skip, never silent)
 
-Skip the second pass ONLY when no second model class is available AND the orchestrator has disabled same-model re-roll. In that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent — a silent skip is a Silent-Failure-Contract violation (`governance/CONSTITUTION.md` §2). A skip does NOT reset the consecutive-clean-PASS counter; the next eligible exit re-attempts the second pass.
+Skip the second pass ONLY when no second model class is available AND the orchestrator has disabled same-model re-roll. In that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent — a silent skip is a Silent-Failure-Contract violation. A skip does NOT reset the consecutive-clean-PASS counter; the next eligible exit re-attempts the second pass.
 
 ## Pillar Service
 
@@ -74,6 +74,6 @@ Skip the second pass ONLY when no second model class is available AND the orches
 ## References
 
 - `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration — the consuming agent body that invokes this contract (accessed 2026-05-28, trust tier: canonical).
-- `governance/audit/templates/calibration-protocol.md` §Runtime complement (F13.2-F1) — the across-cycle measurement loop this runtime bound complements (accessed 2026-05-28, trust tier: canonical).
+- The across-cycle calibration protocol §Runtime complement (F13.2-F1) — the across-cycle measurement loop this runtime bound complements (accessed 2026-05-28, trust tier: canonical).
 - `rules/hatch3r-iteration-summary.md` — consumes the project-local over-claim rate for the `Confidence` field (accessed 2026-05-28, trust tier: canonical).
 - Anthropic / arXiv. "Confidence calibration in large language models" (arxiv:2508.06225). `https://arxiv.org/abs/2508.06225` (accessed 2026-05-28, peer-reviewed-methodology). Evidence that self-reported model confidence under-emits low-confidence signals, motivating the out-of-band second pass.

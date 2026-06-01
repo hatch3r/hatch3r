@@ -14,10 +14,10 @@ The short version: hatch3r's quality is enforced by an automated 24-domain audit
 |---------|--------|-------|
 | Donations / sponsorships | Accepted | GitHub Sponsors and one-time donations to the maintainer fund development time. |
 | Paid plans, enterprise tier, SaaS | None | No closed-source upsell exists or is planned (see [`docs/license-rationale.md`](./license-rationale.md) §Anti-monetization signal). |
-| Foundation grants | Future option | Tracked in `governance/audit/domains/D17-competition.md` Strategic Decision Register; not pursued in current cycles. |
+| Foundation grants | Future option | Tracked in the audit-domain Strategic Decision Register (D17 Competition); not pursued in current cycles. |
 | Commercial support contracts | None | Out of scope; the framework is fully self-serve via `npx hatch3r init`. |
 
-The donation channel exists to compensate the maintainer for the labor of running audit cycles and reviewing PRs — not to fund feature development. Feature development is driven by the audit cycle itself (new canonical content arises from audit findings; see [`governance/VISION.md`](../governance/VISION.md) §The Closed Loop).
+The donation channel exists to compensate the maintainer for the labor of running audit cycles and reviewing PRs — not to fund feature development. Feature development is driven by the audit cycle itself (new canonical content arises from audit findings; see the [Vision overview](https://docs.hatch3r.com/docs/about) §The Closed Loop).
 
 ## Structural defenses against abandonment
 
@@ -25,19 +25,19 @@ Many open-source projects collapse when the lead maintainer's attention drops be
 
 ### 1. The audit cycle replaces continuous maintainer attention
 
-The framework's primary quality mechanism is the audit cycle defined in [`governance/AUDIT.md`](../governance/AUDIT.md) and executed via [`governance/AUDIT-EXECUTE.md`](../governance/AUDIT-EXECUTE.md). One cycle deploys 124 sub-agents across 24 domains and produces a structured `AUDIT-REPORT.md` with severity-tagged findings. Execution follows a 4-wave progression (Critical → High → Medium → Low) with 18-check regression gates between waves.
+The framework's primary quality mechanism is the audit cycle (the audit prompt and its 4-wave execution model). One cycle deploys 124 sub-agents across 24 domains and produces a structured `AUDIT-REPORT.md` with severity-tagged findings. Execution follows a 4-wave progression (Critical → High → Medium → Low) with 18-check regression gates between waves.
 
 Practical consequence: a single async contributor can pick up a single finding (one work-unit), implement it under the implementation sub-agent template, run the regression gate, and ship the result — without coordinating with the maintainer in real time. The audit cycle does the prioritization, scoping, and acceptance criteria up front. Contribution latency is bounded by the contributor's available hours, not by the maintainer's.
 
 ### 2. Lean thresholds prevent governance bloat
 
-[`governance/CONSTITUTION.md`](../governance/CONSTITUTION.md) §2 P5 caps governance file sizes:
+The Constitution (§2 P5) caps governance file sizes:
 
 | File | Limit |
 |------|-------|
-| `governance/CONSTITUTION.md` | <=225 lines |
-| `governance/AUDIT.md` | <=600 lines |
-| `governance/AUDIT-EXECUTE.md` | <=700 lines |
+| Constitution | <=225 lines |
+| Audit prompt | <=600 lines |
+| Audit execution model | <=700 lines |
 | Domain files (`D01-D21`) | 30-80 lines each |
 | Cross-file duplication | <5% |
 | Anti-slop phrases per file | 0 |
@@ -48,7 +48,7 @@ These thresholds are enforced by `npm run inventory` (which regenerates `governa
 
 hatch3r maintains a strict split between canonical content (under `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` — the source of truth) and adapter output (generated per platform under `.cursor/`, `CLAUDE.md`, `.github/`, etc.). All 3 platform adapters consume the same canonical source and produce platform-native output via the contract in `src/adapters/base.ts`.
 
-Practical consequence: when Claude Code, Cursor, or the remaining supported platform ships a breaking change, the fix lives in exactly one adapter file under `src/adapters/`. Canonical content is unchanged. Contributors with no exposure to the broader framework can land an adapter fix in a single PR. This is the basis for the "currency" pillar (P3, see [`governance/CONSTITUTION.md`](../governance/CONSTITUTION.md) §2 P3) which requires each adapter, CLI tool, and MCP server to be web-research-verified against vendor documentation each audit cycle.
+Practical consequence: when Claude Code, Cursor, or the remaining supported platform ships a breaking change, the fix lives in exactly one adapter file under `src/adapters/`. Canonical content is unchanged. Contributors with no exposure to the broader framework can land an adapter fix in a single PR. This is the basis for the "currency" pillar (P3) which requires each adapter, CLI tool, and MCP server to be web-research-verified against vendor documentation each audit cycle.
 
 ### 4. Frozen contracts at module boundaries
 
@@ -64,8 +64,8 @@ Combined with the managed-block contract (`HATCH3R:BEGIN` / `HATCH3R:END` marker
 
 The audit cycle produces a stream of one-shot contribution opportunities:
 
-1. Run `/h4tcher-audit-cycle` against the current `release/X.Y.Z` branch → produces `governance/AUDIT-REPORT.md` with severity-tagged findings.
-2. Run `/h4tcher-audit-execute` → triages findings into a registry (`governance/audit/finding-registry.json`) and groups them into waves and work units.
+1. Run `/h4tcher-audit-cycle` against the current `release/X.Y.Z` branch → produces an `AUDIT-REPORT.md` with severity-tagged findings.
+2. Run `/h4tcher-audit-execute` → triages findings into a registry and groups them into waves and work units.
 3. Each work unit is self-contained: it cites the files to modify, the acceptance criteria, the rigor contract the resolution must satisfy, and the regression-gate checks. Contributors pick up a work unit, implement it, write to `.audit-workspace/wave-{N}/{finding_id}.results.md`, and open a PR.
 
 This is the mechanism by which async, parallel contribution is possible without continuous maintainer coordination. The maintainer's role is to run cycles and approve PRs, not to write specs for every contribution.
@@ -76,7 +76,7 @@ This section is honest about gaps rather than aspirational:
 
 - **Maintainer-fund dependency.** Audit cycles consume real labor (token budget for the audit's sub-agents, maintainer time to review PR-by-PR). If donation revenue drops to zero and the maintainer's available hours drop to zero simultaneously, cycle cadence slows.
 - **Adapter staleness on rare platforms.** P3 requires each adapter to be re-verified against vendor documentation per cycle. Less-used adapters (Aider, Goose, Antigravity) can drift longer before a contributor notices.
-- **Plugin marketplace policy risk.** If Anthropic or Cursor change their marketplace licensing rules (e.g., requiring a different license, demanding telemetry), hatch3r would need a structural response. Tracked in [`governance/audit/domains/D17-competition.md`](../governance/audit/domains/D17-competition.md).
+- **Plugin marketplace policy risk.** If Anthropic or Cursor change their marketplace licensing rules (e.g., requiring a different license, demanding telemetry), hatch3r would need a structural response. Tracked in the D17 Competition audit domain.
 
 These are findable through audit cycles. They are not fatal under the structural-defense model above, but they require honest acknowledgment.
 
@@ -84,8 +84,8 @@ These are findable through audit cycles. They are not fatal under the structural
 
 In rough order of value-per-hour to the project:
 
-1. **Run an audit cycle on your own project's hatch3r install** and open issues against findings that surface. The audit prompt enforces the rigor contract (falsifiability statement, two independent sources, three-step causal chain, bias check, adversarial peer-review counter-argument — see [`governance/audit/templates/rigor-contract.md`](../governance/audit/templates/rigor-contract.md)), so issues opened from audit output land with a documented scope and resolution path.
-2. **Pick up a Wave 2/3/4 finding from `governance/audit/finding-registry.json`** and submit a PR. Each finding has a documented work unit, acceptance criteria, and a regression gate.
+1. **Run an audit cycle on your own project's hatch3r install** and open issues against findings that surface. The audit prompt enforces the rigor contract (falsifiability statement, two independent sources, three-step causal chain, bias check, adversarial peer-review counter-argument), so issues opened from audit output land with a documented scope and resolution path.
+2. **Pick up a Wave 2/3/4 finding from the audit finding registry** and submit a PR. Each finding has a documented work unit, acceptance criteria, and a regression gate.
 3. **Verify a single adapter against the current vendor documentation** (one of the 15 in `src/adapters/`). Submit a PR with the web-research citation per P3.
 4. **Sponsor the maintainer via GitHub Sponsors** to fund the labor of running cycles.
 
@@ -94,8 +94,8 @@ There is no "premium tier" of contribution; all four paths land in the same MIT-
 ## References
 
 - [`docs/license-rationale.md`](./license-rationale.md) — why MIT and the explicit anti-monetization signal
-- [`governance/VISION.md`](../governance/VISION.md) §The Closed Loop — audit cycle as continuous quality mechanism
-- [`governance/CONSTITUTION.md`](../governance/CONSTITUTION.md) §2 P4 / P5 — lean coverage and governance self-quality pillars
-- [`governance/AUDIT.md`](../governance/AUDIT.md) — audit prompt: 24 domains, 124 sub-agents
-- [`governance/AUDIT-EXECUTE.md`](../governance/AUDIT-EXECUTE.md) — 4-wave execution model with regression gates
+- [Vision overview](https://docs.hatch3r.com/docs/about) §The Closed Loop — audit cycle as continuous quality mechanism
+- [Governance overview](https://docs.hatch3r.com/docs/about) §2 P4 / P5 — lean coverage and governance self-quality pillars
+- Audit prompt — 24 domains, 124 sub-agents
+- Audit execution model — 4-wave execution with regression gates
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — DCO sign-off, commit conventions

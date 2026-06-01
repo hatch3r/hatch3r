@@ -64,7 +64,7 @@ How to declare the exemption in the skill body: a Tier 1 CLI/reference skill sta
 
 ## References
 
-- `governance/CONSTITUTION.md` §2 P8 B1 (source directive).
+- Pillar P8 B1 (source directive; see `agents/shared/principles.md`).
 - `agents/shared/user-question-protocol.md` (how to ask: triggers, native-tool preference, fallback template, anti-patterns).
 - `agents/shared/quality-charter.md` §3 "Question Unclear Requirements", §8 "Escalate Ambiguity Early".
-- `governance/audit/domains/D05-prompt-engineering.md`, `governance/audit/domains/D13-human-ai-collaboration.md` (audit the §0 gate per cycle).
+- Prompt-engineering and human-AI-collaboration audit domains audit the §0 gate per cycle.

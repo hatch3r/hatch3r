@@ -138,11 +138,11 @@ After init, use `hatch3r config` to add or remove individual content items.
 
 ## Sub-Agentic Architecture
 
-A four-phase pipeline (Research, Implement, Review Loop with reviewer + fixer at max 3 iterations, Final Quality with testing + security) drives implementation. The implementer agent receives a single sub-issue and returns code + tests; the fixer agent applies targeted fixes from reviewer findings; the issue-workflow skill runs an 8-step flow with parallel sub-agent delegation for epics. Tooling hierarchy: project docs > codebase search > library docs (Context7) > web research. See [Agent Teams](https://docs.hatch3r.com/docs/guides/agent-teams) for delegation patterns and [governance/COMPETITIVE-ANALYSIS.md](governance/COMPETITIVE-ANALYSIS.md) for how hatch3r compares to rule-distribution tools like Ruler.
+A four-phase pipeline (Research, Implement, Review Loop with reviewer + fixer at max 3 iterations, Final Quality with testing + security) drives implementation. The implementer agent receives a single sub-issue and returns code + tests; the fixer agent applies targeted fixes from reviewer findings; the issue-workflow skill runs an 8-step flow with parallel sub-agent delegation for epics. Tooling hierarchy: project docs > codebase search > library docs (Context7) > web research. See [Agent Teams](https://docs.hatch3r.com/docs/guides/agent-teams) for delegation patterns; hatch3r is complementary to rule-distribution tools like Ruler — it owns the full generation pipeline rather than distributing a single instruction file.
 
 ## Why hatch3r vs just AGENTS.md?
 
-AGENTS.md (Linux Foundation AAIF spec, 60K+ repos as of January 2026 — see [governance/COMPETITIVE-ANALYSIS.md](governance/COMPETITIVE-ANALYSIS.md) §3.1) is the greatest-common-denominator markdown standard for agent instructions; it is consumed by 20+ tools including Cursor, Copilot, Codex, and Gemini CLI. hatch3r is complementary: AGENTS.md describes one file's content; hatch3r owns the entire generation pipeline that emits tool-native configurations across 5 artifact classes (rules, skills, commands, hooks, MCP servers) for 3 supported platforms (Claude Code, Cursor, GitHub Copilot). Three measurable differences:
+AGENTS.md (Linux Foundation AAIF spec, 60K+ repos as of January 2026) is the greatest-common-denominator markdown standard for agent instructions; it is consumed by 20+ tools including Cursor, Copilot, Codex, and Gemini CLI. hatch3r is complementary: AGENTS.md describes one file's content; hatch3r owns the entire generation pipeline that emits tool-native configurations across 5 artifact classes (rules, skills, commands, hooks, MCP servers) for 3 supported platforms (Claude Code, Cursor, GitHub Copilot). Three measurable differences:
 
 - **Scope:** AGENTS.md is one flat instruction file per repo; hatch3r generates platform-specific structured output (`.mdc` rules with frontmatter scoping for Cursor, `CLAUDE.md` with managed blocks for Claude Code, `.github/instructions/` + `.github/prompts/` for Copilot) plus board commands, MCP server configs, and event-driven hooks.
 - **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (63 rules + 49 skills + 24 commands + 6 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited weekly across 24 governance domains.
@@ -165,7 +165,7 @@ hatch3r is also available as a [Cursor plugin](https://cursor.com/marketplace). 
 
 Full documentation is at [docs.hatch3r.com](https://docs.hatch3r.com).
 
-- [Vision](governance/VISION.md) -- Framework north-star vision and principles
+- [Vision](https://docs.hatch3r.com/docs/about) -- Framework north-star vision and principles
 - [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) -- Connecting MCP servers and managing secrets
 - [Adapter Capability Matrix](https://docs.hatch3r.com/docs/reference/adapter-capability-matrix) -- Per-tool support and output paths
 - [Agentic Process](https://docs.hatch3r.com/docs/guides/agentic-process) -- Visual diagrams of init flow, board workflow, and agent orchestration

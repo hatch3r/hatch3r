@@ -28,7 +28,7 @@ This complements (does not duplicate) `rules/hatch3r-feature-flags.md` (flag-sys
 
 ## CQ9 Threshold Set
 
-Source: `governance/CONSTITUTION.md` §2B CQ9. Every threshold below is measurable per audit cycle.
+Source: pillar CQ9 (see `agents/shared/principles.md`). Every threshold below is measurable per audit cycle.
 
 | Threshold | Target | Measurement source |
 |-----------|--------|--------------------|
@@ -112,7 +112,7 @@ Cross-cutting concerns (logging, auth, persistence, telemetry, error handling) g
 
 ## Per-Finding Output Format
 
-Every finding emitted under this rule MUST include the rigor-contract fields per `governance/audit/templates/rigor-contract.md`:
+Every finding emitted under this rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`:
 
 - `proof_trace`: file:line citation + spec-diff/grep output excerpt.
 - `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
@@ -122,7 +122,7 @@ Every finding emitted under this rule MUST include the rigor-contract fields per
 
 ## Severity Mapping
 
-Source: `governance/audit/templates/severity-mapping.md`.
+Source: `agents/shared/severity-mapping.md`.
 
 | Specialist Status | Canonical Severity | Action |
 |-------------------|--------------------|--------|
@@ -144,8 +144,8 @@ Retiring a feature flag, dropping an API endpoint, or hardcoding a previously-ex
 
 ## References
 
-- `governance/CONSTITUTION.md` §2B CQ9 (measurement set + specialist owner).
-- `governance/audit/domains/D14-extensibility.md` (D14 enhancability domain).
+- Pillar CQ9 (measurement set + specialist owner; see `agents/shared/principles.md`).
+- The extensibility audit domain (enhancability domain).
 - `agents/hatch3r-enhancability.md` (CQ9 reviewer / gate).
 - `rules/hatch3r-feature-flags.md` (flag-system implementation pattern).
 - `rules/hatch3r-api-versioning.md` (semver + deprecation timeline).

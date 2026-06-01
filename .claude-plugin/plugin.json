@@ -28,5 +28,5 @@
   "agents": "agents/",
   "commands": "commands/",
   "mcpServers": ".mcp.json",
-  "trust_model_ref": "governance/pack-trust-model.md"
+  "trust_model_ref": "https://docs.hatch3r.com/docs/reference/trust-model"
 }

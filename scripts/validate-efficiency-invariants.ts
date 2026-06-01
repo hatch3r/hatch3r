@@ -58,6 +58,7 @@
  *
  * Usage: `npm run validate:efficiency` (umbrella entry wired by sub-agent 2d).
  */
+import { existsSync } from "node:fs";
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -638,9 +639,22 @@ export function formatFinding(f: Finding): string {
 
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
+  // `governance/AUDIT-EXECUTE.md` is private and absent in public CI /
+  // contributor clones. Only feed it as an extra orchestrator file when it
+  // exists; the command + agent invariant checks always run regardless.
+  const auditExecuteAbs = join(ROOT, AUDIT_EXECUTE_REL);
+  const extraOrchestratorFiles: string[] = [];
+  if (existsSync(auditExecuteAbs)) {
+    extraOrchestratorFiles.push(auditExecuteAbs);
+  } else {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[validate-efficiency-invariants] ${AUDIT_EXECUTE_REL} absent — skipping AUDIT-EXECUTE orchestrator probe`,
+    );
+  }
   const { findings, errorCount, warningCount } = await runValidator({
     flags,
-    extraOrchestratorFiles: [join(ROOT, AUDIT_EXECUTE_REL)],
+    extraOrchestratorFiles,
   });
   for (const f of findings) {
     const line = formatFinding(f);

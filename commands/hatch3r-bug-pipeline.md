@@ -92,7 +92,7 @@ Post-execution actuals + delta land in the iteration summary's Fan-out + Cost se
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a single-module bug scored Deep, or a multi-module regression scored Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a single-module bug scored Deep, or a multi-module regression scored Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification. `--effort=light` routes to the `hatch3r-bug-fix` skill.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the cost estimate block reports the budget delta.
@@ -174,7 +174,7 @@ Commit message format: `fix: {short root-cause-oriented description}`. For pushe
 
 ## Resumability (Decision 27/30)
 
-bug-pipeline is multi-phase — a Tier 2/3 run dispatches a researcher (Step 1), one or more implementers authoring regression test + fix (Step 2), and a reviewer ↔ fixer loop (Step 3). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the researcher or re-implementing a fix that already landed.
+bug-pipeline is multi-phase — a Tier 2/3 run dispatches a researcher (Step 1), one or more implementers authoring regression test + fix (Step 2), and a reviewer ↔ fixer loop (Step 3). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the researcher or re-implementing a fix that already landed.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -219,7 +219,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
@@ -271,4 +271,4 @@ Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` 
 - `commands/hatch3r-quick-change.md` — orchestrator command structure + Per-Turn Header / Delegation Attestation / Iteration Summary block patterns mirrored here; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
 - `rules/hatch3r-agent-orchestration.md` — four-phase pipeline definition, Mandatory Delegation Directives, Root-Cause Depth Requirements, Mid-Implementation Research Gap Checkpoint; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
 - `skills/hatch3r-bug-fix/SKILL.md` — Step 2c test-first (TDD) approach this pipeline promotes to a first-class phase; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
-- `governance/audit/domains/D07-orchestration.md` — D7-SA7.1-F-11 source finding (bug-fix workflow's natural 3-phase shape); accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
+- hatch3r orchestration-domain analysis — source rationale for the bug-fix workflow's natural 3-phase shape; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).

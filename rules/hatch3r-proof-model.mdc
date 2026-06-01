@@ -50,7 +50,7 @@ Field rules:
 Before issuing any agent-generated assertion that affects a downstream decision, the agent passes these gates in order:
 
 1. **State-dependent claim?** If yes, prepare a `proof_trace` block — do not emit the claim without it.
-2. **External dependency claim** (library version, API behavior, platform feature)? Verify against current documentation per `agents/shared/quality-charter.md` §15 Currency Verification (≤180 days). Cite URL + access date + trust tier per `governance/audit/templates/rigor-contract.md` §Web Research Mandate.
+2. **External dependency claim** (library version, API behavior, platform feature)? Verify against current documentation per `agents/shared/quality-charter.md` §15 Currency Verification (≤180 days). Cite URL + access date + trust tier per `agents/shared/rigor-contract.md` §Web Research Mandate.
 3. **Cross-file claim** (file X imports file Y, function A calls function B)? Run grep + cite file:line. Do not infer from filename or directory.
 4. **Behavioral claim** (function does X under condition Y)? Either point to a test that exercises Y → X, or write one before asserting.
 5. **Negative claim** (X does NOT exist, Y does NOT happen)? Run the search command and emit the zero-match output in `actual:`. Absence is harder to prove than presence — make the search command explicit.
@@ -83,7 +83,7 @@ State-dependent claim WITH proof_trace:
 ```yaml
 proof_trace:
   claim: rigor-contract.md defines a Proof Trace Contract section
-  command: grep -n "Proof Trace Contract" governance/audit/templates/rigor-contract.md
+  command: grep -n "Proof Trace Contract" agents/shared/rigor-contract.md
   expected: line-numbered match referencing "Proof Trace Contract"
   actual: "84:## Proof Trace Contract (Decision 9 — added 2026-05-26)"
   verdict: matched
@@ -116,7 +116,7 @@ proof_trace:
 
 ## Enforcement
 
-`governance/AUDIT.md` Behavioral Charter directive 20 (added 2.0.0) and `governance/audit/templates/rigor-contract.md` §Proof Trace Contract (added 2026-05-26) operationalise this rule at audit time. Findings missing proof_trace on state-dependent claims are dropped at SA output time per AUDIT.md charter directive 20 + rigor-contract §Schema Enforcement.
+The audit prompt's Behavioral Charter directive 20 (added 2.0.0) and `agents/shared/rigor-contract.md` §Proof Trace Contract (added 2026-05-26) operationalise this rule at audit time. Findings missing proof_trace on state-dependent claims are dropped at SA output time per the charter's directive 20 + rigor-contract §Schema Enforcement.
 
 Reviewer-class artifacts (`agents/hatch3r-reviewer.md`, future Reviewer Pass 1.5 per rigor-contract §Proof Trace Contract) read proof_trace blocks to verify implementation against documented runtime state. Implementer-class artifacts (`agents/hatch3r-implementer.md`) emit proof_trace blocks before declaring task completion.
 
@@ -125,7 +125,7 @@ Reviewer-class artifacts (`agents/hatch3r-reviewer.md`, future Reviewer Pass 1.5
 - P5 — governance system applies proof to itself; the rule that mandates proof is itself bound by proof at audit time.
 
 ## Cross-References
-- `governance/CONSTITUTION.md` §6 Decision #19 — proof-trace + mandatory citation as 2.0.0 hallucination-prevention floor
-- `governance/audit/templates/rigor-contract.md` §Proof Trace Contract — schema canonical location + Shallow Finding Detector linkage
-- `governance/AUDIT.md` Behavioral Charter directive 20 — audit-time enforcement at SA output time
+- Decision #19 — proof-trace + mandatory citation as 2.0.0 hallucination-prevention floor
+- `agents/shared/rigor-contract.md` §Proof Trace Contract — schema canonical location + Shallow Finding Detector linkage
+- The audit prompt's Behavioral Charter directive 20 — audit-time enforcement at SA output time
 - `agents/shared/quality-charter.md` §15 Currency Verification — external-dependency claim freshness window (≤180 days)

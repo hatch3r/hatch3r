@@ -19,7 +19,7 @@ This rule owns the CQ3 threshold set, the specialist agent routing, and the per-
 
 ## CQ3 Threshold Set
 
-Source: `governance/CONSTITUTION.md` §2B CQ3. Every threshold below is measurable per audit cycle; missing measurement is a Medium finding minimum.
+Source: pillar CQ3 (see `agents/shared/principles.md`). Every threshold below is measurable per audit cycle; missing measurement is a Medium finding minimum.
 
 | Threshold | Target | Measurement source |
 |-----------|--------|--------------------|
@@ -32,7 +32,7 @@ Source: `governance/CONSTITUTION.md` §2B CQ3. Every threshold below is measurab
 | DPoP sender-constraint (RFC 9449) | 100% on browser tokens | `htm`, `htu`, `iat`, `jti` validation; key-thumbprint binding |
 | WebAuthn server ceremony | 100% on passwordless flows | Challenge TTL + single-use; RP-ID hash; signature; counter strictly greater; opaque `user.id` |
 | Hardcoded secrets count | 0 per cycle | `gitleaks detect --redact`, `trufflehog filesystem`, `detect-secrets scan` |
-| OWASP ASI01-10 coverage | 100% on agent-produced code | Per-control verification; current revision per `governance/audit/domains/D15-agentic-security.md` |
+| OWASP ASI01-10 coverage | 100% on agent-produced code | Per-control verification against the current agentic-security domain checklist |
 | CVE advisory acknowledgement | ≤90-day staleness | `npm audit --audit-level=high`; `osv-scanner -r .`; GHSA inspection |
 
 ## Specialist Agent Routing
@@ -51,7 +51,7 @@ The CQ3 specialist gates the floor, emits `progress_toward_pillar: content-quali
 
 ## Severity Mapping
 
-Specialist status maps to canonical audit severity per `governance/audit/templates/severity-mapping.md`:
+Specialist status maps to canonical audit severity per `agents/shared/severity-mapping.md`:
 
 | Specialist Status | Canonical Severity | Action |
 |-------------------|--------------------|--------|
@@ -61,7 +61,7 @@ Specialist status maps to canonical audit severity per `governance/audit/templat
 
 ## Per-Finding Output Format
 
-Every finding emitted under this rule MUST include the rigor-contract fields per `governance/audit/templates/rigor-contract.md`:
+Every finding emitted under this rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`:
 
 - `proof_trace`: file:line citation + command-output excerpt.
 - `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
@@ -91,8 +91,8 @@ Tier escalation tightens the floor; previous baselines do not survive a tier bum
 
 ## References
 
-- `governance/CONSTITUTION.md` §2B CQ3 (measurement set + specialist owner).
-- `governance/audit/domains/D15-agentic-security.md` (OWASP ASI controls + supply-chain audit checklists).
+- Pillar CQ3 (measurement set + specialist owner; see `agents/shared/principles.md`).
+- The agentic-security audit domain (OWASP ASI controls + supply-chain audit checklists).
 - `agents/hatch3r-security.md` (CQ3 specialist agent — auth + supply-chain + ASI scope).
 - `agents/hatch3r-security.md` (CQ3 specialist — deep-audit mode for project-specific audits).
 - `rules/hatch3r-security-patterns.md` (input-validation + auth enforcement at code level).

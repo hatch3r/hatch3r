@@ -36,6 +36,7 @@
  * the body/scope parity check). Exits 0 on currency, 1 on any drift with
  * a per-file diagnostic.
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -283,6 +284,18 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const constitutionPath = join(rootDir, CONSTITUTION_REL);
   const pillarCompliancePath = join(rootDir, PILLAR_COMPLIANCE_REL);
   const contentAuthoringPath = join(rootDir, CONTENT_AUTHORING_REL);
+
+  // The CONSTITUTION is private and absent in public CI / contributor clones.
+  // The authoritative pillar count comes from CONSTITUTION §2; with no source
+  // count to cross-check the rule files against, skip the pillar-count check
+  // (exit clean) rather than throw on the missing read.
+  if (!existsSync(constitutionPath)) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[validate-rule-pillar-currency] ${CONSTITUTION_REL} absent — skipping pillar-count cross-check`,
+    );
+    return { pillarCount: 0, drifts: [], errorCount: 0, warningCount: 0 };
+  }
 
   const constitutionContent = await readFile(constitutionPath, "utf-8");
   const { declaredCount, sectionCount, declaredHeadingLine } =

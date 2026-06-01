@@ -137,7 +137,7 @@ Post-execution actuals + delta land in the Phase 4 / Quick Step 3 iteration summ
 
 ### Step 0.6: Effort Override (Decision 17)
 
-Auto-tiering (Step 0 mode selection) can misclassify — a single-file edit scored as Full Mode, or a cross-cutting refactor scored as Quick Mode. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering (Step 0 mode selection) can misclassify — a single-file edit scored as Full Mode, or a cross-cutting refactor scored as Quick Mode. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier (light → Quick Tier 1, standard → Quick Tier 2, deep → Full Tier 3), bypassing the Step 0 auto-classification. This composes with the existing `--mode=full|quick` flag: an explicit `--mode` wins over the `--effort`-derived mode.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -537,7 +537,7 @@ At the end of an auto workflow session, generate a summary:
 
 ## Resumability (Decision 27/30)
 
-workflow is long-running — a Tier 2/3 run walks the 4-phase delivery pipeline (Analyze → Plan → Implement → Review), fans out one implementer per independent module in Phase 3, and runs a reviewer ↔ fixer loop plus Phase 4b CQ1–CQ9 specialist batch in Phase 4. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed phase rather than re-running researchers or re-implementing already-applied module changes.
+workflow is long-running — a Tier 2/3 run walks the 4-phase delivery pipeline (Analyze → Plan → Implement → Review), fans out one implementer per independent module in Phase 3, and runs a reviewer ↔ fixer loop plus Phase 4b CQ1–CQ9 specialist batch in Phase 4. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed phase rather than re-running researchers or re-implementing already-applied module changes.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -582,7 +582,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.

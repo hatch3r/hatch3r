@@ -65,7 +65,7 @@ Post-execution actuals + delta land in the Step 6 finalization summary's Fan-out
 
 ### Effort Override (Decision 17)
 
-Auto-tiering derives from discovered module count, which can misclassify — a monorepo with many small modules over-scored, or a dense single-package repo under-scored. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering derives from discovered module count, which can misclassify — a monorepo with many small modules over-scored, or a dense single-package repo under-scored. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=standard|deep` forces the named tier, bypassing the module-count auto-classification. `--effort=light` is rejected — Tier 1 is unsupported here (single-target QA fixes route to `hatch3r-quick-change`).
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -368,7 +368,7 @@ All issue and epic operations in this command MUST follow the Projects v2 Enforc
 
 ## Resumability (Decision 27/30)
 
-healthcheck is long-running — module discovery (Step 2) seeds a per-module hatch3r-implementer fan-out for audit sub-issue authoring (Step 4) bounded by `max_phase4_parallel`, alongside parallel hatch3r-ui (CQ1) + hatch3r-security (CQ3 supply-chain slice) cross-cutting axes (Step 5), then Step 6 batch-creates GitHub issues and Step 7 syncs Projects v2 board state. Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-creating issues or re-running implementers for modules already audited.
+healthcheck is long-running — module discovery (Step 2) seeds a per-module hatch3r-implementer fan-out for audit sub-issue authoring (Step 4) bounded by `max_phase4_parallel`, alongside parallel hatch3r-ui (CQ1) + hatch3r-security (CQ3 supply-chain slice) cross-cutting axes (Step 5), then Step 6 batch-creates GitHub issues and Step 7 syncs Projects v2 board state. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-creating issues or re-running implementers for modules already audited.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -413,7 +413,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.

@@ -7,7 +7,7 @@ title: Quality-Vector Specialists
 
 hatch3r 2.0.0 introduces a two-axis pillar framework. The **governance axis** (P1-P8) defines how the framework operates -- CLI UX, scientific quality, adapter currency, lean coverage, self-quality, security, speed, and clarification/fan-out discipline. The **content-quality axis** (CQ1-CQ9) defines what the framework produces in end-user code. Each CQ pillar is owned by a specialist agent invoked at quality gates with measurable thresholds and a structured proof_trace contract.
 
-See [governance/CONSTITUTION.md](https://github.com/hatch3r/hatch3r/blob/main/governance/CONSTITUTION.md) §2 for the canonical pillar definitions and the traceability matrix.
+See the [governance overview](https://docs.hatch3r.com/docs/about) §2 for the canonical pillar definitions and the traceability matrix.
 
 ## Per-Pillar Specialist Table
 
@@ -42,6 +42,6 @@ Every governance or content change in hatch3r answers six questions (CONSTITUTIO
 
 ## Reference
 
-- [CONSTITUTION §2 Pillar Framework](https://github.com/hatch3r/hatch3r/blob/main/governance/CONSTITUTION.md)
+- [Governance overview §2 Pillar Framework](https://docs.hatch3r.com/docs/about)
 - [agents/hatch3r-ui.md](https://github.com/hatch3r/hatch3r/blob/main/agents/hatch3r-ui.md) (and the other 8 specialist agent files alongside it)
 - [Agent Teams](./agent-teams) -- how specialists coordinate with reviewer, fixer, and test-writer roles

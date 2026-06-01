@@ -12,8 +12,9 @@ import { fileURLToPath } from "node:url";
  * schema"), and Claude Code reads only that filename. This test pins the
  * manifest to the spec-canonical filename, the required + recommended
  * metadata fields, and the `trust_model_ref` extension that points the
- * marketplace reviewer at `governance/pack-trust-model.md` (authored by
- * C9-H52).
+ * marketplace reviewer at the public trust-model docs page
+ * (https://docs.hatch3r.com/docs/reference/trust-model; the canonical
+ * governance source authored by C9-H52 is private).
  *
  * Pillar service:
  *   - P3 (Adapter & External Tool Currency): manifest matches the latest
@@ -26,8 +27,8 @@ import { fileURLToPath } from "node:url";
  *     manifest field reviewable before install.
  *
  * Cross-references:
- *   - `governance/pack-trust-model.md` — the trust contract surfaced by
- *     `trust_model_ref`.
+ *   - https://docs.hatch3r.com/docs/reference/trust-model — the public trust
+ *     contract surfaced by `trust_model_ref`.
  *   - `.cursor-plugin/plugin.json` — separate Cursor-marketplace manifest;
  *     the inventory drift probes in `scripts/inventory.ts` cover that file.
  *   - `package.json` — `version` source of truth (matched here).
@@ -173,19 +174,19 @@ describe(".claude-plugin/plugin.json", () => {
   });
 
   describe("trust_model_ref (C9-H73)", () => {
-    it("references governance/pack-trust-model.md", async () => {
+    it("references the public trust-model docs page", async () => {
       const m = await loadManifest();
-      expect(m.trust_model_ref).toBe("governance/pack-trust-model.md");
+      expect(m.trust_model_ref).toBe(
+        "https://docs.hatch3r.com/docs/reference/trust-model",
+      );
     });
 
-    it("points at a file that exists in the repo", async () => {
+    it("points at an https docs URL (governance source is private)", async () => {
       const m = await loadManifest();
-      const target = join(ROOT, m.trust_model_ref!);
-      // readFile throws if the file is missing; assert success.
-      const body = await readFile(target, "utf8");
-      expect(body.length).toBeGreaterThan(0);
-      // Spot-check that the target is the trust model, not a redirect.
-      expect(body).toMatch(/Pack Trust Model/i);
+      // The trust model is published on the public docs site; the canonical
+      // governance source is private, so the manifest surfaces the docs URL
+      // a marketplace reviewer can open without repo access.
+      expect(m.trust_model_ref).toMatch(/^https:\/\/docs\.hatch3r\.com\//);
     });
   });
 

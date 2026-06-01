@@ -10,7 +10,7 @@ alwaysApply: true
 
 **Pillars:** P7 (Speed & Token Efficiency), P5 (Governance Self-Quality)
 
-Source: `governance/CONSTITUTION.md` §6 Decision #29; `governance/VISION.md` Principle 22.
+Source: the cost-visibility design decision and the cost-transparency principle (pillar P7; see `agents/shared/principles.md`).
 
 Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) and every meaningful skill run that mutates state MUST emit cost data — pre-execution estimate at plan time and post-execution actuals + delta at completion time. The delta lands in the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
 
@@ -107,7 +107,7 @@ Implementation contract: `src/pipeline/costEstimator.ts` (to be authored under B
 
 ## End-User Visibility
 
-Cost data appears in user-facing iteration summaries by default. Suppressing via the `--quiet` CLI flag still records telemetry to `.hatch3r/telemetry/<session-id>.json` for later review — the channel is preserved per the Silent Failure Contract (CONSTITUTION.md §2 P5). Suppression at the user surface does not suppress at the persistence layer.
+Cost data appears in user-facing iteration summaries by default. Suppressing via the `--quiet` CLI flag still records telemetry to `.hatch3r/telemetry/<session-id>.json` for later review — the channel is preserved per the Silent Failure Contract (P5). Suppression at the user surface does not suppress at the persistence layer.
 
 Telemetry I/O failures route through `src/pipeline/failureLog.ts` per the Silent Failure Contract — never silently swallowed.
 
@@ -127,5 +127,5 @@ The acceptance criteria above are checked per run; they do not measure the cost-
 
 ## Pillar Service
 
-- **P7** — surfaces token + duration measurements to the user; closes the loop on token-economy claims in VISION Principle 19 and CONSTITUTION §2 P7. Estimation accuracy improves cycle-over-cycle via the past-cycle telemetry baseline.
-- **P5** — every orchestrator measures itself; deltas become first-class governance signals consumed by EVOLVE.md prompt mechanics refinement.
+- **P7** — surfaces token + duration measurements to the user; closes the loop on the P7 token-economy goal. Estimation accuracy improves cycle-over-cycle via the past-cycle telemetry baseline.
+- **P5** — every orchestrator measures itself; deltas become first-class governance signals consumed by the governance evolve-cycle.

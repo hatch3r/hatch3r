@@ -64,8 +64,8 @@ Binds every hatch3r-invoked workflow that delegates via the Task tool in the end
 
 ## References
 
-- `governance/CONSTITUTION.md` §2 P8 B2 (source directive).
+- Pillar P8 B2 (source directive; see `agents/shared/principles.md`).
 - `rules/hatch3r-agent-orchestration.md` → Parallel Safety, Scaling Heuristic, Cost-Dominance Principle, End-of-Turn Delegation Attestation (mechanics this rule references).
-- `governance/audit/domains/D07-orchestration.md` (audits the B2 contract per cycle).
+- The orchestration audit domain audits the B2 contract per cycle.
 - Anthropic, "Multi-agent orchestration" (Managed Agents) — `https://platform.claude.com/docs/en/managed-agents/multi-agent` (accessed 2026-05-26, official-docs): a lead agent decomposes a job and delegates pieces to specialist sub-agents working in parallel over a shared file system, up to ~10 simultaneous.
 - Augment Code, "Multi-Agent Orchestration Architecture Guide" — `https://www.augmentcode.com/guides/multi-agent-orchestration-architecture-guide` (accessed 2026-05-26, independent-analysis): structured context objects pass only relevant fields per worker; graph-based message passing structures communication along declared dependency edges.

@@ -16,6 +16,7 @@
  *
  * Usage: `npm run audit:validate-registry [-- --strict] [-- --post-phase2]`.
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +44,18 @@ function parseFlags(argv: ReadonlyArray<string>): ValidateOptions {
 
 async function main(): Promise<void> {
   const flags = parseFlags(process.argv.slice(2));
+
+  // The finding registry is private and absent in public CI / contributor
+  // clones. With nothing to validate, print a notice and exit 0 rather than
+  // fail the gate on the missing read.
+  if (!existsSync(REGISTRY_PATH)) {
+    // eslint-disable-next-line no-console
+    console.error(
+      "[validate-finding-registry] governance/audit/finding-registry.json absent — skipping finding-registry drift check",
+    );
+    return;
+  }
+
   let raw: unknown;
   try {
     const content = await readFile(REGISTRY_PATH, "utf-8");

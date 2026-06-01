@@ -29,7 +29,7 @@ This complements (does not duplicate) `rules/hatch3r-anti-duplication.md` (the p
 
 ## CQ8 Threshold Set
 
-Source: `governance/CONSTITUTION.md` §2B CQ8. Every threshold below is measurable per audit cycle.
+Source: pillar CQ8 (see `agents/shared/principles.md`). Every threshold below is measurable per audit cycle.
 
 | Threshold | Target | Measurement source |
 |-----------|--------|--------------------|
@@ -126,7 +126,7 @@ ADRs live under `docs/adr/NNNN-{slug}.md` (or project equivalent) and are linked
 
 ## Per-Finding Output Format
 
-Every finding emitted under this rule MUST include the rigor-contract fields per `governance/audit/templates/rigor-contract.md`:
+Every finding emitted under this rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`:
 
 - `proof_trace`: file:line citation + jscpd/oasdiff/buf-breaking output excerpt.
 - `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
@@ -136,7 +136,7 @@ Every finding emitted under this rule MUST include the rigor-contract fields per
 
 ## Severity Mapping
 
-Source: `governance/audit/templates/severity-mapping.md`.
+Source: `agents/shared/severity-mapping.md`.
 
 | Specialist Status | Canonical Severity | Action |
 |-------------------|--------------------|--------|
@@ -155,8 +155,8 @@ Source: `governance/audit/templates/severity-mapping.md`.
 
 ## References
 
-- `governance/CONSTITUTION.md` §2B CQ8 (measurement set + specialist owner).
-- `governance/audit/domains/D05-prompt-engineering.md` + `D16-compound-system.md` (maintainability domains).
+- Pillar CQ8 (measurement set + specialist owner; see `agents/shared/principles.md`).
+- The prompt-engineering and compound-system audit domains (maintainability domains).
 - `agents/hatch3r-maintainability.md` (CQ8 reviewer / gate).
 - `rules/hatch3r-anti-duplication.md` (pre-implementation discovery gate).
 - `rules/hatch3r-migrations.md` (expand-contract migration pattern).

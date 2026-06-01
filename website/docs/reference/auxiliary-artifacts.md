@@ -27,7 +27,7 @@ Review criteria definitions that agents (primarily `hatch3r-reviewer`) load to e
 
 Standalone prompt templates that produce a structured output without agent state — suitable for one-shot invocations from any tool that accepts a prompt (Claude Code, Cursor chat, Copilot Chat, or a CLI/API call).
 
-The canonical hatch3r corpus ships **no prompt artifacts**. The class is reserved for distributed content packs, which may supply prompts under the pack trust model (see [`governance/pack-trust-model.md`](https://github.com/hatch3r/hatch3r/blob/main/governance/pack-trust-model.md)). When a pack ships a prompt, its canonical location is `prompts/{id}.md` in the pack content root.
+The canonical hatch3r corpus ships **no prompt artifacts**. The class is reserved for distributed content packs, which may supply prompts under the pack trust model (see the [trust model reference](https://docs.hatch3r.com/docs/reference/trust-model)). When a pack ships a prompt, its canonical location is `prompts/{id}.md` in the pack content root.
 
 ## GitHub Agents
 

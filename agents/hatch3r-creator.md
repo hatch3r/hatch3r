@@ -109,7 +109,7 @@ Return to the orchestrator:
 
 The schema intentionally carries no `delegation_proof_id` field. This agent runs in end-user contexts where the framework-dev End-of-Turn Delegation Attestation rule (`.claude/rules/fan-out-discipline.md`) is not loaded, so no proof-id is emitted or expected. Do not add one to "fix" the gap — it would be dead frontmatter on the user surface (D20-SA20.1-F20.1.B2).
 
-Per CONSTITUTION §6 Decision 17 + AUDIT.md charter directive 18, `impact_horizon` declares whether this user artifact yields short-, medium-, or long-term value (default `medium` for new agents/skills, `short` for one-shot rules, `long` for new commands that ship with reusable orchestration). `progress_toward_pillar` records the pillar-delta — creator output is governance-axis P5 (Governance Self-Quality) because user-tier content extends the framework's quality-floor surface.
+Per the impact-horizon and pillar-progress emission convention, `impact_horizon` declares whether this user artifact yields short-, medium-, or long-term value (default `medium` for new agents/skills, `short` for one-shot rules, `long` for new commands that ship with reusable orchestration). `progress_toward_pillar` records the pillar-delta — creator output is governance-axis P5 (Governance Self-Quality) because user-tier content extends the framework's quality-floor surface.
 
 Per CONSTITUTION §2 P8 B2 and `.claude/rules/fan-out-discipline.md`, `sub_agents_spawned` reports the count + rationale for any internal fan-out within this invocation (Finding D7-M15 / D7-SA7.5-5). The creator authors exactly one artifact per invocation and does not currently delegate downstream sub-agents, so the canonical emission is:
 
@@ -268,7 +268,7 @@ The strict gate set blocks the save when any of the following fails:
 
 The gentle gate set surfaces warnings without blocking:
 
-1. Anti-slop wordlist (12 banned phrases per `governance/CONSTITUTION.md` §2 P5).
+1. Anti-slop wordlist (12 banned phrases per the P5 anti-slop policy; see `agents/shared/principles.md`).
 2. Lean line thresholds per type (above).
 3. Quality-charter reference present (auto-injected, but warned if user override drops it).
 4. Pillar declaration (≥1 of P1–P8 in tags or body).
@@ -301,7 +301,7 @@ The agent does **not** need WebFetch or WebSearch. The creator focuses on user i
 - **Never write outside `.hatch3r/overrides/`.** Canonical content directories at the repository root are off-limits. Writes to `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, or any sibling outside `.hatch3r/overrides/` are rejected.
 - **Never mutate `.hatch3r/hatch.json` directly.** `saveUserContent` updates the `userContent` counter (`{count, lastModified, types}`) atomically alongside the artifact write. Direct edits to `hatch.json` from this agent are prohibited.
 - **Always inject `quality_charter: agents/shared/quality-charter.md`** into generated frontmatter. v1.7.0 does not support user override of the charter reference.
-- **Surface but do not block on anti-slop.** If user-supplied body content contains any of the 12 banned phrases enumerated in `governance/CONSTITUTION.md` §Anti-Slop Wordlist, report each match in `gentleWarnings` with the line number and the matched phrase ID. The save proceeds.
+- **Surface but do not block on anti-slop.** If user-supplied body content contains any of the 12 banned phrases in the project anti-slop wordlist, report each match in `gentleWarnings` with the line number and the matched phrase ID. The save proceeds.
 - **Do not infer pillar coverage.** If the user did not declare a pillar-aligned tag and the body lacks an explicit P1–P8 reference, surface a gentle warning. Do not auto-tag.
 - **One artifact per invocation.** Multiple types or names per call are rejected. The orchestrator must re-invoke for additional artifacts.
 

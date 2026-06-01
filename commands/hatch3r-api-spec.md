@@ -92,7 +92,7 @@ Post-execution actuals + delta land in the Step 8 output summary's Fan-out + Cos
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a single-endpoint doc tweak scored as Deep, or a full-codebase drift scan scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a single-endpoint doc tweak scored as Deep, or a full-codebase drift scan scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -338,7 +338,7 @@ Files Created/Updated:
 
 ## Resumability (Decision 27/30)
 
-api-spec is long-running — a Tier 3 full-codebase scan runs the hatch3r-researcher (codebase-analysis mode) over route definitions and handlers (Step 1), then orchestrator-inline TypeScript-schema + validation-schema extraction (Step 2), then hatch3r-docs-writer assembling the OpenAPI 3.1 spec under `docs/api/` (Step 3), then hatch3r-reviewer validating structural correctness in validate mode (Step 4). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the route scan or re-extracting schemas.
+api-spec is long-running — a Tier 3 full-codebase scan runs the hatch3r-researcher (codebase-analysis mode) over route definitions and handlers (Step 1), then orchestrator-inline TypeScript-schema + validation-schema extraction (Step 2), then hatch3r-docs-writer assembling the OpenAPI 3.1 spec under `docs/api/` (Step 3), then hatch3r-reviewer validating structural correctness in validate mode (Step 4). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the route scan or re-extracting schemas.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -383,7 +383,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.

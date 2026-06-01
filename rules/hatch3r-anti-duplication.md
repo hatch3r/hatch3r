@@ -97,7 +97,7 @@ When skipped, declare `discovery_scan: skipped (reason: <reason>)` in the iterat
 - `agents/shared/quality-charter.md` §12 binds every agent to this procedure.
 - `agents/hatch3r-implementer.md` runs the discovery gate before writing.
 - `agents/hatch3r-reviewer.md` runs the duplication scan in review.
-- `governance/audit/domains/D16-compound-system.md` and `D22-content-architecture.md` audit duplication at cycle time.
+- The compound-system and content-architecture audit domains audit duplication at cycle time.
 
 ## Pillar Service
 
@@ -111,5 +111,5 @@ When skipped, declare `discovery_scan: skipped (reason: <reason>)` in the iterat
 - CONSTITUTION §2 P4 (Single Source of Truth).
 - CONSTITUTION §2 CQ8 (Maintainability Measurement — jscpd ≤5% per cycle).
 - `agents/shared/quality-charter.md` §12 (Anti-Duplication Procedure).
-- `governance/audit/domains/D16-compound-system.md` (duplication candidate threshold SA 16.3).
-- `governance/audit/domains/D22-content-architecture.md` (content-corpus duplication audit; authored in subsequent cycle).
+- The compound-system audit domain (duplication candidate threshold SA 16.3).
+- The content-architecture audit domain (content-corpus duplication audit; authored in subsequent cycle).

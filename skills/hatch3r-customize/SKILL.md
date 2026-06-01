@@ -10,7 +10,7 @@ cache_friendly: true
 ---
 # Artifact Customization Management
 
-> **Canonical entry point.** This is the single skill for all per-artifact customization (agents, commands, rules, skills). The four prior type-specific skill stubs were removed in v1.9.0 per the Decision #13 Command-vs-Skill criterion; `governance/audit/domains/D16-compound-system.md` SA 16.3 documents the rejected-merge alternative.
+> **Canonical entry point.** This is the single skill for all per-artifact customization (agents, commands, rules, skills). The four prior type-specific skill stubs were removed in v1.9.0 per the Decision #13 Command-vs-Skill criterion; hatch3r's artifact-inventory and redundancy analysis documents the rejected-merge alternative.
 
 ## Quick Start
 

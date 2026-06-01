@@ -9,7 +9,7 @@
  * prefixes, severity-tagged lines). Findings are emitted when the term is
  * NOT one of the canonical 5-tier buckets (Critical | High | Medium | Low |
  * Info) AND the file does not reference the canonical mapping
- * (`governance/audit/templates/severity-mapping.md`).
+ * (`agents/shared/severity-mapping.md`).
  *
  * The canonical mapping reference is a documented opt-out — agents like
  * `hatch3r-ui` (WCAG Critical/Major/Minor) and `hatch3r-security`
@@ -39,6 +39,7 @@
  *   `tsx scripts/validate-severity-vocabulary.ts`
  *   `tsx scripts/validate-severity-vocabulary.ts --json`
  */
+import { existsSync } from "node:fs";
 import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -68,7 +69,7 @@ const CANONICAL_LC = new Set(CANONICAL_SEVERITIES.map((s) => s.toLowerCase()));
 /**
  * Off-canonical severity terms encountered across the corpus. Each term
  * has a canonical equivalent documented in
- * `governance/audit/templates/severity-mapping.md`. Files emitting these
+ * `agents/shared/severity-mapping.md`. Files emitting these
  * terms in a structured severity context MUST reference the mapping file
  * so consumers (fixer, reviewer) can round-trip the value to canonical.
  */
@@ -89,10 +90,20 @@ const OFF_CANONICAL_LC = new Set(OFF_CANONICAL_TERMS.map((s) => s.toLowerCase())
 
 /**
  * Canonical mapping reference. Files emitting any off-canonical term must
- * cite this path so the fixer / reviewer can map the value back to the
- * canonical 5-tier.
+ * cite this so the fixer / reviewer can map the value back to the canonical
+ * 5-tier. Matched as a substring (the basename), which is stable across the
+ * relocation from `governance/audit/templates/` to `agents/shared/`.
  */
 export const MAPPING_REF = "severity-mapping.md";
+
+/**
+ * Canonical on-disk location of the severity mapping (relocated from
+ * `governance/audit/templates/severity-mapping.md` to the public
+ * `agents/shared/` home). Used only for the absence-tolerance check below:
+ * the mapping doc is the documented opt-out, so when it is not present the
+ * opt-out semantics cannot be relied on and the scan is skipped.
+ */
+export const MAPPING_FILE_REL = "agents/shared/severity-mapping.md";
 
 /**
  * Directories scanned for `.md` artifacts. Mirrors the AUDIT-EXECUTE
@@ -497,6 +508,22 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const rootDir = opts.rootDir ?? ROOT;
   const dirs = opts.scannedDirs ?? DEFAULT_SCANNED_DIRS;
 
+  // The severity mapping doc is the documented opt-out for off-canonical
+  // terms. It was relocated to the public `agents/shared/` home; on a real
+  // repo run (default root, no explicit rootDir) its absence means the
+  // opt-out semantics no longer hold, so skip the vocabulary scan (exit
+  // clean) rather than emit false SEVERITY-MAPPING-MISS findings against
+  // every file that cites it. Callers that pass an explicit `rootDir` (test
+  // fixtures, partial-tree probes) own their tree and are scanned as-is —
+  // the skip is scoped to the production default-root invocation only.
+  if (opts.rootDir === undefined && !existsSync(join(rootDir, MAPPING_FILE_REL))) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `[validate-severity-vocabulary] ${MAPPING_FILE_REL} absent — skipping severity-vocabulary check`,
+    );
+    return { findings: [], errorCount: 0, warningCount: 0, filesScanned: 0 };
+  }
+
   const findings: Finding[] = [];
   let filesScanned = 0;
 
@@ -508,6 +535,16 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     } catch {
       // Missing scanned dir is informational; the validator is tolerant
       // because the same set is reused across test fixtures and real repos.
+      // The private `governance/` tree is absent in public CI / contributor
+      // clones — its absence here simply yields zero markdown files from
+      // that dir while `agents/`, `rules/`, `commands/`, `skills/`, `hooks/`
+      // continue to be scanned.
+      if (dir === "governance") {
+        // eslint-disable-next-line no-console
+        console.error(
+          `[validate-severity-vocabulary] governance/ absent — skipping governance/ portion of severity scan`,
+        );
+      }
       continue;
     }
     const mdFiles = await walkMarkdownFiles(abs);

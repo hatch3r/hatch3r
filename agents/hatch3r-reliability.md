@@ -124,7 +124,7 @@ Each row in the output report cites: source spec/RFC, observed evidence (file pa
 
 ## Severity calibration
 
-Apply `governance/AUDIT.md` §Severity Taxonomy + `agents/shared/quality-charter.md` §14 to every finding. Reliability calibration baseline:
+Apply the canonical severity taxonomy (`agents/shared/severity-mapping.md`) + `agents/shared/quality-charter.md` §14 to every finding. Reliability calibration baseline:
 
 | Severity | Trigger condition |
 |----------|-------------------|
@@ -167,11 +167,11 @@ See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml sche
   - Deploy an alert rule without a runbook URL on the annotation per `agents/shared/quality-charter.md` §Reliability quality.
   - Replace decorrelated jitter with naked exponential backoff for "simplicity" — cascading failure risk per Google SRE Workbook ch. 22 outweighs the code reduction.
   - Recommend trip-on-first-failure circuit breakers without measured failure-rate basis — set threshold from a histogram of observed failure rates, not from a guess.
-  - Skip the proof_trace block on any state-dependent claim per `governance/audit/templates/rigor-contract.md` §Proof Trace Contract.
+  - Skip the proof_trace block on any state-dependent claim per `agents/shared/rigor-contract.md` §Proof Trace Contract.
 
 ## References
 
-Trust-tier mapping per `governance/audit/templates/rigor-contract.md` §Trust Tiers. Recency window per the same template (≤12 months for tooling claims; sources below dated 2025-09 onward).
+Trust-tier mapping per `agents/shared/rigor-contract.md` §Trust Tiers. Recency window per the same reference (≤12 months for tooling claims; sources below dated 2025-09 onward).
 
 - OpenTelemetry — "Semantic Conventions" (https://opentelemetry.io/docs/concepts/semantic-conventions/) — accessed 2026-05-26, OpenTelemetry / CNCF, **official-docs**. Stable groups (HTTP, database, messaging) define attribute keys consumed by SLO + RED metric pipelines; cited for audit-checklist items 1 + 3.
 - OpenTelemetry — "Semantic Conventions 1.41.0" (https://opentelemetry.io/docs/specs/semconv/) — accessed 2026-05-26, OpenTelemetry / CNCF, **official-docs**. Current spec revision (released Apr 2026); span-attribute drift baseline for the Severity Calibration Medium row.

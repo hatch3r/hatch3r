@@ -95,7 +95,7 @@ npm run build
 
 F15.8-H4 (Cycle 10 D15-SA15.8): every release surface MUST emit an SBOM + provenance + SLSA attestation + container signature before deploy. Skipping these produces un-attested artifacts that fail consumer-side `npm audit signatures` and SLSA-Build-L3 verification.
 
-Maturity-tier gating (per `governance/CONSTITUTION.md` §2 P5 + Decision 4):
+Maturity-tier gating (per the P5 maturity-tier model — solo/team/scaleup/enterprise; see `agents/shared/principles.md`):
 - `solo` — MAY defer SBOM emission and SLSA generator for a single-maintainer release. Provenance (`--provenance` flag below) and `cosign` for any container image remain mandatory.
 - `team`, `scaleup`, `enterprise` — MUST execute every sub-step below; consumer verification depends on these artifacts being present.
 

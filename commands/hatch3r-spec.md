@@ -61,7 +61,7 @@ Resolve the triage tier from scope answer (or auto-detect):
 
 ## Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a trivial brief scored as Deep, or a multi-domain brief scored as Light. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a trivial brief scored as Deep, or a multi-domain brief scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard|deep` forces the named tier, bypassing the Triage auto-classification above.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -177,7 +177,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
@@ -232,12 +232,12 @@ Both blocks land in the iteration summary's Fan-out + Cost section per `rules/ha
 
 ## References
 
-- `governance/CONSTITUTION.md` §6 Decision #14 (reputable-source mandate) and Decision #23 (2 spec agents with shared core)
+- hatch3r design decisions: reputable-source mandate (Decision #14) and the 2-spec-agents-with-shared-core split (Decision #23)
 - `.claude/rules/content-authoring.md` §8 (C8-D5-M1 orchestrator marker) and §9 (Command vs Skill criterion, Decision #13)
 - `agents/shared/user-question-protocol.md` (B1 gate)
 - `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
 - `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)
 - `rules/hatch3r-iteration-summary.md` (canonical end-of-turn block)
 - `rules/hatch3r-cost-visibility.md` (Decision 24 cost_estimate / cost_actuals / delta field contract)
-- `governance/CONSTITUTION.md` §6 Decision 17 (`--effort` universal override + triage_tiers)
+- hatch3r design decision: `--effort` universal override + triage_tiers (Decision 17)
 - `commands/hatch3r-board-fill.md` (orchestrator pattern reference)

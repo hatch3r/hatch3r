@@ -33,7 +33,7 @@ Calibrate the fields to the triage tier (see `rules/hatch3r-deep-context`); sour
 
 1. **Request** — verbatim restatement of the user's ask in one sentence
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` + `cost: { estimated_input_tokens, actual_input_tokens, estimated_duration_min, actual_duration_min, delta_percent }`
-3. **Web Research** — every URL fetched with access date + trust tier (per `governance/audit/templates/rigor-contract.md`); count 0 acceptable if no research was needed
+3. **Web Research** — every URL fetched with access date + trust tier (per `agents/shared/rigor-contract.md`); count 0 acceptable if no research was needed
 4. **Files Mutated** — list with diff summary (lines added / removed / files created)
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per Decision 17
@@ -56,7 +56,7 @@ Orchestrators MAY emit a `## Pattern Rationale` block before the Iteration Summa
 ```
 pattern_rationale:
   - pattern: <name, e.g., "circuit-breaker for outbound DB call">
-    rule: <rules/hatch3r-*.md path or governance/CONSTITUTION.md anchor>
+    rule: <rules/hatch3r-*.md path or agents/shared/principles.md anchor>
     pillar: <P1..P8 or CQ1..CQ9>
     why: <≤1 sentence plain language>
 ```

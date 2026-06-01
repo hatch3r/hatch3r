@@ -118,7 +118,7 @@ Post-execution actuals + delta land in the Step 8 summary's Fan-out + Cost secti
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a multi-file change scored as Tier 1, or a one-line edit scored as Tier 2. The user override is the recovery path mandated by `governance/CONSTITUTION.md` §6 Decision 17 ("User overridable via `--effort` flag"):
+Auto-tiering can misclassify — a multi-file change scored as Tier 1, or a one-line edit scored as Tier 2. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
 
 - `--effort=light|standard` forces the named tier, bypassing the Triage auto-classification. `--effort=deep` is rejected here — quick-change hard-blocks Tier 3 and routes to `hatch3r-workflow`.
 - The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
@@ -428,7 +428,7 @@ Quick Change Complete:
 
 ## Resumability (Decision 27/30)
 
-quick-change runs adaptive ceremony — trivial items execute inline with no checkpoint surface, but a Tier 2/3 batch of multiple nontrivial items can grow to span per-item implementer delegation (Step 4), lint-fix (Step 5), the reviewer ↔ fixer review loop (Step 6), parallel CQ specialist Phase 4 batch (Step 6 final-quality), and the commit phase (Step 7). Per `governance/CONSTITUTION.md` §6 Decision 30 (Workspace-checkpointed resumability), checkpoint progress on nontrivial batches so an interrupted run re-enters at the last completed step rather than re-implementing items that already wrote code.
+quick-change runs adaptive ceremony — trivial items execute inline with no checkpoint surface, but a Tier 2/3 batch of multiple nontrivial items can grow to span per-item implementer delegation (Step 4), lint-fix (Step 5), the reviewer ↔ fixer review loop (Step 6), parallel CQ specialist Phase 4 batch (Step 6 final-quality), and the commit phase (Step 7). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress on nontrivial batches so an interrupted run re-enters at the last completed step rather than re-implementing items that already wrote code.
 
 **Checkpoint contract** (`src/pipeline/checkpoint.ts`):
 
@@ -473,7 +473,7 @@ The 9 sections:
 
 1. **Request** — verbatim restatement of the user's ask in one sentence.
 2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `governance/audit/templates/rigor-contract.md` (0 acceptable when no research was needed).
+3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
 4. **Files Mutated** — list with diff summary (lines added / removed / files created).
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
