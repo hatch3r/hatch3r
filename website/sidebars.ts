@@ -2,6 +2,7 @@ import type {SidebarsConfig} from '@docusaurus/plugin-content-docs';
 
 const sidebars: SidebarsConfig = {
   docsSidebar: [
+    'about',
     {
       type: 'category',
       label: 'Getting Started',
@@ -57,6 +58,7 @@ const sidebars: SidebarsConfig = {
         },
         'reference/auxiliary-artifacts',
         'reference/adapter-capability-matrix',
+        'reference/trust-model',
       ],
     },
     'troubleshooting',

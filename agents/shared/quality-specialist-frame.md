@@ -1,3 +1,10 @@
+---
+id: shared-quality-specialist-frame
+type: reference
+description: Shared structural frame (ambiguity, external-knowledge, confidence, delegation, output schema) for the 9 content-quality CQ1–CQ9 specialist agents.
+tags: [reference]
+---
+
 # Quality Specialist Frame
 
 > **Pillars:** P2 (Scientific & Practical Quality), P4 (Lean Coverage), P5 (Governance Self-Quality), P8 (Clarification & Fan-out Discipline)
