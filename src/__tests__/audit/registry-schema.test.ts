@@ -214,6 +214,49 @@ describe("validateRegistry — invariants", () => {
   });
 });
 
+describe("validateRegistry — Cycle Drain Contract (targeted parking)", () => {
+  const PARK_REASON = "targeted finding parked at cycle close";
+
+  it("flags a targeted finding with execution_status=deferred", () => {
+    const f = modernMinimal({ execution_status: "deferred" });
+    const drifts = validateRegistry(parseRegistry([f]));
+    const parked = drifts.find((d) => d.reason === PARK_REASON);
+    expect(parked).toBeDefined();
+    expect(parked?.detail).toContain("Cycle Drain Contract");
+    expect(parked?.detail).toContain("deferred");
+  });
+
+  it("flags a targeted finding with execution_status=never_attempted", () => {
+    const f = modernMinimal({ execution_status: "never_attempted" });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts.find((d) => d.reason === PARK_REASON)).toBeDefined();
+  });
+
+  it("does NOT flag a targeted finding with execution_status=done", () => {
+    const f = modernMinimal({ execution_status: "done" });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts.find((d) => d.reason === PARK_REASON)).toBeUndefined();
+  });
+
+  it("does NOT flag a non-targeted (human_only) finding with deferred status — archived data still validates", () => {
+    const f = modernMinimal({
+      disposition: "human_only",
+      execution_status: "deferred",
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts.find((d) => d.reason === PARK_REASON)).toBeUndefined();
+  });
+
+  it("does NOT flag a non-targeted (excluded) finding with never_attempted status", () => {
+    const f = modernMinimal({
+      disposition: "excluded",
+      execution_status: "never_attempted",
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts.find((d) => d.reason === PARK_REASON)).toBeUndefined();
+  });
+});
+
 describe("validateRegistry — strict mode", () => {
   it("requires v2 envelope in strict mode", () => {
     const parsed = parseRegistry([modernMinimal()]);

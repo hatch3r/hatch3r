@@ -30,6 +30,12 @@ export type Disposition =
   | "targeted"
   | "excluded"
   | "human_only"
+  // `deferred`/`multi_cycle_deferred` are retained for historical/archived-cycle
+  // data only (governance/audit/archive/cycle-*.json still carry them and must
+  // still parse). They MUST NOT be assigned to a `targeted` finding in a live
+  // cycle — the Cycle Drain Contract (AUDIT-EXECUTE.md) requires a targeted
+  // finding to reach a terminal execution_status by cycle close. Enforced for
+  // execution_status in validateEntry (targeted + deferred/never_attempted → error).
   | "deferred"
   | "deferred_cycle10"
   | "already_resolved"
@@ -45,6 +51,11 @@ export type ExecutionStatus =
   | "partial"
   | "failed"
   | "rolled_back"
+  // `never_attempted`/`deferred` are retained for historical/archived-cycle data
+  // only (governance/audit/archive/cycle-*.json still carry them and must still
+  // parse). They MUST NOT be assigned to a `targeted` finding in a live cycle —
+  // the Cycle Drain Contract (AUDIT-EXECUTE.md) requires a targeted finding to
+  // reach a terminal execution_status by cycle close. Enforced in validateEntry.
   | "never_attempted"
   | "already_resolved"
   | "deferred";
@@ -424,6 +435,20 @@ function validateEntry(
         finding_id: id,
         reason: "invalid execution_status on targeted",
         detail: `got ${JSON.stringify(f.execution_status)}`,
+      });
+    }
+    // Cycle Drain Contract (AUDIT-EXECUTE.md): a targeted finding may not end
+    // the cycle parked. `deferred`/`never_attempted` are retained only for
+    // historical/archived-cycle rows (which are non-targeted summaries), so a
+    // *targeted* finding holding either status at cycle close is a HALT error.
+    if (
+      f.execution_status === "deferred" ||
+      f.execution_status === "never_attempted"
+    ) {
+      reports.push({
+        finding_id: id,
+        reason: "targeted finding parked at cycle close",
+        detail: `Finding ${id}: disposition 'targeted' may not hold execution_status '${f.execution_status}' at cycle close (Cycle Drain Contract — AUDIT-EXECUTE.md)`,
       });
     }
   }

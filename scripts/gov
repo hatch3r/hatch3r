@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+# gov — version-control the PRIVATE governance/audit IP that lives (gitignored) in this
+# working tree but belongs to the separate private repo github.com/hatch3r/hatch3r-governance.
+#
+# The IP — governance/ (except inventory.json), the 6 .claude/skills/h4tcher-audit-* skills,
+# .claude/rules/audit-cycle-awareness.md, and the dual-tracked audit code under src/audit +
+# src/__tests__/audit + the audit scripts/ — is tracked by an overlay git dir (.governance.git)
+# whose work-tree is this repo root. The public repo's .git gitignores all of it, so the two
+# repos never see each other's tracked surface (except the deliberately-shared inventory.json
+# and the public-canonical src/audit code).
+#
+# Usage:   scripts/gov <git-subcommand> [args...]
+#   scripts/gov status                 # what private IP changed on disk
+#   scripts/gov add governance/AUDIT.md && scripts/gov commit -s -m "..."   # then:
+#   scripts/gov push                   # publish to hatch3r-governance
+#
+# SAFETY:
+#  - NEVER run a destructive checkout/reset against the working tree through this wrapper
+#    (`gov checkout -- .`, `gov reset --hard`); the work-tree is the public repo and it would
+#    clobber public files. Stage explicit paths; review `gov status` before `gov add -A`.
+#  - ops/ files (e.g. the privatization runbook) are governance-repo-only and skip-worktree'd,
+#    so they will not show as deletions and will not be staged away.
+#  - Phase-3 public-history purge is a SEPARATE, human-gated runbook (ops/RUNBOOK-finalize-
+#    privatization.md in the governance repo) — not this wrapper.
+set -euo pipefail
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+GOVDIR="$ROOT/.governance.git"
+if [ ! -d "$GOVDIR" ]; then
+  echo "gov: $GOVDIR not found." >&2
+  echo "gov: set it up with:  git clone --bare https://github.com/hatch3r/hatch3r-governance.git \"$GOVDIR\"" >&2
+  echo "gov:   then: git --git-dir=\"$GOVDIR\" config core.bare false; \\" >&2
+  echo "gov:         git --git-dir=\"$GOVDIR\" config core.worktree \"$ROOT\"; \\" >&2
+  echo "gov:         git --git-dir=\"$GOVDIR\" config status.showUntrackedFiles no; \\" >&2
+  echo "gov:         git --git-dir=\"$GOVDIR\" reset --mixed HEAD; \\" >&2
+  echo "gov:         git --git-dir=\"$GOVDIR\" update-index --skip-worktree ops/RUNBOOK-finalize-privatization.md" >&2
+  exit 1
+fi
+exec git --git-dir="$GOVDIR" "$@"
