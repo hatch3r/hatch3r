@@ -141,7 +141,7 @@ export const DEFAULT_MAX_VALIDATION_PASS_ITERATIONS = 2;
  *
  * Finding D7-SA7.3-F-7 (Cycle 10): same failure class as the review-loop
  * calibration (D7-SA7.2-1 / C7.5-W2B2-H25). Per the Scientific Rigor Contract
- * (`governance/audit/templates/rigor-contract.md`) a numeric bound must carry
+ * (`agents/shared/rigor-contract.md`) a numeric bound must carry
  * a reproducible basis or be downgraded to an informed estimate. No historical
  * validation-pass iteration-count dataset exists, so `basis` is
  * `"informed_estimate"` with `sampleSize: 0`; the record captures the

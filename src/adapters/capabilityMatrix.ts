@@ -13,7 +13,7 @@
 //      doc is missing — silent-failure contract surfaces warnings rather than
 //      swallowing the read error).
 //   3. Diff the two sets and produce a `UtilizationReport` + Finding[] block
-//      conforming to `governance/audit/templates/rigor-contract.md` Required
+//      conforming to `agents/shared/rigor-contract.md` Required
 //      Finding Output Schema (impact_horizon, progress_toward_pillar,
 //      confidence + basis, sources, causal chain).
 //
@@ -161,7 +161,7 @@ export interface UtilizationReport {
 
 /**
  * Audit finding shape, conformant to the Required Finding Output Schema
- * declared in `governance/audit/templates/rigor-contract.md`. Severity scales
+ * declared in `agents/shared/rigor-contract.md`. Severity scales
  * with the platform capability's value: high-leverage primitives (hooks,
  * tool allowlists) surface at Medium when unutilized; lower-leverage ones
  * surface at Info.
@@ -601,7 +601,7 @@ function sourcesFor(adapter: AuditedAdapter): FindingSource[] {
 /**
  * Surface findings for unutilized / partially-utilized rows in a
  * UtilizationReport. Conforms to the Required Finding Output Schema in
- * `governance/audit/templates/rigor-contract.md`. Caller routes these to
+ * `agents/shared/rigor-contract.md`. Caller routes these to
  * `.audit-workspace/D9-SA9.{N}.findings.md` per the D09 SA checklist
  * (governance/audit/domains/D09-platform-adapters.md SA 9.1–9.3).
  *

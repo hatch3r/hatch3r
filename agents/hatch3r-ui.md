@@ -51,7 +51,7 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - **Reviewer pass** on any PR touching `src/**/*.{tsx,jsx,vue,svelte}` or component-library files — invoked by `agents/hatch3r-reviewer.md` on the UI quality vector.
 - **Implementer pre-write** before authoring a new UI surface — confirms design-token coverage exists and four-state pattern is mapped before code is written.
 - **Verifier pre-merge gate** — final CQ1 confirmation before merge, with PASS / FINDINGS / CRITICAL status feeding the release decision.
-- **Ad-hoc UI audit** via `/h4tcher-scoped-audit ui <scope>` — bounded slice review with in-chat report.
+- **Ad-hoc UI audit** — review the changed surface against the CQ1 checklist below (axe-core serious/critical counts, design-token adoption, four-state contract, focus management) and emit a bounded in-chat report.
 
 ## Key Files
 

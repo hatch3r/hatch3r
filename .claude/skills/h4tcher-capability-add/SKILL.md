@@ -42,7 +42,7 @@ Record tier in the Step 7 summary.
    - command: `commands/hatch3r-{name}.md`
    - hook: `hooks/hatch3r-{name}.md`
    - adapter: `src/adapters/{name}.ts` + `src/__tests__/adapters/{name}.test.ts`
-   - pipeline module: under `src/merge/`, `src/integrity/`, or `src/content/`
+   - pipeline module: under `src/merge/`, `src/content/`, or `src/pipeline/`
    - audit domain: `governance/audit/domains/D{NN}-{slug}.md`
 
 ## Step 2: Discover (block on overlap)
@@ -57,7 +57,7 @@ Record tier in the Step 7 summary.
 
 ## Step 3: Web Research
 
-7. Per `governance/audit/templates/rigor-contract.md` §"Web Research Mandate": >=2 independent sources, trust tier (official-docs > peer-reviewed > vendor-note > independent-analysis > blog-post), recency (<=90d CVE, <=12mo vendor docs, <=36mo peer-reviewed).
+7. Per `agents/shared/rigor-contract.md` §"Web Research Mandate": >=2 independent sources, trust tier (official-docs > peer-reviewed > vendor-note > independent-analysis > blog-post), recency (<=90d CVE, <=12mo vendor docs, <=36mo peer-reviewed).
 8. Required when adding agents/skills/commands that cite external practice or empirical claims. Skip only for pure internal refactors with no external claim.
 9. Record sources in the Step 7 summary with URL + access date + trust tier.
 
@@ -80,7 +80,7 @@ The orchestrator sets up context only. Body authoring delegates to the matching 
 | agent / skill / rule / command / hook | `h4tcher-content-author` |
 | adapter (`src/adapters/`) | `h4tcher-adapter-author` |
 | audit domain (`governance/audit/domains/`) | `h4tcher-domain-author` |
-| pipeline module (`src/merge/`, `src/integrity/`, `src/content/`) | Inline — no canonical author skill exists; flag in Step 7 summary for a future skill |
+| pipeline module (`src/merge/`, `src/content/`, `src/pipeline/`) | Inline — no canonical author skill exists; flag in Step 7 summary for a future skill |
 
 Delegation prompts pass: target path, frontmatter shape, pillar(s) served, Step 2 overlap report, Step 3 sources.
 

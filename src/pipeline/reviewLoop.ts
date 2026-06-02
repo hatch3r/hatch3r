@@ -94,7 +94,7 @@ export const DEFAULT_COST_BUDGET_TOKENS_BY_TIER: Readonly<
  * Finding C7.5-W2B2-H25 (D7-SA7.2-1): The prior comment-only calibration
  * (78/18/4% iteration split across cycles 3-4) was unreproducible — no
  * captured dataset, no rerun path. Per the Scientific Rigor Contract
- * (`governance/audit/templates/rigor-contract.md`) empirical claims must
+ * (`agents/shared/rigor-contract.md`) empirical claims must
  * be triangulated and reproducible, or downgraded to informed estimate.
  *
  * This record downgrades the claim to **informed_estimate** and records:

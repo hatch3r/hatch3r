@@ -52,7 +52,7 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - **Implementer pre-write** before authoring performance-sensitive code (new ORM queries on list pages, heavy client components, new vendor dependencies >50KB) — confirms a budget exists and the candidate fits.
 - **Verifier pre-merge gate** — final CQ7 confirmation before merge; emits PASS / FINDINGS / CRITICAL status feeding the release decision.
 - **Post-release CWV regression audit** — compares the latest CrUX dataset against the previous cycle; regression of >5% on any p75 metric is a Medium-minimum finding.
-- **Ad-hoc performance audit** via `/h4tcher-scoped-audit performance <scope>` — bounded slice review with in-chat report.
+- **Ad-hoc performance audit** — review the changed surface against the CQ7 thresholds below (Core Web Vitals, p95/p99 response times, bundle budgets, N+1 query count) and emit a bounded in-chat report.
 
 ## Key Files
 

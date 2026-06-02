@@ -34,7 +34,7 @@ Identify the content type from user input:
 
 Required for new agents, skills, and rules. Skip only for trivial edits (typo, frontmatter-only, single-line clarification).
 
-1. Web-search ≥2 independent reputable sources covering the topic the new artifact will address. Trust tier ordering per `governance/audit/templates/rigor-contract.md`: official vendor docs > peer-reviewed methodology > named-maintainer agent/skill libraries (e.g., Anthropic Claude Code agent registry, established cookbook patterns) > vendor notes > independent analyses > blog posts. Recency window ≤12 months.
+1. Web-search ≥2 independent reputable sources covering the topic the new artifact will address. Trust tier ordering per `agents/shared/rigor-contract.md`: official vendor docs > peer-reviewed methodology > named-maintainer agent/skill libraries (e.g., Anthropic Claude Code agent registry, established cookbook patterns) > vendor notes > independent analyses > blog posts. Recency window ≤12 months.
 2. Synthesise patterns — what structural choices, decision criteria, and verification steps recur across sources. Do NOT copy verbatim; encode the synthesis in the new artifact's voice.
 3. Record sources in a `## References` section at the bottom of the new artifact: URL, access date (YYYY-MM-DD), trust tier, one-line attribution of what you took from each.
 4. If <2 reputable sources exist for the topic, halt and surface that finding — the artifact may be premature.

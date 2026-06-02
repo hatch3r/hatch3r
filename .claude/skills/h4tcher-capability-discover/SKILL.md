@@ -47,7 +47,7 @@ Record the tier in the Step 7 report header.
 
 ## Step 3: Web Research
 
-Per `governance/audit/templates/rigor-contract.md` §"Web Research Mandate": ≥2 independent sources, trust tier (official-docs > peer-reviewed > vendor-note > independent-analysis > blog-post), recency window (≤90 days for CVE, ≤12 months for vendor docs, ≤36 months for peer-reviewed). Sources recorded in Step 7. **Skip when no empirical claim is being investigated** (most pure-overlap scans).
+Per `agents/shared/rigor-contract.md` §"Web Research Mandate": ≥2 independent sources, trust tier (official-docs > peer-reviewed > vendor-note > independent-analysis > blog-post), recency window (≤90 days for CVE, ≤12 months for vendor docs, ≤36 months for peer-reviewed). Sources recorded in Step 7. **Skip when no empirical claim is being investigated** (most pure-overlap scans).
 
 ## Step 4: Sub-Agent Dispatch (T2 / T3 only)
 

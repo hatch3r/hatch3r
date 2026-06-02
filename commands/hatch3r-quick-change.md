@@ -173,9 +173,9 @@ Aggregate across the batch for total estimated scope.
 
 **Hard block — Tier 3 (Deep):** If any item scores Tier 3, quick-change is not appropriate.
 
-**ASK:** "This change scores Tier 3 (Deep complexity): {reason}. Quick-change does not provide the research depth needed. Options: (a) switch to `/h4tcher-workflow`, (b) narrow the scope."
+**ASK:** "This change scores Tier 3 (Deep complexity): {reason}. Quick-change does not provide the research depth needed. Options: (a) switch to `/hatch3r-workflow`, (b) narrow the scope."
 
-Do NOT offer a "proceed anyway" option for Tier 3. The user must switch to `/h4tcher-workflow` or narrow scope.
+Do NOT offer a "proceed anyway" option for Tier 3. The user must switch to `/hatch3r-workflow` or narrow scope.
 
 **Soft guard — Tier 2 (Standard) or threshold triggers:** If any item scores Tier 2, or if any of these threshold triggers fire (any one is sufficient):
 - Estimated total exceeds **5 files**

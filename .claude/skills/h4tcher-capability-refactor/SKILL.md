@@ -49,7 +49,7 @@ Record the tier in the Step 7 summary header.
 
 ## Step 3: Web Research
 
-Skip for pure rename or in-file restructure with no empirical claim. Required when the refactor adopts a new industry pattern (e.g., restructuring an adapter around a vendor's new feature surface). Per `governance/audit/templates/rigor-contract.md` §"Web Research Mandate": ≥2 independent sources, trust tier (official-docs > peer-reviewed > vendor-note > independent-analysis > blog-post), recency (≤90d CVE, ≤12mo vendor docs, ≤36mo peer-reviewed). Sources recorded in Step 7.
+Skip for pure rename or in-file restructure with no empirical claim. Required when the refactor adopts a new industry pattern (e.g., restructuring an adapter around a vendor's new feature surface). Per `agents/shared/rigor-contract.md` §"Web Research Mandate": ≥2 independent sources, trust tier (official-docs > peer-reviewed > vendor-note > independent-analysis > blog-post), recency (≤90d CVE, ≤12mo vendor docs, ≤36mo peer-reviewed). Sources recorded in Step 7.
 
 ## Step 4: Sub-Agent Dispatch (T2 / T3 only)
 
@@ -148,6 +148,6 @@ Next action (run manually):
 
 - Cross-skill: `.claude/skills/h4tcher-content-author/SKILL.md`, `.claude/skills/h4tcher-adapter-author/SKILL.md`, `.claude/skills/h4tcher-domain-author/SKILL.md`
 - Triage skeleton: `.claude/skills/h4tcher-pr-resolve/SKILL.md`
-- Web research mandate: `governance/audit/templates/rigor-contract.md`
+- Web research mandate: `agents/shared/rigor-contract.md`
 - Anti-slop wordlist: `.claude/rules/anti-slop-enforcement.md`
 - Pillar Compliance Test: `.claude/rules/pillar-compliance.md`

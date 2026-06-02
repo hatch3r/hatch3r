@@ -178,6 +178,8 @@ Mirrors `governance/CONSTITUTION.md` §2 P5 verbatim (validator `scripts/validat
 | API breaking-change events on stable endpoints | 0 per release |
 | AI feature eval coverage | 100% |
 | Per-feature test-class mandate compliance | 100% |
+| Edge-case enumeration coverage on changed surfaces (generated code) | >=90% |
+| Illegal-state-prevention adoption on state machines / unions (generated code) | 100% |
 | Supply-chain floor coverage | 100% |
 | User-facing service SLO defined | 100% |
 | Auth depth coverage | 100% |

@@ -38,7 +38,7 @@ The Constitution (§2 P5) caps governance file sizes:
 | Constitution | <=225 lines |
 | Audit prompt | <=600 lines |
 | Audit execution model | <=700 lines |
-| Domain files (`D01-D21`) | 30-80 lines each |
+| Domain files (`D01-D24`) | 30-80 lines each |
 | Cross-file duplication | <5% |
 | Anti-slop phrases per file | 0 |
 

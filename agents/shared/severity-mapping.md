@@ -59,7 +59,7 @@ D22 / D23 / D24 admission (per the canonical audit domain map) adds three domain
 | Domain | Source vocabulary | Bucket meaning | Canonical map |
 |--------|-------------------|----------------|---------------|
 | **D22** Content Architecture | `obsolete` | Artifact serves no current pillar AND has zero cross-references | Critical (remove via D16-SA16.3 threshold) |
-| **D22** Content Architecture | `merge_candidate` | ≥80% conceptual overlap with another artifact AND removal threshold not met | High (merge via `/h4tcher-capability-refactor`) |
+| **D22** Content Architecture | `merge_candidate` | ≥80% conceptual overlap with another artifact AND removal threshold not met | High (merge the overlapping artifacts) |
 | **D22** Content Architecture | `drift` | Artifact frontmatter or body diverges from current pillar definitions | Medium |
 | **D22** Content Architecture | `gap` | Pillar is under-represented in the content corpus (per web-comparison findings) | Medium (CL-2 candidate) |
 | **D22** Content Architecture | `coverage_low` | Pillar served by <2 artifacts but pillar surface area expects ≥2 | Low |

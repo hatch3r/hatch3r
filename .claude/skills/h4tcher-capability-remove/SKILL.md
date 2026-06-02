@@ -50,7 +50,7 @@ Cite which criterion is crossed for every failing check. **Block immediately on 
 
 ## Step 3: Web Research
 
-Skipped by default. Run only when the removal cites an external "industry has deprecated this" claim. When triggered, follow the rigor contract (`governance/audit/templates/rigor-contract.md` §"Web Research Mandate"): >=2 independent sources, trust tier (official-docs > peer-reviewed > vendor-note > independent-analysis > blog-post), recency window (<=90d CVE, <=12mo vendor docs, <=36mo peer-reviewed). Sources land in the Step 7 summary.
+Skipped by default. Run only when the removal cites an external "industry has deprecated this" claim. When triggered, follow the rigor contract (`agents/shared/rigor-contract.md` §"Web Research Mandate"): >=2 independent sources, trust tier (official-docs > peer-reviewed > vendor-note > independent-analysis > blog-post), recency window (<=90d CVE, <=12mo vendor docs, <=36mo peer-reviewed). Sources land in the Step 7 summary.
 
 ## Step 4: Sub-Agent Dispatch (T2/T3)
 
@@ -140,7 +140,7 @@ Next action (maintainer runs manually):
 ## References
 
 - D16.3 removal-threshold + add-vs-remove bias check: `governance/audit/domains/D16-compound-system.md` §16.3 "Removal candidate threshold"
-- Web research mandate: `governance/audit/templates/rigor-contract.md`
+- Web research mandate: `agents/shared/rigor-contract.md`
 - Quality charter: `agents/shared/quality-charter.md`
 - Sibling presets: `.claude/skills/h4tcher-capability-discover/SKILL.md`, `.claude/skills/h4tcher-capability-refactor/SKILL.md`
 - Author skill (replacement artifact, rare): `.claude/skills/h4tcher-content-author/SKILL.md`

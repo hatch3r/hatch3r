@@ -67,11 +67,11 @@ Run after Step 2 fixes complete. Block commit on any failure.
    ```
    Confirm the diff matches the actual content changes; investigate any unexpected drift before proceeding.
 
-9. If `src/merge/`, `src/integrity/`, `src/content/`, or `src/adapters/customization.ts` was touched, run a coverage spot-check:
+9. If `src/merge/`, `src/content/`, or `src/adapters/customization.ts` was touched, run a coverage spot-check:
    ```bash
    npm test -- --coverage
    ```
-   Critical-module thresholds: 90/80/90/90 for `src/merge/` + `src/integrity/`; 85/75/85/85 for `src/content/` + `src/adapters/customization.ts`.
+   Critical-module thresholds: 90/80/90/90 for `src/merge/`; 85/75/85/85 for `src/content/` + `src/adapters/customization.ts`.
 
 ## Step 4: Pillar + Governance Compliance
 

@@ -121,7 +121,7 @@ Before writing implementation code: run a codebase pattern search (grep for simi
 
 ### 13. Adversarial Thinking
 
-For any non-trivial design choice, hold an internal adversarial review: what is the strongest case AGAINST this approach? What edge case breaks it? What stakeholder loses under this choice? Surface the counter-argument in the structured output alongside the chosen approach.
+For any non-trivial design choice, hold an internal adversarial review: what is the strongest case AGAINST this approach? What edge case breaks it? What stakeholder loses under this choice? Surface the counter-argument in the structured output alongside the chosen approach. For multi-entity or state-machine work, enumerate the breaking edge cases as an Edge-Case Ledger per `rules/hatch3r-edge-case-discipline.md`.
 
 ### 14. Severity Discipline
 

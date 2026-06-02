@@ -183,6 +183,8 @@ Reviewers verify each PR satisfies the required test classes for the code class 
 | LLM feature | eval (via `hatch3r-ai-feature`) + unit on adapter + integration on fallback chain |
 | Background job | unit + integration with poison-message handling |
 
+Each edge case enumerated per `rules/hatch3r-edge-case-discipline.md` (and the Edge-Case Ledger from `agents/hatch3r-edge-case-analyst.md`) maps to a required test class in the mandate map above — a feature whose suite exercises only the happy path is a coverage gap.
+
 ## References
 
 - Stryker (mutation testing): https://stryker-mutator.io/

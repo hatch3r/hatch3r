@@ -234,6 +234,11 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     description: "CQ5 testability quality-vector specialist (review-only): read test artefacts, mutation reports, and contract-test ledgers and search for unjustified mocks. No write/execute — fix authorship delegates to hatch3r-fixer and hatch3r-implementer per agents/hatch3r-testability.md §Boundaries.",
   },
   {
+    agentId: "hatch3r-edge-case-analyst",
+    allowedTools: ["read", "search"],
+    description: "CQ4+CQ5 supporting edge-case/error-handling correctness analyst (review-only): read diffs, entity relations, state machines, and test sets and search for unenumerated edge cases. No write/execute — fix authorship delegates to hatch3r-implementer / hatch3r-fixer per agents/hatch3r-edge-case-analyst.md Boundaries.",
+  },
+  {
     agentId: "hatch3r-scalability",
     allowedTools: ["read", "search"],
     description: "CQ6 scalability quality-vector specialist (review-only): read pool configs, queue topologies, Idempotency-Key adoption, and load-test artefacts and search for sticky-session assumptions. No write/execute — fix authorship delegates to producer agents per agents/hatch3r-scalability.md §Boundaries.",

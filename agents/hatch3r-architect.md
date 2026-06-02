@@ -61,6 +61,7 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
   - **Define error boundaries.** For each module in the design, specify where errors are caught, logged, and transformed. Errors should not propagate across module boundaries without being mapped to the consuming module's error vocabulary.
   - **Specify error contracts.** For each API or interface in the design, define the error types it can return. Include these in the ADR alongside the success-path contracts.
   - **Design for partial failure.** When the architecture involves multiple services or data sources, specify how the system behaves when one component fails. Include fallback strategies, circuit breaker placement, and graceful degradation behavior.
+  - **Enumerate domain edge cases as a first-class design output.** For every feature that wires two or more entities, or introduces a state machine or data-mutation path, produce an **Edge-Case Ledger** per `agents/hatch3r-edge-case-analyst.md` and the always-on `rules/hatch3r-edge-case-discipline.md`. Enumerate, per entity-relation: identity/uniqueness collisions (e.g. two records sharing a natural key on the same parent with differing status), cardinality boundaries (0/1/N/N+1), state-transition cells, null/empty/absent variants, and partial-failure behavior.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) to verify API capabilities and constraints of frameworks, databases, and infrastructure libraries involved in the design.
 - Use web research for architecture pattern comparisons, scalability benchmarks, and technology evaluation when making trade-off decisions.
 
@@ -165,6 +166,11 @@ When this agent produces an ADR or design artifact that includes companion file 
 
 **Risks:**
 - {risk}: {mitigation}
+
+**Edge-Case Ledger:**
+| id | entity-relation | class | scenario | expected behavior |
+|----|-----------------|-------|----------|-------------------|
+| ec-{slug}-001 | {A↔B} | {uniqueness/state/cardinality/null/partial-failure} | {scenario} | {expected} |
 
 **Issues encountered:**
 - (conflicting requirements, missing context, etc.)

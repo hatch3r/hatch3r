@@ -69,8 +69,7 @@ Each security control is either **code-enforced** (validated at runtime by TypeS
 | Observability (telemetry, tracing) | Code | `src/pipeline/observability.ts` | Active |
 | Atomic file writes (temp+rename) | Code | `src/merge/safeWrite.ts` | Active |
 | Managed block boundary markers | Code | `src/merge/managedBlocks.ts` | Active |
-| SHA-256 integrity verification | Code | `src/integrity/index.ts` | Active |
-| MCP configuration integrity | Code | `src/integrity/index.ts` (covers `mcp/` directory) | Active |
+| Drift detection (regenerate-and-diff against bundled canonical content) | Code | `hatch3r status` / `hatch3r verify` (`src/cli/commands/status.ts`, `verify.ts`) — no `.integrity.json` checksum file; SHA-256 manifest removed in 1.9.0 per CONSTITUTION §6 Decision 12 | Active |
 | MCP timeout enforcement | Code | `src/adapters/mcp-utils.ts` (per-server configurable, default 30s) | Active |
 | Path traversal protection | Code | `src/cli/` (init/sync path validation) | Active |
 | Secret pattern detection | Code | `src/env/secretDetection.ts`, `src/cli/commands/validate.ts` | Active |
@@ -113,11 +112,11 @@ Source of truth: `src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES`. Adap
 
 ## Content Signing Limitations
 
-The integrity verification system (`src/integrity/index.ts`) is **content-addressed** (SHA-256 per-file hashing with a manifest-level checksum) but **not cryptographically signed**:
+Integrity is **drift detection** — `hatch3r status` / `hatch3r verify` regenerate adapter outputs from the bundled canonical content shipped inside the npm package and diff them against the on-disk copies. There is no `.integrity.json` checksum file (the SHA-256 manifest was removed in 1.9.0 per CONSTITUTION §6 Decision 12). The mechanism is **not cryptographically signed**:
 
-- **What it detects:** unauthorized modifications, missing files, new files not in the manifest, and manifest tampering (via the checksum field)
-- **What it does not prevent:** an attacker with write access to `.agents/` can regenerate a valid manifest that certifies tampered content. The manifest has no HMAC or digital signature
-- **Trust model:** the integrity system detects accidental changes and flags intentional modifications during `hatch3r verify`. It does not provide a tamper-proof guarantee. Users who need stronger assurance should verify content against the published npm package hashes
+- **What it detects:** on-disk adapter output that no longer matches what the bundled canonical content would regenerate — drifted, hand-edited, or stale generated files
+- **What it does not prevent:** an attacker who can modify both the on-disk output and the bundled package content can produce a clean diff. The comparison anchors on package-shipped content, not a signed digest
+- **Trust model:** drift detection flags accidental and stale changes during `hatch3r status` / `verify`. It does not provide a tamper-proof guarantee. Users who need stronger assurance should verify the installed npm package against published hashes
 - **Limitation scope:** this is a detection-only mechanism appropriate for a developer-local CLI tool. Signing would require key management infrastructure that exceeds the current threat model
 
 ## Scope

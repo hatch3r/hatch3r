@@ -113,6 +113,16 @@ Convention Lock:
 
 If no `similar-implementation` output was provided (Tier 1 task or researcher skipped), skip this step silently.
 
+### 1c. Edge-Case Ledger Lock (domain correctness)
+
+If the orchestrator or the Phase-1 architect output provided an **Edge-Case Ledger** (`agents/hatch3r-edge-case-analyst.md`), carry every ledger row to implementation before returning:
+
+1. For each `ec-*` row, implement the handling branch AND a test that exercises the scenario, or explicitly mark the row `out-of-scope` with a one-line justification — never silently drop a row.
+2. Apply the coding-level error-handling obligations (no unhandled rejection, no swallowed catch, propagation + user-facing message) on every new path — per `rules/hatch3r-edge-case-discipline.md` and `rules/hatch3r-code-standards.md`.
+3. Present the ledger-lock summary before proceeding: `Edge-Case Ledger: N rows — M covered (branch+test), K out-of-scope (justified), 0 dropped.`
+
+If no ledger was provided (Tier 1 / single-entity change), skip silently.
+
 ### 2. Load Issue-Type Skill
 
 Follow the matching skill based on the issue type:
@@ -207,6 +217,8 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 
 **Tests written:**
 - tests/unit/file.test.ts -- what it covers
+
+**Edge-Case Ledger status:** N rows — M covered, K out-of-scope (justified), 0 dropped — or `N/A (no ledger / single-entity change)`
 
 **Browser verification:**
 - VERIFIED | SKIPPED (non-UI) | N/A (no browser MCP available)
@@ -347,7 +359,7 @@ When encountering errors during implementation, follow these protocols:
 
 - **Always:** Stay within acceptance criteria, write tests, verify quality gates, use stable IDs, follow the tooling hierarchy (platform CLI > platform MCP, Context7 for libraries, web research for current info)
 - **Ask first:** If acceptance criteria are contradictory or unclear, report BLOCKED with details. When surfacing a question to the user, follow `agents/shared/user-question-protocol.md` (native tool preferred; structured plain-text fallback).
-- **Never:** Create branches, commits, or PRs. Modify board status. Expand scope beyond the issue. Skip tests. Weaken security rules. Sign off a UI implementation with Step 5c at FAIL on any non-deferred gate.
+- **Never:** Create branches, commits, or PRs. Modify board status. Expand scope beyond the issue. Skip tests. Weaken security rules. Sign off a UI implementation with Step 5c at FAIL on any non-deferred gate. Drop an Edge-Case Ledger row without an explicit out-of-scope justification.
 
 </rules>
 
