@@ -35,4 +35,17 @@ if [ ! -d "$GOVDIR" ]; then
   echo "gov:         git --git-dir=\"$GOVDIR\" update-index --skip-worktree ops/RUNBOOK-finalize-privatization.md" >&2
   exit 1
 fi
+# Guardrails: refuse argv patterns that cross the shared work-tree boundary — staging PUBLIC
+# files into the private overlay, or clobbering the public work-tree. (Enforces the SAFETY notes.)
+sub="${1:-}"
+for a in "$@"; do
+  case "$sub:$a" in
+    add:-A|add:--all|add:.)
+      echo "gov: refusing 'add $a' — it can stage PUBLIC files into the private overlay. Stage explicit paths (e.g. governance/AUDIT.md)." >&2; exit 2 ;;
+    checkout:.|restore:.)
+      echo "gov: refusing '$sub .' — it would clobber the public work-tree. Use explicit paths." >&2; exit 2 ;;
+    reset:--hard)
+      echo "gov: refusing 'reset --hard' — it would clobber the public work-tree." >&2; exit 2 ;;
+  esac
+done
 exec git --git-dir="$GOVDIR" "$@"

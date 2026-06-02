@@ -45,6 +45,9 @@ governance/*
 # github.com/hatch3r/hatch3r-governance — see scripts/gov. The public repo ignores it.
 .governance.git/
 
+# Private ops runbook (overlay / hatch3r-governance only, skip-worktree'd) — never public (defense-in-depth)
+ops/
+
 # Other internal/scratch files (not for public repo)
 todo.md
 social_preview.png
