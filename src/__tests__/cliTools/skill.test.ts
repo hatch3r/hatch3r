@@ -5,7 +5,7 @@ import { AVAILABLE_CLI_TOOLS, type CliToolMeta } from "../../cliTools/registry.j
 /**
  * Wave 5 Item 28: `src/cliTools/skill.ts::renderCliToolSkillBody` tests.
  *
- * Snapshots the body output for one tier-1 representative (ripgrep) and
+ * Snapshots the body output for one tier-1 representative (fd) and
  * verifies RTK's caveat heading + `rtk proxy` mitigation appear in the
  * rendered output. Also checks the scaffold's placeholder
  * contract for non-caveat tools — Wave 4 cleanup replaces these inline,

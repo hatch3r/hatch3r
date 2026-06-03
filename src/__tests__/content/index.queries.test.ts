@@ -16,7 +16,6 @@ import {
   countPresetExclusions,
   countProjectTypeExclusions,
   countTeamSizeExclusions,
-  estimatePresetItemCount,
   applyCommandPrefix,
   COMMAND_ID_PREFIX,
 } from "../../content/index.js";
