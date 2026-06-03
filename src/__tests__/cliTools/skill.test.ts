@@ -13,23 +13,27 @@ import { AVAILABLE_CLI_TOOLS, type CliToolMeta } from "../../cliTools/registry.j
  * script remains idempotent.
  */
 
-describe("renderCliToolSkillBody — ripgrep (tier-1 representative)", () => {
+describe("renderCliToolSkillBody — fd (tier-1 representative)", () => {
   it("matches a stable inline snapshot for the mac OS path", () => {
-    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep as CliToolMeta;
-    const body = renderCliToolSkillBody(ripgrep, "mac");
+    // fd is the minVersion-less / securityNote-less tier-1 representative for
+    // the no-Security-section scaffold snapshot. (ripgrep was the prior
+    // fixture but now carries a CVE-2021-3013 minVersion floor, which would
+    // append a ## Security block.)
+    const fd = AVAILABLE_CLI_TOOLS.fd as CliToolMeta;
+    const body = renderCliToolSkillBody(fd, "mac");
 
     // Snapshot of the generator scaffold — Wave 4 swaps the three placeholder
     // sections with per-tool authored content; the wrapper structure (When
     // to Use, Token Cost, Recipes, Wrong Choice When, Alternatives,
     // Detection / Install, Homepage) is part of the contract.
     expect(body).toMatchInlineSnapshot(`
-      "# ripgrep
+      "# fd
 
-      Fast recursive grep with sane defaults and gitignore awareness
+      User-friendly find replacement, gitignore-aware
 
       ## When to Use
 
-      Reach for \`rg\` when the task is in the **search** category and the agent would otherwise call an MCP tool or read large outputs into context.
+      Reach for \`fd\` when the task is in the **search** category and the agent would otherwise call an MCP tool or read large outputs into context.
 
       ## Token Cost
 
@@ -52,31 +56,31 @@ describe("renderCliToolSkillBody — ripgrep (tier-1 representative)", () => {
 
       Verify with:
       \`\`\`bash
-      command -v rg
+      command -v fd
       \`\`\`
 
       Install (macOS — default for this machine):
 
       \`\`\`bash
       # brew
-      brew install ripgrep
+      brew install fd
       \`\`\`
 
       Install (Linux):
 
       \`\`\`bash
       # apt
-      sudo apt install ripgrep
+      sudo apt install fd-find
       \`\`\`
 
       Install (Windows):
 
       \`\`\`bash
       # scoop
-      scoop install ripgrep
+      scoop install fd
       \`\`\`
 
-      Homepage: https://github.com/BurntSushi/ripgrep
+      Homepage: https://github.com/sharkdp/fd
       "
     `);
   });
@@ -139,10 +143,11 @@ describe("renderCliToolSkillBody — Security section (F15.7-H7, Cycle 10 D15-SA
   });
 
   it("omits the ## Security section for tools with no securityNote or minVersion", () => {
-    // ripgrep has neither field — its body must stay free of the Security
-    // heading so the no-advisory path is unchanged.
-    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep as CliToolMeta;
-    const body = renderCliToolSkillBody(ripgrep, "mac");
+    // fd has neither field — its body must stay free of the Security
+    // heading so the no-advisory path is unchanged. (ripgrep now carries a
+    // CVE-2021-3013 minVersion floor, so fd is the minVersion-less fixture.)
+    const fd = AVAILABLE_CLI_TOOLS.fd as CliToolMeta;
+    const body = renderCliToolSkillBody(fd, "mac");
     expect(body).not.toContain("## Security");
   });
 });
