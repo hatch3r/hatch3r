@@ -1,7 +1,17 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
+// Repo root for the real-repo end-to-end run: this file lives at
+// scripts/__tests__/, so the root is two levels up (mirrors
+// validate-specialist-roster.test.ts REPO_ROOT resolution).
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = dirname(__filename);
+const REPO_ROOT = resolve(__dirname, "..", "..");
+const CONSTITUTION_REL = "governance/CONSTITUTION.md";
 
 import {
   checkContentAuthoringFile,
@@ -363,11 +373,21 @@ describe("runValidator", () => {
 describe("runValidator (real repo)", () => {
   it("passes against the current repo state (post-H76 propagation)", async () => {
     const result = await runValidator(); // default rootDir = repo root
-    // After C9-H76 propagated P8, repo must be in sync.
-    expect(result.pillarCount).toBeGreaterThanOrEqual(8);
-    // The full canonical surface is verified by the script; any drift here
-    // would mean a rule file lost its P8 reference between H76 and gate run.
-    expect(result.errorCount).toBe(0);
+    // Privatization gate: governance/CONSTITUTION.md is private and absent in
+    // public CI / contributor clones. With no canonical pillar count to
+    // cross-check, runValidator returns the graceful-skip contract
+    // (validate-rule-pillar-currency.ts:292-298). Assert that contract when the
+    // source is absent; assert the post-H76 in-sync contract when it is present.
+    if (existsSync(resolve(REPO_ROOT, CONSTITUTION_REL))) {
+      // After C9-H76 propagated P8, repo must be in sync.
+      expect(result.pillarCount).toBeGreaterThanOrEqual(8);
+      // The full canonical surface is verified by the script; any drift here
+      // would mean a rule file lost its P8 reference between H76 and gate run.
+      expect(result.errorCount).toBe(0);
+    } else {
+      expect(result.pillarCount).toBe(0);
+      expect(result.errorCount).toBe(0);
+    }
   });
 });
 
