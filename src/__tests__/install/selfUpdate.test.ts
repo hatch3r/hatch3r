@@ -142,6 +142,49 @@ describe("runSelfUpdate", () => {
     await expect(runSelfUpdate(tempDir)).rejects.toThrow(HatchError);
   });
 
+  it("attaches an --offline recoveryHint to the fatal primary-install HatchError", async () => {
+    // selfUpdate.ts:384 — the fatal primary-target install failure must
+    // surface the offline regeneration escape hatch as its recoveryHint
+    // (the registry fetch failed; canonical content is already on disk).
+    process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+    await seedProjectLocal();
+    let callIndex = 0;
+    vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
+      if (callIndex++ === 0) return Buffer.from(""); // npm root -g
+      throw new Error("npm install failed: 404 Not Found");
+    });
+    const err = await runSelfUpdate(tempDir).catch((e) => e);
+    expect(err).toBeInstanceOf(HatchError);
+    expect((err as HatchError).recoveryHint).toBe(
+      "Run `hatch3r update --offline` to regenerate adapter outputs from the already-installed canonical content without the registry fetch; resolve the package-manager failure above before retrying the online update.",
+    );
+  });
+
+  it("attaches a --skip-audit-signatures recoveryHint to the signature-verification refusal", async () => {
+    // selfUpdate.ts:341 — when `npm audit signatures` reports an invalid
+    // signature the install is refused with INTEGRITY_ERROR; the hint must
+    // point at the out-of-band-verify-then-override path.
+    process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+    await seedProjectLocal();
+    vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
+      const a = _args[1] as string[] | undefined;
+      if (Array.isArray(a) && a[0] === "root" && a[1] === "-g") {
+        return Buffer.from(""); // no global root
+      }
+      if (Array.isArray(a) && a[0] === "audit" && a[1] === "signatures") {
+        // Exit 0 but invalid signature summary -> ok:false (secure default).
+        return Buffer.from("audited 1 package\nsignatures: invalid\n");
+      }
+      return Buffer.from(""); // project-local install succeeds
+    });
+    const err = await runSelfUpdate(tempDir).catch((e) => e);
+    expect(err).toBeInstanceOf(HatchError);
+    expect((err as HatchError).errorCode).toBe("INTEGRITY_ERROR");
+    expect((err as HatchError).recoveryHint).toBe(
+      "Verify the package out-of-band first, then re-run `hatch3r update --skip-audit-signatures` to override the refusal; do not override on an unverified package.",
+    );
+  });
+
   it("degrades a secondary target failure to a warning, not a throw", async () => {
     // Primary = project-local (succeeds), secondary = global (fails).
     process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");

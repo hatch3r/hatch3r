@@ -338,7 +338,12 @@ export async function runSelfUpdate(
         const auditResult = await runAuditSignatures(rootDir);
         if (!auditResult.ok) {
           const msg = formatSignatureFailureMessage(label, auditResult);
-          throw new HatchError(msg, 1, "INTEGRITY_ERROR");
+          throw new HatchError(
+            msg,
+            1,
+            "INTEGRITY_ERROR",
+            `Verify the package out-of-band first, then re-run \`hatch3r update --skip-audit-signatures\` to override the refusal; do not override on an unverified package.`,
+          );
         }
       } else {
         warn(
@@ -381,7 +386,12 @@ export async function runSelfUpdate(
       if (fatalIfFails) {
         // Preserve the legacy single-target semantics: failure on the
         // primary install (the one that invoked us) is fatal.
-        throw new HatchError(msg, 1, errorCode);
+        throw new HatchError(
+          msg,
+          1,
+          errorCode,
+          `Run \`hatch3r update --offline\` to regenerate adapter outputs from the already-installed canonical content without the registry fetch; resolve the package-manager failure above before retrying the online update.`,
+        );
       }
       // Secondary targets (alsoPresent) degrade gracefully so a half-broken
       // global install does not block a successful project-local update.

@@ -3,11 +3,11 @@
 # working tree but belongs to the separate private repo github.com/hatch3r/hatch3r-governance.
 #
 # The IP — governance/ (except inventory.json), the 6 .claude/skills/h4tcher-audit-* skills,
-# .claude/rules/audit-cycle-awareness.md, and the dual-tracked audit code under src/audit +
-# src/__tests__/audit + the audit scripts/ — is tracked by an overlay git dir (.governance.git)
-# whose work-tree is this repo root. The public repo's .git gitignores all of it, so the two
-# repos never see each other's tracked surface (except the deliberately-shared inventory.json
-# and the public-canonical src/audit code).
+# .claude/rules/audit-cycle-awareness.md, the private audit scripts (scripts/audit-*), and the
+# ops/ runbooks — is tracked by an overlay git dir (.governance.git) whose work-tree is this
+# repo root. The public repo's .git gitignores all of it, so the two repos never see each
+# other's tracked surface (except the deliberately-shared inventory.json). src/audit and
+# src/__tests__/audit are PUBLIC-only — previously dual-tracked here by mistake, now untracked.
 #
 # Usage:   scripts/gov <git-subcommand> [args...]
 #   scripts/gov status                 # what private IP changed on disk

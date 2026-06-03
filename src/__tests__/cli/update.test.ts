@@ -583,6 +583,13 @@ describe("update command", () => {
         expect(err).toBeInstanceOf(HatchError);
         expect(err.message).toMatch(/All adapters failed/);
         expect(err.message).toMatch(/substantive|transient|Retry|Inspect|resolve/i);
+        // update.ts:595 — the aggregated guidance is also surfaced as the
+        // recoveryHint so the top-level handler prints an actionable next
+        // step, not just the failure summary. A substantive (non-transient)
+        // failure routes to the "inspect per-adapter messages" branch.
+        expect(err.recoveryHint).toBeDefined();
+        expect(err.recoveryHint).toMatch(/substantive|Inspect|resolve before retrying/i);
+        expect(err.message).toContain(err.recoveryHint as string);
       } finally {
         spy.mockRestore();
       }
