@@ -1028,152 +1028,29 @@ describe("content/index — selection & index", () => {
       expect(allIds.has("board-cmd")).toBe(true);
     });
 
-    // ── Maturity-tier gating (Decision 4 / #16) ──────────────
+    // ── Maturity is not a selection input (calibration dial) ──
 
-    describe("maturity tier admission", () => {
-      // Items tagged with tier admission strings — these strings are not (yet)
-      // registered in TAG_REGISTRY, so capability/floor predicates skip them
-      // and the only filter that consults them is the tier gate.
-      const enterpriseOnlyItem = makeCatalogItem({
-        id: "enterprise-only-rule",
-        type: "rule",
-        tags: [TAG_ORCHESTRATION, "floor:enterprise-only"],
-        relativePath: "rules/enterprise-only-rule.md",
-      });
-      const tierEnterpriseItem = makeCatalogItem({
-        id: "tier-enterprise-rule",
-        type: "rule",
-        tags: [TAG_ORCHESTRATION, "tier:enterprise-only"],
-        relativePath: "rules/tier-enterprise-rule.md",
-      });
-      const scaleupPlusItem = makeCatalogItem({
-        id: "scaleup-plus-rule",
-        type: "rule",
-        tags: [TAG_ORCHESTRATION, "tier:scaleup-plus"],
-        relativePath: "rules/scaleup-plus-rule.md",
-      });
-      const teamPlusItem = makeCatalogItem({
-        id: "team-plus-rule",
-        type: "rule",
-        tags: [TAG_ORCHESTRATION, "tier:team-plus"],
-        relativePath: "rules/team-plus-rule.md",
-      });
-      const tierAgnosticItem = makeCatalogItem({
-        id: "tier-agnostic-rule",
-        type: "rule",
-        tags: [TAG_ORCHESTRATION],
-        relativePath: "rules/tier-agnostic-rule.md",
-      });
-      const protectedEnterpriseItem = makeCatalogItem({
-        id: "protected-enterprise-rule",
-        type: "rule",
-        tags: [TAG_ORCHESTRATION, "floor:enterprise-only"],
-        protected: true,
-        relativePath: "rules/protected-enterprise-rule.md",
-      });
-      const tierIndex = makeIndex([
-        enterpriseOnlyItem, tierEnterpriseItem, scaleupPlusItem, teamPlusItem,
-        tierAgnosticItem, protectedEnterpriseItem,
-      ]);
-
-      it("solo tier (default) drops items tagged floor:enterprise-only", () => {
+    describe("maturity is not a selection input (calibration dial)", () => {
+      // The Decision-16 `tier:*` admission gate was retired: maturity now
+      // calibrates investment depth only and admits/removes nothing
+      // (`rules/hatch3r-right-sizing.md`). `resolveSelection` has no `maturity`
+      // option, and an item that would once have been gated as
+      // `tier:enterprise-only` now carries only a plain capability tag and is
+      // admitted under the full preset regardless of any project signal.
+      it("a formerly tier:enterprise-only item (now plain capability) is admitted by the full preset", () => {
+        // `ai-agent` carries only the `ai` capability — the kind of artifact
+        // Decision 16 would have fenced behind `tier:enterprise-only`. With the
+        // gate gone it ships under full for every projectType / teamSize.
         const preset = getPreset("full");
-        const selection = resolveSelection(preset, "brownfield", "team", tierIndex);
-        const allIds = getAllContentIds(selection);
-        expect(allIds.has("enterprise-only-rule")).toBe(false);
-        expect(allIds.has("tier-enterprise-rule")).toBe(false);
-        expect(allIds.has("scaleup-plus-rule")).toBe(false);
-        expect(allIds.has("team-plus-rule")).toBe(false);
-      });
-
-      it("solo tier admits items with no tier tag (default-admit behavior preserved)", () => {
-        const preset = getPreset("full");
-        const selection = resolveSelection(preset, "brownfield", "team", tierIndex);
-        expect(getAllContentIds(selection).has("tier-agnostic-rule")).toBe(true);
-      });
-
-      it("solo tier still admits protected items that carry tier tags (protected wins)", () => {
-        const preset = getPreset("full");
-        const selection = resolveSelection(
-          preset, "brownfield", "team", tierIndex,
-          undefined, undefined, { maturity: "solo" },
-        );
-        expect(getAllContentIds(selection).has("protected-enterprise-rule")).toBe(true);
-      });
-
-      it("team tier admits tier:team-plus but drops tier:scaleup-plus and tier:enterprise-only", () => {
-        const preset = getPreset("full");
-        const selection = resolveSelection(
-          preset, "brownfield", "team", tierIndex,
-          undefined, undefined, { maturity: "team" },
-        );
-        const allIds = getAllContentIds(selection);
-        expect(allIds.has("team-plus-rule")).toBe(true);
-        expect(allIds.has("scaleup-plus-rule")).toBe(false);
-        expect(allIds.has("tier-enterprise-rule")).toBe(false);
-        expect(allIds.has("enterprise-only-rule")).toBe(false);
-      });
-
-      it("scaleup tier admits tier:team-plus and tier:scaleup-plus but drops tier:enterprise-only", () => {
-        const preset = getPreset("full");
-        const selection = resolveSelection(
-          preset, "brownfield", "team", tierIndex,
-          undefined, undefined, { maturity: "scaleup" },
-        );
-        const allIds = getAllContentIds(selection);
-        expect(allIds.has("team-plus-rule")).toBe(true);
-        expect(allIds.has("scaleup-plus-rule")).toBe(true);
-        expect(allIds.has("tier-enterprise-rule")).toBe(false);
-        expect(allIds.has("enterprise-only-rule")).toBe(false);
-      });
-
-      it("enterprise tier admits every tier-tagged item", () => {
-        const preset = getPreset("full");
-        const selection = resolveSelection(
-          preset, "brownfield", "team", tierIndex,
-          undefined, undefined, { maturity: "enterprise" },
-        );
-        const allIds = getAllContentIds(selection);
-        expect(allIds.has("team-plus-rule")).toBe(true);
-        expect(allIds.has("scaleup-plus-rule")).toBe(true);
-        expect(allIds.has("tier-enterprise-rule")).toBe(true);
-        expect(allIds.has("enterprise-only-rule")).toBe(true);
-        expect(allIds.has("tier-agnostic-rule")).toBe(true);
-      });
-
-      it("missing maturity option defaults to solo (backward compat)", () => {
-        const preset = getPreset("full");
-        const withoutMaturity = resolveSelection(preset, "brownfield", "team", tierIndex);
-        const withSolo = resolveSelection(
-          preset, "brownfield", "team", tierIndex,
-          undefined, undefined, { maturity: "solo" },
-        );
-        // The two calls must yield identical selections.
-        expect(getAllContentIds(withoutMaturity)).toEqual(getAllContentIds(withSolo));
-      });
-
-      it("tier gating applies even when skipContextFilters=true (maturity is not a context filter)", () => {
-        const preset = getPreset("full");
-        const selection = resolveSelection(
-          preset, "brownfield", "team", tierIndex,
-          undefined, undefined, { skipContextFilters: true, maturity: "solo" },
-        );
-        expect(getAllContentIds(selection).has("enterprise-only-rule")).toBe(false);
-        expect(getAllContentIds(selection).has("tier-enterprise-rule")).toBe(false);
-      });
-
-      it("tier gating applies to custom preset with explicit selections", () => {
-        const preset = getPreset("custom");
-        const selection = resolveSelection(
-          preset, "brownfield", "team", tierIndex,
-          ["enterprise-only-rule", "tier-agnostic-rule"], undefined,
-          { maturity: "solo" },
-        );
-        const allIds = getAllContentIds(selection);
-        // Tier gate fires after the custom-path admission — enterprise tag still drops at solo.
-        expect(allIds.has("enterprise-only-rule")).toBe(false);
-        // Tier-agnostic item passes the gate.
-        expect(allIds.has("tier-agnostic-rule")).toBe(true);
+        for (const projectType of ["brownfield", "greenfield"] as const) {
+          for (const teamSize of ["solo", "team"] as const) {
+            const selection = resolveSelection(preset, projectType, teamSize, index);
+            expect(
+              getAllContentIds(selection).has("ai-agent"),
+              `ai-agent should be admitted under full/${projectType}/${teamSize}`,
+            ).toBe(true);
+          }
+        }
       });
     });
   });

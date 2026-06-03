@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-performance, hatch3r-docs-writer]
 description: Run and analyze performance benchmarks. Compare results against baselines, identify regressions, and produce performance reports.
-tags: [review, performance, tier:scaleup-plus]
+tags: [review, performance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

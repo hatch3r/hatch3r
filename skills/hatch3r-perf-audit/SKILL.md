@@ -3,7 +3,7 @@ id: hatch3r-perf-audit
 name: hatch3r-perf-audit
 type: skill
 description: Profile and optimize application performance against defined budgets. Use when investigating performance issues, auditing performance budgets, or optimizing hot paths.
-tags: [review, performance, tier:scaleup-plus]
+tags: [review, performance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

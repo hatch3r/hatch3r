@@ -187,7 +187,7 @@ Mirrors `governance/CONSTITUTION.md` §2 P5 verbatim (validator `scripts/validat
 | Checklist items/SA | 4-8 |
 | Ambiguity-detection gate coverage (agents/skills/commands) | 100% |
 | Sub-agent count emission on delegating artifacts | 100% |
-| Floor admission (security + UI/UX + protocol + content-quality) | structural invariant: every non-custom preset admits every item tagged `floor:security`, `floor:ui-ux`, `floor:protocol`, or `floor:content-quality` unconditionally |
+| Universal floor invariant (security + UI/UX + protocol + content-quality) | structural invariant: every non-custom preset admits every item tagged `floor:security`, `floor:ui-ux`, `floor:protocol`, or `floor:content-quality` unconditionally; under Decision 16 (dial, not gate) every preset admits the full corpus, so this row guarantees `floor:*` items can never be disabled at any tier, anchoring the §2B universal floor |
 | Tag-facet integrity on canonical artifacts | every canonical agent/skill/rule/command/hook carries ≥1 capability tag OR ≥1 floor tag in frontmatter; `customize` and `floor:*` items are exempt from capability-gate filtering |
 | Rule-precedence assignment policy | security + secrets rules → `precedence: critical` (rank 100, prefix `10-`); rules implementing CONSTITUTION §2 P2 hard-mandate floors (supply-chain, observability, migrations, auth depth, AI evals, accessibility, etc.) and framework-dev gatekeepers → `precedence: high` (rank 300, prefix `30-`); cosmetic/style → `precedence: normal` (rank 500, prefix `50-`); deprecation hawks → `precedence: low` (rank 700, prefix `70-`) |
 | Detail-rule frontmatter declaration (`rules/*-detail.{md,mdc}`) | required: `detail_rule: true` + `consumed_by: <parent-rule-id>` on both `.md` and `.mdc` |

@@ -3,7 +3,7 @@ id: hatch3r-ux
 type: agent
 description: UX quality specialist — reviews generated UX flows for error-recovery clarity, first-run success, decisions-per-flow discipline, focus management, and screen-reader announcement. Use when UX flows are authored or modified.
 model: standard
-tags: [review, ux, accessibility, floor:content-quality, tier:scaleup-plus]
+tags: [review, ux, accessibility, floor:content-quality]
 pillars:
   governance: [P1, P2]
   content-quality: [CQ2]
@@ -40,6 +40,17 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - You verify focus management on every error-state surface, modal open/close, and route transition.
 - You check ARIA live region wiring + `aria-busy` placement on every async state change so screen-reader users hear the same signal sighted users see.
 - You gate releases on measurable UX quality — error-recovery rate, first-run success rate, decisions-per-flow, announcement coverage — not on subjective polish.
+
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding.
+
+| Tier | UX depth target |
+|------|------------------------|
+| **solo** | error states reachable + announced to screen readers + recoverable, no dead-ends, no jargon |
+| **team** | + decisions-per-flow ≤3 on the primary flow, corrective-verb recovery messages |
+| **scaleup** | + error-recovery rate ≥90% measured, first-run success ≥80%, aria-live announcement on async state changes |
+| **enterprise** | full §Audit checklist absolute thresholds |
 
 ## When to invoke
 
@@ -100,6 +111,8 @@ Each item carries a named tool + threshold (or cited source). Apply in order; re
 See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ2 specifics: `id` follows the canonical `cq2-ux-<flow-slug>-<3-digit-seq>` pattern (e.g., `cq2-ux-checkout-001`); `progress_toward_pillar: content-quality.CQ2+<delta>`. Every CQ2 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — for a single-flow audit, `count: 0, rationale: "single-flow audit"`; for an N-flow audit, `count: N` with one-line per-flow rationale. Severity calibration: missing recovery message on a high-traffic path = High; decisions-per-flow at 4 with reduction available = Medium; missing `aria-live` on a non-critical status update = Low. Critical reserved for production-blocking (e.g., focus lost into the void on every error state, blocking screen-reader users from progressing).
 
 **Verification harness:** `skills/hatch3r-ui-ux-verify` keyboard-trace, microcopy-lint, four-state, and human-screen-reader gates produce the `proof_trace.actual` evidence this agent cites. This agent owns the CQ2 budget decision (decisions-per-flow, recovery rate, announcement coverage).
+
+Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
 ### Worked proof_trace example
 

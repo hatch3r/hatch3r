@@ -63,6 +63,12 @@ Each rule ships with `.md` + `.mdc` twin per `scripts/validate-rule-parity.ts`.
 
 `hatch3r config maturity=solo|team|scaleup|enterprise` (set / get / inline key=value). Persisted to `.hatch3r/hatch.json::maturity`. `src/content/index.ts::resolveSelection` gates `tier:*` / `floor:enterprise-only` tags by project tier rank. Default `solo` when manifest absent. 27 new tests.
 
+### Bucket 2.1a — Maturity tiers reframed: content-admission gate → investment-calibration dial (Decision 16 amended)
+
+Maturity (`hatch3r config maturity=solo|team|scaleup|enterprise`) no longer filters which artifacts install — every tier installs the full corpus. Instead it dials investment depth: a new always-on rule `hatch3r-right-sizing` plus the adapter maturity header direct agents to invest only as deep as the tier needs and never default to the enterprise rung, anchored by a universal floor (security, correctness & data integrity, accessibility basics, baseline tests on changed surfaces) that binds at every tier. The 9 content-quality specialists gained per-tier `## Tier calibration` ladders; CONSTITUTION §2B CQ1–CQ9 thresholds split into a universal floor + per-tier ladder (the prior absolute thresholds become the enterprise column; Decision 16 amended).
+
+- **Removed:** the Stage-6 maturity admission filter, `isAdmittedByMaturityTier`, `TIER_TAG_REQUIREMENTS`, the `tier:*` tag facet, and the 69 `tier:*` artifact tags.
+
 ### Bucket 2.2 — Resumability + Rollback (Decision 27)
 
 - `src/pipeline/checkpoint.ts` — workspace-checkpointed orchestrator resumability via `.{cmd}-workspace/checkpoint.json`

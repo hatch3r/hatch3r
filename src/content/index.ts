@@ -8,8 +8,8 @@ import {
   PLATFORM_TOOL_MARKER,
   substituteCanonicalPlatformMarker,
 } from "../pipeline/adapterToolTranslator.js";
-import { DEFAULT_MATURITY_TIER, HatchError, MATURITY_TIER_RANK } from "../types.js";
-import type { ContentSelection, MaturityTier } from "../types.js";
+import { HatchError } from "../types.js";
+import type { ContentSelection } from "../types.js";
 import type { ContentPreset } from "./presets.js";
 import {
   TAG_CTX_BROWNFIELD_ONLY,
@@ -19,85 +19,10 @@ import {
   isCapabilityTag,
   isCustomizeTag,
   isFloorTag,
-  isTierTag,
   type RoleId,
   FACET_TAG_ADMISSIONS,
   type FacetId,
 } from "./tags.js";
-
-/**
- * Maturity-tier admission tags. These tag values are consumed by
- * `resolveSelection`'s tier gate (Decision 4 / #16) via string equality.
- * Each tag is also registered in `TAG_REGISTRY` under the `"tier"` facet
- * (`src/content/tags.ts`), so `facetOf()` / `tagsForFacet("tier")` / `isTierTag()`
- * enumerate them and introspection tooling can list every tier-conditional tag.
- *
- * - `tier:enterprise-only`     — admitted only at maturity=enterprise.
- * - `tier:scaleup-plus`        — admitted at scaleup and enterprise.
- * - `tier:team-plus`           — admitted at team, scaleup, enterprise.
- *
- * `floor:enterprise-only` is an alias used in the bucket spec; treated
- * identically to `tier:enterprise-only` so either spelling drops the item at
- * lower tiers.
- *
- * Exported (F3.3-H2, Cycle 10 Wave 2) so `isAdmittedByMaturityTier`'s truth
- * table can be unit-tested directly instead of only end-to-end through
- * `resolveSelection`. A refactor that reorders these rows or adds a fifth tier
- * rank now has direct test signal (`content/maturityTier.test.ts`).
- *
- * D14-SA14.3-09 (Cycle 10 Wave 4): a module-load assertion below verifies
- * every tag here resolves to the `"tier"` facet in `TAG_REGISTRY`, so a typo
- * on either side (requirement row OR registry entry) fails fast at import time
- * instead of silently mis-admitting content once tier tagging is adopted.
- */
-export const TIER_TAG_REQUIREMENTS: ReadonlyArray<{ tag: string; minTier: MaturityTier }> = [
-  { tag: "tier:enterprise-only", minTier: "enterprise" },
-  { tag: "floor:enterprise-only", minTier: "enterprise" },
-  { tag: "tier:scaleup-plus", minTier: "scaleup" },
-  { tag: "tier:team-plus", minTier: "team" },
-];
-
-// D14-SA14.3-09: fail fast if a tier-admission requirement tag is not
-// registered under the `"tier"` facet in TAG_REGISTRY. This binds the
-// string-equality gate above to the registry so the two cannot drift —
-// a typo (`tier:scaleup-plu`) becomes a load-time error, not a silent
-// admission bug.
-for (const { tag } of TIER_TAG_REQUIREMENTS) {
-  if (!isTierTag(tag)) {
-    throw new HatchError(
-      `TIER_TAG_REQUIREMENTS tag "${tag}" is not registered under the "tier" facet in TAG_REGISTRY (src/content/tags.ts). Add it to the registry or fix the spelling.`,
-      1,
-      "VALIDATION_ERROR",
-    );
-  }
-}
-
-/**
- * Determine whether an item's tier tags are admitted at the given maturity
- * tier. Items with no tier tag are always admitted (default-admit). Items
- * carrying a tier tag are admitted only when the project's maturity rank
- * meets or exceeds the tag's minimum-tier rank.
- *
- * Protected items bypass tier gating — same invariant the floor admission
- * stage already enforces.
- *
- * Exported (F3.3-H2, Cycle 10 Wave 2) for direct truth-table unit coverage.
- */
-export function isAdmittedByMaturityTier(
-  itemTags: ReadonlyArray<string>,
-  maturity: MaturityTier,
-  isProtected: boolean,
-): boolean {
-  if (isProtected) return true;
-  const projectRank = MATURITY_TIER_RANK[maturity];
-  for (const { tag, minTier } of TIER_TAG_REQUIREMENTS) {
-    if (!itemTags.includes(tag)) continue;
-    if (projectRank < MATURITY_TIER_RANK[minTier]) {
-      return false;
-    }
-  }
-  return true;
-}
 import { verbose } from "../cli/shared/ui.js";
 
 /**
@@ -766,8 +691,10 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
 /**
  * Apply preset + context filters to determine which IDs to include.
  *
- * Seven-stage pipeline (Wave 1 content-pack redesign + Bucket 2.x maturity-tier
- * + D14-M6 role extensions):
+ * Six-stage pipeline (Wave 1 content-pack redesign + D14-M6 role extensions).
+ * Maturity tier no longer gates content selection — it is a pure runtime
+ * investment-calibration dial delivered via the manifest + adapter header
+ * (Decision 16 reframe, 2026-06-03), so selection is tier-invariant:
  *
  *   1. Custom path — explicit ID list plus protected + floor passthrough.
  *      For `preset.id === "custom"` with `customSelections` provided.
@@ -789,10 +716,7 @@ export const TYPE_TO_SELECTION_KEY: Record<string, keyof ContentSelection["items
  *      apply to everyone, even solo developers).
  *   5. Language filter — items with `lang:*` tags pass only when the project's
  *      detected languages match; see `filterByLanguages`.
- *   6. Maturity-tier filter — items carrying a `tier:*` / `floor:enterprise-only`
- *      admission tag are dropped when the project's maturity rank is below the
- *      tag's minimum tier; see `isAdmittedByMaturityTier` (Decision 4 / #16).
- *   7. Role filter — when `options.role` is set, keep only floor-admitted,
+ *   6. Role filter — when `options.role` is set, keep only floor-admitted,
  *      protected, or matching `role:<id>`-tagged items (D14-M6).
  *
  * Stages 4 and 5 are skipped when `options.skipContextFilters` is set (e.g. from
@@ -806,10 +730,9 @@ export function resolveSelection(
   index: ContentIndex,
   customSelections?: string[],
   projectLanguages?: string[],
-  options?: { skipContextFilters?: boolean; maturity?: MaturityTier; role?: RoleId; facets?: ReadonlyArray<FacetId> },
+  options?: { skipContextFilters?: boolean; role?: RoleId; facets?: ReadonlyArray<FacetId> },
 ): ContentSelection {
   let selected: CatalogItem[];
-  const maturity = options?.maturity ?? DEFAULT_MATURITY_TIER;
 
   // ── Stage 1: Custom path ──
   if (preset.id === "custom" && customSelections) {
@@ -920,21 +843,7 @@ export function resolveSelection(
     selected = filterByLanguages(selected, projectLanguages);
   }
 
-  // ── Stage 6: Maturity-tier filter (Decision 4 / #16) ──
-  // Items carrying a `tier:*` / `floor:enterprise-only` admission tag are
-  // dropped when the project's maturity tier does not meet the tag's
-  // minimum-tier rank. Items without any tier tag pass through unchanged —
-  // tier gating is opt-in via tagging at the source artifact.
-  //
-  // Independent of `skipContextFilters`: tier gating reflects the project's
-  // stated operational posture (solo/team/scaleup/enterprise), not a
-  // technical compatibility filter, so a `hatch3r config` re-run still
-  // honours the persisted maturity tier.
-  selected = selected.filter((item) =>
-    isAdmittedByMaturityTier(item.tags, maturity, item.protected === true),
-  );
-
-  // ── Stage 7: Role filter (D14-M6, Cycle 10 rollover) ──
+  // ── Stage 6: Role filter (D14-M6, Cycle 10 rollover) ──
   // When a role is selected (e.g. `--role reviewer`), keep only items that
   // (a) are floor-admitted (security and UI/UX floor still applies), or
   // (b) are protected (orchestration pipeline survives every role), or
@@ -1516,7 +1425,7 @@ export function estimatePresetItemCount(
   teamSize: "solo" | "team",
   index: ContentIndex,
   projectLanguages?: string[],
-  options?: { skipContextFilters?: boolean; maturity?: MaturityTier; role?: RoleId; facets?: ReadonlyArray<FacetId> },
+  options?: { skipContextFilters?: boolean; role?: RoleId; facets?: ReadonlyArray<FacetId> },
 ): number {
   const selection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, options);
   return Object.values(selection.items).reduce((sum, arr) => sum + arr.length, 0);

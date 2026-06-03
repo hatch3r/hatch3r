@@ -615,4 +615,27 @@ You are a test agent.`,
       ).rejects.toThrow("copilot: pipeline timeout exceeded");
     });
   });
+
+  // F14.3-H2 (D14, P3): the copilot-instructions.md blockquote carries a
+  // right-sizing calibration directive interpolating the live
+  // `manifest.maturity` into `maturity=<tier>` and pointing at
+  // `rules/hatch3r-right-sizing.md`. The directive is delivered at EVERY tier
+  // (solo/team/scaleup/enterprise), not gated to enterprise — a regression that
+  // dropped it at low tiers, hardcoded the tier, or lost the rule pointer would
+  // silently strip the calibration signal for Copilot.
+  describe("maturity right-sizing header (F14.3-H2)", () => {
+    const tiers = ["solo", "team", "scaleup", "enterprise"] as const;
+
+    for (const tier of tiers) {
+      it(`emits right-size to maturity=${tier} + right-sizing rule pointer`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), maturity: tier };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const instructions = outputs.find((o) => o.path === ".github/copilot-instructions.md");
+        expect(instructions).toBeDefined();
+        expect(instructions!.content).toContain(`right-size to maturity=${tier}`);
+        expect(instructions!.content).toContain("rules/hatch3r-right-sizing.md");
+      });
+    }
+  });
 });

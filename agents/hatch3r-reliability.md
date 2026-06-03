@@ -3,7 +3,7 @@ id: hatch3r-reliability
 type: agent
 description: Reliability quality specialist — reviews generated services for OpenTelemetry instrumentation, SLO definition, RED+USE metrics, RFC 9457 error responses, and circuit-breaker/retry patterns. Use when service code or deploy artifacts are authored or modified.
 model: standard
-tags: [review, reliability, observability, floor:content-quality, tier:scaleup-plus]
+tags: [review, reliability, observability, floor:content-quality]
 pillars:
   governance: [P2]
   content-quality: [CQ4]
@@ -43,6 +43,17 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Audit error responses for RFC 9457 `application/problem+json` shape with `type`, `title`, `status`, `detail`, `instance` fields per `rules/hatch3r-api-design.md`; reject leaked stack traces.
 - Verify circuit breaker + retry-with-decorrelated-jitter patterns on every outbound call per `rules/hatch3r-reliability.md`; reject naked exponential backoff.
 - Gate releases on the reliability criteria above; cite `skills/hatch3r-reliability-verify` + `skills/hatch3r-observability-verify` as the closing gates.
+
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding.
+
+| Tier | Reliability depth target |
+|------|------------------------|
+| **solo** | errors handled (no silent failure), structured error responses (RFC 9457, no leaked stack traces), outbound calls have timeouts, illegal-state prevention on state machines (no fallthrough default); no SLO/OTel/burn-rate required; single liveness probe if containerized |
+| **team** | + structured logging with a request/correlation id, a basic uptime/5xx-rate alert, readinessProbe distinct from livenessProbe |
+| **scaleup** | + OTel server+client spans with trace_id propagation, one SLO per user-facing service (availability + p95) with a single burn-rate alert, RED metrics per route, circuit-breaker + retry-with-jitter on outbound deps, graceful SIGTERM drain |
+| **enterprise** | full §Audit checklist absolute thresholds |
 
 ## When to invoke
 
@@ -149,6 +160,8 @@ Coordination edges:
 See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ4 specifics: `id` follows the canonical `cq4-rel-<short-slug>-<3-digit-seq>` pattern (e.g., `cq4-rel-auth-001`); `progress_toward_pillar: content-quality.CQ4+<delta>`. Every CQ4 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per service or request-graph layer; `count: 0, rationale: "single-service audit"` is valid for a one-service review. Status mapping per `agents/shared/quality-charter.md` §14 Severity Discipline.
 
 **Verification harness:** `skills/hatch3r-reliability-verify` + `skills/hatch3r-observability-verify` produce the trace-store, SLO-validation, and induced-failure evidence captured in `proof_trace.actual`. This agent owns the CQ4 budget decision (span coverage, SLO definition, RFC 9457 shape, resilience pattern).
+
+Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
 ## Boundaries
 

@@ -1,0 +1,66 @@
+---
+id: hatch3r-right-sizing
+type: rule
+description: Right-size every investment in robustness, scalability, testing, and infra to the project's maturity tier — invest only as much complexity as it takes to reach the next stage, never default to enterprise-grade. The universal floor (security, correctness, accessibility basics, baseline tests on changed surfaces) never relaxes. Overengineering and premature bureaucracy are P4 violations.
+tags: [right-sizing, code-quality, floor:content-quality]
+precedence: high
+alwaysApply: true
+---
+# hatch3r Right-Sizing
+
+**Pillars:** P4 (Comprehensive Lean Coverage), CQ8 (Maintainability Quality)
+
+## North-Star Directive
+
+Invest in robustness, scalability, testing, and infrastructure in proportion to the project's maturity — and no further. Use only as much complexity as it takes to reach the **next** stage. Never default to enterprise-grade.
+
+Overengineering is a defect, not diligence. Building a generalized framework, a sharded data tier, or a mutation-testing harness for a single-author prototype is the same category of error as skipping a needed test — it spends scarce effort on the wrong axis. Premature bureaucracy (approval gates, ADRs on trivial choices, governance ceremony a two-person team cannot sustain) is the identical failure wearing a process costume.
+
+The maturity tier is an **investment-calibration dial, not a content gate**. Every capability — every specialist agent, every rule, every check — ships at every tier. The tier sets how DEEP you build, never WHETHER the concern applies. A solo project still cares about reliability and testing; it gets right-sized versions, not withheld ones.
+
+## The Universal Floor (never relaxed, any tier including solo)
+
+Four floors bind at every tier. No calibration choice may drop below them:
+
+1. **Security** — auth correctness on protected routes, no committed secrets, dependency hygiene (lockfile + install integrity), input validation. The `floor:security` controls in `agents/hatch3r-security.md` bind in full at solo; only supply-chain and governance DEPTH scales upward.
+2. **Correctness & data integrity** — logic is correct against its stated contract; schema migrations are reversible (expand-contract); no destructive single-deploy schema change; no silent data corruption.
+3. **Accessibility basics** — keyboard operability, semantic markup, axe-core serious+critical = 0 on shipped UI.
+4. **Baseline tests on changed surfaces** — a smoke / happy-path test on every changed surface; mocks justified; deterministic runs.
+
+If a calibration choice would drop below any floor, the floor wins. State the conflict; do not silently relax.
+
+## The Tier → Depth Ladder
+
+Each tier adds depth on top of the one below. The enterprise column is the deepest — it holds the historical absolute thresholds the CQ specialists enforce.
+
+| Tier | Investment posture | Build for |
+|------|--------------------|-----------|
+| **solo** | Universal floor only. Ship the smallest thing that is correct, secure, accessible, and tested on its changed surfaces. No speculative abstraction, no infra a single author cannot operate. | `team` |
+| **team** | + shared-codebase discipline: duplication control (jscpd ≤7%), design-system reuse, structured logging with correlation ids, ADRs on genuine architectural decisions (not trivia). | `scaleup` |
+| **scaleup** | + production operations: SLOs defined, distributed tracing on the request path, performance budgets, statelessness / idempotency / back-pressure on mutating writes, an incident-response path. | `enterprise` |
+| **enterprise** | + org governance: full mutation / property / contract testing, AI-eval coverage, extensibility governance, FinOps cost attribution, a published deprecation policy. The deepest column — today's absolute audit thresholds. | (steady state) |
+
+## Build for the NEXT Stage, Not the Final One
+
+When the right depth is ambiguous, build one tier up — never enterprise by default. Leave a documented seam (an interface boundary, a config indirection, a noted extension point), not a built-out cathedral. "Make the next step cheap" replaces "build everything now": cheap-to-extend later beats expensive-and-speculative now, because most speculative depth is never exercised — the project pivots or the need never lands.
+
+The right question is never "what would a mature system have here?" It is: **what does THIS project at THIS tier need to take its next step safely?** Answer that, leave the seam, ship.
+
+## Reading the Project's Maturity
+
+Resolve the tier in this order:
+
+1. **Adapter header** — generated artifacts carry the tier on their first line. Cursor: `<!-- hatch3r: right-size to maturity=<tier>… -->`. Copilot / inlined surfaces: `> hatch3r: right-size to maturity=<tier>…`. This is the fastest and most authoritative signal at agent runtime.
+2. **Manifest** — `.hatch3r/hatch.json` → `maturity`. Absent → treat as `solo`.
+3. **Ask** — if the tier is undiscoverable from both AND the decision is consequential (it changes the artifact's shape or cost), ask via `agents/shared/user-question-protocol.md`. Default to `solo` when no answer arrives.
+
+## Overengineering Is a P4 Violation
+
+Shipping depth the tier did not call for is over-fitting the solution to an imagined future — a P4 (Lean Coverage) violation, because the unused machinery earns no value against its complexity cost. The CQ specialist agents enforce right-sizing through their `## Tier calibration` ladders: the solo column equals the universal floor, the enterprise column equals the absolute threshold.
+
+A reviewer who finds enterprise-grade machinery (sharding, a plugin system, multi-burn-rate SLO alerting, a mutation-testing gate) on a solo or team project files a right-sizing finding — Info when it is dormant and cheap to remove, escalating to Medium when the unused depth slows the change under review or blocks the next step. Under-investment relative to the tier (no SLO on a scaleup request path, no design-system on a team frontend) is the symmetric finding: the floor and the tier ladder cut both ways.
+
+## References
+
+- "YAGNI (You Aren't Gonna Need It)." Laws of Software Engineering. URL: https://lawsofsoftwareengineering.com/laws/yagni/ — accessed 2026-06-03. Trust tier: established curated engineering-principles reference (named-law catalog). Synthesized: build only what is required now; YAGNI depends on cheap refactoring (test coverage + CI) so deferring is safe; iterate with real use-case data rather than speculative architecture.
+- Fritzsche, R. "Avoiding Over-Engineering: Focus on Real Problems in Software Development." 2025. URL: https://ricofritzsche.me/avoiding-over-engineering-focus-on-real-problems-in-software-development/ — accessed 2026-06-03. Trust tier: practitioner long-form with named author, citing Knuth premature-optimization + startup-scaling research (70% of failed startups scaled too early). Synthesized: build the simplest version first then iterate on observed problems; scale progressively with real growth, not imagined traffic; premature abstraction hinders maintainability.

@@ -3,7 +3,7 @@ id: hatch3r-cost-tracking
 name: hatch3r-cost-tracking
 type: skill
 description: Track token usage and estimate costs for agent sessions. Use when monitoring spend, approaching budget limits, or generating cost reports.
-tags: [maintenance, tier:enterprise-only]
+tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -11,6 +11,8 @@ cache_friendly: true
 # Cost Tracking Workflow
 
 ## Quick Start
+
+**Applies when:** the project tracks cloud/LLM spend against a budget. On a project with no cost-accounting need, skip (per `rules/hatch3r-right-sizing.md`).
 
 ```
 Task Progress:

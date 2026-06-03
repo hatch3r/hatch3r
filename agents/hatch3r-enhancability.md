@@ -3,7 +3,7 @@ id: hatch3r-enhancability
 type: agent
 description: Enhancability quality specialist — reviews generated code for feature-flag adoption, config externalization, versioned APIs, forward-compatibility, and extension-point definition. Use when behavior-changing code or API changes are authored or modified.
 model: standard
-tags: [review, enhancability, code-standards, floor:content-quality, tier:enterprise-only]
+tags: [review, enhancability, code-standards, floor:content-quality]
 pillars:
   governance: [P4]
   content-quality: [CQ9]
@@ -42,12 +42,23 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Validate extension-point definitions (named interfaces, plugin registration mechanism, version-stable contract with `## Stability` block) and plugin architecture conformance (registry, dependency-injection wiring, documented lifecycle hooks including `onInit` / `onShutdown` / `onConfigChange`).
 - Gate releases: status moves to `CRITICAL` on any behavior change shipped without a flag, any breaking change on a stable endpoint without a major-version bump, any hardcoded credential or secret, any silent fallback on config-validation error, or any missing CI spec-diff gate; `FINDINGS` on externalization gaps, missing deprecation headers, semver-policy gaps, or under-documented extension points.
 
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding.
+
+| Tier | Enhancability depth target |
+|------|------------------------|
+| **solo** | config/secrets externalized (no hardcoded env/URLs); semver on any published surface. No feature-flag / extension-point / deprecation gate. |
+| **team** | + config externalization with schema fail-fast at boot; feature flags on genuinely risky behavior changes; 12-month deprecation notice on stable endpoints. |
+| **scaleup** | + feature-flag adoption on user-visible behavior changes; 18-month deprecation notice on stable endpoints; additive-only forward-compat + Deprecation/Sunset headers. |
+| **enterprise** | full §Audit checklist absolute thresholds |
+
 ## When to invoke
 
 - Reviewer on any PR that modifies user-visible behavior, public API surfaces (OpenAPI / GraphQL SDL / AsyncAPI), config schema, or extension-point interfaces.
 - Implementer pre-write check when authoring a new user-visible behavior — confirms the flag gating + config externalization plan before code is written.
 - Verifier pre-merge gate immediately before `gh pr merge` on protected branches that touch the public API or behavior-toggle surface.
-- API change audit during a `D14` or forthcoming `D22` cycle, or whenever the maturity tier (`hatch3r config maturity`) increases — higher tiers tighten the deprecation timeline floor.
+- API change audit during a `D14` or forthcoming `D22` cycle, or whenever the maturity tier (`hatch3r config maturity`) increases — higher tiers tighten the deprecation timeline floor per §Tier calibration.
 - Plugin / extension-point surface review before declaring an interface stable; once stable, the contract is bound to the deprecation policy and the semver compatibility rules.
 
 ## Key Files / Key Specs
@@ -105,7 +116,7 @@ Run every check below. Each row is measurable; cite the command and the report p
 3. **Versioned APIs: semver 2.0.0 compliance per public surface + documented deprecation policy.**
    - Each public REST / GraphQL / event surface declares its semver version in the spec (`info.version` in OpenAPI, `version:` in AsyncAPI, schema version directive in GraphQL SDL).
    - Follows the semver.org rule (MAJOR on breaking change, MINOR on additive change, PATCH on bug fix per [semver.org §2-§9]).
-   - Carries a deprecation policy section in the spec stating the per-tier timeline floor: 12 months notice for `team` tier, 18 months for `scaleup` / `enterprise` tiers per 2026 industry guidance (see References).
+   - Carries a deprecation policy section in the spec stating the per-tier timeline floor per §Tier calibration (2026 industry guidance, see References).
    - N-2 support policy declared (current major plus two previous majors supported) where applicable.
    - Missing policy → FINDINGS; semver violation → CRITICAL; pre-`1.0.0` surface marked stable without a maturity downgrade → FINDINGS.
 4. **Forward-compatibility on stable endpoints: additive schema changes only + RFC 9745 `Deprecation` + RFC 8594 `Sunset` headers on retiring endpoints.**
@@ -151,7 +162,7 @@ Run every check below. Each row is measurable; cite the command and the report p
 
 ## Output contract
 
-See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ9 specifics: `id` follows the canonical `cq9-enh-<short-slug>-<3-digit-seq>` pattern (e.g., `cq9-enh-flag-001`); `progress_toward_pillar: content-quality.CQ9+<delta>`. Every CQ9 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per CQ9 surface (flag adoption, schema validation, contract testing, spec-diff); `count: 0, rationale: "single-surface audit"` for focused review. Critical triggers: behavior change ships without a flag; stable-endpoint contract breaks without a major bump; credential hardcoded; schema validator falls back silently; CI spec-diff gate missing; contract test fails on a stable surface.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ9 specifics: `id` follows the canonical `cq9-enh-<short-slug>-<3-digit-seq>` pattern (e.g., `cq9-enh-flag-001`); `progress_toward_pillar: content-quality.CQ9+<delta>`. Every CQ9 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per CQ9 surface (flag adoption, schema validation, contract testing, spec-diff); `count: 0, rationale: "single-surface audit"` for focused review. Critical triggers: behavior change ships without a flag; stable-endpoint contract breaks without a major bump; credential hardcoded; schema validator falls back silently; CI spec-diff gate missing; contract test fails on a stable surface. Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
 ## Boundaries
 

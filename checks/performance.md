@@ -2,12 +2,14 @@
 id: performance
 type: check
 description: Performance review criteria covering bundle size, render performance, memory usage, network optimization, database queries, and runtime efficiency
-tags: [performance, tier:scaleup-plus]
+tags: [performance]
 cache_friendly: true
 ---
 # Performance Check
 
 > **Severity vocabulary:** see [agents/shared/severity-mapping.md](../agents/shared/severity-mapping.md) for canonical 5-column mapping.
+
+**Applies when:** the project declares performance budgets. Without declared budgets this check is advisory, not gating (per `rules/hatch3r-right-sizing.md`).
 
 Review criteria for evaluating performance in pull requests.
 

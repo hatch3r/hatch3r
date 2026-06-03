@@ -30,6 +30,7 @@ import {
   TAG_ANTI_DUPLICATION,
   TAG_CODE_QUALITY,
   TAG_CODE_STANDARDS,
+  TAG_RIGHT_SIZING,
   TAG_ADAPTERS,
   TAG_CAPABILITY,
   TAG_CURRENCY,
@@ -85,11 +86,6 @@ import {
   TAG_LANG_RUST,
   TAG_LANG_JAVA,
   TAG_LANG_RUBY,
-  // Tier (Cycle 10 — Decision 4 / #16 admission)
-  TAG_TIER_ENTERPRISE_ONLY,
-  TAG_TIER_SCALEUP_PLUS,
-  TAG_TIER_TEAM_PLUS,
-  TAG_FLOOR_ENTERPRISE_ONLY,
   // Helpers and registry
   ALL_TAGS,
   TAG_REGISTRY,
@@ -101,7 +97,6 @@ import {
   isCustomizeTag,
   isUiUxSpecialisation,
   isLanguageTag,
-  isTierTag,
   LANGUAGE_TO_TAG,
   resolveLanguageTags,
   filterByLanguages,
@@ -244,9 +239,6 @@ describe("TAG_REGISTRY consistency", () => {
       TAG_CAT_BROWSER, TAG_CAT_CONTAINER, TAG_CAT_AI, TAG_CAT_INTERACTIVE,
       TAG_LANG_TYPESCRIPT, TAG_LANG_PYTHON, TAG_LANG_GO, TAG_LANG_RUST,
       TAG_LANG_JAVA, TAG_LANG_RUBY,
-      // Cycle 10 — tier admission tags (Decision 4 / #16)
-      TAG_TIER_ENTERPRISE_ONLY, TAG_TIER_SCALEUP_PLUS, TAG_TIER_TEAM_PLUS,
-      TAG_FLOOR_ENTERPRISE_ONLY,
     ];
     for (const tag of exportedTagValues) {
       expect(TAG_REGISTRY[tag], `expected TAG_REGISTRY to contain ${tag}`).toBeDefined();
@@ -262,8 +254,8 @@ describe("TAG_REGISTRY consistency", () => {
     expect(unique.size).toBe(ALL_TAGS.length);
   });
 
-  it("ALL_TAGS contains exactly 83 elements (40 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language + 4 tier + 3 role) — Cycle 10 tier expansion + D14-M6 role facet", () => {
-    expect(ALL_TAGS).toHaveLength(83);
+  it("ALL_TAGS contains exactly 80 elements (41 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language + 3 role) — tier facet retired, right-sizing capability added", () => {
+    expect(ALL_TAGS).toHaveLength(80);
   });
 
   it("facetOf returns 'capability' for every capability tag", () => {
@@ -276,6 +268,7 @@ describe("TAG_REGISTRY consistency", () => {
       TAG_MAINTAINABILITY, TAG_ENHANCABILITY, TAG_OBSERVABILITY, TAG_SUPPLY_CHAIN,
       TAG_ACCESSIBILITY, TAG_SPEC, TAG_GREENFIELD, TAG_BROWNFIELD, TAG_MIGRATION,
       TAG_TELEMETRY, TAG_COST, TAG_ANTI_DUPLICATION, TAG_CODE_QUALITY, TAG_CODE_STANDARDS,
+      TAG_RIGHT_SIZING,
       TAG_ADAPTERS, TAG_CAPABILITY, TAG_CURRENCY, TAG_ITERATION, TAG_SUMMARY,
       TAG_LEARNING, TAG_KNOWLEDGE_CAPTURE, TAG_PROOF, TAG_VERIFICATION, TAG_CITATION,
       TAG_PLAYWRIGHT, TAG_VISUAL_REGRESSION,
@@ -337,17 +330,15 @@ describe("TAG_REGISTRY consistency", () => {
     expect(facetOf(TAG_LANG_RUBY)).toBe("language");
   });
 
-  it("facetOf returns 'tier' for every tier admission tag (Cycle 10 — Decision 4 / #16)", () => {
-    expect(facetOf(TAG_TIER_ENTERPRISE_ONLY)).toBe("tier");
-    expect(facetOf(TAG_TIER_SCALEUP_PLUS)).toBe("tier");
-    expect(facetOf(TAG_TIER_TEAM_PLUS)).toBe("tier");
-    expect(facetOf(TAG_FLOOR_ENTERPRISE_ONLY)).toBe("tier");
-  });
-
   it("facetOf returns undefined for unknown / legacy tag values", () => {
     expect(facetOf("core")).toBeUndefined();
     expect(facetOf("solo")).toBeUndefined();
     expect(facetOf("team")).toBeUndefined();
+    // The retired `tier:*` admission facet — these are now unknown tags.
+    expect(facetOf("tier:enterprise-only")).toBeUndefined();
+    expect(facetOf("tier:scaleup-plus")).toBeUndefined();
+    expect(facetOf("tier:team-plus")).toBeUndefined();
+    expect(facetOf("floor:enterprise-only")).toBeUndefined();
     expect(facetOf("not-a-tag")).toBeUndefined();
     expect(facetOf("")).toBeUndefined();
     // Note: 2.0.0 expansion moved `security`, `greenfield`, `brownfield` from "unknown" to "capability"
@@ -358,9 +349,9 @@ describe("TAG_REGISTRY consistency", () => {
 // ── tagsForFacet — facet enumeration ─────────────────────────────
 
 describe("tagsForFacet", () => {
-  it("returns the 40 capability tags (9 base + 31 2.0.0 expansion)", () => {
+  it("returns the 41 capability tags (9 base + 32 2.0.0 expansion incl. right-sizing)", () => {
     const result = tagsForFacet("capability");
-    expect(result).toHaveLength(40);
+    expect(result).toHaveLength(41);
     expect(result.sort()).toEqual(
       [
         // 1.x base
@@ -371,6 +362,7 @@ describe("tagsForFacet", () => {
         TAG_MAINTAINABILITY, TAG_ENHANCABILITY, TAG_OBSERVABILITY, TAG_SUPPLY_CHAIN,
         TAG_ACCESSIBILITY, TAG_SPEC, TAG_GREENFIELD, TAG_BROWNFIELD, TAG_MIGRATION,
         TAG_TELEMETRY, TAG_COST, TAG_ANTI_DUPLICATION, TAG_CODE_QUALITY, TAG_CODE_STANDARDS,
+        TAG_RIGHT_SIZING,
         TAG_ADAPTERS, TAG_CAPABILITY, TAG_CURRENCY, TAG_ITERATION, TAG_SUMMARY,
         TAG_LEARNING, TAG_KNOWLEDGE_CAPTURE, TAG_PROOF, TAG_VERIFICATION, TAG_CITATION,
         TAG_PLAYWRIGHT, TAG_VISUAL_REGRESSION,
@@ -430,17 +422,9 @@ describe("tagsForFacet", () => {
     }
   });
 
-  it("returns the 4 tier admission tags (Decision 4 / #16)", () => {
-    const result = tagsForFacet("tier");
-    expect(result).toHaveLength(4);
-    expect(result.sort()).toEqual(
-      [
-        TAG_TIER_ENTERPRISE_ONLY,
-        TAG_TIER_SCALEUP_PLUS,
-        TAG_TIER_TEAM_PLUS,
-        TAG_FLOOR_ENTERPRISE_ONLY,
-      ].sort(),
-    );
+  it("returns no tags for the retired 'tier' facet", () => {
+    // The `tier:*` admission facet was retired with the maturity content-gate.
+    expect(tagsForFacet("tier" as never)).toEqual([]);
   });
 });
 
@@ -535,22 +519,6 @@ describe("isLanguageTag", () => {
     expect(isLanguageTag(TAG_PLANNING)).toBe(false);
     expect(isLanguageTag(TAG_FLOOR_SECURITY)).toBe(false);
     expect(isLanguageTag("")).toBe(false);
-  });
-});
-
-describe("isTierTag (Cycle 10 — Decision 4 / #16 admission)", () => {
-  it("returns true for every tier admission tag", () => {
-    expect(isTierTag(TAG_TIER_ENTERPRISE_ONLY)).toBe(true);
-    expect(isTierTag(TAG_TIER_SCALEUP_PLUS)).toBe(true);
-    expect(isTierTag(TAG_TIER_TEAM_PLUS)).toBe(true);
-    expect(isTierTag(TAG_FLOOR_ENTERPRISE_ONLY)).toBe(true);
-  });
-
-  it("returns false for non-tier tags", () => {
-    expect(isTierTag(TAG_PLANNING)).toBe(false);
-    expect(isTierTag(TAG_FLOOR_SECURITY)).toBe(false);
-    expect(isTierTag(TAG_CTX_TEAM_ONLY)).toBe(false);
-    expect(isTierTag("")).toBe(false);
   });
 });
 

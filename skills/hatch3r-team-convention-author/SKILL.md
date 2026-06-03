@@ -3,7 +3,7 @@ id: hatch3r-team-convention-author
 name: hatch3r-team-convention-author
 type: skill
 description: Interactive workflow to elicit, draft, align, and persist a team's coding conventions and working agreements as a versioned project rule or convention doc. Use when a team is setting up shared norms, codifying tacit practices, or reconciling conflicting style decisions.
-tags: [maintenance, board, tier:team-plus]
+tags: [maintenance, board]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

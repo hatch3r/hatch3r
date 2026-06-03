@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-security, hatch3r-pack-installer]
 description: "Walk the user through the pack trust-model gate (tier + signature + body-scan + capability declaration), confirm the trust posture, then delegate the verified install to hatch3r-pack-installer."
-tags: [devops, supply-chain, ctx:brownfield-only, tier:team-plus]
+tags: [devops, supply-chain, ctx:brownfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

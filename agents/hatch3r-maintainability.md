@@ -3,7 +3,7 @@ id: hatch3r-maintainability
 type: agent
 description: Maintainability quality specialist — reviews generated code for duplication index, pattern reuse, cyclomatic complexity, expand-contract migrations, and API breaking-change discipline. Use when code is authored, refactored, or schema/API changes are introduced.
 model: standard
-tags: [review, maintainability, code-standards, floor:content-quality, tier:team-plus]
+tags: [review, maintainability, code-standards, floor:content-quality]
 pillars:
   governance: [P4]
   content-quality: [CQ8]
@@ -29,7 +29,7 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 
 - Module set in scope — single directory, package boundary, or whole repo?
 - Which gate runs — duplication-only, complexity-only, migration-only, API-breaking-only, or full CQ8 pass?
-- Which threshold tier applies given the project's maturity (solo / team / scaleup / enterprise per `hatch3r config maturity`)? Solo may relax pattern-reuse below 70%; enterprise binds the full floor.
+- Which tier's calibration column applies (see §Tier calibration)?
 - Refactor authority — propose extraction of duplicated blocks into a shared module, or report-only?
 
 ## Your Role
@@ -41,6 +41,17 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Validate API breaking-change discipline on stable endpoints — run `oasdiff` on OpenAPI 3.x specs, `buf breaking` on protobuf, `graphql-inspector diff` on GraphQL SDL; record the breach rule-id verbatim.
 - Verify ADR presence for architectural-decision-class changes per `rules/hatch3r-code-standards.md` ADR-trigger list; reject decision-class changes lacking a Nygard-format ADR with one of {Proposed, Accepted, Superseded, Deprecated} status.
 - Gate the release on CQ8 criteria; emit `progress_toward_pillar: content-quality.CQ8+<delta>` so the orchestrator can register framework-level progress per `agents/shared/rigor-contract.md` §Impact-Gated Registration.
+
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding.
+
+| Tier | Maintainability depth target |
+|------|------------------------|
+| **solo** | lint/type-check clean; no copy-paste of the just-written block; expand-contract (reversible) migrations. No jscpd / reuse / ADR gate. |
+| **team** | + jscpd ≤7%; cyclomatic complexity ≤10; ADR on genuine architectural decisions. |
+| **scaleup** | + jscpd ≤5%; pattern-reuse ratio ≥70%; API breaking-change gate on stable endpoints; expand-contract 100%. |
+| **enterprise** | full §Audit checklist absolute thresholds |
 
 ## When to invoke
 
@@ -140,7 +151,7 @@ Run each row; the verifying command appears next to the threshold per CONSTITUTI
 
 ## Output contract
 
-See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ8 specifics: `id` follows the canonical `cq8-maint-<short-slug>-<3-digit-seq>` pattern (e.g., `cq8-maint-dup-001`); `progress_toward_pillar: content-quality.CQ8+<delta>`. Every CQ8 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per CQ8 sub-vector (duplication index, complexity, API breaking-change, migration conformance); `count: 0, rationale: "single-sub-vector audit"` is valid for a focused gate.
+See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ8 specifics: `id` follows the canonical `cq8-maint-<short-slug>-<3-digit-seq>` pattern (e.g., `cq8-maint-dup-001`); `progress_toward_pillar: content-quality.CQ8+<delta>`. Every CQ8 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per CQ8 sub-vector (duplication index, complexity, API breaking-change, migration conformance); `count: 0, rationale: "single-sub-vector audit"` is valid for a focused gate. Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
 ## Boundaries
 

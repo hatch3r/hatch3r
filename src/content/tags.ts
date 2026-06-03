@@ -15,11 +15,12 @@
  * without hard-coded enumerations.
  *
  * Corpus state: every canonical artifact now carries the canonical facet tags defined in
- * TAG_REGISTRY (capability / floor / context / tier / role facets); the compound
- * tag-validity + preset-coverage tests pass against the migrated corpus. Maturity-tier
- * admission is applied via `tier:*` tags per `docs/maturity-tiers.md`. The legacy tag
- * values (`core`, `team`, `solo`, `greenfield`, `brownfield`, `security` as a plain tag,
- * `ai` as a CLI category) are no longer in use.
+ * TAG_REGISTRY (capability / floor / context / role facets); the compound
+ * tag-validity + preset-coverage tests pass against the migrated corpus. Maturity is an
+ * investment-calibration dial, not a content gate — it admits nothing and removes nothing;
+ * the `tier:*` admission facet was retired per `rules/hatch3r-right-sizing.md` +
+ * `docs/maturity-tiers.md`. The legacy tag values (`core`, `team`, `solo`, `greenfield`,
+ * `brownfield`, `security` as a plain tag, `ai` as a CLI category) are no longer in use.
  */
 
 // ── Capability tags (the artifact's job) ─────────────────────────
@@ -59,6 +60,7 @@ export const TAG_COST             = "cost";             // cost-visibility work 
 export const TAG_ANTI_DUPLICATION = "anti-duplication"; // duplication-scan + pattern-reuse (Decision 21)
 export const TAG_CODE_QUALITY     = "code-quality";     // code-quality reviews (alias for maintainability scope)
 export const TAG_CODE_STANDARDS   = "code-standards";   // code-standards enforcement
+export const TAG_RIGHT_SIZING     = "right-sizing";     // maturity-tier investment calibration (anti-overengineering)
 export const TAG_ADAPTERS         = "adapters";         // adapter currency / capability matrix (Decision 21)
 export const TAG_CAPABILITY       = "capability";       // capability-matrix work (Decision 21)
 export const TAG_CURRENCY         = "currency";         // platform-doc currency (P3)
@@ -161,17 +163,6 @@ export const TAG_ROLE_REVIEWER      = "role:reviewer";       // PR / code review
 export const TAG_ROLE_SECURITY_LEAD = "role:security-lead";  // OWASP ASI + supply-chain owner
 export const TAG_ROLE_SENIOR_ENG    = "role:senior-eng";     // architecture + technical leadership
 
-// ── Maturity-tier admission tags (Decision 4 / #16) ───────────────
-// Frontmatter-side spellings of the per-tier admission gates consumed by
-// `resolveSelection`'s tier stage in `src/content/index.ts`. Matched by
-// the gate via string equality against `TIER_TAG_REQUIREMENTS`; registry
-// presence here is for compound-test tag validity and `facetOf()` lookup.
-
-export const TAG_TIER_ENTERPRISE_ONLY = "tier:enterprise-only";
-export const TAG_TIER_SCALEUP_PLUS    = "tier:scaleup-plus";
-export const TAG_TIER_TEAM_PLUS       = "tier:team-plus";
-export const TAG_FLOOR_ENTERPRISE_ONLY = "floor:enterprise-only"; // alias for tier:enterprise-only per bucket spec
-
 // ── Facet registry — single source of truth ──────────────────────
 
 /**
@@ -191,7 +182,6 @@ export type TagFacet =
   | "cli-tool"
   | "cli-tool-category"
   | "language"
-  | "tier"
   | "role";
 
 /**
@@ -232,6 +222,7 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_ANTI_DUPLICATION]: "capability",
   [TAG_CODE_QUALITY]:     "capability",
   [TAG_CODE_STANDARDS]:   "capability",
+  [TAG_RIGHT_SIZING]:     "capability",
   [TAG_ADAPTERS]:         "capability",
   [TAG_CAPABILITY]:       "capability",
   [TAG_CURRENCY]:         "capability",
@@ -288,14 +279,6 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_LANG_JAVA]:       "language",
   [TAG_LANG_RUBY]:       "language",
 
-  // Decision 4 / #16 — maturity-tier admission tags (consumed by
-  // `resolveSelection` tier stage; registry placement keeps compound
-  // tag-validity tests honest without changing gate semantics).
-  [TAG_TIER_ENTERPRISE_ONLY]:  "tier",
-  [TAG_TIER_SCALEUP_PLUS]:     "tier",
-  [TAG_TIER_TEAM_PLUS]:        "tier",
-  [TAG_FLOOR_ENTERPRISE_ONLY]: "tier",
-
   // D14-M6 (Cycle 10 rollover) — role admission tags.
   [TAG_ROLE_REVIEWER]:      "role",
   [TAG_ROLE_SECURITY_LEAD]: "role",
@@ -320,7 +303,6 @@ export const isContextTag         = (t: string): boolean => facetOf(t) === "cont
 export const isCustomizeTag       = (t: string): boolean => facetOf(t) === "customize";
 export const isUiUxSpecialisation = (t: string): boolean => facetOf(t) === "ui-ux-specialisation";
 export const isLanguageTag        = (t: string): boolean => facetOf(t) === "language";
-export const isTierTag            = (t: string): boolean => facetOf(t) === "tier";
 export const isRoleTag            = (t: string): boolean => facetOf(t) === "role";
 
 /**

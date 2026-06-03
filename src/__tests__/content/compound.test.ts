@@ -52,14 +52,12 @@ const CONTENT_DIRS: { dir: string; type: string; strategy: "glob" | "subdirector
 
 // Agents required by the orchestration pipeline ("Always" in Agent Roster).
 // F16.3-H1 (Cycle 10 Wave 1C): the legacy test-writer + security-auditor
-// always-mode roles collapsed into the CQ specialists. Only currently-
-// protected + full-preset-admitted CQ agents (hatch3r-security at CQ3)
-// are listed here; hatch3r-testability (CQ5) carries the always-mode
-// floor in SPECIALIST_TRIGGER_TABLE but currently ships as
-// `tier:enterprise-only` without `protected: true`, so it is gated out
-// of the default full preset and is not yet appropriate to enforce in
-// the strict-orchestration roster. The always-mode behaviour is still
-// enforced at orchestrator runtime via SPECIALIST_TRIGGER_TABLE.
+// always-mode roles collapsed into the CQ specialists. Only the
+// pipeline-protected CQ agent enforced as an always-mode roster member is
+// listed here (hatch3r-security at CQ3). hatch3r-testability (CQ5) carries
+// the always-mode floor in SPECIALIST_TRIGGER_TABLE but is not enforced in
+// the strict-orchestration roster; its always-mode behaviour is enforced at
+// orchestrator runtime via SPECIALIST_TRIGGER_TABLE.
 const ORCHESTRATION_AGENTS = [
   "hatch3r-researcher",
   "hatch3r-implementer",
@@ -497,10 +495,10 @@ describe("compound system content validation", () => {
       // ship. Items dropped by context are counted via
       // countProjectTypeExclusions + countTeamSizeExclusions.
       //
-      // Cycle 10 F14.3-C1: the Decision 16 maturity-tier gate (`tier:*` /
-      // `floor:enterprise-only`) also drops items at the default maturity
-      // tier (solo). Non-protected items carrying any tier admission tag
-      // are subtracted alongside the greenfield-only set.
+      // Maturity is a calibration dial, not a content-admission gate: the
+      // retired `tier:*` / `floor:enterprise-only` facet no longer subtracts
+      // any item, so the full-preset count equals the corpus minus only the
+      // greenfield-only set under brownfield+team.
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "brownfield", "team", contentIndex);
       const totalItems = Object.values(selection.items).reduce(
@@ -510,16 +508,7 @@ describe("compound system content validation", () => {
       const greenfieldOnly = contentIndex.items.filter(
         (i) => !i.protected && i.tags.includes("ctx:greenfield-only"),
       ).length;
-      const tierGated = contentIndex.items.filter(
-        (i) =>
-          !i.protected &&
-          !i.tags.includes("ctx:greenfield-only") &&
-          (i.tags.includes("tier:team-plus") ||
-            i.tags.includes("tier:scaleup-plus") ||
-            i.tags.includes("tier:enterprise-only") ||
-            i.tags.includes("floor:enterprise-only")),
-      ).length;
-      expect(totalItems).toBe(contentIndex.items.length - greenfieldOnly - tierGated);
+      expect(totalItems).toBe(contentIndex.items.length - greenfieldOnly);
     });
 
     // F3.3-H4 (D3 Cycle 10 Wave 2): the "full preset … context filter" test
@@ -543,17 +532,14 @@ describe("compound system content validation", () => {
           Object.values(selection.items).flat() as string[],
         );
 
-        // Items declaring the SAME-context tag (and not gated out by maturity
-        // tier / protected exemptions) must be admitted under this projectType.
+        // Items declaring the SAME-context tag (and not protected) must be
+        // admitted under this projectType. Maturity no longer gates content,
+        // so there is no tier exemption to subtract here.
         const sameContext = contentIndex.items.filter(
           (i) =>
             i.tags.includes(includeTag) &&
             !i.tags.includes(excludeTag) &&
-            !i.protected &&
-            !i.tags.includes("tier:team-plus") &&
-            !i.tags.includes("tier:scaleup-plus") &&
-            !i.tags.includes("tier:enterprise-only") &&
-            !i.tags.includes("floor:enterprise-only"),
+            !i.protected,
         );
         // Must have ≥1 same-context item or the symmetry assertion is vacuous —
         // both ctx:greenfield-only and ctx:brownfield-only exist in the corpus.

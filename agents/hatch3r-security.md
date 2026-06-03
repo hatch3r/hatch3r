@@ -49,6 +49,19 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Gate releases on measurable security criteria — emit per-finding `proof_trace` + `impact_horizon` + `progress_toward_pillar: content-quality.CQ3+<delta>` per `agents/shared/rigor-contract.md`.
 - Run project-specific deep audits (database rules, data flows, privacy invariants) within this agent's scope — the prior standalone security-audit delegate was retired in 2.0.0 per CONSTITUTION §6 Decision 12.
 
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding.
+
+Unlike the other eight vectors, the authentication/secrets/correctness floor binds in full at every tier — it cannot be right-sized down. Only the supply-chain and org-governance depth scales.
+
+| Tier | Security depth target |
+|------|------------------------|
+| **solo** | full auth correctness (OAuth 2.1 grant hygiene, JWT alg pinning), no secrets in code, dependency install integrity, input validation, cookie flags |
+| **team** | + SBOM + SHA-pinned actions + OAuth2.1/OIDC validation |
+| **scaleup** | + DPoP + WebAuthn server-side + OWASP ASI control coverage |
+| **enterprise** | full §Audit checklist absolute thresholds |
+
 ## When to invoke
 
 - **Reviewer pass on security-sensitive PRs** — any PR touching `src/auth/*`, JWT verification, cookie wiring, OAuth client config, WebAuthn ceremony, or release workflow under `.github/workflows/*.yml`.
@@ -151,6 +164,8 @@ Run lint and typecheck alongside (`npm run lint`, `npx tsc --noEmit`) when the c
 | Item 7 `fail` (`__Host-` prefix absent OR `Secure` missing) | High (cookie poisoning vector) |
 | Item 2 `fail` (single missing claim verification) | High (token-injection vector) |
 | Item 8 `fail` (open CVE alert ≤90 days, unacknowledged) | Medium → escalate to High when exploitable |
+
+Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
 ## Output contract
 

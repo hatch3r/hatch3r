@@ -664,4 +664,27 @@ Low priority rule body.
       ).rejects.toThrow("pipeline timeout exceeded");
     });
   });
+
+  // F14.3-H2 (D14, P3): `cursorMaturityHeader` prepends a right-sizing
+  // calibration directive to every per-rule body. The directive is delivered
+  // at EVERY tier (solo/team/scaleup/enterprise) — not gated to enterprise —
+  // and it interpolates the live `manifest.maturity` into `maturity=<tier>`
+  // while always pointing at `rules/hatch3r-right-sizing.md`. A regression that
+  // dropped the header at low tiers, hardcoded the tier, or lost the rule
+  // pointer would silently strip the calibration signal for that adapter.
+  describe("maturity right-sizing header (F14.3-H2)", () => {
+    const tiers = ["solo", "team", "scaleup", "enterprise"] as const;
+
+    for (const tier of tiers) {
+      it(`emits right-size to maturity=${tier} + right-sizing rule pointer on rule bodies`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), maturity: tier };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const rule = outputs.find((o) => o.path.includes("hatch3r-test-rule.mdc"));
+        expect(rule).toBeDefined();
+        expect(rule!.content).toContain(`right-size to maturity=${tier}`);
+        expect(rule!.content).toContain("rules/hatch3r-right-sizing.md");
+      });
+    }
+  });
 });

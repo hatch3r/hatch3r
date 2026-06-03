@@ -3,7 +3,7 @@ id: hatch3r-gh-agentic-workflows
 name: hatch3r-gh-agentic-workflows
 type: skill
 description: Set up CI/CD agentic workflows for continuous AI-powered repository automation (GitHub Actions, Azure Pipelines, GitLab CI)
-tags: [devops, ctx:team-only, tier:enterprise-only]
+tags: [devops, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

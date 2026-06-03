@@ -3,7 +3,7 @@ id: hatch3r-scalability
 type: agent
 description: Scalability quality specialist — reviews generated services for stateless handlers, back-pressure patterns, idempotency-key adoption, queue-based offloading, and connection-pool sizing. Use when service code or scaling-relevant config is authored or modified.
 model: standard
-tags: [review, scalability, floor:content-quality, tier:scaleup-plus]
+tags: [review, scalability, floor:content-quality]
 pillars:
   governance: [P2]
   content-quality: [CQ6]
@@ -43,6 +43,17 @@ Special trigger: any recommendation that increases connection-pool sizes, change
 - Audit queue-based offloading for any operation taking >1s — background-job system + retry policy + dead-letter queue (DLQ).
 - Validate database connection pool sizing against the documented concurrency profile (`pool_size = expected_concurrent_requests × avg_query_time / target_p99`).
 - Gate releases on horizontal-scaling validation — load tests at target scale, p99 latency within budget, no resource-pool exhaustion.
+
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding.
+
+| Tier | Scalability depth target |
+|------|------------------------|
+| **solo** | no pathological O(N²)/unbounded growth on the primary path, idempotency on irreversible writes (payments/account-creation) if present; no statefulness gate/load test |
+| **team** | + stateless handlers on horizontally-deployed tiers, externalized session |
+| **scaleup** | + Idempotency-Key on all mutating writes, back-pressure/request-coalescing on high-fan-out, connection-pool sizing per concurrency profile, queue offload for >1s ops |
+| **enterprise** | full §Audit checklist absolute thresholds |
 
 ## When to invoke
 
@@ -114,6 +125,8 @@ When recommending a scalability change, structure the recommendation to prevent 
 See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ6 specifics: `id` follows the canonical `cq6-scale-<short-slug>-<3-digit-seq>` pattern (e.g., `cq6-scale-checkout-001`); `progress_toward_pillar: content-quality.CQ6+<delta>`. Every CQ6 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per mandate class (stateless ratio, back-pressure, pool sizing, idempotency, offloading); `count: 5, rationale: "one per CQ6 mandate class"` covers a full review, `count: 0, rationale: "single-class spot-check"` for a focused gate. Critical reserved for production-blocking gaps (e.g., user-facing POST endpoint with zero idempotency-key handling under retry storm conditions).
 
 **Verification harness:** the load-test runner (k6 / Locust / Gatling) named in audit item 8 produces the p99, error-rate, and pool-saturation evidence captured in `proof_trace.actual`. For the saturation-telemetry half (audit item 7, USE-method metrics), `skills/hatch3r-observability-verify` is the shared harness with `hatch3r-reliability`. This agent owns the CQ6 budget decision (stateless ratio, back-pressure, pool sizing, idempotency, offloading).
+
+Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
 ## Common Findings & Severity Calibration
 

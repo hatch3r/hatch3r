@@ -4,7 +4,7 @@ type: rule
 description: Resilience patterns in user code — circuit breakers, retry with decorrelated jitter, timeouts with deadline propagation, idempotency keys, bulkheads, hedged requests
 scope: conditional
 globs: "**/services/**,**/handlers/**,**/clients/**,**/integrations/**,**/api/**,**/middleware/**,**/circuit*,**/retry*,**/resilience*"
-tags: [implementation, devops, tier:scaleup-plus]
+tags: [implementation, devops]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

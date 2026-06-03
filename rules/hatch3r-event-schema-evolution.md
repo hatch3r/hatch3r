@@ -4,7 +4,7 @@ type: rule
 description: Event and message schema evolution patterns for Kafka / Kinesis / Pub-Sub / event store — backward + forward + full compatibility modes, schema registry, consumer-side defaults
 scope: conditional
 globs: "**/events/**,**/schemas/**,**/*.avsc,**/*.proto,**/messaging/**,**/kafka/**,**/pubsub/**"
-tags: [implementation, devops, tier:scaleup-plus]
+tags: [implementation, devops]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

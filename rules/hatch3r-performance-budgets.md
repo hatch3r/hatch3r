@@ -4,7 +4,7 @@ type: rule
 description: Core Web Vitals targets, API response-time tables, database query caps, bundle-size limits, and Lighthouse CI enforcement gates
 scope: conditional
 globs: "**/*perf*,**/*benchmark*,**/*budget*,**/lighthouse*,**/*.perf.*"
-tags: [performance, tier:scaleup-plus]
+tags: [performance]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

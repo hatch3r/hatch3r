@@ -3,7 +3,7 @@ id: hatch3r-scalability-verify
 name: hatch3r-scalability-verify
 type: skill
 description: Scalability verification gate before commit/release — stateless-handler ratio, back-pressure patterns, idempotency-key adoption, queue-based offloading, pool sizing, bulkheads, load-test pass at target scale
-tags: [review, scalability, floor:content-quality, tier:scaleup-plus]
+tags: [review, scalability, floor:content-quality]
 scope: conditional
 globs: "src/handlers/**,src/routes/**,src/services/**,src/workers/**,**/k8s/**,**/manifests/**,**/k6/**,**/locust/**,**/gatling/**"
 precedence: normal

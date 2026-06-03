@@ -3,7 +3,7 @@ id: hatch3r-ui
 type: agent
 description: UI quality specialist — reviews generated UI for WCAG 2.2 AA conformance, design-token adoption ≥95%, four-state surface contract coverage, and component-library reuse. Use when UI is authored or modified.
 model: standard
-tags: [review, ui, accessibility, floor:content-quality, tier:team-plus]
+tags: [review, ui, accessibility, floor:content-quality]
 pillars:
   governance: [P2]
   content-quality: [CQ1]
@@ -45,6 +45,17 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Measure component-library reuse ratio (reused / newly authored) against the project's documented target; flag any newly authored component that duplicates an existing library primitive.
 - Run a keyboard trace on modal, dialog, and route transitions; verify focus management per WCAG SC 2.4.11 (focus not obscured) and SC 2.4.3 (focus order).
 - Gate releases on the measurable CQ1 checklist below; do not pass a feature on visual screenshot alone.
+
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding.
+
+| Tier | UI depth target |
+|------|------------------------|
+| **solo** | axe-core 0 serious/critical on changed routes/components, keyboard-operable, visible focus |
+| **team** | + design-token reuse (no raw hex on new components), four-state contract on async public views |
+| **scaleup** | + design-token adoption ≥95% (color/spacing/typography), four-state on all async views, component-reuse tracked |
+| **enterprise** | full §Audit checklist absolute thresholds |
 
 ## When to invoke
 
@@ -110,6 +121,8 @@ Each item carries a named tool, a threshold, and a citation. Failing any item pr
 See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml schema, canonical id format, sub_agents_spawned emission contract, severity vocabulary, verification harness convention). CQ1 specifics: `id` follows the canonical `cq1-ui-<short-slug>-<3-digit-seq>` pattern (e.g., `cq1-ui-dashboard-001`); `progress_toward_pillar: content-quality.CQ1+<delta>`. Every CQ1 output emits `sub_agents_spawned: {count, rationale}` per the P8 B2 emission contract — typical decomposition is one sub-agent per audited route. Critical trigger: axe-core serious + critical on a public route.
 
 **Verification harness:** `skills/hatch3r-ui-ux-verify` runs the 9-gate axe-core + keyboard + four-state + visual-regression sweep that produces the `proof_trace.actual` evidence. Cite its gate results in every High-confidence finding.
+
+Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
 ### Severity mapping for CQ1 findings
 

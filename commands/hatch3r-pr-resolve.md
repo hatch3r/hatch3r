@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-performance]
 description: "Read open PR comments, evaluate each against current code via the rigor contract, implement accepted findings, reply inline. Multi-platform."
-tags: [implementation, review, ctx:team-only, tier:team-plus]
+tags: [implementation, review, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

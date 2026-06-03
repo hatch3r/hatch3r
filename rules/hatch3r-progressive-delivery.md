@@ -4,7 +4,7 @@ type: rule
 description: Progressive delivery — canary, blue-green, feature-flag rollout with auto-rollback on SLO burn; staged rollout to prevent CrowdStrike-class incidents
 scope: conditional
 globs: "**/.github/workflows/**,**/deploy/**,**/k8s/**,**/manifests/**,**/argo/**,**/flagger/**,**/spinnaker/**,**/rollout*"
-tags: [devops, tier:scaleup-plus]
+tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

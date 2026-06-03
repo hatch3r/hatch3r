@@ -139,7 +139,7 @@ export class CopilotAdapter extends BaseAdapter {
     const maturityTier = readMaturityTier(ctx.manifest);
     const innerContent = [
       "",
-      `> Maturity tier: ${maturityTier}. See governance/CONSTITUTION.md Decision 16 for tier semantics.`,
+      `> hatch3r: right-size to maturity=${maturityTier}. Invest only as deep as this tier needs; never default to enterprise-grade. The universal floor (security, correctness, accessibility basics, baseline tests on changed surfaces) always binds. See \`rules/hatch3r-right-sizing.md\`.`,
       "",
       "# Hatch3r Project Instructions",
       "",

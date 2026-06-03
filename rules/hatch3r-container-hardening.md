@@ -4,7 +4,7 @@ type: rule
 description: Container image hardening — digest pinning, distroless / Wolfi base, non-root user, SBOM-in-image, cosign signing + verification, multi-stage builds, CVE scanning
 scope: conditional
 globs: "**/Dockerfile*,**/docker-compose*,**/*.containerfile,**/charts/**,**/k8s/**,**/kubernetes/**,**/manifests/**"
-tags: [devops, floor:security, tier:scaleup-plus]
+tags: [devops, floor:security]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

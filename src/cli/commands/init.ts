@@ -443,10 +443,12 @@ export interface RunInitOptions {
    */
   yes?: boolean;
   /**
-   * F1.1-H1 / F14.3-H1 (Decision 4 / #16): operational maturity tier of the
-   * project. Persisted in `.hatch3r/hatch.json` so `resolveSelection` (called
-   * by `sync`, `update`, `config`, `add`) honours the same tier without
-   * re-prompting. Default `DEFAULT_MATURITY_TIER` ("solo") when omitted.
+   * F1.1-H1 / F14.3-H1 (Decision 16): operational maturity tier of the
+   * project. Persisted in `.hatch3r/hatch.json` as a runtime
+   * investment-calibration dial (it does NOT gate content selection — that is
+   * tier-invariant per the Decision 16 reframe). Delivered to runtime agents
+   * via the adapter header and consumed by user-content gate strictness.
+   * Default `DEFAULT_MATURITY_TIER` ("solo") when omitted.
    */
   maturity?: MaturityTier;
 }
@@ -1429,11 +1431,13 @@ export async function initCommand(
      */
     resume?: boolean;
     /**
-     * F1.1-H1 / F14.3-H1 (Decision 4 / #16): operational maturity tier.
+     * F1.1-H1 / F14.3-H1 (Decision 16): operational maturity tier.
      * Valid: `solo` | `team` | `scaleup` | `enterprise`. Default `solo`.
-     * Gates content admission in `resolveSelection` so install footprint and
-     * gate strictness scale with the project's posture. Persisted in
-     * `.hatch3r/hatch.json` under `maturity`.
+     * A runtime investment-calibration dial — it does NOT gate content
+     * admission (selection is tier-invariant per the Decision 16 reframe);
+     * it scales user-content gate strictness and is delivered to runtime
+     * agents via the adapter header. Persisted in `.hatch3r/hatch.json`
+     * under `maturity`.
      */
     maturity?: string;
     /**
@@ -1731,7 +1735,7 @@ export async function initCommand(
     const preset = resolvePresetArg(presetArg);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { maturity, role, facets });
+    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { role, facets });
 
     // Warn if orchestration-critical agents are missing from selection
     const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -2053,10 +2057,10 @@ export async function initCommand(
   };
 
   // --- Resolve content selection ---
-  // F1.1-H1 / F14.3-H1: thread maturity into resolveSelection so the tier
-  // gate (Stage 6 in `src/content/index.ts`) drops `floor:enterprise-only`
-  // items for solo projects and admits the full set for enterprise tier.
-  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages, { maturity });
+  // Maturity no longer gates selection (Decision 16 reframe): the resolved
+  // `maturity` tier is persisted to the manifest below (runInit) as a runtime
+  // calibration dial, not a selection filter, so it is not threaded here.
+  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages);
 
   // Warn if orchestration-critical agents are missing from selection
   const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -2217,14 +2221,9 @@ async function runWorkspaceInit(
         })();
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    // F1.1-H1 / F14.3-H1: thread `--maturity` into the no-sub-repo workspace path.
-    const emptyWsMaturity: MaturityTier = validateFlag(
-      opts.maturity,
-      [...MATURITY_TIERS],
-      DEFAULT_MATURITY_TIER,
-      "maturity",
-    );
-    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index, undefined, projectLanguages, { maturity: emptyWsMaturity });
+    // `--maturity` is validated early in runInit (no longer a selection input under Decision 16);
+    // the workspace manifest persists no maturity on this path.
+    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index, undefined, projectLanguages);
     const wsManifest = createWorkspaceManifest(
       basename(rootDir) || "workspace",
       { platform, tools, features, mcp: { servers: mcpServers }, cliTools: cliToolsBase, content: contentSelection },
@@ -2351,7 +2350,7 @@ async function runWorkspaceInit(
     const preset = resolvePresetArg(presetArg);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { maturity: wsMaturity });
+    contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
   } else {
     // Interactive workspace-wide config prompts — driven by the
     // step-machine for back-navigation. The per-repo identity-edit loop
@@ -2555,7 +2554,7 @@ async function runWorkspaceInit(
       selected: wsSelectedCliTools,
     };
 
-    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages, { maturity: wsMaturity });
+    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages);
   }
 
   // Warn if orchestration-critical agents are missing from selection

@@ -4,7 +4,7 @@ type: rule
 description: CQ5 Testability Quality measurement rule — per-feature test-class mandate map, real-deal ratio floor, AI eval coverage, mutation kill rate, specialist routing to hatch3r-testability
 scope: conditional
 globs: "src/**,**/__tests__/**,**/tests/**,**/test/**,**/*.test.*,**/*.spec.*,**/vitest.config.*,**/jest.config.*,**/cypress.config.*"
-tags: [review, testing, floor:content-quality, tier:enterprise-only]
+tags: [review, testing, floor:content-quality]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

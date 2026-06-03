@@ -3,7 +3,7 @@ id: hatch3r-containerize
 name: hatch3r-containerize
 type: skill
 description: Containerize an application through a repeatable workflow — multi-stage Dockerfile, non-root hardening, minimal base image, .dockerignore, healthcheck, local docker-compose, Kubernetes manifest basics, and an image-scan gate. Use when adding or hardening container artifacts.
-tags: [devops, tier:scaleup-plus]
+tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

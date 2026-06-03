@@ -3,7 +3,7 @@ id: hatch3r-ai-feature
 name: hatch3r-ai-feature
 type: skill
 description: Eval-driven development workflow for shipping AI features — write eval before prompt, measure, iterate, ship with caching + cost telemetry + model fallback + hallucination SLI
-tags: [implementation, ai, tier:enterprise-only]
+tags: [implementation, ai]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -11,6 +11,8 @@ cache_friendly: true
 # AI Feature Workflow (Eval-Driven)
 
 ## Quick Start
+
+**Applies when:** the project ships an LLM/AI feature. On a project with no AI feature, skip — do not scaffold AI machinery pre-emptively (per `rules/hatch3r-right-sizing.md`).
 
 Run this skill before shipping any LLM-driven feature. It defines the canonical eval-driven loop (write eval, write prompt, measure, iterate) and the production-readiness gates. Skipping any of the 9 steps = the feature is not done.
 

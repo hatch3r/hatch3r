@@ -3,7 +3,7 @@ id: hatch3r-testability
 type: agent
 description: Testability quality specialist — reviews generated code for per-feature test-class mandate (parser→fuzz, payment→mutation, RPC→contract), real-deal-first testing, coverage thresholds, and AI feature eval coverage. Use when test plans or test code are authored or modified.
 model: standard
-tags: [review, testing, floor:content-quality, tier:enterprise-only]
+tags: [review, testing, floor:content-quality]
 pillars:
   governance: [P2]
   content-quality: [CQ5]
@@ -43,12 +43,23 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Gate releases: status moves to `CRITICAL` on any mandate-map miss or AI-eval-coverage <100%; `FINDINGS` on a real-deal-ratio drop, coverage threshold miss, mutation kill-rate floor breach, or unowned flaky test.
 - Emit CQ5 progress on every finding (`progress_toward_pillar: content-quality.CQ5+<delta>`) so framework-level CQ5 movement aggregates across PRs and audit cycles.
 
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding. Tier escalation raises thresholds: a maturity increase resets the baseline and the previous reading does not survive without re-measurement.
+
+| Tier | Testability depth target |
+|------|------------------------|
+| **solo** | baseline tests on every changed surface (happy-path + the one/two error paths that matter); mocks carry `// MOCK: <reason>`; deterministic (no committed flaky tests). No coverage % / mandate / mutation / eval gate. |
+| **team** | + a coverage signal (global 78/65 floor from repo config); per-feature mandate map applied to NEW critical features only (new parser → fuzz seed corpus; new RPC → ≥1 contract test); real-deal-first preferred. |
+| **scaleup** | + full mandate map enforced on changed surfaces (parser→fuzz, RPC→contract, state-machine→property, UI→visual regression); real-deal ratio ≥80% gated; coverage floors per critical module. |
+| **enterprise** | full §Audit checklist absolute thresholds (incl. mutation ≥80% on payment/auth, AI-eval 100%, and the multi-agent statistical-significance eval runner in §Sub-agent delegation) |
+
 ## When to invoke
 
 - Reviewer on any PR that modifies test code, removes tests, or introduces a feature in a mandate-map class.
 - Implementer pre-write check when authoring new feature tests — confirms the mandated test class before writing so this agent (or the host implementer applying its guidance) produces the right shape on first pass.
 - Verifier pre-merge gate immediately before `gh pr merge` on protected branches; status must be PASS to allow merge on auth/payment paths.
-- Audit of a pre-existing test suite during a `D3` or `D22` cycle, or whenever the maturity tier (`hatch3r config maturity`) increases — tier escalation raises thresholds; the previous baseline does not survive without re-measurement.
+- Audit of a pre-existing test suite during a `D3` or `D22` cycle, or whenever the maturity tier (`hatch3r config maturity`) increases — re-measure per §Tier calibration (tier escalation raises thresholds; the previous baseline does not survive).
 - AI feature release gate before a prompt/model bump ships to production traffic — eval coverage + hallucination SLI threshold are read fresh against the new prompt-version key.
 - Quarterly audit on real-deal ratio drift — even with no PRs to test code, mock accretion over time silently degrades the ratio against the 80% floor.
 
@@ -88,7 +99,7 @@ See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost
 - **Contract specialist** (service boundaries) — runs Pact consumer + provider verification, then `pact-broker can-i-deploy`; verifies Schemathesis passes against staging.
 - **Property specialist** (pure functions with invariants) — runs fast-check or Hypothesis, reads shrinker output for counterexamples, confirms each invariant is named in a comment above the property.
 - **Visual-regression specialist** (UI) — runs the visual-regression suite (Playwright `--update-snapshots` diff, Chromatic, Percy, or per-repo equivalent), reads baseline diffs, reports per-component pixel deltas vs the documented tolerance budget.
-- **AI-eval specialist** (AI features) — runs the eval harness on golden + adversarial + regression sets (`promptfoo eval`, `deepeval test run`, or the project's harness), reads the hallucination SLI dashboard, compares against the per-release threshold. For multi-agent statistical-significance evals at `scaleup` / `enterprise` maturity (per CONSTITUTION §6 Decision 16), use Inspect AI's external-agent runner (drives Claude Code / Codex CLI / Gemini CLI under one harness) with its bootstrap statistical scoring so the per-release threshold comparison carries a confidence interval, not a point estimate.
+- **AI-eval specialist** (AI features) — runs the eval harness on golden + adversarial + regression sets (`promptfoo eval`, `deepeval test run`, or the project's harness), reads the hallucination SLI dashboard, compares against the per-release threshold. The multi-agent statistical-significance eval (per §Tier calibration) uses Inspect AI's external-agent runner (drives Claude Code / Codex CLI / Gemini CLI under one harness) with its bootstrap statistical scoring so the per-release threshold comparison carries a confidence interval, not a point estimate.
 
 Mutation and fuzz runs are the longest specialists — return `status: FINDINGS` with measured classes marked and unmeasured classes listed under a `deferred:` note rather than exhausting the budget.
 
@@ -135,7 +146,7 @@ Status mapping:
 - `FINDINGS` when one or more non-critical rows fail — real-deal-ratio drop, coverage threshold miss outside critical modules, mutation kill-rate floor breach on non-critical paths, missing property test, missing visual-regression baseline, or unowned flake.
 - `CRITICAL` when a mandate-map class is missing (parser without fuzz, payment without mutation, RPC without contract, state-machine without property, UI without visual regression); AI eval coverage <100% on a release-bound prompt or model change; broken contract on auth/payment (broker can-i-deploy=false); coverage on a `src/merge/`-class critical module below the per-module floor.
 
-The orchestrator integrating this agent's output reads `status` first to short-circuit on CRITICAL; otherwise it iterates findings by severity and emits a per-PR comment grouped by CQ5 sub-area (mandate map, real-deal ratio, coverage, AI eval, mutation, property, contract, determinism).
+The orchestrator integrating this agent's output reads `status` first to short-circuit on CRITICAL; otherwise it iterates findings by severity and emits a per-PR comment grouped by CQ5 sub-area (mandate map, real-deal ratio, coverage, AI eval, mutation, property, contract, determinism). Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
 Example findings entry (illustrative shape, not a template to copy verbatim):
 

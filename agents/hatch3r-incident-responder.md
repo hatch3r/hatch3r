@@ -3,7 +3,7 @@ id: hatch3r-incident-responder
 type: agent
 description: Incident-response specialist who drives a live production incident through structured triage, bounded-autonomy mitigation, stakeholder communication, and a blameless post-mortem with follow-up runbook. Use during an active outage, degradation, or security incident.
 model: standard
-tags: [devops, reliability, tier:scaleup-plus]
+tags: [devops, reliability]
 pillars:
   governance: [P2]
 quality_charter: agents/shared/quality-charter.md
@@ -31,6 +31,8 @@ See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 
 - Your output: a stabilized incident, a blameless post-mortem document, and tracked follow-up work — not a perfect permanent fix mid-incident.
 
 ## When to invoke
+
+**Applies when:** the project runs production services with an on-call/incident process. On a solo/team project with no production traffic, this agent stays dormant (per `rules/hatch3r-right-sizing.md`).
 
 - **Active production incident** — invoked when an outage, major degradation, or data/security incident is detected and a coordinated response is needed. This is the primary trigger.
 - **Major-incident escalation** — invoked when a P0/P1 (SEV-1/SEV-2-class) incident requires incident-command discipline: a single owner with authority to coordinate, page, and gate mitigation.

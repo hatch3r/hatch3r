@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-reliability]
 description: "Generate baseline SLI/SLO scaffolding for a user-facing service — availability + latency p95/p99 objectives, 28-day error budget, and Google-SRE multi-window multi-burn-rate alert rules in OpenSLO openslo/v1. Implementer writes the files; hatch3r-reliability gates them against the CQ4 floor."
-tags: [devops, reliability, floor:content-quality, tier:scaleup-plus]
+tags: [devops, reliability, floor:content-quality]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

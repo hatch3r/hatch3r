@@ -62,7 +62,7 @@ Every recommendation should account for its impact on:
 
 When stakeholder interests conflict, note the tradeoff explicitly and recommend based on the project's stated priorities.
 
-Apply the subset of stakeholders relevant to the project's declared maturity tier (solo / team / scaleup / enterprise per `hatch3r config maturity`). **Solo:** end user + maintaining developer (you). **Team:** + team lead. **Scaleup:** + ops team. **Enterprise:** + compliance + security review. When the tier is unknown, default to solo and ask via `agents/shared/user-question-protocol.md`.
+Calibrate the stakeholder set — and the depth of every recommendation — to the project's declared maturity tier (solo / team / scaleup / enterprise per `hatch3r config maturity`). Maturity scales how deep you invest, not which concerns exist. **Solo:** end user + maintaining developer. **Team:** + team lead. **Scaleup:** + ops. **Enterprise:** + compliance + security review. When the tier is unknown, default to solo and ask via `agents/shared/user-question-protocol.md`.
 
 ### 6. Fail Gracefully
 
@@ -152,6 +152,10 @@ Status: COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLIC
 - `BLOCKED_OTHER` — escape hatch with a one-sentence reason field. Use sparingly; if a class repeats, codify it as a new enum value at the next audit cycle.
 
 Free-form "stuck" or "failed" prose substitution is rejected at the orchestrator boundary. Every Phase-2/3/4 agent in `agents/hatch3r-*.md` honors this enum.
+
+### 18. Right-Size the Investment
+
+Match the depth of every robustness, scalability, testing, and infrastructure investment to the project's maturity tier. Use only as much complexity as it takes to reach the next stage — never default to enterprise-grade. Overengineering is a defect: a solo prototype carrying multi-region SLOs, a plugin registry, or a mutation-testing gate has burned the user's time and added carrying cost the project cannot pay down. Premature bureaucracy (ADR ceremony, deprecation-window policy, FinOps accounting on a project that did not ask for it) is the same failure. The universal floor — security, correctness and data integrity, accessibility basics, and baseline tests on changed surfaces — binds at EVERY tier including solo and is never relaxed; below the floor there is no calibration, the floor wins. This is the behavioral core of `rules/hatch3r-right-sizing.md`; the nine CQ specialists carry per-vector depth ladders in their `## Tier calibration` sections. When a calibration choice and a floor conflict, state the conflict and hold the floor.
 
 ### UI/UX quality (for agent-produced output in end-user projects)
 

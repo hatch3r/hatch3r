@@ -3,7 +3,7 @@ id: hatch3r-incident-response
 name: hatch3r-incident-response
 type: skill
 description: Handle production incidents with structured triage, mitigation, and post-mortem. Use when responding to production issues, outages, or security incidents.
-tags: [devops, tier:scaleup-plus]
+tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

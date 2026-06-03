@@ -45,7 +45,7 @@ import {
  */
 function cursorMaturityHeader(ctx: AdapterContext): string {
   const tier = readMaturityTier(ctx.manifest);
-  return `<!-- Maturity tier: ${tier}. See governance/CONSTITUTION.md Decision 16 for tier semantics. -->`;
+  return `<!-- hatch3r: right-size to maturity=${tier}. Invest only as deep as this tier needs; never default to enterprise-grade. Universal floor (security, correctness, a11y basics, baseline tests) always binds. See rules/hatch3r-right-sizing.md. -->`;
 }
 
 /**

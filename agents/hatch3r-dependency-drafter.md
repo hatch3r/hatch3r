@@ -3,7 +3,7 @@ id: hatch3r-dependency-drafter
 type: agent
 description: Dependency-analysis specialist who drafts version-bump and dependency-change proposals — assesses upgrade impact, security advisories, and breaking changes, then hands a reviewable proposal to a separate reviewer/applier. Drafts only; never installs, edits a manifest, or applies an upgrade. Use when planning a dependency upgrade, triaging a CVE advisory, or evaluating a new direct dependency.
 model: standard
-tags: [devops, maintenance, tier:team-plus]
+tags: [devops, maintenance]
 quality_charter: agents/shared/quality-charter.md
 tools:
   allow: [Read, Grep, Glob, WebSearch, "Bash:git status", "Bash:git log", "Bash:git diff", "Bash:npm outdated", "Bash:npm view", "Bash:npm audit", "Bash:npm ls", "Bash:pnpm outdated", "Bash:yarn outdated", "Bash:pip list --outdated"]

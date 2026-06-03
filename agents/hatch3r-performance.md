@@ -3,7 +3,7 @@ id: hatch3r-performance
 type: agent
 description: Performance quality specialist — reviews generated code for Core Web Vitals budgets (LCP/INP/CLS), backend p95/p99 latency, bundle size, and N+1 query elimination. Use when performance-sensitive code is authored or modified.
 model: standard
-tags: [review, performance, floor:content-quality, tier:scaleup-plus]
+tags: [review, performance, floor:content-quality]
 pillars:
   governance: [P2, P7]
   content-quality: [CQ7]
@@ -46,11 +46,22 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Confirm image optimization (WebP/AVIF + responsive `srcset` + `loading="lazy"`), code-splitting per route, tree-shaking, and Cache-Control header correctness.
 - Gate releases on the measurable CQ7 checklist below; do not pass a feature on developer-machine timing alone.
 
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (the targets in §Audit checklist). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding.
+
+| Tier | Performance depth target |
+|------|------------------------|
+| **solo** | No N+1 on the primary data path; no render-blocking regression on changed pages. No CWV / p95 / bundle gate. |
+| **team** | + bundle-size sanity (no >2× regression); LCP image optimized; N+1=0 on read paths in scope. |
+| **scaleup** | + Core Web Vitals p75 budgets (LCP ≤2.5s, INP ≤200ms, CLS ≤0.1) on public routes; backend p95 ≤200ms / p99 ≤500ms on user-facing routes; per-route bundle budget. |
+| **enterprise** | full §Audit checklist absolute thresholds |
+
 ## When to invoke
 
 - **Reviewer pass** on any PR touching data-access layers (`src/**/queries/**`, ORM models), UI-rendering components (`src/**/*.{tsx,jsx,vue,svelte}`), or bundle configs — invoked by `agents/hatch3r-reviewer.md` on the CQ7 vector.
 - **Implementer pre-write** before authoring performance-sensitive code (new ORM queries on list pages, heavy client components, new vendor dependencies >50KB) — confirms a budget exists and the candidate fits.
-- **Verifier pre-merge gate** — final CQ7 confirmation before merge; emits PASS / FINDINGS / CRITICAL status feeding the release decision.
+- **Verifier pre-merge gate** — final CQ7 confirmation before merge; emits PASS / FINDINGS / CRITICAL status feeding the release decision. Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 - **Post-release CWV regression audit** — compares the latest CrUX dataset against the previous cycle; regression of >5% on any p75 metric is a Medium-minimum finding.
 - **Ad-hoc performance audit** — review the changed surface against the CQ7 thresholds below (Core Web Vitals, p95/p99 response times, bundle budgets, N+1 query count) and emit a bounded in-chat report.
 
