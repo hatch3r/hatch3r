@@ -36,11 +36,11 @@ Before any action, scan the request for unresolved questions in scope, acceptanc
 
 # Pack Install — Trust Gate, then Delegated Install
 
-Drives `hatch3r add <pack>` through the trust contract in `governance/pack-trust-model.md` before any pack content lands in the repo. Resolves the pack reference, runs the supply-chain verification gate via `hatch3r-security`, presents the trust posture as one consolidated ASK, then delegates the verified atomic write to `hatch3r-pack-installer`.
+Drives `hatch3r add <pack>` through the trust contract in the hatch3r trust model (https://docs.hatch3r.com/docs/reference/trust-model) before any pack content lands in the repo. Resolves the pack reference, runs the supply-chain verification gate via `hatch3r-security`, presents the trust posture as one consolidated ASK, then delegates the verified atomic write to `hatch3r-pack-installer`.
 
 Use `hatch3r-pack-install` when installing a third-party (marketplace / git-URL / local) pack. Canonical content shipped with the npm package does not flow through this command — it installs via `hatch3r init` / `hatch3r sync`.
 
-> **Status note:** `governance/pack-trust-model.md` §1 marks the trust contract SPEC ONLY — `hatch3r add` is a placeholder today (`src/cli/commands/add.ts`). This command's orchestration contract lands the moment `hatch3r add` is wired up; until then it documents the gate sequence the install path will run.
+> **Status note:** The hatch3r trust model (https://docs.hatch3r.com/docs/reference/trust-model) §1 marks the trust contract SPEC ONLY — `hatch3r add` is a placeholder today (`src/cli/commands/add.ts`). This command's orchestration contract lands the moment `hatch3r add` is wired up; until then it documents the gate sequence the install path will run.
 
 ---
 
@@ -63,7 +63,7 @@ Classify the install before delegating, calibrated to pack-install against the L
 
 - **Tier 1 (Light)** — a single canonical-tier npm pack carrying provenance, a small declared write set (≤5 files), and no capability escalation: one `hatch3r-security` verify pass (Step 2), then the Step 4 install. Step 3 confirms a clean posture in one ASK.
 - **Tier 2 (Standard)** — a marketplace or git-URL pack, a moderate write set, a declared capability set inside the authorized envelope, signature present: the full trust gate plus a capability/tool-footprint cross-check, then install.
-- **Tier 3 (Deep)** — any of: an unsigned source, an `--allow-untrusted` request, a capability set that escalates the declared tool footprint, or a pack writing >20 files or touching multiple adapter surfaces: the full pipeline run under the sandbox-install posture (`governance/pack-trust-model.md` §1.3) with an explicit irreversibility confirmation at the Step 3 gate.
+- **Tier 3 (Deep)** — any of: an unsigned source, an `--allow-untrusted` request, a capability set that escalates the declared tool footprint, or a pack writing >20 files or touching multiple adapter surfaces: the full pipeline run under the sandbox-install posture (trust model §1.3, https://docs.hatch3r.com/docs/reference/trust-model) with an explicit irreversibility confirmation at the Step 3 gate.
 
 **Classify upward on uncertainty:** an unverifiable signature or an undeclared capability classifies at Tier 3, never down — the missing signal is treated as the higher-risk reading.
 
@@ -87,7 +87,7 @@ Post-execution actuals + delta land in the Step 5 Iteration Summary; `--effort=l
 #### 1a. Classify the source
 
 - npm spec (`name@version`) → npm-published tier; verification uses `npm audit signatures`.
-- git URL → non-npm tier; require a 40-char commit SHA pin (`governance/pack-trust-model.md` §2.2); verification uses `cosign verify-blob`.
+- git URL → non-npm tier; require a 40-char commit SHA pin (trust model §2.2, https://docs.hatch3r.com/docs/reference/trust-model); verification uses `cosign verify-blob`.
 - local path → non-npm tier; cosign-signed `pack-manifest.json` + SHA-256 manifest expected.
 
 #### 1b. Read the manifest
@@ -116,7 +116,7 @@ Spawn `hatch3r-security` via the Task tool with `subagent_type: "generalPurpose"
 
 1. The resolved pack reference + source tier from Step 1.
 2. The full `pack-manifest.json` from Step 1b.
-3. The trust-contract checklist to verify (cite `governance/pack-trust-model.md`): signature (§2.1 npm-provenance OR §2.2 cosign-keyless), body scan against DENY_PATTERNS (§3.1), lifecycle-script ban (§4.1), capability + tool-footprint declaration (§5.2–§5.4).
+3. The trust-contract checklist to verify (cite the hatch3r trust model, https://docs.hatch3r.com/docs/reference/trust-model): signature (§2.1 npm-provenance OR §2.2 cosign-keyless), body scan against DENY_PATTERNS (§3.1), lifecycle-script ban (§4.1), capability + tool-footprint declaration (§5.2–§5.4).
 4. All `scope: always` rule directives from `rules/`.
 5. The confidence expression requirement (verbatim): rate every finding high/medium/low per `agents/shared/quality-charter.md` — high = signature + scan verified clean; medium = pattern match without verified exploit; low = heuristic, recommend human review.
 

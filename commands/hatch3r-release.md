@@ -211,7 +211,7 @@ Spawn (or reuse) a `hatch3r-implementer` sub-agent to run `npm run build` and co
 
 #### 4b. SBOM emission (CycloneDX)
 
-A CycloneDX SBOM (`bomFormat: "CycloneDX"`, `specVersion`, `components`, `metadata`) inventories the published dependency tree for supply-chain transparency (`https://cyclonedx.org/docs/1.6/json/`, accessed 2026-06-02). Per `governance/hatch3r-prd.md` §22 Cycle-10 roadmap item 15 (D16-F16.2.2), the release emits a CycloneDX (or SPDX) SBOM and attaches it to the GitHub release assets. Delegate to the same implementer:
+A CycloneDX SBOM (`bomFormat: "CycloneDX"`, `specVersion`, `components`, `metadata`) inventories the published dependency tree for supply-chain transparency (`https://cyclonedx.org/docs/1.6/json/`, accessed 2026-06-02). Per hatch3r's supply-chain release criteria, the release emits a CycloneDX (or SPDX) SBOM and attaches it to the GitHub release assets. Delegate to the same implementer:
 
 - Generate the SBOM via the project's configured tool — npm's `--sbom` flag or `syft` (CycloneDX JSON output). Write it to a release asset path (e.g., `dist/sbom.cdx.json`).
 - Verify the emitted file is valid CycloneDX JSON (`bomFormat` == `CycloneDX`, non-empty `components`).
@@ -319,9 +319,9 @@ Do NOT `git push` to `board.defaultBranch`, do NOT force-push, do NOT create or 
 
 #### 9b. Present the distribution-lane handoff + approval gate
 
-Present the release-readiness summary and the marketplace-lane map, then ASK for explicit human approval. Per `governance/hatch3r-prd.md` §14 + §22 Milestone 2, the 3 supported adapters map to these distribution lanes:
+Present the release-readiness summary and the marketplace-lane map, then ASK for explicit human approval. Per hatch3r's distribution roadmap, the 3 supported adapters map to these distribution lanes:
 
-| Lane | Channel | Status (PRD §22 M2) | Release action (human-owned) |
+| Lane | Channel | Status (roadmap) | Release action (human-owned) |
 |------|---------|---------------------|------------------------------|
 | i | npm / CLI | Shipped | CI `release.yml` publishes with OIDC provenance (Sigstore / SLSA) on the pushed tag — `npm publish --provenance`. |
 | iii | Cursor plugin marketplace | Q3 2026 target | Resubmit `docs/marketplace-submission.md` package only on a public-manifest change. |
@@ -421,4 +421,4 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - Keep a Changelog 1.1.0 — changelog guiding principles, six change-type groupings, ISO-8601 dated headers, Unreleased section. `https://keepachangelog.com/en/1.1.0/` — accessed 2026-06-02. Trust tier: established community standard with named maintainer.
 - CycloneDX JSON spec 1.6 — SBOM `bomFormat`/`specVersion`/`components`/`metadata` and supply-chain transparency use (ECMA-424). `https://cyclonedx.org/docs/1.6/json/` — accessed 2026-06-02. Trust tier: OWASP / ECMA international standard.
 - npm provenance statements — `--provenance`, Sigstore keyless signing, GitHub Actions OIDC, SLSA build-provenance attestation. `https://docs.npmjs.com/generating-provenance-statements` — accessed 2026-06-02. Trust tier: official vendor documentation.
-- `governance/hatch3r-prd.md` §14 + §22 Milestone 2 — 3-lane distribution model (npm shipped; Cursor + Claude Q3 2026; Copilot Q4 2026) and SBOM roadmap item 15 (D16-F16.2.2). Trust tier: internal governance source of truth.
+- hatch3r distribution roadmap — the 3-lane distribution model (npm shipped; Cursor + Claude Q3 2026; Copilot Q4 2026) and the SBOM release criterion the Step 4b/9b lanes implement. Internal product requirements; not a public citation.
