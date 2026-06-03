@@ -136,6 +136,10 @@ agents 19 → 25 (30 transient peak in the CQ-specialist rollout reduced by 5 le
 - `npm run validate` — 45/45 rule pairs OK; 0 errors across efficiency-invariants, bridge-budget, fanout-emission, cli-skills, wiring
 - Anti-slop wordlist scan — 0 hits across all new content
 
+### Fixed
+
+- **PreToolUse allowlist hook resolves regardless of working directory.** The Claude adapter wired the `.claude/hooks/pretooluse-allowlist.mjs` launcher with a cwd-relative path in exec-form `args`; when the hook fired from a non-root working directory (e.g. the Agent tool spawning a sub-agent) Node threw `node:internal/modules/cjs/loader:1386` ("Cannot find module"), surfaced as a non-blocking "PreToolUse:Agent hook error" on every Agent invocation. The launcher is now shell-form anchored to `$CLAUDE_PROJECT_DIR` (`node "$CLAUDE_PROJECT_DIR/.claude/hooks/pretooluse-allowlist.mjs"`), and uses `node` from PATH instead of the generation-time `process.execPath` for portability across Node upgrades and machines.
+
 ## [1.9.0] - 2026-05-26
 
 ### Headline

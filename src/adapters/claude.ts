@@ -552,17 +552,27 @@ export class ClaudeAdapter extends BaseAdapter {
     // script handles category-specific deny decisions internally.
     // Source: https://code.claude.com/docs/en/plugins-reference#hooks
     // (PreToolUse exit 2 denies the call; accessed 2026-04-19) and
-    // https://code.claude.com/docs/en/hooks (exec form via `args`,
-    // accessed 2026-05-26).
+    // https://code.claude.com/docs/en/hooks ($CLAUDE_PROJECT_DIR is set
+    // to the project root for hook commands; accessed 2026-06-03).
     //
-    // D9-H-3 (D9, P7): emit the launcher in exec form. With `args`
-    // present, Claude Code resolves `command` as an executable and
-    // spawns it directly with `args` as the argument vector — no shell
-    // involved. This runs the hook script in a single Node cold-start
-    // per tool call. The previous inline `node -e` guard cold-started
-    // Node twice (the wrapper plus the spawnSync of the real script),
-    // doubling per-call latency on a matcher that fires on every tool
-    // use including read-only Read/Grep/Glob.
+    // cwd-robustness fix (supersedes the prior D9-H-3 exec form): register
+    // the launcher in shell form, anchored to $CLAUDE_PROJECT_DIR. Claude
+    // Code sets CLAUDE_PROJECT_DIR to the absolute project root for every
+    // hook invocation (https://code.claude.com/docs/en/hooks, accessed
+    // 2026-06-03), so the script resolves regardless of the hook's working
+    // directory. The previous exec form passed a *relative* script path
+    // (".claude/hooks/pretooluse-allowlist.mjs") in `args`; when the
+    // PreToolUse hook fired from a context whose cwd was not the project
+    // root — e.g. when the Agent tool spawns a sub-agent — Node could not
+    // resolve the entry point and threw
+    // `node:internal/modules/cjs/loader:1386` (Cannot find module),
+    // surfaced by Claude Code as a non-blocking "PreToolUse:Agent hook
+    // error" on every Agent invocation. `node` is taken from PATH rather
+    // than the generation-time `process.execPath`, so the emitted
+    // settings.json stays portable across Node upgrades and machines. The
+    // shell form costs one `sh -c` fork (~1 ms) but still a single Node
+    // cold-start — it does not reintroduce the double cold-start of the
+    // pre-D9-H-3 inline `node -e` wrapper.
     //
     // Fail-open posture: the hook script is self-fail-safe (malformed
     // stdin -> exit 0; out-of-scope agent -> exit 0). A missing script
@@ -575,8 +585,7 @@ export class ClaudeAdapter extends BaseAdapter {
       matcher: ".*",
       hooks: [{
         type: "command",
-        command: process.execPath,
-        args: [".claude/hooks/pretooluse-allowlist.mjs"],
+        command: 'node "$CLAUDE_PROJECT_DIR/.claude/hooks/pretooluse-allowlist.mjs"',
       }],
     });
 

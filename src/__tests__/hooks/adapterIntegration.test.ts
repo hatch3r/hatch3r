@@ -64,12 +64,15 @@ describe("ClaudeAdapter hooks integration", () => {
     expect(parsed.hooks.TaskCompleted).toBeDefined();
     expect(parsed.hooks.TeammateIdle).toBeDefined();
     expect(parsed.hooks.PreToolUse).toBeDefined();
-    // D9-H-3 (D9, P7): exec form — the launcher script path rides in `args`
-    // (the Node executable is `command`), not the `command` string.
-    expect(parsed.hooks.PreToolUse[0].hooks[0].command).toBe(process.execPath);
-    expect(parsed.hooks.PreToolUse[0].hooks[0].args).toContain(
-      ".claude/hooks/pretooluse-allowlist.mjs",
+    // Shell-form launcher anchored to $CLAUDE_PROJECT_DIR so the script
+    // resolves regardless of the hook's working directory (cwd-relative
+    // paths threw cjs/loader:1386 when the hook fired from an Agent-spawned
+    // sub-agent). `node` comes from PATH, not the generation-time
+    // process.execPath.
+    expect(parsed.hooks.PreToolUse[0].hooks[0].command).toBe(
+      'node "$CLAUDE_PROJECT_DIR/.claude/hooks/pretooluse-allowlist.mjs"',
     );
+    expect(parsed.hooks.PreToolUse[0].hooks[0].args).toBeUndefined();
   });
 });
 

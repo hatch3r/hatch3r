@@ -1307,27 +1307,29 @@ Low priority rule body.
       expect(parsed.hooks.PreToolUse).toBeDefined();
       // The allowlist hook fires on every tool call (matcher ".*"), so it
       // appears as one of the PreToolUse entries.
-      // D9-H-3: the script path now rides in the exec-form `args` vector,
-      // not the `command` string (which is the Node executable).
+      // The script path rides in the `command` string, anchored to
+      // $CLAUDE_PROJECT_DIR so Node resolves the entry point regardless of
+      // the hook's working directory (the cwd-relative path was the source
+      // of the cjs/loader:1386 Cannot-find-module error when the hook fired
+      // from an Agent-spawned sub-agent).
       const allowlistEntry = parsed.hooks.PreToolUse.find(
         (e: { hooks: Array<{ command: string; args?: string[] }> }) =>
-          e.hooks.some((h) =>
-            (h.args ?? []).some((a) => a.includes("pretooluse-allowlist.mjs")),
-          ),
+          e.hooks.some((h) => h.command.includes("pretooluse-allowlist.mjs")),
       );
       expect(allowlistEntry).toBeDefined();
       expect(allowlistEntry.matcher).toBe(".*");
       expect(allowlistEntry.hooks[0].type).toBe("command");
-      // D9-H-3 (D9, P7): exec form. `command` is the Node executable and
-      // `args` is the script path, so Claude Code spawns the hook in a
-      // single cold-start with no shell — no inline `node -e` wrapper that
-      // would cold-start Node twice per tool call.
-      expect(allowlistEntry.hooks[0].command).toBe(process.execPath);
-      expect(allowlistEntry.hooks[0].args).toEqual([
-        ".claude/hooks/pretooluse-allowlist.mjs",
-      ]);
+      // Shell form anchored to the project root. `node` comes from PATH
+      // (portable across Node upgrades / machines — not the generation-time
+      // process.execPath), and $CLAUDE_PROJECT_DIR makes the path absolute
+      // at hook-fire time so cwd-relative resolution can never fail.
+      expect(allowlistEntry.hooks[0].command).toBe(
+        'node "$CLAUDE_PROJECT_DIR/.claude/hooks/pretooluse-allowlist.mjs"',
+      );
+      expect(allowlistEntry.hooks[0].command).toContain("$CLAUDE_PROJECT_DIR");
+      expect(allowlistEntry.hooks[0].args).toBeUndefined();
       // The old inline-guard markers must be gone.
-      expect(allowlistEntry.hooks[0].command).not.toMatch(/^node -e /);
+      expect(allowlistEntry.hooks[0].command).not.toMatch(/node -e /);
       expect(allowlistEntry.hooks[0].command).not.toContain("fs.statSync");
     });
 
