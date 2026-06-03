@@ -69,6 +69,8 @@ Canonical content (agents, skills, rules, commands, hooks) is no longer material
 
 The profile is combined with greenfield/brownfield and solo/team filters, so a `solo + greenfield + standard` install carries materially less content than `team + brownfield + full`.
 
+Maturity is a separate axis. The `--maturity` dial (`solo`/`team`/`scaleup`/`enterprise`) does **not** change *what* installs — every tier installs the full corpus — only *how deeply* agents invest. See [Maturity Tiers](../guides/maturity-tiers).
+
 **Upgrading between profiles is additive.** A Minimal → Standard re-run of `npx hatch3r init` shows the explicit add count in the confirmation prompt (e.g. `Switching Minimal → Standard (+45 added). Continue?`). User overrides under `.hatch3r/overrides/`, learnings under `.hatch3r/learnings/`, and handoffs under `.hatch3r/handoffs/` survive the upgrade — only managed adapter outputs regenerate. Downgrades (e.g. Full → Standard) surface a `−N removed` line so the change is visible before commit.
 
 ### Time to first value

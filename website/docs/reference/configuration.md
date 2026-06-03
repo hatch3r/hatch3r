@@ -59,6 +59,7 @@ To change your configuration after init, run `npx hatch3r config`. This interact
 | `models` | `object` | AI model preferences |
 | `claude` | `object` | Claude Code permissions and teammate mode |
 | `content` | `object` | Content selection from init (preset, project type, team size, selected item IDs) |
+| `maturity` | `string` | Investment-depth dial: `solo`, `team`, `scaleup`, or `enterprise` (default `solo`). Calibrates how deeply agents build — it does not filter content (every tier installs the full corpus). See [Maturity Tiers](../guides/maturity-tiers) |
 | `workspace` | `object` | Workspace settings for workspace-managed repos (optional) |
 | `worktree` | `object` | Git worktree file-isolation settings (see below) |
 | `specs` | `object` | Project spec tracking (`paths`, `lastGenerated`) |

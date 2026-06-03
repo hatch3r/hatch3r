@@ -28,6 +28,7 @@ npx hatch3r init --preset full --project-type brownfield --team-size team --yes
 | `--preset` | `minimal`, `standard`, `full` | `full` | Content profile preset |
 | `--project-type` | `greenfield`, `brownfield` | auto-detected | Project type context |
 | `--team-size` | `solo`, `team` | `solo` | Team size context |
+| `--maturity` | `solo`, `team`, `scaleup`, `enterprise` | `solo` | Investment-depth dial — calibrates how deeply agents build (see [Maturity Tiers](../../guides/maturity-tiers)). Does not filter content; every tier installs the full corpus |
 | `--workspace` | — | off | Force workspace mode for multi-repo directories |
 
 When CWD is a non-git directory containing git subdirectories, init auto-detects a workspace layout and suggests workspace mode. Use `--workspace` to force workspace mode without the prompt.

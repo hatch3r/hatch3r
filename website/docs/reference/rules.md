@@ -34,6 +34,7 @@ Persistent instructions (coding standards, conventions, patterns) that are alway
 | **observability-tracing** | Distributed tracing, OpenTelemetry semantic conventions, AI agent instrumentation, and correlation ID conventions. |
 | **observability-tracing-detail** | Extended tracing reference -- AI agent instrumentation, tool call audit trails, LLM request tracing, and correlation ID patterns. |
 | **performance-budgets** | Core Web Vitals, API latency, database query budgets, bundle size, and enforcement mechanisms. |
+| **right-sizing** | Always-on maturity-calibration rule -- directs agents to invest only as deep as the project's tier (solo/team/scaleup/enterprise) needs, anchored by a universal floor (security, correctness, accessibility basics, baseline tests) that binds at every tier. |
 | **secrets-management** | Secret management, rotation, and secure handling patterns for the project. |
 | **security-patterns** | Input validation, output encoding, auth enforcement, AI/agentic security, and OWASP alignment. |
 | **testing** | Deterministic, isolated, fast tests with clear naming, regression coverage, no network in unit tests, no `any`. |
