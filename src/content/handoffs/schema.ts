@@ -1,7 +1,7 @@
 /**
  * Canonical schema for mid-work handoff artifacts.
  *
- * Handoffs are plain Markdown files at `.agents/handoffs/active/<id>.md`
+ * Handoffs are plain Markdown files at `.hatch3r/handoffs/active/<id>.md`
  * (or `archived/<id>.md`) with YAML frontmatter conforming to
  * {@link HandoffFrontmatter} plus a body of section-headed text.
  *

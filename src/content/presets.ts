@@ -11,7 +11,17 @@ import {
   TAG_AI,
 } from "./tags.js";
 
-export type PresetId = "minimal" | "standard" | "full" | "custom";
+export type PresetId =
+  | "minimal"
+  | "standard"
+  | "full"
+  | "custom"
+  | "web-app"
+  | "api-service"
+  | "cli-tool"
+  | "monorepo"
+  | "legacy"
+  | "security";
 
 /**
  * Capability tags admitted as preset positive-list entries. Floor tags
@@ -147,6 +157,120 @@ export const PRESETS: ContentPreset[] = [
     // admits it without an explicit id override. The cliTools picker still
     // governs installation of the underlying binaries as tier-3 opt-in.
   },
+  // ── Project-archetype presets ────────────────────────────────────
+  // Each archetype is a capability subset of `full` shaped for one project
+  // shape (web app, backend service, CLI, monorepo, brownfield, security).
+  // The security & UI/UX & content-quality floor is admitted unconditionally
+  // by `resolveSelection`, so floor capabilities are not listed here — only
+  // the capability-gate positive list per archetype.
+  {
+    id: "web-app",
+    name: "Web App",
+    description:
+      "Full-stack web archetype — the whole lifecycle including board + " +
+      "performance, plus the floor. Drops AI feature engineering vs Full.",
+    capabilities: [
+      TAG_ORCHESTRATION,
+      TAG_PLANNING,
+      TAG_IMPLEMENTATION,
+      TAG_REVIEW,
+      TAG_DEVOPS,
+      TAG_MAINTENANCE,
+      TAG_BOARD,
+      TAG_PERFORMANCE,
+    ],
+    includeCustomize: true,
+    omits: ["AI feature engineering"],
+  },
+  {
+    id: "api-service",
+    name: "API Service",
+    description:
+      "Backend-service archetype — lifecycle with performance, plus the " +
+      "floor. Drops board + AI feature engineering vs Full.",
+    capabilities: [
+      TAG_ORCHESTRATION,
+      TAG_PLANNING,
+      TAG_IMPLEMENTATION,
+      TAG_REVIEW,
+      TAG_DEVOPS,
+      TAG_MAINTENANCE,
+      TAG_PERFORMANCE,
+    ],
+    includeCustomize: true,
+    omits: ["board", "AI feature engineering"],
+  },
+  {
+    id: "cli-tool",
+    name: "CLI Tool",
+    description:
+      "Command-line-tool archetype — planning through devops + maintenance, " +
+      "plus the floor. Drops board + performance + AI feature engineering vs Full.",
+    capabilities: [
+      TAG_ORCHESTRATION,
+      TAG_PLANNING,
+      TAG_IMPLEMENTATION,
+      TAG_REVIEW,
+      TAG_DEVOPS,
+      TAG_MAINTENANCE,
+    ],
+    includeCustomize: true,
+    omits: ["board", "performance", "AI feature engineering"],
+  },
+  {
+    id: "monorepo",
+    name: "Monorepo",
+    description:
+      "Multi-package-workspace archetype — every capability (the Full " +
+      "superset) plus the floor. Drops nothing vs Full.",
+    capabilities: [
+      TAG_ORCHESTRATION,
+      TAG_PLANNING,
+      TAG_IMPLEMENTATION,
+      TAG_REVIEW,
+      TAG_DEVOPS,
+      TAG_MAINTENANCE,
+      TAG_BOARD,
+      TAG_PERFORMANCE,
+      TAG_AI,
+    ],
+    includeCustomize: true,
+    // Monorepo carries the full capability superset, so it omits nothing.
+    omits: [],
+  },
+  {
+    id: "legacy",
+    name: "Legacy / Brownfield",
+    description:
+      "Brownfield-maintenance archetype — implementation through devops + " +
+      "maintenance, plus the floor. Drops planning + board + performance + " +
+      "AI feature engineering vs Full.",
+    capabilities: [
+      TAG_ORCHESTRATION,
+      TAG_IMPLEMENTATION,
+      TAG_REVIEW,
+      TAG_DEVOPS,
+      TAG_MAINTENANCE,
+    ],
+    includeCustomize: true,
+    omits: ["planning", "board", "performance", "AI feature engineering"],
+  },
+  {
+    id: "security",
+    name: "Security-Focused",
+    description:
+      "Security review + hardening archetype — implementation, review, " +
+      "maintenance, plus the floor:security + content-quality specialists. " +
+      "Drops planning + devops + board + performance + AI feature engineering vs Full.",
+    capabilities: [
+      TAG_ORCHESTRATION,
+      TAG_IMPLEMENTATION,
+      TAG_REVIEW,
+      TAG_MAINTENANCE,
+    ],
+    includeCustomize: false,
+    omits: ["planning", "devops", "board", "performance", "AI feature engineering"],
+  },
   {
     id: "custom",
     name: "Custom",
@@ -163,6 +287,41 @@ export function getPreset(id: PresetId): ContentPreset {
   const preset = PRESETS.find((p) => p.id === id);
   if (!preset) throw new HatchError(`Unknown preset: ${id}`, 1, "VALIDATION_ERROR");
   return preset;
+}
+
+/**
+ * Every registry preset id, derived from {@link PRESETS} so the CLI
+ * `--preset` validation lists cannot drift from the array. Includes `custom`.
+ */
+export const KNOWN_PRESET_IDS: readonly PresetId[] = PRESETS.map((p) => p.id);
+
+/**
+ * Resolve a `--preset` CLI arg to a {@link ContentPreset}. A single id →
+ * {@link getPreset}. A comma-list `"a,b"` → {@link composePresets} of each
+ * part (each part must be a known non-custom preset id; composing with
+ * `custom` throws, per `composePresets`). Trims parts, ignores empty segments.
+ *
+ * @throws {HatchError} VALIDATION_ERROR — via `getPreset`/`composePresets` —
+ *   on an unknown id, on an empty/all-empty arg, or when a multi-part arg
+ *   contains `custom`.
+ */
+export function resolvePresetArg(arg: string): ContentPreset {
+  const ids = arg
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+  if (ids.length === 0) {
+    throw new HatchError(
+      `Empty --preset: "${arg}". Pass one of ${KNOWN_PRESET_IDS.join(", ")} or a comma-list to compose.`,
+      1,
+      "VALIDATION_ERROR",
+    );
+  }
+  if (ids.length === 1) {
+    return getPreset(ids[0] as PresetId);
+  }
+  // getPreset throws on an unknown part; composePresets throws on `custom`.
+  return composePresets(ids.map((id) => getPreset(id as PresetId)));
 }
 
 /**
@@ -187,4 +346,113 @@ export function omittedCapabilityClusters(
   if (preset.id === "custom") return [];
   const present = new Set<string>(preset.capabilities);
   return FULL_CAPABILITY_SUPERSET.filter((cap) => !present.has(cap));
+}
+
+/**
+ * Human-readable label for a capability tag, as it appears in the `omits`
+ * arrays and prompt-renderer exclusion text. Every capability is its own
+ * label except `TAG_AI`, which expands to "AI feature engineering" (the bare
+ * tag value "ai" reads as an acronym in the picker). Single source of truth so
+ * the hand-written `omits` labels and `composePresets`-derived labels stay in
+ * lockstep with `omittedCapabilityClusters`.
+ */
+function capabilityLabel(cap: CapabilityTag): string {
+  return cap === TAG_AI ? "AI feature engineering" : cap;
+}
+
+/**
+ * Derive the `omits` label list for a capability set, in `full`-superset order,
+ * using {@link capabilityLabel}. A capability is omitted when it is absent from
+ * `capabilities`. Backs both the per-preset `omits` invariant (via
+ * `omittedCapabilityClusters`) and the `composePresets` recomputation so the
+ * two derivations cannot diverge.
+ */
+function deriveOmitLabels(
+  capabilities: ReadonlyArray<CapabilityTag>,
+): string[] {
+  const present = new Set<string>(capabilities);
+  return FULL_CAPABILITY_SUPERSET.filter((cap) => !present.has(cap)).map(
+    capabilityLabel,
+  );
+}
+
+/**
+ * Compose 2+ (or a single) presets into one synthetic preset for the
+ * `--preset a,b` CLI flow. Pure and total over valid input:
+ *
+ * - `capabilities` — de-duplicated union of all inputs' capabilities, in
+ *   `full`-superset order so the result is deterministic regardless of input
+ *   order.
+ * - `includeCustomize` — true when ANY input opts in (OR).
+ * - `includeIds` / `excludeIds` — de-duplicated union of each, omitted when
+ *   the union is empty.
+ * - `omits` — recomputed from the union via {@link deriveOmitLabels}: a
+ *   capability is omitted only when NONE of the composed presets carry it.
+ * - `id` — always "custom" (the composite is synthetic, not a registry id);
+ *   the inputs' names are joined with " + " into `name` (e.g. "Web App +
+ *   Security-Focused") so the picker can label the composite.
+ *
+ * A single-preset input returns an equivalent preset (same capability set,
+ * customize flag, and omits).
+ *
+ * @throws {HatchError} VALIDATION_ERROR when fewer than 1 preset is supplied,
+ *   or when any input is the `custom` preset (custom is user-driven per-item
+ *   selection, not a composable capability subset).
+ */
+export function composePresets(presets: ContentPreset[]): ContentPreset {
+  if (presets.length < 1) {
+    throw new HatchError(
+      "composePresets requires at least 1 preset",
+      1,
+      "VALIDATION_ERROR",
+    );
+  }
+  const customInput = presets.find((p) => p.id === "custom");
+  if (customInput) {
+    throw new HatchError(
+      "composePresets cannot compose the `custom` preset (custom is user-driven, not composable)",
+      1,
+      "VALIDATION_ERROR",
+    );
+  }
+
+  const capabilitySet = new Set<string>();
+  for (const preset of presets) {
+    for (const cap of preset.capabilities) capabilitySet.add(cap);
+  }
+  // Emit in full-superset order so the union is order-independent.
+  const capabilities = FULL_CAPABILITY_SUPERSET.filter((cap) =>
+    capabilitySet.has(cap),
+  );
+
+  const includeIds = unionIds(presets.map((p) => p.includeIds));
+  const excludeIds = unionIds(presets.map((p) => p.excludeIds));
+
+  return {
+    id: "custom",
+    name: presets.map((p) => p.name).join(" + "),
+    description: `Composed preset: ${presets.map((p) => p.name).join(" + ")}.`,
+    capabilities,
+    includeCustomize: presets.some((p) => p.includeCustomize),
+    ...(includeIds.length > 0 ? { includeIds } : {}),
+    ...(excludeIds.length > 0 ? { excludeIds } : {}),
+    omits: deriveOmitLabels(capabilities),
+  };
+}
+
+/** De-duplicated union of zero-or-more optional id lists, preserving first-seen order. */
+function unionIds(
+  lists: ReadonlyArray<ReadonlyArray<string> | undefined>,
+): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const list of lists) {
+    for (const id of list ?? []) {
+      if (!seen.has(id)) {
+        seen.add(id);
+        out.push(id);
+      }
+    }
+  }
+  return out;
 }

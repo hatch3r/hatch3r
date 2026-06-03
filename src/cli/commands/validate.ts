@@ -1,5 +1,5 @@
 import { readdir, readFile, access, stat } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, type Dirent } from "node:fs";
 import { spawnSync } from "node:child_process";
 import { dirname, join, posix } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -7,7 +7,7 @@ import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { isValidHookEvent, VALID_HOOK_EVENTS } from "../../hooks/types.js";
-import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError, exitCodeForErrorCode } from "../../types.js";
+import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError, exitCodeForErrorCode, getMarkersForPath, MANAGED_BLOCK_VARIANTS } from "../../types.js";
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
@@ -1870,6 +1870,146 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
 }
 
 /**
+ * D11-SA11.2-F13 (Wave 7+8, D11, P5+P6): structural-integrity scan over the
+ * managed blocks in on-disk adapter outputs under `.claude/`, `.cursor/`, and
+ * `.github/`. This is the complement to `hatch3r status` / `hatch3r verify`,
+ * which already do full regenerate-and-diff content drift. This scan does NOT
+ * re-derive canonical content; it only checks that the HATCH3R:BEGIN/END
+ * marker structure on disk is well-formed, so a hand-broken block surfaces as
+ * an actionable warning instead of failing silently the next time an adapter
+ * tries to merge into it.
+ *
+ * Detected anomalies (one warning string each):
+ *   1. Orphan marker — a BEGIN with no matching END (or an END with no
+ *      preceding BEGIN).
+ *   2. Duplicate / nested marker — a second BEGIN before the open block's END,
+ *      or a duplicate END.
+ *   3. Wrong host-comment syntax — HTML `<!-- -->` markers inside a `.yml` /
+ *      `.yaml` file, or YAML `#` markers inside a `.md` / `.mdc` file. The
+ *      expected syntax per extension is read from {@link getMarkersForPath}
+ *      (the same selector adapters write through), so this stays in lockstep
+ *      with marker emission. Issue #76: HTML markers inside a YAML workflow
+ *      break the GitHub Actions parse on line 2.
+ *
+ * Every anomaly names the file, the anomaly, and the remedy (`hatch3r sync`).
+ * All findings are warnings — a tampered block is advisory and fixable via a
+ * resync, never a hard error. ENOENT and unreadable files are skipped, not
+ * thrown; a missing adapter directory yields an empty array.
+ */
+export async function scanManagedBlockTampering(rootDir: string): Promise<string[]> {
+  const warnings: string[] = [];
+
+  // Adapter-output roots and the leaf-file filter each one contributes. Globbed
+  // by walking each directory; missing dirs are skipped (catch below).
+  const adapterDirs = [".claude", ".cursor", ".github"];
+
+  // Recursively collect managed-block-candidate files (text extensions only;
+  // JSON is never wrapped in a managed block per getMarkersForPath).
+  const candidateExt = [".md", ".mdc", ".yml", ".yaml"];
+  const files: string[] = [];
+  async function collect(dir: string): Promise<void> {
+    let entries: Dirent[];
+    try {
+      entries = await readdir(dir, { withFileTypes: true });
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: tamper-scan readdir(${dir}) skipped — ${message}`);
+      return;
+    }
+    for (const entry of entries) {
+      const full = join(dir, entry.name);
+      if (entry.isDirectory()) {
+        await collect(full);
+      } else if (entry.isFile() && candidateExt.some((e) => entry.name.toLowerCase().endsWith(e))) {
+        files.push(full);
+      }
+    }
+  }
+  for (const d of adapterDirs) {
+    await collect(join(rootDir, d));
+  }
+
+  for (const file of files) {
+    let content: string;
+    try {
+      content = await readFile(file, "utf-8");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      verbose(`validate: tamper-scan readFile(${file}) skipped — ${message}`);
+      continue;
+    }
+
+    const rel = file.startsWith(rootDir) ? file.slice(rootDir.length).replace(/^[/\\]/, "") : file;
+    const remedy = "run `hatch3r sync` to regenerate the managed block";
+
+    // Expected marker syntax for this path (the same selector adapters emit
+    // through). The OTHER variant is the wrong-syntax signal for this file.
+    const expected = getMarkersForPath(file);
+    const wrongVariants = MANAGED_BLOCK_VARIANTS.filter(
+      (v) => v.start !== expected.start || v.end !== expected.end,
+    );
+
+    // Wrong host-comment syntax: a marker from a non-expected variant is
+    // present. Detect before the structural walk so the operator gets the
+    // root-cause syntax message rather than a downstream orphan report.
+    let wrongSyntax = false;
+    for (const v of wrongVariants) {
+      if (content.includes(v.start) || content.includes(v.end)) {
+        wrongSyntax = true;
+        const ext = file.toLowerCase().endsWith(".yml") || file.toLowerCase().endsWith(".yaml")
+          ? "YAML"
+          : "Markdown";
+        warnings.push(
+          `${rel}: managed block uses the wrong host-comment syntax — found ${v.start.includes("<!--") ? "HTML <!-- -->" : "YAML #"} markers in a ${ext} file (expected ${expected.start.includes("<!--") ? "HTML <!-- -->" : "YAML #"}); ${remedy}`,
+        );
+        break;
+      }
+    }
+    if (wrongSyntax) continue;
+
+    // Structural walk over the EXPECTED variant only. Count opens/closes in
+    // document order to surface orphan and duplicate/nested markers. Using the
+    // expected variant keeps this scan from double-reporting a wrong-syntax
+    // file (already handled above).
+    const lines = content.split("\n");
+    let open = false;
+    let sawAny = false;
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const hasStart = line.includes(expected.start);
+      const hasEnd = line.includes(expected.end);
+      if (hasStart) {
+        sawAny = true;
+        if (open) {
+          warnings.push(
+            `${rel}: duplicate/nested managed-block start marker at line ${i + 1} (a second HATCH3R:BEGIN before the open block's HATCH3R:END); ${remedy}`,
+          );
+        }
+        open = true;
+      }
+      if (hasEnd) {
+        sawAny = true;
+        if (!open) {
+          warnings.push(
+            `${rel}: orphan managed-block end marker at line ${i + 1} (HATCH3R:END with no preceding HATCH3R:BEGIN); ${remedy}`,
+          );
+        }
+        open = false;
+      }
+    }
+    // Unterminated open block: a BEGIN with no matching END.
+    if (open) {
+      warnings.push(
+        `${rel}: orphan managed-block start marker (HATCH3R:BEGIN with no matching HATCH3R:END); ${remedy}`,
+      );
+    }
+    void sawAny; // files with zero markers are unmanaged and correctly ignored.
+  }
+
+  return warnings;
+}
+
+/**
  * Output format for the validate command.
  * - "human" (default): banner, spinner, boxed summary, coloured error/warning list.
  * - "json": single JSON object `{errors, warnings, summary}` to stdout, no banner.
@@ -2306,9 +2446,16 @@ export async function validateCommand(opts?: {
     await validateCanonicalDescriptionQuality(rootDir, result);
   }
 
-  // Wave 7+8 TODO: layer a tamper-detection scan over adapter-output managed
-  // blocks (`.claude/`, `.cursor/`, `.github/`) here so unmanaged edits inside
-  // HATCH3R:BEGIN/END markers surface as warnings.
+  // D11-SA11.2-F13 (Wave 7+8, D11, P5+P6): structural-integrity scan over the
+  // managed blocks in on-disk adapter outputs (`.claude/`, `.cursor/`,
+  // `.github/`). Complements `hatch3r status` / `hatch3r verify` (full content
+  // drift) by surfacing hand-broken marker structure as advisory warnings.
+  // Cheap and read-only, so it always runs.
+  verbose("Scanning adapter-output managed blocks for structural tampering...");
+  const tamperWarnings = await scanManagedBlockTampering(rootDir);
+  for (const w of tamperWarnings) {
+    result.warnings.push(w);
+  }
 
   spinner?.stop();
 

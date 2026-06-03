@@ -4,7 +4,7 @@ type: rule
 description: Structured logging and error reporting conventions for the project
 scope: conditional
 globs: "**/*log*,**/*logger*,**/*logging*,**/*error*,**/observability/**,**/routes/**,**/handlers/**,**/services/**,**/api/**,**/middleware/**,**/controllers/**,**/lib/**"
-tags: [devops]
+tags: [devops, tier:team-plus]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

@@ -82,14 +82,21 @@ import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/triggers.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, estimatePresetItemCount } from "../../content/index.js";
-import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
+import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, estimatePresetItemCount, resolveUserContentRoot } from "../../content/index.js";
+import {
+  PRESETS,
+  getPreset,
+  resolvePresetArg,
+  KNOWN_PRESET_IDS,
+  type PresetId,
+} from "../../content/presets.js";
 import { KNOWN_ROLES, KNOWN_FACETS, type RoleId, type FacetId } from "../../content/tags.js";
 import { detectSubRepos, shouldSuggestWorkspace } from "../../workspace/detect.js";
 import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import type { WorkspaceRepoEntry } from "../../workspace/types.js";
 import { parseGitRemote, parseGitDefaultBranch, getGitRemoteUrl, detectPlatformFromRemote, detectRepoGitIdentity } from "../../workspace/git.js";
+import { importCursorRules, type CursorImportSummary } from "../../importers/cursor.js";
 import { createSnapshot } from "../../pipeline/snapshot.js";
 import { estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
 import { readCheckpoint, writeCheckpoint, checkpointPath, type CheckpointMeta } from "../../pipeline/checkpoint.js";
@@ -1200,6 +1207,52 @@ function validateFlag<T extends string>(value: string | undefined, valid: T[], f
 }
 
 /**
+ * Validate a `--preset` arg (a single id OR a comma-list to compose) against
+ * {@link KNOWN_PRESET_IDS}, returning the raw arg verbatim for downstream
+ * {@link resolvePresetArg} resolution. `undefined` collapses to "standard".
+ *
+ * Membership reads from {@link KNOWN_PRESET_IDS} (derived from `PRESETS`) so
+ * the allow-list cannot drift from the registry as new archetypes land. A
+ * comma-list validates EACH part; `custom` is rejected in a multi-part arg
+ * (custom is user-driven per-item selection, not a composable subset — it
+ * survives only as a lone `--preset=custom`). Unknown parts abort with exit 1
+ * before any side effect, per CLI Guidelines fail-fast validation.
+ */
+function validatePresetArg(value: string | undefined): string {
+  if (!value) return "standard";
+  const known = KNOWN_PRESET_IDS as readonly string[];
+  const parts = value.split(",").map((s) => s.trim()).filter((s) => s.length > 0);
+  if (parts.length === 0) {
+    logError(`Empty --preset: "${value}".`);
+    throw new HatchError(
+      `Empty --preset: "${value}"`,
+      undefined,
+      "VALIDATION_ERROR",
+      `Re-run with one of: ${known.join(", ")} — or a comma-list to compose (e.g. 'api-service,security').`,
+    );
+  }
+  const multi = parts.length > 1;
+  for (const part of parts) {
+    const unknown = !known.includes(part);
+    // `custom` is a valid lone preset but never composable.
+    const customInList = multi && part === "custom";
+    if (unknown || customInList) {
+      const composable = known.filter((id) => id !== "custom");
+      logError(`Invalid --preset part: "${part}". Valid: ${known.join(", ")}`);
+      throw new HatchError(
+        `Invalid --preset: "${value}"`,
+        undefined,
+        "VALIDATION_ERROR",
+        customInList
+          ? `\`custom\` cannot be composed — use it alone (\`--preset=custom\`) for interactive per-item selection. Composable ids: ${composable.join(", ")}.`
+          : `Re-run with one of: ${known.join(", ")} — or a comma-list of those (excluding \`custom\`) to compose, e.g. 'api-service,security'.`,
+      );
+    }
+  }
+  return value;
+}
+
+/**
  * F1.1-H2 (B1 ambiguity-detection gate per CONSTITUTION §2 P8 B1).
  *
  * Resolves three flag-combination ambiguities at the entry point of
@@ -1233,7 +1286,7 @@ async function detectAmbiguity(opts: {
       "Ambiguous flags: --yes is incompatible with --preset=custom (custom requires interactive per-item selection).",
       undefined,
       "VALIDATION_ERROR",
-      "Re-run with one of: (a) drop `--yes` to pick items interactively; (b) replace `--preset=custom` with `--preset=minimal|standard|full`.",
+      "Re-run with one of: (a) drop `--yes` to pick items interactively; (b) replace `--preset=custom` with a headless preset — `minimal|standard|full|web-app|api-service|cli-tool|monorepo|legacy|security`, or a comma-list to compose (e.g. `--preset=api-service,security`).",
     );
   }
 
@@ -1399,6 +1452,16 @@ export async function initCommand(
      * flag).
      */
     facets?: string;
+    /**
+     * Import an existing tool's config into hatch3r at the tail of init.
+     * Only `cursor` is supported today: reads `.cursor/rules/*.mdc` and writes
+     * canonical `.md` + `.mdc` companions under `.hatch3r/overrides/rules/`
+     * with conflict detection against existing rule ids. Interactive runs
+     * preview (dry-run) then confirm before writing; `--yes`/`--json`/`--quiet`
+     * write directly. An unset value is a no-op — init behaves exactly as
+     * before. See `src/importers/cursor.ts::importCursorRules`.
+     */
+    import?: string;
   } = {},
 ): Promise<void> {
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
@@ -1468,7 +1531,9 @@ export async function initCommand(
   // runs. Per CLI Guidelines fail-fast validation, invalid values abort
   // with exit 1 before any side-effect.
   if (opts.preset !== undefined) {
-    validateFlag(opts.preset, ["minimal", "standard", "full", "custom"], "standard", "preset");
+    // Accepts the registry ids (incl. `custom`) AND a comma-list to compose;
+    // membership reads from KNOWN_PRESET_IDS so this can't drift from PRESETS.
+    validatePresetArg(opts.preset);
   }
   if (opts.projectType !== undefined) {
     validateFlag(opts.projectType, ["greenfield", "brownfield"], "brownfield", "project-type");
@@ -1638,7 +1703,12 @@ export async function initCommand(
 
     // Use CLI flags with validation, falling back to auto-detect / defaults
     const detection = await detectProjectType(repoInfo, rootDir);
-    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
+    // Accepts a single registry id OR a comma-list to compose (validated by
+    // validatePresetArg above). A composition resolves to a synthetic preset
+    // whose `.id` is "custom"; resolveSelection persists `content.items` (the
+    // resolved selection), so the composition round-trips via the stored items
+    // regardless of the persisted "custom" label.
+    const presetArg = validatePresetArg(opts.preset);
     const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], detection.type, "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     // F1.1-H1 / F14.3-H1: read `--maturity` (already validated above) with
@@ -1658,7 +1728,7 @@ export async function initCommand(
           .map((s) => s.trim())
           .filter((s): s is FacetId => (KNOWN_FACETS as readonly string[]).includes(s))
       : [];
-    const preset = getPreset(presetId);
+    const preset = resolvePresetArg(presetArg);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
     const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { maturity, role, facets });
@@ -1671,6 +1741,7 @@ export async function initCommand(
 
     await checkExisting(rootDir, true, contentSelection);
     await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity });
+    await runCursorImport(rootDir, opts.import, true);
     return;
   }
 
@@ -1995,6 +2066,116 @@ export async function initCommand(
 
   await checkExisting(rootDir, false, contentSelection);
   await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity });
+  await runCursorImport(rootDir, opts.import, false);
+}
+
+// ── Tool import (--import) ─────────────────────────────────────────
+
+const SUPPORTED_IMPORTERS = ["cursor"] as const;
+
+/**
+ * Render a one-line headline + per-path breakdown for a cursor-import run.
+ * Used for both the interactive dry-run preview and the final post-write
+ * summary. Quiet/JSON callers route the counts through their own envelope, so
+ * this only emits when `info`/`warn` are live (no-op under `setQuiet(true)`).
+ */
+function renderCursorImportSummary(summary: CursorImportSummary, headlinePrefix: string): void {
+  info(
+    `${headlinePrefix}: ${summary.sourceFiles} source file(s) → ` +
+      `${summary.converted.length} converted, ${summary.conflicts.length} conflicts, ` +
+      `${summary.manualReview.length} manual-review`,
+  );
+  for (const c of summary.conflicts) {
+    warn(`  conflict: ${c.sourcePath} — ${c.reason}`);
+  }
+  for (const m of summary.manualReview) {
+    warn(`  manual-review: ${m.sourcePath} — ${m.reason}`);
+  }
+}
+
+/**
+ * Run the `--import <tool>` step at the tail of init (after content selection +
+ * manifest are established). A no-op when `tool` is unset, so a plain init is
+ * unchanged.
+ *
+ * - Validates `tool` against {@link SUPPORTED_IMPORTERS} (throws VALIDATION_ERROR
+ *   otherwise).
+ * - Gathers existing rule ids (canonical + user) from a fresh content index so
+ *   conflict detection sees both shipped rules and prior imports.
+ * - Interactive (`headless === false`): dry-run first, render the preview, then
+ *   `inquirer` confirm before the real write. A declined confirm leaves disk
+ *   untouched.
+ * - Headless (`--yes`/`--json`/`--quiet`, `headless === true`): writes directly
+ *   and surfaces the counts (JSON line under `--json`, summary otherwise).
+ */
+async function runCursorImport(
+  rootDir: string,
+  tool: string | undefined,
+  headless: boolean,
+): Promise<void> {
+  if (tool === undefined) return;
+
+  if (!(SUPPORTED_IMPORTERS as readonly string[]).includes(tool)) {
+    throw new HatchError(
+      `Unsupported importer: ${tool}`,
+      undefined,
+      "VALIDATION_ERROR",
+      "Supported importers: cursor. Re-run with --import cursor.",
+    );
+  }
+
+  // Existing rule ids (canonical + user) for conflict detection. Build a fresh
+  // index that includes the project's `.hatch3r/overrides/` so a re-run detects
+  // already-imported rules as conflicts rather than silently re-writing them.
+  const importIndex = await buildContentIndex(CONTENT_ROOT, {
+    userRoot: resolveUserContentRoot(rootDir),
+  });
+  const existingRuleIds = new Set<string>(
+    importIndex.items.filter((i) => i.type === "rule").map((i) => i.id),
+  );
+
+  // Interactive: dry-run preview → confirm → real write. Headless: write now.
+  if (!headless && !isQuiet()) {
+    const preview = await importCursorRules({ rootDir, dryRun: true, existingRuleIds });
+    renderCursorImportSummary(preview, "Cursor import (preview)");
+    if (preview.converted.length === 0) {
+      info("Cursor import: nothing to write (no convertible rules).");
+      return;
+    }
+    const { confirmImport } = await inquirer.prompt<{ confirmImport: boolean }>([
+      {
+        type: "confirm",
+        name: "confirmImport",
+        message: `Write ${preview.converted.length} imported rule(s) (.md + .mdc) to .hatch3r/overrides/rules/?`,
+        default: true,
+      },
+    ]);
+    if (!confirmImport) {
+      info("Cursor import: skipped (no files written).");
+      return;
+    }
+  }
+
+  const result = await importCursorRules({ rootDir, dryRun: false, existingRuleIds });
+
+  if (isJson()) {
+    console.log(
+      JSON.stringify({
+        import: "cursor",
+        sourceFiles: result.sourceFiles,
+        converted: result.converted.length,
+        conflicts: result.conflicts.length,
+        manualReview: result.manualReview.length,
+        written: result.written,
+      }),
+    );
+    return;
+  }
+
+  renderCursorImportSummary(result, "Cursor import");
+  if (result.written.length > 0) {
+    info(chalk.dim(`  wrote ${result.written.length} file(s) under .hatch3r/overrides/rules/`));
+  }
 }
 
 // ── Workspace initialization ──────────────────────────────────────
@@ -2159,13 +2340,15 @@ async function runWorkspaceInit(
       wsCliTools = { enabled: selected.length > 0, selected };
     }
     const wsDetection = await detectProjectType(repoInfo, rootDir);
-    const presetId = validateFlag(opts.preset, ["minimal", "standard", "full"], "standard", "preset");
+    // Single registry id OR a comma-list to compose; a composition resolves to
+    // a synthetic "custom"-id preset that round-trips via persisted content.items.
+    const presetArg = validatePresetArg(opts.preset);
     const projectType = validateFlag(opts.projectType, ["greenfield", "brownfield"], wsDetection.type, "project-type");
     const teamSize = validateFlag(opts.teamSize, ["solo", "team"], "solo", "team-size");
     // F1.1-H1 / F14.3-H1: read `--maturity` (validated earlier) on the
     // headless workspace branch with canonical "solo" default.
     wsMaturity = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
-    const preset = getPreset(presetId);
+    const preset = resolvePresetArg(presetArg);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
     contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { maturity: wsMaturity });

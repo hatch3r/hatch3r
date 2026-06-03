@@ -4,7 +4,7 @@ type: rule
 description: Consumer-driven and spec-driven contract testing between services — Pact, Schemathesis, Dredd, pact-broker can-i-deploy gate
 scope: conditional
 globs: "**/contracts/**,**/pacts/**,**/api/**,**/openapi*,**/asyncapi*,**/*.proto,**/__tests__/contract/**"
-tags: [review, implementation]
+tags: [review, implementation, tier:team-plus]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

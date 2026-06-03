@@ -19,8 +19,17 @@
  * behavior, not a defect: archival assumes the v2 envelope so live/archive
  * splits are deterministic against `schema_version`.
  */
-import { createHash } from "node:crypto";
-import { mkdir, readFile, readdir, open } from "node:fs/promises";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  mkdir,
+  readFile,
+  readdir,
+  open,
+  unlink,
+  writeFile,
+  rename,
+} from "node:fs/promises";
+import { gzipSync, gunzipSync } from "node:zlib";
 import { dirname, join, basename } from "node:path";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { promoteToHistory } from "./insights.js";
@@ -227,6 +236,48 @@ async function verifyWrittenSize(
 }
 
 /**
+ * Write binary content atomically via tmp + fdatasync + rename, mirroring the
+ * UTF-8 string path in `src/merge/safeWrite.ts::atomicWriteFile`. A separate
+ * helper is required because `atomicWriteFile` re-encodes its `content` as
+ * UTF-8, which is lossy for arbitrary bytes (gzip output contains bytes ≥
+ * 0x80). This writer takes a Buffer and writes it verbatim, so the cold-pack
+ * bundle on disk is genuine gzip (starts with 0x1f 0x8b), not a re-encoded
+ * string. The caller owns the parent-directory mkdir.
+ */
+async function atomicWriteBinary(filePath: string, data: Buffer): Promise<void> {
+  const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
+  try {
+    await writeFile(tmpPath, data);
+    const fh = await open(tmpPath, "r+");
+    try {
+      await fh.datasync();
+    } catch (err) {
+      // Some filesystems reject fdatasync (FAT32, network mounts). The atomic
+      // rename provides the safety guarantee; datasync is best-effort durability.
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "EPERM" && code !== "ENOTSUP" && code !== "EINVAL") throw err;
+    } finally {
+      await fh.close();
+    }
+    await rename(tmpPath, filePath);
+  } finally {
+    // Silent Failure Contract (P5): surface a diagnostic when tmp cleanup fails
+    // for any reason other than "already renamed away" (ENOENT).
+    try {
+      await unlink(tmpPath);
+    } catch (unlinkErr) {
+      const code = (unlinkErr as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        console.error(
+          `hatch3r: failed to remove temp file ${tmpPath}: ` +
+            `${unlinkErr instanceof Error ? unlinkErr.message : String(unlinkErr)}.`,
+        );
+      }
+    }
+  }
+}
+
+/**
  * Run the archival pipeline. When `dryRun` is true, returns a result without
  * writing anything. Throws ArchiveError on v1 input, validation drift, or I/O
  * failure during the write phase.
@@ -397,19 +448,53 @@ export async function archiveCycle(
   return result;
 }
 
+/** Matches a cycle archive file name: `cycle-<N>-finding-registry.json`. */
+const CYCLE_ARCHIVE_NAME_RE = /^cycle-\d+(?:\.\d+)?-finding-registry\.json$/;
+
+/** Extract the cycle number from a `cycle-<N>-...` file name; NaN when absent. */
+function cycleNumberOf(fileName: string): number {
+  const m = fileName.match(/^cycle-(\d+(?:\.\d+)?)-/);
+  return m ? Number(m[1]) : NaN;
+}
+
 /**
- * Phase 3 stub. Lists existing cycle-N archive files but does not delete or
- * cold-pack any of them — preservation-first semantics. Phase 4+ TODO: pack
- * older archives into `governance/audit/archive/cold/cycle-{A..B}.tar.gz`
- * once a tar implementation is agreed (stdlib does not ship tar; needs design).
+ * Read the archive directory and return the cycle archive file names sorted
+ * descending by cycle number (newest first). Returns `null` when the directory
+ * does not exist (ENOENT) so callers can distinguish "no directory" from
+ * "directory with no cycle files" ([]). Shared by `enumerateAuditArchives` and
+ * `coldPackAuditArchives` so both apply the identical filter + sort.
+ */
+async function listCycleArchivesDescending(
+  archiveDir: string,
+): Promise<string[] | null> {
+  let entries: string[];
+  try {
+    entries = await readdir(archiveDir);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return null;
+    throw err;
+  }
+  // `CYCLE_ARCHIVE_NAME_RE` guarantees a numeric `cycle-<N>-` segment, so
+  // `cycleNumberOf` is always finite for the filtered names — descending sort.
+  return entries
+    .filter((n) => CYCLE_ARCHIVE_NAME_RE.test(n))
+    .sort((a, b) => cycleNumberOf(b) - cycleNumberOf(a));
+}
+
+/**
+ * Lists existing cycle-N archive files (sorted descending by cycle) but does
+ * not delete or cold-pack any of them — enumerate-only, preservation-first.
+ * Cold-packing is implemented in `coldPackAuditArchives` (gzipped JSON bundle,
+ * stdlib-only — no tar dependency).
  *
  * Returns `{ kept: [archive file names sorted descending by cycle],
- *            coldArchived: [] }`. `opts.keep` is accepted but currently
- * advisory only; nothing is removed.
+ *            coldArchived: [] }`. `opts.keep` is accepted but advisory only
+ * here; nothing is removed.
  *
  * Named `enumerateAuditArchives` (not `pruneArchives`) to avoid the symbol
  * collision with `src/archive/index.ts::pruneArchives`, which is a distinct
- * production function that actually deletes tool-output archives. This stub
+ * production function that actually deletes tool-output archives. This function
  * only enumerates; the descriptive name reflects its real behavior (D2-SA2.7
  * F2).
  */
@@ -418,24 +503,143 @@ export async function enumerateAuditArchives(
   opts: { keep?: number } = {},
 ): Promise<{ kept: string[]; coldArchived: string[] }> {
   void opts.keep;
-  let entries: string[];
-  try {
-    entries = await readdir(paths.archiveDir);
-  } catch (err) {
-    const code = (err as NodeJS.ErrnoException).code;
-    if (code === "ENOENT") return { kept: [], coldArchived: [] };
-    throw err;
-  }
-  const cycleFiles = entries
-    .filter((n) => /^cycle-\d+(?:\.\d+)?-finding-registry\.json$/.test(n))
-    .sort((a, b) => {
-      const m = a.match(/^cycle-(\d+(?:\.\d+)?)-/);
-      const n = b.match(/^cycle-(\d+(?:\.\d+)?)-/);
-      const an = m ? Number(m[1]) : 0;
-      const bn = n ? Number(n[1]) : 0;
-      return bn - an;
-    });
+  const cycleFiles = await listCycleArchivesDescending(paths.archiveDir);
+  if (cycleFiles === null) return { kept: [], coldArchived: [] };
   return { kept: cycleFiles, coldArchived: [] };
+}
+
+/** Inner (pre-gzip) shape of a cold-pack bundle. */
+interface ColdPackBundle {
+  schemaVersion: 1;
+  packedAtCycleLow: number;
+  packedAtCycleHigh: number;
+  /** Map of original archive file name → its raw file content string. */
+  files: Record<string, string>;
+}
+
+const COLD_PACK_SCHEMA_VERSION = 1 as const;
+
+/**
+ * Cold-pack the older cycle archive files into a single gzipped JSON bundle
+ * under `<archiveDir>/cold/`, preservation-first: the bundle is written +
+ * verified BEFORE the loose originals are removed. Keeps the `keep` newest
+ * cycle archives loose. Returns the kept (loose) filenames, the coldArchived
+ * (bundled) filenames, and the bundle path (or null when nothing was packed).
+ *
+ * stdlib only (`node:zlib` gzip — stdlib ships no tar), so this adds no
+ * dependency. The bundle is reversible: gunzip the file and JSON.parse the
+ * result to recover `{ schemaVersion, packedAtCycleLow, packedAtCycleHigh,
+ * files: { "<name>": "<content>" } }`.
+ *
+ * Write order (preservation-first):
+ *   1. mkdir `<archiveDir>/cold/` recursive.
+ *   2. atomicWriteFile the gzipped bundle (tmp + rename).
+ *   3. Verify: re-read the bundle, gunzip, JSON.parse, and confirm every packed
+ *      file name is present with byte-identical content.
+ *   4. Only AFTER step 3 passes, unlink the loose originals that were packed.
+ *
+ * If the verification round-trip fails, the loose originals are left intact
+ * (never deleted before the bundle is confirmed), the partial bundle is removed,
+ * and the call returns `coldArchived: []` so no data is lost.
+ *
+ * Distinct from `enumerateAuditArchives` (enumerate-only) and from
+ * `src/archive/index.ts::pruneArchives` (deletes tool-output archives).
+ */
+export async function coldPackAuditArchives(
+  paths: ArchivePaths,
+  opts: { keep: number },
+): Promise<{ kept: string[]; coldArchived: string[]; bundlePath: string | null }> {
+  const cycleFiles = await listCycleArchivesDescending(paths.archiveDir);
+  if (cycleFiles === null) {
+    return { kept: [], coldArchived: [], bundlePath: null };
+  }
+  // Nothing to pack when there are no more files than we keep loose.
+  if (cycleFiles.length <= opts.keep) {
+    return { kept: cycleFiles, coldArchived: [], bundlePath: null };
+  }
+
+  // `kept` = the `keep` newest (descending order ⇒ slice from the front).
+  // `toPack` = the older remainder.
+  const kept = cycleFiles.slice(0, opts.keep);
+  const toPack = cycleFiles.slice(opts.keep);
+
+  // Read each file to pack; record raw content keyed by original file name.
+  // Every name in `toPack` came through the `CYCLE_ARCHIVE_NAME_RE` filter in
+  // listCycleArchivesDescending, so `cycleNumberOf` is always finite here — no
+  // NaN guard needed. `toPack` is non-empty here (cycleFiles.length > keep).
+  const files: Record<string, string> = {};
+  const packCycles: number[] = [];
+  for (const name of toPack) {
+    files[name] = await readFile(join(paths.archiveDir, name), "utf-8");
+    packCycles.push(cycleNumberOf(name));
+  }
+  const low = Math.min(...packCycles);
+  const high = Math.max(...packCycles);
+
+  const bundle: ColdPackBundle = {
+    schemaVersion: COLD_PACK_SCHEMA_VERSION,
+    packedAtCycleLow: low,
+    packedAtCycleHigh: high,
+    files,
+  };
+  const gzipped = gzipSync(Buffer.from(JSON.stringify(bundle), "utf-8"));
+
+  const coldDir = join(paths.archiveDir, "cold");
+  const bundleName = `cycle-${low}-${high}.json.gz`;
+  const bundlePath = join(coldDir, bundleName);
+
+  await mkdir(coldDir, { recursive: true });
+  // Write the raw gzip bytes verbatim (atomicWriteFile is UTF-8-only and would
+  // corrupt bytes ≥ 0x80), then size-verify the rename landed.
+  await atomicWriteBinary(bundlePath, gzipped);
+  await verifyWrittenSize(bundlePath, gzipped.length);
+
+  // Preservation-first verification: re-read + gunzip + parse, then confirm
+  // every packed file is present with byte-identical content before deleting
+  // any original. On any mismatch, remove the partial bundle and bail without
+  // touching the loose originals.
+  let verified = false;
+  try {
+    const onDisk = await readFile(bundlePath);
+    const inflated = gunzipSync(onDisk).toString("utf-8");
+    const parsed = JSON.parse(inflated) as ColdPackBundle;
+    verified =
+      parsed.schemaVersion === COLD_PACK_SCHEMA_VERSION &&
+      toPack.every(
+        (name) =>
+          Object.prototype.hasOwnProperty.call(parsed.files, name) &&
+          parsed.files[name] === files[name],
+      );
+  } catch {
+    verified = false;
+  }
+
+  if (!verified) {
+    // Remove the partial/corrupt bundle so a re-run starts clean; never delete
+    // an original when the bundle is unverified.
+    try {
+      await unlink(bundlePath);
+    } catch (err) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        console.error(
+          `hatch3r: cold-pack verification failed for ${bundlePath} and the ` +
+            `partial bundle could not be removed: ` +
+            `${err instanceof Error ? err.message : String(err)}. Remove it manually.`,
+        );
+      }
+    }
+    return { kept: cycleFiles, coldArchived: [], bundlePath: null };
+  }
+
+  // Bundle confirmed lossless — now (and only now) remove the loose originals.
+  const coldArchived: string[] = [];
+  for (const name of toPack) {
+    await unlink(join(paths.archiveDir, name));
+    coldArchived.push(name);
+  }
+
+  return { kept, coldArchived, bundlePath };
 }
 
 interface AnchorLine {

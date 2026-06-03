@@ -2,7 +2,7 @@
 id: hatch3r-anti-duplication
 type: rule
 description: Pre-implementation discovery gate (codebase pattern search) + post-write duplication scan (jscpd threshold per maturity tier). Silent duplication is a P4 violation.
-tags: [anti-duplication, code-quality, floor:content-quality]
+tags: [anti-duplication, code-quality, floor:content-quality, tier:team-plus]
 precedence: high
 scope: always
 ---

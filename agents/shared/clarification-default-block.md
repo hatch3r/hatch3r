@@ -42,6 +42,9 @@ Each consuming agent enumerates its own ambiguity triggers in a single line at t
 | `hatch3r-ci-watcher` | which workflow run, which failure window, which retry budget |
 | `hatch3r-context-rules` | which precedence axis (cosmetic, gate, floor), which scope (always, conditional) |
 | `hatch3r-lint-fixer` | which lint rules to apply, which severity threshold |
+| `hatch3r-pack-installer` | which trust tier the pack claims (canonical vs marketplace), which signing method applies (npm-provenance vs cosign-keyless), whether the declared capability set is authorized, whether an `--allow-untrusted` override was explicitly passed |
+| `hatch3r-incident-responder` | user-facing vs internal-only impact, known vs unknown blast radius, rollback-safety verified vs unverified, stakeholder-notification scope, mitigation writes data (irreversible) vs flips a flag (reversible) |
+| `hatch3r-dependency-drafter` | upgrade scope (one dependency / group / full manifest), upgrade target band (patch / minor / major), driver (routine currency / CVE advisory / new direct dependency), success acceptance criterion |
 | 9 CQ specialists (`hatch3r-ui`, `hatch3r-ux`, `hatch3r-security`, `hatch3r-reliability`, `hatch3r-testability`, `hatch3r-scalability`, `hatch3r-performance`, `hatch3r-maintainability`, `hatch3r-enhancability`) | See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity; each CQ specialist names CQ-vector-specific triggers |
 
 ### Authoring rules

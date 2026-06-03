@@ -6,24 +6,26 @@
  * the H59/H60/H61 deferred importers (copilot, windsurf, awesome-cursorrules)
  * landing in Cycle 8.
  *
- * Out of scope (Cycle 8, per C7.5-W2B2-H59 and spec):
- *   - conflict detection, dry-run mode, overwrite/skip/prompt modes
- *   - writing converted rules to disk (this parser returns in-memory objects)
- *   - CLI wiring (`hatch3r init --import cursor`)
- *   - summary reporting (sourceFiles / converted / conflicts / manualReview)
- *   - `.mdc` companion emission (Cursor-native consumers)
+ * Cycle 8 (this file): {@link importCursorRules} adds the import runner on top
+ * of the parser — conflict detection against existing rule ids, dry-run mode,
+ * summary reporting (sourceFiles / converted / conflicts / manualReview), and
+ * `.mdc` companion emission alongside the canonical `.md` under
+ * `.hatch3r/overrides/rules/`. The runner is pure of process.exit / console;
+ * the CLI caller (`hatch3r init --import cursor`) renders the returned summary.
  *
  * Cursor rule format reference:
  *   https://cursor.com/docs/context/rules (accessed 2026-04-20)
  *   Frontmatter keys: `description` (string), `globs` (string|string[]|null),
  *   `alwaysApply` (boolean). Body is markdown.
  */
-import { readFile, readdir } from "node:fs/promises";
+import { readFile, readdir, mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { parse as parseYaml } from "yaml";
+import { parse as parseYaml, stringify as yamlStringify } from "yaml";
 
 import type { CanonicalFile } from "../types.js";
 import { HATCH3R_PREFIX } from "../types.js";
+import { atomicWriteFile } from "../merge/safeWrite.js";
+import { cursorCompanionFrontmatter, resolveUserContentRoot } from "../content/index.js";
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
@@ -170,6 +172,157 @@ export async function parseCursorRulesDir(cursorDir: string): Promise<ImportedCu
   return results;
 }
 
-// TODO(Cycle 8, C7.5-W2B2-H59): wire this parser into `hatch3r init --import cursor`
-// with conflict detection, dry-run mode, summary reporting, and `.mdc` companion
-// emission. See .audit-workspace/content-specs/C7-05-cursor-importer.md.
+/**
+ * Structured outcome of an {@link importCursorRules} run. Every parsed `.mdc`
+ * lands in exactly one of `converted`, `conflicts`, or `manualReview`.
+ */
+export interface CursorImportSummary {
+  /** Absolute or caller-relative `.cursor/rules` directory that was scanned. */
+  cursorDir: string;
+  /** Number of `.mdc` files discovered (the parse universe). */
+  sourceFiles: number;
+  /** Rules converted to canonical shape and not in conflict. */
+  converted: ImportedCursorRule[];
+  /** Rules skipped because their canonical id collides (existing id or intra-import duplicate). */
+  conflicts: { sourcePath: string; canonicalFilename: string; reason: string }[];
+  /** Rules deferred for human review (empty / missing frontmatter). */
+  manualReview: { sourcePath: string; reason: string }[];
+  /** Paths written to disk (`.md` + `.mdc` per converted rule); empty under dryRun. */
+  written: string[];
+  /** True when the run computed the summary without writing any file. */
+  dryRun: boolean;
+}
+
+/**
+ * Compose the canonical `.md` payload (frontmatter + body) for an imported
+ * rule. Frontmatter carries the namespaced id, `type: rule`, description,
+ * the `cursor-import` tag, and `scope` when the source declared one. Mirrors
+ * the `---\n<yaml>\n---\n<body>` shape that `composeArtifactFile`
+ * (`src/content/userContent.ts`) emits for user artifacts.
+ */
+function composeCanonicalMd(rule: ImportedCursorRule): string {
+  const fm: Record<string, unknown> = {
+    id: rule.canonical.id,
+    type: "rule",
+    description: rule.canonical.description,
+    tags: rule.canonical.tags ?? ["cursor-import"],
+  };
+  if (rule.canonical.scope !== undefined) {
+    fm.scope = rule.canonical.scope;
+  }
+  const yaml = yamlStringify(fm).trim();
+  const body = rule.canonical.content.startsWith("\n")
+    ? rule.canonical.content
+    : `\n${rule.canonical.content}`;
+  return `---\n${yaml}\n---\n${body}`;
+}
+
+/**
+ * True when a parsed rule carries no usable frontmatter — an empty description
+ * AND no resolved scope. These land in `manualReview` rather than being written
+ * blind, because a rule with no description/scope conveys no Cursor intent.
+ */
+function hasEmptyFrontmatter(rule: ImportedCursorRule): boolean {
+  return rule.canonical.description === "" && rule.canonical.scope === undefined;
+}
+
+/**
+ * Import `.cursor/rules/*.mdc` into canonical hatch3r rules under
+ * `.hatch3r/overrides/rules/`.
+ *
+ * Pipeline per parsed rule:
+ *   1. Empty/missing frontmatter (no description, no scope) → `manualReview`.
+ *   2. Canonical id already in `existingRuleIds`, OR two imported files
+ *      resolve to the same canonical id → `conflicts` (skip writing).
+ *   3. Otherwise → `converted`.
+ *
+ * A missing `.cursor/rules` directory yields a summary with `sourceFiles: 0`
+ * and every collection empty — it never throws. When `dryRun` is false, each
+ * converted rule is written as BOTH a canonical `.md` and a Cursor-native
+ * `.mdc` companion (scope→`alwaysApply`/`globs` via
+ * {@link cursorCompanionFrontmatter}); both paths are recorded in `written`.
+ * When `dryRun` is true the same classification runs but `written` stays empty.
+ *
+ * Pure of process.exit / console — the caller renders {@link CursorImportSummary}.
+ */
+export async function importCursorRules(opts: {
+  rootDir: string;
+  dryRun: boolean;
+  /** Canonical + user rule ids already present — drives conflict detection. */
+  existingRuleIds?: ReadonlySet<string>;
+}): Promise<CursorImportSummary> {
+  const { rootDir, dryRun, existingRuleIds } = opts;
+  const cursorDir = join(rootDir, ".cursor", "rules");
+  const parsed = await parseCursorRulesDir(cursorDir);
+
+  const summary: CursorImportSummary = {
+    cursorDir,
+    sourceFiles: parsed.length,
+    converted: [],
+    conflicts: [],
+    manualReview: [],
+    written: [],
+    dryRun,
+  };
+
+  // Track ids produced within this import run so two source files that slugify
+  // to the same canonical id are flagged as a conflict rather than the second
+  // silently overwriting the first.
+  const seenIds = new Set<string>();
+
+  for (const rule of parsed) {
+    if (hasEmptyFrontmatter(rule)) {
+      summary.manualReview.push({
+        sourcePath: rule.sourcePath,
+        reason: "empty or missing frontmatter — review before adopting",
+      });
+      continue;
+    }
+
+    const id = rule.canonical.id;
+    if (existingRuleIds?.has(id)) {
+      summary.conflicts.push({
+        sourcePath: rule.sourcePath,
+        canonicalFilename: rule.canonicalFilename,
+        reason: `canonical id "${id}" already exists in this project`,
+      });
+      continue;
+    }
+    if (seenIds.has(id)) {
+      summary.conflicts.push({
+        sourcePath: rule.sourcePath,
+        canonicalFilename: rule.canonicalFilename,
+        reason: `canonical id "${id}" collides with another imported file`,
+      });
+      continue;
+    }
+
+    seenIds.add(id);
+    summary.converted.push(rule);
+  }
+
+  if (!dryRun && summary.converted.length > 0) {
+    const rulesDir = join(resolveUserContentRoot(rootDir), "rules");
+    await mkdir(rulesDir, { recursive: true });
+    for (const rule of summary.converted) {
+      const mdTarget = join(rulesDir, rule.canonicalFilename);
+      await atomicWriteFile(mdTarget, composeCanonicalMd(rule));
+      summary.written.push(mdTarget);
+
+      // `.mdc` companion: Cursor-native frontmatter via the canonical
+      // scope→alwaysApply/globs transform, then the same body.
+      const mdcFrontmatter = cursorCompanionFrontmatter(
+        rule.canonical.description,
+        rule.canonical.scope,
+      );
+      const body = rule.canonical.content.startsWith("\n")
+        ? rule.canonical.content
+        : `\n${rule.canonical.content}`;
+      const mdcTarget = join(rulesDir, rule.canonicalFilename.replace(/\.md$/, ".mdc"));
+      await atomicWriteFile(mdcTarget, `${mdcFrontmatter}${body}`);
+      summary.written.push(mdcTarget);
+    }
+  }
+
+  return summary;
+}

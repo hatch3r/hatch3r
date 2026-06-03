@@ -238,6 +238,7 @@ export abstract class BaseAdapter implements Adapter {
           `This is a generation bug — fix the adapter's doGenerate implementation.`,
         undefined,
         "ADAPTER_ERROR",
+        `This is a hatch3r adapter bug, not a repo-config issue — upgrade to the latest hatch3r (\`npm install -g hatch3r@latest\`) and re-run; if it persists, file an issue at https://github.com/hatch3r/hatch3r/issues citing adapter "${this.name}" and path(s) ${paths}.`,
       );
     }
 

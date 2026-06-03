@@ -14,13 +14,12 @@
  * string convention but are grouped into typed sets so callers can reason about them
  * without hard-coded enumerations.
  *
- * TODO(Wave 2 — content re-tagging): Wave 1 only swaps the filter pipeline. The 175
- * canonical artifacts still carry their legacy tag values (`core`, `team`, `solo`,
- * `greenfield`, `brownfield`, `security` as a plain tag, `ai` as a CLI category). These
- * legacy values are NOT in TAG_REGISTRY and therefore fail every facet predicate — items
- * relying on them will not match the capability gate or floor admission stage and will
- * appear MISSING from preset output until Wave 2 re-tags the corpus per
- * `.audit-workspace/council-D-architect.md` §4. Wave 3 then rewrites the test suite.
+ * Corpus state: every canonical artifact now carries the canonical facet tags defined in
+ * TAG_REGISTRY (capability / floor / context / tier / role facets); the compound
+ * tag-validity + preset-coverage tests pass against the migrated corpus. Maturity-tier
+ * admission is applied via `tier:*` tags per `docs/maturity-tiers.md`. The legacy tag
+ * values (`core`, `team`, `solo`, `greenfield`, `brownfield`, `security` as a plain tag,
+ * `ai` as a CLI category) are no longer in use.
  */
 
 // ── Capability tags (the artifact's job) ─────────────────────────

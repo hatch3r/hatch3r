@@ -984,6 +984,55 @@ describe("init validation flags (--yes path)", () => {
     expect(stdCount).toBeLessThanOrEqual(fullCount);
   });
 
+  it("accepts a --preset archetype id and writes it to the manifest", async () => {
+    await initCommand({ yes: true, preset: "web-app" });
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.content?.preset).toBe("web-app");
+  });
+
+  it("accepts a --preset comma-list composition and persists it under the custom label", async () => {
+    // A composition resolves to a synthetic preset whose `.id` is "custom";
+    // the persisted label is "custom" and the real selection lives in
+    // content.items (which round-trips on sync regardless of the label).
+    await initCommand({ yes: true, preset: "api-service,security" });
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.content?.preset).toBe("custom");
+    // The composition resolved to a non-empty selection.
+    const itemCount = Object.values(manifest.content.items).reduce(
+      (s: number, arr) => s + (arr as string[]).length,
+      0,
+    );
+    expect(itemCount).toBeGreaterThan(0);
+  });
+
+  it("rejects a --preset comma-list with an unknown part (actionable hint)", async () => {
+    await expect(
+      initCommand({ yes: true, preset: "api-service,bogus" }),
+    ).rejects.toThrow(HatchError);
+    try {
+      await initCommand({ yes: true, preset: "api-service,bogus" });
+    } catch (e) {
+      expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+      expect((e as HatchError).recoveryHint).toMatch(/comma-list/);
+    }
+  });
+
+  it("rejects a --preset comma-list containing custom (custom is not composable)", async () => {
+    await expect(
+      initCommand({ yes: true, preset: "standard,custom" }),
+    ).rejects.toThrow(HatchError);
+    try {
+      await initCommand({ yes: true, preset: "standard,custom" });
+    } catch (e) {
+      expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+      expect((e as HatchError).recoveryHint).toMatch(/cannot be composed/);
+    }
+  });
+
   it("accepts --project-type greenfield via flag", async () => {
     await initCommand({ yes: true, projectType: "greenfield" });
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));

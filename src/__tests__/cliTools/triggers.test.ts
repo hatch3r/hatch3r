@@ -83,6 +83,39 @@ describe("evaluateTier2Triggers — data-project", () => {
     expect(ids).not.toContain("duckdb");
     expect(ids).not.toContain("qsv");
   });
+
+  it("triggers duckdb and qsv when hasDataArtifacts is true even with no data language", () => {
+    const ids = evaluateTier2Triggers(
+      makeRepoInfo({ languages: ["typescript"], hasDataArtifacts: true }),
+    );
+    expect(ids).toContain("duckdb");
+    expect(ids).toContain("qsv");
+  });
+
+  it("still triggers duckdb and qsv on a data language when hasDataArtifacts is false", () => {
+    const ids = evaluateTier2Triggers(
+      makeRepoInfo({ languages: ["python"], hasDataArtifacts: false }),
+    );
+    expect(ids).toContain("duckdb");
+    expect(ids).toContain("qsv");
+  });
+});
+
+describe("evaluateTier2Triggers — docker-detected", () => {
+  it("triggers docker when hasDockerfile is true", () => {
+    const ids = evaluateTier2Triggers(makeRepoInfo({ hasDockerfile: true }));
+    expect(ids).toContain("docker");
+  });
+
+  it("does not trigger docker when hasDockerfile is false", () => {
+    const ids = evaluateTier2Triggers(makeRepoInfo({ hasDockerfile: false }));
+    expect(ids).not.toContain("docker");
+  });
+
+  it("does not trigger docker when hasDockerfile is undefined", () => {
+    const ids = evaluateTier2Triggers(makeRepoInfo());
+    expect(ids).not.toContain("docker");
+  });
 });
 
 describe("evaluateTier2Triggers — rust-project", () => {

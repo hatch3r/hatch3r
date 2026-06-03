@@ -3,7 +3,7 @@ id: hatch3r-testability-verify
 name: hatch3r-testability-verify
 type: skill
 description: Testability verification gate before commit/release — per-feature test-class mandate map, real-deal-first ratio, coverage thresholds, AI eval coverage, mutation kill-rate, contract tests, property tests, determinism contract
-tags: [review, testing, floor:content-quality]
+tags: [review, testing, floor:content-quality, tier:enterprise-only]
 scope: conditional
 globs: "src/__tests__/**,tests/**,test/**,spec/**,e2e/**,evals/**,**/stryker.conf.json,**/pom.xml,**/pacts/**"
 precedence: normal

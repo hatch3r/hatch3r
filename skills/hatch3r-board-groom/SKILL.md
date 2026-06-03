@@ -3,7 +3,7 @@ id: hatch3r-board-groom
 name: hatch3r-board-groom
 type: skill
 description: Ongoing backlog refinement for existing board items. Re-prioritize, reclassify, re-scope, archive stale items, decompose oversized issues, merge duplicates, refresh dependencies, and remediate board health findings.
-tags: [board, ctx:team-only]
+tags: [board, ctx:team-only, tier:team-plus]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

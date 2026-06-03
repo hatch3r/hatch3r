@@ -1,4 +1,4 @@
-import { access, readFile, readdir } from "node:fs/promises";
+import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import type { Framework, PackageEntry, RepoInfo, Tool } from "../types.js";
 import { detectPackageManager } from "./packageManager.js";
@@ -19,7 +19,7 @@ import {
  * @param rootDir - Absolute path to the repository root directory.
  */
 export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
-  const [languages, pm, isMonorepo, hasExistingAgents, existingTools, frameworks, linters, testFrameworks, ciProviders, packages] =
+  const [languages, pm, isMonorepo, hasExistingAgents, existingTools, frameworks, linters, testFrameworks, ciProviders, hasDockerfile, hasDataArtifacts, packages] =
     await Promise.all([
       detectLanguages(rootDir),
       detectPackageManager(rootDir),
@@ -30,6 +30,8 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
       detectLinters(rootDir),
       detectTestFrameworks(rootDir),
       detectCIProviders(rootDir),
+      detectDockerfile(rootDir),
+      detectDataArtifacts(rootDir),
       // F14.2-H1 (D14): always run the package enumerator; it returns an empty
       // array for single-package repos, so the cost is one workspace-file
       // probe in the non-monorepo path. Populating this here means init/sync
@@ -49,6 +51,8 @@ export async function analyzeRepo(rootDir: string): Promise<RepoInfo> {
     linters,
     testFrameworks,
     ciProviders,
+    hasDockerfile,
+    hasDataArtifacts,
   };
   if (packages.length > 0) {
     info.packages = packages;
@@ -677,6 +681,52 @@ export async function detectCIProviders(rootDir: string): Promise<string[]> {
   return detected;
 }
 
+// ── Container / data-artifact probes ─────────────────────────────
+
+/** Root-level files that imply a container build is defined for the repo. */
+const DOCKERFILE_INDICATORS = [
+  "Dockerfile",
+  "docker-compose.yml",
+  "docker-compose.yaml",
+  "compose.yml",
+  "compose.yaml",
+  ".devcontainer",
+  ".devcontainer.json",
+];
+
+/**
+ * Detect whether the repo defines a container build at its root: any of
+ * `Dockerfile`, `docker-compose.{yml,yaml}`, `compose.{yml,yaml}`, a
+ * `.devcontainer` directory, or `.devcontainer.json`. Shallow root-level
+ * probe only. Populates `RepoInfo.hasDockerfile`, which drives the
+ * `docker-detected` tier-2 trigger in `src/cliTools/triggers.ts`.
+ */
+export async function detectDockerfile(rootDir: string): Promise<boolean> {
+  const results = await Promise.all(
+    DOCKERFILE_INDICATORS.map((name) => pathExists(join(rootDir, name))),
+  );
+  return results.some(Boolean);
+}
+
+/**
+ * Detect whether the repo carries data artifacts at its root: a top-level
+ * `data/` directory, or a root-level file ending in `.csv` / `.parquet`.
+ * Shallow root-level probe only — no recursive walk — to keep the cost to a
+ * single `readdir` plus one `stat`. Populates `RepoInfo.hasDataArtifacts`,
+ * which strengthens the `data-project` tier-2 trigger beyond the language
+ * heuristic in `src/cliTools/triggers.ts`.
+ */
+export async function detectDataArtifacts(rootDir: string): Promise<boolean> {
+  if (await dirExists(join(rootDir, "data"))) return true;
+  try {
+    const entries = await readdir(rootDir);
+    return entries.some((f) => f.endsWith(".csv") || f.endsWith(".parquet"));
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    return false;
+  }
+}
+
 // ── Utilities ─────────────────────────────────────────────────────
 
 /** Check whether a filesystem path exists. Returns false for ENOENT, throws for other errors. */
@@ -684,6 +734,16 @@ async function pathExists(path: string): Promise<boolean> {
   try {
     await access(path);
     return true;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
+    return false;
+  }
+}
+
+/** Check whether `path` exists and is a directory. Returns false for ENOENT or a non-directory, throws for other errors. */
+async function dirExists(path: string): Promise<boolean> {
+  try {
+    return (await stat(path)).isDirectory();
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     return false;

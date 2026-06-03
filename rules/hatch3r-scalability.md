@@ -4,7 +4,7 @@ type: rule
 description: CQ6 Scalability Quality measurement rule — stateless-handler ratio, back-pressure pattern adoption, idempotency-key adoption on POST/PUT/PATCH, queue offloading for >1s ops, pool sizing per concurrency profile
 scope: conditional
 globs: "**/handlers/**,**/routes/**,**/services/**,**/api/**,**/workers/**,**/queues/**,**/jobs/**,**/middleware/**,**/handler*,**/route*,**/worker*,**/queue*"
-tags: [review, scalability, floor:content-quality]
+tags: [review, scalability, floor:content-quality, tier:scaleup-plus]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

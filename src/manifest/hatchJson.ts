@@ -634,6 +634,7 @@ export async function readManifest(
       `Malformed JSON in ${manifestPath}: ${err instanceof Error ? err.message : String(err)}`,
       1,
       "CONFIG_ERROR",
+      `Fix the JSON syntax in ${manifestPath}, or delete the file and run \`hatch3r init\` to regenerate it. If you have version control, \`git checkout -- ${HATCH3R_DIR}/${MANIFEST_FILE}\` restores the last committed copy.`,
     );
   }
 
@@ -650,6 +651,7 @@ export async function readManifest(
       `Invalid manifest in ${manifestPath}: ${fieldErrors.join("; ")}. Run hatch3r init to regenerate.`,
       1,
       "CONFIG_ERROR",
+      `Correct the field(s) listed above in ${manifestPath}, or run \`hatch3r init\` to regenerate a valid manifest.`,
     );
   }
   if (!validateManifest(migrated)) {
@@ -659,6 +661,7 @@ export async function readManifest(
       `Invalid manifest in ${manifestPath}: shape mismatch beyond per-field checks. Run hatch3r init to regenerate.`,
       1,
       "CONFIG_ERROR",
+      `Run \`hatch3r init\` to regenerate ${manifestPath}; if you hand-edited it, restore the last committed copy with \`git checkout -- ${HATCH3R_DIR}/${MANIFEST_FILE}\`.`,
     );
   }
   return migrated;
@@ -678,6 +681,7 @@ export async function writeManifest(
       "Expected valid HatchManifest with tools, mcp, managedFiles populated.",
       undefined,
       "CONFIG_ERROR",
+      `Re-run the command that triggered this write; if it persists, run \`hatch3r init\` to rebuild ${HATCH3R_DIR}/${MANIFEST_FILE} from a known-good state.`,
     );
   }
   const manifestPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);

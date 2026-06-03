@@ -3,7 +3,7 @@ id: hatch3r-enhancability-verify
 name: hatch3r-enhancability-verify
 type: skill
 description: Enhancability verification gate before commit/release — feature-flag adoption on behavior changes, config externalization, semver-versioned APIs, forward-compat headers, extension-point definition, startup config validation
-tags: [review, enhancability, code-standards, floor:content-quality]
+tags: [review, enhancability, code-standards, floor:content-quality, tier:enterprise-only]
 scope: conditional
 globs: "src/**,openapi.yaml,openapi.json,**/*.proto,**/schema.graphql,**/asyncapi.yaml,**/flags.yaml,**/.env*,**/config/**"
 precedence: normal

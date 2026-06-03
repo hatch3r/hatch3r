@@ -2,6 +2,7 @@
 id: performance
 type: check
 description: Performance review criteria covering bundle size, render performance, memory usage, network optimization, database queries, and runtime efficiency
+tags: [performance, tier:scaleup-plus]
 cache_friendly: true
 ---
 # Performance Check

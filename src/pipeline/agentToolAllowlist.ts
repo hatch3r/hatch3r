@@ -279,6 +279,32 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     allowedTools: ["read", "search", "write"],
     description: "Brownfield spec authoring: read existing patterns, search consumer set via grep, and write migration-aware spec/ADR artefacts. No execute/git/board/web — spec only, replacement adoption routes to producer agents per agents/hatch3r-brownfield-spec.md §Boundaries.",
   },
+  // ── 2.0.0 supply-chain / incident / dependency agents (Finding F2.4-F1) ──
+  //
+  // Three net-new top-level agents (`type: agent`) added after the spec
+  // agents. The F2.4-F1 filesystem-enumeration test asserts every
+  // agents/*.md id has a policy here; without these three the Claude
+  // PreToolUse hook denies them all tool calls (NO_POLICY). Each allowlist
+  // is the least-privilege envelope that matches the agent's own `## Boundaries`
+  // + `tools:` frontmatter — the category model is coarse (read/search/write/
+  // execute/web/mcp), so any allowed `Bash:<cmd>` maps to `execute` and
+  // `WebSearch` maps to `web`; the agent's own `tools.deny` frontmatter is the
+  // fine-grained sub-command gate (mirrors how hatch3r-creator is modeled).
+  {
+    agentId: "hatch3r-pack-installer",
+    allowedTools: ["read", "search", "write", "execute", "web"],
+    description: "Verified pack installer (post trust-gate): read/search the candidate pack, write pack content atomically (safeWrite temp+rename, managed blocks), execute verification commands only (npm audit signatures, cosign verify-blob, hatch3r add --dry-run / status / verify, git status/diff) and web-research signing/transparency-log references. No mcp. Its `tools.deny` frontmatter blocks `hatch3r add`, `npm install/publish`, `git push`, `rm -rf`, `chmod`, `curl`/`wget`, and pack lifecycle scripts per agents/hatch3r-pack-installer.md §Boundaries (\"Never: run a pack's lifecycle scripts\").",
+  },
+  {
+    agentId: "hatch3r-incident-responder",
+    allowedTools: ["read", "search", "write", "execute", "web"],
+    description: "Incident-response coordinator: read/search telemetry + topology, write the blameless post-mortem + alert-linked runbook, execute reversible mitigations behind a diff-preview-then-gate discipline (flag flip, kill-switch, config revert, scale-up, rollback) and file follow-ups via the platform CLI (gh/az/glab), and web-research incident-command conventions + vendor advisories. No mcp. Bounded-autonomy gate on P0/P1 + irreversible mutations per agents/hatch3r-incident-responder.md §Boundaries (\"Ask first\" before any data-writing or P0 mutation; \"Never\" auto-apply low-confidence/irreversible mitigation on P0/P1).",
+  },
+  {
+    agentId: "hatch3r-dependency-drafter",
+    allowedTools: ["read", "search", "execute", "web"],
+    description: "Dependency-change drafter (drafts only, never applies): read manifests/lockfiles, search consumer call sites, execute read-only inspection commands only (npm outdated/view/audit/ls, pnpm/yarn outdated, git status/log/diff) and web-research advisory databases. No write — its `tools.deny` frontmatter forbids Write/Edit/MultiEdit and every install/update/audit-fix/commit per agents/hatch3r-dependency-drafter.md §Boundaries (\"Never: Edit a manifest or lockfile, run an install/update/audit fix, or commit — you are the drafter, not the applier\"). Manifest edits route to hatch3r-fixer / hatch3r-devops.",
+  },
 ] as const;
 
 // ── Lookup helpers ───────────────────────────────────────────────

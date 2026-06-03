@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages, analyzeConventionConflicts } from "../../detect/repoAnalyzer.js";
+import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages, analyzeConventionConflicts, detectDockerfile, detectDataArtifacts } from "../../detect/repoAnalyzer.js";
 
 describe("analyzeRepo", () => {
   let tempDir: string;
@@ -1200,5 +1200,107 @@ describe("detectMonorepoPackages", () => {
 
     const packages = await detectMonorepoPackages(root);
     expect(packages).toEqual([]);
+  });
+});
+
+describe("detectDockerfile", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createTempRepo(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-docker-"));
+    return tempDir;
+  }
+
+  it("returns true when a Dockerfile is present at the root", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "Dockerfile"), "FROM node:22\n");
+    expect(await detectDockerfile(root)).toBe(true);
+  });
+
+  it("returns true for docker-compose.yml", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "docker-compose.yml"), "services: {}\n");
+    expect(await detectDockerfile(root)).toBe(true);
+  });
+
+  it("returns true for compose.yaml", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "compose.yaml"), "services: {}\n");
+    expect(await detectDockerfile(root)).toBe(true);
+  });
+
+  it("returns true for a .devcontainer directory", async () => {
+    const root = await createTempRepo();
+    await mkdir(join(root, ".devcontainer"), { recursive: true });
+    expect(await detectDockerfile(root)).toBe(true);
+  });
+
+  it("returns false for an empty repo", async () => {
+    const root = await createTempRepo();
+    expect(await detectDockerfile(root)).toBe(false);
+  });
+
+  it("populates RepoInfo.hasDockerfile via analyzeRepo", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "Dockerfile"), "FROM node:22\n");
+    const info = await analyzeRepo(root);
+    expect(info.hasDockerfile).toBe(true);
+  });
+});
+
+describe("detectDataArtifacts", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  async function createTempRepo(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-data-"));
+    return tempDir;
+  }
+
+  it("returns true when a top-level data/ directory is present", async () => {
+    const root = await createTempRepo();
+    await mkdir(join(root, "data"), { recursive: true });
+    expect(await detectDataArtifacts(root)).toBe(true);
+  });
+
+  it("returns true for a root-level .csv file", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "rows.csv"), "a,b\n1,2\n");
+    expect(await detectDataArtifacts(root)).toBe(true);
+  });
+
+  it("returns true for a root-level .parquet file", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "rows.parquet"), "");
+    expect(await detectDataArtifacts(root)).toBe(true);
+  });
+
+  it("returns false for an empty repo", async () => {
+    const root = await createTempRepo();
+    expect(await detectDataArtifacts(root)).toBe(false);
+  });
+
+  it("returns false when a plain `data` file (not a directory) is present", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "data"), "not a dir");
+    expect(await detectDataArtifacts(root)).toBe(false);
+  });
+
+  it("populates RepoInfo.hasDataArtifacts via analyzeRepo", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "rows.csv"), "a,b\n1,2\n");
+    const info = await analyzeRepo(root);
+    expect(info.hasDataArtifacts).toBe(true);
   });
 });

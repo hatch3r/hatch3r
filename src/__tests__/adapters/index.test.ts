@@ -51,6 +51,26 @@ describe("getAdapter", () => {
     }
   });
 
+  // D10-SA10.2-F2: getAdapter attaches an actionable recoveryHint listing the
+  // supported tools (derived from the adapter registry) so the CLI can guide
+  // the operator to a valid `--tools` value instead of a bare failure.
+  it("attaches a recoveryHint naming the supported tools for unknown tool", () => {
+    try {
+      getAdapter("unknown" as Tool);
+      throw new Error("expected throw did not occur");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      const hint = (e as HatchError).recoveryHint;
+      expect(hint).toBe(
+        "Supported tools: claude, copilot, cursor. Re-run with one of these via `--tools`.",
+      );
+      // The hint must enumerate every tool the registry can actually build.
+      for (const tool of ["claude", "copilot", "cursor"]) {
+        expect(hint).toContain(tool);
+      }
+    }
+  });
+
   it("returns adapters for all supported tools", () => {
     const tools: Tool[] = ["cursor", "copilot", "claude"];
     for (const tool of tools) {

@@ -3,7 +3,7 @@ id: hatch3r-board-shared
 name: hatch3r-board-shared
 type: skill
 description: Shared context and procedures for all board commands. Provides platform-agnostic board config, label taxonomy, branch conventions, sync enforcement, and tooling directives. Platform-specific details are in commands/board/shared-{platform}.md.
-tags: [board, ctx:team-only]
+tags: [board, ctx:team-only, tier:team-plus]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

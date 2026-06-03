@@ -4,7 +4,7 @@ type: rule
 description: Operability patterns in user code — liveness / readiness / startup probes, graceful shutdown, feature flags, runbook URL annotations, health endpoints
 scope: conditional
 globs: "**/services/**,**/handlers/**,**/health*,**/probes/**,**/k8s/**,**/manifests/**,**/charts/**,**/feature*,**/flags/**"
-tags: [implementation, devops]
+tags: [implementation, devops, tier:scaleup-plus]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

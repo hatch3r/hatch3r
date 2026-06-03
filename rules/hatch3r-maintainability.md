@@ -4,7 +4,7 @@ type: rule
 description: CQ8 Maintainability Quality measurement rule — jscpd duplication index, pattern-reuse ratio, cyclomatic complexity, expand-contract migrations, API breaking-change discipline, ADR presence on architectural changes
 scope: conditional
 globs: "src/**,**/migrations/**,**/db/migrations/**,**/prisma/migrations/**,**/openapi.yaml,**/openapi.json,**/*.proto,**/schema.graphql,**/asyncapi.yaml"
-tags: [review, maintainability, code-standards, floor:content-quality]
+tags: [review, maintainability, code-standards, floor:content-quality, tier:team-plus]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

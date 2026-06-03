@@ -34,7 +34,13 @@ const adapterFactories: Record<Tool, () => Adapter> = {
 export function getAdapter(tool: Tool): Adapter {
   const factory = adapterFactories[tool];
   if (!factory) {
-    throw new HatchError(`Unknown tool: ${tool}`, 1, "VALIDATION_ERROR");
+    const supported = Object.keys(adapterFactories).sort().join(", ");
+    throw new HatchError(
+      `Unknown tool: ${tool}`,
+      1,
+      "VALIDATION_ERROR",
+      `Supported tools: ${supported}. Re-run with one of these via \`--tools\`.`,
+    );
   }
   return factory();
 }

@@ -496,7 +496,19 @@ export interface CanonicalMetadata {
 }
 
 export interface ContentSelection {
-  preset: "minimal" | "standard" | "full" | "custom";
+  // Mirrors `PresetId` in src/content/presets.ts (kept inline to avoid a
+  // types.ts → presets.ts import cycle): base presets + project archetypes.
+  preset:
+    | "minimal"
+    | "standard"
+    | "full"
+    | "custom"
+    | "web-app"
+    | "api-service"
+    | "cli-tool"
+    | "monorepo"
+    | "legacy"
+    | "security";
   projectType: "greenfield" | "brownfield";
   teamSize: "solo" | "team";
   /** Explicit list of selected content IDs (without hatch3r- prefix).
@@ -591,6 +603,10 @@ export interface RepoInfo {
   testFrameworks?: string[];
   /** D14 Medium (#14.7): Detected CI provider(s). */
   ciProviders?: string[];
+  /** True when a Dockerfile / docker-compose / .devcontainer is present at the repo root. Populated by analyzeRepo; drives the `docker-detected` tier-2 CLI-tool trigger. */
+  hasDockerfile?: boolean;
+  /** True when the repo contains data artifacts (csv/parquet/ or a top-level data/ dir). Populated by analyzeRepo; strengthens the `data-project` tier-2 trigger beyond the language heuristic. */
+  hasDataArtifacts?: boolean;
   /**
    * F14.2-H1 (D14): Enumerated monorepo package directories resolved from the
    * package manager's workspace globs (pnpm-workspace.yaml `packages:`,

@@ -4,7 +4,7 @@ type: rule
 description: Accessibility standards covering WCAG 2.2 AA compliance, keyboard navigation, screen readers, and ARIA patterns
 scope: conditional
 globs: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/components/**,**/*.html,**/*a11y*,**/*accessibility*"
-tags: [floor:ui-ux, a11y]
+tags: [floor:ui-ux, a11y, tier:team-plus]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true

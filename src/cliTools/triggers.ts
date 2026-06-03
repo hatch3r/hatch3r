@@ -6,10 +6,10 @@ import {
 
 /**
  * Languages that mark a project as data-oriented for tier-2 trigger
- * evaluation. CSV/Parquet file presence would be a stronger signal but
- * `RepoInfo` does not yet probe for data files (see TODO in
- * `triggers.ts::evaluateTier2Triggers`); language proxy is the next-best
- * heuristic until `RepoInfo.hasDataArtifacts` lands.
+ * evaluation. `RepoInfo.hasDataArtifacts` (csv/parquet/data-dir probe in
+ * `src/detect/repoAnalyzer.ts::detectDataArtifacts`) is the stronger signal
+ * and fires the trigger directly; this language proxy stays as the fallback
+ * for data projects that ship code without root-level data artifacts.
  */
 const DATA_LANGUAGES = new Set<string>(["python", "r", "sql"]);
 
@@ -35,9 +35,10 @@ const WEB_FRAMEWORKS = new Set<string>([
  * Used by the picker to pre-check tools that the project clearly needs
  * (e.g. Playwright when `next` is in `frameworks`).
  *
- * `docker-detected` and `ci-llm-project` are stub-evaluated — see the
- * inline TODOs. They return false until `RepoInfo` exposes the
- * underlying signals (`hasDockerfile`, CI workflow probe).
+ * `docker-detected` fires from `RepoInfo.hasDockerfile` (populated by
+ * `analyzeRepo` via `detectDockerfile`). `ci-llm-project` is not evaluated
+ * here — it needs a CI-workflow-content scan, not just a provider name
+ * (Wave 4 work).
  */
 export function evaluateTriggers(repoInfo: RepoInfo): Set<Tier2Trigger> {
   const active = new Set<Tier2Trigger>();
@@ -47,9 +48,9 @@ export function evaluateTriggers(repoInfo: RepoInfo): Set<Tier2Trigger> {
     active.add("web-project");
   }
 
-  // data-project — heuristic on language until RepoInfo probes CSV/Parquet.
-  // TODO: extend RepoInfo with hasDataArtifacts (csv/parquet/data dir).
-  if (repoInfo.languages.some((l) => DATA_LANGUAGES.has(l))) {
+  // data-project — fires on a data-oriented language OR a root-level data
+  // artifact (csv/parquet/data dir) detected by RepoInfo.hasDataArtifacts.
+  if (repoInfo.languages.some((l) => DATA_LANGUAGES.has(l)) || repoInfo.hasDataArtifacts) {
     active.add("data-project");
   }
 
@@ -63,12 +64,11 @@ export function evaluateTriggers(repoInfo: RepoInfo): Set<Tier2Trigger> {
     active.add("python-project");
   }
 
-  // docker-detected — RepoInfo does not yet expose Dockerfile/devcontainer
-  // presence. TODO: add `RepoInfo.hasDockerfile` and read it here. For now
-  // this trigger never fires; users opt into docker via the manual picker.
-  // if ((repoInfo as { hasDockerfile?: boolean }).hasDockerfile) {
-  //   active.add("docker-detected");
-  // }
+  // docker-detected — RepoInfo.hasDockerfile is set by analyzeRepo when a
+  // Dockerfile / docker-compose / .devcontainer is present at the repo root.
+  if (repoInfo.hasDockerfile) {
+    active.add("docker-detected");
+  }
 
   // ci-llm-project — out of scope for Wave 2; CI provider probe needs a
   // workflow-content scan, not just provider name. Wave 4 work.

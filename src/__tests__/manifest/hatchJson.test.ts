@@ -342,6 +342,43 @@ describe("hatchJson", () => {
       }
     });
 
+    // D10-SA10.2-F2: a malformed-JSON manifest is one of the highest-traffic
+    // failure surfaces (hand edits, partial writes). readManifest attaches an
+    // actionable recoveryHint pointing at the fix path (init / git restore).
+    it("attaches an actionable recoveryHint on malformed JSON", async () => {
+      const rootDir = await setup();
+      await writeFile(
+        join(rootDir, ".hatch3r", "hatch.json"),
+        "{ not valid json }}}",
+        "utf-8",
+      );
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        const hint = (e as HatchError).recoveryHint;
+        expect(hint).toContain("hatch3r init");
+        expect(hint).toContain("git checkout");
+        expect(hint).toContain(".hatch3r/hatch.json");
+      }
+    });
+
+    // D10-SA10.2-F2: a structurally-invalid manifest (missing/typed fields)
+    // carries a recoveryHint steering the operator to `hatch3r init`.
+    it("attaches an actionable recoveryHint on an invalid manifest", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, { invalid: true });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected throw did not occur");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as HatchError).recoveryHint).toContain("hatch3r init");
+      }
+    });
+
     it("throws with descriptive message when required field 'tools' is missing", async () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {

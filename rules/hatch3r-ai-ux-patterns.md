@@ -4,7 +4,7 @@ type: rule
 description: 2026 AI/agentic UX patterns for end-user projects shipping AI features — streaming, tool-call UI, human-approval gates, cancel/abort/undo, citations
 scope: conditional
 globs: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/ai/**,**/chat/**,**/assistant/**,**/agents/**,**/llm/**,**/copilot/**"
-tags: [implementation, floor:ui-ux, ux, ai, frontend]
+tags: [implementation, floor:ui-ux, ux, ai, frontend, tier:team-plus]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
