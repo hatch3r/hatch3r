@@ -91,7 +91,7 @@ interface InventoryFiles {
   githubAgents: string[];
 }
 
-interface InventoryDocument {
+export interface InventoryDocument {
   lastUpdated: string;
   counts: InventoryCounts;
   files: InventoryFiles;
@@ -203,7 +203,16 @@ async function listSrcDirTs(relDir: string): Promise<string[]> {
   );
 }
 
-async function buildInventory(): Promise<InventoryDocument> {
+/**
+ * Build the inventory document from the filesystem.
+ *
+ * `today` is injected (date-only `YYYY-MM-DD`, UTC) rather than read inline so
+ * the function is deterministic and testable (`.claude/rules/test-requirements.md`).
+ * `main()` passes `new Date().toISOString().slice(0, 10)`; the returned
+ * `lastUpdated` is provisional — `reconcileLastUpdated` may rewind it to the
+ * committed value when the substantive content is unchanged.
+ */
+export async function buildInventory(today: string): Promise<InventoryDocument> {
   const [
     adapters,
     agents,
@@ -237,10 +246,6 @@ async function buildInventory(): Promise<InventoryDocument> {
     listCompanionMd("checks"),
     listCompanionMd("github-agents"),
   ]);
-
-  // Use a date-only stamp (UTC) so the file is stable across same-day runs
-  // and the CI drift check does not flap on every CI execution.
-  const today = new Date().toISOString().slice(0, 10);
 
   const cliSkills = listCliSkills(skills);
 
@@ -283,6 +288,78 @@ async function buildInventory(): Promise<InventoryDocument> {
       githubAgents,
     },
   };
+}
+
+/**
+ * Read and parse the committed `governance/inventory.json`, if present.
+ *
+ * Returns `null` on ENOENT (no committed file yet) or on malformed JSON — in
+ * both cases the caller falls back to stamping today's date. Any other read
+ * error (permissions, I/O) is rethrown so a genuine fault is not masked.
+ */
+export async function readExistingInventory(
+  outPath: string,
+): Promise<InventoryDocument | null> {
+  let raw: string;
+  try {
+    raw = await readFile(outPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
+  try {
+    return JSON.parse(raw) as InventoryDocument;
+  } catch (err) {
+    // Malformed committed file — surface a diagnostic (CONSTITUTION.md §2 P5
+    // Silent Failure Contract) then treat as absent so the regen self-heals by
+    // stamping today's date and rewriting valid JSON.
+    console.warn(
+      `inventory: committed ${outPath} is not valid JSON ` +
+        `(${(err as Error).message}); regenerating with today's date.`,
+    );
+    return null;
+  }
+}
+
+/**
+ * Structural equality of two inventory documents IGNORING `lastUpdated`.
+ *
+ * Compares `counts` + `files` (every counter and file list). `buildInventory`
+ * emits keys in a fixed insertion order and the committed file is produced the
+ * same way, so a stable `JSON.stringify` of `{ counts, files }` is an exact
+ * content comparison. A committed file with reordered or extra keys (e.g. a
+ * hand-edit) deserializes back through `JSON.parse`, so a non-matching shape
+ * compares unequal and correctly triggers a today-stamp + rewrite.
+ */
+export function sameInventoryContent(
+  a: InventoryDocument,
+  b: InventoryDocument,
+): boolean {
+  const strip = (doc: InventoryDocument): string =>
+    JSON.stringify({ counts: doc.counts, files: doc.files });
+  return strip(a) === strip(b);
+}
+
+/**
+ * Preserve-unless-changed reconciliation of `lastUpdated`.
+ *
+ * `fresh` carries today's date (from `buildInventory(today)`). When a committed
+ * `existing` document is present AND its substantive content (counts + files)
+ * matches `fresh`, the committed `lastUpdated` is reused so a no-op regen is a
+ * byte-for-byte no-op (the CI drift gate at `.github/workflows/ci.yml` passes
+ * every day, not just on the day content last changed). When content differs —
+ * or there is no committed file — `fresh` (today) is kept, so `lastUpdated`
+ * advances only on real content drift. Pillars: P5 (the gate stops flapping),
+ * P4 (the field stops lying "updated today" when nothing changed).
+ */
+export function reconcileLastUpdated(
+  fresh: InventoryDocument,
+  existing: InventoryDocument | null,
+): InventoryDocument {
+  if (existing && sameInventoryContent(fresh, existing)) {
+    return { ...fresh, lastUpdated: existing.lastUpdated };
+  }
+  return fresh;
 }
 
 /**
@@ -485,8 +562,14 @@ async function checkDocDrift(
 
 async function main(): Promise<void> {
   const checkDocs = process.argv.includes("--check-docs");
-  const inventory = await buildInventory();
+  const today = new Date().toISOString().slice(0, 10);
   const outPath = join(ROOT, "governance", "inventory.json");
+  const fresh = await buildInventory(today);
+  // Preserve the committed lastUpdated when the substantive content is
+  // unchanged, so a no-op regen is byte-identical and the CI drift gate does
+  // not flap on the date alone.
+  const existing = await readExistingInventory(outPath);
+  const inventory = reconcileLastUpdated(fresh, existing);
   const json = `${JSON.stringify(inventory, null, 2)}\n`;
   await writeFile(outPath, json, "utf-8");
   // eslint-disable-next-line no-console
@@ -539,8 +622,14 @@ async function main(): Promise<void> {
   process.exit(1);
 }
 
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error("inventory failed:", err);
-  process.exit(1);
-});
+// Only auto-run when executed as a script (not when imported by a test).
+// resolve() on a string never throws, so no defensive catch is needed.
+const isMain = resolve(process.argv[1] ?? "") === __filename;
+
+if (isMain) {
+  main().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("inventory failed:", err);
+    process.exit(1);
+  });
+}

@@ -145,6 +145,46 @@ describe("atomicWriteFile error paths", () => {
     });
   });
 
+  // ── FS_ERRNO_MESSAGE family (D8-SA8.2-F8.2.7) ──────────────────
+  // ENOSPC/EACCES are covered above. The remaining errno→actionable-message
+  // table entries (EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO) each map a write-side
+  // failure to a complete, cause-naming sentence routed through a FS_ERROR
+  // HatchError. Assert each distinct message AND the FS_ERROR code so a
+  // regression that dropped a table row (re-falling-through to a bare Node
+  // message) is caught.
+
+  describe("FS_ERRNO_MESSAGE actionable messages", () => {
+    const cases: Array<{ code: string; matcher: RegExp }> = [
+      { code: "EDQUOT", matcher: /Filesystem quota exceeded.*raise it/s },
+      { code: "EROFS", matcher: /Read-only filesystem.*remount read-write/s },
+      { code: "EFBIG", matcher: /File too large.*FAT32/s },
+      { code: "EMFILE", matcher: /Too many open files.*ulimit -n/s },
+      { code: "ENFILE", matcher: /System-wide open-file limit.*raise the system fd limit/s },
+      { code: "EIO", matcher: /Low-level I\/O error.*fsck/s },
+    ];
+
+    for (const { code, matcher } of cases) {
+      it(`maps ${code} to its actionable FS_ERROR message`, async () => {
+        mockWriteFile.mockRejectedValue(mkErrno(code));
+
+        await expect(atomicWriteFile("/some/dir/out.md", "data")).rejects.toMatchObject({
+          name: "HatchError",
+          errorCode: "FS_ERROR",
+        });
+        // Re-run to assert the message text (a thrown HatchError is consumed
+        // by the first rejects assertion).
+        await expect(atomicWriteFile("/some/dir/out.md", "data")).rejects.toThrow(matcher);
+      });
+    }
+
+    it("includes the target path in the EDQUOT message", async () => {
+      mockWriteFile.mockRejectedValue(mkErrno("EDQUOT"));
+      await expect(atomicWriteFile("/quota/dir/file.md", "x")).rejects.toThrow(
+        "/quota/dir/file.md",
+      );
+    });
+  });
+
   // ── fdatasync EPERM fallback ───────────────────────────────────
 
   describe("fdatasync EPERM fallback", () => {
@@ -155,6 +195,26 @@ describe("atomicWriteFile error paths", () => {
         atomicWriteFile("/tmp/test.txt", "data"),
       ).resolves.toBeUndefined();
 
+      expect(mockClose).toHaveBeenCalled();
+    });
+
+    it("ignores ENOTSUP from datasync (network mount / FAT32)", async () => {
+      // The atomic rename provides the safety guarantee; datasync is
+      // best-effort durability, so an unsupported-operation errno is swallowed.
+      mockDatasync.mockRejectedValue(mkErrno("ENOTSUP"));
+
+      await expect(
+        atomicWriteFile("/tmp/test.txt", "data"),
+      ).resolves.toBeUndefined();
+      expect(mockClose).toHaveBeenCalled();
+    });
+
+    it("ignores EINVAL from datasync (filesystem rejects fdatasync)", async () => {
+      mockDatasync.mockRejectedValue(mkErrno("EINVAL"));
+
+      await expect(
+        atomicWriteFile("/tmp/test.txt", "data"),
+      ).resolves.toBeUndefined();
       expect(mockClose).toHaveBeenCalled();
     });
 
@@ -236,6 +296,24 @@ describe("atomicWriteFile error paths", () => {
         expect(msg).toContain("/tmp/test-diag.txt.tmp.");
         expect(msg).toContain("locked");
         expect(msg).toContain("orphan-tmp sweep");
+      } finally {
+        errorSpy.mockRestore();
+      }
+    });
+
+    it("stringifies a non-Error unlink rejection in the diagnostic (String() branch)", async () => {
+      // The diagnostic uses `unlinkErr instanceof Error ? .message : String(unlinkErr)`.
+      // Reject with a plain object (no .code, not an Error) to exercise the
+      // String() fall-through and confirm the diagnostic still surfaces.
+      mockUnlink.mockRejectedValue({ toString: () => "weird-non-error" });
+      const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+      try {
+        await atomicWriteFile("/tmp/test-nonerr.txt", "data");
+        expect(errorSpy).toHaveBeenCalled();
+        const msg = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+        expect(msg).toContain("failed to remove temp file");
+        expect(msg).toContain("weird-non-error");
       } finally {
         errorSpy.mockRestore();
       }
@@ -394,6 +472,125 @@ describe("safeWriteFile additional branches", () => {
           managedContent: "new managed",
         }),
       ).rejects.toThrow(/Backup verification failed.*Aborting auto-repair/);
+    });
+
+    it("throws on SHA-256 mismatch even when sizes match (partial-write/corruption guard)", async () => {
+      // D1-M12: size equality is necessary but not sufficient. Mock stat so the
+      // size check PASSES (equal sizes), then mock readFile of the .bak to
+      // return bytes whose SHA-256 differs from the source — exercising the
+      // hash-comparison abort branch the size check would miss.
+      vi.resetModules();
+
+      const mockCopyFile = vi
+        .fn<(...args: unknown[]) => Promise<void>>()
+        .mockResolvedValue(undefined);
+      const mockStat = vi
+        .fn<(...args: unknown[]) => Promise<{ size: number }>>()
+        .mockResolvedValue({ size: 42 }); // equal sizes → size check passes
+
+      // readFile is called twice in the corruption path: (1) existingContent as
+      // utf-8 at the top of safeWriteFile, (2) the .bak bytes (no encoding) for
+      // hashing. Return DIFFERENT bytes for the bak read to force a hash mismatch.
+      const realFs = await vi.importActual<typeof import("node:fs/promises")>(
+        "node:fs/promises",
+      );
+      const mockReadFile = vi
+        .fn<(...args: unknown[]) => Promise<string | Buffer>>()
+        .mockImplementation(async (p: unknown, enc?: unknown) => {
+          if (enc === "utf-8") {
+            // The pre-repair source content read at the top of safeWriteFile.
+            return [
+              "<!-- HATCH3R:BEGIN -->",
+              "a",
+              "<!-- HATCH3R:BEGIN -->",
+              "dup",
+              "<!-- HATCH3R:END -->",
+            ].join("\n");
+          }
+          // The .bak byte read for hashing — deliberately divergent bytes.
+          return Buffer.from("totally different backup bytes");
+        });
+
+      vi.doMock("node:fs/promises", async (importOriginal) => {
+        const actual = await importOriginal<typeof import("node:fs/promises")>();
+        return {
+          ...actual,
+          copyFile: mockCopyFile,
+          stat: mockStat,
+          readFile: mockReadFile,
+        };
+      });
+
+      const { safeWriteFile } = await import("../../merge/safeWrite.js");
+
+      const dir = await createTempDir();
+      const filePath = join(dir, "sha-mismatch.md");
+      // Real on-disk content so the initial fileExists() (uses access) succeeds.
+      await realFs.writeFile(
+        filePath,
+        ["<!-- HATCH3R:BEGIN -->", "a", "<!-- HATCH3R:BEGIN -->", "dup", "<!-- HATCH3R:END -->"].join(
+          "\n",
+        ),
+        "utf-8",
+      );
+
+      await expect(
+        safeWriteFile(filePath, "replacement", { managedContent: "new managed" }),
+      ).rejects.toThrow(/Backup verification failed.*SHA-256 mismatch/);
+
+      vi.doUnmock("node:fs/promises");
+      vi.resetModules();
+    });
+  });
+
+  describe("marker-variant auto-repair warning (D11-SA11.2-F11)", () => {
+    it("emits an 'Auto-repaired marker syntax' warning when a .yml file has HTML markers", async () => {
+      // A .yml output written by a pre-#76 hatch3r carries HTML <!-- --> markers.
+      // The next sync detects the wrong-variant block, rewrites it to YAML `#`
+      // markers, and surfaces a one-line warning on the MergeResult.warning
+      // channel so the on-disk byte change is attributable (not a silent git diff).
+      const { safeWriteFile } = await import("../../merge/safeWrite.js");
+
+      const dir = await createTempDir();
+      const filePath = join(dir, "copilot-setup-steps.yml");
+      const existing = [
+        "<!-- HATCH3R:BEGIN -->",
+        "old: value",
+        "<!-- HATCH3R:END -->",
+        "",
+        "user_key: kept",
+      ].join("\n");
+      await writeFile(filePath, existing, "utf-8");
+
+      const result = await safeWriteFile(filePath, "", { managedContent: "new: value" });
+
+      expect(result.action).toBe("updated");
+      expect(result.warning).toContain("Auto-repaired marker syntax");
+      expect(result.warning).toContain(filePath);
+
+      // The on-disk file now carries YAML markers, not HTML, and user content
+      // outside the block is preserved.
+      const onDisk = await readFile(filePath, "utf-8");
+      expect(onDisk).toContain("# HATCH3R:BEGIN");
+      expect(onDisk).not.toContain("<!--");
+      expect(onDisk).toContain("new: value");
+      expect(onDisk).toContain("user_key: kept");
+    });
+
+    it("does NOT emit a variant warning when markers already match the file type", async () => {
+      // Same-variant merge (markdown file with HTML markers) → no auto-repair
+      // warning; the variantChanged branch is false.
+      const { safeWriteFile } = await import("../../merge/safeWrite.js");
+
+      const dir = await createTempDir();
+      const filePath = join(dir, "AGENTS.md");
+      const existing = ["<!-- HATCH3R:BEGIN -->", "old", "<!-- HATCH3R:END -->"].join("\n");
+      await writeFile(filePath, existing, "utf-8");
+
+      const result = await safeWriteFile(filePath, "", { managedContent: "fresh" });
+
+      expect(result.action).toBe("updated");
+      expect(result.warning).toBeUndefined();
     });
   });
 

@@ -22,6 +22,21 @@ vi.mock("inquirer", () => {
   };
 });
 
+// CI determinism: interactive init calls findMissingCliTools (real PATH probe)
+// then offerInstaller (an extra inquirer.prompt) for any tool absent from PATH.
+// On a clean CI runner the selected tools are missing, so that extra prompt
+// fires and shifts every test's queued inquirer answer by one — surfacing as
+// "Cannot destructure property 'proceed'/'syncRepos'". Mock detection to
+// "nothing missing" so the prompt sequence is machine-independent. Mirrors
+// src/__tests__/cli/config.test.ts:177. Tests that exercise the installer
+// path can override with mockResolvedValueOnce.
+vi.mock("../../cliTools/detect.js", () => ({
+  findMissingCliTools: vi.fn().mockResolvedValue([]),
+  detectCliTool: vi.fn(),
+  detectCliTools: vi.fn().mockResolvedValue([]),
+  probeBin: vi.fn().mockResolvedValue(""),
+}));
+
 // Wave 6 (1.9.0): the hatch3r footprint moved from `.agents/` to `.hatch3r/`.
 // For the rewritten init tests, `AGENTS_DIR` refers to `.hatch3r/` so existing
 // `join(tempDir, AGENTS_DIR, "hatch.json")` reads pick up the new location.

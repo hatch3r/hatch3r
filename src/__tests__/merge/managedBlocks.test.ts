@@ -5,6 +5,8 @@ import {
   extractCustomContent,
   hasManagedBlock,
   wrapInManagedBlock,
+  wrapManagedFor,
+  wouldChangeMarkerVariant,
 } from "../../merge/managedBlocks.js";
 import { HatchError } from "../../types.js";
 
@@ -156,6 +158,67 @@ describe("managedBlocks", () => {
     // that the next hatch3r sync rewrites — the worktree-setup symptom.
     it("emits a POSIX final newline", () => {
       expect(wrapInManagedBlock("body").endsWith("\n")).toBe(true);
+    });
+  });
+
+  // D11-SA11.2-F8 (Cycle 10 Wave 4): wrapManagedFor is the mandatory-path
+  // marker-emission entry point adapter authors MUST use. Because `path` is a
+  // required positional arg, an author cannot fall back to the markdown
+  // default on a .yml output (which would re-introduce issue #76). Assert the
+  // path drives the variant just like wrapInManagedBlock(content, path).
+  describe("wrapManagedFor", () => {
+    it("emits HTML markers for a markdown path", () => {
+      const wrapped = wrapManagedFor("AGENTS.md", "body");
+      expect(wrapped).toBe(`${START}\nbody\n${END}\n`);
+    });
+
+    it("emits YAML markers for a .yml path (issue #76 guard)", () => {
+      const wrapped = wrapManagedFor(".github/workflows/copilot-setup-steps.yml", "name: ci");
+      expect(wrapped).toBe("# HATCH3R:BEGIN\nname: ci\n# HATCH3R:END\n");
+      expect(wrapped).not.toContain("<!--");
+    });
+
+    it("emits YAML markers for a .yaml path", () => {
+      expect(wrapManagedFor("config.yaml", "k: v").startsWith("# HATCH3R:BEGIN")).toBe(true);
+    });
+
+    it("trims the body and appends a POSIX final newline", () => {
+      const wrapped = wrapManagedFor("AGENTS.md", "  padded  ");
+      expect(wrapped).toBe(`${START}\npadded\n${END}\n`);
+    });
+
+    it("produces output round-trip-detectable by hasManagedBlock", () => {
+      expect(hasManagedBlock(wrapManagedFor("x.yml", "k: v"))).toBe(true);
+    });
+  });
+
+  // D11-SA11.2-F11 (Cycle 10 Wave 4): wouldChangeMarkerVariant reports whether
+  // an insertManagedBlock write would flip the on-disk marker variant (the
+  // issue #76 HTML→YAML auto-repair) so safeWriteFile can surface a warning.
+  describe("wouldChangeMarkerVariant", () => {
+    it("returns false when the content has NO detectable managed block", () => {
+      // The no-block branch (early return false) — handled separately by callers.
+      expect(wouldChangeMarkerVariant("no markers at all", "x.yml")).toBe(false);
+      expect(wouldChangeMarkerVariant(`${START}\nonly start, no end`, "x.yml")).toBe(false);
+    });
+
+    it("returns true when HTML markers live in a .yml file (variant would flip to YAML)", () => {
+      const htmlInYaml = `${START}\nold: value\n${END}\n`;
+      expect(wouldChangeMarkerVariant(htmlInYaml, "x.yml")).toBe(true);
+    });
+
+    it("returns false when the detected variant already matches the file type", () => {
+      // HTML markers in a markdown file — no flip.
+      expect(wouldChangeMarkerVariant(`${START}\nbody\n${END}`, "AGENTS.md")).toBe(false);
+      // YAML markers in a .yml file — no flip.
+      expect(
+        wouldChangeMarkerVariant("# HATCH3R:BEGIN\nk: v\n# HATCH3R:END\n", "x.yml"),
+      ).toBe(false);
+    });
+
+    it("returns true when YAML markers live in a markdown file (would flip to HTML)", () => {
+      const yamlInMd = "# HATCH3R:BEGIN\nbody\n# HATCH3R:END\n";
+      expect(wouldChangeMarkerVariant(yamlInMd, "AGENTS.md")).toBe(true);
     });
   });
 

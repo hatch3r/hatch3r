@@ -316,10 +316,13 @@ describe("migrateAgentsToHatch3r — agents -> hatch3r migration shim", () => {
       const result = await migrateAgentsToHatch3r(tempDir);
 
       expect(result.conflicts).toHaveLength(2);
+      // sourcePath is rendered forward-slash on every platform (see
+      // agentsToHatch3r.ts::toDisplayPath); keep both expectations in the
+      // same convention so the assertion holds on Windows as well as POSIX.
       const sources = result.conflicts.map((c) => c.sourcePath).sort();
       expect(sources).toEqual([
         `${AGENTS_DIR}/${MANIFEST_FILE}`,
-        join(AGENTS_DIR, "mcp", "mcp.json"),
+        `${AGENTS_DIR}/mcp/mcp.json`,
       ]);
       // Conflicts keep the legacy directory in place.
       expect(result.removedLegacyDir).toBe(false);

@@ -7,7 +7,6 @@ import type { ContentSelection } from "../../types.js";
 import {
   buildContentIndex,
   copySelectedContent,
-  generateMdcCompanions,
 } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import {

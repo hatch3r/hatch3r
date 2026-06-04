@@ -7,6 +7,7 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, stat, rm, access } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
@@ -1466,6 +1467,16 @@ describe("lean-threshold doc round-trip (F20.1.E1)", () => {
   // runtime map so drift between the audit doc and the gate is a CI failure
   // (recommendation step 2).
   it("D20-user-content-authoring.md lean row matches the runtime LEAN_LINE_THRESHOLDS", async () => {
+    // Public-only invariant (runs with or without governance): the runtime map
+    // must carry the five published content-type keys the D20 lean row inlines.
+    // This keeps the test meaningful where the private doc is absent.
+    for (const type of ["agent", "command", "skill", "rule", "hook"]) {
+      expect(
+        Object.keys(LEAN_LINE_THRESHOLDS),
+        `LEAN_LINE_THRESHOLDS must define the ${type} threshold`,
+      ).toContain(type);
+    }
+
     // src/__tests__/content/userContent.test.ts → repo root is three levels up.
     const repoRoot = resolve(__dirname, "..", "..", "..");
     const docPath = join(
@@ -1475,6 +1486,15 @@ describe("lean-threshold doc round-trip (F20.1.E1)", () => {
       "domains",
       "D20-user-content-authoring.md",
     );
+
+    // Privatization gate: the D20 audit domain is private and absent in public
+    // CI / contributor clones (only governance/inventory.json ships). When the
+    // doc is absent there is no round-trip to perform — skip the doc-vs-runtime
+    // cross-check cleanly, mirroring the validators' existsSync absence guard
+    // (e.g. validate-lean-threshold-currency.ts:363-369). The public-only
+    // assertion above still guards the runtime map.
+    if (!existsSync(docPath)) return;
+
     const doc = await readFile(docPath, "utf-8");
 
     // Extract every "<type> <number>" pair the lean row inlines.

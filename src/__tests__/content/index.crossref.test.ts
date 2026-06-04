@@ -6,7 +6,6 @@ import type { ContentSelection } from "../../types.js";
 import {
   buildContentIndex,
   extractContentReferences,
-  extractBareContentReferences,
   validateCrossReferences,
   validateOrchestrationDependencies,
 } from "../../content/index.js";

@@ -25,6 +25,19 @@ vi.mock("inquirer", () => {
   };
 });
 
+// CI determinism: interactive init calls findMissingCliTools (real PATH probe)
+// then offerInstaller (an extra inquirer.prompt) for any tool absent from PATH.
+// On a clean CI runner the selected tools are missing, so that extra prompt
+// fires and shifts every test's queued inquirer answer by one. Mock detection
+// to "nothing missing" so the prompt sequence is machine-independent. Mirrors
+// src/__tests__/cli/config.test.ts:177.
+vi.mock("../../../cliTools/detect.js", () => ({
+  findMissingCliTools: vi.fn().mockResolvedValue([]),
+  detectCliTool: vi.fn(),
+  detectCliTools: vi.fn().mockResolvedValue([]),
+  probeBin: vi.fn().mockResolvedValue(""),
+}));
+
 describe("init post-init tip", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
   let tempDir: string;

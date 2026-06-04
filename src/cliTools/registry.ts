@@ -182,6 +182,8 @@ export const AVAILABLE_CLI_TOOLS = {
     // amber-flag noise for the long gap; the tool is the canonical search
     // primitive across hatch3r-cli-* skills and not at risk of abandonment.
     releaseCadence: "stable",
+    // CVE-2021-3013 (GHSA-g4xg-fxmg-vcg5) OS command injection — fixed in ripgrep 13.0.0
+    minVersion: ">=13.0.0",
     homepage: "https://github.com/BurntSushi/ripgrep",
   },
   fd: {
@@ -270,6 +272,8 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install git-delta" }],
       win: [{ manager: "scoop", command: "scoop install delta" }],
     },
+    // CVE-2021-36376 (GHSA-5xg3-j2j6-rcx4) path traversal — fixed in git-delta 0.8.3
+    minVersion: ">=0.8.3",
     homepage: "https://github.com/dandavison/delta",
   },
   bat: {
@@ -291,6 +295,8 @@ export const AVAILABLE_CLI_TOOLS = {
     // as abandonment; bat is the canonical syntax-aware view tool in
     // hatch3r-cli-toolbox and remains under active maintenance.
     releaseCadence: "stable",
+    // CVE-2021-36753 (GHSA-p24j-h477-76q3) uncontrolled search path — fixed in bat 0.18.2
+    minVersion: ">=0.18.2",
     homepage: "https://github.com/sharkdp/bat",
   },
   sd: {
@@ -397,6 +403,8 @@ export const AVAILABLE_CLI_TOOLS = {
     // a certificate-loading fix — but cadence has slowed. Tag stable so the
     // staleness heuristic does not auto-flag the long gap as abandonment.
     releaseCadence: "stable",
+    // CVE-2023-48052 (GHSA-8r96-8889-qg2x) + CVE-2019-10751 (GHSA-xjjg-vmw6-c2p9) — both fixed by httpie 3.2.3
+    minVersion: ">=3.2.3",
     homepage: "https://httpie.io/",
   },
   xh: {

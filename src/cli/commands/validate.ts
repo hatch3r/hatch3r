@@ -1536,7 +1536,14 @@ async function validateContentBody(
       }
       // Compute the relative label for the finding message — relative to the
       // canonical content root so the label reads e.g. `rules/foo.md`.
-      const fileLabel = filePath.slice(canonicalRoot.length + 1);
+      // Windows: `filePath` carries native `\` separators (join in
+      // listMarkdownFiles), but this label is both shown to users as a POSIX
+      // path AND matched against POSIX `/` prefixes/suffixes in
+      // requiresAmbiguityGate (e.g. `agents/shared/`, `/SKILL.md`). Without
+      // normalization the `agents/shared/` + `agents/modes/` companion-file
+      // exemption misses on Windows, raising a spurious "missing §0 ambiguity
+      // gate" error that fails every validate run. Force forward slashes.
+      const fileLabel = filePath.slice(canonicalRoot.length + 1).split(/[\\/]/).join(posix.sep);
 
       // Split frontmatter vs body. The body is the only scan target — banned
       // phrases inside frontmatter `description:` are caught by the

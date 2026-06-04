@@ -85,16 +85,32 @@ export interface VulnerabilityFinding {
   publishedISO?: string;
   ageDays?: number;
   isStale: boolean;
+  /**
+   * True when the advisory id is in ACKNOWLEDGED_ADVISORIES — a Critical/High
+   * advisory with no upstream fix that is reported but excluded from the gate.
+   */
+  acknowledged: boolean;
+}
+
+/** A tool exempted from OSV scanning, paired with its documented reason. */
+export interface ExemptedTool {
+  meta: CliToolMeta;
+  reason: string;
 }
 
 export interface CheckReport {
   targets: CliToolTarget[];
   findings: VulnerabilityFinding[];
+  /** Stale Critical/High findings that trip the gate (acknowledged excluded). */
   staleFindings: VulnerabilityFinding[];
+  /** Findings whose advisory id is acknowledged (reported, never gating). */
+  acknowledgedFindings: VulnerabilityFinding[];
   maxAgeDays: number;
   queryErrors: Array<{ target: CliToolTarget; reason: string }>;
   /** Tools the registry could not map to an OSV.dev ecosystem. */
   unmapped: CliToolMeta[];
+  /** Tools intentionally not OSV-scanned (documented in SCAN_EXEMPT_TOOLS). */
+  exempted: ExemptedTool[];
 }
 
 export interface RunOptions {
@@ -171,11 +187,29 @@ const ECOSYSTEM_OVERRIDES: Record<string, { ecosystem: string; name: string }> =
   dasel: { ecosystem: "Go", name: "github.com/tomwright/dasel" },
   duckdb: { ecosystem: "Go", name: "github.com/duckdb/duckdb" },
   lazygit: { ecosystem: "Go", name: "github.com/jesseduffield/lazygit" },
+  // docker + podman: their real HIGH advisories — docker CVE-2026-34040
+  // (GHSA-x744-4wpc-v9h2); podman CVE-2024-3056 (GHSA-rpcc-p8xm-rc6p) and
+  // CVE-2025-4953 (GHSA-m68q-4hqr-mc6f) — are returned by OSV as Go-ecosystem
+  // (GO-####) records WITHOUT a numeric severity, so `normalizeSeverity`
+  // classifies them UNKNOWN and they are filtered out below. This is a known
+  // blind spot: these advisories have no upstream fix and are tracked instead
+  // in each tool's registry `securityNote`. Fixing `normalizeSeverity` to read
+  // GO-record severity is a separate follow-up, not handled here.
+  docker: { ecosystem: "Go", name: "github.com/moby/moby" },
+  podman: { ecosystem: "Go", name: "github.com/containers/podman/v5" },
+  mods: { ecosystem: "Go", name: "github.com/charmbracelet/mods" },
+  miller: { ecosystem: "Go", name: "github.com/johnkerl/miller/v6" },
+  "container-use": { ecosystem: "Go", name: "github.com/dagger/container-use" },
 
   // Python (PyPI) tools.
   csvkit: { ecosystem: "PyPI", name: "csvkit" },
   llm: { ecosystem: "PyPI", name: "llm" },
   httpie: { ecosystem: "PyPI", name: "httpie" },
+  // az-devops maps to the `azure-devops` PyPI extension package, NOT
+  // `azure-cli`: azure-cli carries a stale HIGH advisory and the registry pins
+  // the extension version (1.0.4), which does not exist on the azure-cli
+  // package, so querying azure-cli would version-mismatch and mis-report.
+  "az-devops": { ecosystem: "PyPI", name: "azure-devops" },
 
   // npm-distributed tools.
   playwright: { ecosystem: "npm", name: "@playwright/test" },
@@ -185,6 +219,34 @@ const ECOSYSTEM_OVERRIDES: Record<string, { ecosystem: string; name: string }> =
   jq: { ecosystem: "Linux", name: "jq" },
   curl: { ecosystem: "Linux", name: "curl" },
   zstd: { ecosystem: "Linux", name: "zstd" },
+};
+
+/**
+ * Tools intentionally NOT OSV-scanned (no clean ecosystem target). Keyed by
+ * registry id -> reason. They are reported separately (the `exempted` bucket),
+ * never as "unmapped" — an exemption is a documented decision, an unmapped
+ * entry is an unfilled gap.
+ */
+const SCAN_EXEMPT_TOOLS: Record<string, string> = {
+  rtk: "crates.io 'rtk' is an unrelated project; rtk-ai/rtk ships only via git/Homebrew/scoop install scripts — no OSV advisory package",
+  comby: "comby-tools/comby ships only as a GitHub-release binary / opam — no npm/Go/PyPI/crates OSV advisory package",
+};
+
+/**
+ * Critical/High advisories explicitly acknowledged (no upstream fix available).
+ * Acknowledged ids are still REPORTED (with reason) but do NOT fail the gate.
+ * Review each by its reviewBy date.
+ */
+const ACKNOWLEDGED_ADVISORIES: Record<
+  string,
+  { reason: string; addedISO: string; reviewBy: string }
+> = {
+  "GHSA-g76p-4vg5-f4qh": {
+    reason:
+      "llm --functions code-injection is by-design (arbitrary Python via a user-invoked flag); OSV lists no upstream fix. Mitigation: never pass untrusted input to `llm --functions`.",
+    addedISO: "2026-06-03",
+    reviewBy: "2026-09-01",
+  },
 };
 
 /**
@@ -295,7 +357,15 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
 
   const targets: CliToolTarget[] = [];
   const unmapped: CliToolMeta[] = [];
+  const exempted: ExemptedTool[] = [];
   for (const meta of Object.values(registry)) {
+    const exemptReason = SCAN_EXEMPT_TOOLS[meta.id];
+    if (exemptReason !== undefined) {
+      // Documented no-scan decision: report separately, never query, never
+      // count as unmapped.
+      exempted.push({ meta, reason: exemptReason });
+      continue;
+    }
     const target = mapToolToOsvTarget(meta);
     if (target) targets.push(target);
     else unmapped.push(meta);
@@ -327,33 +397,63 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
         publishedISO,
         ageDays,
         isStale,
+        acknowledged: ACKNOWLEDGED_ADVISORIES[v.id] !== undefined,
       });
     }
   }
 
-  const staleFindings = findings.filter((f) => f.isStale);
-  return { targets, findings, staleFindings, maxAgeDays, queryErrors, unmapped };
+  // Acknowledged advisories are reported but never gate: a stale acknowledged
+  // finding is excluded from staleFindings so the documented no-fix advisory
+  // does not fail the build.
+  const staleFindings = findings.filter((f) => f.isStale && !f.acknowledged);
+  const acknowledgedFindings = findings.filter((f) => f.acknowledged);
+  return {
+    targets,
+    findings,
+    staleFindings,
+    acknowledgedFindings,
+    maxAgeDays,
+    queryErrors,
+    unmapped,
+    exempted,
+  };
 }
 
 // ── Output formatting ─────────────────────────────────────────────
 
-export function formatTextReport(report: CheckReport): string {
+export function formatTextReport(report: CheckReport, now: Date = new Date()): string {
   const lines: string[] = [];
   lines.push("check-cli-cves:");
   lines.push(`  targets queried: ${report.targets.length}`);
   lines.push(`  Critical/High findings: ${report.findings.length}`);
   lines.push(`  stale (>${report.maxAgeDays} days): ${report.staleFindings.length}`);
+  lines.push(`  acknowledged (reported, not gating): ${report.acknowledgedFindings.length}`);
   lines.push(`  unmapped registry entries: ${report.unmapped.length}`);
+  lines.push(`  exempted (intentionally not OSV-scanned): ${report.exempted.length}`);
   if (report.findings.length > 0) {
     lines.push("");
     lines.push("  Critical/High advisories:");
     for (const f of report.findings) {
       const age = f.ageDays !== undefined ? `${f.ageDays}d` : "age unknown";
-      const tag = f.isStale ? "FAIL" : "warn";
+      // Acknowledged advisories render [ack] (no FAIL/warn) — they are reported
+      // for visibility but excluded from the gate by construction.
+      const tag = f.acknowledged ? "ack" : f.isStale ? "FAIL" : "warn";
       lines.push(
         `    [${tag}] ${f.severity.padEnd(8)} ${f.id}  ${f.target.tool} (${f.target.ecosystem}/${f.target.name}@${f.target.version ?? "unpinned"}) (${age})`,
       );
       if (f.summary) lines.push(`           ${f.summary}`);
+      if (f.acknowledged) {
+        const ack = ACKNOWLEDGED_ADVISORIES[f.id];
+        if (ack) {
+          lines.push(`           acknowledged: ${ack.reason}`);
+          lines.push(`           added ${ack.addedISO}, review by ${ack.reviewBy}`);
+          if (Date.parse(ack.reviewBy) < now.getTime()) {
+            lines.push(
+              `           review overdue (reviewBy ${ack.reviewBy} has passed) — re-verify the no-fix status`,
+            );
+          }
+        }
+      }
     }
   }
   if (report.queryErrors.length > 0) {
@@ -370,14 +470,26 @@ export function formatTextReport(report: CheckReport): string {
       lines.push(`    - ${meta.id} (${meta.category})`);
     }
   }
+  if (report.exempted.length > 0) {
+    lines.push("");
+    lines.push("  Exempted (intentionally not OSV-scanned, see SCAN_EXEMPT_TOOLS):");
+    for (const ex of report.exempted) {
+      lines.push(`    - ${ex.meta.id} (${ex.meta.category}): ${ex.reason}`);
+    }
+  }
   lines.push("");
+  const gatingFindings = report.findings.length - report.acknowledgedFindings.length;
   if (report.staleFindings.length > 0) {
     lines.push(
-      `  ${report.staleFindings.length} Critical/High advisory(ies) older than ${report.maxAgeDays} days. Bump pinned minVersion in src/cliTools/registry.ts or open an exception note.`,
+      `  ${report.staleFindings.length} Critical/High advisory(ies) older than ${report.maxAgeDays} days (acknowledged advisories excluded). Bump pinned minVersion in src/cliTools/registry.ts or open an exception note.`,
     );
-  } else if (report.findings.length > 0) {
+  } else if (gatingFindings > 0) {
     lines.push(
-      `  All ${report.findings.length} Critical/High advisory(ies) within the ${report.maxAgeDays}-day window. No gate failure; bump on the next cycle.`,
+      `  All ${gatingFindings} gating Critical/High advisory(ies) within the ${report.maxAgeDays}-day window. No gate failure; bump on the next cycle.`,
+    );
+  } else if (report.acknowledgedFindings.length > 0) {
+    lines.push(
+      `  No gating Critical/High advisories across ${report.targets.length} CLI tool(s) queried (${report.acknowledgedFindings.length} acknowledged advisory(ies) reported above, excluded from the gate).`,
     );
   } else {
     lines.push(
@@ -391,13 +503,14 @@ export function formatTextReport(report: CheckReport): string {
 
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
-  const report = await checkCliCves({ maxAgeDays: flags.maxAgeDays });
+  const now = new Date();
+  const report = await checkCliCves({ maxAgeDays: flags.maxAgeDays, now: () => now });
   if (flags.json) {
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(report, null, 2));
   } else {
     // eslint-disable-next-line no-console
-    console.log(formatTextReport(report));
+    console.log(formatTextReport(report, now));
   }
   if (report.staleFindings.length > 0) process.exit(1);
 }

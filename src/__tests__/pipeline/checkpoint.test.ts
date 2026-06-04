@@ -36,7 +36,13 @@ describe("pipeline/checkpoint", () => {
 
   describe("checkpointPath", () => {
     it("returns workspace/checkpoint.json", () => {
-      expect(checkpointPath("/tmp/foo")).toBe(`/tmp/foo/${CHECKPOINT_FILE}`);
+      // checkpointPath is an internal FS-path helper (fed to readFile/writeFile/
+      // copyFile), not a cross-platform persisted or user-facing `/`-path — so it
+      // correctly uses path.join and emits the native separator. Build the
+      // expected with join() too so the assertion is about composition, not the
+      // platform separator (`\` on Windows vs `/` on POSIX).
+      const workspace = join("/tmp", "foo");
+      expect(checkpointPath(workspace)).toBe(join(workspace, CHECKPOINT_FILE));
     });
   });
 
