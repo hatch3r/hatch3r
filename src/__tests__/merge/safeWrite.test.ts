@@ -628,6 +628,32 @@ describe("safeWrite", () => {
       expect(second.action).toBe("unchanged");
     });
 
+    it("appendIfNoBlock with whitespace-only content is a no-op prepend → 'unchanged', disk untouched (safeWrite.ts:690)", async () => {
+      // safeWrite.ts:690 (the appendIfNoBlock 'unchanged' short-circuit) IS
+      // reachable on a FIRST write, not only on a redundant second sync: when
+      // `content` trims to empty, the prepend `[content.trim(), "",
+      // existing.trimStart()].join("\n")` reduces to "\n\n" + existing.trimStart().
+      // For an existing no-block file that is itself "\n\n" + trimmed-body + "\n",
+      // the prepended bytes equal the existing bytes, so the equality at
+      // safeWrite.ts:689 holds and line 690 returns 'unchanged' without writing.
+      // `managedContent` only needs to be truthy to pass the line-659 gate; it is
+      // not used in the prepend math (only the positional `content` arg is).
+      const dir = await createTempDir();
+      const filePath = join(dir, "AGENTS.md");
+      const existing = "\n\nhello world\n";
+      await writeFile(filePath, existing, "utf-8");
+
+      const result = await safeWriteFile(filePath, "", {
+        managedContent: "irrelevant-but-truthy",
+        appendIfNoBlock: true,
+      });
+
+      expect(result.action).toBe("unchanged");
+      expect(result.warning).toBeUndefined();
+      // Disk must be byte-identical to the pre-write content (no atomicWriteFile).
+      expect(await readFile(filePath, "utf-8")).toBe(existing);
+    });
+
     it("idempotent: hatch3r- prefix without managedContent — second write is unchanged", async () => {
       const dir = await createTempDir();
       const filePath = join(dir, "hatch3r-rule.md");
