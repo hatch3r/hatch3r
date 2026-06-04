@@ -624,7 +624,10 @@ describe("workspace sync", () => {
       const entry = persisted!.repos.find((r) => r.path === name);
       expect(entry?.lastSync, `lastSync for ${name}`).toBeDefined();
     }
-  });
+    // Windows runners run real multi-repo git+adapter work ~5-10x slower; 30s
+    // default is borderline — give headroom (test completes in ~6s on macOS,
+    // never hangs). 5 real `git init` repos + 5 real adapter generations.
+  }, 90_000);
 
   // D14-SA14.2-H01 (High, C9-H45): The `concurrency` option caps the
   // number of sub-repo syncs in flight simultaneously. Verified by
@@ -695,7 +698,12 @@ describe("workspace sync", () => {
     } finally {
       getAdapterSpy.mockRestore();
     }
-  });
+    // Windows runners run real multi-repo git+adapter work ~5-10x slower; 30s
+    // default is borderline — give headroom (test completes in ~7.6s on macOS,
+    // never hangs). 5 real `git init` repos + 5 real adapter generations, each
+    // with a forced 25ms overlap delay to make the concurrency-cap assertion
+    // observable; the cap logic itself is exercised real, not mocked.
+  }, 90_000);
 
   // D14-SA14.2-H01 (High, C9-H45): The sync journal at
   // `<workspaceRoot>/.agents/.workspace-sync-journal.jsonl` records one
