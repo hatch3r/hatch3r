@@ -23,7 +23,12 @@ describe("workspace detect", () => {
   let tempDir: string;
 
   afterEach(async () => {
-    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    // Windows-safe teardown: fs.rm retries ENOTEMPTY/EBUSY/EPERM with a linear
+    // backoff when recursive:true (Node fs docs, accessed 2026-06-04:
+    // https://nodejs.org/api/fs.html). These tests create real git repos whose
+    // file handles Windows may still hold; the retries cover the brief
+    // deferred-deletion window. Inert on POSIX (first attempt succeeds).
+    if (tempDir) await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   async function setup(): Promise<string> {
@@ -166,7 +171,9 @@ describe("isWorkspaceRoot", () => {
   let tempDir: string;
 
   afterEach(async () => {
-    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    // Windows-safe teardown — see the rationale on the "workspace detect"
+    // afterEach above: fs.rm retries ENOTEMPTY/EBUSY/EPERM (recursive:true).
+    if (tempDir) await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("returns true for directory with workspace.json", async () => {
@@ -211,7 +218,12 @@ describe("workspace sync", () => {
   let tempDir: string;
 
   afterEach(async () => {
-    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    // Windows-safe teardown — see the rationale on the "workspace detect"
+    // afterEach above. This block's parallel/concurrency-cap tests create 5
+    // git repos and run 5 real adapter generations, so they hold the most
+    // file handles and are the most prone to the deferred-deletion ENOTEMPTY
+    // that caused the CI failure; the retries cover that window.
+    if (tempDir) await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   async function createGitRepo(dir: string): Promise<void> {

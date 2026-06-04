@@ -88,7 +88,12 @@ describe("sync command", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    // Windows defers deletion of files with open handles and locks them while
+    // open, so an immediate recursive rmdir can throw ENOTEMPTY/EBUSY/EPERM on
+    // a freshly-written temp tree. fs.rm retries exactly those errnos with a
+    // linear backoff when recursive:true (Node fs docs, accessed 2026-06-04:
+    // https://nodejs.org/api/fs.html). Inert on POSIX (first attempt succeeds).
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("should exit with error when no manifest exists", async () => {
