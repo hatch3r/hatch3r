@@ -1,1 +1,15 @@
+# Line-ending normalization (Windows CI fix).
+# Git auto-detects text vs binary, normalizes text to LF in the index, and
+# forces LF in the working tree on EVERY platform — including a Windows
+# checkout (which otherwise inherits core.autocrlf=true and writes CRLF).
+# Keeps tests that read committed files seeing LF, matching code that emits
+# LF, so the suite is deterministic across ubuntu/macos/windows.
+* text=auto eol=lf
+
+# Windows shell scripts must keep CRLF or they misbehave under cmd.exe.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Generated lock workflows.
 .github/workflows/*.lock.yml linguist-generated=true merge=ours

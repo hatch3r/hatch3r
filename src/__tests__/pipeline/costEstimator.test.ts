@@ -2,7 +2,23 @@ import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+
+// Mock node:fs so the Silent Failure Contract tests can inject a write failure
+// at the fs boundary deterministically on every OS. Every call delegates to the
+// real implementation by default; individual tests override `mockMkdirSync`
+// to throw. (The prior tests pointed `projectRoot` at `/dev/null/<x>`, which
+// fails ENOTDIR on POSIX but can mkdir-succeed under a drive root on Windows —
+// making the assertion platform-dependent.)
+const realNodeFs = await vi.importActual<typeof import("node:fs")>("node:fs");
+const mockMkdirSync = vi.fn<typeof realNodeFs.mkdirSync>();
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    mkdirSync: (...a: Parameters<typeof actual.mkdirSync>) => mockMkdirSync(...a),
+  };
+});
 
 import {
   appendTelemetrySnapshot,
@@ -207,6 +223,13 @@ describe("computeDelta", () => {
 
 // ── recordActuals + appendTelemetrySnapshot persistence ─────────
 
+// Default: the mocked mkdirSync delegates to the real implementation. Failure
+// tests override it for their duration; this re-establishes the delegate before
+// every test so the override never leaks.
+beforeEach(() => {
+  mockMkdirSync.mockImplementation((...a) => realNodeFs.mkdirSync(...a));
+});
+
 describe("recordActuals", () => {
   let tmpRoot: string;
 
@@ -269,12 +292,17 @@ describe("recordActuals", () => {
   });
 
   it("returns false (no throw) when the project root is unwritable (Silent Failure Contract)", () => {
-    // /dev/null cannot host a .hatch3r/telemetry/ subtree.
+    // Inject the write failure at the fs boundary (mkdirSync throws) rather than
+    // via a POSIX-only unwritable path. `/dev/null/<x>` fails ENOTDIR on POSIX
+    // but resolves to a drive-relative `\dev\null\<x>` on Windows where mkdir can
+    // SUCCEED, making the assertion platform-dependent. This exercises the same
+    // Silent Failure Contract branch (catch → route → return false) on every OS.
+    mockMkdirSync.mockImplementation(() => {
+      throw Object.assign(new Error("mkdir denied"), { code: "EACCES" });
+    });
     let ok: boolean | undefined;
     expect(() => {
-      ok = recordActuals("oom-test", sampleActuals, {
-        projectRoot: "/dev/null/not-a-directory",
-      });
+      ok = recordActuals("oom-test", sampleActuals, { projectRoot: tmpRoot });
     }).not.toThrow();
     expect(ok).toBe(false);
   });
@@ -314,11 +342,14 @@ describe("appendTelemetrySnapshot", () => {
   it("returns true on successful write and false on failure", () => {
     const ok = appendTelemetrySnapshot("ok-session", { phase: "act" }, tmpRoot);
     expect(ok).toBe(true);
-    const fail = appendTelemetrySnapshot(
-      "fail-session",
-      { phase: "act" },
-      "/dev/null/not-a-dir",
-    );
+    // Inject the failure at the fs boundary (mkdirSync throws) instead of a
+    // POSIX-only `/dev/null/<x>` path: that path fails ENOTDIR on POSIX but can
+    // mkdir-succeed under a drive root on Windows. This drives the same catch →
+    // route → return-false branch on every OS.
+    mockMkdirSync.mockImplementation(() => {
+      throw Object.assign(new Error("mkdir denied"), { code: "EACCES" });
+    });
+    const fail = appendTelemetrySnapshot("fail-session", { phase: "act" }, tmpRoot);
     expect(fail).toBe(false);
   });
 

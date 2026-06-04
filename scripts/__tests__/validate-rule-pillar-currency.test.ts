@@ -11,7 +11,12 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const REPO_ROOT = resolve(__dirname, "..", "..");
-const CONSTITUTION_REL = "governance/CONSTITUTION.md";
+// Build with path.join so the existsSync probe targets the same native path the
+// validator's `join(rootDir, ...)` resolves to on every OS (avoid an embedded
+// "/" literal that the cookbook flags). On Windows CI governance/ is absent
+// (gitignored, private), so the real-repo test asserts the graceful-skip
+// contract; this keeps the present/absent branch selection unambiguous there.
+const CONSTITUTION_REL = join("governance", "CONSTITUTION.md");
 
 import {
   checkContentAuthoringFile,

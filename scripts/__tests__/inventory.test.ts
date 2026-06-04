@@ -188,9 +188,13 @@ describe("inventory: buildInventory (injectable date)", () => {
 
     const reconciled = reconcileLastUpdated(fresh, committed);
     expect(reconciled.lastUpdated).toBe(committed.lastUpdated);
-    // Full document round-trips byte-for-byte to the committed copy.
-    const rendered = `${JSON.stringify(reconciled, null, 2)}\n`;
-    const committedRaw = await readFile(COMMITTED_INVENTORY, "utf-8");
+    // Full document round-trips byte-for-byte to the committed copy. Normalize
+    // line endings on both sides: `JSON.stringify` always emits `\n`, but a
+    // Windows checkout could read the committed file with `\r\n` (the repo-root
+    // `.gitattributes` forces LF, so this is defense-in-depth — keeps the byte
+    // compare about content, not the platform's line-ending convention).
+    const rendered = `${JSON.stringify(reconciled, null, 2)}\n`.replace(/\r\n/g, "\n");
+    const committedRaw = (await readFile(COMMITTED_INVENTORY, "utf-8")).replace(/\r\n/g, "\n");
     expect(rendered).toBe(committedRaw);
   });
 });

@@ -1,6 +1,22 @@
 import { access, mkdir, readFile, readdir, rename, rmdir, stat } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { dirname, join, relative, sep } from "node:path";
 import { HATCH3R_DIR, MANIFEST_FILE } from "../types.js";
+
+/**
+ * Repo-relative path rendered with forward slashes regardless of host OS.
+ *
+ * `relative()` yields backslashes on Windows; the rest of this module's
+ * operator-facing display strings (the `moved` entries below) are
+ * hardcoded forward-slash, and the consolidated `console.warn` conflict
+ * summary must read identically on every platform. These paths are display
+ * /diagnostic only — never persisted to a cross-platform artifact nor parsed
+ * back — so normalizing the separator is safe and removes the sole
+ * Windows-vs-POSIX divergence in the conflict report.
+ */
+function toDisplayPath(rootDir: string, absPath: string): string {
+  const rel = relative(rootDir, absPath);
+  return sep === "/" ? rel : rel.split(sep).join("/");
+}
 
 /**
  * Legacy `.agents/` directory name retained ONLY in this migration shim.
@@ -239,8 +255,8 @@ function recordIfConflict(
     outcome.identical === false
   ) {
     conflicts.push({
-      sourcePath: relative(rootDir, sourcePath),
-      destPath: relative(rootDir, destPath),
+      sourcePath: toDisplayPath(rootDir, sourcePath),
+      destPath: toDisplayPath(rootDir, destPath),
       kind,
       reason: outcome.detail,
     });

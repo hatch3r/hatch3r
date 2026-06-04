@@ -15,23 +15,38 @@ vi.mock("node:child_process", async (importOriginal) => {
 describe("runSelfUpdate", () => {
   let tempDir: string;
   const originalArgv1 = process.argv[1];
-  const originalPlatform = process.platform;
+  // Capture the full descriptor (not just the string) so the restore is a
+  // faithful round-trip and every stub carries `configurable: true` — without
+  // it a real Windows runner (`process.platform === "win32"` at capture) would
+  // pin the property non-configurable on the first define and throw
+  // `TypeError: Cannot redefine property` on the next beforeEach/win32 stub.
+  const originalPlatformDescriptor = Object.getOwnPropertyDescriptor(
+    process,
+    "platform",
+  );
+  const setPlatform = (value: NodeJS.Platform): void => {
+    Object.defineProperty(process, "platform", { value, configurable: true });
+  };
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-self-update-"));
     _resetNpmGlobalRootCacheForTesting();
     vi.mocked(execFileSync).mockReturnValue(Buffer.from(""));
-    // Pin platform to linux so the Windows-shim guard at
-    // src/install/selfUpdate.ts:143 does not fire for tests that exercise
-    // the global-install branch. The dedicated win32 test below explicitly
-    // overrides this. afterEach restores the originalPlatform captured
-    // outside the describe.
-    Object.defineProperty(process, "platform", { value: "linux" });
+    // Stub platform to a non-Windows value so the Windows-shim guard in
+    // src/install/selfUpdate.ts (the `target.kind === "global" &&
+    // process.platform === "win32"` skip) does NOT fire for tests that
+    // exercise the global-install branch. Tests asserting non-Windows
+    // behaviour MUST pin a non-win32 value here rather than relying on the
+    // host, or they flip on a real Windows runner. The dedicated win32 test
+    // below explicitly overrides this to "win32".
+    setPlatform("linux");
   });
 
   afterEach(async () => {
     process.argv[1] = originalArgv1;
-    Object.defineProperty(process, "platform", { value: originalPlatform });
+    if (originalPlatformDescriptor) {
+      Object.defineProperty(process, "platform", originalPlatformDescriptor);
+    }
     await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
@@ -114,7 +129,10 @@ describe("runSelfUpdate", () => {
   });
 
   it("skips global self-update on Windows with guided message", async () => {
-    Object.defineProperty(process, "platform", { value: "win32" });
+    // Assert Windows-specific behaviour by STUBBING win32 deterministically
+    // (configurable so afterEach can restore) — never rely on the host
+    // platform, which would make this pass only on a real Windows runner.
+    setPlatform("win32");
     await seedGlobalInstall();
     const fakeRoot = join(tempDir, "fake-global-root");
     process.argv[1] = join(fakeRoot, "hatch3r", "dist", "cli", "index.js");
