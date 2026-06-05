@@ -62,7 +62,7 @@ agent: hatch3r-reviewer
 model: codex
 ```
 
-Use the `agent-customize` command for interactive setup.
+Run the `/hatch3r-customize` skill (an AI-tool slash command inside Cursor or Claude Code) for interactive setup across every artifact type.
 
 ### Skills
 
@@ -72,7 +72,7 @@ Create `.hatch3r/skills/{skill-id}.customize.yaml`:
 skill: hatch3r-feature
 ```
 
-Use the `skill-customize` command for interactive setup.
+The `/hatch3r-customize` skill handles skills too — pass the skill id when it asks what to customize.
 
 ### Rules
 
@@ -82,7 +82,7 @@ Create `.hatch3r/rules/{rule-id}.customize.yaml`:
 rule: hatch3r-code-standards
 ```
 
-Use the `rule-customize` command for interactive setup.
+The `/hatch3r-customize` skill handles rules too — pass the rule id when it asks what to customize.
 
 ### Rule precedence and generated filenames
 
@@ -98,11 +98,11 @@ Create `.hatch3r/commands/{command-id}.customize.yaml`:
 command: hatch3r-board-fill
 ```
 
-Use the `command-customize` command for interactive setup.
+The `/hatch3r-customize` skill handles commands too — pass the command id when it asks what to customize.
 
 ## Authoring New User-Tier Artifacts
 
-The `*-customize` commands above adjust hatch3r's stock content. To author a brand-new project-specific artifact that hatch3r does not ship, use the `create` command.
+The `/hatch3r-customize` skill above adjusts hatch3r's stock content. To author a brand-new project-specific artifact that hatch3r does not ship, use the `create` command.
 
 `/hatch3r-create` walks you through type selection (agent, skill, rule, command, or hook), name, description, tags, adapter scope, and type-specific fields. It then delegates to the `hatch3r-creator` sub-agent, which composes the frontmatter and body skeleton, runs the same strict frontmatter/security/structural gates the framework uses on canonical content (block on failure) plus style/lean checks as warnings, and atomic-writes the file.
 

@@ -147,6 +147,47 @@ Applies to API code and protobufs.`,
     }
   });
 
+  // D9-6 (P2): canonical `scope: conditional` + `globs:` two-line form (the
+  // companion to the inline-CSV test above). This exercises the
+  // `resolveRuleGlobs` `scope === "conditional"` branch — the path the X4/CD4
+  // GLOBS-DROP regression broke, where every conditional rule (incl.
+  // `floor:security` `hatch3r-security-patterns`) emitted `paths: ["conditional"]`
+  // and the real patterns in the `globs:` field were dropped, so no
+  // `.claude/rules/` rule auto-loaded on its target files. Pins the exact
+  // rendered `paths:` array and asserts the scope keyword never leaks.
+  it("resolves conditional-scoped globs into the paths: array, never the scope keyword", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-conditional-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "conditional-rule.md"),
+        `---
+id: conditional-rule
+type: rule
+description: A conditional-scoped rule
+scope: conditional
+globs: "src/api/**,**/*.proto"
+---
+# Conditional Rule
+
+Applies to API code and protobufs.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const rule = outputs.find((o) => o.path.includes("conditional-rule"));
+      expect(rule).toBeDefined();
+      expect(rule!.content).toMatch(
+        /^---\npaths: \["src\/api\/\*\*", "\*\*\/\*\.proto"\]\n---\n/,
+      );
+      // The scope keyword must not survive into the resolved glob array.
+      expect(rule!.content).not.toContain('"conditional"');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("generates agent files in .claude/agents/", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

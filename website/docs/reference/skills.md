@@ -12,12 +12,10 @@ On-demand instruction bundles for specific tasks. Skills are loaded by agents wh
 | Skill | Description |
 |-------|-------------|
 | **a11y-audit** | WCAG 2.2 AA audit across all four POUR principles with automated scanning, manual verification, and fix implementation. |
-| **agent-customize** | Configure per-agent customization via `.customize.yaml` files. |
 | **api-spec** | Generate and validate OpenAPI specifications from codebase. Covers endpoint design, schema validation, and documentation generation. |
 | **architecture-review** | Evaluate architectural decisions, compare options with pros/cons, and produce ADRs following the project template. |
 | **bug-fix** | Diagnose root cause, implement minimal fix, and write a regression test that fails before the fix. TDD/test-first workflow option. |
 | **ci-pipeline** | Design and optimize CI/CD pipelines. Covers stage design, test parallelization, artifact management, and pipeline performance. |
-| **command-customize** | Configure per-command customization via `.customize.yaml` files. |
 | **customize** | Create and manage customization files for any hatch3r artifact type (agents, commands, rules, skills). Supports model overrides, scope overrides, enable/disable control, and project-specific instructions. |
 | **context-health** | Monitor conversation context health and detect degradation during long sessions. |
 | **cost-tracking** | Track token usage and estimated costs across agent workflows. |
@@ -34,8 +32,6 @@ On-demand instruction bundles for specific tasks. Skills are loaded by agents wh
 | **recipe** | Create and manage composable workflow recipes. |
 | **refactor** | Internal code quality improvement without changing external behavior, with behavioral preservation tests. |
 | **release** | Cut a release with semantic versioning, changelog generation, pre-release/RC support, git tagging, and deploy verification. |
-| **rule-customize** | Configure per-rule customization via `.customize.yaml` files. |
-| **skill-customize** | Configure per-skill customization via `.customize.yaml` files. |
 | **visual-refactor** | UI/UX changes matching design mockups with WCAG AA accessibility and responsiveness verification. |
 
 ## Canonical Location

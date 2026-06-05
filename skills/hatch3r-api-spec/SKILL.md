@@ -151,6 +151,8 @@ This skill delegates per task size:
 - Tier 2 (multiple services or spec + client-codegen + CI-gate concerns): spawn parallel sub-agents per concern via the Task tool.
 - Tier 3 (cross-service contract suite): one fresh sub-agent per service spec; orchestrator integrates only.
 
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+
 Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
 
 ## Error Handling

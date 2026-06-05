@@ -471,6 +471,95 @@ interface DriftResult {
 }
 
 /**
+ * Stale-token probes (Cycle 11 D10-9, P3 docs currency).
+ *
+ * Unlike count probes (which assert a number matches), these assert that a
+ * decommissioned identifier never reappears in consumer docs. Each probe names
+ * a removed token plus the canonical replacement to surface in the failure
+ * message. D10-9 retired the four `*-customize` editor commands in v1.9.0 in
+ * favour of the single `/hatch3r-customize` skill; this guard fails CI if any
+ * of the four strings drift back into the website docs.
+ */
+interface StaleTokenProbe {
+  files: string[];
+  token: string;
+  replacement: string;
+}
+
+const STALE_TOKEN_PROBES: StaleTokenProbe[] = [
+  {
+    files: [
+      "website/docs/guides/customization.md",
+      "website/docs/reference/skills.md",
+      "website/docs/reference/commands/agent-commands.md",
+    ],
+    token: "agent-customize",
+    replacement: "the /hatch3r-customize skill",
+  },
+  {
+    files: [
+      "website/docs/guides/customization.md",
+      "website/docs/reference/skills.md",
+      "website/docs/reference/commands/agent-commands.md",
+    ],
+    token: "command-customize",
+    replacement: "the /hatch3r-customize skill",
+  },
+  {
+    files: [
+      "website/docs/guides/customization.md",
+      "website/docs/reference/skills.md",
+      "website/docs/reference/commands/agent-commands.md",
+    ],
+    token: "rule-customize",
+    replacement: "the /hatch3r-customize skill",
+  },
+  {
+    files: [
+      "website/docs/guides/customization.md",
+      "website/docs/reference/skills.md",
+      "website/docs/reference/commands/agent-commands.md",
+    ],
+    token: "skill-customize",
+    replacement: "the /hatch3r-customize skill",
+  },
+];
+
+interface StaleTokenResult {
+  file: string;
+  token: string;
+  replacement: string;
+}
+
+/**
+ * Scan each probe's files for its forbidden token. A hit means a consumer doc
+ * still cites a decommissioned identifier. Exported for unit coverage.
+ */
+export async function checkStaleTokens(): Promise<StaleTokenResult[]> {
+  const hits: StaleTokenResult[] = [];
+  for (const probe of STALE_TOKEN_PROBES) {
+    for (const file of probe.files) {
+      const absPath = join(ROOT, file);
+      let contents: string;
+      try {
+        contents = await readFile(absPath, "utf-8");
+      } catch (err) {
+        if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+        throw err;
+      }
+      if (contents.includes(probe.token)) {
+        hits.push({
+          file,
+          token: probe.token,
+          replacement: probe.replacement,
+        });
+      }
+    }
+  }
+  return hits;
+}
+
+/**
  * Version-drift probes (bugbot C1-PR54-5).
  *
  * Cross-checks that manifest files outside `package.json` stay pinned to the
@@ -586,10 +675,16 @@ async function main(): Promise<void> {
 
   const drifts = await checkDocDrift(inventory.counts);
   const versionDrifts = await checkVersionDrift();
-  if (drifts.length === 0 && versionDrifts.length === 0) {
+  const staleTokens = await checkStaleTokens();
+  if (
+    drifts.length === 0 &&
+    versionDrifts.length === 0 &&
+    staleTokens.length === 0
+  ) {
     // eslint-disable-next-line no-console
     console.log(
-      `inventory: doc-drift check PASS — ${DRIFT_PROBES.length} count probes + ${VERSION_PROBES.length} version probes, 0 drifts`,
+      `inventory: doc-drift check PASS — ${DRIFT_PROBES.length} count probes + ` +
+        `${VERSION_PROBES.length} version probes + ${STALE_TOKEN_PROBES.length} stale-token probes, 0 drifts`,
     );
     return;
   }
@@ -616,6 +711,18 @@ async function main(): Promise<void> {
       console.error(
         `  - ${d.file} [${d.label}]: expected ${d.expected}, ` +
           `found ${d.found === null ? "<no match>" : d.found}`,
+      );
+    }
+  }
+  if (staleTokens.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `inventory: stale-token FAIL — ${staleTokens.length} consumer-doc references to decommissioned identifiers:`,
+    );
+    for (const h of staleTokens) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `  - ${h.file}: contains removed token "${h.token}" — use ${h.replacement}`,
       );
     }
   }

@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildInventory,
+  checkStaleTokens,
   reconcileLastUpdated,
   sameInventoryContent,
   readExistingInventory,
@@ -196,5 +197,16 @@ describe("inventory: buildInventory (injectable date)", () => {
     const rendered = `${JSON.stringify(reconciled, null, 2)}\n`.replace(/\r\n/g, "\n");
     const committedRaw = (await readFile(COMMITTED_INVENTORY, "utf-8")).replace(/\r\n/g, "\n");
     expect(rendered).toBe(committedRaw);
+  });
+});
+
+describe("inventory: checkStaleTokens (D10-9 docs-currency probe)", () => {
+  it("reports 0 hits against the committed website docs (no removed *-customize references)", async () => {
+    // Cycle 11 D10-9: the four `*-customize` editor commands were retired in
+    // v1.9.0 for the single `/hatch3r-customize` skill. This proves the live
+    // docs carry none of the removed tokens, so the CI `--check-docs` gate is
+    // green; a regression that reintroduces one would flip this to >0 hits.
+    const hits = await checkStaleTokens();
+    expect(hits).toEqual([]);
   });
 });

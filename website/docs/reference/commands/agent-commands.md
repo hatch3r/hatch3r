@@ -183,18 +183,6 @@ When to use: you need a project-specific artifact that does not exist in the can
 
 Outputs: one new file under `.hatch3r/overrides/{type}/{name}.md` (rules also write a paired `.mdc`; skills create a `{name}/SKILL.md` subdirectory). Run `hatch3r sync` afterward to propagate the artifact to all enabled adapter outputs.
 
-### agent-customize
+### customize
 
-Configure per-agent customization via `.customize.yaml` files.
-
-### command-customize
-
-Configure per-command customization via `.customize.yaml` files.
-
-### skill-customize
-
-Configure per-skill customization via `.customize.yaml` files.
-
-### rule-customize
-
-Configure per-rule customization via `.customize.yaml` files.
+One skill (`/hatch3r-customize`) manages per-artifact customization via `.customize.yaml` files across every artifact type — agents, commands, rules, and skills. Supports model overrides, scope overrides, enable/disable control, and project-specific instructions. The four prior type-specific entrypoints (one per artifact type) were collapsed into this single skill in v1.9.0. See the [Skills reference](../skills) and the [Customization guide](../../guides/customization).

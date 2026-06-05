@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { CommanderError } from "commander";
 import { classifyCliError } from "../../cli/errorClassification.js";
 
 // ──────────────────────────────────────────────────────────────────────────
@@ -57,6 +58,62 @@ describe("classifyCliError (D1-SA1.8.1)", () => {
 
     it("classifies 'missing required' as 'usage'", () => {
       const err = new Error("missing required argument 'path'");
+      expect(classifyCliError(err, { shuttingDown: false })).toBe("usage");
+    });
+  });
+
+  // ────────────────────────────────────────────────────────────────────────
+  // D8-2 (Cycle 11 Wave 2, P1): commander 14.x raises a CommanderError whose
+  // stable `name`/`code` identify the failure class, and whose *message* is
+  // lowercase ("unknown option '--x'", "... argument 'z' is invalid"). The
+  // prior capitalized-substring heuristic ("Invalid"/"Unknown") missed every
+  // real commander message, so a user mistake was misclassified as
+  // "unexpected" (exit 1 + bug-report URL) instead of "usage" (exit 2). These
+  // tests lock classification onto the stable code/name contract AND the
+  // lowercase-message fallback.
+  // ────────────────────────────────────────────────────────────────────────
+  describe("usage errors (commander code/name contract)", () => {
+    it("classifies a CommanderError by name+code (lowercase message) as 'usage'", () => {
+      const err = new CommanderError(
+        1,
+        "commander.unknownOption",
+        "error: unknown option '--bogus'",
+      );
+      // name is "CommanderError" and code starts with "commander." — must be usage.
+      expect(err.name).toBe("CommanderError");
+      expect(classifyCliError(err, { shuttingDown: false })).toBe("usage");
+    });
+
+    it.each([
+      ["commander.unknownOption", "error: unknown option '--bogus'"],
+      ["commander.unknownCommand", "error: unknown command 'frobnicate'"],
+      ["commander.invalidArgument", "error: option '--lvl <n>' argument 'z' is invalid. Allowed choices are a, b."],
+      ["commander.optionMissingArgument", "error: option '--known <v>' argument missing"],
+      ["commander.missingMandatoryOptionValue", "error: required option '--req <v>' not specified"],
+    ])("classifies CommanderError code %s as 'usage'", (code, message) => {
+      const err = new CommanderError(1, code, message);
+      expect(classifyCliError(err, { shuttingDown: false })).toBe("usage");
+    });
+
+    it("classifies an Error carrying a commander-prefixed `code` (not named CommanderError) as 'usage'", () => {
+      // A re-wrapped parse failure may lose the CommanderError name but keep the code.
+      const err = Object.assign(new Error("error: unknown option '--x'"), {
+        code: "commander.unknownOption",
+      });
+      expect(err.name).toBe("Error");
+      expect(classifyCliError(err, { shuttingDown: false })).toBe("usage");
+    });
+
+    it.each([
+      "error: unknown option '--bogus'",
+      "error: unknown command 'frobnicate'",
+      "error: option '--lvl <n>' argument 'z' is invalid. Allowed choices are a, b.",
+      "error: option '--known <v>' argument missing",
+      "error: required option '--req <v>' not specified",
+    ])("classifies a plain Error with commander's lowercase message %s as 'usage' (fallback)", (message) => {
+      // No name, no code — only the lowercase message text. The fallback must
+      // still recognize these because the capitalized heuristic did not.
+      const err = new Error(message);
       expect(classifyCliError(err, { shuttingDown: false })).toBe("usage");
     });
   });

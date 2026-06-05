@@ -174,13 +174,15 @@ describe("${env:VAR} syntax transformation (#22)", () => {
     expect(mcp!.content).not.toContain("${env:");
   });
 
-  // Copilot transforms ${env:VAR} → $VAR (shell format).
-  // Cursor preserves ${env:VAR} (passthrough) because Cursor's MCP runtime
-  // interprets only ${env:NAME} / ${userHome} / ${workspaceFolder} — shell
-  // $VAR is treated as a literal string (cursor.com/docs/context/mcp
-  // accessed 2026-05-27). See D11-C-1 (Cycle 10, Pillar P6).
+  // D11-7 (Cycle 11, P6/CQ4): Copilot leaves NO `${env:VAR}` in `.vscode/mcp.json`.
+  // STDIO `env` is dropped in favour of the `.env.mcp` envFile loader; header
+  // `${env:NAME}` is rewritten to the VS Code `${input:NAME}` form (with a
+  // matching top-level `inputs[]` entry). Cursor preserves `${env:VAR}`
+  // (passthrough) because Cursor's MCP runtime interprets only
+  // `${env:NAME}` / `${userHome}` / `${workspaceFolder}` (cursor.com/docs/
+  // context/mcp accessed 2026-05-27). See D11-C-1 (Cycle 10, Pillar P6).
   const copilotAdapter = JSON_ADAPTERS.find((a) => a.name === "Copilot")!;
-  it(`Copilot adapter transforms \${env:VAR} to shell format ($VAR)`, async () => {
+  it("Copilot adapter emits no raw ${env:VAR} and rewrites header secrets to ${input:NAME}", async () => {
     const manifest = makeManifest(copilotAdapter.tool);
     const outputs = await copilotAdapter.adapter.generate(agentsDir, manifest);
 
@@ -192,8 +194,11 @@ describe("${env:VAR} syntax transformation (#22)", () => {
     }
     expect(mcpOutput).toBeDefined();
 
-    // No raw ${env:VAR} syntax should remain in the output
+    // No raw ${env:VAR} syntax should remain in the output.
     expect(mcpOutput!.content).not.toContain("${env:");
+    // Header secrets become VS Code ${input:NAME} references, NOT shell $VAR.
+    expect(mcpOutput!.content).toContain("${input:");
+    expect(mcpOutput!.content).not.toMatch(/"Bearer \$[A-Z_]+"/);
   });
 
   // D11-C-1 regression test: Cursor MUST preserve literal ${env:NAME}.
@@ -225,16 +230,19 @@ describe("${env:VAR} syntax transformation (#22)", () => {
     expect(mcpOutput!.content).not.toMatch(/":\s*"\$[A-Z_]+"/);
   });
 
-  // D11-C-2 (Cycle 10, Pillar P6): Copilot's STDIO MCP servers no longer
-  // ship their secrets via the `env` object — VS Code's MCP loader does
-  // not perform shell expansion, so the prior `$VAR` form was a literal
-  // string. STDIO secrets now route through `envFile`
-  // (`${workspaceFolder}/.env.mcp`) per
+  // D11-C-2 (Cycle 10, Pillar P6) + D11-7 (Cycle 11, P6/CQ4): Copilot's STDIO
+  // MCP servers route their `env` secrets through the `envFile` loader
+  // (`${workspaceFolder}/.env.mcp`) — VS Code does not shell-expand the `env`
+  // object. Header secrets (on either transport) are rewritten to VS Code's
+  // `${input:NAME}` form with a matching top-level `inputs[]` entry, because
+  // VS Code also does not shell-expand `$VAR` inside header values; the only
+  // header-secret substitution it performs is `${input:NAME}` prompting.
+  // STDIO schema per
   // https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
-  // (accessed 2026-05-27). HTTP-transport entries continue to ship
-  // header secrets as `$VAR` (preserved pending a follow-up that wires
-  // `${input:NAME}` + `inputs[]` for the HTTP path).
-  it("Copilot adapter routes STDIO secrets through envFile and HTTP secrets through headers", async () => {
+  // (accessed 2026-05-27); input-variable schema per
+  // https://code.visualstudio.com/docs/agents/reference/mcp-configuration
+  // (input-variables-for-sensitive-data, accessed 2026-06-05).
+  it("Copilot adapter routes STDIO env through envFile and header secrets through ${input:NAME} + inputs[]", async () => {
     const copilot = new CopilotAdapter();
     const manifest = makeManifest("copilot");
     const outputs = await copilot.generate(agentsDir, manifest);
@@ -248,14 +256,30 @@ describe("${env:VAR} syntax transformation (#22)", () => {
     expect(parsed.servers["cmd-server"].type).toBe("stdio");
     expect(parsed.servers["cmd-server"].env).toBeUndefined();
     expect(parsed.servers["cmd-server"].envFile).toBe("${workspaceFolder}/.env.mcp");
+    // STDIO header secret is rewritten to the VS Code ${input:NAME} form too.
+    expect(parsed.servers["cmd-server"].headers["X-Trace"]).toBe("${input:TRACE_ID}");
 
-    // HTTP server: headers still ship the secret via shell-style $VAR
-    // (out-of-scope for D11-C-2; documented as a follow-up).
+    // HTTP server: the auth header now carries a VS Code ${input:NAME}
+    // reference VS Code actually substitutes — NOT the broken `$VAR` literal.
     expect(parsed.servers["auth-server"].type).toBe("http");
-    expect(parsed.servers["auth-server"].headers.Authorization).toBe("Bearer $API_TOKEN");
+    expect(parsed.servers["auth-server"].headers.Authorization).toBe("Bearer ${input:API_TOKEN}");
+    // Static (non-secret) headers pass through unchanged and add no input.
+    expect(parsed.servers["auth-server"].headers["X-Custom"]).toBe("static-value");
 
-    // No raw ${env:VAR} survives on either transport (the original
-    // canonical-syntax markers are fully transformed).
+    // Top-level inputs[] declares one promptString-password entry per distinct
+    // header secret (deduped). VS Code prompts for these on first use.
+    const inputIds = (parsed.inputs as Array<{ id: string; type: string; password: boolean }>)
+      .map((i) => i.id)
+      .sort();
+    expect(inputIds).toEqual(["API_TOKEN", "TRACE_ID"]);
+    for (const input of parsed.inputs as Array<{ type: string; password: boolean }>) {
+      expect(input.type).toBe("promptString");
+      expect(input.password).toBe(true);
+    }
+
+    // No raw ${env:VAR} survives anywhere (env dropped, headers rewritten).
     expect(mcp!.content).not.toContain("${env:");
+    // No broken shell `$VAR` header literal survives either.
+    expect(mcp!.content).not.toMatch(/"Bearer \$[A-Z_]+"/);
   });
 });

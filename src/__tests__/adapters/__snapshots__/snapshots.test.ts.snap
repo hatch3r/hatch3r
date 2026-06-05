@@ -210,6 +210,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   {
     "action": "create",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,

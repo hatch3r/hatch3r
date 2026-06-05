@@ -123,7 +123,7 @@ Zero tolerance in all `.md` files under `governance/`, `agents/`, `commands/`, `
 | "obviously", "clearly", "naturally", "intuitively", "without doubt", "certainly" (when not citing a source) | Cite specific source (file:line OR URL with access date) |
 | "this might affect", "could be useful" (without specific impact) | Specify measurable impact prediction OR concrete use case |
 | "successfully completed", "everything works", "works as expected" (without verification) | Cite verification command + result (e.g., "npm test exit 0, 432/432 passing") |
-| "enterprise-grade", "production-grade" (without maturity tier) | Specify maturity tier per CONSTITUTION §2 P5 + Decision 4 (solo/team/scaleup/enterprise) |
+| "enterprise-grade", "production-grade" (without maturity tier) | Specify maturity tier per CONSTITUTION §2 P5 + Decision 16 (solo/team/scaleup/enterprise) |
 
 ---
 

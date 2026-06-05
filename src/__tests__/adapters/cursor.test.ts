@@ -68,9 +68,56 @@ describe("CursorAdapter", () => {
 
     const scopedRule = outputs.find((o) => o.path.includes("hatch3r-scoped-rule.mdc"));
     expect(scopedRule).toBeDefined();
-    expect(scopedRule!.content).toContain("globs:");
-    expect(scopedRule!.content).toContain("**/*.ts");
+    // D9-6 (P2): exact-value frontmatter, not a value-blind `.toContain("globs:")`.
+    // The legacy inline-CSV fixture `scope: "**/*.ts"` resolves to a single-glob
+    // array. A value-blind substring assertion passed even when the X4/CD4
+    // GLOBS-DROP bug emitted `globs: ["conditional"]`; pinning the rendered line
+    // closes that false-negative.
+    expect(scopedRule!.content).toContain('globs: ["**/*.ts"]');
+    // Regression sentinel: the literal scope keyword must never leak into the
+    // emitted glob set (the D9-1 cross-adapter failure mode).
+    expect(scopedRule!.content).not.toContain('"conditional"');
     expect(scopedRule!.content).not.toContain("alwaysApply: true");
+  });
+
+  // D9-6 (P2): second scoped fixture in the canonical `scope: conditional` +
+  // `globs:` two-line form (distinct from the legacy inline-CSV `scoped-rule.md`
+  // fixture). This exercises the `resolveRuleGlobs` `scope === "conditional"`
+  // branch — the one the X4/CD4 GLOBS-DROP regression broke, emitting
+  // `globs: ["conditional"]` and silently never auto-attaching the rule. Pins
+  // the exact rendered multi-glob array per https://cursor.com/docs/context/rules
+  // and asserts no glob value is the literal scope keyword. Isolated temp dir so
+  // the shared `FIXTURES_DIR` rule-count assertions are untouched.
+  it("emits the real conditional glob set, never the literal scope keyword", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-conditional-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "conditional-rule.md"),
+        `---
+id: conditional-rule
+type: rule
+description: A conditional-scoped rule
+scope: conditional
+globs: "src/api/**,**/*.proto"
+---
+# Conditional Rule
+
+Applies to API code and protobufs.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const rule = outputs.find((o) => o.path.includes("conditional-rule.mdc"));
+      expect(rule).toBeDefined();
+      expect(rule!.content).toContain('globs: ["src/api/**", "**/*.proto"]');
+      // The scope keyword must not survive into the glob array.
+      expect(rule!.content).not.toContain('"conditional"');
+      expect(rule!.content).not.toContain("alwaysApply: true");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   // F3.1.3 (D3 Cycle 10 Wave 2): cursor.test.ts previously asserted

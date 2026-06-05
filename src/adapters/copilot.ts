@@ -90,6 +90,93 @@ const COPILOT_ORCHESTRATOR_ONLY_AGENTS = new Set<string>([
   "hatch3r-security",
 ]);
 
+/**
+ * D9-5 (Cycle 11 D9, P3): split a leading `---\n...\n---` YAML frontmatter
+ * fence from the body of an authored content file, returning the verbatim
+ * fence (no trailing newline) and the remaining body. Used by the
+ * github-agents emission path so the authored frontmatter is preserved at
+ * byte 0 of the output file while only the body is wrapped in a managed
+ * block — Copilot's `.github/agents/*.agent.md` loader parses frontmatter
+ * only at byte 0.
+ *
+ * The fence is returned verbatim (not re-serialized) so github-agent fields
+ * outside the canonical `CanonicalMetadata` model (e.g. `quality_charter`,
+ * `efficiency_patterns`, `cache_friendly`) survive untouched. Mirrors the
+ * anchored shape of `FRONTMATTER_REGEX` in `src/adapters/canonical.ts`.
+ *
+ * Returns `frontmatter: ""` when the input has no leading fence (e.g. a
+ * frontmatter-less github-agent), in which case the caller wraps the whole
+ * body as before.
+ */
+function splitFrontmatter(raw: string): { frontmatter: string; body: string } {
+  const match = raw.match(/^(---\r?\n[\s\S]*?\r?\n---)(?:\r?\n([\s\S]*))?$/);
+  if (!match) return { frontmatter: "", body: raw };
+  return { frontmatter: match[1], body: match[2] ?? "" };
+}
+
+/**
+ * A VS Code `.vscode/mcp.json` top-level input-variable entry. VS Code prompts
+ * the user for the value and substitutes it wherever `${input:<id>}` appears.
+ * Schema verified against
+ * https://code.visualstudio.com/docs/agents/reference/mcp-configuration
+ * (input-variables-for-sensitive-data, accessed 2026-06-05): `id`, `type`,
+ * `description` are required; `password: true` masks the entry.
+ */
+interface VsCodeMcpInput {
+  id: string;
+  type: "promptString";
+  description: string;
+  password: true;
+}
+
+/** Matches a `${env:NAME}` reference and captures the POSIX env-var `NAME`. */
+const ENV_REF_REGEX = /\$\{env:([A-Za-z_][A-Za-z0-9_]*)\}/g;
+
+/**
+ * D11-7 (Cycle 11 D11, P6/CQ4): rewrite every `${env:NAME}` reference inside
+ * the `headers` object of each VS Code MCP server entry to the VS Code
+ * `${input:NAME}` form, and return a deduped `inputs[]` array carrying one
+ * `{id,type:"promptString",password:true}` entry per distinct `NAME`.
+ *
+ * Rationale: VS Code does NOT shell-expand `$VAR` in MCP header values; the
+ * only header-secret mechanism it substitutes is a top-level `inputs[]`
+ * variable referenced as `${input:NAME}`. The adapter therefore emits header
+ * `${env:NAME}` (preserved via the `"passthrough"` transform) as `${input:NAME}`
+ * and declares the matching input. Non-secret static headers (no `${env:...}`)
+ * pass through unchanged and produce no input.
+ *
+ * Mutates each entry's `headers` in place. Input ids are emitted in
+ * first-seen order across the server map so the generated file is stable
+ * across runs (deterministic aggregation).
+ */
+function collectMcpHeaderInputs(
+  servers: Record<string, Record<string, unknown>>,
+): VsCodeMcpInput[] {
+  const seen = new Set<string>();
+  const inputs: VsCodeMcpInput[] = [];
+  for (const entry of Object.values(servers)) {
+    const headers = entry.headers;
+    if (!headers || typeof headers !== "object") continue;
+    const headerObj = headers as Record<string, unknown>;
+    for (const [key, value] of Object.entries(headerObj)) {
+      if (typeof value !== "string") continue;
+      headerObj[key] = value.replace(ENV_REF_REGEX, (_full, name: string) => {
+        if (!seen.has(name)) {
+          seen.add(name);
+          inputs.push({
+            id: name,
+            type: "promptString",
+            description: `Secret for MCP header \${input:${name}}`,
+            password: true,
+          });
+        }
+        return `\${input:${name}}`;
+      });
+    }
+  }
+  return inputs;
+}
+
 export class CopilotAdapter extends BaseAdapter {
   readonly name = "copilot";
 
@@ -294,9 +381,22 @@ jobs:
       // C9-H39 (D11-SA11.1-01): tracked read wrapper for github-agents provenance.
       const ghAgents = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "github-agents", ctx.userRepoRoot);
       for (const agent of ghAgents) {
-        const body = agent.rawContent;
+        // D9-5 (Cycle 11 D9, P3): split the authored YAML frontmatter from the
+        // body and emit `${frontmatter}\n\n${wrapManagedFor(path, body)}` —
+        // identical layout to the regular-agent path above. Previously
+        // `wrapManagedFor` wrapped the entire `agent.rawContent` (which starts
+        // `---\nname:...`), so `<!-- HATCH3R:BEGIN -->` landed on byte 0 and the
+        // `---` fence on line 2; GitHub Copilot's `.github/agents/*.agent.md`
+        // loader only parses frontmatter at byte 0, so every github-agent's
+        // `tools: [...]` + `description` was demoted into the managed-block body
+        // and ignored. The verbatim fence is preserved (not re-serialized) so
+        // github-agent-only fields (`quality_charter`, `efficiency_patterns`,
+        // `cache_friendly`) survive untouched.
+        const { frontmatter, body } = splitFrontmatter(agent.rawContent);
         const ghAgentPath = `.github/agents/${toPrefixedId(agent.id)}.agent.md`;
-        results.push(output(ghAgentPath, wrapManagedFor(ghAgentPath, body), body));
+        const wrappedBody = wrapManagedFor(ghAgentPath, body);
+        const content = frontmatter ? `${frontmatter}\n\n${wrappedBody}` : wrappedBody;
+        results.push(output(ghAgentPath, content, body));
       }
     }
 
@@ -348,7 +448,7 @@ jobs:
 
     const mcp = await this.readFilteredMcp(ctx);
     if (mcp && Object.keys(mcp).length > 0) {
-      // D9-C-2 + D11-C-2 (Cycle 10, Pillars P3 + P6):
+      // D9-C-2 + D11-C-2 + D11-7 (Cycle 10–11, Pillars P3 + P6 + CQ4):
       //   - D9-C-2: VS Code's MCP schema requires per-server `type`
       //     (`stdio` | `http` | `sse`) — verified against
       //     https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
@@ -357,26 +457,32 @@ jobs:
       //     lint) rejects the server entries. `buildStdMcpEntries` now
       //     emits the discriminator on every entry.
       //   - D11-C-2: VS Code's MCP loader does NOT perform shell
-      //     expansion — passing `envVarFormat: "shell"` silently shipped
-      //     each `${env:TOKEN}` as a literal `$TOKEN` that VS Code
-      //     treated as a string, so every secret-bearing STDIO MCP
-      //     server (github, brave-search, sentry, postgres, linear,
-      //     azure-devops, gitlab) was broken at runtime. Route STDIO
-      //     secrets through VS Code's native `envFile` loader pointing
-      //     at the hatch3r-managed `.env.mcp` file (matches the existing
-      //     `TOOL_SECRET_NOTES.copilot` UX claim that `.env.mcp` is
-      //     auto-loaded). HTTP-transport entries continue to ship their
-      //     secrets via `headers` with `${env:VAR}` rewritten to `$VAR`
-      //     — VS Code substitutes header `${input:NAME}` references at
-      //     prompt time; the shell form is preserved on the HTTP path
-      //     pending a follow-up that wires `${input:NAME}` + `inputs[]`
-      //     (out-of-scope for D11-C-2's STDIO-focused fix).
+      //     expansion on the STDIO `env` object — every secret-bearing
+      //     STDIO MCP server (github, brave-search, sentry, postgres,
+      //     linear, azure-devops, gitlab) routes its secrets through VS
+      //     Code's native `envFile` loader pointing at the hatch3r-managed
+      //     `.env.mcp` file (matches `TOOL_SECRET_NOTES.copilot`).
+      //   - D11-7: VS Code also does NOT shell-expand `$VAR` inside header
+      //     values, so the prior `transformEnvVarSyntax(headers, "shell")`
+      //     shipped a literal `Bearer $GITHUB_PAT` that authenticated
+      //     nothing. Pass `"passthrough"` so header `${env:NAME}` survives
+      //     `buildStdMcpEntries`, then rewrite each `${env:NAME}` to a VS
+      //     Code `${input:NAME}` reference and emit a matching top-level
+      //     `inputs[]` entry ({id,type:"promptString",password:true}) — the
+      //     only header-secret mechanism VS Code substitutes at prompt
+      //     time. Schema verified against
+      //     https://code.visualstudio.com/docs/agents/reference/mcp-configuration
+      //     (input-variables-for-sensitive-data, accessed 2026-06-05).
       const vscodeServers = this.buildStdMcpEntries(
         mcp,
-        "shell",
+        "passthrough",
         "${workspaceFolder}/.env.mcp",
       );
-      results.push(output(".vscode/mcp.json", JSON.stringify({ servers: vscodeServers }, null, 2) + "\n"));
+      const inputs = collectMcpHeaderInputs(vscodeServers);
+      const doc: Record<string, unknown> = {};
+      if (inputs.length > 0) doc.inputs = inputs;
+      doc.servers = vscodeServers;
+      results.push(output(".vscode/mcp.json", JSON.stringify(doc, null, 2) + "\n"));
     }
 
     return results;

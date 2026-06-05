@@ -94,14 +94,16 @@ export function createProgram(): Command {
     // even when `--mcp` is also passed, so a CI/audit config can self-document
     // "no MCP" rather than rely on the implicit default.
     .option("--no-mcp", "Explicitly disable MCP servers on --yes (default; force-off even with --mcp)")
-    .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit (C9-H26)")
-    .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet (C9-H26)")
-    .option("--no-banner", "Skip the ASCII banner at startup (C9-H26)")
-    .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json (Decision 27)")
-    .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — gates content admission (Decision 4)")
-    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role (D14-M6)")
-    .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability (D14-M9)")
-    .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd (D14-SA14.2-H1)")
+    // --quiet/--json/--no-banner provenance: C9-H26 (Cycle 9). --resume: Decision 27.
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit")
+    .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet")
+    .option("--no-banner", "Skip the ASCII banner at startup")
+    .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json")
+    // --maturity provenance: Decision 4. --role: D14-M6. --facets: D14-M9. --per-package: D14-SA14.2-H1.
+    .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — gates content admission")
+    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role")
+    .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability")
+    .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd")
     .action(initCommand);
 
   program
@@ -115,19 +117,23 @@ export function createProgram(): Command {
     .option("--strict-budget", "Fail sync if any adapter's generated output exceeds its context budget (default: warn)")
     .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .option("--verbose", "Show detailed output for each file processed")
-    .option("--resume", "Resume from the last checkpoint in .sync-workspace/checkpoint.json (Decision 27)")
+    // --resume provenance: Decision 27.
+    .option("--resume", "Resume from the last checkpoint in .sync-workspace/checkpoint.json")
+    // --concurrency provenance: D14-SA14.2-F4.
     .option(
       "--concurrency <n>",
-      "Parallel workspace sub-repo sync limit (default: min(CPU count, 8); raise on SSD-bound runners) (D14-SA14.2-F4)",
+      "Parallel workspace sub-repo sync limit (default: min(CPU count, 8); raise on SSD-bound runners)",
     )
+    // --format provenance: SA12.1-F-D12-M2.
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
+    // --preview-tool provenance: SA12.1-F-D12-M8.
     .option(
       "--preview-tool <name>",
-      "Under --dry-run, print the full content body that the named adapter would write (SA12.1-F-D12-M8)",
+      "Under --dry-run, print the full content body that the named adapter would write",
     )
     .action(syncCommand);
 
@@ -136,10 +142,11 @@ export function createProgram(): Command {
     .description("Check sync status between bundled canonical content and generated files")
     .option("--verbose", "Show detailed per-file status information")
     .option("--deep", "Regenerate every adapter's output in-memory to compare byte-for-byte (slower; default uses integrity-manifest fast path)")
-    .option("--diff", "Show a before/after diff summary for each generated file (same box `hatch3r sync --diff` emits; D12-SA12.2-F5)")
+    // --diff provenance: D12-SA12.2-F5. --format provenance: SA12.1-F-D12-M2.
+    .option("--diff", "Show a before/after diff summary for each generated file (same box `hatch3r sync --diff` emits)")
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
     // D11-SA11.2-F10 (D11, P1): document drift scope in --help so an operator
@@ -164,9 +171,10 @@ export function createProgram(): Command {
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
     .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
+    // --format provenance: SA12.1-F-D12-M2.
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
     .action(updateCommand);
@@ -200,11 +208,12 @@ export function createProgram(): Command {
     .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
     .option("--fix", "Auto-fix integrity issues by running hatch3r update")
     .option("--max-fix-attempts <n>", "Maximum verify-fix cycles (default: 2, max: 5)", parseInt)
-    .option("--verbose", "Show the per-tool / per-file drift breakdown (same detail as `hatch3r status`) before the PASS/FAIL summary (D1-SA1.4-F11)")
-    .option("--diff", "Show a before/after diff summary for each generated file (D12-SA12.2-F5)")
+    // --verbose provenance: D1-SA1.4-F11. --diff: D12-SA12.2-F5. --format: SA12.1-F-D12-M2.
+    .option("--verbose", "Show the per-tool / per-file drift breakdown (same detail as `hatch3r status`) before the PASS/FAIL summary")
+    .option("--diff", "Show a before/after diff summary for each generated file")
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
     // D11-SA11.2-F10 (D11, P1): mirror the status --help scope note so the two
@@ -234,9 +243,10 @@ export function createProgram(): Command {
     .description("Remove all hatch3r artifacts from the current repo (optionally reinitialize after)")
     .option("--yes", "Skip confirmation prompts (cleans without reinit)")
     .option("--dry-run", "Show what would be removed without modifying files")
+    // --learnings provenance: D6-M7.
     .option(
       "--learnings",
-      "Also remove .hatch3r/learnings/ and .hatch3r/handoffs/ — use for session-corruption recovery when prior context is poisoning fresh runs (D6-M7)",
+      "Also remove .hatch3r/learnings/ and .hatch3r/handoffs/ — use for session-corruption recovery when prior context is poisoning fresh runs",
     )
     .action(cleanCommand);
 
@@ -360,9 +370,10 @@ export function createProgram(): Command {
   program
     .command("provenance")
     .description("Inspect the .hatch3r/provenance.json manifest (header + per-adapter rollup)")
+    // --format provenance: SA12.1-F-D12-M2.
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
     .action(provenanceCommand);
@@ -389,7 +400,8 @@ export function createProgram(): Command {
     .option("--cost <command-id>", "Command id to explain (e.g. hatch3r-quick-change, quick-change)")
     .option("--customizations", "List every .customize.yaml/.customize.md pair with applied state and reasons")
     .option("--source [output-path]", "Show the canonical source files behind a generated output (e.g. CLAUDE.md); omit the path or pass `all` to list every recorded output")
-    .option("--efficiency", "Show per-artifact + per-phase aggregate from .hatch3r/efficiency-events.jsonl (telemetry gated by HATCH3R_EFFICIENCY_TELEMETRY=1; D6-M2)")
+    // --efficiency provenance: D6-M2.
+    .option("--efficiency", "Show per-artifact + per-phase aggregate from .hatch3r/efficiency-events.jsonl (telemetry gated by HATCH3R_EFFICIENCY_TELEMETRY=1)")
     .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens (--cost only)")
     .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens (--cost only)")
     .option("--verbose", "Show detailed output")

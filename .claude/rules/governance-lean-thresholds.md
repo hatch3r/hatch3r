@@ -11,7 +11,7 @@ precedence: high
 
 **Pillars:** P5 (Governance Self-Quality), P4 (Lean Coverage)
 
-Before modifying any governance file, check `wc -l` against these limits from `governance/CONSTITUTION.md` §2 P5 (canonical source — this rule mirrors every row, and `scripts/validate-lean-threshold-currency.ts` (run via `npm run validate:efficiency`) enforces row-by-row parity against the Constitution):
+Before modifying any governance file, check `wc -l` against these limits from `governance/CONSTITUTION.md` §2 P5 (canonical source — this rule reproduces a curated subset of its rows; `scripts/validate-lean-threshold-currency.ts` (run via `npm run validate:efficiency`) enforces that every row reproduced here carries the same Limit as the Constitution, not that every Constitution row appears here — see the validator's `diffAgainstConstitution` contract):
 
 | File | Limit |
 |------|-------|

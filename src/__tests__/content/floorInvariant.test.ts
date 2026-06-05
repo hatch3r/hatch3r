@@ -230,12 +230,22 @@ describe("floor-admission is path-independent (D16-2)", () => {
     expect(result.excludedContent).not.toContain(target.id);
   });
 
-  it("custom-content picker pre-checks every floor item even when isChecked returns false (picker deselect)", () => {
+  it("custom-content picker locks every floor item checked + non-removable even when isChecked returns false (D10-13)", () => {
     // The custom picker is the deselect surface. With the floor affordance
-    // threaded in, floor items are pre-checked regardless of the caller's
-    // isChecked, so a user starting from a deselect-all state still sees the
-    // floor invariant reflected at the row.
+    // threaded in, floor items are pre-checked AND disabled (non-removable)
+    // regardless of the caller's isChecked, so a user starting from a
+    // deselect-all state cannot drop a floor item — matching resolveSelection
+    // Stage 1, which re-admits protected/floor items in the custom preset.
     const floorItem = syntheticFloorItem("synthetic-floor-rule");
+    const protectedItem: CatalogItem = {
+      id: "synthetic-protected-agent",
+      type: "agent",
+      description: "synthetic protected (non-floor-tagged) agent",
+      tags: ["implementation"],
+      protected: true,
+      relativePath: "agents/synthetic-protected-agent.md",
+      source: "canonical",
+    };
     const nonFloorItem: CatalogItem = {
       id: "synthetic-plain-rule",
       type: "rule",
@@ -247,17 +257,36 @@ describe("floor-admission is path-independent (D16-2)", () => {
     };
 
     const choices = buildTagGroupedCustomContentChoices(
-      [floorItem, nonFloorItem],
+      [floorItem, protectedItem, nonFloorItem],
       () => false, // deselect-all baseline
     );
     const rows = choices.filter(
-      (c): c is { name: string; value: string; checked: boolean; description?: string } =>
-        typeof c === "object" && c !== null && "value" in c,
+      (
+        c,
+      ): c is {
+        name: string;
+        value: string;
+        checked: boolean;
+        description?: string;
+        disabled?: string;
+      } => typeof c === "object" && c !== null && "value" in c,
     );
     const floorRow = rows.find((r) => r.value === "synthetic-floor-rule");
+    const protectedRow = rows.find((r) => r.value === "synthetic-protected-agent");
     const plainRow = rows.find((r) => r.value === "synthetic-plain-rule");
+
+    // Floor (tag-driven) row: pre-checked + locked with the lock label.
     expect(floorRow?.checked).toBe(true); // floor pre-checked despite isChecked=false
     expect(floorRow?.description).toMatch(/Floor/);
+    expect(floorRow?.disabled).toBe("Floor — always included"); // non-removable
+
+    // Protected (non-floor-tagged) row: admitsUnconditionally is also true, so
+    // it gets the same lock — covers the `protected` arm of the predicate.
+    expect(protectedRow?.checked).toBe(true);
+    expect(protectedRow?.disabled).toBe("Floor — always included");
+
+    // Optional row: honours the deselect baseline and stays toggleable.
     expect(plainRow?.checked).toBe(false); // non-floor honours the deselect baseline
+    expect(plainRow?.disabled).toBeUndefined(); // optional rows are not locked
   });
 });

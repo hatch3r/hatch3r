@@ -25,7 +25,7 @@ Flow decomposition is also the contract between the feature designer and the rev
 
 ## Four-State Surface Contract
 
-Every async view renders all four states. Missing any state on an async view is a blocker — NN/g 2025 measured 92% of AI-generated dashboards omit empty state and 78% omit error state, so this is the regression bar to beat.
+Every async view renders all four states. Missing any state on an async view is a blocker: the empty, error, and partial states are each a distinct cause-and-recovery path, and dropping one strands the user with no diagnosis or next action when that path fires (an empty result reads as a broken load, a failed request reads as a hang, a partial result silently hides the failed subset). The blocker is justified by recovery-path completeness, not by an omission-frequency statistic. NN/g empty-state and error-message guidance ([empty states](https://www.nngroup.com/articles/empty-state-interface-design/), [error messages](https://www.nngroup.com/articles/error-message-guidelines/), both accessed 2026-06-05, NN/g, official-docs) anchors the per-state rendering rules below.
 
 | State | Trigger | Rendering rules |
 |-------|---------|-----------------|
@@ -135,7 +135,8 @@ Run every check below before declaring a feature done. A "done" claim without th
 ## References
 
 - WCAG 2.2 AA — new success criteria SC 2.5.8 (Target Size), SC 2.4.11 (Focus Not Obscured), SC 2.5.7 (Dragging Movements), SC 1.4.13 (Content on Hover or Focus)
-- NN/g state-omission research 2025 — empty-state and error-state omission rates in AI-generated UIs (92% empty omitted, 78% error omitted)
+- Nielsen Norman Group, "Designing Empty States in Complex Applications: 3 Guidelines" — https://www.nngroup.com/articles/empty-state-interface-design/ (accessed 2026-06-05, NN/g, official-docs)
+- Nielsen Norman Group, "Error-Message Guidelines" — https://www.nngroup.com/articles/error-message-guidelines/ (accessed 2026-06-05, NN/g, official-docs)
 - GOV.UK Design System — error message and error summary components, plain English readability guidance
 - IBM Carbon Design System — voice and tone content guidelines, error message patterns
 - Baymard Institute — inline form validation research and disabled-submit findings (top-10 form-abandonment driver)

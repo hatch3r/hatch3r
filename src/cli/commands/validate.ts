@@ -1602,9 +1602,11 @@ async function validateContentBody(
           );
         } else if (!gate.referencesProtocol) {
           // Marker present but no protocol reference is weak prose: warn so the
-          // author wires it to the canonical "how to ask" surface.
+          // author wires it to the canonical "how to ask" surface — directly or
+          // via the blessed one-hop frames (clarification-default-block.md /
+          // quality-specialist-frame.md), both accepted by checkAmbiguityGate.
           result.warnings.push(
-            `${fileLabel}: §0 ambiguity gate present but does not reference agents/shared/user-question-protocol.md — wire the gate to the canonical question protocol (P8 B1)`,
+            `${fileLabel}: §0 ambiguity gate present but does not reference the canonical question protocol — cite agents/shared/user-question-protocol.md directly OR via agents/shared/clarification-default-block.md / quality-specialist-frame.md (P8 B1)`,
           );
         }
       }
@@ -1640,10 +1642,19 @@ function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
 /**
  * F13.5-F01 (D13): detect the §0 ambiguity-detection gate in an artifact body.
  * `hasMarker` is true when a recognizable gate heading/marker is present;
- * `referencesProtocol` is true when the body points at the canonical
- * `agents/shared/user-question-protocol.md` (the "how to ask" surface). The
- * matchers are deliberately broad so authors can phrase the heading naturally
- * (e.g. "§0 — Ambiguity & Safety Gate", "Step 0 — Ambiguity gate").
+ * `referencesProtocol` is true when the body points at the canonical question
+ * protocol either directly (`agents/shared/user-question-protocol.md` — the
+ * "how to ask" surface) OR via the blessed one-hop indirection through the
+ * shared clarification frames: `agents/shared/clarification-default-block.md`
+ * (the canonical pointer that agents.md authoring-rule 1 mandates citing) or
+ * `agents/shared/quality-specialist-frame.md` (the transitive frame the 9 CQ
+ * specialists incorporate per authoring-rule 2). Accepting the one-hop forms
+ * closes F24.4-D13-8: `clarification-default-block.md` explicitly FORBIDS
+ * inlining the protocol body, so the 15 agents that satisfy B1 through it must
+ * not be flagged for "not referencing user-question-protocol" — that made the
+ * §2 P5 "100%" B1 invariant false against its own check. The matchers are
+ * deliberately broad so authors can phrase the heading naturally (e.g. "§0 —
+ * Ambiguity & Safety Gate", "Step 0 — Ambiguity gate").
  */
 function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProtocol: boolean } {
   const hasMarker =
@@ -1651,7 +1662,10 @@ function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProto
     /step\s*0\b[^\n]*ambig/i.test(body) ||
     /\bambiguity[- ](detection|gate|&)/i.test(body) ||
     /\bambiguity\b[^\n]*\bgate\b/i.test(body);
-  const referencesProtocol = /user-question-protocol/.test(body);
+  const referencesProtocol =
+    /user-question-protocol/.test(body) ||
+    /clarification-default-block/.test(body) ||
+    /quality-specialist-frame/.test(body);
   return { hasMarker, referencesProtocol };
 }
 

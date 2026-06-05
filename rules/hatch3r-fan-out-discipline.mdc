@@ -62,6 +62,12 @@ The `sub_agents_spawned` frontmatter field declares fan-out intent at config tim
 
 Binds every hatch3r-invoked workflow that delegates via the Task tool in the end-user repo — every `commands/hatch3r-*.md` with `orchestrator: true`, every delegating `agents/hatch3r-*.md`, and every fan-out `skills/hatch3r-*/SKILL.md`. Tier 1 reference-card skills that neither spawn sub-agents nor mutate files carry no fan-out obligation; they state `Tier 1 reference card — no fan-out` instead.
 
+How each class emits the field differs because the count is known at a different time:
+
+- **Commands** declare it as a static frontmatter key — a command's fan-out is fixed by its `agentPipeline`, so `sub_agents_spawned: {count, rationale}` is a config-time value. `scripts/validate-fanout-emission.ts` enforces the key on every `orchestrator: true` command (CI gate `npm run validate:efficiency`).
+- **Skills** carry the runtime-emission directive in the body — a skill's count is task-derived (Tier 1 inline / Tier 2 per-concern / Tier 3 per-module), so a static integer would misstate it. A skill whose body holds a Tier-2/3 Task-tool delegation contract MUST state `` Emit `sub_agents_spawned: { count, rationale }` in your output. ``; the same validator flags `P8-FANOUT-SKILL-MISS` on a delegating, non-exempt skill that omits it.
+- **Agents** are prose-bound: their delegation is inherited from `rules/hatch3r-agent-orchestration.md` and they carry no `orchestrator` frontmatter marker, so no separate validator trigger applies; the worker agents that mention the Task tool delegate on behalf of a parent orchestrator, not as a fan-out root.
+
 ## References
 
 - Pillar P8 B2 (source directive; see `agents/shared/principles.md`).

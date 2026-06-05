@@ -164,10 +164,15 @@ function transformEnvVarSyntaxInner(
  *   - VS Code MCP STDIO env: https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
  *     (does NOT perform shell expansion on `env:` values; MUST route secrets
  *     via `envFile` instead of substitution — see D11-C-2 in copilot.ts).
- *   - VS Code MCP HTTP headers: same source (uses literal `$VAR` only
- *     reachable via `${input:NAME}` prompts in current Copilot release;
- *     `shell` format is retained on the headers path pending a follow-up
- *     that wires `inputs[]`, tracked outside this work unit).
+ *   - VS Code MCP HTTP headers: same source (header secrets are substituted
+ *     via top-level `inputs[]` + `${input:NAME}` references, NOT shell
+ *     expansion — VS Code does not shell-expand `$VAR` in header values).
+ *     D11-7 (Cycle 11, P6/CQ4) wired the `inputs[]` emission, so the copilot
+ *     `mcp-headers` row carries `format: "passthrough"` (the canonical
+ *     `${env:NAME}` value passes through `transformEnvVarSyntax` untouched)
+ *     plus `viaInputs: true` — the adapter then rewrites `${env:NAME}` to
+ *     `${input:NAME}` and emits a matching `inputs[]` entry. See
+ *     `src/adapters/copilot.ts::collectMcpHeaderInputs`.
  */
 export interface McpEnvVarFormatRow {
   adapter: "claude" | "cursor" | "copilot";
@@ -175,6 +180,12 @@ export interface McpEnvVarFormatRow {
   format: "claude" | "shell" | "passthrough";
   /** True when the surface uses `envFile` instead of inline substitution. */
   viaEnvFile?: true;
+  /**
+   * True when header secrets are substituted via VS Code's top-level
+   * `inputs[]` + `${input:NAME}` mechanism rather than a `transformEnvVarSyntax`
+   * format (D11-7, copilot HTTP/STDIO header path).
+   */
+  viaInputs?: true;
 }
 
 export const MCP_ENV_VAR_FORMAT_PARITY: ReadonlyArray<McpEnvVarFormatRow> = [
@@ -183,7 +194,7 @@ export const MCP_ENV_VAR_FORMAT_PARITY: ReadonlyArray<McpEnvVarFormatRow> = [
   { adapter: "cursor", surface: "mcp-env", format: "passthrough" },
   { adapter: "cursor", surface: "mcp-headers", format: "passthrough" },
   { adapter: "copilot", surface: "mcp-env", format: "shell", viaEnvFile: true },
-  { adapter: "copilot", surface: "mcp-headers", format: "shell" },
+  { adapter: "copilot", surface: "mcp-headers", format: "passthrough", viaInputs: true },
 ] as const;
 
 const ALLOWED_COMMANDS = new Set([

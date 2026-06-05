@@ -142,6 +142,8 @@ This skill delegates per task size:
 - Tier 2 (multi-file or multi-concern feature): spawn parallel sub-agents per concern (researcher modes, one implementer per sub-issue) via the Task tool.
 - Tier 3 (multi-module / cross-cutting feature): one fresh sub-agent per independent module or CQ gate; orchestrator integrates only.
 
+Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+
 Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
 
 ## Required Agent Delegation

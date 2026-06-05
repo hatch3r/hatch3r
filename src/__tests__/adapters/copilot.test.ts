@@ -73,8 +73,58 @@ describe("CopilotAdapter", () => {
     const scoped = scopedInstructions[0]!;
     expect(scoped.path).toContain("hatch3r-scoped-rule");
     expect(scoped.path).toMatch(/\.instructions\.md$/);
-    expect(scoped.content).toContain("applyTo:");
-    expect(scoped.content).toContain("**/*.ts");
+    // D9-6 (P2): exact-value `applyTo`, not a value-blind `.toContain("applyTo:")`.
+    // The legacy inline-CSV fixture `scope: "**/*.ts"` renders to a single-glob
+    // CSV string. A value-blind substring passed even when the X4/CD4 GLOBS-DROP
+    // bug emitted `applyTo: "conditional"`; pinning the rendered line closes it.
+    expect(scoped.content).toContain('applyTo: "**/*.ts"');
+    // Regression sentinel: the scope keyword must never leak into `applyTo`.
+    // Target the exact bug signature (the X4/CD4 GLOBS-DROP form) rather than a
+    // bare "conditional" substring, which a rule body could legitimately contain.
+    expect(scoped.content).not.toContain('applyTo: "conditional"');
+  });
+
+  // D9-6 (P2): second scoped fixture in the canonical `scope: conditional` +
+  // `globs:` two-line form (distinct from the legacy inline-CSV `scoped-rule.md`
+  // fixture). Exercises the `resolveRuleGlobs` `scope === "conditional"` branch
+  // the X4/CD4 GLOBS-DROP regression broke, which emitted `applyTo: "conditional"`
+  // and silently never auto-attached the rule. VS Code `applyTo` is a single
+  // comma-separated glob string per
+  // https://code.visualstudio.com/docs/copilot/copilot-customization — pins the
+  // exact rendered value and asserts the scope keyword never leaks. Isolated
+  // temp dir keeps the shared `FIXTURES_DIR` scoped-count assertion untouched.
+  it("emits the real conditional glob set in applyTo, never the scope keyword", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-conditional-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "conditional-rule.md"),
+        `---
+id: conditional-rule
+type: rule
+description: A conditional-scoped rule
+scope: conditional
+globs: "src/api/**,**/*.proto"
+---
+# Conditional Rule
+
+Applies to API code and protobufs.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const scoped = outputs.find((o) =>
+        o.path.startsWith(".github/instructions/") && o.path.includes("conditional-rule"),
+      );
+      expect(scoped).toBeDefined();
+      expect(scoped!.content).toContain('applyTo: "src/api/**, **/*.proto"');
+      // The fixture body contains "conditional" (heading/id), so assert the
+      // exact bug-signature frontmatter line rather than a bare substring.
+      expect(scoped!.content).not.toContain('applyTo: "conditional"');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("does not generate AGENTS.md (handled centrally by init/sync)", async () => {
@@ -177,6 +227,46 @@ describe("CopilotAdapter", () => {
     expect(ghAgent).toBeDefined();
     expect(ghAgent!.content).toContain("test-gh-agent");
     expect(ghAgent!.managedContent).toBeDefined();
+  });
+
+  // D9-5 (Cycle 11 D9, P3): the github-agent YAML frontmatter must stay at
+  // byte 0 so GitHub Copilot's `.github/agents/*.agent.md` loader parses it.
+  // The prior emission wrapped the whole `rawContent` in a managed block, so
+  // `<!-- HATCH3R:BEGIN -->` landed on line 1 and the `---` fence on line 2,
+  // demoting `name`/`description`/`tools` into the body where Copilot ignores
+  // them.
+  it("emits github-agent frontmatter at byte 0, body wrapped in the managed block (D9-5)", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const ghAgent = outputs.find(
+      (o) =>
+        /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path) &&
+        o.path.includes("test-gh-agent"),
+    );
+    expect(ghAgent).toBeDefined();
+
+    // Frontmatter fence opens on byte 0 — not the managed-block marker.
+    expect(ghAgent!.content.startsWith("---")).toBe(true);
+    expect(ghAgent!.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+
+    // The frontmatter block precedes the managed block; the body (not the
+    // YAML) is what gets wrapped.
+    const fmEnd = ghAgent!.content.indexOf("\n---", 3);
+    const markerStart = ghAgent!.content.indexOf(MANAGED_BLOCK_START);
+    expect(fmEnd).toBeGreaterThan(0);
+    expect(markerStart).toBeGreaterThan(fmEnd);
+    expect(ghAgent!.content).toContain(MANAGED_BLOCK_END);
+
+    // Frontmatter fields survive at the top, body content lives in the block.
+    const frontmatter = ghAgent!.content.slice(0, markerStart);
+    expect(frontmatter).toContain("id: test-gh-agent");
+    expect(frontmatter).toContain("type: github-agent");
+    expect(frontmatter).not.toContain(MANAGED_BLOCK_START);
+    // managedContent is the body only (frontmatter stripped), matching the
+    // regular-agent path's third `output()` arg.
+    expect(ghAgent!.managedContent).not.toContain("type: github-agent");
+    expect(ghAgent!.managedContent).toContain("Test GitHub Agent");
   });
 
   it("emits companion subtree files under `.github/` so canonical references resolve", async () => {

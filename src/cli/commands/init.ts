@@ -2121,7 +2121,9 @@ export async function initCommand(
       async run(_state, previous): Promise<StepResult<string[] | undefined>> {
         const groupedChoices = buildTagGroupedCustomContentChoices(
           filterIndex.items,
-          (item) => item.protected || item.tags.includes("core"),
+          // D10-13: floor + protected rows are locked-on by the picker itself;
+          // this baseline only governs optional rows (no retired `core` tag).
+          (item) => item.protected === true,
         );
         const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
           {
@@ -2664,7 +2666,9 @@ async function runWorkspaceInit(
         async run(_state, previous): Promise<StepResult<string[] | undefined>> {
           const wsGroupedChoices = buildTagGroupedCustomContentChoices(
             wsFilterIndex.items,
-            (item) => item.protected || item.tags.includes("core"),
+            // D10-13: floor + protected rows are locked-on by the picker itself;
+            // this baseline only governs optional rows (no retired `core` tag).
+            (item) => item.protected === true,
           );
           const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
             {
