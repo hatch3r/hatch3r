@@ -111,6 +111,35 @@ export function toClaudeToolsFrontmatter(agentId: string): string | null {
 }
 
 /**
+ * D20-1 (X5/CD5): translate an explicit hatch3r category list to the Claude
+ * Code `tools:` frontmatter value (comma-separated tool names), bypassing the
+ * canonical `AGENT_TOOL_POLICIES` registry lookup.
+ *
+ * Used for user-authored agents whose emitted (re-prefixed) id has no
+ * registry entry: the categories come from the agent's authored
+ * `tools.allowed` grant (with `tools.denied` already subtracted by the caller)
+ * rather than from a registered policy. Routes through the same
+ * {@link CLAUDE_CATEGORY_MAP} as {@link toClaudeToolsFrontmatter} so the
+ * category→tool-name mapping stays single-source and the monotonic-privilege
+ * invariant is preserved.
+ *
+ * Returns `null` when the resolved set is empty (no categories, or only
+ * categories that map to no Claude tool — e.g. `mcp`/`board`), so the caller
+ * omits the frontmatter field. NOTE: an empty/`null` Claude `tools:` field
+ * means "inherit all tools" upstream; the runtime PreToolUse hook is the
+ * authoritative deny gate for these agents (it reads the derived policy from
+ * `agent-tool-policies.json`), so the omitted-field case does not widen the
+ * effective privilege envelope.
+ */
+export function toClaudeToolsFrontmatterFromCategories(
+  categories: readonly string[],
+): string | null {
+  const tools = resolveNativeTools(categories, CLAUDE_CATEGORY_MAP);
+  if (tools.length === 0) return null;
+  return tools.join(", ");
+}
+
+/**
  * Translate an agent id's hatch3r policy to a GitHub Copilot
  * `tools: [...]` YAML array value.
  *

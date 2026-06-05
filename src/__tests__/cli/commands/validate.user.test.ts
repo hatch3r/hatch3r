@@ -66,6 +66,19 @@ async function seedUserAgent(
       const items = (v as unknown[]).map((s) => String(s));
       return `${k}: [${items.join(", ")}]`;
     }
+    // D20-1: render a nested `tools: { allowed, denied }` grant as a proper
+    // YAML block so the canonical parser (src/adapters/canonical.ts
+    // parseFrontmatter) reads `tools.allowed`/`tools.denied`. The flat
+    // `${k}: ${String(v)}` path would emit `tools: [object Object]`, which the
+    // parser rejects and the coverage scan still treats as grantless.
+    if (v !== null && typeof v === "object") {
+      const obj = v as Record<string, unknown>;
+      const nested = Object.entries(obj).map(([nk, nv]) => {
+        const arr = (nv as unknown[]).map((s) => String(s));
+        return `  ${nk}: [${arr.join(", ")}]`;
+      });
+      return `${k}:\n${nested.join("\n")}`;
+    }
     return `${k}: ${String(v)}`;
   });
   const body = bodyOrFm.body ?? "**Pillars:** P5\n\nValid user agent body.\n";
@@ -111,7 +124,12 @@ describe("validate command — user content", () => {
 
   it("passes when a valid user agent is present", async () => {
     await createMinimalAgentsDir(tempDir);
-    await seedUserAgent(tempDir, "happy-user-agent");
+    // D20-1: a *valid* user agent carries a tool grant (a grantless agent now
+    // earns a coverage warning by design). Seed the grant so the subject of
+    // this test — a clean agent producing no output — holds under D20-1.
+    await seedUserAgent(tempDir, "happy-user-agent", {
+      frontmatter: { tools: { allowed: ["read"] } },
+    });
 
     const { validateCommand } = await import("../../../cli/commands/validate.js");
     await validateCommand();
@@ -122,7 +140,12 @@ describe("validate command — user content", () => {
 
   it("does NOT trigger the prefix-lint on a user file without the hatch3r- prefix", async () => {
     await createMinimalAgentsDir(tempDir);
-    await seedUserAgent(tempDir, "no-prefix-needed");
+    // D20-1: grant a tool so this prefix-exemption fixture does not also trip
+    // the grantless-agent coverage warning (which would surface the name and
+    // confound the prefix-lint assertion under test).
+    await seedUserAgent(tempDir, "no-prefix-needed", {
+      frontmatter: { tools: { allowed: ["read"] } },
+    });
 
     const { validateCommand } = await import("../../../cli/commands/validate.js");
     await validateCommand();

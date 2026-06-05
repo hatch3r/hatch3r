@@ -1,18 +1,23 @@
 // Last updated: 2026-05-19 (P3 platform-currency anchor; per-claim Anthropic
 // docs access dates inside this file remain authoritative for individual
 // assertions).
-import type { AdapterOutput } from "../types.js";
+import type { AdapterOutput, CanonicalFile } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
-import { sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
-import { toClaudeToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
+import {
+  toClaudeToolsFrontmatter,
+  toClaudeToolsFrontmatterFromCategories,
+} from "../pipeline/adapterToolTranslator.js";
 import {
   buildAgentToolPoliciesJson,
   buildClaudePreToolUseHookScript,
+  deriveUserAgentPolicy,
+  type AgentToolPolicy,
 } from "../pipeline/agentToolAllowlist.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
@@ -68,21 +73,33 @@ export const CACHE_BREAKPOINT_SENTINEL_END = "<!-- HATCH3R-CACHE-BREAKPOINT-END 
  * without a `paths` field are loaded unconditionally."
  *
  * Mapping mirrors the cursor `globs:` / copilot `applyTo:` scope transform
- * already in `cursor.ts::cursorRuleFrontmatter` and `copilot.ts`:
- *   - `scope: always`              -> "" (omit `paths:`; load unconditionally)
- *   - `scope: "<csv>"` (glob CSV)  -> `paths: ["g1", "g2", ...]` (flow array)
- *   - `scope: conditional`/absent  -> "" (no glob shape; load unconditionally)
+ * already in `cursor.ts::cursorRuleFrontmatter` and `copilot.ts`, resolved
+ * through the shared `resolveRuleGlobs` helper:
+ *   - `scope: always`                          -> "" (omit `paths:`; load unconditionally)
+ *   - `scope: conditional` + `globs: "<csv>"`  -> `paths: ["g1", "g2", ...]` (flow array)
+ *   - `scope: "<csv>"` (legacy inline CSV)     -> `paths: ["g1", "g2", ...]`
+ *   - `scope: conditional` with no `globs:`    -> "" (no patterns; load unconditionally)
+ *   - absent / empty                           -> "" (no glob shape; load unconditionally)
+ *
+ * X4/CD4 (D6-1/D9-1/D11-1 — GLOBS DROP): the previous implementation returned
+ * "" for `scope === "conditional"` outright, so every canonical
+ * `scope: conditional` rule (52/65 of them, incl. `floor:security` /
+ * `precedence: critical` `hatch3r-security-patterns`) emitted NO `paths:`
+ * frontmatter and loaded unconditionally at session start — the real patterns
+ * in the `globs:` field were never read. Routing through `resolveRuleGlobs`
+ * pulls those patterns so the rule lazy-loads only on matching file reads, per
+ * Claude Code's documented `paths` primitive.
  *
  * Returns the frontmatter block (including the `---` fences and a trailing
  * newline) ready to prepend to the rule body, or "" when no `paths:` applies.
  * The flow-sequence form (`["a", "b"]`) is valid YAML and matches the
  * single-line frontmatter rendering the cursor/copilot adapters already use.
  */
-function claudeRulePathsFrontmatter(scope: string | undefined): string {
-  if (!scope || scope === "always" || scope === "conditional") return "";
-  const globs = scope.includes(",")
-    ? scope.split(",").map((g) => g.trim()).filter((g) => g.length > 0)
-    : [scope.trim()];
+function claudeRulePathsFrontmatter(
+  rule: Pick<CanonicalFile, "scope" | "globs">,
+  scopeOverride?: string,
+): string {
+  const globs = resolveRuleGlobs(rule, { scope: scopeOverride });
   if (globs.length === 0) return "";
   const arr = globs.map((g) => `"${g}"`).join(", ");
   return `---\npaths: [${arr}]\n---\n`;
@@ -433,7 +450,7 @@ export class ClaudeAdapter extends BaseAdapter {
         // unscoped rules emit no frontmatter (load unconditionally), matching
         // Claude Code's documented default. Customization-layer scope override
         // takes precedence over canonical scope (parity with cursor.ts).
-        const pathsFm = claudeRulePathsFrontmatter(overrides.scope ?? rule.scope);
+        const pathsFm = claudeRulePathsFrontmatter(rule, overrides.scope);
         const rulePath = `.claude/rules/${nn}-${toPrefixedId(rule.id)}.md`;
         results.push(
           output(
@@ -444,6 +461,16 @@ export class ClaudeAdapter extends BaseAdapter {
         );
       }
     }
+
+    // D20-1 (X5/CD5): runtime AGENT_TOOL_POLICIES rows for user-authored
+    // agents. A user agent slug cannot use the `hatch3r-` prefix, so it is
+    // re-prefixed to `hatch3r-<slug>` on emission (toPrefixedId below) and
+    // matches no canonical policy — without a derived row the PreToolUse hook
+    // NO_POLICY-denies its every tool call. We collect a derived policy per
+    // user agent (keyed by the emitted id, grant = authored tools.allowed minus
+    // tools.denied) and append them to the emitted agent-tool-policies.json so
+    // the hook governs each user agent with its authored grant.
+    const userAgentPolicies: AgentToolPolicy[] = [];
 
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
@@ -464,7 +491,30 @@ export class ClaudeAdapter extends BaseAdapter {
         // the policy is absent (non-canonical agent), we omit the
         // field so Claude Code inherits from the parent — matching the
         // upstream default documented at code.claude.com/docs/en/sub-agents.
-        const toolsFm = toClaudeToolsFrontmatter(agentId);
+        //
+        // D20-1 (X5/CD5): for user-authored agents the canonical registry has
+        // no policy under the re-prefixed id, so the registry lookup returns
+        // null and (pre-fix) BOTH the `tools:` frontmatter AND the
+        // agent-tool-policies.json row were absent — the PreToolUse hook then
+        // NO_POLICY-denied every call. We derive a policy from the agent's
+        // authored `tools.allowed`/`tools.denied` grant: register it for the
+        // emitted policy doc (so the hook governs the agent) and render the
+        // `tools:` frontmatter from the same grant (so Claude's per-agent
+        // tool field reflects the authored envelope). An empty grant yields a
+        // null frontmatter (field omitted → Claude inherits all tools) while
+        // the derived policy still denies at the hook layer.
+        let toolsFm: string | null;
+        if (agent.source === "user") {
+          const grant = {
+            allowed: agent.toolsAllowed ?? [],
+            denied: agent.toolsDenied ?? [],
+          };
+          const derived = deriveUserAgentPolicy(agentId, grant);
+          userAgentPolicies.push(derived);
+          toolsFm = toClaudeToolsFrontmatterFromCategories(derived.allowedTools);
+        } else {
+          toolsFm = toClaudeToolsFrontmatter(agentId);
+        }
         const fmLines = [`description: ${desc}`];
         if (toolsFm) fmLines.push(`tools: ${toolsFm}`);
         // D9-H-1 (D9, P3): emit Claude Code's native `model:` subagent
@@ -688,9 +738,14 @@ export class ClaudeAdapter extends BaseAdapter {
     // The hook script is plain Node ESM with zero runtime dependencies;
     // the JSON document is the SECURITY.md Allowlist Hybrid Contract
     // source-of-truth payload.
+    // D20-1 (X5/CD5): append the derived user-agent policies so the emitted
+    // policy doc the PreToolUse hook reads carries a row for every emitted
+    // user agent — closing the NO_POLICY deny-all path for re-prefixed user
+    // agents. Canonical ids always win inside buildAgentToolPoliciesJson, so a
+    // user agent can never widen a canonical agent's grant.
     results.push(output(
       ".claude/hooks/agent-tool-policies.json",
-      buildAgentToolPoliciesJson(),
+      buildAgentToolPoliciesJson(userAgentPolicies),
     ));
     results.push(output(
       ".claude/hooks/pretooluse-allowlist.mjs",

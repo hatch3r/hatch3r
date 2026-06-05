@@ -624,12 +624,32 @@ validateToolPolicies();
  * The JSON is deterministic — sort order matches registry insertion
  * order — so adapter outputs stay stable across runs.
  */
-export function buildAgentToolPoliciesJson(): string {
+export function buildAgentToolPoliciesJson(
+  extraPolicies: readonly AgentToolPolicy[] = [],
+): string {
+  // D20-1 (X5/CD5): `extraPolicies` carries runtime-derived policies for
+  // user-authored agents whose emitted (re-prefixed) id has no canonical
+  // AGENT_TOOL_POLICIES entry. The Claude adapter derives these from each
+  // user agent's authored `tools.allowed`/`tools.denied` grant via
+  // {@link deriveUserAgentPolicy} and appends them here so the emitted
+  // policy document the PreToolUse hook reads contains a row for the user
+  // agent — closing the NO_POLICY deny-all path. A canonical id always
+  // wins: an extra policy whose agentId collides with a registered policy
+  // is dropped so user content can never widen a canonical agent's grant.
+  const canonicalIds = new Set(AGENT_TOOL_POLICIES.map((p) => p.agentId));
+  const dedupedExtras: AgentToolPolicy[] = [];
+  const seenExtra = new Set<string>();
+  for (const p of extraPolicies) {
+    if (canonicalIds.has(p.agentId) || seenExtra.has(p.agentId)) continue;
+    seenExtra.add(p.agentId);
+    dedupedExtras.push(p);
+  }
+  const allPolicies = [...AGENT_TOOL_POLICIES, ...dedupedExtras];
   const doc = {
     schema: "hatch3r/agent-tool-policies/v1",
     generatedBy: "src/pipeline/agentToolAllowlist.ts",
     allToolCategories: ALL_TOOL_CATEGORIES,
-    policies: AGENT_TOOL_POLICIES.map((p) => ({
+    policies: allPolicies.map((p) => ({
       agentId: p.agentId,
       allowedTools: p.allowedTools,
       description: p.description,
@@ -640,6 +660,62 @@ export function buildAgentToolPoliciesJson(): string {
     })),
   };
   return JSON.stringify(doc, null, 2);
+}
+
+/**
+ * D20-1 (X5/CD5): derive a runtime {@link AgentToolPolicy} for a user-authored
+ * agent from its authored `tools.allowed` / `tools.denied` grant.
+ *
+ * Problem closed: a user agent slug cannot use the `hatch3r-` prefix
+ * (`src/content/userContent.ts` slug gate), so the Claude adapter re-prefixes
+ * it to `hatch3r-<slug>` on emission. That re-prefixed id matches no entry in
+ * the canonical `AGENT_TOOL_POLICIES` registry, so the emitted
+ * `agent-tool-policies.json` had no row for it and the PreToolUse hook denied
+ * EVERY tool call by `NO_POLICY` deny-by-default — a bricked agent. Deriving a
+ * policy from the grant the author already declared (and the gate already
+ * validated against {@link ALL_TOOL_CATEGORIES}) lets the hook govern the user
+ * agent with its intended privilege envelope.
+ *
+ * Deny-by-default floor: the resolved allowlist is the authored `allowed`
+ * categories MINUS the authored `denied` categories. Unknown categories are
+ * dropped (defensive — the user-content gate rejects them at author time, but
+ * a hand-edited file could carry one). An agent that declared no `allowed`
+ * grant resolves to an empty allowlist (every tool still denied) — the same
+ * least-privilege posture as a canonical read-only agent, and the validate-time
+ * coverage warning (`validateAgentToolPolicyCoverage`) nudges the author to add
+ * a grant.
+ *
+ * @param emittedAgentId The re-prefixed id the adapter writes (e.g.
+ *   `hatch3r-foo`) — the same string the PreToolUse hook matches on
+ *   `agent_type`.
+ * @param grant The author-declared categories from the agent's `tools`
+ *   frontmatter (`toolsAllowed` / `toolsDenied` on the CanonicalFile).
+ */
+export function deriveUserAgentPolicy(
+  emittedAgentId: string,
+  grant: { allowed?: readonly string[]; denied?: readonly string[] },
+): AgentToolPolicy {
+  const known = new Set<string>(ALL_TOOL_CATEGORIES);
+  const denied = new Set<string>(
+    (grant.denied ?? []).filter((c) => known.has(c)),
+  );
+  const allowedTools: string[] = [];
+  const seen = new Set<string>();
+  for (const cat of grant.allowed ?? []) {
+    if (!known.has(cat)) continue;
+    if (denied.has(cat)) continue;
+    if (seen.has(cat)) continue;
+    seen.add(cat);
+    allowedTools.push(cat);
+  }
+  return {
+    agentId: emittedAgentId,
+    allowedTools,
+    description:
+      `User-authored agent (.hatch3r/overrides/agents/) — policy derived from authored ` +
+      `tools grant (deny-by-default: allowed minus denied). ` +
+      `Allowed categories: ${allowedTools.length > 0 ? allowedTools.join(", ") : "(none — agent has no tool grant)"}.`,
+  };
 }
 
 /**

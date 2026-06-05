@@ -7,6 +7,7 @@ import { getAdapter } from "../../adapters/index.js";
 import { HATCH3R_DIR, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
+import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import { discoverUserContent } from "../../content/userContent.js";
 import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
@@ -235,6 +236,19 @@ export async function computeAdapterDrift(
         entries.push({ path: out.path, tool, status: "missing" });
         counts.missing++;
       }
+    }
+
+    // F14.2-H1 (D14): monorepo per-package emission parity. When the manifest
+    // records workspace packages, init/sync ALSO write each adapter output into
+    // every `<package>/.hatch3r/<rel>` (init.ts ~816 / sync.ts ~931) and stamp
+    // those paths into `manifest.managedFiles`. Re-target this tool's root
+    // outputs through the SAME helper init/sync use and register every
+    // per-package path as seen, so the orphan loop below does not classify a
+    // legitimately-emitted per-package file as `unexpected`. Without this, an
+    // N-package x 3-adapter repo reports ~(root-output-count x N) false orphans
+    // on every status/verify call.
+    for (const perPkg of planPerPackageOutputs(manifest.packages, outputs)) {
+      seenPaths.add(perPkg.output.path);
     }
   }
 

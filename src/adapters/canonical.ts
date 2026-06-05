@@ -53,6 +53,87 @@ export function sortByPrecedence<T extends { precedence?: string; id: string }>(
 }
 
 /**
+ * Split a comma-separated glob list into an ordered, de-duplicated array,
+ * trimming whitespace and stripping a single layer of surrounding quotes.
+ * Returns an empty array for empty/undefined input.
+ *
+ * Mirrors the `csvToSet` semantics in `scripts/validate-rule-parity.ts`
+ * (the rule-parity CI gate) so the glob set an adapter emits matches the
+ * set the parity validator derives from the same `.md` frontmatter. Returns
+ * an array (insertion order preserved, duplicates dropped) rather than a Set
+ * because every emitter renders an ordered list (`globs: [...]`,
+ * `applyTo: "a, b"`, `paths: [...]`); callers that need set semantics can
+ * wrap the result in `new Set(...)`.
+ */
+export function csvToGlobList(csv: string | undefined): string[] {
+  if (!csv) return [];
+  const trimmed = csv.trim().replace(/^["']|["']$/g, "");
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const part of trimmed.split(",")) {
+    const g = part.trim();
+    if (g && !seen.has(g)) {
+      seen.add(g);
+      out.push(g);
+    }
+  }
+  return out;
+}
+
+/**
+ * Scope/glob override shape accepted by {@link resolveRuleGlobs}. Structurally
+ * compatible with the customization {@link Customization} layer (which carries
+ * `scope`) plus an optional `globs` CSV for a future override path. Both fields
+ * are optional; an absent field falls through to the canonical rule value.
+ */
+export interface RuleGlobOverrides {
+  scope?: string;
+  globs?: string;
+}
+
+/**
+ * X4/CD4 (D6-1 / D9-1 / D11-1 — GLOBS DROP, Cycle 11 Wave 1): single source of
+ * truth for the file-glob set an adapter attaches to a rule. ALL THREE
+ * adapters (cursor `globs:`, copilot `applyTo:`, claude `paths:`) MUST route
+ * through this helper instead of deriving globs from `scope` alone.
+ *
+ * Resolution (mirrors the `.md`→`.mdc` scope transform in
+ * `src/adapters/canonical.ts` doc + `scripts/validate-rule-parity.ts`):
+ *   - effective scope `"always"`          → [] (unconditional; emit no glob shape)
+ *   - effective scope `"conditional"`     → parse `overrides.globs ?? rule.globs`
+ *                                            (the canonical two-line form; the
+ *                                            real patterns live in the `globs:`
+ *                                            field, never in `scope`)
+ *   - effective scope contains `,`        → legacy inline-CSV; parse the scope
+ *     OR is any other non-keyword string    string itself as the glob CSV
+ *   - effective scope absent/empty        → [] (unconditional)
+ *
+ * "Effective scope" is `overrides?.scope ?? rule.scope` so a customization-layer
+ * scope override (already honoured by every adapter via `overrides.scope`)
+ * continues to win. The returned array is ordered + de-duplicated; an empty
+ * array means "no per-file scoping — load unconditionally".
+ *
+ * Before this helper, the adapters hit an `else if (scope)` branch on
+ * `scope === "conditional"` and emitted `["conditional"]` as the glob, dropping
+ * the real patterns for 52/65 conditional rules (incl. `floor:security` /
+ * `precedence: critical` `hatch3r-security-patterns`).
+ */
+export function resolveRuleGlobs(
+  rule: Pick<CanonicalFile, "scope" | "globs">,
+  overrides?: RuleGlobOverrides,
+): string[] {
+  const scope = overrides?.scope ?? rule.scope;
+  if (!scope || scope === "always") return [];
+  if (scope === "conditional") {
+    return csvToGlobList(overrides?.globs ?? rule.globs);
+  }
+  // Legacy inline-CSV form (`scope: "src/**/*.ts,*.md"` or a single bare
+  // glob like `scope: "**/*.ts"`): the glob patterns live in the scope
+  // string itself. Parse it directly so back-compat rules keep working.
+  return csvToGlobList(scope);
+}
+
+/**
  * Filter canonical files down to those that should appear as user-invocable
  * entries in a tool's command/agent picker (e.g. `.claude/commands/`,
  * `.cursor/commands/`, `.claude/agents/`).
@@ -393,6 +474,39 @@ export function parseFrontmatter(
         `allowed_tools field must be an array of strings, got ${describeYamlType(allowedToolsRaw)} (value: ${JSON.stringify(allowedToolsRaw)})`,
       );
     }
+    // D20-1 (X5/CD5): structured agent tool grant — `tools: { allowed, denied }`.
+    // Authored on user agents by `src/content/userContent.ts::composeArtifactFile`
+    // and validated against ALL_TOOL_CATEGORIES by its `validateStructuredTools`
+    // gate. Carried onto the CanonicalFile so the Claude adapter can derive a
+    // runtime policy for the re-prefixed user agent id (without it the agent is
+    // NO_POLICY-denied every tool call under the PreToolUse hook). Distinct from
+    // `allowed_tools` (a flat skill pre-approval list) — `tools` is the
+    // category-scoped agent allow/deny object. Non-array `allowed`/`denied`
+    // members surface on the warning channel and fall back to undefined.
+    const toolsRaw = parsed.tools;
+    if (toolsRaw && typeof toolsRaw === "object" && !Array.isArray(toolsRaw)) {
+      const toolsObj = toolsRaw as Record<string, unknown>;
+      const allowedRaw = toolsObj.allowed;
+      const deniedRaw = toolsObj.denied;
+      if (Array.isArray(allowedRaw)) {
+        metadata.toolsAllowed = allowedRaw.filter((t: unknown) => typeof t === "string");
+      } else if (allowedRaw !== undefined && typeMismatches) {
+        typeMismatches.push(
+          `tools.allowed field must be an array of strings, got ${describeYamlType(allowedRaw)} (value: ${JSON.stringify(allowedRaw)})`,
+        );
+      }
+      if (Array.isArray(deniedRaw)) {
+        metadata.toolsDenied = deniedRaw.filter((t: unknown) => typeof t === "string");
+      } else if (deniedRaw !== undefined && typeMismatches) {
+        typeMismatches.push(
+          `tools.denied field must be an array of strings, got ${describeYamlType(deniedRaw)} (value: ${JSON.stringify(deniedRaw)})`,
+        );
+      }
+    } else if (toolsRaw !== undefined && typeMismatches) {
+      typeMismatches.push(
+        `tools field must be an object of shape { allowed?: string[], denied?: string[] }, got ${describeYamlType(toolsRaw)} (value: ${JSON.stringify(toolsRaw)})`,
+      );
+    }
     // Wave A1: optional rule precedence bucket. Validated by
     // scripts/validate-rule-parity.ts (enum check + pass-through parity).
     // The parser accepts the value only when it is a string matching the
@@ -542,6 +656,14 @@ async function readSingleMd(
     frontmatterType: rawType,
     description: metadata.description ?? "",
     scope: metadata.scope,
+    // X4/CD4 (D6-1/D9-1/D11-1): carry the raw `globs:` CSV onto the
+    // CanonicalFile so adapters can resolve the real glob set for
+    // `scope: conditional` rules. Without this copy, `rule.globs` was
+    // undefined downstream and all three adapters derived glob frontmatter
+    // from `scope` alone, emitting the literal token `"conditional"` as a
+    // glob and dropping the patterns (52/65 conditional rules never
+    // auto-attached in Cursor/Copilot and loaded unconditionally in Claude).
+    globs: metadata.globs,
     model: metadata.model,
     protected: metadata.protected,
     readonly: metadata.readonly,
@@ -558,6 +680,13 @@ async function readSingleMd(
     // list. Undefined for artifacts that do not declare it (every non-skill
     // type, and skills that pre-approve nothing).
     allowedTools: metadata.allowedTools,
+    // D20-1 (X5/CD5): pass through the structured agent `tools` allow/deny
+    // grant. Undefined for canonical agents and for user agents that declared
+    // no `tools` field. The Claude adapter derives a runtime policy from these
+    // so a re-prefixed user agent is governed by its authored grant rather
+    // than NO_POLICY-denied.
+    toolsAllowed: metadata.toolsAllowed,
+    toolsDenied: metadata.toolsDenied,
     content,
     rawContent,
     sourcePath: fullPath,

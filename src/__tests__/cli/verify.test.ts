@@ -297,4 +297,49 @@ describe("verify command", () => {
     // The in-sync breakdown lists the cursor adapter's checked outputs.
     expect(output).toContain("cursor:");
   });
+
+  // D14-1 (Cycle 11 Wave 1, Critical): the shared `computeAdapterDrift` helper
+  // now registers monorepo per-package output paths as seen, so the orphan loop
+  // no longer flags them as `unexpected`. verify is the second front door onto
+  // that helper — confirm the fix reaches it too: a 2-package monorepo whose
+  // per-package files are all in sync must verify PASS (exit 0, no throw),
+  // where before the fix it threw INTEGRITY_ERROR on ~(outputs x packages)
+  // false orphans.
+  it("verifies a 2-package monorepo as PASS with no false-orphan drift (D14-1)", async () => {
+    await createTestProject(tempDir, {
+      tools: ["cursor", "claude"],
+      packages: [
+        { name: "@scope/alpha", path: "packages/alpha" },
+        { name: "@scope/beta", path: "packages/beta" },
+      ],
+    });
+
+    // sync writes root + per-package outputs and tracks every path in the
+    // manifest's managedFiles list.
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    // Guard against a vacuous pass: confirm per-package files were emitted and
+    // tracked, so the verify-PASS below is the orphan-suppression fix and not
+    // an empty manifest.
+    const { readManifest } = await import("../../manifest/hatchJson.js");
+    const manifest = await readManifest(tempDir);
+    const perPackageTracked = (manifest?.managedFiles ?? []).filter(
+      (p) => p.startsWith("packages/alpha/") || p.startsWith("packages/beta/"),
+    );
+    expect(perPackageTracked.length).toBeGreaterThan(0);
+
+    consoleSpy.mockClear();
+    consoleErrorSpy.mockClear();
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    // Must NOT throw: no false-orphan drift means a clean verify.
+    await expect(verifyCommand()).resolves.toBeUndefined();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("verify: PASS");
+    expect(output).not.toMatch(/verify: FAIL/);
+    // No "Unexpected:" summary row, since no per-package file is an orphan.
+    expect(output).not.toContain("Unexpected:");
+  });
 });

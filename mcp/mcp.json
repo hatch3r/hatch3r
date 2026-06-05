@@ -72,8 +72,8 @@
     "gitlab": {
       "_disabled": true,
       "_description": "GitLab issues, merge requests, pipelines, and project management",
-      "command": "npx",
-      "args": ["-y", "glab", "mcp"],
+      "command": "glab",
+      "args": ["mcp"],
       "env": {
         "GITLAB_TOKEN": "${env:GITLAB_TOKEN}"
       }

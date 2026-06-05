@@ -257,36 +257,23 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         run: npm run inventory:check-docs
 
-      # Cycle 7 H12: every `rules/hatch3r-*.md` must have a `.mdc` Cursor
-      # counterpart whose body content matches (frontmatter format may differ).
-      # Per .claude/rules/content-authoring.md the two variants are the
-      # single-source-of-truth pairing for editor and CLI consumers.
-      - name: Rule parity drift check
+      # Cycle 11 D16-1 (Critical, CI enforcement keystone): package.json
+      # `validate` chains 8 content/governance gates (rule-parity, efficiency,
+      # cli-skills, wiring, anti-slop, specialist-roster, severity-vocabulary,
+      # canonical), but only 3 of them (rule-parity, wiring, specialist-roster)
+      # previously ran in this workflow — the other 5 (efficiency, cli-skills,
+      # anti-slop, severity-vocabulary, canonical) ran in no CI step, so content
+      # and governance enforcement was honor-system on PRs. This single umbrella
+      # step runs the full 8-gate `npm run validate` and supersedes the three
+      # former standalone validator steps (no double-running). Each gate runs via
+      # `tsx` against source, so no built dist/ is required; the step is gated to
+      # the canonical Linux/Node-22 matrix entry like the other single-run
+      # content gates. Branch-protection note: making this a required PR status
+      # check on main is the human-only follow-up (settings -> branches ->
+      # require-status-check on the build job for the canonical matrix entry).
+      - name: Content + governance validation gates
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npm run validate:rule-parity
-
-      # Cycle 9 C9-H75 (D18-F18.2.4 -> D16-F16.1.1 wiring sweep): every `*.ts`
-      # module under `src/pipeline/` and `src/integrity/` must be imported by
-      # at least one non-test file in `src/`, or declare the JSDoc tag
-      # `@library_export_only` in its leading block comment. Blocks the
-      # implemented-but-unwired pattern (D6/D7/D8/D12 cross-cut) from reaching
-      # main. Validator: `scripts/validate-wiring.ts`.
-      - name: Wiring drift check
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npm run validate:wiring
-
-      # Cycle 10 H F7.3-H3 (D7): the Phase 4 specialist roster
-      # (src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE, the single
-      # source of truth) must stay in lock-step with every prose/frontmatter
-      # dispatch surface: the orchestration rule's Phase 4 table, the
-      # implementer + reviewer Phase 4 enumerations, each full-pipeline
-      # command's agentPipeline, and an agents/<id>.md file per specialist.
-      # F-1's root cause was adding 9 specialists to the constant while leaving
-      # 0 dispatch surfaces updated; this gate fails the PR when the SSOT and a
-      # surface diverge. Validator: scripts/validate-specialist-roster.ts.
-      - name: Specialist roster drift check
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npm run validate:specialist-roster
+        run: npm run validate
 
       # Audit-state hygiene: finding-registry shape + invariants 1-7 from
       # AUDIT-EXECUTE.md §Finding Registry. Blocking once Phase 3 archival

@@ -15,7 +15,7 @@ import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { readMaturityTier } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
-import { sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
@@ -97,7 +97,14 @@ export class CopilotAdapter extends BaseAdapter {
     const results: AdapterOutput[] = [];
 
     const alwaysRules: { rule: CanonicalFile; content: string }[] = [];
-    const scopedRules: { rule: CanonicalFile; content: string; scope: string }[] = [];
+    // X4/CD4 (D6-1/D9-1/D11-1 — GLOBS DROP): carry the RESOLVED glob list
+    // (from resolveRuleGlobs) instead of the raw `scope` string. The previous
+    // shape stored `scope` and the emission loop derived `applyTo` from it via
+    // `scope.split(",")`, which emitted `applyTo: "conditional"` for every
+    // `scope: conditional` rule (real patterns live in the `globs:` field, not
+    // `scope`). VS Code never matched that literal, so the instruction file
+    // never scoped to any file.
+    const scopedRules: { rule: CanonicalFile; content: string; globs: string[] }[] = [];
 
     if (ctx.features.rules) {
       // C9-H39 (D11-SA11.1-01): use the BaseAdapter-tracked read wrapper so
@@ -121,11 +128,17 @@ export class CopilotAdapter extends BaseAdapter {
         // marker so copilot's custom rule loop stays consistent with the
         // 14 other adapters that go through the base class.
         const content = this.substituteCanonicalContent(rawContent, ctx);
-        const scope = overrides.scope ?? rule.scope;
-        if (scope && scope !== "always") {
-          scopedRules.push({ rule: { ...rule, description: overrides.description ?? rule.description }, content, scope });
+        const ruleWithDesc = { ...rule, description: overrides.description ?? rule.description };
+        // X4/CD4: resolve the real glob set up front. A `scope: conditional`
+        // rule whose `globs:` field is absent/empty resolves to [] and is
+        // (correctly) treated as unconditional → inlined into the always-rules
+        // block rather than emitted as a scoped instruction file with an empty
+        // `applyTo`.
+        const globs = resolveRuleGlobs(rule, { scope: overrides.scope });
+        if (globs.length > 0) {
+          scopedRules.push({ rule: ruleWithDesc, content, globs });
         } else {
-          alwaysRules.push({ rule: { ...rule, description: overrides.description ?? rule.description }, content });
+          alwaysRules.push({ rule: ruleWithDesc, content });
         }
       }
     }
@@ -198,10 +211,12 @@ jobs:
       copilotSetupStepsInner,
     ));
 
-    for (const { rule, content, scope } of scopedRules) {
-      const globs = scope.includes(",")
-        ? scope.split(",").map((g) => g.trim())
-        : [scope];
+    for (const { rule, content, globs } of scopedRules) {
+      // X4/CD4: `globs` is the resolved pattern list from resolveRuleGlobs
+      // (never the literal "conditional"). VS Code's `applyTo` is a single
+      // comma-separated glob string per
+      // https://code.visualstudio.com/docs/copilot/copilot-customization
+      // (custom instructions `applyTo` frontmatter).
       const applyTo = globs.join(", ");
       const fm = `---\napplyTo: "${applyTo}"\n---`;
       const body = `# ${rule.id}\n\n${rule.description}\n\n${content}`;

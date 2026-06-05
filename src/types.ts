@@ -412,6 +412,19 @@ export interface CanonicalFile {
   frontmatterType?: string;
   description: string;
   scope?: string;
+  /**
+   * Raw comma-separated glob list declared in the canonical rule frontmatter
+   * `globs:` field. Carries the actual file patterns for `scope: conditional`
+   * rules. Distinct from {@link scope}: when `scope === "conditional"`, the
+   * glob patterns live here, not in `scope`. Adapters MUST resolve the
+   * effective glob set via `resolveRuleGlobs` in `src/adapters/canonical.ts`
+   * rather than deriving globs from `scope` alone — deriving from `scope`
+   * emits the literal token `"conditional"` as a glob and drops the real
+   * patterns (X4/CD4 GLOBS DROP). Absent on `scope: always`, unscoped rules,
+   * and legacy inline-CSV `scope: "<csv>"` rules (those carry the CSV in
+   * `scope`).
+   */
+  globs?: string;
   model?: string;
   protected?: boolean;
   /** Agent runs with restricted write permissions (Cursor v2.5+ subagents). */
@@ -456,6 +469,24 @@ export interface CanonicalFile {
    * not document `allowed-tools`.
    */
   allowedTools?: string[];
+  /**
+   * D20-1 (X5/CD5): structured agent tool-grant categories parsed from the
+   * `tools: { allowed: [...], denied: [...] }` frontmatter emitted by
+   * `src/content/userContent.ts::composeArtifactFile` for user-authored
+   * agents. Each entry is a canonical category from `ALL_TOOL_CATEGORIES`
+   * (`src/pipeline/agentToolAllowlist.ts`). Consumed by the Claude adapter
+   * to derive a runtime AGENT_TOOL_POLICIES entry for the re-prefixed user
+   * agent id, so the PreToolUse hook governs the user agent WITH its authored
+   * grant instead of NO_POLICY-denying every call (the agent is otherwise
+   * bricked: a user slug cannot use the `hatch3r-` prefix, the Claude adapter
+   * re-prefixes it to `hatch3r-foo`, and `hatch3r-foo` matches no canonical
+   * policy). Absent on canonical agents and on user agents that declared no
+   * `tools` field. Both arrays are independent; `toolsDenied` subtracts from
+   * `toolsAllowed` at policy-derivation time (deny-by-default floor).
+   */
+  toolsAllowed?: string[];
+  /** D20-1: see {@link toolsAllowed} — the denied counterpart. */
+  toolsDenied?: string[];
 }
 
 export interface CanonicalMetadata {
@@ -493,6 +524,14 @@ export interface CanonicalMetadata {
    * {@link CanonicalFile.allowedTools}; see that field for emission semantics.
    */
   allowedTools?: string[];
+  /**
+   * D20-1: structured agent tool-grant categories parsed from the
+   * `tools: { allowed: [...], denied: [...] }` frontmatter. Mirrors
+   * {@link CanonicalFile.toolsAllowed} / {@link CanonicalFile.toolsDenied};
+   * see those fields for derivation semantics.
+   */
+  toolsAllowed?: string[];
+  toolsDenied?: string[];
 }
 
 export interface ContentSelection {

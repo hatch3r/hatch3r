@@ -62,6 +62,19 @@ export interface CliToolTarget {
   name: string;
   /** Optional pinned version pulled from the registry's `minVersion`. */
   version?: string;
+  /**
+   * True when the registry `securityNote` cites a concrete advisory id
+   * (`CVE-YYYY-NNNN` or `GHSA-xxxx-xxxx-xxxx`) — a falsifiable claim that a
+   * published Critical/High advisory exists for this tool. Such a target is
+   * expected to either surface a Critical/High OSV finding, raise a query
+   * error, or be explicitly acknowledged in {@link VACUOUS_ACK}; a clean
+   * 0-row OSV response that is none of those is a vacuous certification and
+   * fails the gate closed (CD11). Notes that document only install-channel
+   * hygiene or peer-dependency trust (no advisory id) set this `false` —
+   * OSV correctly returns no rows for "the install script is unsigned", so
+   * those are NOT vacuous. See {@link CheckReport.vacuousCertifications}.
+   */
+  citesAdvisoryId: boolean;
 }
 
 export interface OsvVulnerability {
@@ -111,6 +124,28 @@ export interface CheckReport {
   unmapped: CliToolMeta[];
   /** Tools intentionally not OSV-scanned (documented in SCAN_EXEMPT_TOOLS). */
   exempted: ExemptedTool[];
+  /**
+   * CD11 fail-closed guard. Targets whose `securityNote` cites a concrete
+   * advisory id (CVE/GHSA) yet whose OSV query returned zero Critical/High
+   * findings, raised no query error, AND are not listed in {@link VACUOUS_ACK}
+   * — a structurally vacuous "clean" result that means the OSV
+   * ecosystem/name/version mapping cannot corroborate an advisory hatch3r
+   * documents. Non-empty -> exit 1, exactly like `staleFindings`: a gate that
+   * certifies a tool clean while the registry names a specific CVE for it is
+   * fail-open, and CD11 requires the gate to fail closed on a 0-row result for
+   * a known-present advisory. Install-hygiene notes (no advisory id) never
+   * appear here; a documented expected-0-rows tool (patched at the pinned
+   * version, or an OSV-unsurfaceable record) is acknowledged in VACUOUS_ACK
+   * and surfaced in {@link acknowledgedVacuous} instead.
+   */
+  vacuousCertifications: CliToolTarget[];
+  /**
+   * Advisory-citing targets with a 0-row OSV result whose expected-0-rows
+   * status is documented in VACUOUS_ACK (e.g. fixed at the pinned version, or
+   * an OSV GO-record without numeric severity). Reported for transparency,
+   * never gating — the counterpart to {@link acknowledgedFindings}.
+   */
+  acknowledgedVacuous: CliToolTarget[];
 }
 
 export interface RunOptions {
@@ -250,6 +285,65 @@ const ACKNOWLEDGED_ADVISORIES: Record<
 };
 
 /**
+ * Concrete advisory-id matcher: a `CVE-YYYY-NNNN` or `GHSA-xxxx-xxxx-xxxx`
+ * token. Used to decide whether a `securityNote` makes a falsifiable
+ * advisory claim (OSV is then expected to corroborate it) versus documenting
+ * only install-channel hygiene / peer-dependency trust (no OSV row expected).
+ */
+const ADVISORY_ID_RE = /\b(?:CVE-\d{4}-\d{3,}|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})\b/i;
+
+/**
+ * Returns true when `note` cites at least one concrete CVE/GHSA id.
+ */
+export function securityNoteCitesAdvisoryId(note: string | undefined): boolean {
+  return typeof note === "string" && ADVISORY_ID_RE.test(note);
+}
+
+/**
+ * CD11 vacuous-certification acknowledgments. A tool whose `securityNote`
+ * cites a concrete advisory id, yet for which a 0-row Critical/High OSV result
+ * is *expected and explained*, is listed here so it does NOT trip the
+ * fail-closed gate — while any NEW advisory-citing tool that returns 0 rows
+ * (an un-reviewed mapping gap) still fails closed. Keyed by registry tool id.
+ * Each entry is reviewed by its reviewBy date; an overdue review is surfaced
+ * in the report. This mirrors {@link ACKNOWLEDGED_ADVISORIES} but operates at
+ * the tool-target level (the reason is "why OSV legitimately returns 0 for the
+ * version we pin", not "this specific advisory has no fix").
+ */
+const VACUOUS_ACK: Record<string, { reason: string; addedISO: string; reviewBy: string }> = {
+  gh: {
+    reason:
+      "GHSA-crc3-h8v6-qh57 is fixed in gh 2.92.0; the registry pins minVersion >=2.92.0, so OSV correctly returns no Critical/High advisory for the pinned (patched) version.",
+    addedISO: "2026-06-05",
+    reviewBy: "2026-09-05",
+  },
+  curl: {
+    reason:
+      "CVE-2026-7168/7009/6429/6253/6276/3805/3783 are all Medium-and-Low (credential-leak / connection-reuse) per the registry securityNote and are fixed in curl 8.20.0 (pinned minVersion); OSV surfaces no Critical/High row for the pinned version, which is the correct gate-clean result.",
+    addedISO: "2026-06-05",
+    reviewBy: "2026-09-05",
+  },
+  docker: {
+    reason:
+      "CVE-2026-41567/41568/42306 are fixed in 29.5.2 (pinned minVersion). OSV returns these moby/moby advisories as Go-ecosystem records without a numeric severity (the documented GO-record blind spot in ECOSYSTEM_OVERRIDES), so they normalize to UNKNOWN and never reach Critical/High even for affected versions; the host-root-escape risk is tracked in the registry securityNote.",
+    addedISO: "2026-06-05",
+    reviewBy: "2026-09-05",
+  },
+  podman: {
+    reason:
+      "CVE-2026-33414 (Windows-only Hyper-V escape) is fixed in podman 5.8.2 (pinned minVersion) and arrives from OSV as a Go-ecosystem record without numeric severity (the documented GO-record blind spot); a 0-row Critical/High result for the patched version is correct, and the risk is tracked in the registry securityNote.",
+    addedISO: "2026-06-05",
+    reviewBy: "2026-09-05",
+  },
+  dasel: {
+    reason:
+      "CVE-2026-46377/46378/33320 are all fixed in dasel 3.11.0; the registry pins minVersion >=3.11.0, so OSV correctly returns no Critical/High advisory for the pinned (patched) version.",
+    addedISO: "2026-06-05",
+    reviewBy: "2026-09-05",
+  },
+};
+
+/**
  * Map a CLI tool registry entry to its OSV.dev target. Returns null when
  * the tool cannot be confidently mapped — those are surfaced in
  * `CheckReport.unmapped` so the next cycle can add an override.
@@ -263,6 +357,7 @@ export function mapToolToOsvTarget(meta: CliToolMeta): CliToolTarget | null {
       ecosystem: override.ecosystem,
       name: override.name,
       version: stripVersionConstraint(meta.minVersion),
+      citesAdvisoryId: securityNoteCitesAdvisoryId(meta.securityNote),
     };
   }
   return null;
@@ -373,6 +468,11 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
 
   const findings: VulnerabilityFinding[] = [];
   const queryErrors: Array<{ target: CliToolTarget; reason: string }> = [];
+  // CD11: track which advisory-citing targets actually produced a Critical/High
+  // hit or a query error. An advisory-citing target that did neither returned a
+  // structurally vacuous "clean" response and fails the gate closed (unless it
+  // is explicitly acknowledged in VACUOUS_ACK).
+  const producedSignal = new Set<string>();
 
   for (const target of targets) {
     let response: OsvQueryResponse;
@@ -380,12 +480,17 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
       response = await queryOsv(target, fetcher);
     } catch (err) {
       queryErrors.push({ target, reason: (err as Error).message });
+      // A query error is a non-vacuous outcome — we could not certify the tool
+      // clean, so it is not a silent fail-open. Mark it as having produced a
+      // signal so it is not double-counted as a vacuous certification.
+      producedSignal.add(target.tool);
       continue;
     }
     const vulns = response.vulns ?? [];
     for (const v of vulns) {
       const severity = normalizeSeverity(v);
       if (!isCriticalOrHigh(severity)) continue;
+      producedSignal.add(target.tool);
       const publishedISO = v.published ?? v.modified;
       const ageDays = daysSince(publishedISO, now);
       const isStale = ageDays !== undefined && ageDays > maxAgeDays;
@@ -407,6 +512,17 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
   // does not fail the build.
   const staleFindings = findings.filter((f) => f.isStale && !f.acknowledged);
   const acknowledgedFindings = findings.filter((f) => f.acknowledged);
+  // CD11 fail-closed: a target whose securityNote cites a concrete CVE/GHSA id
+  // yet yielded zero Critical/High findings and no query error is a vacuous
+  // certification — OSV could not corroborate the documented advisory, so the
+  // gate cannot honestly report the tool clean. Targets whose expected 0-row
+  // result is documented in VACUOUS_ACK are carried (reported, not gating);
+  // any other advisory-citing 0-row target fails closed.
+  const candidateVacuous = targets.filter(
+    (t) => t.citesAdvisoryId && !producedSignal.has(t.tool),
+  );
+  const vacuousCertifications = candidateVacuous.filter((t) => VACUOUS_ACK[t.tool] === undefined);
+  const acknowledgedVacuous = candidateVacuous.filter((t) => VACUOUS_ACK[t.tool] !== undefined);
   return {
     targets,
     findings,
@@ -416,6 +532,8 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
     queryErrors,
     unmapped,
     exempted,
+    vacuousCertifications,
+    acknowledgedVacuous,
   };
 }
 
@@ -428,6 +546,8 @@ export function formatTextReport(report: CheckReport, now: Date = new Date()): s
   lines.push(`  Critical/High findings: ${report.findings.length}`);
   lines.push(`  stale (>${report.maxAgeDays} days): ${report.staleFindings.length}`);
   lines.push(`  acknowledged (reported, not gating): ${report.acknowledgedFindings.length}`);
+  lines.push(`  vacuous certifications (advisory-citing tool, 0 OSV hits, gating): ${report.vacuousCertifications.length}`);
+  lines.push(`  acknowledged vacuous (advisory-citing, expected 0 OSV hits, not gating): ${report.acknowledgedVacuous.length}`);
   lines.push(`  unmapped registry entries: ${report.unmapped.length}`);
   lines.push(`  exempted (intentionally not OSV-scanned): ${report.exempted.length}`);
   if (report.findings.length > 0) {
@@ -463,6 +583,38 @@ export function formatTextReport(report: CheckReport, now: Date = new Date()): s
       lines.push(`    - ${qe.target.tool}: ${qe.reason}`);
     }
   }
+  if (report.vacuousCertifications.length > 0) {
+    lines.push("");
+    lines.push(
+      "  Vacuous certifications (securityNote cites a CVE/GHSA but OSV returned 0 Critical/High — gate FAILS closed; fix the ECOSYSTEM_OVERRIDES mapping so the advisory surfaces, or add the tool to VACUOUS_ACK with a documented expected-0-rows reason):",
+    );
+    for (const t of report.vacuousCertifications) {
+      lines.push(
+        `    [FAIL] ${t.tool} (${t.ecosystem}/${t.name}@${t.version ?? "unpinned"}) — securityNote cites a concrete advisory id, but OSV.dev returned no Critical/High match`,
+      );
+    }
+  }
+  if (report.acknowledgedVacuous.length > 0) {
+    lines.push("");
+    lines.push(
+      "  Acknowledged vacuous (advisory-citing tools with an expected 0-row OSV result, see VACUOUS_ACK — reported, not gating):",
+    );
+    for (const t of report.acknowledgedVacuous) {
+      const ack = VACUOUS_ACK[t.tool];
+      lines.push(
+        `    [ack] ${t.tool} (${t.ecosystem}/${t.name}@${t.version ?? "unpinned"})`,
+      );
+      if (ack) {
+        lines.push(`           ${ack.reason}`);
+        lines.push(`           added ${ack.addedISO}, review by ${ack.reviewBy}`);
+        if (Date.parse(ack.reviewBy) < now.getTime()) {
+          lines.push(
+            `           review overdue (reviewBy ${ack.reviewBy} has passed) — re-verify the expected-0-rows status`,
+          );
+        }
+      }
+    }
+  }
   if (report.unmapped.length > 0) {
     lines.push("");
     lines.push("  Registry tools without OSV.dev mapping (add to ECOSYSTEM_OVERRIDES):");
@@ -478,6 +630,14 @@ export function formatTextReport(report: CheckReport, now: Date = new Date()): s
     }
   }
   lines.push("");
+  // CD11: a vacuous certification fails the gate independently of staleness —
+  // emit its failure line first so a known-advisory tool with a broken OSV
+  // mapping is never masked by an otherwise-clean advisory summary.
+  if (report.vacuousCertifications.length > 0) {
+    lines.push(
+      `  ${report.vacuousCertifications.length} known-advisory tool(s) returned 0 Critical/High OSV matches (vacuous certification — gate FAILS closed). Each tool above carries a registry securityNote; fix its ECOSYSTEM_OVERRIDES mapping (ecosystem/name/version) so the documented advisory surfaces, or add the advisory id to ACKNOWLEDGED_ADVISORIES.`,
+    );
+  }
   const gatingFindings = report.findings.length - report.acknowledgedFindings.length;
   if (report.staleFindings.length > 0) {
     lines.push(
@@ -512,7 +672,11 @@ async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(formatTextReport(report, now));
   }
-  if (report.staleFindings.length > 0) process.exit(1);
+  // CD11: fail closed on a vacuous certification (known-advisory tool with a
+  // 0-row OSV result) as well as on a stale gating advisory.
+  if (report.staleFindings.length > 0 || report.vacuousCertifications.length > 0) {
+    process.exit(1);
+  }
 }
 
 const isMain = (() => {

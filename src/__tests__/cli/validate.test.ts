@@ -548,6 +548,52 @@ describe("validateCommand E2E", () => {
     await expect(validateCommand()).rejects.toThrow(HatchError);
   });
 
+  it("warns (not errors) when a user agent declares no tools grant — D20-1 coverage scan", async () => {
+    // D20-1 (X5/CD5): a user agent re-prefixed to `hatch3r-<slug>` with no
+    // authored tools grant derives an empty allowlist, so the Claude PreToolUse
+    // hook deny-alls it at runtime. validateAgentToolPolicyCoverage now scans
+    // `.hatch3r/overrides/agents/` and surfaces a coverage WARNING (not a hard
+    // error — user content is outside the framework commit gate) so the author
+    // adds a grant. A grant-bearing user agent must NOT warn.
+    await createMinimalManifest(tempDir);
+    const agentsDir = join(tempDir, HATCH3R_DIR, "overrides", "agents");
+    await mkdir(agentsDir, { recursive: true });
+    // Descriptions are deliberately dissimilar so the cosine-similarity
+    // duplicate-description detector (a separate validate gate) does not fire
+    // and confound the coverage-warning assertion under test.
+    await writeFile(
+      join(agentsDir, "no-grant-helper.md"),
+      `---\nid: no-grant-helper\ntype: agent\ndescription: Summarizes weekly burndown charts and posts a sprint-retrospective digest to the team channel every Friday afternoon\ntags: [core, customize]\nquality_charter: agents/shared/quality-charter.md\npillars: [P6]\n---\n**Pillars:** P6\n\nUser agent body without a tools grant.\n`,
+    );
+    await writeFile(
+      join(agentsDir, "granted-helper.md"),
+      `---\nid: granted-helper\ntype: agent\ndescription: Audits database migration scripts for missing rollback steps and flags expand-contract ordering violations before deploy\ntags: [core, customize]\nquality_charter: agents/shared/quality-charter.md\npillars: [P6]\ntools:\n  allowed: [read, search]\n---\n**Pillars:** P6\n\nUser agent body with a tools grant.\n`,
+    );
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    try {
+      await validateCommand({ format: "json" });
+    } catch {
+      /* tolerate canonical-level errors — we assert on the warnings array only */
+    }
+    const parsed = JSON.parse(capturedStdout().trim());
+    const warnings: string[] = parsed.warnings;
+    // The grantless agent must produce a coverage warning naming its file and
+    // the deny-all consequence…
+    expect(
+      warnings.some(
+        (w) =>
+          w.includes("no-grant-helper.md") &&
+          /no effective tool grant/i.test(w) &&
+          /deny its every tool call|NO_POLICY/i.test(w),
+      ),
+    ).toBe(true);
+    // …but it must be a WARNING, never an error.
+    const errors: string[] = parsed.errors;
+    expect(errors.some((e) => e.includes("no-grant-helper"))).toBe(false);
+    // The grant-bearing agent must NOT trigger the coverage warning.
+    expect(warnings.some((w) => w.includes("granted-helper.md"))).toBe(false);
+  });
+
   it("does not throw when validating a clean tempdir with no overrides", async () => {
     await createMinimalManifest(tempDir);
     const { validateCommand } = await import("../../cli/commands/validate.js");

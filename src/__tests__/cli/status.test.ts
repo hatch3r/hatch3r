@@ -240,6 +240,67 @@ describe("status command", () => {
     });
   });
 
+  // D14-1 (Cycle 11 Wave 1, Critical): monorepo per-package outputs must not be
+  // reported as `unexpected` orphans. init/sync write each adapter output into
+  // every `<package>/.hatch3r/<rel>` and stamp those paths into
+  // `manifest.managedFiles`; before the fix `computeAdapterDrift` only added the
+  // root `adapter.generate()` paths to `seenPaths`, so the orphan loop flagged
+  // every per-package copy as `unexpected` — ~(root-output-count x N) false
+  // orphans for an N-package x M-adapter repo on every status/verify call.
+  describe("monorepo per-package drift (D14-1)", () => {
+    it("reports a 2-package monorepo in-sync with 0 false orphans", async () => {
+      // Two-package workspace fixture. The package directories do not need to
+      // pre-exist — sync's safeWriteFile creates `<package>/.hatch3r/...`
+      // parents recursively. Use two tools so the orphan blast radius the
+      // finding describes (per-package x per-adapter) is exercised, not a
+      // single-adapter corner case.
+      await createTestProject(tempDir, {
+        tools: ["cursor", "claude"],
+        packages: [
+          { name: "@scope/alpha", path: "packages/alpha" },
+          { name: "@scope/beta", path: "packages/beta" },
+        ],
+      });
+
+      // Real sync writes the root outputs AND the per-package copies, and
+      // persists every emitted path into manifest.managedFiles.
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+
+      // Sanity guard: the fixture actually produced per-package managed files.
+      // Without this, a regression that stops emitting per-package outputs
+      // could make the 0-orphan assertion below pass vacuously.
+      const perPackageTracked = (manifest!.managedFiles ?? []).filter(
+        (p) => p.startsWith("packages/alpha/") || p.startsWith("packages/beta/"),
+      );
+      expect(perPackageTracked.length).toBeGreaterThan(0);
+      // And they are on disk (so the pre-fix `access()` orphan probe would have
+      // resolved and classified each as `unexpected`).
+      const { access } = await import("node:fs/promises");
+      await expect(access(join(tempDir, perPackageTracked[0]))).resolves.toBeUndefined();
+
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+
+      // Core assertion: zero per-package files are misclassified as orphans.
+      expect(report.counts.unexpected).toBe(0);
+      const unexpectedEntries = report.entries.filter((e) => e.status === "unexpected");
+      expect(unexpectedEntries).toEqual([]);
+      // Each per-package file the manifest tracks must be accounted for as a
+      // seen path (in-sync), never surfaced as an orphan entry.
+      for (const tracked of perPackageTracked) {
+        const orphan = report.entries.find(
+          (e) => e.path === tracked && e.status === "unexpected",
+        );
+        expect(orphan).toBeUndefined();
+      }
+    });
+  });
+
   // D3-M13 (Cycle 10 Wave-3 Medium rollover): status.ts branches were 53.5%.
   // The JSON-mode emit path, the no-baseline-but-drifted attribution branch,
   // and the `unexpected` (manifest-tracked-but-not-emitted) path were not

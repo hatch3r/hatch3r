@@ -1671,17 +1671,23 @@ function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProto
 async function validateAgentToolPolicyCoverage(
   canonicalRoot: string,
   result: ValidationResult,
+  userRepoRoot?: string,
 ): Promise<void> {
   // Lazy-import the registry to avoid pulling the pipeline module into every
   // validate invocation when the canonical agents/ directory is absent
   // (e.g., consumer repo with a partial bundle).
   const agentsDir = join(canonicalRoot, "agents");
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await readdir(agentsDir, { withFileTypes: true });
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw err;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      // Canonical agents/ absent — still scan the user override tree below so
+      // a consumer repo with only user agents gets coverage warnings.
+      entries = [];
+    } else {
+      throw err;
+    }
   }
 
   const filesystemIds: string[] = [];
@@ -1720,17 +1726,113 @@ async function validateAgentToolPolicyCoverage(
     filesystemIds.push(fm.id);
   }
 
-  if (filesystemIds.length === 0) return;
-
   const { AGENT_TOOL_POLICIES } = await import("../../pipeline/agentToolAllowlist.js");
   const policyIds = new Set(AGENT_TOOL_POLICIES.map((p) => p.agentId));
-  const missing = filesystemIds.filter((id) => !policyIds.has(id)).sort();
-  for (const id of missing) {
-    result.errors.push(
-      `Agent "${id}" (agents/${id}.md) has no AGENT_TOOL_POLICIES entry — ` +
-        `add an AgentToolPolicy in src/pipeline/agentToolAllowlist.ts so ASI02 deny-by-default ` +
-        `does not silently block every tool call by this agent.`,
-    );
+  if (filesystemIds.length > 0) {
+    const missing = filesystemIds.filter((id) => !policyIds.has(id)).sort();
+    for (const id of missing) {
+      result.errors.push(
+        `Agent "${id}" (agents/${id}.md) has no AGENT_TOOL_POLICIES entry — ` +
+          `add an AgentToolPolicy in src/pipeline/agentToolAllowlist.ts so ASI02 deny-by-default ` +
+          `does not silently block every tool call by this agent.`,
+      );
+    }
+  }
+
+  // D20-1 (X5/CD5): user-authored agents under `.hatch3r/overrides/agents/` are
+  // re-prefixed to `hatch3r-<slug>` and have no canonical AGENT_TOOL_POLICIES
+  // entry by construction. The Claude adapter derives a runtime policy from
+  // each user agent's authored `tools.allowed`/`tools.denied` grant, so the
+  // policy doc the PreToolUse hook reads DOES carry a row for them. But a user
+  // agent that declared no `tools` grant (or an empty `allowed`) derives an
+  // empty allowlist — the hook then denies its every tool call. Warn (not
+  // error: user content lives outside the framework's commit gate, and the
+  // disposition is "fix your grant", not "block CI") so the author adds a
+  // `tools: { allowed: [...] }` block. Canonical-id collisions are impossible
+  // (the user-content slug gate forbids the `hatch3r-` prefix), so this scan
+  // never double-reports a canonical agent.
+  await scanUserAgentPolicyCoverage(userRepoRoot, result);
+}
+
+/**
+ * D20-1 (X5/CD5): scan `.hatch3r/overrides/agents/` and warn for any user agent
+ * whose authored `tools` grant resolves to an empty allowlist — that agent is
+ * NO_POLICY/deny-all under the Claude PreToolUse hook at runtime. A user agent
+ * with a non-empty `tools.allowed` (minus `tools.denied`) is covered by the
+ * Claude adapter's derived policy and produces no warning.
+ *
+ * Read-only; tolerates an absent override tree (the common case) and surfaces
+ * malformed user-agent YAML on the warning channel rather than skipping it
+ * silently (Silent Failure Contract).
+ */
+async function scanUserAgentPolicyCoverage(
+  userRepoRoot: string | undefined,
+  result: ValidationResult,
+): Promise<void> {
+  if (!userRepoRoot) return;
+  const userAgentsDir = join(resolveUserContentRoot(userRepoRoot), "agents");
+  let entries: Dirent[];
+  try {
+    entries = await readdir(userAgentsDir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+
+  const { ALL_TOOL_CATEGORIES } = await import("../../pipeline/agentToolAllowlist.js");
+  const known = new Set<string>(ALL_TOOL_CATEGORIES);
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const filePath = join(userAgentsDir, entry.name);
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (!raw.startsWith("---")) continue;
+    const endIdx = raw.indexOf("---", 3);
+    if (endIdx === -1) continue;
+    let fm: Record<string, unknown> | null;
+    try {
+      fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result.warnings.push(
+        `.hatch3r/overrides/agents/${entry.name}: YAML frontmatter parse failed during user-agent tool-policy coverage scan — ${message}`,
+      );
+      continue;
+    }
+    if (!fm || typeof fm !== "object") continue;
+    if (fm.type !== "agent") continue;
+
+    // Resolve the authored grant the same way the Claude adapter does:
+    // allowed minus denied, restricted to known categories (deny-by-default).
+    const toolsRaw = fm.tools;
+    let allowed: string[] = [];
+    let denied: string[] = [];
+    if (toolsRaw && typeof toolsRaw === "object" && !Array.isArray(toolsRaw)) {
+      const t = toolsRaw as Record<string, unknown>;
+      if (Array.isArray(t.allowed)) {
+        allowed = t.allowed.filter((c): c is string => typeof c === "string" && known.has(c));
+      }
+      if (Array.isArray(t.denied)) {
+        denied = t.denied.filter((c): c is string => typeof c === "string");
+      }
+    }
+    const deniedSet = new Set(denied);
+    const effective = allowed.filter((c) => !deniedSet.has(c));
+    if (effective.length === 0) {
+      const name = entry.name.replace(/\.md$/, "");
+      result.warnings.push(
+        `User agent ".hatch3r/overrides/agents/${entry.name}" has no effective tool grant — ` +
+          `the Claude PreToolUse hook will deny its every tool call (NO_POLICY/deny-all) at runtime. ` +
+          `Add a 'tools: { allowed: [read, search, ...] }' block (canonical categories: ${ALL_TOOL_CATEGORIES.join(", ")}) ` +
+          `so the adapter derives a runtime policy for the emitted "hatch3r-${name}" agent.`,
+      );
+    }
   }
 }
 
@@ -2423,7 +2525,7 @@ export async function validateCommand(opts?: {
   // affected agent under the Claude PreToolUse hook and widens privilege
   // silently under Cursor/Copilot (no readonly frontmatter emitted).
   verbose("Checking AGENT_TOOL_POLICIES coverage...");
-  await validateAgentToolPolicyCoverage(canonicalRoot, result);
+  await validateAgentToolPolicyCoverage(canonicalRoot, result, rootDir);
 
   // D9-H-6 (D9, P1): execute-capable skills must pre-approve their wrapped
   // shell binary via `allowed_tools` so the Copilot Skills runtime skips the

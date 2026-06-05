@@ -11,7 +11,7 @@ import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { readMaturityTier } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
-import { sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax } from "./mcp-utils.js";
@@ -107,13 +107,20 @@ function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): str
   const lines: string[] = [`description: ${rule.description}`];
   if (scope === "always") {
     lines.push("alwaysApply: true");
-  } else if (scope) {
-    const globs = scope.includes(",")
-      ? scope.split(",").map((g) => g.trim())
-      : [scope];
-    lines.push(`globs: [${globs.map((g) => `"${g}"`).join(", ")}]`);
   } else {
-    lines.push("alwaysApply: false");
+    // X4/CD4 (D6-1/D9-1/D11-1 — GLOBS DROP): resolve the real glob set via
+    // the shared helper. For `scope: conditional` rules the patterns live in
+    // the canonical `globs:` field; the previous `scope.split(",")` derived
+    // globs from `scope` alone and emitted `globs: ["conditional"]`, which
+    // never matched any file so the rule never auto-attached. An empty set
+    // (unconditional rule, or `scope` absent) falls back to `alwaysApply:
+    // false` exactly as before.
+    const globs = resolveRuleGlobs(rule, { scope: scopeOverride });
+    if (globs.length > 0) {
+      lines.push(`globs: [${globs.map((g) => `"${g}"`).join(", ")}]`);
+    } else {
+      lines.push("alwaysApply: false");
+    }
   }
   return `---\n${lines.join("\n")}\n---`;
 }

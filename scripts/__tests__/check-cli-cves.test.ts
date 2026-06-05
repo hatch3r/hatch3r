@@ -7,6 +7,7 @@ import {
   mapToolToOsvTarget,
   normalizeSeverity,
   parseCvssBase,
+  securityNoteCitesAdvisoryId,
   type CheckReport,
   type OsvQueryResponse,
   type OsvVulnerability,
@@ -106,6 +107,39 @@ describe("mapToolToOsvTarget", () => {
 
   it("returns null for an unknown tool with no override", () => {
     expect(mapToolToOsvTarget(meta("totally-unknown-tool"))).toBeNull();
+  });
+
+  it("sets citesAdvisoryId from the securityNote's advisory id (CD11 classifier)", () => {
+    // CVE id present -> falsifiable advisory claim.
+    expect(
+      mapToolToOsvTarget(meta("docker", { securityNote: "CVE-2026-32288: DoS via crafted manifest" }))
+        ?.citesAdvisoryId,
+    ).toBe(true);
+    // GHSA id present -> also a claim.
+    expect(
+      mapToolToOsvTarget(meta("gh", { securityNote: "GHSA-crc3-h8v6-qh57: token leak" }))
+        ?.citesAdvisoryId,
+    ).toBe(true);
+    // Install-hygiene note (no id) -> not a claim OSV must corroborate.
+    expect(
+      mapToolToOsvTarget(meta("docker", { securityNote: "Unsigned install channel: prefer signed apt repo." }))
+        ?.citesAdvisoryId,
+    ).toBe(false);
+    // No securityNote at all.
+    expect(mapToolToOsvTarget(meta("docker"))?.citesAdvisoryId).toBe(false);
+  });
+});
+
+describe("securityNoteCitesAdvisoryId", () => {
+  it("detects CVE and GHSA ids, rejects hygiene prose and undefined", () => {
+    expect(securityNoteCitesAdvisoryId("CVE-2026-7168 credential leak")).toBe(true);
+    expect(securityNoteCitesAdvisoryId("GHSA-crc3-h8v6-qh57 token leak")).toBe(true);
+    expect(securityNoteCitesAdvisoryId("CVE-2026-46377 / CVE-2026-46378 fixed in v3.11.0")).toBe(true);
+    // Generic reference to "GHSA entries" with no concrete id is not a claim.
+    expect(securityNoteCitesAdvisoryId("see the upstream GHSA advisories tab")).toBe(false);
+    expect(securityNoteCitesAdvisoryId("Unsigned install channel; verify SHA-256")).toBe(false);
+    expect(securityNoteCitesAdvisoryId(undefined)).toBe(false);
+    expect(securityNoteCitesAdvisoryId("")).toBe(false);
   });
 });
 
@@ -266,6 +300,172 @@ describe("checkCliCves", () => {
     expect(report.findings).toHaveLength(0);
     expect(report.staleFindings).toHaveLength(0);
   });
+
+  // ── CD11 fail-closed: vacuous certification guard ───────────────
+  // A securityNote that cites a concrete CVE/GHSA id is a falsifiable claim
+  // that a published Critical/High advisory exists. If OSV returns a clean
+  // 0-row response for such a tool (and it is not in VACUOUS_ACK), the gate
+  // must fail closed — a clean result there is structurally vacuous, not a
+  // real all-clear. `stagehand` maps to OSV (npm) and is NOT acknowledged in
+  // VACUOUS_ACK, so it is used to exercise the gating path; the explicit
+  // CVE-bearing securityNote here drives `citesAdvisoryId` regardless of the
+  // tool's real registry note.
+  const CVE_NOTE = "CVE-2026-99999: synthetic Critical advisory for the gate test";
+
+  it("(CD11-1) an advisory-citing tool with a clean 0-row OSV response is a vacuous certification (gate FAILS)", async () => {
+    const { fetcher } = fakeFetcher([{ body: { vulns: [] } }]);
+    const report = await checkCliCves({
+      registry: { stagehand: meta("stagehand", { securityNote: CVE_NOTE }) },
+      maxAgeDays: 30,
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.findings).toHaveLength(0);
+    expect(report.staleFindings).toHaveLength(0);
+    // The gate fails closed via vacuousCertifications, not staleFindings.
+    expect(report.vacuousCertifications).toHaveLength(1);
+    expect(report.vacuousCertifications[0].tool).toBe("stagehand");
+    expect(report.vacuousCertifications[0].citesAdvisoryId).toBe(true);
+    expect(report.acknowledgedVacuous).toHaveLength(0);
+  });
+
+  it("(CD11-2) an advisory-citing tool that DOES surface a Critical/High finding is NOT vacuous", async () => {
+    const { fetcher } = fakeFetcher([
+      {
+        body: {
+          vulns: [
+            vuln({
+              id: "GHSA-stagehand-real",
+              published: "2026-05-25T00:00:00Z", // recent -> not stale, still a signal
+              database_specific: { severity: "HIGH" },
+            }),
+          ],
+        },
+      },
+    ]);
+    const report = await checkCliCves({
+      registry: { stagehand: meta("stagehand", { securityNote: CVE_NOTE }) },
+      maxAgeDays: 30,
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.findings).toHaveLength(1);
+    expect(report.vacuousCertifications).toHaveLength(0);
+  });
+
+  it("(CD11-3) an advisory-citing tool whose OSV query errors is NOT vacuous (the error is its own signal)", async () => {
+    const { fetcher } = fakeFetcher([{ status: 503, body: { vulns: [] } }]);
+    const report = await checkCliCves({
+      registry: { stagehand: meta("stagehand", { securityNote: CVE_NOTE }) },
+      maxAgeDays: 30,
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.queryErrors).toHaveLength(1);
+    // A failed query did not silently certify the tool clean -> not vacuous.
+    expect(report.vacuousCertifications).toHaveLength(0);
+  });
+
+  it("(CD11-4) a securityNote with NO advisory id (install-hygiene only) is never vacuous on a 0-row result", async () => {
+    const { fetcher } = fakeFetcher([{ body: { vulns: [] } }]);
+    const report = await checkCliCves({
+      registry: {
+        // Real-shaped hygiene note (unsigned install channel) — no CVE/GHSA id.
+        stagehand: meta("stagehand", {
+          securityNote: "Unsigned install channel: prefer the signed brew/winget channel and verify the published SHA-256.",
+        }),
+      },
+      maxAgeDays: 30,
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.findings).toHaveLength(0);
+    // No concrete advisory id -> OSV's 0-row result is legitimately clean.
+    expect(report.vacuousCertifications).toHaveLength(0);
+    expect(report.targets[0].citesAdvisoryId).toBe(false);
+  });
+
+  it("(CD11-5) a tool with no securityNote at all returning 0 rows is never vacuous", async () => {
+    const { fetcher } = fakeFetcher([{ body: { vulns: [] } }]);
+    const report = await checkCliCves({
+      registry: { stagehand: meta("stagehand") }, // no securityNote
+      maxAgeDays: 30,
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.findings).toHaveLength(0);
+    expect(report.vacuousCertifications).toHaveLength(0);
+    expect(report.targets[0].citesAdvisoryId).toBe(false);
+  });
+
+  it("(CD11-6) a Moderate-only OSV response for an advisory-citing tool is still vacuous (Moderate is not a Critical/High signal)", async () => {
+    const { fetcher } = fakeFetcher([
+      {
+        body: {
+          vulns: [
+            vuln({
+              id: "GHSA-stagehand-mod",
+              database_specific: { severity: "MODERATE" },
+              published: "2026-01-01T00:00:00Z",
+            }),
+          ],
+        },
+      },
+    ]);
+    const report = await checkCliCves({
+      registry: { stagehand: meta("stagehand", { securityNote: CVE_NOTE }) },
+      maxAgeDays: 30,
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.findings).toHaveLength(0); // Moderate is not a finding
+    // The cited advisory still produced no Critical/High signal -> vacuous.
+    expect(report.vacuousCertifications).toHaveLength(1);
+    expect(report.vacuousCertifications[0].tool).toBe("stagehand");
+  });
+
+  it("(CD11-7) a VACUOUS_ACK tool (docker) with a 0-row result is acknowledged, NOT gating", async () => {
+    const { fetcher } = fakeFetcher([{ body: { vulns: [] } }]);
+    const report = await checkCliCves({
+      // docker's real registry securityNote cites CVE-2026-32288 etc. and docker
+      // is listed in VACUOUS_ACK (GO-record blind spot, patched at the pin).
+      registry: {
+        docker: meta("docker", { securityNote: "CVE-2026-32288 / CVE-2026-41567: see release notes" }),
+      },
+      maxAgeDays: 30,
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.findings).toHaveLength(0);
+    // The acknowledged tool does NOT fail the gate ...
+    expect(report.vacuousCertifications).toHaveLength(0);
+    // ... but is surfaced in the acknowledged-vacuous bucket for transparency.
+    expect(report.acknowledgedVacuous.map((t) => t.tool)).toEqual(["docker"]);
+  });
+
+  it("(CD11-8) the real bundled registry produces ONLY VACUOUS_ACK-acknowledged 0-row tools — no unacknowledged vacuous certifications", async () => {
+    // Real-deal guard (Decision 20): run the actual registry through a fetcher
+    // that returns 0 vulns for every query (the worst case for the vacuous
+    // gate). Every advisory-citing tool that yields 0 rows MUST be acknowledged
+    // in VACUOUS_ACK; if a new advisory-citing tool is added without an
+    // override that surfaces its CVE or a VACUOUS_ACK entry, this fails — which
+    // is the fail-closed contract working. (No `registry` override -> real
+    // AVAILABLE_CLI_TOOLS.)
+    const zeroFetcher = (async () =>
+      new Response(JSON.stringify({ vulns: [] }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      })) as unknown as typeof fetch;
+    const report = await checkCliCves({ maxAgeDays: 30, fetcher: zeroFetcher, now: () => NOW });
+    expect(
+      report.vacuousCertifications.map((t) => t.tool),
+      "every advisory-citing tool with a 0-row OSV result must be in VACUOUS_ACK",
+    ).toEqual([]);
+    // The acknowledged set is exactly the documented CVE-citing tools.
+    expect(report.acknowledgedVacuous.map((t) => t.tool).sort()).toEqual(
+      ["curl", "dasel", "docker", "gh", "podman"].sort(),
+    );
+  });
 });
 
 // ── normalizeSeverity / parseCvssBase (mirrors check-mcp-cves) ─────
@@ -313,6 +513,8 @@ function report(overrides: Partial<CheckReport> = {}): CheckReport {
     queryErrors: [],
     unmapped: [],
     exempted: [],
+    vacuousCertifications: [],
+    acknowledgedVacuous: [],
     ...overrides,
   };
 }
@@ -400,5 +602,51 @@ describe("formatTextReport", () => {
     );
     expect(out).toMatch(/\[FAIL\] CRITICAL/);
     expect(out).toMatch(/older than 30 days/);
+  });
+
+  it("(CD11) renders the vacuous-certification FAIL section and a fail-closed gate line", () => {
+    const vacuousTarget = {
+      tool: "someforge",
+      category: "forge",
+      ecosystem: "Go",
+      name: "github.com/acme/someforge",
+      version: "1.2.3",
+      citesAdvisoryId: true,
+    };
+    const out = formatTextReport(
+      report({
+        targets: [vacuousTarget],
+        vacuousCertifications: [vacuousTarget],
+      }),
+      NOW,
+    );
+    // Header count, per-tool FAIL row, and the fail-closed summary line.
+    expect(out).toMatch(/vacuous certifications \(advisory-citing tool, 0 OSV hits, gating\): 1/);
+    expect(out).toMatch(/\[FAIL\] someforge \(Go\/github\.com\/acme\/someforge@1\.2\.3\)/);
+    expect(out).toMatch(/securityNote cites a concrete advisory id, but OSV\.dev returned no Critical\/High match/);
+    expect(out).toMatch(/known-advisory tool\(s\) returned 0 Critical\/High OSV matches/);
+  });
+
+  it("(CD11) renders the acknowledged-vacuous section with reason + reviewBy and no FAIL/gate line", () => {
+    const ackTarget = {
+      tool: "docker",
+      category: "container",
+      ecosystem: "Go",
+      name: "github.com/moby/moby",
+      version: "29.5.2",
+      citesAdvisoryId: true,
+    };
+    const out = formatTextReport(
+      report({ targets: [ackTarget], acknowledgedVacuous: [ackTarget] }),
+      NOW,
+    );
+    expect(out).toMatch(/acknowledged vacuous \(advisory-citing, expected 0 OSV hits, not gating\): 1/);
+    expect(out).toMatch(/\[ack\] docker \(Go\/github\.com\/moby\/moby@29\.5\.2\)/);
+    // The documented reason text and review date render.
+    expect(out).toMatch(/GO-record blind spot/);
+    expect(out).toMatch(/review by 2026-09-05/);
+    // No fail-closed marker or gate line for an acknowledged-only report.
+    expect(out).not.toMatch(/\[FAIL\]/);
+    expect(out).not.toMatch(/gate FAILS closed/);
   });
 });
