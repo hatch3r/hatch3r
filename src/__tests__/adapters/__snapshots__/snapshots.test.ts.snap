@@ -12,6 +12,7 @@ exports[`adapter output snapshots > ClaudeAdapter > file paths match snapshot 1`
   ".claude/hooks/agent-tool-policies.json",
   ".claude/hooks/hatch3r-hooks.json",
   ".claude/hooks/pretooluse-allowlist.mjs",
+  ".claude/rules/50-hatch3r-advisory-hooks.md",
   ".claude/rules/50-hatch3r-scoped-rule.md",
   ".claude/rules/50-hatch3r-test-rule.md",
   ".claude/settings.json",
@@ -102,6 +103,14 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
     "contentMarkers": [],
     "hasManagedContent": false,
     "path": ".claude/hooks/pretooluse-allowlist.mjs",
+  },
+  {
+    "action": "create",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".claude/rules/50-hatch3r-advisory-hooks.md",
   },
   {
     "action": "create",

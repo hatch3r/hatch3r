@@ -68,7 +68,7 @@ Revision Session Report:
 - **Git diff failure**: If `git diff` fails (e.g., no commits on branch, detached HEAD), **ASK** the user for the correct branch or base ref.
 - **No changes detected**: If the diff is empty, inform the user and exit. There is nothing to revise.
 - **PR/issue fetch failure**: Retry once using the platform CLI. If retry fails, proceed without PR/issue context. Work from the diff alone. Warn the user that acceptance criteria are unavailable.
-- **Sub-agent failure**: Retry once. If the retry fails, fall back to direct implementation for that finding.
+- **Sub-agent failure**: Per the shared sub-agent-failure clause in `rules/hatch3r-agent-orchestration.md` -> Cross-Phase Error Propagation: retry once, then re-spawn `hatch3r-fixer` with the failure context for that finding, then `BLOCKED_OTHER` + ASK. Never fall back to inline implementation (issue #73 bypass mode).
 - **Quality check failure after 2 retries**: Present the specific failures and **ASK** the user whether to proceed with a partial fix commit or continue debugging.
 - **Push failure**: Present the error. Common fixes: `git push -u origin {branch}` for new branches, `git pull --rebase` for diverged branches.
 - **Context degradation (>25 turns)**: Suggest starting a fresh chat with a progress summary. The revision command is designed for fresh contexts — it can be re-run.

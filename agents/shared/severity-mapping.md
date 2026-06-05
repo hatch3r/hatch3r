@@ -7,7 +7,7 @@ tags: [reference]
 
 # Severity Vocabulary Canonical Mapping
 
-> Last updated: 2026-05-28
+> Last updated: 2026-06-05
 > Pillars: P2 (primary), P4 (supporting).
 > Canonical for: agents/hatch3r-reviewer.md, agents/hatch3r-fixer.md, the 9 CQ quality-vector specialists (agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md), checks/*.md.
 
@@ -84,7 +84,7 @@ Escalations chain: a CQ regression cited by ≥2 domain SAs receives two single-
 
 ## Verification
 
-This file now lives at `agents/shared/severity-mapping.md`. `grep -rl "severity-mapping.md" agents/ checks/` MUST return ≥19 public files (fixer, reviewer, security-auditor, a11y-auditor, dependency-auditor, the 9 CQ specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability, code-quality.md, security.md, testing.md, accessibility.md, performance.md). Note: hatch3r-security.md is both a CQ specialist and counted once.
+This file lives at `agents/shared/severity-mapping.md`. Enforcement is the inverse of a citation-count floor: `scripts/validate-severity-vocabulary.ts` (run via `npm run validate:severity-vocabulary`, wired into `npm run validate`) scans `.md` files under `agents/`, `checks/`, `commands/`, `rules/`, `skills/`, `hooks/`, and `governance/` for off-canonical severity terms (Moderate, Major, Minor, Blocker, etc.) in a structured severity context (frontmatter `severity:`, severity-labeled table cells, `Severity:`/`Level:` pairs, bracket tags). A file that emits any such term MUST reference this file (basename `severity-mapping.md`) as the documented opt-out, or the scan emits a `SEVERITY-MAPPING-MISS` plus per-occurrence `SEVERITY-OFF-CANONICAL` error (exit 1). The set of referencing files is therefore demand-driven — it grows only when an artifact actually emits an off-canonical term — not a fixed minimum. The mapping doc's own absence at the canonical path makes the scan exit clean on a default-root run (the opt-out can no longer be relied on), so this file's presence is itself the enabling precondition.
 
 ## Pillar Service
 

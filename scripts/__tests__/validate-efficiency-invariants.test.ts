@@ -12,6 +12,7 @@ interface Fixture {
   commandsDir: string;
   agentsDir: string;
   rulesDir: string;
+  skillsDir: string;
 }
 
 async function makeFixture(): Promise<Fixture> {
@@ -19,10 +20,21 @@ async function makeFixture(): Promise<Fixture> {
   const commandsDir = join(rootDir, "commands");
   const agentsDir = join(rootDir, "agents");
   const rulesDir = join(rootDir, "rules");
+  const skillsDir = join(rootDir, "skills");
   await mkdir(commandsDir, { recursive: true });
   await mkdir(agentsDir, { recursive: true });
   await mkdir(rulesDir, { recursive: true });
-  return { rootDir, commandsDir, agentsDir, rulesDir };
+  await mkdir(skillsDir, { recursive: true });
+  return { rootDir, commandsDir, agentsDir, rulesDir, skillsDir };
+}
+
+/** Writes `skills/<name>/SKILL.md` and returns its absolute path. */
+async function writeSkill(skillsDir: string, name: string, frontmatter: string, body: string): Promise<string> {
+  const dir = join(skillsDir, name);
+  await mkdir(dir, { recursive: true });
+  const abs = join(dir, "SKILL.md");
+  await writeArtifact(abs, frontmatter, body);
+  return abs;
 }
 
 async function writeArtifact(absPath: string, frontmatter: string, body: string): Promise<void> {
@@ -202,6 +214,97 @@ You can issue tool calls one at a time.
     expect(errs[0].message).toMatch(/3 tool\/sub-agent mentions/);
     expect(errorCount).toBeGreaterThanOrEqual(1);
     expect(warningCount).toBe(0);
+  });
+
+  it("Mode C (D6-9): ERRORs when serialized tool mentions are laundered only by distant safety boilerplate", async () => {
+    // Two serialized mentions at the top; the word "parallel" appears far below
+    // in governance safety boilerplate, NOT co-located with the mentions. The
+    // pre-D6-9 whole-body check passed this; the windowed check must error.
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-architect.md"),
+      `id: hatch3r-architect
+type: agent
+description: Architect agent
+tags: [arch]`,
+      `# Architect
+
+Use the Task tool to delegate. Then issue tool calls one at a time, sequentially.
+
+## Filler A
+
+Lorem ipsum dolor sit amet.
+
+## Filler B
+
+Consectetur adipiscing elit.
+
+## Safety Notes
+
+Parallel-safety conditions: read-only or disjoint writes, deterministic aggregation.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const errs = findings.filter((f) => f.code === "P7-PARALLEL-MISS");
+    expect(errs).toHaveLength(1);
+    expect(errs[0].message).toMatch(/within 3 lines/);
+    expect(errorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("Mode C (D6-9): PASSes when the parallel directive is co-located with the tool mentions", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-architect.md"),
+      `id: hatch3r-architect
+type: agent
+description: Architect agent
+tags: [arch]`,
+      `# Architect
+
+Use the Task tool and tool calls in parallel in a single message — never serialize independent sub-agent work.
+
+## Safety Notes
+
+Parallel-safety conditions apply.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P7-PARALLEL-MISS")).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("Mode C (D6-9): PASSes on the `parallel_tool_default: true` frontmatter flag regardless of body proximity", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-architect.md"),
+      `id: hatch3r-architect
+type: agent
+description: Architect agent
+tags: [arch]
+parallel_tool_default: true`,
+      `# Architect
+
+Use the Task tool to delegate. Then issue tool calls and spawn each sub-agent.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P7-PARALLEL-MISS")).toHaveLength(0);
+    expect(errorCount).toBe(0);
   });
 
   // ── extraOrchestratorFiles (governance/AUDIT-EXECUTE.md path) ───
@@ -603,5 +706,248 @@ tags: [implementation]`,
     );
     expect(miss).toHaveLength(1);
     expect(errorCount).toBe(1);
+  });
+
+  // ── Mode H: rule line-cap (D5-7) ────────────────────────────────
+
+  const LINECAP_FLAGS = {
+    triageFirst: false, staticFirst: false, parallelTool: false, ruleLineCap: true,
+  } as const;
+
+  // Body with `n` content lines after the heading (each "Line k." is one line).
+  const ruleBody = (n: number): string =>
+    `# Rule\n\n` + Array.from({ length: n }, (_, i) => `Line ${i + 1}.`).join("\n") + "\n";
+
+  it("Mode H: ERRORs on a normal-precedence rule over the 120-line cap", async () => {
+    // Frontmatter (5 lines: ---, id, type, description, scope) + closing --- +
+    // body. Push the body well past 120 total raw lines.
+    await writeArtifact(
+      join(fx.rulesDir, "hatch3r-bloated.md"),
+      `id: hatch3r-bloated
+type: rule
+description: A normal-precedence rule that drifted over the cap
+scope: always`,
+      ruleBody(130),
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: LINECAP_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      rulesDir: fx.rulesDir,
+    });
+
+    const viol = findings.filter((f) => f.code === "P4-RULE-LINE-CAP");
+    expect(viol).toHaveLength(1);
+    expect(viol[0].file).toMatch(/hatch3r-bloated\.md$/);
+    expect(viol[0].message).toMatch(/120-line cap/);
+    expect(viol[0].message).toMatch(/normal\/low/);
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode H: PASSes the same line count when precedence is high (cap rises to 250)", async () => {
+    await writeArtifact(
+      join(fx.rulesDir, "hatch3r-bloated.md"),
+      `id: hatch3r-bloated
+type: rule
+description: A high-precedence rule under the 250-line cap
+scope: always
+precedence: high`,
+      ruleBody(130),
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: LINECAP_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      rulesDir: fx.rulesDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P4-RULE-LINE-CAP")).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("Mode H: PASSes a normal-precedence rule at or under 120 lines", async () => {
+    await writeArtifact(
+      join(fx.rulesDir, "hatch3r-lean.md"),
+      `id: hatch3r-lean
+type: rule
+description: A lean normal-precedence rule
+scope: always`,
+      ruleBody(40),
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: LINECAP_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      rulesDir: fx.rulesDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P4-RULE-LINE-CAP")).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  // ── Mode I: runtime-efficiency SA6.5 gates (D6-11) ──────────────
+
+  const RUNTIME_FLAGS = {
+    triageFirst: false, staticFirst: false, parallelTool: false, runtimeEfficiency: true,
+  } as const;
+
+  it("Mode I gate 1: ERRORs when a planning command bundles an execution agent", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-feature-plan.md"),
+      `id: hatch3r-feature-plan
+type: command
+description: Feature planning command
+tags: [planning, orchestration]
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-implementer]`,
+      `# Feature Plan\n\nPlan the feature.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: RUNTIME_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const viol = findings.filter((f) => f.code === "P7-PLAN-ACT-SPLIT");
+    expect(viol).toHaveLength(1);
+    expect(viol[0].message).toMatch(/hatch3r-implementer/);
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode I gate 1: PASSes a planning command whose pipeline excludes execution agents", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-feature-plan.md"),
+      `id: hatch3r-feature-plan
+type: command
+description: Feature planning command
+tags: [planning, orchestration]
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]`,
+      `# Feature Plan\n\nPlan the feature.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: RUNTIME_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P7-PLAN-ACT-SPLIT")).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("Mode I gate 1: a non-planning command may list execution agents", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-workflow.md"),
+      `id: hatch3r-workflow
+type: command
+description: Full workflow command
+tags: [implementation, orchestration]
+orchestrator: true
+agentPipeline: [hatch3r-implementer, hatch3r-fixer]`,
+      `# Workflow\n\nBuild it.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: RUNTIME_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P7-PLAN-ACT-SPLIT")).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("Mode I gate 2: ERRORs on a SKILL.md missing a description", async () => {
+    await writeSkill(
+      fx.skillsDir,
+      "hatch3r-nodesc",
+      `id: hatch3r-nodesc
+name: hatch3r-nodesc
+type: skill
+tags: [orchestration]`,
+      `# No Description Skill\n\nBody.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: RUNTIME_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      skillsDir: fx.skillsDir,
+    });
+
+    const viol = findings.filter((f) => f.code === "P7-SKILL-DESC-MISS");
+    expect(viol).toHaveLength(1);
+    expect(viol[0].file).toMatch(/hatch3r-nodesc\/SKILL\.md$/);
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode I gate 2: PASSes a SKILL.md with a non-empty description", async () => {
+    await writeSkill(
+      fx.skillsDir,
+      "hatch3r-good",
+      `id: hatch3r-good
+name: hatch3r-good
+type: skill
+description: A skill whose description loads independently of the body
+tags: [orchestration]`,
+      `# Good Skill\n\nBody.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: RUNTIME_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+      skillsDir: fx.skillsDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P7-SKILL-DESC-MISS")).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
+  it("Mode I gate 3: ERRORs when hatch3r-implementer.md lacks a fenced structured-result block", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-implementer.md"),
+      `id: hatch3r-implementer
+type: agent
+description: Implementer agent
+tags: [implementation]`,
+      `# Implementer\n\nReturn a result in prose with no fenced block.\n`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: RUNTIME_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const viol = findings.filter((f) => f.code === "P7-STRUCTURED-RESULT-MISS");
+    expect(viol).toHaveLength(1);
+    expect(viol[0].file).toBe("agents/hatch3r-implementer.md");
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode I gate 3: PASSes when the mutating agent contains a fenced block", async () => {
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-fixer.md"),
+      `id: hatch3r-fixer
+type: agent
+description: Fixer agent
+tags: [implementation]`,
+      "# Fixer\n\n### Return Structured Result\n\n```\n## Fix Result\nStatus: SUCCESS\n```\n",
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: RUNTIME_FLAGS,
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P7-STRUCTURED-RESULT-MISS")).toHaveLength(0);
+    expect(errorCount).toBe(0);
   });
 });

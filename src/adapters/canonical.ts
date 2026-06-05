@@ -502,6 +502,36 @@ export function parseFrontmatter(
           `tools.denied field must be an array of strings, got ${describeYamlType(deniedRaw)} (value: ${JSON.stringify(deniedRaw)})`,
         );
       }
+      // D15-3 (Cycle 11, P6 / ASI02-03): canonical agents author the
+      // SHORT-form `tools: { allow: [...], deny: [...] }` carrying literal
+      // tool-name tokens — top-level Claude tools (`Write`, `Edit`,
+      // `MultiEdit`, `Bash`) and granular `Bash:<subcommand>` strings — rather
+      // than the category-scoped long-form `allowed`/`denied` above. Pre-fix
+      // these were dropped at parse time, so the per-agent deny envelope
+      // (`"Bash:git commit"`, `"Bash:git push"`, `Write`, `Edit` on
+      // dependency-drafter / devops / pack-installer) never reached the
+      // generated Claude agent file. Carry the raw lists onto the metadata so
+      // the Claude adapter can re-emit them (native `disallowedTools:` for
+      // top-level tools + a `## Tool Restrictions` constraint block for the
+      // granular `Bash:<subcommand>` denies Claude subagent frontmatter cannot
+      // express). Keyed `allow`/`deny` to match the canonical short-form
+      // spelling; non-array members surface on the warning channel.
+      const allowRaw = toolsObj.allow;
+      const denyRaw = toolsObj.deny;
+      if (Array.isArray(allowRaw)) {
+        metadata.toolsAllowRaw = allowRaw.filter((t: unknown) => typeof t === "string");
+      } else if (allowRaw !== undefined && typeMismatches) {
+        typeMismatches.push(
+          `tools.allow field must be an array of strings, got ${describeYamlType(allowRaw)} (value: ${JSON.stringify(allowRaw)})`,
+        );
+      }
+      if (Array.isArray(denyRaw)) {
+        metadata.toolsDenyRaw = denyRaw.filter((t: unknown) => typeof t === "string");
+      } else if (denyRaw !== undefined && typeMismatches) {
+        typeMismatches.push(
+          `tools.deny field must be an array of strings, got ${describeYamlType(denyRaw)} (value: ${JSON.stringify(denyRaw)})`,
+        );
+      }
     } else if (toolsRaw !== undefined && typeMismatches) {
       typeMismatches.push(
         `tools field must be an object of shape { allowed?: string[], denied?: string[] }, got ${describeYamlType(toolsRaw)} (value: ${JSON.stringify(toolsRaw)})`,
@@ -687,6 +717,14 @@ async function readSingleMd(
     // than NO_POLICY-denied.
     toolsAllowed: metadata.toolsAllowed,
     toolsDenied: metadata.toolsDenied,
+    // D15-3 (Cycle 11, P6 / ASI02-03): pass through the literal short-form
+    // `tools.allow` / `tools.deny` tool-name grant authored on canonical
+    // agents. Undefined for agents that did not author the short-form lists.
+    // The Claude adapter re-emits the per-agent deny envelope from these so
+    // the granular `Bash:<subcommand>` and `Write`/`Edit` denies survive into
+    // the generated agent file instead of being silently dropped.
+    toolsAllowRaw: metadata.toolsAllowRaw,
+    toolsDenyRaw: metadata.toolsDenyRaw,
     content,
     rawContent,
     sourcePath: fullPath,

@@ -46,8 +46,26 @@
  *                     so the SA6.6 audit signal could not triangulate command
  *                     tiers. Error-level: all 23 commands + 30 agents now carry
  *                     the field, so a missing/invalid one is a real regression.
+ *   --rule-line-cap   Every `rules/hatch3r-*.md` body+frontmatter line count is
+ *                     within the CONSTITUTION §2 P5 ceiling for its precedence:
+ *                     `critical`/`high` => 250 lines, `normal`/`low` => 120
+ *                     lines (default precedence `normal`). Audit Cycle 11 D5-7 —
+ *                     the lean line limits had no CI enforcement, so 5 normal-
+ *                     precedence rules drifted over the 120-line cap. Error-
+ *                     level: a breach is a P4/P5 lean-coverage regression.
+ *   --runtime-efficiency Three cheaply-checkable SA6.5 runtime-efficiency gates
+ *                     (Audit Cycle 11 D6-11): (1) planning commands' `agentPipeline`
+ *                     excludes `hatch3r-implementer`/`hatch3r-fixer` (plan/act
+ *                     split — a planning command must not bundle execution
+ *                     agents); (2) every `skills/<name>/SKILL.md` carries a
+ *                     non-empty `description:` in frontmatter (skill-body lazy-load
+ *                     semantics); (3) Phase 2/3 mutating agents
+ *                     (`hatch3r-implementer.md`, `hatch3r-fixer.md`) contain a
+ *                     fenced structured-result block (structured outputs over
+ *                     prose). The remaining 2 SA6.5 items (lazy-loading,
+ *                     dispatch-gating) are prose-reviewed with no CI gate.
  *
- * No flags → all seven modes run. Exit 0 unless >=1 error-level finding;
+ * No flags → all nine modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
  * `governance/RE-ENVISION.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
@@ -70,6 +88,7 @@ const ROOT = resolve(__dirname, "..");
 const COMMANDS_DIR = join(ROOT, "commands");
 const AGENTS_DIR = join(ROOT, "agents");
 const RULES_DIR = join(ROOT, "rules");
+const SKILLS_DIR = join(ROOT, "skills");
 const AUDIT_EXECUTE_REL = "governance/AUDIT-EXECUTE.md";
 
 // ── Audit-cycle exempt list (hard-coded) ──────────────────────────
@@ -110,6 +129,8 @@ interface ParsedFile {
   fmParseFailed: boolean;
   body: string;
   bodyStartLine: number;
+  /** Newline count of the raw file (matches `wc -l` semantics) — Mode H line-cap. */
+  rawLineCount: number;
 }
 
 interface ModeFlags {
@@ -123,14 +144,20 @@ interface ModeFlags {
   orchContract?: boolean;
   /** Mode G — efficiency_tier presence on orchestrator commands + agents (D6-SA6.6-Finding4). */
   efficiencyTier?: boolean;
+  /** Mode H — rule line-cap by precedence (D5-7). */
+  ruleLineCap?: boolean;
+  /** Mode I — cheaply-checkable SA6.5 runtime-efficiency gates (D6-11). */
+  runtimeEfficiency?: boolean;
 }
 
 interface RunOptions {
   flags: ModeFlags;
   commandsDir?: string;
   agentsDir?: string;
-  /** Rule directory for Mode E (`rules/`); test fixtures inject a tmpdir. */
+  /** Rule directory for Mode E + Mode H (`rules/`); test fixtures inject a tmpdir. */
   rulesDir?: string;
+  /** Skills directory for Mode I (`skills/`); test fixtures inject a tmpdir. */
+  skillsDir?: string;
   /**
    * Absolute paths to extra orchestrator-style files outside `commandsDir` /
    * `agentsDir` (typically `governance/AUDIT-EXECUTE.md`). Each is loaded as
@@ -153,12 +180,14 @@ function parseArgs(argv: readonly string[]): ModeFlags {
   const known = new Set([
     "--triage-first", "--static-first", "--parallel-tool", "--proof-id",
     "--rule-narrative", "--orch-contract", "--efficiency-tier",
+    "--rule-line-cap", "--runtime-efficiency",
   ]);
   const requested = new Set(argv.filter((a) => known.has(a)));
   if (requested.size === 0) {
     return {
       triageFirst: true, staticFirst: true, parallelTool: true, proofId: true,
       ruleNarrative: true, orchContract: true, efficiencyTier: true,
+      ruleLineCap: true, runtimeEfficiency: true,
     };
   }
   return {
@@ -169,6 +198,8 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     ruleNarrative: requested.has("--rule-narrative"),
     orchContract: requested.has("--orch-contract"),
     efficiencyTier: requested.has("--efficiency-tier"),
+    ruleLineCap: requested.has("--rule-line-cap"),
+    runtimeEfficiency: requested.has("--runtime-efficiency"),
   };
 }
 
@@ -236,10 +267,24 @@ async function listTopLevelMd(dir: string): Promise<string[]> {
     .map((n) => join(dir, n));
 }
 
+// `wc -l` counts trailing newlines; a file with no final newline counts one
+// fewer than its visual line count. Match that convention so the validator's
+// numbers line up with the CONSTITUTION §2 P5 limits (authored against `wc -l`).
+function countNewlines(raw: string): number {
+  let n = 0;
+  for (let i = 0; i < raw.length; i++) if (raw.charCodeAt(i) === 10) n++;
+  return n;
+}
+
 async function loadFile(absPath: string, baseDir: string): Promise<ParsedFile> {
   const raw = await readFile(absPath, "utf-8");
   const split = splitFrontmatter(raw);
-  return { absPath, relPath: toPosixRel(absPath, baseDir), ...split };
+  return {
+    absPath,
+    relPath: toPosixRel(absPath, baseDir),
+    rawLineCount: countNewlines(raw),
+    ...split,
+  };
 }
 
 // ── Frontmatter helpers ───────────────────────────────────────────
@@ -305,21 +350,57 @@ function checkStaticFirst(file: ParsedFile): Finding[] {
 // agent and command in `agents/` and `commands/` carries a parallel-tool
 // directive (`parallel_tool_default: true` frontmatter, "in parallel" body
 // language, or both); validation in this repo runs clean.
+//
+// Audit Cycle 11 D6-9: the directive check was previously run against the
+// ENTIRE body, so the ubiquitous "Parallel-safety conditions ..." governance
+// boilerplate (28/30 commands ship a clause containing the word "parallel")
+// satisfied the gate regardless of actual tool-call topology — a serialized
+// multi-tool flow passed green as long as the boilerplate appeared anywhere.
+// The directive must now be CO-LOCATED with the tool mentions it governs:
+// either the `parallel_tool_default: true` frontmatter flag (an affirmative
+// dispatch directive distinct from prose boilerplate) is set, OR a directive
+// match falls within PARALLEL_WINDOW lines of a tool-mention line. Distant
+// safety boilerplate no longer launders a serialized flow.
 
 const TOOL_MENTION_RE = /(Task tool|tool calls|sub-agent)/gi;
 const PARALLEL_DIRECTIVE_RE = /(parallel|in\s*parallel|concurrent|single\s+message|batched)/i;
+// A directive within +/- this many lines of a tool mention "governs" it.
+const PARALLEL_WINDOW = 3;
+
+const hasParallelDefault = (fm: Record<string, unknown>): boolean =>
+  fm.parallel_tool_default === true;
 
 function checkParallelTool(file: ParsedFile): Finding[] {
-  const matches = file.body.match(TOOL_MENTION_RE);
-  const count = matches ? matches.length : 0;
-  if (count < 2 || PARALLEL_DIRECTIVE_RE.test(file.body)) return [];
+  const lines = file.body.split("\n");
+  const mentionLines: number[] = [];
+  let count = 0;
+  for (let i = 0; i < lines.length; i++) {
+    const m = lines[i].match(TOOL_MENTION_RE);
+    if (m) {
+      count += m.length;
+      mentionLines.push(i);
+    }
+  }
+  if (count < 2) return [];
+  // Affirmative frontmatter dispatch directive — distinct from prose boilerplate.
+  if (hasParallelDefault(file.frontmatter)) return [];
+  // A parallel directive co-located with any tool mention satisfies the gate.
+  const directiveNearMention = mentionLines.some((idx) => {
+    const lo = Math.max(0, idx - PARALLEL_WINDOW);
+    const hi = Math.min(lines.length - 1, idx + PARALLEL_WINDOW);
+    for (let j = lo; j <= hi; j++) {
+      if (PARALLEL_DIRECTIVE_RE.test(lines[j])) return true;
+    }
+    return false;
+  });
+  if (directiveNearMention) return [];
   return [{
     level: "error", code: "P7-PARALLEL-MISS", file: file.relPath,
     message:
-      `${count} tool/sub-agent mentions, no parallel directive nearby ` +
+      `${count} tool/sub-agent mentions, no parallel directive within ${PARALLEL_WINDOW} lines of a mention ` +
       `(P7 efficiency + P8 fan-out — serialization without a dependency edge is not permitted; ` +
-      `add "in parallel" / "single message" / "batched" language or set parallel_tool_default: true ` +
-      `in frontmatter)`,
+      `co-locate "in parallel" / "single message" / "batched" language with the tool mentions, ` +
+      `or set parallel_tool_default: true in frontmatter — distant safety boilerplate does not count)`,
   }];
 }
 
@@ -520,7 +601,139 @@ function checkEfficiencyTier(file: ParsedFile, requireOrchestrator: boolean): Fi
   return [];
 }
 
+// ── Mode H: rule line-cap ───────────────────────────────────────────
+//
+// Audit Cycle 11 D5-7 — CONSTITUTION §2 P5 sets `rules/*.md` line limits by
+// precedence (critical/high => 250, normal/low => 120, default normal) but no
+// CI leg enforced them, so 5 normal-precedence rules drifted past the 120-line
+// cap. This mode reads each rule's `precedence` frontmatter (defaulting to
+// `normal`), resolves the cap, and compares the raw `wc -l` count. The limits
+// mirror `scripts/validate-lean-threshold-currency.ts`, which independently
+// asserts these same row values stay in sync with the Constitution; this mode
+// is the per-file enforcer those row values describe. Error-level — a breach is
+// a P4/P5 lean-coverage regression the maintainer must compress or, for a
+// genuinely-high rule, promote (which raises the cap to 250).
+
+const RULE_PRECEDENCE_HIGH: ReadonlySet<string> = new Set(["critical", "high"]);
+const RULE_PRECEDENCE_LOW: ReadonlySet<string> = new Set(["normal", "low"]);
+const RULE_LINE_CAP_HIGH = 250;
+const RULE_LINE_CAP_NORMAL = 120;
+
+function checkRuleLineCap(file: ParsedFile): Finding[] {
+  if (!file.relPath.startsWith("rules/")) return [];
+  const rawPrec = file.frontmatter.precedence;
+  const prec = typeof rawPrec === "string" ? rawPrec : "normal";
+  // An unrecognized precedence value is out of this mode's scope — the rule
+  // assignment-policy validator owns vocabulary checks. Default to the stricter
+  // 120-line cap so an unknown value can never silently buy the 250-line bound.
+  const isHigh = RULE_PRECEDENCE_HIGH.has(prec);
+  const cap = isHigh ? RULE_LINE_CAP_HIGH : RULE_LINE_CAP_NORMAL;
+  if (file.rawLineCount <= cap) return [];
+  const tier = isHigh ? "critical/high" : RULE_PRECEDENCE_LOW.has(prec) ? "normal/low" : `${prec} (treated as normal/low)`;
+  return [{
+    level: "error", code: "P4-RULE-LINE-CAP", file: file.relPath,
+    message:
+      `${file.rawLineCount} lines exceeds the ${cap}-line cap for precedence ${tier} ` +
+      `(CONSTITUTION §2 P5; D5-7 — compress the rule, or promote a genuinely-high one to raise the cap to 250)`,
+  }];
+}
+
+// ── Mode I: runtime-efficiency (SA6.5 cheap gates) ──────────────────
+//
+// Audit Cycle 11 D6-11 — three of the eight SA6.5 runtime-efficiency checklist
+// items are cheaply machine-checkable but had zero enforcement, so they could
+// regress silently green. This mode adds them; the remaining 2 (lazy-loading /
+// reference-by-pointer, dispatch-gating correctness) are semantic and stay
+// prose-reviewed with no CI gate (annotated in the file header). The three:
+//
+//   (1) Plan/act split — a planning command (`tags:` includes `planning`) must
+//       NOT list a code-mutating agent (`hatch3r-implementer`/`hatch3r-fixer`)
+//       in its `agentPipeline`. Bundling execution into a planning command
+//       collapses the plan/act boundary (SA6.5 plan/act split).
+//   (2) Skill-body lazy-load — every `skills/*/SKILL.md` carries a non-empty
+//       `description:` in frontmatter that loads independently of the body
+//       (SA6.5 skill body lazy-load semantics; Anthropic progressive-disclosure).
+//   (3) Structured outputs — the Phase 2/3 mutating agents
+//       (`hatch3r-implementer.md`, `hatch3r-fixer.md`) contain a fenced
+//       structured-result block so phase handoff is machine-parseable, not
+//       free-form prose (SA6.5 structured outputs over prose).
+
+const EXEC_PIPELINE_AGENTS: readonly string[] = ["hatch3r-implementer", "hatch3r-fixer"];
+const STRUCTURED_RESULT_REQUIRED_AGENTS: readonly string[] = [
+  "agents/hatch3r-implementer.md",
+  "agents/hatch3r-fixer.md",
+];
+const FENCED_BLOCK_RE = /^```/m;
+
+function hasPlanningTag(fm: Record<string, unknown>): boolean {
+  const tags = fm.tags;
+  return Array.isArray(tags) && tags.some((t) => typeof t === "string" && t === "planning");
+}
+
+/** Gate (1): planning command's `agentPipeline` must exclude execution agents. */
+function checkPlanActSplit(file: ParsedFile): Finding[] {
+  if (!file.relPath.startsWith("commands/hatch3r-")) return [];
+  if (!hasPlanningTag(file.frontmatter)) return [];
+  const pipeline = file.frontmatter.agentPipeline;
+  if (!Array.isArray(pipeline)) return [];
+  const offenders = pipeline.filter(
+    (a) => typeof a === "string" && EXEC_PIPELINE_AGENTS.includes(a),
+  );
+  if (offenders.length === 0) return [];
+  return [{
+    level: "error", code: "P7-PLAN-ACT-SPLIT", file: file.relPath,
+    message:
+      `planning command lists execution agent(s) ${JSON.stringify(offenders)} in agentPipeline ` +
+      `(SA6.5 plan/act split — a planning command must delegate planning, not bundle execution; D6-11)`,
+  }];
+}
+
+/** Gate (2): every SKILL.md carries a non-empty frontmatter `description:`. */
+function checkSkillDescription(file: ParsedFile): Finding[] {
+  if (!file.relPath.endsWith("/SKILL.md")) return [];
+  const desc = file.frontmatter.description;
+  if (typeof desc === "string" && desc.trim().length > 0) return [];
+  return [{
+    level: "error", code: "P7-SKILL-DESC-MISS", file: file.relPath,
+    message:
+      "SKILL.md missing a non-empty `description:` in frontmatter " +
+      "(SA6.5 skill-body lazy-load — the description must load independently of the body; D6-11)",
+  }];
+}
+
+/** Gate (3): Phase 2/3 mutating agents contain a fenced structured-result block. */
+function checkStructuredResult(file: ParsedFile): Finding[] {
+  if (!STRUCTURED_RESULT_REQUIRED_AGENTS.includes(file.relPath)) return [];
+  if (FENCED_BLOCK_RE.test(file.body)) return [];
+  return [{
+    level: "error", code: "P7-STRUCTURED-RESULT-MISS", file: file.relPath,
+    message:
+      "missing a fenced structured-result block (```...```) in the agent body " +
+      "(SA6.5 structured outputs over prose — Phase 2/3 handoff must be machine-parseable; D6-11)",
+  }];
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
+
+async function listSkillFiles(dir: string): Promise<string[]> {
+  // `skills/<name>/SKILL.md` — one level of subdirectory, then the file.
+  let entries: Array<{ name: string; isDirectory: () => boolean }>;
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+    // An absent skills directory is informational, not an error: test fixtures
+    // and partial clones may not seed it. Mirrors `listTopLevelMd` tolerance.
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const e of entries) {
+    if (!e.isDirectory()) continue;
+    const candidate = join(dir, e.name, "SKILL.md");
+    if (existsSync(candidate)) out.push(candidate);
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
 
 async function loadDir(dir: string, baseDir: string, sink: Finding[]): Promise<ParsedFile[]> {
   const out: ParsedFile[] = [];
@@ -574,12 +787,31 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
   const commandFiles = await loadDir(cmdDir, cmdBase, findings);
   const agentFiles = await loadDir(agtDir, agtBase, findings);
 
-  // Rule files are only loaded when Mode E is requested (avoids reading the
-  // 55-file rules corpus on runs that don't need it).
+  // Rule files are only loaded when a rule-scoped mode (E narrative or H
+  // line-cap) is requested (avoids reading the rules corpus on runs that don't
+  // need it).
   let ruleFiles: ParsedFile[] = [];
-  if (opts.flags.ruleNarrative) {
+  if (opts.flags.ruleNarrative || opts.flags.ruleLineCap) {
     const ruleDir = opts.rulesDir ?? RULES_DIR;
     ruleFiles = await loadDir(ruleDir, resolve(ruleDir, ".."), findings);
+  }
+
+  // Skill files (`skills/*/SKILL.md`) are only loaded when Mode I is requested.
+  const skillFiles: ParsedFile[] = [];
+  if (opts.flags.runtimeEfficiency) {
+    const skillDir = opts.skillsDir ?? SKILLS_DIR;
+    const skillBase = resolve(skillDir, "..");
+    for (const abs of await listSkillFiles(skillDir)) {
+      const f = await loadFile(abs, skillBase);
+      if (f.fmParseFailed) {
+        findings.push({
+          level: "warning", code: "P7-FM-PARSE", file: f.relPath,
+          message: "frontmatter YAML parse failed; skipping further checks for this file",
+        });
+        continue;
+      }
+      skillFiles.push(f);
+    }
   }
 
   for (const abs of opts.extraOrchestratorFiles ?? []) {
@@ -619,6 +851,16 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
     // Commands: gated on `orchestrator: true`. Agents: every agent file.
     for (const f of commandFiles) findings.push(...checkEfficiencyTier(f, true));
     for (const f of agentFiles) findings.push(...checkEfficiencyTier(f, false));
+  }
+  if (opts.flags.ruleLineCap) {
+    for (const f of ruleFiles) findings.push(...checkRuleLineCap(f));
+  }
+  if (opts.flags.runtimeEfficiency) {
+    // Gate 1 (plan/act): planning commands only. Gate 3 (structured result):
+    // the two named mutating agents. Gate 2 (skill description): every SKILL.md.
+    for (const f of commandFiles) findings.push(...checkPlanActSplit(f));
+    for (const f of agentFiles) findings.push(...checkStructuredResult(f));
+    for (const f of skillFiles) findings.push(...checkSkillDescription(f));
   }
 
   let errorCount = 0, warningCount = 0;

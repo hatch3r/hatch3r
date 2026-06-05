@@ -1,8 +1,26 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { resolve } from "node:path";
 
 const CLI_PATH = resolve(import.meta.dirname, "../../../dist/cli/index.js");
+
+// D3-2: this suite is the only assertion of the "Battle-tested" help banner
+// and the unknown-command / agent-command redirects, but it can only run
+// against the built `dist/cli/index.js`. `scripts.test` is a bare `vitest run`
+// with no `pretest` build, so on a fresh clone the artifact is absent and the
+// hard-coded path produced an opaque ENOENT (red on fresh clone). Guard with
+// the same `existsSync` + `describe.skipIf(!HAS_DIST)` pattern as the e2e
+// subprocess suite (src/__tests__/e2e/cliFlow.test.ts:30): the CI matrix builds
+// before testing, so the assertions still run in CI; local `npx vitest run`
+// against an untouched checkout skips cleanly with an actionable message
+// instead of failing.
+const HAS_DIST = existsSync(CLI_PATH);
+if (!HAS_DIST) {
+  console.warn(
+    `[entrypoint.test] Skipping CLI entry-point subprocess tests: ${CLI_PATH} not found. Run "npm run build" first to enable them.`,
+  );
+}
 
 /**
  * Helper to run the CLI as a subprocess and capture output.
@@ -26,7 +44,7 @@ function runCli(args: string[]): { stdout: string; stderr: string; exitCode: num
   }
 }
 
-describe("CLI entry point (src/cli/index.ts)", () => {
+describe.skipIf(!HAS_DIST)("CLI entry point (src/cli/index.ts)", () => {
   describe("--help", () => {
     it("displays program name and description", () => {
       const { stdout, exitCode } = runCli(["--help"]);

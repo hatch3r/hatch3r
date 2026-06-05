@@ -243,9 +243,21 @@ jobs:
       # pass CI. `vitest run` already fails on mismatch by default; the explicit
       # flag removes the ambiguity and is the byte-validation gate for the
       # committed snapshot artifact.
+      # Cycle 11 H D3-4 (D3): assert the coverage step's exit code AND that
+      # coverage was actually produced. `run:` already fails the job on a
+      # non-zero exit, but the vitest v8 provider had a `forks`-pool race
+      # (#5903/#4943/#5521) that could leave collection broken; pinning
+      # `reportsDirectory` to an absolute path + `coverage.clean: false` in
+      # vitest.config.ts fixes the race at root cause. This guard is the CI
+      # tripwire: it fails loudly if `coverage/coverage-summary.json` (the
+      # json-summary reporter output) is absent — a silent collection failure
+      # can no longer pass green.
       - name: Test with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npx vitest run --coverage --no-update
+        run: |
+          npx vitest run --coverage --no-update
+          test -f coverage/coverage-summary.json \
+            || { echo "::error::coverage run produced no coverage/coverage-summary.json (collection failed)"; exit 1; }
 
       - name: Test without coverage
         if: matrix.os != 'ubuntu-latest' || matrix.node-version != 22

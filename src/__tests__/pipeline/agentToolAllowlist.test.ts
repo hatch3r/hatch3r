@@ -9,6 +9,7 @@ import {
   checkToolAccess,
   toFailureLogEntry,
   validateToolPolicies,
+  buildClaudePreToolUseHookScript,
   type AgentToolPolicy,
   type AllowlistDenialEvent,
 } from "../../pipeline/agentToolAllowlist.js";
@@ -602,6 +603,47 @@ describe("agentToolAllowlist", () => {
       expect(parsed[0].phase).toBe("tool-allowlist");
       expect(parsed[0].tool).toBe("git");
       expect(parsed[0].errorCode).toBe("TOOL_NOT_ALLOWED");
+    });
+  });
+
+  // D15-2 (Cycle 11 Wave 2, High, ASI02/ASI03): the canonical orchestration
+  // rule mandates `subagent_type: "generalPurpose"` for ALL delegations, but the
+  // Claude PreToolUse hook scopes enforcement to a `hatch3r-`-prefixed
+  // `agent_type`. A `generalPurpose` spawn carries Claude Code's own
+  // `agent_type` (`general-purpose`), so the runtime hook passes it through by
+  // design. These tests pin the two-layer trust boundary documented in
+  // SECURITY.md ASI02 + `rules/hatch3r-agent-orchestration.md` -> Subagent
+  // Spawning Protocol -> Tool-allowlist enforcement boundary: (1) the rendered
+  // PreToolUse hook gates only `hatch3r-*` agent_type; (2) the
+  // orchestrator-boundary `checkToolAccess(roleId, category)` gate is the active
+  // enforcement layer for the generic-spawn convention — it denies off-policy
+  // categories by the hatch3r role id regardless of how the sub-agent is spawned.
+  describe("D15-2 generalPurpose spawn trust boundary (ASI02/ASI03)", () => {
+    it("PreToolUse hook scope-gates on a hatch3r- agent_type prefix (general-purpose passes through)", () => {
+      const script = buildClaudePreToolUseHookScript();
+      // The documented scope filter: non-hatch3r agent_type exits 0 (pass-through).
+      expect(script).toContain('if (!agentType.startsWith("hatch3r-"))');
+      // The pass-through is an exit-0 (Claude Code's normal permission flow applies).
+      const scopeIdx = script.indexOf('if (!agentType.startsWith("hatch3r-"))');
+      expect(script.slice(scopeIdx, scopeIdx + 120)).toContain("process.exit(0)");
+    });
+
+    it("orchestrator-boundary checkToolAccess is the active layer: denies an off-policy category by hatch3r role id", () => {
+      // hatch3r-researcher is read/search-only; `write` and `execute` are denied
+      // at the boundary gate. This gate runs irrespective of the generalPurpose
+      // spawn convention, so it — not the bypassed PreToolUse hook — enforces the
+      // review-only policy for delegated work.
+      expect(checkToolAccess("hatch3r-researcher", "write").allowed).toBe(false);
+      expect(checkToolAccess("hatch3r-researcher", "read").allowed).toBe(true);
+    });
+
+    it("orchestrator-boundary checkToolAccess denies an unregistered role id (deny-by-default), closing the generic-spawn gap", () => {
+      // A bare `general-purpose` spawn that never carries a hatch3r role id has no
+      // registered policy; the boundary gate denies by default rather than
+      // silently allowing — the inverse of the PreToolUse hook's pass-through.
+      const result = checkToolAccess("general-purpose", "write");
+      expect(result.allowed).toBe(false);
+      expect(result.denial?.reasonCode).toBe("NO_POLICY");
     });
   });
 });

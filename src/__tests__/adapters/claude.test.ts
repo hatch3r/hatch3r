@@ -72,7 +72,10 @@ describe("ClaudeAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const rules = outputs.filter((o) => o.path.startsWith(".claude/rules/"));
-    expect(rules.length).toBe(2);
+    // 2 canonical rule files + 1 D9-2 advisory-hooks rule (FIXTURES_DIR ships a
+    // ci-failure hook, which has no native Claude event and is surfaced as a
+    // `.claude/rules/` advisory note).
+    expect(rules.length).toBe(3);
 
     for (const rule of rules) {
       expect(rule.path).toContain("hatch3r-");
@@ -411,6 +414,58 @@ Applies to API code and protobufs.`,
     const pluginEventKeys = Object.keys(pluginParsed.hooks).sort();
     const settingsEventKeys = Object.keys(settingsParsed.hooks).sort();
     expect(pluginEventKeys).toEqual(settingsEventKeys);
+  });
+
+  // D5-13 / D5-14 / D9-2 / D11-10 (Cycle 11, P3 + P5): hook event→matcher
+  // mapping correctness. Claude Code matchers are event-specific
+  // (code.claude.com/docs/en/hooks, accessed 2026-06-05): SessionStart matches
+  // the session source; SubagentStart matches agent types; Stop ignores its
+  // matcher; PostToolUse matches tool names. The FIXTURES_DIR ships ci-failure,
+  // post-merge, and session-start hooks, so these assertions exercise the real
+  // emission path.
+  describe("hook event/matcher correctness (D5-13/D5-14/D9-2/D11-10)", () => {
+    it("emits the SessionStart hook with a session-source matcher (startup), not a tool matcher", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      const parsed = JSON.parse(settings!.content);
+      expect(parsed.hooks.SessionStart).toBeDefined();
+      // D5-13: SessionStart honors startup|resume|clear|compact — NOT ".*".
+      const matchers = parsed.hooks.SessionStart.map((e: { matcher: string }) => e.matcher);
+      expect(matchers).toContain("startup");
+      expect(matchers).not.toContain(".*");
+    });
+
+    it("does NOT emit a SubagentStart hook for ci-failure (no native CI event); surfaces it as an advisory rule instead", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      const parsed = JSON.parse(settings!.content);
+      // D11-10/D9-2: the dead SubagentStart+"Bash" mapping is gone. SubagentStart
+      // must not be emitted at all from the ci-failure fixture.
+      expect(parsed.hooks.SubagentStart).toBeUndefined();
+      // The ci-failure hook is re-surfaced as a managed advisory rule.
+      const advisory = outputs.find(
+        (o) => o.path === ".claude/rules/50-hatch3r-advisory-hooks.md",
+      );
+      expect(advisory).toBeDefined();
+      expect(advisory!.content).toContain("ci-failure");
+      expect(advisory!.content).toContain("no native Claude Code event");
+    });
+
+    it("gates the post-merge PostToolUse hook on a `git merge` detection, not every Bash call", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      const parsed = JSON.parse(settings!.content);
+      expect(parsed.hooks.PostToolUse).toBeDefined();
+      // D5-14: the post-merge entry's command must guard on a `git merge`
+      // substring so it does not fire on every shell command. The fixture's
+      // post-merge agent is `deploy-agent`.
+      const postMergeEntry = parsed.hooks.PostToolUse.find(
+        (e: { matcher: string; hooks: Array<{ command: string }> }) =>
+          e.matcher === "Bash" && e.hooks[0]!.command.includes("deploy-agent"),
+      );
+      expect(postMergeEntry).toBeDefined();
+      expect(postMergeEntry.hooks[0].command).toContain('grep -q "git merge"');
+    });
   });
 
   it("generates skill files in .claude/skills/", async () => {
@@ -768,7 +823,13 @@ Applies to API code and protobufs.`,
     expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-4-6");
   });
 
-  it("emits model as recommended model guidance when configured via manifest", async () => {
+  it("omits native model: frontmatter for a non-Claude model, keeping only advisory prose", async () => {
+    // D9-3 (Cycle 11, P3 + P5): Claude Code's subagent `model:` field accepts
+    // ONLY a Claude-recognizable value (sonnet/opus/haiku, a `claude-*` ID, or
+    // inherit). A non-Claude model (here `gpt-4`) MUST NOT be written into the
+    // native field — Claude rejects an unknown ID (hard error or silent
+    // default fallback). The preference is surfaced as `## Recommended Model`
+    // prose only.
     const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-model-"));
     try {
       const agentsDir = join(tempDir, "agents");
@@ -792,11 +853,38 @@ You are a test agent.`,
 
       const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
       expect(agentFile).toBeDefined();
-      // D9-H-1: native `model:` frontmatter from the manifest per-agent model.
-      expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: gpt-4\n[\s\S]*?---/);
+      // The native `model:` field must be ABSENT for a non-Claude model.
+      const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      expect(fmMatch![1]).not.toMatch(/^model:/m);
+      // Advisory prose still documents the preference + override path.
       expect(agentFile!.content).toContain("## Recommended Model");
       expect(agentFile!.content).toContain("Preferred: `gpt-4`");
       expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=gpt-4");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits native model: frontmatter for a Claude alias / claude-* ID", async () => {
+    // D9-3 (Cycle 11): the complement of the non-Claude case — a recognizable
+    // value (alias `opus` or a `claude-*` ID) IS written into the native field.
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-model-ok-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "test-agent.md"),
+        `---\nid: test-agent\ntype: agent\ndescription: A test agent\n---\n# Test Agent\n\nYou are a test agent.`,
+        "utf-8",
+      );
+      // `opus` is a Claude alias → expands to `claude-opus-4-6` (a `claude-*` ID).
+      const manifest = makeManifest({ models: { agents: { "test-agent": "opus" } } });
+      const outputs = await adapter.generate(agentsDir, manifest);
+      const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
+      expect(agentFile).toBeDefined();
+      expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-opus-4-6\n[\s\S]*?---/);
+      expect(agentFile!.content).toContain("Preferred: `claude-opus-4-6`");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -1065,6 +1153,95 @@ Low priority rule body.
       const fm = fmMatch![1];
       expect(fm).not.toContain("tools:");
       expect(fm).toContain("description:");
+    });
+  });
+
+  // D15-3 (Cycle 11, P6 / ASI02-03): a canonical agent's short-form
+  // `tools: { allow, deny }` deny envelope must SURVIVE into the generated
+  // Claude agent file. Pre-fix the list was parsed and dropped — the file
+  // rebuilt frontmatter from the coarse policy allowlist only (SA15.3-F1).
+  // Top-level denies (Write/Edit/MultiEdit) → native `disallowedTools:`;
+  // granular `Bash:<subcommand>` denies → `## Tool Restrictions` body block
+  // (Claude subagent frontmatter cannot express per-subcommand Bash scope).
+  describe("D15-3 short-form tools.deny round-trip", () => {
+    async function runWithToolsAgent(): Promise<
+      Awaited<ReturnType<typeof adapter.generate>>
+    > {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-deny-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      // Mirror the dependency-drafter shape: top-level + granular Bash denies.
+      await writeFile(
+        join(agentsDir, "agents", "drafter.md"),
+        [
+          "---",
+          "id: drafter",
+          "type: agent",
+          "description: A drafter agent",
+          "tools:",
+          '  allow: [Read, Grep, Glob, "Bash:git status", "Bash:git log"]',
+          '  deny: [Write, Edit, MultiEdit, "Bash:git commit", "Bash:git push"]',
+          "---",
+          "# Drafter",
+          "",
+          "You draft proposals.",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+      try {
+        return await adapter.generate(agentsDir, makeManifest());
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("re-emits top-level denies as native disallowedTools: frontmatter", async () => {
+      const outputs = await runWithToolsAgent();
+      const file = outputs.find((o) => o.path === ".claude/agents/hatch3r-drafter.md");
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).toMatch(/^disallowedTools:/m);
+      // Every top-level deny survives into the native denylist field.
+      expect(fm).toContain("Write");
+      expect(fm).toContain("Edit");
+      expect(fm).toContain("MultiEdit");
+    });
+
+    it("re-emits granular Bash subcommand denies as a Tool Restrictions block", async () => {
+      const outputs = await runWithToolsAgent();
+      const file = outputs.find((o) => o.path === ".claude/agents/hatch3r-drafter.md");
+      expect(file).toBeDefined();
+      expect(file!.content).toContain("## Tool Restrictions");
+      // Every granular Bash:git* deny survives into the body block.
+      expect(file!.content).toContain("Bash:git commit");
+      expect(file!.content).toContain("Bash:git push");
+      // The granular allows are documented too.
+      expect(file!.content).toContain("Bash:git status");
+    });
+
+    it("does not emit disallowedTools or a restrictions block for an agent without a tools grant", async () => {
+      // Regression guard: agents with no short-form tools.deny stay unchanged.
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-noden-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "plain-agent.md"),
+        `---\nid: plain-agent\ntype: agent\ndescription: A plain agent\n---\n# Plain\n\nPlain body.`,
+        "utf-8",
+      );
+      try {
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        const file = outputs.find((o) => o.path === ".claude/agents/hatch3r-plain-agent.md");
+        expect(file).toBeDefined();
+        const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+        expect(fmMatch![1]).not.toContain("disallowedTools:");
+        expect(file!.content).not.toContain("## Tool Restrictions");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
     });
   });
 

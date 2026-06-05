@@ -542,7 +542,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 ## Error Handling
 
 - **Researcher sub-agent failure (Stage 2a or 4a):** Retry the failed sub-agent once. If it fails again, present partial results and ASK the user whether to proceed with manual analysis or abort.
-- **Implementer sub-agent failure (Stage 2b or 5a):** Retry once. If the retry fails, fall back to direct implementation and warn the user that the change may be less thorough.
+- **Implementer sub-agent failure (Stage 2b or 5a):** Per the shared sub-agent-failure clause in `rules/hatch3r-agent-orchestration.md` -> Cross-Phase Error Propagation: retry once, then re-spawn `hatch3r-fixer` with the failure context, then `BLOCKED_OTHER` + ASK. Never fall back to inline implementation (issue #73 bypass mode).
 - **Quality check failure after 2 retries:** Present specific failures and ASK the user whether to commit partial progress, keep trying, or abort.
 - **User provides insufficient logs (Stage 3):** If the log output contains zero `[HATCH3R-DEBUG]` lines, warn the user that the debug logging may not have been reached during reproduction. Suggest verifying that the correct code path was exercised, then ASK for new logs.
 - **No clear root cause (Stage 4):** If all hypotheses are low-confidence, state this in the diagnosis report (named verdict: "Root cause unconfirmed; top hypothesis confidence=low"). Recommend adding more targeted debug logging (loop back to Stage 2 with refined instrumentation points) or switching to `hatch3r-bug-plan` for a broader investigation. ASK the user how to proceed.

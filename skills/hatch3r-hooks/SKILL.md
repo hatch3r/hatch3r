@@ -177,99 +177,21 @@ For editing an existing hook:
 
 If user chooses "sync now", instruct them to run `npx hatch3r sync` in the terminal.
 
-## Custom Events
+## Hook Definition Schema (implemented surface)
 
-Define project-specific hook events beyond the built-in types:
+A hook is a single canonical artifact: one event fires one agent, optionally narrowed by conditions. The fields below are the complete config that adapters honor today (`src/hooks/types.ts` `HookDefinition` + `HookCondition`):
 
-- **Event naming**: `custom:{domain}:{action}` (e.g., `custom:billing:subscription-change`)
-- **Event registration**: Add custom events to `hatch.json` under `hooks.customEvents`
-- **Event triggering**: Agents trigger custom events via `emit-hook custom:{name}` in their workflows
-- **Event payload**: Custom events can pass structured data to hook handlers via JSON payload
+| Field | Required | Meaning |
+|-------|----------|---------|
+| `id` | yes | Unique hook identifier (sanitized for shell safety). |
+| `event` | yes | Lifecycle event from the events table in Step 2a. |
+| `agent` | yes | Agent ID dispatched when the event fires. |
+| `description` | yes | Human-readable purpose. |
+| `globs` | no | File glob patterns — hook fires only when matching files are affected. |
+| `branches` | no | Branch name patterns — hook fires only on matching branches. |
+| `labels` | no | Issue/PR labels — hook fires only when matching labels are present. |
 
-### Custom Event Definition
-
-In `hatch.json`:
-
-```json
-{
-  "hooks": {
-    "customEvents": [
-      {
-        "name": "custom:billing:subscription-change",
-        "description": "Fired when a subscription plan changes",
-        "payload": { "userId": "string", "oldPlan": "string", "newPlan": "string" }
-      }
-    ]
-  }
-}
-```
-
-Custom events follow the same hook definition format as built-in events — create a hook file in `hooks/` with `event: custom:{domain}:{action}`.
-
-## Hook Chaining
-
-Hooks can trigger other hooks in sequence:
-
-- **Chain definition**: Define ordered hook chains in `hatch.json` under `hooks.chains`
-- **Execution order**: Hooks in a chain execute sequentially; failure in any hook stops the chain
-- **Error handling**: Chain-level error handlers can catch and handle failures from individual hooks
-- **Conditional chaining**: Hooks can conditionally trigger next hook based on output (pass/fail/skip)
-
-### Chain Definition
-
-In `hatch.json`:
-
-```json
-{
-  "hooks": {
-    "chains": [
-      {
-        "id": "pre-release-pipeline",
-        "description": "Full pre-release validation chain",
-        "steps": [
-          { "hook": "pre-release-security-auditor", "on_fail": "stop" },
-          { "hook": "pre-release-test-writer", "on_fail": "stop" },
-          { "hook": "pre-release-docs-writer", "on_fail": "warn" }
-        ],
-        "on_error": "notify"
-      }
-    ]
-  }
-}
-```
-
-Chains are triggered by referencing the chain ID as the hook target. Individual hook results (`pass`, `fail`, `skip`) determine whether the chain continues.
-
-## Hook Execution Ordering
-
-When multiple hooks are registered for the same event:
-
-- **Priority**: Hooks have a priority field (1-100, lower runs first, default 50)
-- **Parallel vs Sequential**: Hooks at the same priority level run in parallel; different priority levels run sequentially
-- **Timeout**: Each hook has a configurable timeout (default 30 seconds). Timed-out hooks are reported as failures.
-- **Isolation**: Each hook runs in its own context. Hook outputs are collected but don't affect other hooks unless chained.
-
-### Priority Configuration
-
-Add `priority` and `timeout` to hook frontmatter:
-
-```markdown
----
-id: my-pre-commit-lint-fixer
-type: hook
-event: pre-commit
-agent: lint-fixer
-priority: 10
-timeout: 60
----
-```
-
-### Execution Example
-
-For `pre-commit` with three hooks:
-1. `lint-fixer` (priority 10) — runs first
-2. `security-auditor` (priority 20) — runs second
-3. `test-writer` (priority 50) and `reviewer` (priority 50) — run in parallel, third
+There is no chaining, custom-event, priority, timeout, or parallel-by-priority config: each hook is independent, the adapter emits one tool-native entry per hook, and ordering across multiple hooks on the same event is the tool's own (Claude Code stacks matcher entries; Cursor stacks `.cursor/hooks.json` entries). Do not author `hooks.chains`, `hooks.customEvents`, `emit-hook`, `priority:`, or `timeout:` — no code consumes them.
 
 ## Error Handling
 

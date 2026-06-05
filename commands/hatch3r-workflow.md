@@ -359,7 +359,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 #### 4b. Final Quality (Parallel Specialists)
 
-**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by `max_phase4_parallel` (default `8`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`, valid range 1-16) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality. The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
+**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by the orchestrator-honored fan-out width `max_phase4_parallel` (default `8`) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality — LLM-honored guidance, not a code-enforced cap (the host Task tool applies no platform fan-out limit). The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
 
 **Always spawn (mandatory for every code change):**
 
@@ -620,7 +620,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 - **Quality check failure in Phase 3:** Loop back and fix before proceeding to Phase 4. Do not advance with failing checks.
 - **Acceptance criteria not met in Phase 4:** Loop back to Phase 3 with specific items to address.
-- **Sub-agent failure:** Retry once, then fall back to direct implementation.
+- **Sub-agent failure:** Per the shared sub-agent-failure clause in `rules/hatch3r-agent-orchestration.md` -> Cross-Phase Error Propagation: retry once, then re-spawn `hatch3r-fixer` with the failure context, then `BLOCKED_OTHER` + ASK. Never fall back to inline implementation (issue #73 bypass mode).
 - **Context degradation (>25 turns):** Suggest starting a fresh chat with a progress summary capturing completed work and remaining items.
 - **Mode switch:** User can switch from Quick to Full (or vice versa) at any ASK checkpoint. State carries forward — no work is lost.
 

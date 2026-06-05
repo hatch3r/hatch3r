@@ -5,6 +5,7 @@ description: 2026 AI/agentic UX patterns for end-user projects shipping AI featu
 scope: conditional
 globs: "**/*.vue,**/*.jsx,**/*.tsx,**/*.svelte,**/ai/**,**/chat/**,**/assistant/**,**/agents/**,**/llm/**,**/copilot/**"
 tags: [implementation, floor:ui-ux, ux, ai, frontend]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

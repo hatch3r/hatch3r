@@ -19,6 +19,7 @@ Task Progress:
 - [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Review cost tracking configuration
 - [ ] Step 2: Estimate current session token usage
+- [ ] Step 2a: Re-fetch pricing before reporting (currency gate)
 - [ ] Step 3: Identify cost optimization opportunities
 - [ ] Step 4: Generate cost report
 ```
@@ -57,13 +58,25 @@ Estimate tokens for the current session using these rules:
 
 **Subagent cost multiplier.** Each subagent spawn carries a base cost for the agent protocol, included rules, and context. A pipeline with 8 subagents (researcher + implementer + reviewer + fixer + 4 Phase 4 specialists) has significant overhead from context re-transmission. Factor this into budget estimates.
 
-Calculate estimated cost using these model tier rates (reference rates — update based on actual provider pricing):
+Calculate estimated cost using named-model rates tied to model IDs. Published-vendor rates drift between model releases — re-fetch before every report per Step 2a; the `accessed:` date marks when each row was last verified.
 
-| Model Tier | Input (per 1M tokens) | Output (per 1M tokens) |
-|-----------|----------------------|----------------------|
-| Fast | $0.25 | $1.00 |
-| Standard | $3.00 | $15.00 |
-| Premium | $15.00 | $75.00 |
+| Model | Model ID | Input (per 1M) | Output (per 1M) | accessed |
+|-------|----------|---------------:|----------------:|----------|
+| Claude Haiku 4.5 | `claude-haiku-4-5` | $1.00 | $5.00 | 2026-06-05 |
+| Claude Sonnet 4.6 | `claude-sonnet-4-6` | $3.00 | $15.00 | 2026-06-05 |
+| Claude Opus 4.8 | `claude-opus-4-8` | $5.00 | $25.00 | 2026-06-05 |
+
+**Cache-read multiplier.** Cached input tokens (`cache_read_input_tokens` in the API `usage` block) bill at ~0.1× the model's base input rate; cache writes bill at 1.25× (5-minute TTL) or 2× (1-hour TTL). When a session reuses a large cached prefix, price `cache_read_input_tokens` separately at 0.1× base input — counting them at full input rate overstates spend by up to 10× on cache-heavy agent loops. Total prompt size = `input_tokens` (uncached) + `cache_creation_input_tokens` + `cache_read_input_tokens`.
+
+### Step 2a: Re-fetch Pricing Before Reporting (currency gate)
+
+Published per-token rates change between model releases. Before emitting a cost figure, verify the rate table is current:
+
+1. If any row's `accessed:` date is older than 30 days, re-fetch the vendor's current pricing (Anthropic: https://www.anthropic.com/pricing, or the live `claude-api` skill's models/pricing reference) and update the row's rates + `accessed:` date in place.
+2. Confirm the model the session actually ran on maps to a named row. If the session used a model ID absent from the table (e.g. an older or non-Anthropic model), add a row with its published rates and `accessed:` date rather than defaulting to the nearest tier.
+3. State the `accessed:` date of the rate used directly in the report (see Step 4). A cost figure with no rate-provenance date is unverifiable — never report a dollar amount without it.
+
+If pricing cannot be re-fetched (offline, vendor page unreachable), proceed with the on-file rates but flag the figure as `(rates as of <accessed-date>, not re-verified)` in the report.
 
 ### Default Budgets
 
@@ -106,11 +119,13 @@ Produce a cost report in this format:
 **Period:** {session/issue/sprint}
 
 **Token Usage:**
-- Input tokens: ~{n}
+- Input tokens (uncached): ~{n}
+- Cache-read tokens: ~{n} (billed ~0.1x base input)
+- Cache-write tokens: ~{n} (billed 1.25x / 2x by TTL)
 - Output tokens: ~{n}
 - Total tokens: ~{n}
 
-**Estimated Cost:** ${amount}
+**Estimated Cost:** ${amount} ({model-id}, rates accessed {YYYY-MM-DD})
 
 **Budget Status:** {amount} / {budget} ({percentage}%)
 
@@ -128,7 +143,7 @@ Produce a cost report in this format:
 - {suggestions based on usage patterns}
 ```
 
-Include total estimated tokens (input + output), estimated cost at current model tier, budget status (if configured), and top optimization opportunities. Always present estimated values with the `~` prefix. Never suppress threshold alerts.
+Include total estimated tokens (uncached input + cache-read + cache-write + output), estimated cost at the named-model rate with its `accessed:` date, budget status (if configured), and top optimization opportunities. Always present estimated values with the `~` prefix. Never report a dollar figure without the model ID and rate-access date. Never suppress threshold alerts.
 
 ## Error Handling
 
@@ -139,7 +154,8 @@ Include total estimated tokens (input + output), estimated cost at current model
 ## Definition of Done
 
 - [ ] Cost configuration reviewed (or report-only mode noted)
-- [ ] Token usage estimated for current session
+- [ ] Token usage estimated for current session (uncached input / cache-read / cache-write / output split)
+- [ ] Pricing rates verified current per Step 2a; report cites model ID + rate `accessed:` date
 - [ ] Optimization opportunities identified
 - [ ] Cost report generated with budget status
 
@@ -149,5 +165,5 @@ Include total estimated tokens (input + output), estimated cost at current model
 
 ## References
 
-- [Anthropic API pricing](https://www.anthropic.com/pricing) — accessed 2026-05-31, official-docs (Anthropic). Source for the per-million-token input/output rates in the model-tier table; these are reference rates and drift between releases — re-verify at the access date when running a cost report.
-- [Token counting — Anthropic API docs](https://docs.anthropic.com/en/docs/build-with-claude/token-counting) — accessed 2026-05-31, official-docs (Anthropic). Source for treating the ~4-characters-per-token figure as an approximation; the documented count-tokens endpoint is authoritative when exact counts are required.
+- [Anthropic API pricing](https://www.anthropic.com/pricing) — accessed 2026-06-05, official-docs (Anthropic). Source for the per-million-token input/output rates per named model (Haiku 4.5 $1/$5, Sonnet 4.6 $3/$15, Opus 4.8 $5/$25) and the cache-read 0.1x / cache-write 1.25x-2x multipliers in Step 2; these drift between model releases — re-verify per Step 2a when running a cost report.
+- [Token counting — Anthropic API docs](https://docs.anthropic.com/en/docs/build-with-claude/token-counting) — accessed 2026-06-05, official-docs (Anthropic). Source for treating the ~4-characters-per-token figure as an approximation; the documented count-tokens endpoint is authoritative when exact counts are required.

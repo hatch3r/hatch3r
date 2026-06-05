@@ -487,6 +487,27 @@ export interface CanonicalFile {
   toolsAllowed?: string[];
   /** D20-1: see {@link toolsAllowed} — the denied counterpart. */
   toolsDenied?: string[];
+  /**
+   * D15-3 (Cycle 11, Pillar P6 / ASI02-03): literal fine-grained tool-name
+   * grant parsed from the canonical short-form `tools: { allow: [...], deny:
+   * [...] }` frontmatter authored on canonical agents (e.g. `hatch3r-devops`,
+   * `hatch3r-dependency-drafter`, `hatch3r-pack-installer`). Entries are raw
+   * tool-name tokens — top-level Claude tools (`Write`, `Edit`, `MultiEdit`,
+   * `Bash`) and granular `Bash:<subcommand>` strings (`"Bash:git commit"`,
+   * `"Bash:git push"`) — NOT canonical categories. Distinct from
+   * {@link toolsAllowed} / {@link toolsDenied}, which carry category strings
+   * validated against `ALL_TOOL_CATEGORIES`. Pre-D15-3 these short-form lists
+   * were dropped at parse time (only the long-form `allowed`/`denied` was
+   * read), so the per-agent deny envelope never reached the generated Claude
+   * agent file. The Claude adapter now re-emits the top-level denies as a
+   * native `disallowedTools:` frontmatter field and surfaces the granular
+   * `Bash:<subcommand>` denies as a `## Tool Restrictions` constraint block so
+   * the trust delegation survives into the runtime. Absent unless the agent
+   * authored the short-form `tools.allow` / `tools.deny`.
+   */
+  toolsAllowRaw?: string[];
+  /** D15-3: see {@link toolsAllowRaw} — the literal deny counterpart. */
+  toolsDenyRaw?: string[];
 }
 
 export interface CanonicalMetadata {
@@ -532,6 +553,14 @@ export interface CanonicalMetadata {
    */
   toolsAllowed?: string[];
   toolsDenied?: string[];
+  /**
+   * D15-3: literal fine-grained tool-name grant parsed from the canonical
+   * short-form `tools: { allow, deny }`. Mirrors
+   * {@link CanonicalFile.toolsAllowRaw} / {@link CanonicalFile.toolsDenyRaw};
+   * see those fields for emission semantics.
+   */
+  toolsAllowRaw?: string[];
+  toolsDenyRaw?: string[];
 }
 
 export interface ContentSelection {

@@ -36,10 +36,10 @@ Phase 4 specialists (docs-writer, lint-fixer, architect, devops, and the CQ1-CQ9
 
 Score task complexity per the `hatch3r-deep-context` rule before Phase 1. Apply the resulting tier:
 
-- **Tier 2 hard gate (B1).** Before Phase 2, run `hatch3r-researcher` with `requirements-elicitation:quick` mode to detect ambiguity and ask the user via the platform-native question tool (per `agents/shared/user-question-protocol.md`). Orchestrator awaits answers and integrates them into the Phase 1 brief; do not begin Phase 2 with unresolved questions. Tier 1 is exempt only when scope is single-file, single-concern, and acceptance is testable from the user message alone.
+- **Tier 2 hard gate (B1).** Before Phase 2, run `hatch3r-researcher` with `requirements-elicitation:quick` mode to detect ambiguity. The researcher sub-agent emits the elicited questions as a structured list in its result — it does NOT call the platform-native question tool (a spawned sub-agent has no interactive surface). The **orchestrator** renders that list to the user via the platform-native question tool (per `agents/shared/user-question-protocol.md`), mirroring `commands/hatch3r-workflow.md` Phase 1 "Present the `requirements-elicitation` questions inline and await answers". Orchestrator awaits answers and integrates them into the Phase 1 brief; do not begin Phase 2 with unresolved questions. Tier 1 is exempt only when scope is single-file, single-concern, and acceptance is testable from the user message alone.
 - **Tier 3 (Deep):** Present Pre-Implementation Summary and ASK for confirmation. Do NOT proceed until all unresolved questions are answered.
 
-**Tier-to-Phase-4 specialist depth mapping** (Finding D7-M9 / D7-SA7.4-1). Deep-context tier drives Phase 1 researcher depth; the same tier drives Phase 4 specialist depth so quality coverage scales with task risk: Tier 1 → run only the always-mode floor (`hatch3r-security` + `hatch3r-testability`) at `quick` depth — UI/perf/maintainability/etc. specialists are skipped per Phase Skip Criteria. Tier 2 → always-mode floor at `standard` depth + every triggered conditional specialist at `quick` depth. Tier 3 → every applicable specialist at `deep` depth — full WCAG AA / OWASP ASI / CWV / mandate-map sweep with N=3 sampling on always-mode specialists when `floor:security` items are touched (per the variance-budget heading in `agents/shared/quality-charter.md`). The depth signal rides on the specialist prompt as the explicit field `depth: quick | standard | deep`; specialists read it via the shared `agents/shared/quality-specialist-frame.md`.
+**Tier-to-Phase-4 specialist depth mapping** (Finding D7-M9 / D7-SA7.4-1). Deep-context tier drives Phase 1 researcher depth; the same tier drives Phase 4 specialist depth so quality coverage scales with task risk: Tier 1 → run only the always-mode floor (`hatch3r-security` + `hatch3r-testability`) at `quick` depth — UI/perf/maintainability/etc. specialists are skipped per Phase Skip Criteria. Tier 2 → always-mode floor at `standard` depth + every triggered conditional specialist at `quick` depth. Tier 3 → every applicable specialist at `deep` depth — full WCAG AA / OWASP ASI / CWV / mandate-map sweep with N=3 sampling on always-mode specialists when `floor:security` items are touched (per `agents/shared/quality-charter.md` -> Non-Determinism Budget). The depth signal rides on the specialist prompt as the explicit field `depth: quick | standard | deep`; specialists read it via the shared `agents/shared/quality-specialist-frame.md`.
 
 ## Mandatory Delegation Directives
 
@@ -112,7 +112,7 @@ For multi-sub-task implementations, the implementer performs a lightweight mini-
 
 **Phase 4 — Final Quality** (after review loop is clean):
 
-Launch Phase 4 specialists in parallel, bounded by `max_phase4_parallel` (default `8` — covers the empirical maximum of applicable specialists per the trigger table, so a typical Tier 3 change fans out in at most 2 batches; override via `HATCH3R_MAX_PHASE4_PARALLEL`, valid range 1-16, values outside the range fall back to default with a logged warning). The bound exists for upstream provider rate-limit headroom (RPM/TPM) — a true dependency edge — NOT per-orchestrator context cost; token cost never serializes independent work (P8 dominates P7). For non-rate-limited orchestrators set `HATCH3R_MAX_PHASE4_PARALLEL=16`. **Runtime rate-limit probe:** when the orchestrator observes ≥3 consecutive rate-limit-class transient failures, auto-reduce `max_phase4_parallel` by 1 and emit an observability event; never silently cap by default. When applicable specialists exceed the bound, batch by severity-descending priority `CRITICAL → HIGH → MEDIUM → LOW` (severity is the worst-case finding class the specialist surfaces: always-on testability (CQ5) / security (CQ3) → CRITICAL, conditional CQ1/CQ4/CQ7 (ui/reliability/performance) → HIGH, docs/lint → MEDIUM, low-impact → LOW); within a bucket, dispatch in trigger-table order. Each batch runs to completion before the next starts; the validation pass runs once after the final batch. The applicable specialists and their trigger conditions are listed in the Phase 4 Specialist Trigger Table below.
+Launch Phase 4 specialists in parallel, bounded by an orchestrator-honored fan-out width `max_phase4_parallel` (default `8` — covers the empirical maximum of applicable specialists per the trigger table, so a typical Tier 3 change fans out in at most 2 batches). This bound is LLM-honored orchestrator guidance, not a code-enforced cap: the host Task tool is the actual dispatcher and applies no platform fan-out limit, so no hatch3r module reads an env var or clamps the count — the orchestrator self-limits per this prose. The bound exists for upstream provider rate-limit headroom (RPM/TPM) — a true dependency edge — NOT per-orchestrator context cost; token cost never serializes independent work (P8 dominates P7). A non-rate-limited orchestrator MAY raise the width up to the full applicable-specialist set. **Rate-limit back-off (orchestrator-LLM guidance):** when the orchestrator observes ≥3 consecutive rate-limit-class transient failures, reduce the active fan-out width by 1 for the next batch and record the back-off in the Iteration Summary; never silently cap a healthy run. When applicable specialists exceed the bound, batch by severity-descending priority `CRITICAL → HIGH → MEDIUM → LOW` (severity is the worst-case finding class the specialist surfaces: always-on testability (CQ5) / security (CQ3) → CRITICAL, conditional CQ1/CQ4/CQ7 (ui/reliability/performance) → HIGH, docs/lint → MEDIUM, low-impact → LOW); within a bucket, dispatch in trigger-table order. Each batch runs to completion before the next starts; the validation pass runs once after the final batch. The applicable specialists and their trigger conditions are listed in the Phase 4 Specialist Trigger Table below.
 
 **Specialist Prompt Enrichment:** When spawning Phase 4 specialists, include the Phase 2 `filesChanged` list (focus on affected code), the Phase 3 review verdict summary (avoid re-flagging reviewed issues), and `researchFindings.blastRadius` (assess downstream impact).
 
@@ -150,12 +150,10 @@ After all Phase 4 specialists complete, run a validation pass: run the test suit
 
 - **testability (CQ5):** all new/modified code paths have tests meeting the mandate map; no untested branches in changed files.
 - **security (CQ3):** no HIGH/CRITICAL findings unresolved; MEDIUM documented with plan; CQ3 thresholds (npm provenance, SBOM, SHA-pin, OWASP ASI) met for in-scope changes.
-- **docs-writer:** affected APIs, architecture, and UX reflected in docs.
-- **lint-fixer:** zero lint/type errors in changed files.
+- **docs-writer:** affected APIs, architecture, and UX reflected in docs. **lint-fixer:** zero lint/type errors in changed files.
 - **ui (CQ1):** WCAG AA compliance; no new a11y violations; design-token + four-state coverage; reuse-first delta.
 - **performance (CQ7):** no performance regressions; new hot paths benchmarked; CWV / p95/p99 / bundle-size budgets met.
-- **architect:** ADRs documented; design aligns with patterns or divergence justified.
-- **devops:** CI/CD passes end-to-end; deployment config validated.
+- **architect:** ADRs documented; design aligns with patterns or divergence justified. **devops:** CI/CD passes end-to-end; deployment config validated.
 
 ## Skill Loading Directives
 
@@ -163,7 +161,9 @@ Load the matching skill before implementation: `type:bug` → `hatch3r-bug-fix`;
 
 ## Subagent Spawning Protocol
 
-Use `subagent_type: "generalPurpose"` for all delegations. Include the agent protocol, applicable `scope: always` rules, tooling hierarchy, and relevant learnings. Launch independent subagents in parallel (maximum parallelism); await and review results, surfacing BLOCKED or PARTIAL to the user.
+Use `subagent_type: "generalPurpose"` for all delegations. Include the agent protocol (the hatch3r role id, e.g. `hatch3r-reviewer`, named in the prompt), applicable `scope: always` rules, tooling hierarchy, and relevant learnings. Launch independent subagents in parallel (maximum parallelism); await and review results, surfacing BLOCKED or PARTIAL to the user.
+
+**Tool-allowlist enforcement boundary (ASI02/ASI03).** The generic-spawn convention has a trust-boundary consequence the orchestrator MUST account for: the Claude Code PreToolUse hook (`src/pipeline/agentToolAllowlist.ts::buildClaudePreToolUseHookScript`) gates only when the payload `agent_type` starts with `hatch3r-`; a `generalPurpose` spawn carries Claude Code's own `agent_type` (`general-purpose`), so the runtime hook passes it through (this is intentional — Claude Code's built-in subagents must not be governed by hatch3r policy). Therefore the **active** allowlist enforcement for delegated hatch3r work is the orchestrator-boundary gate `checkToolAccess(roleId, toolCategory)` (`src/pipeline/agentToolAllowlist.ts`), which the orchestrator applies using the hatch3r role id it placed in the prompt — deny-by-default before forwarding a tool category to the sub-agent. The runtime PreToolUse hook is a defense-in-depth second layer that fires only for adapters/sessions that spawn role-bearing native subagents (`subagent_type: "hatch3r-<role>"`); under the generic-spawn default it does not fire, and the boundary gate is the sole enforcement point.
 
 ## Parallel Safety
 
@@ -186,6 +186,8 @@ Two top-level pipelines running at once (e.g. `hatch3r-workflow` in one shell, `
 ## Cross-Phase Error Propagation
 
 On a non-SUCCESS status, the orchestrator MUST propagate error context downstream, never silently drop it. **Phase 1 PARTIAL:** include `researchGaps` in the implementer prompt and set confidence expectations accordingly. **Phase 2 PARTIAL:** include `reason` + unimplemented acceptance criteria in the reviewer prompt (reviewer distinguishes "not done yet" from "done incorrectly"). **Phase 3 UNRESOLVED:** include the unresolved findings in Phase 4 specialist prompts (specialists must not conflict with known issues). **Phase 4 specialist FAILED:** include the failure reason when surfacing — never report "Phase 4 failed" without naming which specialist and why.
+
+**Sub-agent-failure handling (shared clause; all commands cite this — never inline).** When any spawned implementer/fixer/specialist sub-agent FAILS or returns no usable output: (1) retry once with the same prompt; (2) if the retry fails, re-spawn `hatch3r-fixer` (Phase 3) with the failure reason + partial output as failure context — `hatch3r-fixer` is the code-mutation path, so the work stays delegated; (3) if the re-spawn also fails, emit `BLOCKED_OTHER` with a one-sentence reason and ASK the user (fix-manually vs adjust-scope vs accept-risk). The orchestrator MUST NOT fall back to inline implementation — that is the issue #73 bypass mode (see Mandatory Delegation Directive). The sole exception is `hatch3r-quick-change`, whose Tier-1 carve-out permits inline retry per its declared scope.
 
 ## Correlation ID
 
@@ -241,10 +243,8 @@ Reject superficial fixes from any subagent. If a fixer's output contains suppres
 
 ## Rule Application
 
-All `scope: always` rules apply to every task including subagent work; include rule directives in subagent prompts. Inclusion tiers:
+All `scope: always` rules apply to every task including subagent work; include rule directives in subagent prompts. For limited context windows, Tier 1 is mandatory; Tier 2/3 included selectively. Inclusion tiers:
 
 - **Tier 1 — always include (every subagent):** `hatch3r-security-patterns`, `hatch3r-code-standards`.
 - **Tier 2 — by phase:** `hatch3r-testing` (testability/implementer/reviewer); `hatch3r-accessibility-standards` (ui, UI reviewer); `hatch3r-git-conventions` (orchestrator git ops); `hatch3r-ci-cd` (ci-watcher/devops); `hatch3r-dependency-management` (security CQ3 supply-chain slice).
 - **Tier 3 — on-demand by role + scope:** `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`.
-
-For limited context windows, Tier 1 is mandatory; Tier 2/3 included selectively.

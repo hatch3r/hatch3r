@@ -102,18 +102,14 @@ Use browser automation MCP tools to visually verify UI changes after automated t
 - Configuration or infrastructure changes.
 - Code refactors that do not alter rendered output.
 
-**Available tools:**
-- IDE-native browser MCP (e.g., `cursor-ide-browser` in Cursor).
-- Playwright MCP (`@anthropic/mcp-playwright`) for cross-editor browser automation.
+**Available tools:** IDE-native browser MCP (e.g., `cursor-ide-browser` in Cursor); Playwright MCP (`@anthropic/mcp-playwright`) for cross-editor browser automation.
 
 ## E. Knowledge Augmentation Priority
 
-When seeking information, follow this priority order:
+When seeking information, follow this priority order, combining sources when valuable (read the spec first, then verify external API usage with docs MCP, then check for recent advisories via web research):
 
 1. **Project specs and ADRs** — authoritative for project-specific behavior, constraints, and decisions.
 2. **Codebase exploration** (code search tools, semantic code search) — ground truth for current implementation.
 3. **Documentation MCP** — authoritative for external library/framework APIs and patterns.
 4. **Web research** — current events, best practices, security advisories, novel problems.
 5. **Browser verification** — visual confirmation of UI changes after automated tests pass.
-
-Combine sources when valuable: read the spec first, then verify external API usage with docs MCP, then check for recent advisories via web research.

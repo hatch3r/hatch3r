@@ -266,51 +266,215 @@ describe("reviewLoop", () => {
       );
     });
 
-    it("rules/hatch3r-agent-orchestration.{md,mdc} declare the same default as DEFAULT_MAX_REVIEW_ITERATIONS", () => {
-      // Finding C9-M48 (D16-F16.1, Medium): the code constant and the rule
-      // directive at rules/hatch3r-agent-orchestration.md Phase 3 step 3
-      // must reference the same iteration cap. Without this assertion, the
-      // rule and the code drift silently (the original rule said "max 3"
-      // while the code default was 4 after C7.5-W2B2-H26 raised it).
-      // The regex is anchored to the Phase 3 step-3 line which is the
-      // canonical statement of the default, and matches both the .md
-      // canonical and the .mdc Cursor parity copy.
-      const repoRoot = process.cwd();
-      const pattern = /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/;
-      for (const relPath of [
-        "rules/hatch3r-agent-orchestration.md",
-        "rules/hatch3r-agent-orchestration.mdc",
-      ]) {
-        const body = readFileSync(join(repoRoot, relPath), "utf-8");
-        const match = body.match(pattern);
-        expect(match, `${relPath} must contain "max <N> iterations (matches \`DEFAULT_MAX_REVIEW_ITERATIONS\`...)" at Phase 3 step 3`).not.toBeNull();
-        const declared = Number(match![1]);
-        expect(declared, `${relPath} declared "max ${declared} iterations" but code has DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
-      }
-    });
+    // Finding D7-3 (Cycle 11, High): the convergence-contract parity guard
+    // previously covered only 4 of the ~12 cap-stating surfaces — the
+    // orchestration rule (.md/.mdc) and the reviewer/fixer agent prompts.
+    // Green CI therefore hid the contradiction the module header asserts:
+    // "the iteration cap is enforced by the prompt directive" while the six
+    // "max 3" command bodies, bug-pipeline's two "max 4" statements,
+    // board-fill's two spec-class "4" statements, and the detail rule's two
+    // "3" statements went unchecked and could drift freely.
+    //
+    // CAP_SURFACE_REGISTRY below is the single enumerated source of every
+    // file that states the review-loop iteration cap. Each entry declares its
+    // loop class; the cap integer is derived from DEFAULT_MAX_REVIEW_ITERATIONS
+    // so a future change to the code constant forces every prose surface to be
+    // updated in the same change (or the parity test fails):
+    //   - "default" / "spec" classes equal DEFAULT_MAX_REVIEW_ITERATIONS (4).
+    //     The board-fill spec-class loop matches the default because issue-spec
+    //     reviews converge slowly (commands/hatch3r-board-fill.md §7.9d rationale).
+    //   - "code" class equals DEFAULT_MAX_REVIEW_ITERATIONS - 1 (3). Code
+    //     reviews diverge faster, so the code-class loops cap one below the
+    //     default (commands/hatch3r-workflow.md §3a rationale).
+    // `occurrences` pins how many times the cap phrase appears per file, so
+    // adding or deleting a cap statement (not just changing its integer) also
+    // trips the guard — the registry is exhaustive, not best-effort.
+    const CODE_CLASS_CAP = DEFAULT_MAX_REVIEW_ITERATIONS - 1;
+    const capForClass = (loopClass: "default" | "spec" | "code"): number =>
+      loopClass === "code" ? CODE_CLASS_CAP : DEFAULT_MAX_REVIEW_ITERATIONS;
 
-    it("agents/hatch3r-{reviewer,fixer}.md Review Loop Termination cap matches DEFAULT_MAX_REVIEW_ITERATIONS", () => {
-      // Finding D15-SA15.2-F15.2-06 / D5-SA5.1-F1 (Cycle 10, Low/Medium): the
-      // reviewer and fixer agent prompts previously hard-coded "max 3
-      // review-fix cycles" while the code default was 4 (raised in
-      // C7.5-W2B2-H26). The prompt text was realigned to 4, but the parity
-      // test only covered the orchestration rule — leaving the agent prompts
-      // free to drift again. This assertion extends the guard to both
-      // code-mutating-loop agent files so the prompt-stated cap cannot
-      // silently diverge from the code constant + the rule.
+    interface CapSurface {
+      /** Repo-root-relative path to the cap-stating file. */
+      path: string;
+      /** Human label for assertion messages. */
+      label: string;
+      /** Loop class that fixes the expected integer. */
+      loopClass: "default" | "spec" | "code";
+      /** Global regex whose first capture group is the stated cap integer. */
+      regex: RegExp;
+      /** Exact number of times the regex must match in the file. */
+      occurrences: number;
+    }
+
+    const CAP_SURFACE_REGISTRY: readonly CapSurface[] = [
+      // ── default class (== DEFAULT_MAX_REVIEW_ITERATIONS) ──────────────
+      {
+        path: "rules/hatch3r-agent-orchestration.md",
+        label: "orchestration rule (canonical) Phase 3 step 3",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration.mdc",
+        label: "orchestration rule (Cursor parity) Phase 3 step 3",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      {
+        path: "agents/hatch3r-reviewer.md",
+        label: "reviewer agent Review Loop Termination",
+        loopClass: "default",
+        regex: /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
+        occurrences: 1,
+      },
+      {
+        path: "agents/hatch3r-fixer.md",
+        label: "fixer agent Review Loop Termination",
+        loopClass: "default",
+        regex: /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-bug-pipeline.md",
+        label: "bug-pipeline root-cause-depth review loop (table row)",
+        loopClass: "default",
+        regex: /\(max\s+(\d+)\s+iterations\)\s+\|\s+No \(sequential\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-bug-pipeline.md",
+        label: "bug-pipeline review-loop body (matching DEFAULT_MAX_REVIEW_ITERATIONS)",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations,\s+matching\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      // ── spec class (== DEFAULT_MAX_REVIEW_ITERATIONS) ─────────────────
+      {
+        path: "commands/hatch3r-board-fill.md",
+        label: "board-fill per-issue spec-class loop",
+        loopClass: "spec",
+        regex: /max\s+(\d+)\s+iterations\s+\(spec-class cap\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-board-fill.md",
+        label: "board-fill spec-class rationale (matching DEFAULT_MAX_REVIEW_ITERATIONS)",
+        loopClass: "spec",
+        regex: /caps at\s+(\d+)\s+\(matching\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      // ── code class (== DEFAULT_MAX_REVIEW_ITERATIONS - 1) ─────────────
+      {
+        path: "commands/hatch3r-quick-change.md",
+        label: "quick-change review loop (table row + Step 6a body)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 2,
+      },
+      {
+        path: "commands/hatch3r-revision.md",
+        label: "revision review loop (table row + Stage 1 body)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 2,
+      },
+      {
+        path: "commands/hatch3r-board-pickup.md",
+        label: "board-pickup review loop (table row)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-workflow.md",
+        label: "workflow review loop (table row)",
+        loopClass: "code",
+        regex: /\(max\s+(\d+)\s+iterations until clean\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-workflow.md",
+        label: "workflow Step 4a repeat directive (code-class cap)",
+        loopClass: "code",
+        regex: /maximum of \*\*(\d+) iterations\*\*\s+\(code-class cap\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule failure-mode table (canonical)",
+        loopClass: "code",
+        regex: /Max iterations \((\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule retry-policy (canonical)",
+        loopClass: "code",
+        regex: /review loop retries up to\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule failure-mode table (Cursor parity)",
+        loopClass: "code",
+        regex: /Max iterations \((\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule retry-policy (Cursor parity)",
+        loopClass: "code",
+        regex: /review loop retries up to\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+    ];
+
+    it("every review-loop cap surface in CAP_SURFACE_REGISTRY matches its loop class (Finding D7-3)", () => {
+      // Finding C9-M48 / D15-SA15.2-F15.2-06 / D5-SA5.1-F1 are subsumed here:
+      // the rule (.md/.mdc) and reviewer/fixer surfaces remain covered, now as
+      // registry entries alongside the previously-uncovered command + detail
+      // surfaces. The registry is the enumerated single source — extend it
+      // when a new cap-stating surface is authored.
       const repoRoot = process.cwd();
-      const pattern = /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/;
-      for (const relPath of [
-        "agents/hatch3r-reviewer.md",
-        "agents/hatch3r-fixer.md",
-      ]) {
-        const body = readFileSync(join(repoRoot, relPath), "utf-8");
-        const match = body.match(pattern);
-        expect(match, `${relPath} must contain "After <N> review-fix cycles (default \`DEFAULT_MAX_REVIEW_ITERATIONS=<N>\`...)" in Review Loop Termination Conditions`).not.toBeNull();
-        const declaredCycles = Number(match![1]);
-        const declaredConstant = Number(match![2]);
-        expect(declaredCycles, `${relPath} declared "After ${declaredCycles} review-fix cycles" but code has DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
-        expect(declaredConstant, `${relPath} inline DEFAULT_MAX_REVIEW_ITERATIONS=${declaredConstant} must match code constant ${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+      // Self-check: the registry must enumerate every file that states a cap.
+      // 11 distinct files carry cap statements (rule, rule.mdc, reviewer,
+      // fixer, bug-pipeline, board-fill, quick-change, revision, board-pickup,
+      // workflow, detail.md, detail.mdc => 12). Guard against a future edit
+      // that silently empties the registry.
+      expect(
+        CAP_SURFACE_REGISTRY.length,
+        "CAP_SURFACE_REGISTRY must remain populated — it is the single enumerated source of review-loop cap surfaces",
+      ).toBeGreaterThanOrEqual(15);
+
+      for (const surface of CAP_SURFACE_REGISTRY) {
+        const body = readFileSync(join(repoRoot, surface.path), "utf-8");
+        const matches = [...body.matchAll(surface.regex)];
+        expect(
+          matches.length,
+          `${surface.path} [${surface.label}] — expected ${surface.occurrences} cap statement(s) matching ${surface.regex} but found ${matches.length}. If the cap phrasing changed, update CAP_SURFACE_REGISTRY (the enumerated single source).`,
+        ).toBe(surface.occurrences);
+
+        const expectedCap = capForClass(surface.loopClass);
+        for (const m of matches) {
+          // First capture group is always the stated cap integer.
+          const declared = Number(m[1]);
+          expect(
+            declared,
+            `${surface.path} [${surface.label}] declared "${m[0]}" (cap ${declared}) but loop class "${surface.loopClass}" must equal ${expectedCap} (DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}, code-class=${CODE_CLASS_CAP}).`,
+          ).toBe(expectedCap);
+          // The reviewer/fixer surfaces additionally inline the constant
+          // (DEFAULT_MAX_REVIEW_ITERATIONS=<N>) as a second capture group;
+          // assert it tracks the code constant when present.
+          if (m[2] !== undefined) {
+            const inlineConstant = Number(m[2]);
+            expect(
+              inlineConstant,
+              `${surface.path} [${surface.label}] inline DEFAULT_MAX_REVIEW_ITERATIONS=${inlineConstant} must match code constant ${DEFAULT_MAX_REVIEW_ITERATIONS}`,
+            ).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+          }
+        }
       }
     });
   });

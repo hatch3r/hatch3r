@@ -5,6 +5,7 @@ description: Component structure, styling tokens, loading/error/empty states, fo
 scope: conditional
 globs: "src/**/*.vue,src/**/*.tsx,src/**/*.jsx"
 tags: [implementation, floor:ui-ux, lang:typescript]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

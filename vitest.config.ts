@@ -1,9 +1,25 @@
 import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { defineConfig } from "vitest/config";
 
 const pkg = JSON.parse(readFileSync("./package.json", "utf-8")) as {
   version: string;
 };
+
+// D3-4 (Cycle 11 Wave-2 High): pin the v8 coverage temp/output tree to an
+// absolute path anchored at this config file's directory (the repo root).
+// `import.meta.dirname` is fixed at module-load time and is immune to any
+// later `process.chdir()` a test performs. The default `reportsDirectory`
+// (`./coverage`) is resolved cwd-relative at flush time; under the `forks`
+// pool a fork worker is reused across files, so a chdir-into-temp-dir test
+// (e.g. src/__tests__/pipeline/snapshot.test.ts "paths defaults") could
+// relocate where the provider looked for `coverage/.tmp/coverage-N.json`.
+// Combined with `clean: false` below this removes the "Something removed the
+// coverage directory" / ENOENT coverage/.tmp/coverage-0.json race that made
+// two consecutive `--coverage` runs both exit 1 (vitest v8 provider, #5903
+// / #4943 / #5521). Verify: `npm test -- --coverage` exits 0 with a summary
+// table printed.
+const coverageDir = join(import.meta.dirname, "coverage");
 
 export default defineConfig({
   define: {
@@ -15,6 +31,12 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
+      reportsDirectory: coverageDir,
+      // Do not wipe `reportsDirectory` at run start. The default `clean: true`
+      // races with in-flight `forks` workers flushing into `coverage/.tmp/`
+      // and removes the directory out from under them (D3-4). The dir is
+      // .gitignore'd and overwritten per run, so a pre-run wipe buys nothing.
+      clean: false,
       all: true,
       include: ["src/**/*.ts"],
       exclude: [

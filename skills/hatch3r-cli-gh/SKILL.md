@@ -125,4 +125,12 @@ Homepage: https://cli.github.com/
 
 Minimum recommended version: `>=2.92.0`. Builds below this floor carry known unpatched advisories — upgrade before relying on the tool.
 
-GHSA-crc3-h8v6-qh57: gh CLI before 2.92.0 may leak authentication tokens via auxiliary host extension calls. Upgrade to 2.92.0 or later before using gh against untrusted GitHub Enterprise hosts.
+GHSA-crc3-h8v6-qh57 (CVE-2026-45803, Low): `gh run view --log` and `gh run view --log-failed` stream GitHub Actions workflow log lines to stdout or the pager without sanitizing terminal control sequences, so a malicious workflow can embed escape sequences that execute when a maintainer views the log (altered window titles, manipulated output, command execution in emulators such as `screen`). Fixed in 2.92.0 — upgrade before viewing logs from untrusted workflows.
+
+GHSA-55v3-xh23-96gh (token-leak note, `cli/go-gh` library): inside a codespace, `auth.TokenForHost` could source `GITHUB_TOKEN` for a non-`github.com`/`ghe.com` host, sending the token to an unintended host. Fixed in go-gh 2.11.1, vendored into gh ≥ 2.42.0; the `>=2.92.0` floor already clears it. Relevant when running gh against untrusted GitHub Enterprise hosts from a codespace.
+
+## References
+
+- GHSA-crc3-h8v6-qh57 / CVE-2026-45803 — https://github.com/cli/cli/security/advisories/GHSA-crc3-h8v6-qh57 (accessed 2026-06-05; tier: vendor advisory — GitHub CLI maintainers)
+- GHSA-55v3-xh23-96gh — https://github.com/cli/go-gh/security/advisories/GHSA-55v3-xh23-96gh (accessed 2026-06-05; tier: vendor advisory — GitHub CLI maintainers)
+- GitHub Advisory Database (queried via `gh api /repos/cli/cli/security-advisories`, accessed 2026-06-05; tier: official advisory feed)

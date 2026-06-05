@@ -168,34 +168,31 @@ Remind user that these will be auto-consulted during future board-pickup and boa
 
 ## Learning Lifecycle
 
-### Expiry & Deprecation
-- Learnings have an optional `expires` field (ISO date). Expired learnings are flagged during `hatch3r status`.
-- A newer learning lists the entries it replaces in its `supersedes: [<id>, ...]` field (the canonical schema's archival pointer); a learning may also carry `deprecated: true`.
-- During `hatch3r sync`, expired/deprecated learnings are moved to an `archived/` subdirectory (not deleted).
-- Quarterly review: agents prompt for learning review when > 50 active learnings exist.
+### Supersession & Archival
+- A newer learning lists the entries it replaces in its `supersedes: [<id>, ...]` field — the canonical schema's sole archival pointer (`rules/hatch3r-learning-system.md` → Field semantics; `superseded_by`/`deprecated`/`expires` are retired per that rule's migration table and are NOT canonical fields).
+- Superseded entries are archived (moved to `.hatch3r/learnings/archive/`, never deleted) on the next consolidation pass — the rule's §Auto-Consolidation defines the three triggers (overlapping `topic`+`applies-to`, a newer `supersedes:`, or a contradicted 90-day-old confidence). This skill performs the move with the `Read` + `Write` file tools; there is no `hatch3r learn` CLI and the `hatch3r status`/`hatch3r sync` commands do not touch learning lifecycle.
+- Quarterly review: surface a review prompt to the user when more than 50 active learnings exist (count `.hatch3r/learnings/*.md` via the `Glob` tool, excluding the `archive/` subdirectory).
 
 ### Learnings Count Cap
 
-To prevent unbounded context growth, the learnings system enforces a configurable maximum count of active learnings:
+To prevent unbounded context growth, this skill applies a maximum-count convention on active learnings (it counts `.hatch3r/learnings/*.md` with the `Glob` tool, excluding the `archive/` subdirectory — there is no `hatch3r learn` CLI):
 
-- **Default cap:** 100 active learnings (not counting archived or deprecated entries).
-- **Configurable:** Set `learnings.maxActive` in `.hatch3r/hatch.json` to override the default (e.g., `"learnings": { "maxActive": 150 }`).
-- **Enforcement:** When the active count reaches the cap, the `hatch3r learn` skill refuses to write new learnings until existing ones are archived or pruned. Display the message: "Active learnings limit reached ({count}/{max}). Archive or prune existing learnings before adding new ones."
-- **Per-session cap:** A single `hatch3r learn` invocation may capture at most 10 learnings. If more than 10 are identified in Step 2, present the top 10 by relevance and inform the user that the remainder can be captured in a follow-up session.
+- **Default cap:** 100 active learnings (not counting archived entries).
+- **Enforcement:** When the active count reaches the cap, this skill stops before writing a new learning and surfaces: "Active learnings limit reached ({count}/100). Archive or merge existing learnings before adding new ones." Archive candidates via the Pruning Guidance below.
+- **Per-session cap:** A single invocation captures at most 10 learnings. If more than 10 are identified in Step 2, present the top 10 by relevance and inform the user that the remainder can be captured in a follow-up session.
 
 ### Pruning Guidance
 
-When the active learnings count exceeds 80% of the cap (default: 80 of 100), display a pruning prompt after Step 4:
+When the active learnings count exceeds 80% of the cap (80 of 100), surface a pruning prompt after Step 4. This skill identifies candidates by reading the frontmatter of files under `.hatch3r/learnings/` with the `Read`/`Grep` tools (no CLI is involved):
 
 ```
-Learnings nearing capacity ({count}/{max}). Consider pruning:
-  1. Archive expired learnings: `hatch3r learn list --status=expired`
-  2. Archive deprecated learnings: `hatch3r learn list --status=deprecated`
-  3. Review low-confidence learnings: `hatch3r learn list --confidence=low`
-  4. Review oldest learnings: `hatch3r learn list --recent` (inverse — sort by oldest first)
+Learnings nearing capacity ({count}/100). Consider archiving:
+  1. Superseded learnings — entries named in another file's `supersedes:` list
+  2. Low-confidence learnings — `confidence: low` entries pending verification
+  3. Oldest learnings — lowest `created` dates, re-evaluated per the 90-day consolidation trigger
 ```
 
-Pruning is always manual (via archival, never deletion). The system surfaces candidates but never auto-archives without user confirmation.
+Pruning is always manual (archive — move to `.hatch3r/learnings/archive/` — never delete). This skill surfaces candidates but never archives without user confirmation.
 
 ### Confidence Levels
 
@@ -206,7 +203,7 @@ Canonical band from `rules/hatch3r-learning-system.md` → Field semantics:
 
 ### Lifecycle Frontmatter Fields
 
-The canonical match-key fields (`id` / `topic` / `applies-to` / `confidence` / `created`) come from the File Format block above. The lifecycle fields below extend that schema for expiry, deprecation, and tamper detection — they are not match keys and do not override the canonical schema:
+The canonical match-key fields (`id` / `topic` / `applies-to` / `confidence` / `created`) come from the File Format block above. The two optional fields below extend that schema for supersession and tamper detection — they are not match keys and do not override the canonical schema. `expires` and `deprecated` are NOT canonical fields (retired in the `rules/hatch3r-learning-system.md` migration table); use `supersedes` for the full lifecycle:
 
 ```markdown
 ---
@@ -216,18 +213,16 @@ applies-to: {file globs OR module paths}
 confidence: high | medium | low
 created: {YYYY-MM-DD}
 supersedes: [{id1}, {id2}]      # optional; canonical replacement for superseded_by + deprecated chains
-expires: {YYYY-MM-DD}           # optional; expired learnings are archived, not deleted
-deprecated: false               # optional lifecycle flag; set true to deprecate
 integrity: sha256:{hex-digest}  # SHA-256 of body content for tamper detection
 ---
 ```
 
 ### Archival
 
-Archived learnings are moved to `.hatch3r/learnings/archived/` with their original filename. An archival notice is prepended:
+Archived learnings are moved to `.hatch3r/learnings/archive/` (matching `rules/hatch3r-learning-system.md` → Auto-Consolidation) with their original filename. An archival notice is prepended:
 
 ```markdown
-> **Archived on {date}**: {reason — expired | deprecated | superseded by {id}}
+> **Archived on {date}**: superseded by {id}
 ```
 
 ## Search & Discovery
@@ -238,10 +233,13 @@ Archived learnings are moved to `.hatch3r/learnings/archived/` with their origin
 - Agents consult learnings by testing the current file path against each entry's `applies-to` set when starting relevant work (e.g., a change under `src/merge/**` surfaces every learning whose `applies-to` matches).
 
 ### Search Interface
-- `hatch3r learn search {query}` — full-text search across learning topics and content
-- `hatch3r learn list --topic={topic}` — filter by topic
-- `hatch3r learn list --status={active|deprecated|expired}` — filter by lifecycle status
-- `hatch3r learn list --recent` — show learnings added in last 30 days
+
+There is no `hatch3r learn` CLI. When the user asks to find or filter learnings, this skill searches the `.hatch3r/learnings/` directory directly with its file tools:
+
+- **Full-text / topic search** — `Grep` for the query string across `.hatch3r/learnings/*.md` (topic frontmatter + body), then `Read` the matched files.
+- **Filter by topic** — `Grep` the `topic:` frontmatter line for the requested phrase.
+- **Filter by applies-to** — `Grep` the `applies-to:` frontmatter line, or test a given file path against each entry's glob set (the same match the auto-consultation in `agents/hatch3r-learnings-loader.md` performs).
+- **Recent** — read each file's `created:` field and sort by date descending; active entries live at the top level, archived entries under `archive/`.
 
 ### Search Output Format
 
@@ -256,7 +254,7 @@ Learnings matching "{query}":
 
 During `board-pickup` and `board-fill`, agents automatically consult learnings by:
 1. Testing the issue's target file paths against each entry's `applies-to` glob set
-2. Filtering to `active` status only (not expired/deprecated)
+2. Reading only top-level `.hatch3r/learnings/*.md` (archived entries under `archive/` are excluded)
 3. Sorting by confidence (`high` first) then by `created` (newest first)
 4. Presenting top 5 relevant learnings in the implementation context
 
@@ -290,7 +288,7 @@ When writing learning files, validate:
 ## Error Handling
 
 - `.hatch3r/learnings/` directory doesn't exist: create it silently.
-- `.hatch3r/learnings/archived/` directory doesn't exist: create it when first archival occurs.
+- `.hatch3r/learnings/archive/` directory doesn't exist: create it when first archival occurs.
 - Duplicate learning detected: warn and **ASK** whether to merge or create separate.
 - No learnings identified: **ASK** user directly what they learned. If still nothing, skip silently.
 - Learning exceeds quality thresholds: warn user with specific violations and suggest fixes.
@@ -300,13 +298,13 @@ When writing learning files, validate:
 
 - **Never skip ASK checkpoints.**
 - **Never overwrite existing learning files.**
-- **Never delete learnings.** Use archival (move to `archived/`) instead of deletion.
+- **Never delete learnings.** Use archival (move to `.hatch3r/learnings/archive/`) instead of deletion.
 - **Learnings must be specific and actionable.** Reject generic advice like "write better tests."
 - **Always include trigger conditions** in the "Applies When" section.
 - **`applies-to` must bind to real paths** -- use file globs or module prefixes that match the project layout.
 - **Max ~20 lines per learning** file body (excluding frontmatter).
 - **Learnings without `## Evidence` must be `confidence: low`.** Do not allow `high` or `medium` without evidence.
-- **Expired learnings are archived, not deleted.** Preserve institutional knowledge.
+- **Superseded learnings are archived, not deleted.** Preserve institutional knowledge.
 - **Always run injection pattern screening** before writing any learning file. Content with injection indicators must be rephrased or explicitly overridden by the user.
 - **Always compute and include integrity hash** (`integrity: sha256:{hex-digest}`) in frontmatter at write time.
 - **Always route writes through `persistLearning`** (`src/content/learningsValidation.ts`). The function runs `scanForDeniedPatterns` + `validateAgentOutput` + `sanitizeUserContent` quarantine and verifies the in-memory checksum against `expectedIntegrity` before writing — never bypass it with a raw `Write` tool call.
