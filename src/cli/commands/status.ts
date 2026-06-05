@@ -80,8 +80,16 @@ export interface DriftReport {
  * block; here we reduce each side to a stable sha256 so a stored baseline can
  * be compared across runs without retaining full file bodies.
  */
-export function hashEmittedContent(content: string, managedContent?: string): string {
-  const block = extractManagedBlock(content) ?? managedContent ?? null;
+export function hashEmittedContent(
+  content: string,
+  managedContent?: string,
+  filePath?: string,
+): string {
+  // D11-6 (Cycle 11 Wave 2): pass filePath so block extraction is line-anchored
+  // and variant-aware — drift hashing never truncates the block at a marker
+  // token quoted in user content, which would otherwise hash a wrong slice and
+  // report phantom drift.
+  const block = extractManagedBlock(content, filePath) ?? managedContent ?? null;
   const payload = block !== null ? block.trim() : content;
   return createHash("sha256").update(payload).digest("hex");
 }
@@ -181,14 +189,14 @@ export async function computeAdapterDrift(
       const destPath = join(rootDir, out.path);
       try {
         const existing = await readFile(destPath, "utf-8");
-        const existingBlock = extractManagedBlock(existing);
+        const existingBlock = extractManagedBlock(existing, out.path);
         // Prefer extracting from the regenerated content rather than the raw
         // managedContent hint: `wrapInManagedBlock` / `extractManagedBlock`
         // trim their payload, and several adapters pass an un-trimmed body
         // in `out.managedContent` for convenience. Comparing trimmed-on-disk
         // against raw-from-managedContent produced spurious "modified"
         // entries on every status call.
-        const expectedBlock = extractManagedBlock(out.content) ?? out.managedContent ?? null;
+        const expectedBlock = extractManagedBlock(out.content, out.path) ?? out.managedContent ?? null;
         const matches = existingBlock !== null && expectedBlock !== null
           ? existingBlock === expectedBlock.trim()
           : existing === out.content;
@@ -201,8 +209,12 @@ export async function computeAdapterDrift(
           // the same normalization the baseline used, so a clean comparison is
           // possible without retaining full file bodies.
           const baselineHash = baseline.get(out.path);
-          const onDiskHash = hashEmittedContent(existing);
-          const regeneratedHash = hashEmittedContent(out.content, out.managedContent ?? undefined);
+          const onDiskHash = hashEmittedContent(existing, undefined, out.path);
+          const regeneratedHash = hashEmittedContent(
+            out.content,
+            out.managedContent ?? undefined,
+            out.path,
+          );
           let driftKind: NonNullable<DriftEntry["driftKind"]>;
           if (!baselineHash) {
             driftKind = "unknown";

@@ -131,6 +131,54 @@ describe("init command", () => {
     expect(content).toContain("frontmatter");
   });
 
+  // D14-SA13.4-H1 (D13): the shipped learnings seed must teach the canonical
+  // frontmatter schema (`id`/`topic`/`applies-to`/`confidence`/`created` per
+  // rules/hatch3r-learning-system.md), NOT the deprecated keys the loader
+  // downgrades to confidence:low. Assert every learning frontmatter block
+  // embedded in the seed README (the copy-paste examples) carries only keys
+  // that are a subset of the canonical schema and emits none of the deprecated
+  // match keys.
+  it("seed learnings README teaches the canonical frontmatter schema (no deprecated keys)", async () => {
+    await initCommand({ yes: true });
+
+    const content = await readFile(
+      join(tempDir, AGENTS_DIR, "learnings", "README.md"),
+      "utf-8",
+    );
+
+    // Canonical schema (rules/hatch3r-learning-system.md → Structured Frontmatter).
+    const CANONICAL_KEYS = new Set(["id", "topic", "applies-to", "confidence", "supersedes", "created"]);
+    // Deprecated match keys the loader penalizes (hatch3r-learnings-loader.md).
+    const DEPRECATED_KEYS = ["category", "area", "recorded", "source", "author", "date", "tags"];
+
+    // Extract every fenced code block, then keep those that open with a YAML
+    // frontmatter fence (`---`) — these are the learning examples a user copies.
+    const fenceRe = /```(?:yaml|markdown)?\n([\s\S]*?)```/g;
+    const frontmatterBlocks: string[] = [];
+    for (const m of content.matchAll(fenceRe)) {
+      const body = m[1];
+      const fm = body.match(/^---\n([\s\S]*?)\n---/);
+      if (fm) frontmatterBlocks.push(fm[1]);
+    }
+    // At least the Format example + the Recommended First Learning block.
+    expect(frontmatterBlocks.length).toBeGreaterThanOrEqual(2);
+
+    for (const block of frontmatterBlocks) {
+      const keys = block
+        .split("\n")
+        .map((line) => line.match(/^([A-Za-z0-9-]+):/)?.[1])
+        .filter((k): k is string => Boolean(k));
+      // Every declared key is part of the canonical schema.
+      for (const key of keys) {
+        expect(CANONICAL_KEYS.has(key)).toBe(true);
+      }
+      // None of the deprecated keys leak into the seed.
+      for (const dep of DEPRECATED_KEYS) {
+        expect(keys).not.toContain(dep);
+      }
+    }
+  });
+
   it("should preserve a user-edited learnings README on re-init", async () => {
     await initCommand({ yes: true });
 
@@ -2527,6 +2575,102 @@ describe("init shared-bridge-file ownership (C9-H31)", () => {
     // CLAUDE.md is an adapter-owned file → under claude, never under any
     // shared/global bucket.
     expect(manifest.managedFilesByAdapter.claude).toContain("CLAUDE.md");
+  });
+});
+
+// ── D14-SA14.2-H1: per-package emission is opt-in, capped, and .gitignore'd ─
+describe("init per-package emission gate (D14-SA14.2-H1)", () => {
+  let initCommand: (opts?: { yes?: boolean; tools?: string; perPackage?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  // Build a 2-package npm-workspace monorepo so analyzeRepo populates
+  // manifest.packages (each package dir carries a package.json — the
+  // qualifier in detectMonorepoPackages → addPackageIfPresent).
+  async function makeMonorepo(root: string, packageNames: string[]): Promise<void> {
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ name: "root", private: true, workspaces: ["packages/*"] }),
+    );
+    for (const name of packageNames) {
+      const dir = join(root, "packages", name);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "package.json"), JSON.stringify({ name: `@scope/${name}` }));
+    }
+  }
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-perpkg-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("does NOT write per-package copies by default (opt-out-by-default)", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await initCommand({ yes: true, tools: "claude" });
+
+    // Root emission still happens.
+    await expect(access(join(tempDir, "CLAUDE.md"))).resolves.toBeUndefined();
+    // No per-package copies without --per-package.
+    let aExists = false;
+    try {
+      await access(join(tempDir, "packages", "a", "CLAUDE.md"));
+      aExists = true;
+    } catch (err) {
+      void err;
+    }
+    expect(aExists).toBe(false);
+  });
+
+  it("writes outputs × packages per-package copies with --per-package and .gitignore's them", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await initCommand({ yes: true, tools: "claude", perPackage: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+    const claudeManaged = manifest.managedFilesByAdapter.claude as string[];
+    const rootOutputs = claudeManaged.filter((p) => !p.startsWith("packages/"));
+    const pkgA = claudeManaged.filter((p) => p.startsWith("packages/a/"));
+    const pkgB = claudeManaged.filter((p) => p.startsWith("packages/b/"));
+
+    // Each package receives a full copy of the root output set (the copy count
+    // scales as outputs × packages — the exact behaviour the cap + bounded
+    // batch guard against at scale).
+    expect(rootOutputs.length).toBeGreaterThan(0);
+    expect(pkgA.length).toBe(rootOutputs.length);
+    expect(pkgB.length).toBe(rootOutputs.length);
+    // CLAUDE.md specifically lands under each package.
+    expect(pkgA).toContain("packages/a/CLAUDE.md");
+    expect(pkgB).toContain("packages/b/CLAUDE.md");
+    await expect(access(join(tempDir, "packages", "a", "CLAUDE.md"))).resolves.toBeUndefined();
+    await expect(access(join(tempDir, "packages", "b", "CLAUDE.md"))).resolves.toBeUndefined();
+
+    // Every generated copy is git-ignored (anchored, leading-slash entries).
+    const gitignore = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    const ignored = new Set(gitignore.split("\n").map((l) => l.trim()));
+    for (const p of [...pkgA, ...pkgB]) {
+      expect(ignored.has(`/${p}`)).toBe(true);
+    }
   });
 });
 

@@ -234,38 +234,40 @@ Before completing any review, run the following verification commands to gather 
 
 ### Verification Commands
 
-Run each command and capture its output:
+Run the project's language-aware verification gate and capture its output:
 
-1. **Test suite:** `npm test` — capture total tests, pass count, fail count, and skip count.
-2. **Linter:** `npm run lint` — capture error count and warning count.
-3. **Type checking:** `npx tsc --noEmit` — capture the total number of type errors.
+```bash
+${HATCH3R:VERIFY_GATE_ALL}
+```
+
+The placeholder above is rewritten by the adapter pipeline (`substituteVerifyGateTokens` in `src/adapters/base.ts`) from the project manifest's detected `languages[]` plus its package manager — the identical mechanism the implementer (`agents/hatch3r-implementer.md` → Verify) and fixer (`agents/hatch3r-fixer.md` → Verify) carry, so all three loop stages run the same toolchain. The literal fallback when detection is unknown is `npm run lint && npm run typecheck && npm run test`; for a Python project the rendered command becomes `ruff check . && mypy . && pytest`, for Rust `cargo clippy -- -D warnings && cargo check && cargo test`, etc. The gate runs the project's lint, type-check, and test steps as one chained command; capture the per-step pass/fail and counts (tests passed/failed/skipped, lint errors/warnings, type errors) from its output.
 
 ### Including Results in Review Output
 
-Append a verification summary table to the review output:
+Append a verification summary table to the review output. The `Command` column shows the step the resolved `${HATCH3R:VERIFY_GATE_ALL}` ran for this project — the example below is an npm project (fallback toolchain); a Python project would show `ruff check .` / `mypy .` / `pytest`, a Rust project `cargo clippy` / `cargo check` / `cargo test`, etc.:
 
 ```
 ### Verification Results
 
 | Check | Command | Status | Details |
 |-------|---------|--------|---------|
-| Tests | `npm test` | PASS | 142 passed, 0 failed, 3 skipped |
-| Lint | `npm run lint` | PASS | 0 errors, 2 warnings |
-| Types | `npx tsc --noEmit` | PASS | 0 errors |
+| Tests | `${HATCH3R:VERIFY_GATE_TEST}` (e.g. `npm run test`) | PASS | 142 passed, 0 failed, 3 skipped |
+| Lint | `${HATCH3R:VERIFY_GATE_LINT}` (e.g. `npm run lint`) | PASS | 0 errors, 2 warnings |
+| Types | `${HATCH3R:VERIFY_GATE_TYPECHECK}` (e.g. `npm run typecheck`) | PASS | 0 errors |
 ```
 
 ### Blocked Reviews
 
-- If any verification command exits with a non-zero status, flag the review as **BLOCKED**.
-- A BLOCKED review must not approve the change. Set the verdict to `REQUEST CHANGES` with a Critical-level finding that references the failing verification command and its output.
-- Include the raw command output (truncated to the first 50 lines if verbose) so the author can diagnose the failure without re-running the command.
+- If the resolved verification gate exits with a non-zero status — any of its lint, type-check, or test steps failing — flag the review as **BLOCKED**.
+- A BLOCKED review must not approve the change. Set the verdict to `REQUEST CHANGES` with a Critical-level finding that references the failing gate step and its output.
+- Include the raw gate output (truncated to the first 50 lines if verbose) so the author can diagnose the failure without re-running the gate.
 
 ### Pattern
 
-1. Run each verification command using the appropriate shell tool.
-2. Parse the command output to extract structured counts (pass/fail/error/warning).
+1. Run the resolved `${HATCH3R:VERIFY_GATE_ALL}` gate using the appropriate shell tool.
+2. Parse the gate output to extract structured counts per step (pass/fail/error/warning).
 3. Build the verification summary table from the parsed results.
-4. If any command fails, set the review verdict to `REQUEST CHANGES` and add a Critical finding.
+4. If any gate step fails (non-zero exit), set the review verdict to `REQUEST CHANGES` and add a Critical finding.
 5. Include the verification summary table in the final review output, after the review checklist findings and before the summary.
 
 ## Confidence Expression

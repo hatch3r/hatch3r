@@ -162,7 +162,7 @@ async function fileIsUserWrapped(
 ): Promise<{ wrapped: boolean; error?: string }> {
   try {
     const content = await readFile(absPath, "utf-8");
-    if (!hasManagedBlock(content)) {
+    if (!hasManagedBlock(content, absPath)) {
       // No block at all => file is fully managed (or fully user with no
       // block, but that case is covered by the basename filter upstream).
       return { wrapped: false };
@@ -171,7 +171,11 @@ async function fileIsUserWrapped(
     // is user-authored content we must not touch. `extractCustomContent`
     // handles any known marker variant (issue #76: YAML `#` markers in
     // `.github/workflows/*.yml`), so we don't hard-code HTML markers here.
-    const userOutside = extractCustomContent(content).trim();
+    // D11-6 (Cycle 11 Wave 2): pass absPath so detection is line-anchored and
+    // path-variant-aware — a `.yml` orphan whose body merely mentions a marker
+    // token is no longer mis-read as user-wrapped (which would wrongly veto the
+    // unlink) or mis-truncated (which would wrongly clear the veto).
+    const userOutside = extractCustomContent(content, absPath).trim();
     return { wrapped: userOutside.length > 0 };
   } catch (err) {
     // Caller (sweepOrphansForAdapter) surfaces wrapCheck.error as a "read-failed"

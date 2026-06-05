@@ -97,6 +97,7 @@ import {
   isCustomizeTag,
   isUiUxSpecialisation,
   isLanguageTag,
+  admitsUnconditionally,
   LANGUAGE_TO_TAG,
   resolveLanguageTags,
   filterByLanguages,
@@ -522,6 +523,38 @@ describe("isLanguageTag", () => {
   });
 });
 
+// ── admitsUnconditionally — universal-floor admission predicate ──
+
+describe("admitsUnconditionally (D16-2)", () => {
+  it("returns true for protected items regardless of tags", () => {
+    expect(admitsUnconditionally({ tags: [], protected: true })).toBe(true);
+    expect(admitsUnconditionally({ tags: [TAG_LANG_GO], protected: true })).toBe(true);
+  });
+
+  it("returns true for items carrying any floor:* tag", () => {
+    expect(admitsUnconditionally({ tags: [TAG_FLOOR_SECURITY] })).toBe(true);
+    expect(admitsUnconditionally({ tags: [TAG_FLOOR_UI_UX] })).toBe(true);
+    expect(admitsUnconditionally({ tags: [TAG_FLOOR_PROTOCOL] })).toBe(true);
+    expect(admitsUnconditionally({ tags: [TAG_FLOOR_CONTENT_QUALITY] })).toBe(true);
+  });
+
+  it("returns true for a floor-tagged item that is NOT protected (the ~40+ fall-through set)", () => {
+    expect(
+      admitsUnconditionally({ tags: [TAG_IMPLEMENTATION, TAG_FLOOR_SECURITY], protected: false }),
+    ).toBe(true);
+  });
+
+  it("returns false for a non-floor, non-protected item", () => {
+    expect(admitsUnconditionally({ tags: [TAG_IMPLEMENTATION, TAG_LANG_TYPESCRIPT] })).toBe(false);
+    expect(admitsUnconditionally({ tags: [] })).toBe(false);
+    expect(admitsUnconditionally({ tags: [TAG_REVIEW], protected: false })).toBe(false);
+  });
+
+  it("ignores legacy/unknown tags (not floor by the registry)", () => {
+    expect(admitsUnconditionally({ tags: ["core", "security"] })).toBe(false);
+  });
+});
+
 // ── CLI category breadth ─────────────────────────────────────────
 
 describe("CLI category coverage", () => {
@@ -678,6 +711,20 @@ describe("filterByLanguages", () => {
     ];
     const result = filterByLanguages(items, ["python"]);
     expect(result.map((i) => i.id)).toEqual(["ts-protected"]);
+  });
+
+  it("always includes floor-tagged (unprotected) items on a language mismatch (D2-4 / D16-2)", () => {
+    // The reported bug: a `floor:security`+`lang:typescript` rule was dropped
+    // from a Python project because filterByLanguages early-returned only on
+    // `protected`. The universal-floor invariant outranks language filtering.
+    const items: Item[] = [
+      item("sec-ts-floor", [TAG_IMPLEMENTATION, TAG_FLOOR_SECURITY, "lang:typescript"]),
+      item("uiux-ts-floor", [TAG_FLOOR_UI_UX, "lang:typescript"]),
+      item("plain-ts", [TAG_IMPLEMENTATION, "lang:typescript"]),
+    ];
+    const result = filterByLanguages(items, ["python"]);
+    // Both floor-tagged TS items survive on a Python repo; the plain TS rule is dropped.
+    expect(result.map((i) => i.id).sort()).toEqual(["sec-ts-floor", "uiux-ts-floor"]);
   });
 
   it("multi-language projects include items matching any of the listed languages", () => {

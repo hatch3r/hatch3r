@@ -48,7 +48,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
@@ -158,6 +158,17 @@ jobs:
         with:
           socket-token: ${{ secrets.SOCKET_API_KEY }}
 
+      # Cycle 11 H D4-3 (D4): resolve every SHA-pinned `uses:` back to its tag
+      # via `git ls-remote` and fail if the trailing `# <version>` comment names
+      # a version the SHA does not resolve to. Catches the dependabot-advances-
+      # -digest-across-majors-without-rewriting-the-comment drift (checkout v4
+      # comment on a v6.0.2 SHA) that no prior gate saw. A `git ls-remote`
+      # transport failure surfaces as a warning, not a gate failure (network
+      # policy mirrors mcp:cve-check / cli-tools:cve-check above), so a transient
+      # github.com outage cannot red an unrelated PR.
+      - name: Action pin comment vs SHA
+        run: npm run validate:action-pins
+
   build:
     runs-on: ${{ matrix.os }}
     # Windows runners are I/O-slow and variable: the full suite (npm ci + build
@@ -192,7 +203,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 

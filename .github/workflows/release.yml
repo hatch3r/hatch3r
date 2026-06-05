@@ -29,21 +29,57 @@ jobs:
       # Cycle 10 H F4.3.2 (D4): step-security/harden-runner installed as the
       # first step so the release job — the only workflow holding the npm OIDC
       # token (id-token: write) and contents: write — gets the same runtime
-      # egress/process monitoring already present on every ci.yml job. Audit
-      # mode builds a per-job traffic baseline without blocking on the first
-      # landing; escalation to egress-policy: block with an explicit allowlist
-      # (registry.npmjs.org, api.github.com, objects.githubusercontent.com,
-      # fulcio.sigstore.dev, rekor.sigstore.dev) is the follow-up after one
-      # audit-mode cycle, per the finding's staged-rollout recommendation.
-      # Pinned to the v2.19.3 commit SHA (2026-05-14) per the actions-pinning
-      # policy applied to every third-party action in this repo.
+      # egress/process monitoring already present on every ci.yml job. Pinned
+      # to the v2.19.3 commit SHA (2026-05-14) per the actions-pinning policy
+      # applied to every third-party action in this repo.
+      #
+      # Cycle 11 H D4-5 (D4): the Cycle-10 deferred-to-block cutover is taken.
+      # StepSecurity documents that only egress-policy: block with an explicit
+      # allowed-endpoints allowlist (host:port) prevents OIDC-token exfiltration
+      # — audit mode is detect-only and a token-bearing job that runs
+      # third-party code (npm ci/test, npx cyclonedx, npm pack/publish) must
+      # fail closed on any unlisted destination. disable-sudo: true removes the
+      # runner's privilege-escalation path. The no-token release-please.yml
+      # stays on audit (no id-token).
+      #
+      # Allowlist derivation (every entry maps to a step's required egress; a
+      # missing entry fails the release closed, so each is load-bearing):
+      #   github.com, api.github.com        — Checkout + `git fetch origin main`
+      #                                       + setup-node version manifest
+      #                                       + attest-sbom + action-gh-release
+      #   nodejs.org                        — actions/setup-node Node 22 download
+      #   objects.githubusercontent.com     — GitHub object/manifest CDN
+      #   registry.npmjs.org                — npm ci / publish / npx cyclonedx
+      #                                       / `npm audit signatures`
+      #   token.actions.githubusercontent.com — GitHub OIDC token (id-token)
+      #   fulcio.sigstore.dev, rekor.sigstore.dev, tuf-repo-cdn.sigstore.dev
+      #                                       — npm provenance + SBOM attestation
+      #   uploads.github.com                — GitHub Release asset upload (SBOM)
+      # The five-host list in the Cycle-10 finding text is the npm/Sigstore core;
+      # the github.com / nodejs.org / token.actions / tuf / uploads hosts are
+      # added because Checkout, setup-node, the OIDC mint, the Sigstore trust
+      # bootstrap, and the Release asset upload each require them — verify against
+      # the harden-runner audit baseline (Insights → Recommended Policy) and
+      # trim if a host proves unused before the next release.
       - name: Harden Runner
         uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
         with:
-          egress-policy: audit
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            api.github.com:443
+            fulcio.sigstore.dev:443
+            github.com:443
+            nodejs.org:443
+            objects.githubusercontent.com:443
+            registry.npmjs.org:443
+            rekor.sigstore.dev:443
+            token.actions.githubusercontent.com:443
+            tuf-repo-cdn.sigstore.dev:443
+            uploads.github.com:443
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
           # Cycle 10 M D4-M4 (D4): full history needed so the next step can run
@@ -94,6 +130,30 @@ jobs:
             exit 1
           fi
           echo "Version validated: $TAG_VERSION"
+
+      # Cycle 11 H D4-3 (D4): extract the CHANGELOG section for this tag BEFORE
+      # any irreversible step (npm pack/publish below). `npm publish` is
+      # immutable — npm blocks unpublish after 72h — so a missing or misnamed
+      # `## [<version>]` header that previously aborted only at the post-publish
+      # release-notes step left npm published while the GitHub Release was never
+      # created, desyncing the two. Failing closed here (alongside Validate
+      # version) keeps the precondition entirely ahead of the irreversible
+      # boundary; the Create GitHub Release step below merely consumes the
+      # already-validated release-notes.md file.
+      - name: Extract CHANGELOG section for release notes
+        run: |
+          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
+          awk -v ver="$TAG_VERSION" '
+            $0 ~ "^## \\["ver"\\]" { capture=1; print; next }
+            capture && /^## \[/ { exit }
+            capture { print }
+          ' CHANGELOG.md > release-notes.md
+          if [ ! -s release-notes.md ]; then
+            echo "::error::No CHANGELOG entry found for v$TAG_VERSION (expected header: ## [$TAG_VERSION])"
+            exit 1
+          fi
+          echo "Release notes ($(wc -l < release-notes.md) lines):"
+          head -5 release-notes.md
 
       # Cycle 10 M D4-M2 (D4): NPM_CONFIG_IGNORE_SCRIPTS=true takes precedence
       # over .npmrc (npm 11 config order: cli > env > project rc > user rc >
@@ -212,42 +272,27 @@ jobs:
           sbom-path: sbom.cdx.json
         continue-on-error: true
 
-      # Extract the CHANGELOG section matching this tag and use it as the
-      # GitHub release body. The release-prep skill (Step 6) writes a
-      # Keep-a-Changelog section per release; this step is the single source
-      # of release notes (no GitHub auto-generation), so CHANGELOG.md and the
-      # GitHub release page cannot diverge.
-      #
-      # Cycle 10 L F4.4.6 (D4): release-notes.md is written to the runner
-      # workspace and consumed below via `body_path:`. This step has no
-      # cleanup because the workflow targets GitHub-hosted runners only
-      # (`runs-on: ubuntu-latest`), whose workspace is ephemeral and discarded
-      # after the job — a stale release-notes.md from a prior run cannot
-      # survive into a later run. If this workflow is ever moved to a
-      # self-hosted runner, add an `rm -f release-notes.md` cleanup (or switch
-      # action-gh-release to a `body:` step output) before relying on it,
-      # because self-hosted workspaces persist between runs.
-      - name: Extract CHANGELOG section for release notes
-        run: |
-          TAG_VERSION="${GITHUB_REF#refs/tags/v}"
-          awk -v ver="$TAG_VERSION" '
-            $0 ~ "^## \\["ver"\\]" { capture=1; print; next }
-            capture && /^## \[/ { exit }
-            capture { print }
-          ' CHANGELOG.md > release-notes.md
-          if [ ! -s release-notes.md ]; then
-            echo "::error::No CHANGELOG entry found for v$TAG_VERSION (expected header: ## [$TAG_VERSION])"
-            exit 1
-          fi
-          echo "Release notes ($(wc -l < release-notes.md) lines):"
-          head -5 release-notes.md
-
       # Attach the CycloneDX SBOM to the GitHub Release so consumers can fetch
       # the component inventory of this exact version without re-running the
       # workflow (F4.3.1+F4.4.3 recommendation step 2 — SBOM as a release
       # artifact). The tarball is attested above; the SBOM rides alongside it.
+      #
+      # release-notes.md was extracted and validated near "Validate version"
+      # above (Cycle 11 H D4-3), BEFORE the irreversible npm publish. The
+      # release-prep skill (Step 6) writes a Keep-a-Changelog section per
+      # release; this body_path consumes that single source so CHANGELOG.md and
+      # the GitHub release page cannot diverge (no GitHub auto-generation).
+      #
+      # Cycle 10 L F4.4.6 (D4): release-notes.md lives in the runner workspace.
+      # No cleanup is needed because the workflow targets GitHub-hosted runners
+      # only (`runs-on: ubuntu-latest`), whose workspace is ephemeral and
+      # discarded after the job — a stale release-notes.md from a prior run
+      # cannot survive. If this workflow ever moves to a self-hosted runner, add
+      # an `rm -f release-notes.md` cleanup (or switch action-gh-release to a
+      # `body:` step output) before relying on it, because self-hosted
+      # workspaces persist between runs.
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v2
+        uses: softprops/action-gh-release@b4309332981a82ec1c5618f44dd2e27cc8bfbfda # v3.0.0
         with:
           body_path: release-notes.md
           files: sbom.cdx.json

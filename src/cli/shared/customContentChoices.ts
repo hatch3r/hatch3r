@@ -1,5 +1,6 @@
 import inquirer from "inquirer";
 import { ORCHESTRATION_REQUIRED_AGENTS, type CatalogItem } from "../../content/index.js";
+import { admitsUnconditionally } from "../../content/tags.js";
 
 /** Display labels for primary content tags (custom profile checkbox groups). */
 const CONTENT_TAG_LABELS: Record<string, string> = {
@@ -66,13 +67,23 @@ export function buildTagGroupedCustomContentChoices(
         description =
           "Required by the 4-phase pipeline (research → implement → review → quality). " +
           "Deselecting trips a validateOrchestrationDependencies warning.";
-      } else if (item.protected || item.tags.includes("core")) {
-        description = "Floor / core — pre-checked; recommend keeping selected.";
+      } else if (admitsUnconditionally(item)) {
+        // D16-2 (Cycle 11): mark every unconditionally-admitted item
+        // (`protected` OR any `floor:*` tag) with the floor affordance — not
+        // only `protected`/legacy-`core`. ~40+ floor-tagged-unprotected items
+        // previously rendered as plain unchecked rows, hiding the
+        // universal-floor invariant from the picker. The selection layer still
+        // ships these in non-`custom` presets regardless of the checkbox; this
+        // affordance surfaces that at the row in the `custom` picker.
+        description = "Floor — admitted in every non-custom preset; recommend keeping selected.";
       }
       groupedChoices.push({
         name: `${item.type}: ${item.id.replace(/^(cmd-)?hatch3r-/, "")} — ${item.description.slice(0, 60)}`,
         value: item.id,
-        checked: isChecked(item),
+        // Pre-check floor / protected items so the default selection reflects
+        // the universal-floor invariant (D16-2). The caller's `isChecked`
+        // still governs non-floor items.
+        checked: isChecked(item) || admitsUnconditionally(item),
         ...(description ? { description } : {}),
       });
     }

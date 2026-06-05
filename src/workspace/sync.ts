@@ -9,6 +9,7 @@ import {
   getAllContentIds,
   getAllItemsById,
 } from "../content/index.js";
+import { admitsUnconditionally } from "../content/tags.js";
 import { resolveBundledContentRoot } from "../content/contentRoot.js";
 import {
   createManifest,
@@ -236,8 +237,13 @@ export async function syncWorkspaceRepos(
   // = findPackageRoot). Wave 3 removed the workspace `.agents/` canonical tree;
   // canonical content now ships read-only inside the npm package.
   const index = await buildContentIndex(CONTENT_ROOT);
-  const protectedIds = new Set(
-    index.items.filter((item) => item.protected).map((item) => item.id),
+  // D16-2 (Cycle 11): the workspace exclude path must honour the full
+  // universal-floor invariant, not just `protected`. Build the
+  // not-excludable set from `admitsUnconditionally` (protected OR any
+  // `floor:*` tag) so a per-repo `exclude` cannot strip a floor-tagged
+  // security / UI/UX artifact — matching the selection-layer behaviour.
+  const unconditionalIds = new Set(
+    index.items.filter((item) => admitsUnconditionally(item)).map((item) => item.id),
   );
 
   // Wave 7: workspace canonical-content integrity check removed alongside
@@ -291,7 +297,7 @@ export async function syncWorkspaceRepos(
             wsChecksum,
             repoEntry,
             index,
-            protectedIds,
+            unconditionalIds,
             options,
           );
         } catch (err) {
@@ -375,7 +381,7 @@ async function syncSingleRepo(
   wsChecksum: string,
   repoEntry: WorkspaceRepoEntry,
   index: Awaited<ReturnType<typeof buildContentIndex>>,
-  protectedIds: Set<string>,
+  unconditionalIds: Set<string>,
   options: WorkspaceSyncOptions,
 ): Promise<WorkspaceRepoSyncResult> {
   const repoDir = join(workspaceRoot, repoEntry.path);
@@ -401,7 +407,7 @@ async function syncSingleRepo(
   await migrateAgentsToHatch3r(repoDir);
 
   // Resolve effective config
-  const resolved = resolveRepoConfig(wsManifest.defaults, repoEntry.overrides, protectedIds);
+  const resolved = resolveRepoConfig(wsManifest.defaults, repoEntry.overrides, unconditionalIds);
   const effectiveSelection = buildSelectionFromIds(resolved.contentIds, wsManifest.defaults.content, index.items);
 
   // Compute diff

@@ -240,7 +240,10 @@ describe("workspace sync", () => {
     items: {
       agents: ["hatch3r-researcher", "hatch3r-implementer", "hatch3r-reviewer", "hatch3r-security"],
       skills: [],
-      rules: ["hatch3r-agent-orchestration"],
+      // hatch3r-agent-orchestration carries floor:protocol (non-excludable per
+      // D16-2); hatch3r-git-conventions is a non-floor cosmetic rule used to
+      // verify the exclude mechanism still drops ordinary content.
+      rules: ["hatch3r-agent-orchestration", "hatch3r-git-conventions"],
       commands: [],
       prompts: [],
       hooks: [],
@@ -469,7 +472,8 @@ describe("workspace sync", () => {
         sync: true,
         overrides: {
           contentOverrides: {
-            exclude: ["hatch3r-agent-orchestration"],
+            // Attempt to exclude BOTH a floor rule and a non-floor rule.
+            exclude: ["hatch3r-agent-orchestration", "hatch3r-git-conventions"],
           },
         },
       },
@@ -480,10 +484,14 @@ describe("workspace sync", () => {
 
     const raw = await readFile(join(tempDir, "api", AGENTS_DIR, "hatch.json"), "utf-8");
     const manifest = JSON.parse(raw);
-    // The excluded rule should not be in the content selection
-    expect(manifest.content.items.rules).not.toContain("hatch3r-agent-orchestration");
-    // Workspace provenance should track the exclusion
-    expect(manifest.workspace.excludedContent).toContain("hatch3r-agent-orchestration");
+    // The non-floor rule is excluded from the content selection + tracked.
+    expect(manifest.content.items.rules).not.toContain("hatch3r-git-conventions");
+    expect(manifest.workspace.excludedContent).toContain("hatch3r-git-conventions");
+    // D16-2: the floor:protocol rule is NOT excludable — the universal-floor
+    // invariant outranks the per-repo exclude, so it is retained and not
+    // tracked as excluded.
+    expect(manifest.content.items.rules).toContain("hatch3r-agent-orchestration");
+    expect(manifest.workspace.excludedContent).not.toContain("hatch3r-agent-orchestration");
   });
 
   it("uses per-repo owner/repo/branch when syncing", async () => {

@@ -306,6 +306,31 @@ export const isLanguageTag        = (t: string): boolean => facetOf(t) === "lang
 export const isRoleTag            = (t: string): boolean => facetOf(t) === "role";
 
 /**
+ * Single shared admission predicate for the universal-floor invariant
+ * (CONSTITUTION §2 P5 "Universal floor invariant" row). An item is admitted
+ * unconditionally — bypassing every content-reduction path — when it is
+ * `protected` (orchestration pipeline) OR carries any `floor:*` tag
+ * (security / ui-ux / protocol / content-quality).
+ *
+ * D16-2 (Cycle 11): the invariant was previously enforced path-dependently.
+ * `resolveSelection` honoured it via inline `item.protected || isFloorTag`
+ * checks, but `filterByLanguages` (language mismatch), the workspace
+ * `resolveRepoConfig` exclude loop, and the custom-content picker each
+ * special-cased only `protected`, dropping the ~40+ floor-tagged-unprotected
+ * items (`protected` is only 6 items). Threading this one helper through
+ * every reduction path makes the floor admission path-independent: a
+ * `floor:security`+`lang:typescript` rule now survives on a Python repo, a
+ * workspace exclude list, and a picker deselect alike.
+ *
+ * @param item - Any content item exposing `tags: string[]` and optional
+ *               `protected: boolean`.
+ */
+export const admitsUnconditionally = (item: {
+  tags: readonly string[];
+  protected?: boolean;
+}): boolean => item.protected === true || item.tags.some(isFloorTag);
+
+/**
  * D14-M6 (Cycle 10 rollover): Known role identifiers — string values minus
  * the `role:` prefix, accepted by `init --role <id>` and consumed by
  * `resolveSelection`'s role gate.
@@ -381,7 +406,10 @@ export function resolveLanguageTags(projectLanguages: readonly string[]): Set<st
  * Filter a list of items by language tags.
  *
  * Rules:
- * 1. Items marked `protected: true` always pass (universal opt-out from filtering).
+ * 1. Items admitted unconditionally (`protected` OR any `floor:*` tag) always
+ *    pass — the universal-floor invariant outranks language filtering, so a
+ *    `floor:security`+`lang:typescript` rule still ships on a Python repo
+ *    (D2-4 / D16-2, Cycle 11). Previously only `protected` was honoured here.
  * 2. Items with no `lang:*` tags are language-agnostic and always pass.
  * 3. Items with `lang:*` tags pass only when at least one of their language tags
  *    is in the relevant set derived from `projectLanguages`.
@@ -399,7 +427,7 @@ export function filterByLanguages<T extends { tags: string[]; protected?: boolea
   if (projectLanguages.length === 0) return [...items];
   const relevant = resolveLanguageTags(projectLanguages);
   return items.filter((item) => {
-    if (item.protected) return true;
+    if (admitsUnconditionally(item)) return true;
     const itemLangTags = item.tags.filter(isLanguageTag);
     if (itemLangTags.length === 0) return true;
     return itemLangTags.some((t) => relevant.has(t));

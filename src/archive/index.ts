@@ -197,8 +197,8 @@ export async function archiveToolOutputs(
       continue;
     }
 
-    if (hasManagedBlock(content)) {
-      const customContent = stripFrontmatter(extractCustomContent(content));
+    if (hasManagedBlock(content, absPath)) {
+      const customContent = stripFrontmatter(extractCustomContent(content, absPath));
       if (customContent.length > 0) {
         const parsed = parseOutputPath(relPath);
         if (parsed) {

@@ -108,6 +108,87 @@ const CONTENT_ROOT = findPackageRoot(__dirname);
 const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
 
+// D10-SA10.5-H1 (D10, P1): MCP-secret-loading classes used to tailor the
+// post-init `.env.mcp` guidance in the success box. The semantics are the
+// authoritative ones documented on `TOOL_SECRET_NOTES` (src/cli/shared/
+// constants.ts): `claude` reads `.env.mcp` via shell sourcing; `cursor` and
+// `copilot` auto-load it from the project root on a terminal launch (macOS
+// Dock/Finder launches need `launchctl setenv`). Kept as explicit Sets — not
+// a substring scan of the note text — so a note-copy wording change does not
+// silently re-classify a tool.
+const MCP_SHELL_SOURCE_TOOLS = new Set<Tool>(["claude"]);
+const MCP_AUTO_LOAD_TOOLS = new Set<Tool>(["cursor", "copilot"]);
+
+// D14-SA14.2-H1 (D14, P4/P1): soft cap on package count for opt-in per-package
+// emission. Above this, `outputs × packages` file writes (e.g. 50 packages × 3
+// adapters ≈ 25k files) become a scale liability rather than a convenience, so
+// init warns and skips the per-package copies above the cap (the root emission
+// is unaffected). 25 mirrors the handoffs active-soft-cap convention used
+// elsewhere (`HANDOFFS_README_SEED` "Soft cap 25 active handoffs").
+const PER_PACKAGE_COUNT_CAP = 25;
+
+// D14-SA14.2-H1: bounded fan-out width for the per-package write batch. Caps
+// concurrent `safeWriteFile` calls so a large monorepo writes in parallel
+// without exhausting file descriptors (the prior code awaited each write in a
+// serial nested for-loop). Mirrors a conservative default; raise only with a
+// measured fd-exhaustion headroom check.
+const PER_PACKAGE_WRITE_CONCURRENCY = 8;
+
+/**
+ * D14-SA14.2-H1: run `task` over `items` with at most `limit` in flight at
+ * once, preserving input order in the returned results array. Used to batch
+ * per-package adapter writes with bounded concurrency instead of a serial
+ * `for ... await` loop. A rejected task rejects the whole batch (callers wrap
+ * per-item failures themselves when partial success is desired).
+ */
+async function mapWithConcurrency<T, R>(
+  items: readonly T[],
+  limit: number,
+  task: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length);
+  let next = 0;
+  const workerCount = Math.max(1, Math.min(limit, items.length));
+  const worker = async (): Promise<void> => {
+    while (true) {
+      const current = next++;
+      if (current >= items.length) return;
+      results[current] = await task(items[current], current);
+    }
+  };
+  await Promise.all(Array.from({ length: workerCount }, () => worker()));
+  return results;
+}
+
+/**
+ * D14-SA14.2-H1: append literal `.gitignore` entries (e.g. per-package
+ * generated-copy paths) when not already present. Idempotent — each entry is
+ * checked against the existing trimmed lines before being added, so a re-run
+ * never duplicates. Distinct from `ensureGitignoreEntry` (which manages the
+ * fixed `REQUIRED_GITIGNORE_ENTRIES` set): this appends caller-computed,
+ * per-run entries. Writes through `safeWriteFile` (temp+rename) for crash
+ * safety, matching the rest of init's writes. Best-effort — a write failure
+ * routes through `warn()` (Silent Failure Contract — P5) and never aborts init.
+ */
+async function appendLocalGitignoreEntries(rootDir: string, entries: string[]): Promise<void> {
+  const gitignorePath = join(rootDir, ".gitignore");
+  let content = "";
+  try {
+    content = await readFile(gitignorePath, "utf-8");
+  } catch (err) {
+    verbose(`init: appendLocalGitignoreEntries readFile — will create — ${err instanceof Error ? err.message : String(err)}`);
+  }
+  const existing = new Set(content.split("\n").map((l) => l.trim()));
+  const missing = entries.filter((e) => !existing.has(e));
+  if (missing.length === 0) return;
+  const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+  try {
+    await safeWriteFile(gitignorePath, `${content}${separator}${missing.join("\n")}\n`);
+  } catch (err) {
+    warn(`init: could not register per-package .gitignore entries — ${err instanceof Error ? err.message : String(err)}`);
+  }
+}
+
 // Seed content for `.hatch3r/handoffs/README.md` (Wave 6 relocation; previously
 // `.agents/handoffs/README.md`). Documents the schema so `hatch3r-handoff-loader`
 // and `/hatch3r-handoff resume` have a single on-disk source of truth.
@@ -208,35 +289,38 @@ This directory holds project-specific learnings surfaced by the
 
 ## Format
 
-Add one markdown file per learning with YAML frontmatter:
+Add one markdown file per learning with YAML frontmatter. These five keys are
+the canonical schema — \`rules/hatch3r-learning-system.md\` is the single source
+of truth and \`hatch3r-learnings-loader\` downgrades any entry that omits them
+(or that emits the deprecated \`category\`/\`area\`/\`recorded\`/\`source\`/\`author\`/
+\`date\`/\`tags\` match keys) to \`confidence: low\`:
 
 \`\`\`yaml
 ---
-id: <kebab-case-slug>
-category: decision | pattern | pitfall | context
-area: <subsystem or feature area>
-recorded: <ISO-8601 date>
-source: session | <agent-name> | manual
+id: <YYYY-MM-DD-short-slug>
+topic: <short topic, e.g., "vitest coverage thresholds">
+applies-to: <file globs OR module paths, e.g., "src/merge/**">
 confidence: high | medium | low
-author: agent | human
-tags: [<tag>, ...]
+supersedes: [<id1>, <id2>]   # optional
+created: <YYYY-MM-DD>
 ---
 
-## Learning
+<one-paragraph rule>
 
-<What was learned, in 1-3 sentences.>
-
-## Evidence
-
-<Files, commits, or commands that support the learning.>
+Why: <why it holds — the root cause, not the symptom>
+How to apply: <the concrete check or action on a matching file>
 \`\`\`
+
+- \`topic\` is the relevance match key (one topic per file; split multi-topic findings).
+- \`applies-to\` is the path glob the loader tests the current files against.
+- \`confidence\`: high (verified by test or repeated observation), medium (single observation + reasoning), low (single anecdote, pending verification).
 
 The loader agent applies content-security and integrity checks to every
 entry; see \`hatch3r-learnings-loader\` for the full protocol.
 
 ## Recommended First Learning — Pipeline Drift
 
-Copy the markdown block below into \`.hatch3r/learnings/pipeline-drift-rule-73.md\`
+Copy the markdown block below into \`.hatch3r/learnings/2026-05-12-pipeline-drift-rule-73.md\`
 to prime your AI tool against the bypass pattern reported in hatch3r
 issue #73 (GitHub Copilot Chat skipping the four-phase sub-agent
 pipeline on Tier-3 epics). The \`hatch3r-learnings-loader\` agent will
@@ -244,17 +328,12 @@ surface it on session start.
 
 \`\`\`markdown
 ---
-id: pipeline-drift-rule-73
-category: pitfall
-area: orchestration
-recorded: 2026-05-12
-source: manual
+id: 2026-05-12-pipeline-drift-rule-73
+topic: orchestrator pipeline drift on hook-less adapters
+applies-to: "rules/hatch3r-agent-orchestration.md, src/adapters/**"
 confidence: high
-author: human
-tags: [orchestration, copilot, drift]
+created: 2026-05-12
 ---
-
-## Learning
 
 The hatch3r four-phase sub-agent pipeline (Research -> Implement ->
 Review -> Quality) is trust-based on Copilot Chat — Copilot has
@@ -264,28 +343,25 @@ processes. Drift is invisible by default: Copilot can call
 \`multi_replace_string_in_file\` / \`create_file\` inline on a Tier-3
 task and the build can still pass.
 
-Self-detectable signals:
+Why: a hook-less adapter cannot enforce delegation mechanically, so the
+orchestrator self-discipline is the only guard; without it, code mutations
+land outside the implementer sub-agent and review/quality phases are skipped.
 
-- The orchestrator's reply does NOT start with the
-  \`[hatch3r-pipeline: phase N | last: ... | next: ...]\` header on
-  a tracked Tier 2+ task -> halt and re-ground.
-- A code-writing tool was called before the user confirmed the
-  Pre-Implementation Summary on a Tier 3 task -> bypass mode.
-- An \`Edit\` / \`Write\` / equivalent fired from the orchestrator
-  turn rather than from inside a \`hatch3r-implementer\` Task
-  sub-agent -> bypass mode.
-
-## Evidence
-
-- Issue: https://github.com/hatch3r-dev/hatch3r/issues/73
-- Rules: \`rules/hatch3r-agent-orchestration.md\` (Per-Turn
-  Pipeline-State Header, Mandatory Delegation Directive);
-  \`rules/hatch3r-deep-context.md\` (Tier 3 — Deep hard gate).
-- Adapter capability: \`src/adapters/index.ts\` — \`copilot\` is the
-  only adapter with \`hooks: false\`.
+How to apply: treat any of these as bypass mode and halt + re-ground —
+(1) the orchestrator reply does NOT start with the
+\`[hatch3r-pipeline: phase N | last: ... | next: ...]\` header on a tracked
+Tier 2+ task; (2) a code-writing tool was called before the user confirmed
+the Pre-Implementation Summary on a Tier 3 task; (3) an \`Edit\` / \`Write\`
+fired from the orchestrator turn rather than from inside a
+\`hatch3r-implementer\` Task sub-agent. Source: issue
+https://github.com/hatch3r-dev/hatch3r/issues/73; rules
+\`rules/hatch3r-agent-orchestration.md\` (Per-Turn Pipeline-State Header,
+Mandatory Delegation Directive) and \`rules/hatch3r-deep-context.md\`
+(Tier 3 — Deep hard gate); \`copilot\` is the only adapter with
+\`hooks: false\` in \`src/adapters/index.ts\`.
 \`\`\`
 
-Customize the \`recorded\` date and \`tags\` to match your setup.
+Customize the \`id\` / \`created\` date and \`applies-to\` globs to match your setup.
 Adapters other than Copilot also benefit from this learning when
 the bypass pattern is plausible on their host (e.g., long-context
 sessions on any adapter).
@@ -451,6 +527,16 @@ export interface RunInitOptions {
    * Default `DEFAULT_MATURITY_TIER` ("solo") when omitted.
    */
   maturity?: MaturityTier;
+  /**
+   * D14-SA14.2-H1 (D14, P4/P1): opt-in for per-package monorepo emission.
+   * When false/omitted (the default), `runInit` writes adapter output only to
+   * the repo root even on a monorepo — per-package copying (`outputs ×
+   * packages` extra files) is off. Set true by `--per-package` to materialize
+   * tool context adjacent to each package. The emission is additionally capped
+   * ({@link PER_PACKAGE_COUNT_CAP}) and batched with bounded concurrency to
+   * keep large monorepos from a serial `outputs × packages` write storm.
+   */
+  perPackage?: boolean;
 }
 
 // C8-D1-M3: Guard against a double `runInit` on the same target directory.
@@ -489,7 +575,12 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 }
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
-  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity } = options;
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity, perPackage } = options;
+  // D14-SA14.2-H1 (D14, P4/P1): per-package monorepo emission is opt-in.
+  // `emitPerPackage` is the single gate the snapshot-path collection and the
+  // write pass both read; the `manifest.packages` non-empty check is applied
+  // alongside it at each site (the manifest is built further below).
+  const emitPerPackage = perPackage === true;
   const totalSteps = 4;
   // D10-M9 (Cycle 10): capture time-to-first-value at init entry so the
   // success path can emit a `Completed in Xs` line via `printTimingSummary`.
@@ -752,11 +843,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     }
   }
   // F14.2-H1: include per-package emission targets in the pre-mutation
-  // snapshot so `hatch3r rollback --session=<id>` can revert them too.
-  if (manifest.packages && manifest.packages.length > 0) {
+  // snapshot so `hatch3r rollback --session=<id>` can revert them too. Only
+  // when per-package emission is opted in (D14-SA14.2-H1) and the package
+  // count is within the cap — matches the write pass below so the snapshot
+  // covers exactly the files that get written.
+  if (emitPerPackage && manifest.packages && manifest.packages.length > 0 && manifest.packages.length <= PER_PACKAGE_COUNT_CAP) {
     for (const pa of pendingAdapters) {
-      const perPackage = planPerPackageOutputs(manifest.packages, pa.outputs);
-      for (const p of perPackage) {
+      const perPackageOutputs = planPerPackageOutputs(manifest.packages, pa.outputs);
+      for (const p of perPackageOutputs) {
         mutationPaths.push(join(rootDir, p.output.path));
       }
     }
@@ -795,34 +889,76 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     manifest.managedFilesByAdapter[pa.tool] = toolPaths;
   }
 
-  // F14.2-H1 (D14): per-package emission for monorepo roots. When
-  // `manifest.packages` is non-empty we additionally write each adapter's
-  // output into every `<package>/.hatch3r/<rel>` so a developer working
-  // inside a package sub-directory has tool context materialised adjacent
-  // to the package. The root emission above remains the primary surface;
-  // per-package copies are additive. Failures on a per-package write are
-  // routed through `warn` so a permissions issue on one package does not
-  // abort the init (Silent Failure Contract — CONSTITUTION §2 P5).
-  if (manifest.packages && manifest.packages.length > 0) {
-    for (const pa of pendingAdapters) {
-      const perPackage = planPerPackageOutputs(manifest.packages, pa.outputs);
-      const existingPaths = new Set<string>(manifest.managedFilesByAdapter[pa.tool] ?? []);
-      for (const p of perPackage) {
-        try {
-          await safeWriteFile(join(rootDir, p.output.path), p.output.content, {
-            managedContent: p.output.managedContent,
-            appendIfNoBlock: true,
-          });
+  // F14.2-H1 / D14-SA14.2-H1 (D14, P4/P1): OPT-IN per-package emission for
+  // monorepo roots. When `--per-package` is set AND `manifest.packages` is
+  // non-empty, additionally write each adapter's output into every
+  // `<package>/.hatch3r/<rel>` so a developer working inside a package
+  // sub-directory has tool context adjacent to the package. The root emission
+  // above remains the primary surface; per-package copies are additive.
+  //
+  // Scale guards (D14-SA14.2-H1 — was unbounded/opt-out-less/serial):
+  //   - default OFF: no per-package writes unless `--per-package` is passed.
+  //   - count cap: above {@link PER_PACKAGE_COUNT_CAP} packages the copies are
+  //     skipped with a warning ( `outputs × packages` would balloon, e.g. 50
+  //     packages × 3 adapters ≈ 25k files); the root emission still stands.
+  //   - bounded-concurrency batch: writes go through `mapWithConcurrency`
+  //     (≤ {@link PER_PACKAGE_WRITE_CONCURRENCY} in flight) instead of a serial
+  //     nested `for ... await`.
+  //   - `.gitignore` coverage: each package's `.hatch3r/` copy tree is ignored
+  //     so `git add .` does not commit the generated duplicates.
+  // Per-write failures route through `warn` (Silent Failure Contract — P5) so
+  // a permissions issue on one package does not abort the init.
+  if (emitPerPackage && manifest.packages && manifest.packages.length > 0) {
+    if (manifest.packages.length > PER_PACKAGE_COUNT_CAP) {
+      warn(
+        `init: --per-package skipped — ${manifest.packages.length} packages exceeds the ${PER_PACKAGE_COUNT_CAP}-package cap ` +
+          `(per-package copying writes outputs × packages files). Root adapter output is unaffected; ` +
+          `work inside a package using the root setup, or split the monorepo into smaller workspaces.`,
+      );
+    } else {
+      const perPackageGitignoreDirs = new Set<string>();
+      for (const pa of pendingAdapters) {
+        const perPackageOutputs = planPerPackageOutputs(manifest.packages, pa.outputs);
+        const existingPaths = new Set<string>(manifest.managedFilesByAdapter[pa.tool] ?? []);
+        const written = await mapWithConcurrency(
+          perPackageOutputs,
+          PER_PACKAGE_WRITE_CONCURRENCY,
+          async (p) => {
+            try {
+              await safeWriteFile(join(rootDir, p.output.path), p.output.content, {
+                managedContent: p.output.managedContent,
+                appendIfNoBlock: true,
+              });
+              return p;
+            } catch (err) {
+              warn(
+                `init: per-package emission failed for ${pa.tool} -> ${p.output.path} ` +
+                  `(package ${p.packageName}): ${err instanceof Error ? err.message : String(err)}`,
+              );
+              return null;
+            }
+          },
+        );
+        for (const p of written) {
+          if (!p) continue;
           addManagedFile(manifest, p.output.path);
           existingPaths.add(p.output.path);
-        } catch (err) {
-          warn(
-            `init: per-package emission failed for ${pa.tool} -> ${p.output.path} ` +
-              `(package ${p.packageName}): ${err instanceof Error ? err.message : String(err)}`,
-          );
+          // Ignore the exact generated copy path (POSIX-normalized, leading
+          // `/` so the match is anchored to the repo root and cannot collide
+          // with an identically-named file deeper in the tree). Per-package
+          // copies land at each adapter's native path under the package
+          // (`<pkg>/.cursor/...`, `<pkg>/CLAUDE.md`, `<pkg>/.github/...`), so
+          // ignoring the concrete written paths is precise where a single
+          // directory glob would be wrong.
+          perPackageGitignoreDirs.add(`/${p.output.path.replace(/\\/g, "/")}`);
         }
+        manifest.managedFilesByAdapter[pa.tool] = [...existingPaths];
       }
-      manifest.managedFilesByAdapter[pa.tool] = [...existingPaths];
+      // D14-SA14.2-H1: ignore every package's generated copy so the
+      // per-package duplicates are not committed by a blanket `git add .`.
+      if (perPackageGitignoreDirs.size > 0) {
+        await appendLocalGitignoreEntries(rootDir, [...perPackageGitignoreDirs].sort());
+      }
     }
   }
 
@@ -925,8 +1061,18 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   let envResult: { action: string; path: string; newVars: string[] } | undefined;
   if (features.mcp && mcpServers.length > 0) {
     envResult = await ensureEnvMcp(rootDir, mcpServers);
-    await ensureGitignoreEntry(rootDir);
   }
+  // D1-SA1.1-H1 (D1, P1/P6): register the required `.gitignore` entries
+  // unconditionally — decoupled from the `.env.mcp` step above. Every init
+  // writes operational state that must not be committed: `.hatch3r/snapshots/`
+  // (pre-mutation rollback snapshots, written on every run) and the init
+  // checkpoint workspace, plus `.hatch3r/handoffs/` seeds. Gating this behind
+  // `features.mcp && mcpServers.length > 0` (the prior placement) left a
+  // default `hatch3r init --yes` (MCP off by default) with `.hatch3r/snapshots/`
+  // staged on the next `git add .`. `ensureGitignoreEntry` is idempotent
+  // (per-entry coverage scan) so an MCP run that already needs `.env.mcp`
+  // ignored is unaffected.
+  await ensureGitignoreEntry(rootDir);
 
   s4.succeed(step(4, totalSteps, "Done"));
 
@@ -1007,8 +1153,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // capability, and floor admission bypasses team-size filtering for floor
   // items). Solo developers running `full` end up with team-shaped
   // workflows (`hatch3r-handoff-*`, board, etc.) they may not need. Emit a
-  // one-line disclosure so the choice is visible — the user can re-run
-  // `hatch3r config preset=standard` to drop the team-only surface.
+  // one-line disclosure so the choice is visible.
+  // D14-SA14.3-H1 (D14, P1): the remediation pointed at
+  // `hatch3r config preset=standard`, but `config` has no `preset` scalar
+  // setter (SCALAR_CONFIG_KEYS = {maturity, confidence_floor}) — the token was
+  // silently discarded and the user got the full reconfiguration wizard, not a
+  // targeted switch. Point instead at `hatch3r init --preset=standard` (which
+  // re-runs `resolveSelection` and rewrites the manifest — the actual switch),
+  // with the interactive `hatch3r config` profile picker as the alternative.
   if (
     contentSelection.teamSize === "solo" &&
     contentSelection.preset === "full"
@@ -1016,7 +1168,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     summaryLines.push(
       chalk.dim(
         `  Note: full preset includes team-only workflows even on solo projects. ` +
-          `Switch to 'standard' via 'hatch3r config preset=standard' to drop them.`,
+          `Drop them with 'hatch3r init --preset=standard' (or run 'hatch3r config' and choose the Standard profile).`,
       ),
     );
   }
@@ -1101,7 +1253,41 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   if (envResult && envResult.newVars.length > 0) {
     summaryLines.push("");
     summaryLines.push(`${chalk.yellow("!")} Add your secrets to ${chalk.bold(".env.mcp")}: ${envResult.newVars.join(", ")}`);
-    summaryLines.push(`  Then run: ${chalk.dim(getSourceEnvMcpCommand())}`);
+    // D10-SA10.5-H1 (D10, P1): tailor the secret-loading guidance to the
+    // selected tools instead of unconditionally printing the shell-source
+    // command. Tools split into two MCP-secret-loading classes (semantics
+    // documented on `TOOL_SECRET_NOTES`):
+    //   - shell-source (claude): needs `set -a && source .env.mcp && set +a`
+    //     in the launching shell before start.
+    //   - auto-load (cursor, copilot): read `.env.mcp` from the project root on
+    //     a terminal launch; a macOS Dock/Finder/Spotlight launch does NOT
+    //     inherit shell env, so those need `launchctl setenv` per var.
+    // Showing the source command for an auto-load-only tool selection was the
+    // wrong remedy (and, for a Dock launch, actively misleading); showing the
+    // per-tool note on `--yes` closes the gap where the headless path emitted
+    // none (the interactive path surfaces them at tool-selection time).
+    const shellSourceTools = tools.filter((t) => MCP_SHELL_SOURCE_TOOLS.has(t));
+    const autoLoadTools = tools.filter((t) => MCP_AUTO_LOAD_TOOLS.has(t));
+    if (shellSourceTools.length > 0) {
+      summaryLines.push(`  Then run: ${chalk.dim(getSourceEnvMcpCommand())} ${chalk.dim(`(for ${shellSourceTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")})`)}`);
+    }
+    if (autoLoadTools.length > 0) {
+      summaryLines.push(`  ${chalk.dim(`${autoLoadTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} auto-load .env.mcp on a terminal launch; for a macOS Dock/Finder launch run \`launchctl setenv <VAR> <value>\` per secret.`)}`);
+    }
+    // Per-tool secret-loading note (TOOL_SECRET_NOTES) — emitted on every path
+    // (incl. --yes) so the headless install documents the divergence too.
+    const boxSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+    for (const note of boxSecretNotes) {
+      summaryLines.push(`  ${chalk.dim(note)}`);
+    }
+  }
+  // D10-SA10.2-H1 (D10, P1): MCP server configs are read at editor launch, so a
+  // user who follows only the success box hits the primary CTA against an
+  // editor that has not loaded the new MCP servers. Surface the mandatory
+  // editor-restart step (quick-start.md makes it required) on both the
+  // interactive and `--yes --mcp` paths whenever MCP servers were configured.
+  if (features.mcp && mcpServers.length > 0) {
+    summaryLines.push(`  ${chalk.yellow("→")} Restart your editor so the new MCP servers load (configs are read at launch).`);
   }
 
   // D10-SA10.3-F-10: partial-failure installs render a warning-styled box with
@@ -1466,6 +1652,16 @@ export async function initCommand(
      * before. See `src/importers/cursor.ts::importCursorRules`.
      */
     import?: string;
+    /**
+     * D14-SA14.2-H1 (D14, P4/P1): opt in to per-package monorepo emission.
+     * Default OFF — on a detected monorepo, adapter output is written only to
+     * the repo root unless this flag is set. When set, `runInit` additionally
+     * copies each adapter's output under every package (`outputs × packages`
+     * files), capped at {@link PER_PACKAGE_COUNT_CAP} packages, batched with
+     * bounded concurrency, and the copies are added to `.gitignore`. No-op on a
+     * non-monorepo (no packages detected).
+     */
+    perPackage?: boolean;
   } = {},
 ): Promise<void> {
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
@@ -1568,6 +1764,24 @@ export async function initCommand(
     }
   }
 
+  // D1-SA1.2-H1 (D1, P1): parse `--role` / `--facets` to typed values ONCE at
+  // the entry point so every downstream `resolveSelection` site receives the
+  // same filter. Previously only the `--yes` single-repo branch re-derived
+  // them; the interactive single-repo flow and both workspace flows dropped
+  // the flags silently, so `--role reviewer` / `--facets a11y` were no-ops
+  // there (verified: `--workspace --role reviewer` resolved 168 items vs the
+  // single-repo 69). `cliRole`/`cliFacets` are threaded into all four selection
+  // calls below; an undefined role / empty facets collapses to no filtering.
+  const cliRole: RoleId | undefined = opts.role
+    ? (validateFlag(opts.role, [...KNOWN_ROLES], KNOWN_ROLES[0], "role") as RoleId)
+    : undefined;
+  const cliFacets: FacetId[] = opts.facets
+    ? opts.facets
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s): s is FacetId => (KNOWN_FACETS as readonly string[]).includes(s))
+    : [];
+
   // F1.1-H2 (B1 ambiguity-detection gate). Resolve flag-combination
   // ambiguities at the entry point before any side-effect runs. See
   // `detectAmbiguity` above + `agents/shared/user-question-protocol.md`.
@@ -1623,7 +1837,9 @@ export async function initCommand(
   if (opts.workspace) {
     const detectedRepos = await detectSubRepos(rootDir);
     const repoInfo = await analyzeRepo(rootDir);
-    await runWorkspaceInit(rootDir, detectedRepos, repoInfo, opts);
+    // D1-SA1.2-H1: forward the entry-point-parsed role/facets so workspace
+    // init applies them at its selection sites (was dropped before).
+    await runWorkspaceInit(rootDir, detectedRepos, repoInfo, opts, { role: cliRole, facets: cliFacets });
     return;
   }
 
@@ -1718,24 +1934,12 @@ export async function initCommand(
     // F1.1-H1 / F14.3-H1: read `--maturity` (already validated above) with
     // canonical default "solo".
     const maturity: MaturityTier = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
-    // D14-M6 (Cycle 10): optional `--role` flag, validated above. Undefined
-    // when unset, which collapses to no role filtering in resolveSelection.
-    const role: RoleId | undefined = opts.role
-      ? (validateFlag(opts.role, [...KNOWN_ROLES], KNOWN_ROLES[0], "role") as RoleId)
-      : undefined;
-    // D14-M9 (Cycle 10): parse `--facets` (comma-separated list) to the
-    // typed FacetId[] passed into resolveSelection. Unknown entries were
-    // warned about above and are dropped here.
-    const facets: FacetId[] = opts.facets
-      ? opts.facets
-          .split(",")
-          .map((s) => s.trim())
-          .filter((s): s is FacetId => (KNOWN_FACETS as readonly string[]).includes(s))
-      : [];
+    // D1-SA1.2-H1: role/facets are parsed once at the entry point (`cliRole` /
+    // `cliFacets`) and threaded into every selection site, including this one.
     const preset = resolvePresetArg(presetArg);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { role, facets });
+    const contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { role: cliRole, facets: cliFacets });
 
     // Warn if orchestration-critical agents are missing from selection
     const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -1744,7 +1948,7 @@ export async function initCommand(
     warnBoardPrerequisites(contentSelection);
 
     await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage });
     await runCursorImport(rootDir, opts.import, true);
     return;
   }
@@ -2060,7 +2264,9 @@ export async function initCommand(
   // Maturity no longer gates selection (Decision 16 reframe): the resolved
   // `maturity` tier is persisted to the manifest below (runInit) as a runtime
   // calibration dial, not a selection filter, so it is not threaded here.
-  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages);
+  // D1-SA1.2-H1: thread the entry-point-parsed `cliRole`/`cliFacets` so the
+  // interactive single-repo flow honours `--role` / `--facets` like `--yes`.
+  const contentSelection = resolveSelection(selectedPreset, projectType, teamSize, filterIndex, customSelections, projectLanguages, { role: cliRole, facets: cliFacets });
 
   // Warn if orchestration-critical agents are missing from selection
   const orchWarnings = validateOrchestrationDependencies(contentSelection);
@@ -2069,7 +2275,7 @@ export async function initCommand(
   warnBoardPrerequisites(contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage });
   await runCursorImport(rootDir, opts.import, false);
 }
 
@@ -2188,7 +2394,11 @@ async function runWorkspaceInit(
   rootDir: string,
   detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
   repoInfo: RepoInfo,
-  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string },
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string; perPackage?: boolean },
+  // D1-SA1.2-H1: the entry-point-parsed `--role` / `--facets` filters, passed
+  // through so the workspace flow (headless + interactive) applies the same
+  // selection filter as the single-repo flow instead of silently dropping them.
+  selectionFilter: { role?: RoleId; facets: FacetId[] } = { facets: [] },
 ): Promise<void> {
   const headless = !!opts.yes;
 
@@ -2223,7 +2433,9 @@ async function runWorkspaceInit(
     const projectLanguages = languagesForSelection(repoInfo);
     // `--maturity` is validated early in runInit (no longer a selection input under Decision 16);
     // the workspace manifest persists no maturity on this path.
-    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index, undefined, projectLanguages);
+    // D1-SA1.2-H1: apply the forwarded role/facets even on the no-sub-repos
+    // default-config path so `--workspace --role <r>` is consistent.
+    const contentSelection = resolveSelection(getPreset("standard"), "brownfield", "solo", index, undefined, projectLanguages, { role: selectionFilter.role, facets: selectionFilter.facets });
     const wsManifest = createWorkspaceManifest(
       basename(rootDir) || "workspace",
       { platform, tools, features, mcp: { servers: mcpServers }, cliTools: cliToolsBase, content: contentSelection },
@@ -2350,7 +2562,9 @@ async function runWorkspaceInit(
     const preset = resolvePresetArg(presetArg);
     const index = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
-    contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages);
+    // D1-SA1.2-H1: thread the forwarded role/facets into the headless
+    // workspace selection (was dropped — `--workspace --yes --role <r>` no-op).
+    contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { role: selectionFilter.role, facets: selectionFilter.facets });
   } else {
     // Interactive workspace-wide config prompts — driven by the
     // step-machine for back-navigation. The per-repo identity-edit loop
@@ -2554,7 +2768,9 @@ async function runWorkspaceInit(
       selected: wsSelectedCliTools,
     };
 
-    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages);
+    // D1-SA1.2-H1: thread the forwarded role/facets into the interactive
+    // workspace selection (was dropped — `--workspace --role <r>` no-op).
+    contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages, { role: selectionFilter.role, facets: selectionFilter.facets });
   }
 
   // Warn if orchestration-critical agents are missing from selection
@@ -2585,6 +2801,8 @@ async function runWorkspaceInit(
     // to the workspace runInit call so the workspace root manifest
     // persists it.
     maturity: wsMaturity,
+    // D14-SA14.2-H1: forward the per-package opt-in to the workspace-root init.
+    perPackage: opts.perPackage,
   });
 
   // Step 7: Build repo entries and select which to sync

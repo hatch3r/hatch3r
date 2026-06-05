@@ -569,7 +569,7 @@ export function predictMergeAction(
   if (existingContent === null) return "created";
 
   if (options.managedContent) {
-    if (!hasManagedBlock(existingContent)) {
+    if (!hasManagedBlock(existingContent, filePath)) {
       if (options.appendIfNoBlock) {
         // Mirror the G6 trailing-\n parity the live appendIfNoBlock branch
         // applies so an unchanged prediction matches an unchanged write.
@@ -657,7 +657,7 @@ export async function safeWriteFile(
   const existingContent = await readFile(filePath, "utf-8");
 
   if (options.managedContent) {
-    if (!hasManagedBlock(existingContent)) {
+    if (!hasManagedBlock(existingContent, filePath)) {
       if (options.appendIfNoBlock) {
         // C9-H41 (D11-SA11.2-01, P6): Scan existing user content for denied
         // patterns BEFORE splicing the managed block in front of it. The
@@ -710,7 +710,27 @@ export async function safeWriteFile(
         warning: `Skipped ${filePath}: managed block markers (HATCH3R:BEGIN/END) missing. To fix: restore the markers around hatch3r content, or move your custom content and re-run hatch3r update.`,
       };
     }
-    const customContent = extractCustomContent(existingContent);
+    // D1-7 (Cycle 11 Wave 2, D1, P6+CQ8): scan the USER-authored slice — the
+    // content OUTSIDE the line-anchored markers — for denied patterns. That
+    // out-of-block text is the only surface an attacker controls on a
+    // subsequent sync; the managed-block body is hatch3r-authored canonical
+    // content the adapter just regenerated, so it is trusted by construction
+    // and is NOT the deny-scan's target. detectMarkers/extractCustomContent are
+    // line-anchored (managedBlocks.ts), which closes the original truncation
+    // bypass at the root: a user line that merely QUOTES a marker token no
+    // longer collapses the slice, so every out-of-block byte reaches the scan.
+    //
+    // D1-7-fix (scope-narrow): the prior form scanned the FULL existingContent
+    // (canonical body included). Several canonical floor rules legitimately
+    // contain text that matches a deny pattern as documentation — e.g.
+    // rules/hatch3r-secrets-management.md documents emergency-rotation steps
+    // ("...the new secret...") that match the `secret[:=]…` credential pattern.
+    // Re-writing that canonical file on re-init/re-sync (existing markers
+    // present) then tripped the throw below on the framework's own trusted
+    // output. Scanning only the user slice removes that false positive while
+    // preserving the security intent: malicious out-of-block user text still
+    // refuses the splice, and the managed body is deny-clean by authorship.
+    const customContent = extractCustomContent(existingContent, filePath);
     const deniedFindings = customContent ? scanForDeniedPatterns(customContent) : [];
     // F15.1-H1 (Cycle 10 D15-SA15.1, Pillar P6): symmetric fail-closed
     // disposition with the appendIfNoBlock branch above. Refusing the
@@ -736,10 +756,17 @@ export async function safeWriteFile(
     // in the user's `git diff` with no signal that hatch3r rewrote the syntax.
     const variantChanged = wouldChangeMarkerVariant(existingContent, filePath);
     let merged: string;
+    let mergeFailure: unknown;
     try {
       merged = insertManagedBlock(existingContent, options.managedContent, filePath);
-    } catch {
-      // Managed block is corrupted (duplicate markers, wrong order, etc.).
+    } catch (err) {
+      mergeFailure = err;
+      // Managed block is structurally corrupted (a duplicated or misordered
+      // HATCH3R:BEGIN/END marker line). D1-7/D11-4 (Cycle 11 Wave 2): marker
+      // detection and duplicate-counting are now line-anchored, so a marker
+      // token merely QUOTED in out-of-block user content no longer reaches this
+      // branch — when we land here the structural markers really are broken, so
+      // the warning below can name that cause honestly.
       // Create a .bak backup before overwriting so user content is not lost.
       // #242 (D8-8.9): Verify backup integrity before proceeding with overwrite.
       // D1-M12 (Cycle 10 Wave-3): file-size equality is necessary but not
@@ -777,10 +804,16 @@ export async function safeWriteFile(
         );
       }
       await atomicWriteFile(filePath, content);
+      const failureReason =
+        mergeFailure instanceof Error ? mergeFailure.message : String(mergeFailure);
       return {
         path: filePath,
         action: "updated",
-        warning: `Auto-repaired corrupted managed block in ${filePath} (backup saved to ${bakPath})`,
+        // D11-4 (Cycle 11 Wave 2): name the real cause (structurally corrupted
+        // markers) instead of the prior bare "Auto-repaired corrupted managed
+        // block", state that out-of-block content was rewritten, and point at
+        // the recoverable backup + `hatch3r rollback` for full restoration.
+        warning: `Rebuilt the managed block in ${filePath}: its HATCH3R:BEGIN/END markers were structurally corrupted (${failureReason}), so hatch3r regenerated the file from canonical content. Your previous file (including any content outside the markers) was preserved at ${bakPath}; to restore it, copy that file back or run \`hatch3r rollback --session=<id>\` (\`hatch3r rollback list\` shows session ids).`,
       };
     }
     // F15.1-H1: any denied finding already threw above (fail-closed), so by

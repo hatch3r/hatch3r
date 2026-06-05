@@ -101,6 +101,7 @@ export function createProgram(): Command {
     .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — gates content admission (Decision 4)")
     .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role (D14-M6)")
     .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability (D14-M9)")
+    .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd (D14-SA14.2-H1)")
     .action(initCommand);
 
   program

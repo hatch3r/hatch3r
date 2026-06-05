@@ -101,6 +101,22 @@ describe("workspace resolve", () => {
       expect(result.excludedContent).not.toContain("hatch3r-researcher");
     });
 
+    it("does not exclude any unconditionally-admitted (floor-tagged) ID (D16-2)", () => {
+      // The unconditional-admission set is built in sync.ts via
+      // admitsUnconditionally (protected OR any floor:* tag). A floor-tagged
+      // artifact whose id is in that set cannot be dropped by a per-repo
+      // exclude — previously the loop honoured only protected ids.
+      const unconditionalIds = new Set(["hatch3r-code-standards"]);
+      const overrides: WorkspaceRepoOverrides = {
+        contentOverrides: {
+          exclude: ["hatch3r-code-standards"],
+        },
+      };
+      const result = resolveRepoConfig(defaults, overrides, unconditionalIds);
+      expect(result.contentIds.has("hatch3r-code-standards")).toBe(true);
+      expect(result.excludedContent).not.toContain("hatch3r-code-standards");
+    });
+
     it("handles include and exclude together", () => {
       const overrides: WorkspaceRepoOverrides = {
         contentOverrides: {

@@ -29,14 +29,21 @@ export interface ResolvedRepoConfig {
  * - tools: repo overrides replace entirely (not merged)
  * - features: partial merge (repo values override workspace values)
  * - mcp: repo overrides replace entirely
- * - content: workspace base + include - exclude (protected items cannot be excluded)
+ * - content: workspace base + include - exclude (unconditionally-admitted items
+ *   — `protected` OR any `floor:*` tag — cannot be excluded)
  * - models: deep merge (repo agent overrides take precedence)
  * - platform: repo overrides replace
+ *
+ * @param unconditionalIds - IDs of items admitted unconditionally per the
+ *   universal-floor invariant (built via `admitsUnconditionally` in `sync.ts`).
+ *   A per-repo `exclude` entry naming one of these IDs is a no-op (D16-2,
+ *   Cycle 11): the workspace exclude path previously skipped only `protected`
+ *   IDs, letting a per-repo override drop a `floor:*` artifact.
  */
 export function resolveRepoConfig(
   defaults: WorkspaceDefaults,
   overrides?: WorkspaceRepoOverrides,
-  protectedIds?: Set<string>,
+  unconditionalIds?: Set<string>,
 ): ResolvedRepoConfig {
   const tools = overrides?.tools ?? defaults.tools;
   const features = { ...defaults.features, ...(overrides?.features ?? {}) } as Features;
@@ -76,8 +83,12 @@ export function resolveRepoConfig(
 
   if (overrides?.contentOverrides?.exclude) {
     for (const id of overrides.contentOverrides.exclude) {
-      // Protected items cannot be excluded
-      if (protectedIds?.has(id)) continue;
+      // D16-2 (Cycle 11): unconditionally-admitted items (`protected` OR any
+      // `floor:*` tag) cannot be excluded — the universal-floor invariant
+      // outranks a per-repo exclude. Previously only `protected` was honoured
+      // here, so a per-repo override could strip a floor-tagged-unprotected
+      // security or UI/UX artifact.
+      if (unconditionalIds?.has(id)) continue;
       // D14-M7: locked content set by the workspace lead cannot be excluded.
       if (lockedContentSet.has(id)) continue;
       if (contentIds.has(id)) {

@@ -123,8 +123,8 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
   if (await fileExists(agentsMdPath)) {
     try {
       const content = await readFile(agentsMdPath, "utf-8");
-      if (hasManagedBlock(content)) {
-        const userContent = extractCustomContent(content).trim();
+      if (hasManagedBlock(content, agentsMdPath)) {
+        const userContent = extractCustomContent(content, agentsMdPath).trim();
         agentsMdHasUserContent = userContent.length > 0;
       }
     } catch (err) {
@@ -187,8 +187,8 @@ export async function executeClean(
       let stripped = false;
       try {
         const content = await readFile(absPath, "utf-8");
-        if (hasManagedBlock(content)) {
-          const userContent = extractCustomContent(content).trim();
+        if (hasManagedBlock(content, absPath)) {
+          const userContent = extractCustomContent(content, absPath).trim();
           if (userContent.length > 0) {
             await writeFile(absPath, userContent + "\n");
             kept.push(`${f} (user content preserved, managed block stripped)`);
@@ -221,8 +221,8 @@ export async function executeClean(
   if (await fileExists(agentsMdPath)) {
     try {
       const content = await readFile(agentsMdPath, "utf-8");
-      if (hasManagedBlock(content)) {
-        const userContent = extractCustomContent(content).trim();
+      if (hasManagedBlock(content, agentsMdPath)) {
+        const userContent = extractCustomContent(content, agentsMdPath).trim();
         if (userContent.length > 0) {
           await writeFile(agentsMdPath, userContent + "\n");
           kept.push("AGENTS.md (user content preserved, managed block stripped)");
