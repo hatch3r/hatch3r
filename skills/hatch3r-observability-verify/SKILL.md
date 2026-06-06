@@ -89,9 +89,9 @@ No duplication: the agent decides WHEN, this skill defines HOW. The agent body c
 
 Applies only when the feature calls an LLM or runs an agent:
 
-- GenAI semconv span on every LLM call carrying `gen_ai.system`, `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`. Cache-hit flag emitted as a span attribute when the provider returns one.
-- Tools invoked by the agent emit `tool.{name}.execute` spans per `rules/hatch3r-observability-tracing.md` § "AI Agent Instrumentation". Each tool span carries `tool.name`, `tool.input_hash`, `tool.output_status`, `tool.duration_ms`.
-- Cost telemetry per request: a metric counter `gen_ai.tokens_total{direction, model, agent_name}` and a histogram `gen_ai.request_duration_ms`.
+- GenAI semconv span on every LLM call carrying `gen_ai.operation.name`, `gen_ai.provider.name` (renamed from the deprecated `gen_ai.system` in SemConv v1.37.0), `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`. Cache-hit flag emitted as a span attribute when the provider returns one.
+- Tools invoked by the agent emit `execute_tool {gen_ai.tool.name}` spans per `rules/hatch3r-observability-tracing.md` § "AI Agent Instrumentation". Each tool span carries `gen_ai.operation.name`, `gen_ai.tool.name`, plus the `app.tool.input_hash`/`app.tool.output_status`/`app.tool.duration_ms` extras.
+- Cost telemetry per request: the registered GenAI metrics `gen_ai.client.token.usage` (Histogram, attribute `gen_ai.token.type`) and `gen_ai.client.operation.duration` (Histogram).
 - GenAI spans sampled at 50-100% in production — higher than general spans because volume is low and per-call cost is high.
 
 Cross-reference: `rules/hatch3r-ai-evals.md` (Slice 5), OpenLLMetry semantic conventions.

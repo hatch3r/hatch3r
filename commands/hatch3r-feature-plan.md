@@ -449,6 +449,35 @@ Confirm, or tell me what to adjust."
 
 ---
 
+### Step 7.5: Deterministic Plan-Lint (Evaluator gate before write)
+
+Steps 3-4 are the Planner (researchers) and Steps 5-7 are the Generator (spec/ADR/todo drafting). Before any file is written in Step 8, run an Evaluator pass over the drafted plan — the third role of Anthropic's Planner/Generator/Evaluator pattern (the gather-context → take-action → verify-work loop in `agents/shared/quality-charter.md`). The human ASK checkpoints in Steps 4-7 catch judgment-level disagreements; this gate catches structural defects the human eye skips on a long spec. It is rules-based (string/reference assertions over the drafted artifacts), not LLM-as-judge — the `rules-based > visual > LLM-as-judge` hierarchy applies, so each assertion below either passes or names the offending row.
+
+Run all three assertions against the drafted spec (Step 5), ADR(s) (Step 6), and todo entries (Step 7). Each is a binary predicate over text already drafted; none require re-invoking a sub-agent.
+
+| # | Assertion | Pass condition | Fail action |
+|---|-----------|----------------|-------------|
+| L1 | **Acceptance criteria are testable predicates.** Every cell in the Sub-Features `Acceptance Criteria` column (Step 5) and every acceptance-criteria summary in a todo entry (Step 7) states an observable subject plus a verifiable condition. | No criterion is a bare adjective or unfalsifiable phrase (`works`, `is fast`, `handles errors`, `looks good`, `as expected`) with no measurable subject + condition. A criterion phrased as a checklist item with a concrete trigger and outcome passes. | List each non-testable criterion by sub-feature title; rewrite it as `given <state>, when <action>, then <observable outcome>` (or a measurable threshold) before proceeding. |
+| L2 | **Every `Depends On` resolves to a listed prerequisite.** Each entry in the spec Dependencies table `Depends On` column (Step 5) and each "depends on N" reference in the Implementation Order maps to either another sub-feature/sub-task listed in this spec, an entry in the same Dependencies table, or a named existing artifact marked `Status: Exists`. | Zero dangling dependencies — no `Depends On` value that names nothing in the spec and is not flagged `Needs building` or `Exists`. | Name each unresolved dependency and its source row; add the missing prerequisite to the Dependencies table (with `Type` + `Status`) or correct the reference before proceeding. |
+| L3 | **Edge Cases carry zero empty `expected behavior`.** Every row in the spec `## Edge Cases` section (Step 5) and every row of an Edge-Case Ledger carried from `hatch3r-architect` / `agents/hatch3r-edge-case-analyst.md` has a non-empty `expected behavior` value. | No edge case is listed with a blank, `{expected behavior}` placeholder, or `TBD`/`TODO` expected-behavior cell. | List each edge case with a missing `expected behavior`; fill it from the risk-assessment researcher output, or move the row to `Out of Scope` with a one-line justification before proceeding. |
+
+Emit the lint verdict with the spec-readiness confidence rating per the Confidence Propagation Contract:
+
+```
+plan_lint:
+  L1_testable_acceptance_criteria: pass | fail (<N> non-testable: <titles>)
+  L2_dependencies_resolve:         pass | fail (<N> dangling: <names>)
+  L3_edge_cases_have_expected:     pass | fail (<N> empty: <ids>)
+  verdict: pass | fail
+  confidence: high | medium | low   # sourced from upstream researcher confidence per the Confidence Propagation Contract
+```
+
+**On `fail`:** do not advance to Step 8. Apply the per-assertion Fail action above to repair the drafted content in place, re-present the corrected rows under the relevant Step 5-7 ASK, then re-run this gate. A failing plan-lint is never written to disk — the gate is the last checkpoint before mutation, so structural defects cannot reach the implementer.
+
+**On `pass`:** proceed to Step 8.
+
+---
+
 ### Step 8: Write All Files
 
 After all content is confirmed:
@@ -503,7 +532,7 @@ For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn
 [hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
 ```
 
-Phase mapping for feature-plan: `1` = feature intake + scope decomposition, `2` = researcher/spec sub-agent dispatch, `3` = plan synthesis + acceptance-criteria drafting, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+Phase mapping for feature-plan: `1` = feature intake + scope decomposition, `2` = researcher/spec sub-agent dispatch, `3` = plan synthesis + acceptance-criteria drafting + Step 7.5 deterministic plan-lint (Evaluator gate), `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
@@ -561,6 +590,12 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ---
 
+## References
+
+- Anthropic. "Building agents with the Claude Agent SDK." `https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk` (accessed 2026-06-06, Anthropic engineering, official-vendor). Source for the Planner/Generator/Evaluator decomposition and the gather-context → take-action → verify-work loop behind Step 7.5: the Evaluator role evaluates the drafted plan before execution, and the `rules-based > visual > LLM-as-judge` hierarchy is why the Step 7.5 plan-lint is binary string/reference assertions rather than an LLM critique.
+
+---
+
 ## Error Handling
 
 - **Sub-agent failure:** Retry the failed sub-agent once. If it fails again, present partial results from the remaining sub-agents and ask the user how to proceed (continue without that researcher's input / provide the missing information manually / abort).
@@ -574,6 +609,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 - **Never skip ASK checkpoints.** Every step with an ASK must pause for user confirmation.
 - **Never write files without user review and confirmation.** All generated content is presented first.
+- **Never write files on a failing Step 7.5 plan-lint.** The Evaluator gate (acceptance criteria testable, dependencies resolve, edge cases carry expected behavior) must report `verdict: pass` before Step 8 — repair the drafted content and re-run the gate; a failing plan never reaches the implementer.
 - **Always delegate research to the hatch3r-researcher agent protocol.** Researcher sub-agents handle Context7 MCP, web research, and the tooling hierarchy internally.
 - **Stay within the feature scope** defined by the user in Step 1. Do not invent sub-features the user did not describe or imply. Flag scope expansion opportunities but do not act on them without explicit approval.
 - **todo.md must be compatible with board-fill format** — markdown checklist with bold titles, grouped by priority, referencing source specs.

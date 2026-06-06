@@ -30,7 +30,7 @@ Distributed tracing, OpenTelemetry semantic conventions, AI agent instrumentatio
 
 ## OpenTelemetry Semantic Conventions
 
-Follow the [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/) (v1.29+) for consistent attribute naming across all telemetry signals.
+Follow the [OpenTelemetry Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/) (v1.37.0+) for consistent attribute naming across all telemetry signals.
 
 ### Standard Attribute Namespaces
 
@@ -80,43 +80,46 @@ Every telemetry-producing service must declare resource attributes at startup:
 
 ## AI Agent Instrumentation
 
-Follow the [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) for AI/LLM agent instrumentation.
+Follow the [OpenTelemetry GenAI Semantic Conventions](https://opentelemetry.io/docs/specs/semconv/gen-ai/) for AI/LLM agent instrumentation. The GenAI conventions are Development status — gate any opt-in alias emission on `OTEL_SEMCONV_STABILITY_OPT_IN` and re-check the spec each P3 currency cycle.
 
 ### GenAI Span Attributes
 
 Use these attributes on all spans representing interactions with generative AI models:
 
-| Attribute | Type | Description | Example |
-|-----------|------|-------------|---------|
-| `gen_ai.system` | string | GenAI provider system name | `openai`, `anthropic`, `azure_openai` |
-| `gen_ai.request.model` | string | Model name as specified in the request | `gpt-4o`, `claude-sonnet-4-20250514` |
-| `gen_ai.response.model` | string | Model name as returned in the response | `gpt-4o-2024-08-06` |
-| `gen_ai.request.max_tokens` | int | Maximum tokens requested for generation | `4096` |
-| `gen_ai.request.temperature` | float | Temperature parameter | `0.7` |
-| `gen_ai.response.finish_reasons` | string[] | Reasons the model stopped generating | `["stop"]`, `["length"]` |
-| `gen_ai.usage.input_tokens` | int | Tokens in the input/prompt | `1250` |
-| `gen_ai.usage.output_tokens` | int | Tokens in the generated output | `530` |
+| Attribute | Type | Requirement | Description | Example |
+|-----------|------|-------------|-------------|---------|
+| `gen_ai.operation.name` | string | Required | Operation kind: `chat`, `generate_content`, `embeddings`, `create_agent`, `invoke_agent`, `execute_tool` | `chat`, `invoke_agent` |
+| `gen_ai.provider.name` | string | Required | GenAI provider name | `openai`, `anthropic`, `azure.ai.openai` |
+| `gen_ai.request.model` | string | Required | Model name as specified in the request | `gpt-4o`, `claude-sonnet-4-20250514` |
+| `gen_ai.response.model` | string | Recommended | Model name as returned in the response | `gpt-4o-2024-08-06` |
+| `gen_ai.request.max_tokens` | int | Recommended | Maximum tokens requested for generation | `4096` |
+| `gen_ai.request.temperature` | float | Recommended | Temperature parameter | `0.7` |
+| `gen_ai.response.finish_reasons` | string[] | Recommended | Reasons the model stopped generating | `["stop"]`, `["length"]` |
+| `gen_ai.usage.input_tokens` | int | Recommended | Tokens in the input/prompt | `1250` |
+| `gen_ai.usage.output_tokens` | int | Recommended | Tokens in the generated output | `530` |
 
-- Always set `gen_ai.system` and `gen_ai.request.model` on every GenAI span.
-- Record `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens` from the API response for cost dashboards.
+- Always set `gen_ai.operation.name`, `gen_ai.provider.name`, and `gen_ai.request.model` on every GenAI span.
+- Record `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens` from the API response for cost dashboards. `gen_ai.operation.name` + `gen_ai.provider.name` are the required label pair on GenAI metrics (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`).
 - Use `gen_ai.response.finish_reasons` to detect truncated outputs (`length`) and trigger re-prompting.
+- **Migration (SemConv v1.37.0, 2025-07-05):** `gen_ai.system` is renamed to `gen_ai.provider.name`; emit the new key. Instrumentations bridging older collectors may dual-emit the legacy `gen_ai.system` alias only under `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`.
 
 ### Agent Invocation Spans
 
 Instrument the full lifecycle of an agent invocation with a dedicated span. This span is the parent for all LLM calls, tool executions, and sub-agent delegations.
 
-- **Span name pattern:** `agent.{agent_name}.invoke`
-- **Required attributes:** `agent.id`, `agent.name`, `agent.parent_id`, `agent.task`, `agent.framework`
+- **Span name pattern:** `invoke_agent {gen_ai.agent.name}` (OTel GenAI agent span naming).
+- **Required attributes:** `gen_ai.operation.name` = `invoke_agent`, `gen_ai.agent.id`, `gen_ai.agent.name`. Use `create_agent` for the agent-construction span.
+- **Project-namespaced extras:** `app.agent.parent_id`, `app.agent.task` carry hatch3r-specific context the GenAI namespace does not define (prefix custom attributes per the Attribute Naming Guidelines above).
 - **Span events for state transitions:** `agent.planning`, `agent.tool_selection`, `agent.awaiting_human`, `agent.delegating`, `agent.completed`, `agent.error`
 
 ```typescript
-const agentSpan = tracer.startSpan('agent.code_reviewer.invoke', {
+const agentSpan = tracer.startSpan('invoke_agent code_reviewer', {
   attributes: {
-    'agent.id': invocationId,
-    'agent.name': 'code_reviewer',
-    'agent.parent_id': parentAgentId ?? '',
-    'agent.task': `review PR #${prNumber}`,
-    'agent.framework': 'custom',
+    'gen_ai.operation.name': 'invoke_agent',
+    'gen_ai.agent.id': invocationId,
+    'gen_ai.agent.name': 'code_reviewer',
+    'app.agent.parent_id': parentAgentId ?? '',
+    'app.agent.task': `review PR #${prNumber}`,
   },
 });
 agentSpan.addEvent('agent.planning');
@@ -129,26 +132,32 @@ agentSpan.end();
 
 Every tool invocation by an agent creates a child span of the agent invocation span.
 
-- **Span name pattern:** `tool.{tool_name}.execute`
-- **Required attributes:** `tool.name`, `tool.input_hash` (SHA-256), `tool.output_status`, `tool.duration_ms`, `tool.parameters_count`
-- Tool spans must be children of the invoking agent span. Set span status to `ERROR` when `tool.output_status` is `error` or `timeout`.
+- **Span name pattern:** `execute_tool {gen_ai.tool.name}` (OTel GenAI tool span naming).
+- **Required attributes:** `gen_ai.operation.name` = `execute_tool`, `gen_ai.tool.name`.
+- **Project-namespaced extras:** `app.tool.input_hash` (SHA-256), `app.tool.output_status`, `app.tool.duration_ms`, `app.tool.parameters_count` — hatch3r audit-trail fields the GenAI namespace does not define.
+- Tool spans must be children of the invoking agent span. Set span status to `ERROR` when `app.tool.output_status` is `error` or `timeout`.
 - For tools performing I/O, create nested child spans using appropriate semantic conventions (`http.*`, `db.*`).
 
 ```typescript
 const toolSpan = tracer.startSpan(
-  'tool.git_diff.execute',
-  { attributes: { 'tool.name': 'git_diff' } },
+  'execute_tool git_diff',
+  {
+    attributes: {
+      'gen_ai.operation.name': 'execute_tool',
+      'gen_ai.tool.name': 'git_diff',
+    },
+  },
   trace.setSpan(context.active(), agentSpan),
 );
 try {
   const result = await tools.gitDiff(params);
   toolSpan.setAttributes({
-    'tool.output_status': 'success',
-    'tool.duration_ms': performance.now() - startTime,
-    'tool.input_hash': hashInput(params),
+    'app.tool.output_status': 'success',
+    'app.tool.duration_ms': performance.now() - startTime,
+    'app.tool.input_hash': hashInput(params),
   });
 } catch (err) {
-  toolSpan.setAttributes({ 'tool.output_status': 'error' });
+  toolSpan.setAttributes({ 'app.tool.output_status': 'error' });
   toolSpan.setStatus({ code: SpanStatusCode.ERROR, message: err.message });
   toolSpan.recordException(err);
   throw err;
@@ -159,8 +168,8 @@ try {
 
 ### LLM Request/Response Tracing
 
-- **Span name pattern:** `gen_ai.{operation}` (e.g., `gen_ai.chat`, `gen_ai.completion`)
-- **Token tracking:** Capture `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`. Aggregate in metrics: Counter `gen_ai.tokens_total` with labels `{direction, model, agent_name}`, Histogram `gen_ai.request_duration_ms`.
+- **Span name pattern:** `{gen_ai.operation.name} {gen_ai.request.model}` (e.g., `chat gpt-4o`, `generate_content claude-sonnet-4-20250514`)
+- **Token tracking:** Capture `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens`. Aggregate in the registered GenAI metrics: Histogram `gen_ai.client.token.usage` (attribute `gen_ai.token.type` = `input`/`output`), Histogram `gen_ai.client.operation.duration`.
 - **Model version tracking:** Record both `gen_ai.request.model` and `gen_ai.response.model` for drift detection.
 - **Retry spans:** Each retry attempt is a separate child span. Set `gen_ai.request.retries` on the final span. Record `http.response.status_code` on failed spans (429 vs 500+).
 - Never log raw prompt content or full model responses as span attributes. Use token counts for cost tracking and correlated logs for prompt debugging in non-production environments.
@@ -168,7 +177,7 @@ try {
 
 ### Tool Call Audit Trail
 
-Maintain a structured audit log for every tool invocation in agentic workflows, separate from tracing spans.
+Maintain a structured audit log for every tool invocation in agentic workflows, separate from tracing spans. These are hatch3r log-schema field names (not OTel span attributes); on the tool span itself, emit the OTel GenAI keys (`gen_ai.tool.name`, `gen_ai.operation.name`) plus the `app.tool.*` extras from "Tool Call Spans" above.
 
 | Field | Type | Description |
 |-------|------|-------------|
