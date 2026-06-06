@@ -712,20 +712,123 @@ export interface UsdCostEstimate {
   warningMessage?: string;
 }
 
-/** Default cost per 1M input tokens in USD. */
+/**
+ * Default cost per 1M input tokens in USD.
+ *
+ * BIAS WARNING (D6-18): this default is the **Sonnet** input rate ($3/1M). It
+ * is NOT model-agnostic — an Opus run costs $5/1M input and is undercosted by
+ * ~67% (5/3) when this default is used, and a Haiku run ($1/1M) is overcosted
+ * by 3×. Callers that know the target model MUST resolve the rate from
+ * {@link MODEL_RATES} via {@link resolveModelRate} (or pass `inputCostPer1M`
+ * explicitly) rather than relying on this default. The constant is retained at
+ * the Sonnet rate only to preserve the historical `observability.estimateCost`
+ * public API contract (F3.4-F2).
+ */
 export const DEFAULT_INPUT_COST_PER_1M = 3.0;
 
-/** Default cost per 1M output tokens in USD. */
+/**
+ * Default cost per 1M output tokens in USD.
+ *
+ * BIAS WARNING (D6-18): this default is the **Sonnet** output rate ($15/1M).
+ * See {@link DEFAULT_INPUT_COST_PER_1M} — resolve from {@link MODEL_RATES} when
+ * the model is known. Opus output is $25/1M (undercosted ~40% at this default);
+ * Haiku output is $5/1M (overcosted 3×).
+ */
 export const DEFAULT_OUTPUT_COST_PER_1M = 15.0;
+
+/**
+ * Cache-read multiplier for prompt-cached input tokens (D6-19). Anthropic bills
+ * `cache_read_input_tokens` at ~0.1× the model's base input rate. The framework
+ * ships a large static prompt frame to every sub-agent specifically so it is
+ * cache-eligible (CONSTITUTION §2 P7 static-first prompt frame), so a run with a
+ * high cache-hit ratio costs far less on input than the uncached figure implies
+ * — counting cached input at full rate overstates cost by up to ~90%.
+ *
+ * Source: Anthropic prompt-caching pricing — cache reads cost ~0.1× base input
+ * (https://platform.claude.com/docs/en/build-with-claude/prompt-caching,
+ * accessed 2026-06-06).
+ */
+export const CACHE_READ_MULTIPLIER = 0.1;
+
+/**
+ * Per-1M-token USD rates for a named Claude model (D6-18). `accessed` records
+ * when the row was last verified against the vendor's published pricing so a
+ * currency gate can flag stale rows.
+ */
+export interface ModelRate {
+  /** USD per 1M input tokens. */
+  inputCostPer1M: number;
+  /** USD per 1M output tokens. */
+  outputCostPer1M: number;
+  /** ISO-8601 date (YYYY-MM-DD) the rate row was last verified. */
+  accessed: string;
+}
+
+/**
+ * Versioned named-model rate map (D6-18, shared with D6-6's cost-tracking
+ * skill). Keys are the canonical model ids; tier aliases (`opus`/`sonnet`/
+ * `haiku`) resolve to the current model in each tier via {@link resolveModelRate}.
+ *
+ * Source: Anthropic published pricing (https://www.anthropic.com/pricing,
+ * accessed 2026-06-06). Re-fetch and update `accessed` before a release when any
+ * row is older than 30 days — rates drift between model releases.
+ */
+export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {
+  "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
+  "claude-opus-4-7": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
+  "claude-opus-4-6": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
+  "claude-sonnet-4-6": { inputCostPer1M: 3.0, outputCostPer1M: 15.0, accessed: "2026-06-06" },
+  "claude-haiku-4-5": { inputCostPer1M: 1.0, outputCostPer1M: 5.0, accessed: "2026-06-06" },
+} as const;
+
+/**
+ * Tier-alias → canonical-model-id map for {@link resolveModelRate}. Each alias
+ * points at the current default model in that tier; bump these when a new model
+ * version ships. Kept separate from {@link MODEL_RATES} so the rate map stays a
+ * pure id→rate table.
+ */
+const TIER_ALIASES: Readonly<Record<string, keyof typeof MODEL_RATES>> = {
+  opus: "claude-opus-4-8",
+  sonnet: "claude-sonnet-4-6",
+  haiku: "claude-haiku-4-5",
+} as const;
+
+/**
+ * Resolve a model selector to its {@link ModelRate} (D6-18). Accepts a tier
+ * alias (`opus`/`sonnet`/`haiku`, case-insensitive) or an exact model id from
+ * {@link MODEL_RATES}. Returns `null` for an unknown selector so the caller can
+ * surface an actionable error listing the valid selectors.
+ *
+ * Pure function — no I/O, never throws.
+ */
+export function resolveModelRate(selector: string): ModelRate | null {
+  const key = selector.trim().toLowerCase();
+  const aliased = TIER_ALIASES[key];
+  if (aliased) return MODEL_RATES[aliased];
+  return MODEL_RATES[key] ?? null;
+}
 
 /**
  * Convert a token summary to a USD cost estimate using configurable per-1M
  * rates, optionally flagging budget-threshold breaches. Pure function — no
  * I/O, never throws.
  *
- * Behaviour is identical to the former `observability.estimateCost`: input and
- * output costs are `tokens * rate / 1_000_000`; when `budgetLimit` is supplied
- * the highest crossed threshold (default 0.5/0.75/0.9) sets `budgetWarning`.
+ * Behaviour matches the former `observability.estimateCost` for the uncached
+ * case: input and output costs are `tokens * rate / 1_000_000`; when
+ * `budgetLimit` is supplied the highest crossed threshold (default
+ * 0.5/0.75/0.9) sets `budgetWarning`.
+ *
+ * RATE DEFAULTS ARE SONNET-BIASED (D6-18): when `inputCostPer1M` /
+ * `outputCostPer1M` are omitted the Sonnet rates ($3/$15) apply — see
+ * {@link DEFAULT_INPUT_COST_PER_1M}. Pass rates resolved from
+ * {@link resolveModelRate} to cost a specific model correctly.
+ *
+ * CACHE-AWARE INPUT BILLING (D6-19): `cacheHitRatio` (0–1, default 0) is the
+ * fraction of input tokens served from the prompt cache. Input cost becomes
+ * `inputTokens·(1−r)·rate + inputTokens·r·rate·CACHE_READ_MULTIPLIER`, i.e. the
+ * cached fraction bills at 0.1× the base input rate. Output tokens are never
+ * cache-discounted. The ratio is clamped to [0, 1]; a non-finite ratio is
+ * treated as 0 (no caching).
  */
 export function estimateUsdCost(
   summary: PipelineTokenSummary,
@@ -735,13 +838,25 @@ export function estimateUsdCost(
     currency?: string;
     budgetLimit?: number;
     warningThresholds?: number[];
+    cacheHitRatio?: number;
   },
 ): UsdCostEstimate {
   const inputRate = (options?.inputCostPer1M ?? DEFAULT_INPUT_COST_PER_1M) / 1_000_000;
   const outputRate = (options?.outputCostPer1M ?? DEFAULT_OUTPUT_COST_PER_1M) / 1_000_000;
   const currency = options?.currency ?? "USD";
 
-  const inputCost = summary.totalInputTokens * inputRate;
+  // Clamp the cache-hit ratio to [0, 1]; a non-finite value disables caching.
+  const rawRatio = options?.cacheHitRatio;
+  const cacheHitRatio =
+    typeof rawRatio === "number" && Number.isFinite(rawRatio)
+      ? Math.min(1, Math.max(0, rawRatio))
+      : 0;
+
+  // Cached input tokens bill at CACHE_READ_MULTIPLIER × base; uncached at full.
+  const cachedInput = summary.totalInputTokens * cacheHitRatio;
+  const uncachedInput = summary.totalInputTokens - cachedInput;
+  const inputCost =
+    uncachedInput * inputRate + cachedInput * inputRate * CACHE_READ_MULTIPLIER;
   const outputCost = summary.totalOutputTokens * outputRate;
   const totalCost = inputCost + outputCost;
 

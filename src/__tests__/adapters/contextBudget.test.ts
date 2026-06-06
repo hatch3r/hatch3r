@@ -51,9 +51,14 @@ describe("CONTEXT_BUDGET_TOKENS", () => {
   });
 
   it("has expected values for key platforms", () => {
+    // D6-14 (Cycle 11 Wave 3): re-verified against current vendor docs
+    // (accessed 2026-06-06). claude held at the 200K conservative cross-model
+    // floor (flagship models reach 1M GA); cursor 120K (Normal-Mode range);
+    // copilot raised 64K -> 128K (the stale 64K floor; 128K standard tier now,
+    // 1M window announced 2026-06-04).
     expect(CONTEXT_BUDGET_TOKENS.claude).toBe(200_000);
     expect(CONTEXT_BUDGET_TOKENS.cursor).toBe(120_000);
-    expect(CONTEXT_BUDGET_TOKENS.copilot).toBe(64_000);
+    expect(CONTEXT_BUDGET_TOKENS.copilot).toBe(128_000);
   });
 });
 
@@ -134,11 +139,11 @@ describe("checkContextBudget", () => {
   });
 
   it("reports over budget when the always-loaded slice exceeds the context window", () => {
-    // ~300K chars in the always-loaded copilot instructions -> 75K tokens > 64K
-    const result = checkContextBudget("copilot", [copilotAlways("x".repeat(300_000))]);
+    // ~600K chars in the always-loaded copilot instructions -> 150K tokens > 128K
+    const result = checkContextBudget("copilot", [copilotAlways("x".repeat(600_000))]);
     expect(result.exceedsBudget).toBe(true);
-    expect(result.estimatedTokens).toBe(75_000);
-    expect(result.budgetTokens).toBe(64_000);
+    expect(result.estimatedTokens).toBe(150_000);
+    expect(result.budgetTokens).toBe(128_000);
     expect(result.utilizationPercent).toBeGreaterThan(100);
   });
 
@@ -183,15 +188,15 @@ describe("checkContextBudget", () => {
   });
 
   it("reports exact boundary correctly", () => {
-    // Exactly at budget: 64K tokens = 256K chars in the copilot always-loaded file
-    const result = checkContextBudget("copilot", [copilotAlways("x".repeat(256_000))]);
-    expect(result.estimatedTokens).toBe(64_000);
+    // Exactly at budget: 128K tokens = 512K chars in the copilot always-loaded file
+    const result = checkContextBudget("copilot", [copilotAlways("x".repeat(512_000))]);
+    expect(result.estimatedTokens).toBe(128_000);
     expect(result.exceedsBudget).toBe(false);
     expect(result.utilizationPercent).toBe(100);
   });
 
   it("reports one char over budget as exceeding", () => {
-    const result = checkContextBudget("copilot", [copilotAlways("x".repeat(256_001))]);
+    const result = checkContextBudget("copilot", [copilotAlways("x".repeat(512_001))]);
     expect(result.exceedsBudget).toBe(true);
   });
 
@@ -222,7 +227,7 @@ describe("checkContextBudget", () => {
       expect(result.utilizationPercent).toBeLessThan(100);
     });
 
-    it("copilot is under its 64K budget for a realistic always-loaded slice", () => {
+    it("copilot is under its 128K budget for a realistic always-loaded slice", () => {
       const result = checkContextBudget("copilot", [
         copilotAlways(instructions),
         // lazy-loaded path-scoped instructions + agents — excluded from the gate

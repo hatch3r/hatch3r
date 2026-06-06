@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 6,
     "githubAgents": 4,
-    "testFiles": 216
+    "testFiles": 218
   },
   "files": {
     "adapters": [
@@ -139,6 +139,7 @@
       "hatch3r-container-hardening.md",
       "hatch3r-contract-testing.md",
       "hatch3r-cost-visibility.md",
+      "hatch3r-cq-rule-frame.md",
       "hatch3r-data-classification.md",
       "hatch3r-deep-context.md",
       "hatch3r-dependency-management.md",
@@ -155,7 +156,6 @@
       "hatch3r-handoff-readiness.md",
       "hatch3r-i18n.md",
       "hatch3r-iteration-summary.md",
-      "hatch3r-learning-consult.md",
       "hatch3r-learning-system.md",
       "hatch3r-maintainability.md",
       "hatch3r-migrations.md",
@@ -207,6 +207,7 @@
       "hatch3r-container-hardening.mdc",
       "hatch3r-contract-testing.mdc",
       "hatch3r-cost-visibility.mdc",
+      "hatch3r-cq-rule-frame.mdc",
       "hatch3r-data-classification.mdc",
       "hatch3r-deep-context.mdc",
       "hatch3r-dependency-management.mdc",
@@ -223,7 +224,6 @@
       "hatch3r-handoff-readiness.mdc",
       "hatch3r-i18n.mdc",
       "hatch3r-iteration-summary.mdc",
-      "hatch3r-learning-consult.mdc",
       "hatch3r-learning-system.mdc",
       "hatch3r-maintainability.mdc",
       "hatch3r-migrations.mdc",
@@ -429,6 +429,8 @@
       "scripts/__tests__/validate-lean-threshold-currency.test.ts",
       "scripts/__tests__/validate-modes-parity.test.ts",
       "scripts/__tests__/validate-pillar-currency.test.ts",
+      "scripts/__tests__/validate-pricing-currency.test.ts",
+      "scripts/__tests__/validate-references-currency.test.ts",
       "scripts/__tests__/validate-repo-token-adoption.test.ts",
       "scripts/__tests__/validate-retired-agent-refs.test.ts",
       "scripts/__tests__/validate-rule-pillar-currency.test.ts",

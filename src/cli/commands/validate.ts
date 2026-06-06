@@ -1773,27 +1773,31 @@ export function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
  * closes F24.4-D13-8: `clarification-default-block.md` explicitly FORBIDS
  * inlining the protocol body, so the 15 agents that satisfy B1 through it must
  * not be flagged for "not referencing user-question-protocol" — that made the
- * §2 P5 "100%" B1 invariant false against its own check. The matchers are
- * deliberately broad so authors can phrase the heading naturally (e.g. "§0 —
- * Ambiguity & Safety Gate", "Step 0 — Ambiguity gate").
+ * §2 P5 "100%" B1 invariant false against its own check. Every `hasMarker`
+ * disjunct is heading-anchored (D5-36): the trigger phrase must lead a markdown
+ * heading, so an inline blockquote or body sentence no longer counts as a gate.
+ * Heading phrasing itself stays flexible (e.g. "## §0 — Ambiguity & Safety
+ * Gate", "## Step 0 — Ambiguity gate", "## Step 0 — Detect Ambiguity (P8 B1)").
  */
 export function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProtocol: boolean } {
+  // D5-36 (Cycle 11 Wave 3, D5 Medium): every marker disjunct is now anchored
+  // to a markdown heading line. Previously only the §0 disjunct (D13-26) was
+  // heading-anchored; the three Step-0/ambiguity disjuncts matched bare prose
+  // anywhere in the body, so an inline blockquote — e.g. `> **Ambiguity
+  // detection (P8 B1):** ...` in skills/hatch3r-feature/SKILL.md:40 — registered
+  // hasMarker===true without a real §0/Step-0 section. That let a skill ship the
+  // gate-coverage floor as a sentence instead of a structured gate, while the
+  // §2 P5 "Ambiguity-detection gate coverage" row demands a real block.
+  // `HEADING` matches an ATX heading start (`#`..`####`, up to 3 leading
+  // spaces); each disjunct requires its trigger phrase to appear on that same
+  // heading line, so only a genuine gate section satisfies the marker. The
+  // `(?!\.\d)` lookahead on the §0 disjunct still rejects a `§0.5` subsection.
+  const HEADING = String.raw`^\s{0,3}#{1,4}\s*`;
   const hasMarker =
-    // D13-26 (SA13.5-F4): anchor the §0 marker to a heading. The previous bare
-    // `/§0/.test(body)` matched `§0.5` (a real cross-reference in
-    // user-question-protocol.md) or `§0` in unrelated prose, so a body that
-    // merely *mentioned* §0 falsely registered hasMarker===true — downgrading
-    // the missing-gate ERROR to a missing-protocol WARNING. Require the marker
-    // to lead a markdown heading (`## §0 ...`, up to 3 leading spaces, optional
-    // space between § and 0) so only a real gate section satisfies it. The
-    // remaining disjuncts (Step 0 ambiguity prose, ambiguity-gate phrasing) are
-    // unchanged so authors who phrase the heading without the § glyph still pass.
-    // The `(?!\.\d)` negative lookahead rejects a `§0.5`-style subsection
-    // heading so only the top-level §0 gate satisfies the marker.
-    /^\s{0,3}#{1,4}\s*§\s*0\b(?!\.\d)/m.test(body) ||
-    /step\s*0\b[^\n]*ambig/i.test(body) ||
-    /\bambiguity[- ](detection|gate|&)/i.test(body) ||
-    /\bambiguity\b[^\n]*\bgate\b/i.test(body);
+    new RegExp(HEADING + String.raw`§\s*0\b(?!\.\d)`, "m").test(body) ||
+    new RegExp(HEADING + String.raw`[^\n]*\bstep\s*0\b[^\n]*ambig`, "im").test(body) ||
+    new RegExp(HEADING + String.raw`[^\n]*\bambiguity[- ](detection|gate|&)`, "im").test(body) ||
+    new RegExp(HEADING + String.raw`[^\n]*\bambiguity\b[^\n]*\bgate\b`, "im").test(body);
   const referencesProtocol =
     /user-question-protocol/.test(body) ||
     /clarification-default-block/.test(body) ||

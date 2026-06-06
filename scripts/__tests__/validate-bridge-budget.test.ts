@@ -88,9 +88,13 @@ describe("validate-bridge-budget", () => {
         report.perAdapter[i].utilizationPercent,
       );
     }
-    // Smallest-budget adapters (64K) should land at the top.
+    // The smallest per-adapter budget yields the highest utilization (bridge
+    // tokens are identical across adapters), so it lands at the top of the
+    // descending sort. After D6-14 (copilot 64K → 128K, re-verified against
+    // vendor docs) the smallest budget is cursor at 120K; copilot is no longer
+    // the floor. See src/adapters/contextBudget.ts CONTEXT_BUDGET_TOKENS.
     const top = report.perAdapter[0];
-    expect(top.budgetTokens).toBe(64_000);
+    expect(top.budgetTokens).toBe(120_000);
   });
 
   // ── Dynamic skill table grows the measurement ───────────────────

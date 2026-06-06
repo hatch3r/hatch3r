@@ -22,10 +22,16 @@ vi.mock("node:fs", async (importOriginal) => {
 
 import {
   appendTelemetrySnapshot,
+  CACHE_READ_MULTIPLIER,
   computeDelta,
+  DEFAULT_INPUT_COST_PER_1M,
+  DEFAULT_OUTPUT_COST_PER_1M,
   estimateCost,
+  estimateUsdCost,
   formatCostBlock,
+  MODEL_RATES,
   recordActuals,
+  resolveModelRate,
   TELEMETRY_DIR_RELATIVE,
   TIER_BASELINES,
   VARIANCE_THRESHOLD_PERCENT,
@@ -33,6 +39,7 @@ import {
   type CostEstimate,
   type TriageTier,
 } from "../../pipeline/costEstimator.js";
+import type { PipelineTokenSummary } from "../../pipeline/observability.js";
 
 // ── estimateCost ────────────────────────────────────────────────
 
@@ -427,5 +434,110 @@ describe("formatCostBlock", () => {
     const out = formatCostBlock(estimate, actuals);
     expect(out).toContain("over_variance: false");
     expect(out).not.toContain("flagged_fields:");
+  });
+});
+
+// ── resolveModelRate (D6-18) ─────────────────────────────────────
+
+describe("resolveModelRate", () => {
+  it("resolves tier aliases to a model rate (case-insensitive)", () => {
+    expect(resolveModelRate("opus")).toEqual(MODEL_RATES["claude-opus-4-8"]);
+    expect(resolveModelRate("Sonnet")).toEqual(MODEL_RATES["claude-sonnet-4-6"]);
+    expect(resolveModelRate("  HAIKU  ")).toEqual(MODEL_RATES["claude-haiku-4-5"]);
+  });
+
+  it("resolves exact model ids", () => {
+    expect(resolveModelRate("claude-opus-4-8")).toEqual(MODEL_RATES["claude-opus-4-8"]);
+    expect(resolveModelRate("claude-haiku-4-5")).toEqual(MODEL_RATES["claude-haiku-4-5"]);
+  });
+
+  it("returns null for an unknown selector", () => {
+    expect(resolveModelRate("gpt-4")).toBeNull();
+    expect(resolveModelRate("")).toBeNull();
+  });
+
+  it("prices Opus higher than the Sonnet-biased default (the D6-18 bug)", () => {
+    const opus = resolveModelRate("opus")!;
+    // Opus input is $5/1M vs the $3/1M Sonnet default — ~67% higher.
+    expect(opus.inputCostPer1M).toBe(5.0);
+    expect(opus.inputCostPer1M / DEFAULT_INPUT_COST_PER_1M).toBeCloseTo(5 / 3, 5);
+    expect(opus.outputCostPer1M).toBe(25.0);
+  });
+
+  it("every rate row carries an accessed date", () => {
+    for (const rate of Object.values(MODEL_RATES)) {
+      expect(rate.accessed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+});
+
+// ── estimateUsdCost — model rates + cache discount (D6-18 / D6-19) ─
+
+describe("estimateUsdCost cache + model rates", () => {
+  function summaryOf(input: number, output: number): PipelineTokenSummary {
+    return {
+      phases: [{ phase: "generation", inputTokens: input, outputTokens: output, totalTokens: input + output }],
+      totalInputTokens: input,
+      totalOutputTokens: output,
+      grandTotal: input + output,
+    };
+  }
+
+  it("defaults to the Sonnet-biased rates when no rate is supplied", () => {
+    const cost = estimateUsdCost(summaryOf(1_000_000, 0));
+    expect(cost.inputCost).toBeCloseTo(DEFAULT_INPUT_COST_PER_1M, 6);
+  });
+
+  it("uses a resolved Opus rate to cost input correctly (D6-18)", () => {
+    const opus = resolveModelRate("opus")!;
+    const cost = estimateUsdCost(summaryOf(1_000_000, 1_000_000), {
+      inputCostPer1M: opus.inputCostPer1M,
+      outputCostPer1M: opus.outputCostPer1M,
+    });
+    expect(cost.inputCost).toBeCloseTo(5.0, 6);
+    expect(cost.outputCost).toBeCloseTo(25.0, 6);
+    expect(cost.totalCost).toBeCloseTo(30.0, 6);
+  });
+
+  it("bills cached input at CACHE_READ_MULTIPLIER and leaves output full (D6-19)", () => {
+    // 1M input @ $3/1M, 90% cache hit: 100k uncached @ full + 900k @ 0.1x.
+    const cost = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: 0.9 });
+    const expected = 0.1 * 3.0 + 0.9 * 3.0 * CACHE_READ_MULTIPLIER;
+    expect(cost.inputCost).toBeCloseTo(expected, 6);
+    // 90% hit ≈ a 1 − (0.1 + 0.9·0.1) = 81% reduction vs the uncached figure.
+    expect(cost.inputCost).toBeCloseTo(3.0 * (0.1 + 0.9 * 0.1), 6);
+  });
+
+  it("does not discount output tokens for a cache hit", () => {
+    const uncached = estimateUsdCost(summaryOf(0, 1_000_000));
+    const cached = estimateUsdCost(summaryOf(0, 1_000_000), { cacheHitRatio: 1 });
+    expect(cached.outputCost).toBeCloseTo(uncached.outputCost, 6);
+  });
+
+  it("full cache hit bills input at exactly 0.1x base", () => {
+    const cost = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: 1 });
+    expect(cost.inputCost).toBeCloseTo(3.0 * CACHE_READ_MULTIPLIER, 6);
+  });
+
+  it("clamps an out-of-range or non-finite cacheHitRatio to [0,1]", () => {
+    const over = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: 5 });
+    expect(over.inputCost).toBeCloseTo(3.0 * CACHE_READ_MULTIPLIER, 6); // clamped to 1
+    const under = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: -1 });
+    expect(under.inputCost).toBeCloseTo(3.0, 6); // clamped to 0
+    const nan = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: Number.NaN });
+    expect(nan.inputCost).toBeCloseTo(3.0, 6); // treated as 0
+  });
+
+  it("zero cacheHitRatio matches the no-cache path exactly", () => {
+    const a = estimateUsdCost(summaryOf(500_000, 200_000), { cacheHitRatio: 0 });
+    const b = estimateUsdCost(summaryOf(500_000, 200_000));
+    expect(a.totalCost).toBeCloseTo(b.totalCost, 9);
+  });
+
+  it("keeps DEFAULT_OUTPUT_COST_PER_1M usable as the Sonnet output rate", () => {
+    const cost = estimateUsdCost(summaryOf(0, 1_000_000), {
+      outputCostPer1M: DEFAULT_OUTPUT_COST_PER_1M,
+    });
+    expect(cost.outputCost).toBeCloseTo(15.0, 6);
   });
 });

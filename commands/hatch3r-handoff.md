@@ -28,7 +28,7 @@ The `prepare` subcommand delegates to `hatch3r-handoff-preparer` via the Task to
 
 ## Learnings Consultation
 
-Before starting, scan `.hatch3r/learnings/` for entries tagged `handoff`, `context-switch`, `resume`, or `session-state`. Apply the protocol in `rules/hatch3r-learning-consult.md` (frontmatter-first scan; surface top 5 by confidence). Skip if the directory has fewer than 3 files.
+Before starting, scan `.hatch3r/learnings/` for entries whose `topic`/`applies-to` cover handoff, context-switch, resume, or session-state. Apply the consult procedure in `rules/hatch3r-learning-system.md` → Mandatory Consultation Gate + Consultation Efficiency (INDEX-first scan; surface top 5 by confidence). Skip if the directory has fewer than 3 files.
 
 # Handoff Management — Cross-Session Work Continuity
 

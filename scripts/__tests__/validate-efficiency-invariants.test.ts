@@ -558,8 +558,10 @@ work.
 
   // ── Mode F: orchestrator-contract (F16.1-H1) ────────────────────
 
-  it("Mode F: ERRORs on Cost/Iteration/B1 misses, WARNs on missing Resumability", async () => {
-    // Orchestrator command with NONE of the four contracts present.
+  it("Mode F (D6-27): ERRORs on all four missing contracts including Resumability", async () => {
+    // Orchestrator command with NONE of the four contracts present. Cycle 11
+    // D6-27 promoted Resumability from warning to error (retrofit landed), so
+    // all four are now error-level — 4 errors, 0 warnings.
     await writeArtifact(
       join(fx.commandsDir, "hatch3r-workflow.md"),
       `id: hatch3r-workflow
@@ -588,9 +590,138 @@ Pick a tier.
     expect(findings.some((f) => f.code === "P8-ORCH-B1-MISS" && f.level === "error")).toBe(true);
     const resume = findings.filter((f) => f.code === "P5-ORCH-RESUME-MISS");
     expect(resume).toHaveLength(1);
-    expect(resume[0].level).toBe("warning");
-    expect(errorCount).toBe(3);
-    expect(warningCount).toBeGreaterThanOrEqual(1);
+    expect(resume[0].level).toBe("error");
+    expect(errorCount).toBe(4);
+    expect(warningCount).toBe(0);
+  });
+
+  it("Mode F (D6-27): a bare prose mention of \"resume\" does NOT satisfy the tightened Resumability probe", async () => {
+    // The pre-D6-27 loose regex matched the bare word "resume" anywhere in the
+    // body. The tightened probe requires a real heading (or the
+    // `supports_resume` flag), so incidental prose like "resume work later" no
+    // longer launders the gate — the three other contracts are present so
+    // Resumability is the only miss.
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-workflow.md"),
+      `id: hatch3r-workflow
+type: command
+description: Workflow command
+tags: [workflow]
+orchestrator: true
+agentPipeline: [hatch3r-implementer]
+triage_tiers: [1, 2, 3]`,
+      `# Workflow
+
+## Step 0: Ambiguity Gate (B1)
+
+Resolve ambiguity via user-question-protocol before executing.
+
+## Cost Estimate
+
+Preview token/time cost before delegating.
+
+## Iteration Summary
+
+Emit the standard iteration-summary block at turn end. The operator can
+resume work later from their notes.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const resume = findings.filter((f) => f.code === "P5-ORCH-RESUME-MISS");
+    expect(resume).toHaveLength(1);
+    expect(resume[0].level).toBe("error");
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode F (D6-27): the `supports_resume: true` frontmatter flag satisfies Resumability without a heading", async () => {
+    // A thin router that delegates the checkpointed phase to its sub-agents
+    // (e.g. hatch3r-spec.md) declares the contract in frontmatter — Mode C
+    // parity with `parallel_tool_default`. The other three contracts are
+    // present, so the file passes Mode F entirely with no Resumability heading.
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-spec.md"),
+      `id: hatch3r-spec
+type: command
+description: Spec router
+tags: [spec]
+orchestrator: true
+agentPipeline: [hatch3r-greenfield-spec, hatch3r-brownfield-spec]
+triage_tiers: [1, 2, 3]
+supports_resume: true`,
+      `# Spec
+
+## Step 0: Ambiguity Gate (B1)
+
+Resolve ambiguity via user-question-protocol before executing.
+
+## Cost Estimate
+
+Preview token/time cost before delegating.
+
+## Iteration Summary
+
+Emit the standard iteration-summary block at turn end.
+`,
+    );
+
+    const { findings, errorCount, warningCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code.startsWith("P7-ORCH") || f.code.startsWith("P5-ORCH") || f.code.startsWith("P8-ORCH"))).toHaveLength(0);
+    expect(errorCount).toBe(0);
+    expect(warningCount).toBe(0);
+  });
+
+  it("Mode F (D6-27): the `## Subcommand: resume` dispatcher heading satisfies Resumability", async () => {
+    // The handoff dispatcher's resumability surface is its `resume` subcommand,
+    // not a checkpointed `## Resumability` section. The dedicated
+    // `## Subcommand: resume` heading satisfies the tightened probe.
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-handoff.md"),
+      `id: hatch3r-handoff
+type: command
+description: Handoff dispatcher
+tags: [orchestration]
+orchestrator: true
+agentPipeline: [hatch3r-handoff-preparer]
+triage_tiers: [1, 2]`,
+      `# Handoff
+
+## Step 0: Ambiguity Gate (B1)
+
+Resolve ambiguity via user-question-protocol before executing.
+
+## Cost Estimate
+
+Preview token/time cost before delegating.
+
+## Iteration Summary
+
+Emit the standard iteration-summary block at turn end.
+
+## Subcommand: resume
+
+Re-enter an in-flight handoff from its last recorded state.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P5-ORCH-RESUME-MISS")).toHaveLength(0);
+    expect(errorCount).toBe(0);
   });
 
   it("Mode F: PASSes when all four orchestrator contracts are present", async () => {

@@ -34,12 +34,14 @@
  *   --orch-contract   Orchestrator commands (`orchestrator: true`) carry the
  *                     four 2.0.0 Constitutional contracts: a Cost Estimate
  *                     block, an Iteration Summary reference, a §0 B1
- *                     ambiguity gate, and a Resumability section. The first
- *                     three are error-level (uniformly present); Resumability
- *                     is warning-level pending the per-command retrofit
- *                     (Cycle 10 F16.1-H1 — 19/23 commands still lack it; the
- *                     command retrofit lands in a separate work unit, so a
- *                     hard error here would block on out-of-scope debt).
+ *                     ambiguity gate, and a Resumability section. All four are
+ *                     error-level (Cycle 10 F16.1-H1 for the first three;
+ *                     Cycle 11 D6-27 promoted Resumability once its per-command
+ *                     retrofit landed — every orchestrator now declares it via
+ *                     a Resumability/Subcommand:resume heading or the
+ *                     `supports_resume: true` frontmatter flag; the regex was
+ *                     tightened so an incidental prose "resume" no longer
+ *                     satisfies the contract).
  *   --efficiency-tier Every `orchestrator: true` command and every
  *                     `agents/hatch3r-*.md` agent declares a valid
  *                     `efficiency_tier` (light|standard|deep). Audit Cycle 10
@@ -564,19 +566,40 @@ function checkRuleNarrative(file: ParsedFile): Finding[] {
 //   - §0 B1 ambiguity gate     (P8 clarification-default)
 //   - Resumability section     (mid-flight resume contract)
 //
-// Severity split: the first three are error-level — verified uniformly
-// present across all 23 orchestrator commands, so a missing one is a real
-// regression. Resumability is warning-level: 19/23 commands still lack the
-// section at authoring time and the per-command retrofit is a separate work
-// unit, so emitting an error here would block `npm run validate` on
-// out-of-scope debt. Promote Resumability to error once the retrofit lands.
+// All four are error-level. The first three were verified uniformly present
+// at Cycle 10 authoring time. Resumability was warning-level pending the
+// per-command retrofit (19/23 commands lacked the section then); Cycle 11
+// D6-27 confirmed the retrofit landed (every long-running orchestrator now
+// carries the section: a `## Resumability` heading, or — for the thin
+// subcommand dispatcher `hatch3r-handoff.md` — a first-class `## Subcommand:
+// resume` heading, or the `supports_resume: true` frontmatter flag for a thin
+// router that delegates the checkpointed phase to its sub-agents, e.g.
+// `hatch3r-spec.md`), so the probe is promoted to error. The probe regex is
+// tightened in lockstep: a bare prose mention of the word "resume" no longer
+// satisfies the contract — only an `^##`/`^###` Resumability/Subcommand:resume
+// HEADING in the body, or the affirmative `supports_resume: true` frontmatter
+// flag, counts. (`governance/AUDIT-EXECUTE.md`, fed as an extra orchestrator
+// file, satisfies this via its `### Resumability` h3 heading.)
 
 interface OrchContractProbe {
   readonly label: string;
   readonly re: RegExp;
   readonly level: Severity;
   readonly code: string;
+  /**
+   * Optional frontmatter affirmative-flag escape hatch (Mode C parity with
+   * `parallel_tool_default`). When set and the flag is `=== true`, the probe
+   * is satisfied without a body-regex match — a thin router that delegates the
+   * resumability phase to its sub-agents declares the contract in frontmatter.
+   */
+  readonly affirmativeFlag?: string;
 }
+
+// Resumability is satisfied by a real HEADING, not an incidental prose token:
+// an `^##`/`^###` "Resumability" section (optionally numbered as a Step), or
+// the `## Subcommand: resume` heading used by the handoff dispatcher.
+const RESUME_HEADING_RE =
+  /^#{2,3}\s+(?:Step\s+\d+:?\s+)?Resumab\w*|^##\s+Subcommand:\s+resume\b/im;
 
 const ORCH_CONTRACT_PROBES: readonly OrchContractProbe[] = [
   { label: "Cost Estimate block", level: "error", code: "P7-ORCH-COST-MISS",
@@ -585,14 +608,15 @@ const ORCH_CONTRACT_PROBES: readonly OrchContractProbe[] = [
     re: /Iteration\s+Summary|iteration-summary/i },
   { label: "B1 ambiguity gate", level: "error", code: "P8-ORCH-B1-MISS",
     re: /\bB1\b|ambiguity|user-question-protocol|clarification/i },
-  { label: "Resumability section", level: "warning", code: "P5-ORCH-RESUME-MISS",
-    re: /Resumab\w+|##\s+Resume|\bresume\b/i },
+  { label: "Resumability section", level: "error", code: "P5-ORCH-RESUME-MISS",
+    re: RESUME_HEADING_RE, affirmativeFlag: "supports_resume" },
 ];
 
 function checkOrchContract(file: ParsedFile): Finding[] {
   if (!isOrchestrator(file.frontmatter)) return [];
   const out: Finding[] = [];
   for (const probe of ORCH_CONTRACT_PROBES) {
+    if (probe.affirmativeFlag && file.frontmatter[probe.affirmativeFlag] === true) continue;
     if (!probe.re.test(file.body)) {
       out.push({
         level: probe.level, code: probe.code, file: file.relPath,

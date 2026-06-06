@@ -79,6 +79,7 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 | **scalability-rule** | CQ6 -- stateless-handler ratio, back-pressure adoption, idempotency-key adoption on POST/PUT/PATCH, queue offloading for >1s ops, pool sizing. |
 | **maintainability-rule** | CQ8 -- jscpd duplication index, pattern-reuse ratio, cyclomatic complexity, expand-contract migrations, API breaking-change discipline, ADR presence. |
 | **enhancability-rule** | CQ9 -- feature-flag adoption on user-visible behavior, config externalization, API versioning + deprecation policy, forward-compat, extension points. |
+| **cq-rule-frame** | Shared output frame for the CQ measurement rules -- the per-finding rigor-field schema and the Specialist-Status to canonical-severity map cited by the CQ3/CQ5/CQ6/CQ8/CQ9 rules. |
 | **edge-case-discipline** | Build-time enumeration of domain/data-correctness edge cases (cardinality, null/boundary, cross-entity consistency, illegal transitions, concurrency, partial failure). |
 
 ### Orchestration and process
@@ -101,8 +102,7 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 | Rule | Description |
 |------|-------------|
 | **deep-context** | Adaptive pre-implementation analysis -- complexity scoring, requirements elicitation, similar-implementation discovery, transitive dependency tracing. |
-| **learning-consult** | Consult `.hatch3r/learnings/` for pitfalls, patterns, and past decisions before implementation, with a frontmatter-first scan and priority ordering. |
-| **learning-system** | Project-level learning system -- structured frontmatter, auto-consolidation triggers, and a mandatory consultation gate for Implementer, Reviewer, and Researcher. |
+| **learning-system** | Project-level learning system -- structured frontmatter, auto-consolidation triggers, a mandatory consultation gate for Implementer/Reviewer/Researcher/Fixer, token-efficiency heuristics, and mid-task consult content-security. |
 | **handoff-readiness** | Handoff readiness checklist -- pre-write validation before persisting a canonical handoff document. |
 | **browser-verification** | Playwright browser verification for UI changes -- visual regression, screenshot capture, console checks, and accessibility spot-checks. |
 | **tooling-hierarchy** | Platform MCP-first priority, documentation MCP for library APIs, web research for CVEs, and browser MCP for UI verification. |

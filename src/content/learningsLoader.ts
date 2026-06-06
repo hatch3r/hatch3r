@@ -17,11 +17,14 @@
  *      learnings"; first-run is a clean state).
  *   2. For each candidate, run `validateLearningFileName` + per-file size
  *      cap + `validateLearningContent` against the same denylist used by
- *      the directory-level validator.
- *   3. Files that fail the gates are SKIPPED from the returned set with a
- *      structured `LoaderSkip` entry — never returned as content.
- *   4. Files that pass the gates are returned with body content for the
- *      caller to inline into the tool context output.
+ *      the directory-level validator, then `sanitizeLearningsContent` for the
+ *      poisoned-content disposition (D15-17).
+ *   3. Files that fail structural validation OR carry a broad deny-pattern hit
+ *      are SKIPPED from the returned set with a structured `LoaderSkip` entry
+ *      (fail-closed) — never returned as content.
+ *   4. Files that pass are returned for the caller to inline; a file with only
+ *      a P-LEARN structural hit is returned with the `[BLOCKED]`-substituted
+ *      body so the user's legitimate learning text survives.
  *   5. Every skip is mirrored to:
  *        a. The Silent Failure Contract failure-log
  *           (`<rootDir>/.hatch3r/.failure-log.jsonl`) — never silent.
@@ -42,6 +45,7 @@ import { readFile, readdir } from "node:fs/promises";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import {
+  sanitizeLearningsContent,
   validateLearningContent,
   validateLearningFileName,
 } from "./learningsValidation.js";
@@ -58,7 +62,12 @@ export interface LoadedLearning {
   fileName: string;
   /** Absolute path on disk; useful for diagnostics. */
   absolutePath: string;
-  /** Raw file content (validated, not sanitised — caller chooses). */
+  /**
+   * File content after the loader-time disposition (D15-17): identical to the
+   * raw bytes when nothing fired, or the `[BLOCKED]`-substituted variant when
+   * a P-LEARN structural pattern matched. Files with a broad deny-pattern hit
+   * never reach `loaded` — they are SKIPPED fail-closed.
+   */
   content: string;
   /** Byte length of `content` (utf-8). */
   byteLength: number;
@@ -164,7 +173,7 @@ export async function loadValidatedLearnings(
       continue;
     }
 
-    // Gate 2: per-file content (empty, binary, oversized, denied patterns).
+    // Gate 2: per-file structural content (empty, binary, oversized).
     const validation = validateLearningContent(content, fileName);
     if (!validation.valid) {
       reasons.push(...validation.errors);
@@ -172,18 +181,43 @@ export async function loadValidatedLearnings(
       announceSkip(rootDir, source, fileName, reasons, onWarn);
       continue;
     }
-    // Denied-pattern warnings are advisory only — surface them through the
-    // onWarn channel so the caller can quote them in a quarantine notice,
-    // but keep the file loaded so the user's learnings stay readable.
-    for (const w of validation.warnings) {
-      onWarn(`learnings-loader: ${w}`);
+
+    // Gate 3 (D15-17): poisoned-content disposition. The directory-level
+    // pre-flight in `sync` BLOCKS the whole run on an injection hit; this
+    // per-file loader runs even under `--force`, so it must neutralise rather
+    // than abort. Run the sanitizer and apply the two-class policy documented
+    // in `LearningsSanitizationResult` / `agents/shared/injection-patterns.md`:
+    //   - broad deny-pattern hit  -> hard-SKIP (fail-closed, D2-SA2.3-2: a
+    //     normalized match string cannot drive a reliable raw-byte
+    //     substitution, so a partial neutralisation would leak surrounding
+    //     adversarial text). The file is dropped, not loaded.
+    //   - P-LEARN structural hit only -> load the `[BLOCKED]`-substituted
+    //     variant so the user's legitimate learning text survives.
+    const sanitization = sanitizeLearningsContent(content);
+    if (sanitization.denyHits.length > 0) {
+      reasons.push(
+        ...sanitization.denyHits.map(
+          (h) => `${h} — fail-closed: file not loaded into tool context`,
+        ),
+      );
+      skipped.push({ fileName, reasons });
+      announceSkip(rootDir, source, fileName, reasons, onWarn);
+      continue;
+    }
+
+    let body = content;
+    if (sanitization.structuralHits.length > 0) {
+      body = sanitization.sanitized;
+      for (const h of sanitization.structuralHits) {
+        onWarn(`learnings-loader: ${fileName} — ${h}`);
+      }
     }
 
     loaded.push({
       fileName,
       absolutePath,
-      content,
-      byteLength: Buffer.byteLength(content, "utf-8"),
+      content: body,
+      byteLength: Buffer.byteLength(body, "utf-8"),
     });
   }
 

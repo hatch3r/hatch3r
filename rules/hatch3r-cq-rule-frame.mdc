@@ -1,0 +1,49 @@
+---
+description: Shared output frame for the CQ measurement rules — the per-finding rigor-field schema and the Specialist-Status to canonical-severity map cited by hatch3r-{security,testability,scalability,maintainability,enhancability}
+globs: ["src/**", "**/__tests__/**", "**/handlers/**", "**/routes/**", "**/services/**", "**/api/**", "**/migrations/**", "**/openapi.yaml", "**/openapi.json", "**/*.proto", "**/schema.graphql", "**/asyncapi.yaml"]
+alwaysApply: false
+precedence: high
+---
+# CQ Rule Frame
+
+**Pillars:** P4 (Comprehensive Lean Coverage), P7 (Speed & Token Efficiency)
+
+## Scope
+
+This rule is the single source of two blocks that every CQ measurement rule emits: the per-finding rigor-field schema and the Specialist-Status to canonical-severity map. It is consumed by the CQ vector rules:
+
+- `rules/hatch3r-security.md` (CQ3)
+- `rules/hatch3r-testability.md` (CQ5)
+- `rules/hatch3r-scalability.md` (CQ6)
+- `rules/hatch3r-maintainability.md` (CQ8)
+- `rules/hatch3r-enhancability.md` (CQ9)
+
+Each consuming rule cites this file for both blocks and adds only its rule-specific Action list (the Status-to-Action consequences that differ per CQ vector). The upstream canonical vocabulary owner is `agents/shared/severity-mapping.md` — this file restates only the 3-row Specialist-Status subset that the CQ rules share, parameterized by CQ vector.
+
+## Per-Finding Output Format
+
+Every finding emitted under a CQ measurement rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`. `<N>` is the consuming rule's CQ number (3, 5, 6, 8, or 9); the proof-trace artifact named in the first field is the consuming rule's measurement surface (file, test file, handler, or spec diff):
+
+- `proof_trace`: file:line citation + the consuming rule's measurement-output excerpt (command, runner, jscpd/oasdiff/buf-breaking, or spec-diff/grep).
+- `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
+- `progress_toward_pillar: content-quality.CQ<N>+<delta>`: numeric delta against the threshold (e.g. `+0.05` for a 5% step toward the consuming rule's target).
+- `confidence`: high | medium | low with explicit basis.
+- `causal_chain`: ≥3-step linkage from observation → root cause → impact.
+
+## Specialist-Status to Canonical-Severity Map
+
+Specialist status maps to canonical audit severity per `agents/shared/severity-mapping.md` (the canonical mapping owner). The 3-row subset the CQ rules share:
+
+| Specialist Status | Canonical Severity |
+|-------------------|--------------------|
+| `CRITICAL` | Critical |
+| `FINDINGS` | High + Medium |
+| `PASS` | Low + Info |
+
+The Action column is rule-specific and stays in each consuming rule's Severity Mapping section: the consuming rule lists, per Specialist Status row, the merge/release consequence for its CQ vector (block-release triggers, block-merge triggers, iteration-summary surfacing).
+
+## References
+
+- `agents/shared/severity-mapping.md` (canonical severity-vocabulary owner — 6-column map + Specialist Status column).
+- `agents/shared/rigor-contract.md` (the rigor-field definitions referenced by the output format).
+- `rules/hatch3r-security.md`, `rules/hatch3r-testability.md`, `rules/hatch3r-scalability.md`, `rules/hatch3r-maintainability.md`, `rules/hatch3r-enhancability.md` (the 5 consuming CQ rules).

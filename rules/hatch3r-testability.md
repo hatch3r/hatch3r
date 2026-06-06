@@ -85,23 +85,15 @@ The CQ5 specialist authors mandated tests, reviews coverage, and gates releases;
 
 ## Per-Finding Output Format
 
-Every finding emitted under this rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`:
-
-- `proof_trace`: test-file:line citation + runner-output excerpt.
-- `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
-- `progress_toward_pillar: content-quality.CQ5+<delta>`: numeric delta against the threshold (e.g. `+0.05` for a 5% step toward mandate-map compliance).
-- `confidence`: high | medium | low with explicit basis.
-- `causal_chain`: ≥3-step linkage from observation → root cause → impact.
+Every finding emitted under this rule uses the CQ per-finding rigor-field schema per `rules/hatch3r-cq-rule-frame.md` → Per-Finding Output Format (rigor-contract fields per `agents/shared/rigor-contract.md`), with `<N>` = CQ5. The `proof_trace` excerpt is the test-file:line citation + runner-output for the measurement that produced the finding.
 
 ## Severity Mapping
 
-Source: `agents/shared/severity-mapping.md`.
+The Specialist-Status to canonical-severity map (`CRITICAL` → Critical, `FINDINGS` → High + Medium, `PASS` → Low + Info) is the shared CQ frame per `rules/hatch3r-cq-rule-frame.md` → Specialist-Status to Canonical-Severity Map, sourced from `agents/shared/severity-mapping.md`. CQ5 Action per status:
 
-| Specialist Status | Canonical Severity | Action |
-|-------------------|--------------------|--------|
-| `CRITICAL` | Critical | Block release on mandate-map miss OR AI-eval-coverage <100% |
-| `FINDINGS` | High + Medium | Block merge on real-deal-ratio drop, coverage threshold miss, mutation kill-rate floor breach, or unowned flaky test |
-| `PASS` | Low + Info | Surface in iteration summary |
+- `CRITICAL`: Block release on mandate-map miss OR AI-eval-coverage <100%.
+- `FINDINGS`: Block merge on real-deal-ratio drop, coverage threshold miss, mutation kill-rate floor breach, or unowned flaky test.
+- `PASS`: Surface in iteration summary.
 
 ## When to Invoke
 

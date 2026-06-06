@@ -8,9 +8,9 @@ cache_friendly: true
 
 ## Purpose
 
-> Last updated: 2026-05-26
+> Last updated: 2026-06-06
 
-This protocol defines how hatch3r agents and commands surface clarifying or triage questions to the user across the 15 supported AI coding platforms. It is the single source of truth for the *how* of asking; the *whether* is governed by [quality-charter §3 "Question Unclear Requirements"](./quality-charter.md) and §8 "Escalate Ambiguity Early". Files that reference this protocol: the requirements-elicitation mode (`agents/modes/requirements-elicitation.md`), the five ASK-checkpoint commands, and the four ask-prone agents — researcher, fixer, architect, implementer.
+This protocol defines how hatch3r agents and commands surface clarifying or triage questions to the user across the 3 supported AI coding tools (Claude Code, Cursor, GitHub Copilot per `governance/CONSTITUTION.md` §6 Decision 12). It is the single source of truth for the *how* of asking; the *whether* is governed by [quality-charter §3 "Question Unclear Requirements"](./quality-charter.md) and §8 "Escalate Ambiguity Early". Coverage is a 100% floor, not a fixed file list: every framework-dev workflow that can mutate canonical artifacts routes its ASK through this protocol — the requirements-elicitation mode (`agents/modes/requirements-elicitation.md`), the shared §0 gate block (`agents/shared/clarification-default-block.md`), and every `agents/hatch3r-*.md` agent and `commands/hatch3r-*.md` command that detects ambiguity (counts: `governance/inventory.json` `counts.agents`, `counts.commands`, `counts.skills`). The "3 supported AI coding tools" figure above is drift-guarded against `inventory.json` `counts.adapters` by `scripts/inventory.ts` (`npm run inventory:check-docs`).
 
 ## When To Ask
 
@@ -42,6 +42,8 @@ The marker below is replaced at canonical-write time with the enumeration table 
 <!-- HATCH3R:PLATFORM-TOOL -->
 
 When viewing this file in the source repo (pre-generation), the marker is unsubstituted — refer to the adapter map in `src/pipeline/adapterToolTranslator.ts` for the same mappings.
+
+**Sub-agent caveat (Claude Code).** The native `AskUserQuestion` tool is a main-agent / orchestrator affordance only. Claude Code filters it out of every Task-tool sub-agent context (foreground and background) regardless of the agent's `tools` declaration, so a spawned `hatch3r-*` sub-agent cannot call it (upstream-confirmed via `anthropics/claude-code` issues #18721, #12890, #34592; verified 2026-06-06 @ https://code.claude.com/docs/en/sub-agents). A sub-agent that hits an ASK trigger therefore does NOT use the native tool: it RETURNS Status `BLOCKED_AMBIGUITY` (`agents/shared/quality-charter.md` §17) with the question rendered via the Plain-Text Fallback Template below, and the orchestrator owns the live ASK (`agents/shared/clarification-default-block.md` → Protocol). This exclusion is re-verified each audit cycle against the date stamp on `src/pipeline/adapterToolTranslator.ts::ASK_USER_TOOLS` (`claude` entry) — a date drift there is a D09 Medium finding.
 
 ## Plain-Text Fallback Template
 

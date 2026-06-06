@@ -559,6 +559,18 @@ const DRIFT_PROBES: DriftProbe[] = [
     expected: "testFiles",
     regex: /All\s+(\d+)\s+test files/,
   },
+  // Cycle 11 D5-45: the user-question-protocol SSoT opened with a stale "15
+  // supported AI coding platforms" figure (1.9.0 hard-cut the adapter set to 3).
+  // The line 13 prose is static — it sits before the HATCH3R:PLATFORM-TOOL marker
+  // (line 42) and is not touched by canonical-write substitution — so the count
+  // can be probe-guarded at source against `counts.adapters`. This stops the
+  // platform-count drift from silently re-staleing the protocol's scope sentence.
+  {
+    file: "agents/shared/user-question-protocol.md",
+    label: "user-question-protocol supported-tools count",
+    expected: "adapters",
+    regex: /(\d+)\s+supported AI coding tools/,
+  },
 ];
 
 interface DriftResult {

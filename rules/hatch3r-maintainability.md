@@ -126,23 +126,15 @@ ADRs live under `docs/adr/NNNN-{slug}.md` (or project equivalent) and are linked
 
 ## Per-Finding Output Format
 
-Every finding emitted under this rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`:
-
-- `proof_trace`: file:line citation + jscpd/oasdiff/buf-breaking output excerpt.
-- `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
-- `progress_toward_pillar: content-quality.CQ8+<delta>`: numeric delta against the threshold.
-- `confidence`: high | medium | low with explicit basis.
-- `causal_chain`: ≥3-step linkage from observation → root cause → impact.
+Every finding emitted under this rule uses the CQ per-finding rigor-field schema per `rules/hatch3r-cq-rule-frame.md` → Per-Finding Output Format (rigor-contract fields per `agents/shared/rigor-contract.md`), with `<N>` = CQ8. The `proof_trace` excerpt is the file:line citation + jscpd/oasdiff/buf-breaking output for the threshold that produced the finding.
 
 ## Severity Mapping
 
-Source: `agents/shared/severity-mapping.md`.
+The Specialist-Status to canonical-severity map (`CRITICAL` → Critical, `FINDINGS` → High + Medium, `PASS` → Low + Info) is the shared CQ frame per `rules/hatch3r-cq-rule-frame.md` → Specialist-Status to Canonical-Severity Map, sourced from `agents/shared/severity-mapping.md`. CQ8 Action per status:
 
-| Specialist Status | Canonical Severity | Action |
-|-------------------|--------------------|--------|
-| `CRITICAL` | Critical | Destructive single-deploy migration; breaking change on stable endpoint without major-version bump; missing ADR on decision-class change |
-| `FINDINGS` | High + Medium | Duplication-index >5%; pattern-reuse ratio <70%; cyclomatic complexity >10; documentation staleness >180 days |
-| `PASS` | Low + Info | All thresholds met; surface in iteration summary |
+- `CRITICAL`: Destructive single-deploy migration; breaking change on stable endpoint without major-version bump; missing ADR on decision-class change.
+- `FINDINGS`: Duplication-index >5%; pattern-reuse ratio <70%; cyclomatic complexity >10; documentation staleness >180 days.
+- `PASS`: All thresholds met; surface in iteration summary.
 
 ## When to Invoke
 

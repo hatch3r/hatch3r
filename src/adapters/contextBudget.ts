@@ -1,15 +1,38 @@
 import type { AdapterOutput, Tool } from "../types.js";
 
 /**
- * Per-adapter context budget in tokens. Based on each platform's documented
- * context window for rules/instructions input. These are conservative
- * estimates of how much instruction content each platform can accept
- * before degrading performance or truncating.
+ * Per-adapter context budget in tokens — a deliberately conservative
+ * single-window budget for the ALWAYS-LOADED instruction slice (CLAUDE.md +
+ * unscoped rules / `alwaysApply` rules / copilot-instructions.md), not the
+ * platform's absolute context ceiling. The slice shares the window with the
+ * user's code and conversation, so each budget is set to the conservative
+ * cross-model floor the platform documents — large enough not to false-alarm
+ * on a lean rule set, small enough to warn when the always-on slice bloats.
  *
- * Sources (as of 2026-04):
- *   - Claude Code: 200K context window
- *   - Cursor: ~120K effective for rules (model context shared with codebase)
- *   - Copilot: ~64K instruction budget (shared with workspace context)
+ * D6-14 (Cycle 11 Wave 3, D6, P3): re-verified against current vendor docs.
+ * Sources (accessed 2026-06-06):
+ *   - claude  = 200K. Conservative cross-model floor: Claude Sonnet 4.5 and the
+ *     other 200K-window models still ship at 200K, while flagship coding models
+ *     (Opus 4.6/4.7/4.8, Sonnet 4.6) reach a 1M-token window — GA since
+ *     2026-03-13, no `anthropic-beta` header required, no price multiplier.
+ *     Held at the 200K floor so the gate stays meaningful across every model a
+ *     Claude Code user may select. Source:
+ *     https://platform.claude.com/docs/en/build-with-claude/context-windows
+ *   - cursor  = 120K. Sits inside Cursor's documented Normal-Mode range
+ *     (8K-128K, model-dependent); Max Mode extends to the model max (up to 1M).
+ *     Rules consistently get "less than half the advertised window" because
+ *     Cursor reserves tokens for its system prompt + codebase index, so 120K
+ *     is a conservative Normal-Mode instruction budget. Source:
+ *     https://cursor.com/docs/context/max-mode (Max Mode + Normal Mode windows)
+ *   - copilot = 128K. Raised from the v1.9.0 value of 64K: the prior 64K floor
+ *     was stale. GitHub Copilot now ships a 128K standard tier (GPT-4o extended)
+ *     and a 1M-token window in VS Code, Copilot CLI, and the Copilot app
+ *     (announced 2026-06-04); 128K is the conservative current standard. Source:
+ *     https://github.blog/changelog/2026-06-04-larger-context-windows-and-configurable-reasoning-levels-for-github-copilot/
+ *
+ * Re-verify these against the cited vendor docs each cycle — tracked as a P3
+ * per-cycle re-verification item in `governance/audit/domains/D09-platform-adapters.md`
+ * §9.1-9.3 (the per-adapter currency checklist).
  *
  * Trimmed to the three retained adapters in v2.0.0; the prior 15-adapter
  * list (windsurf/codex/gemini/cline/amp/opencode/aider/kiro/goose/zed/
@@ -18,7 +41,7 @@ import type { AdapterOutput, Tool } from "../types.js";
 export const CONTEXT_BUDGET_TOKENS: Record<Tool, number> = {
   claude: 200_000,
   cursor: 120_000,
-  copilot: 64_000,
+  copilot: 128_000,
 };
 
 /**

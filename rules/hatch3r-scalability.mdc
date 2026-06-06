@@ -100,23 +100,15 @@ Over-sizing the pool exhausts the database's `max_connections`; under-sizing que
 
 ## Per-Finding Output Format
 
-Every finding emitted under this rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`:
-
-- `proof_trace`: handler:line citation + measurement excerpt.
-- `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
-- `progress_toward_pillar: content-quality.CQ6+<delta>`: numeric delta against the threshold.
-- `confidence`: high | medium | low with explicit basis.
-- `causal_chain`: ≥3-step linkage from observation → root cause → impact.
+Every finding emitted under this rule uses the CQ per-finding rigor-field schema per `rules/hatch3r-cq-rule-frame.md` → Per-Finding Output Format (rigor-contract fields per `agents/shared/rigor-contract.md`), with `<N>` = CQ6. The `proof_trace` excerpt is the handler:line citation + measurement for the threshold that produced the finding.
 
 ## Severity Mapping
 
-Source: `agents/shared/severity-mapping.md`.
+The Specialist-Status to canonical-severity map (`CRITICAL` → Critical, `FINDINGS` → High + Medium, `PASS` → Low + Info) is the shared CQ frame per `rules/hatch3r-cq-rule-frame.md` → Specialist-Status to Canonical-Severity Map, sourced from `agents/shared/severity-mapping.md`. CQ6 Action per status:
 
-| Specialist Status | Canonical Severity | Action |
-|-------------------|--------------------|--------|
-| `CRITICAL` | Critical | Sync >1s op without offloading; missing Idempotency-Key on POST/PUT/PATCH; sticky-session dependency on horizontally-scaled tier |
-| `FINDINGS` | High + Medium | Stateless-handler ratio <95%; missing back-pressure on high-fan-out endpoint; pool sizing without formula |
-| `PASS` | Low + Info | All thresholds met; surface in iteration summary |
+- `CRITICAL`: Sync >1s op without offloading; missing Idempotency-Key on POST/PUT/PATCH; sticky-session dependency on horizontally-scaled tier.
+- `FINDINGS`: Stateless-handler ratio <95%; missing back-pressure on high-fan-out endpoint; pool sizing without formula.
+- `PASS`: All thresholds met; surface in iteration summary.
 
 ## Irreversibility Trigger
 

@@ -88,6 +88,43 @@ const DENY_PATTERNS: RegExp[] = [
   // P-PIPE-05 contract but reused at customization layer for call sites
   // that bypass the pipeline guard.
   /\x1b\[/,
+  // D6-24 (Cycle 11 Wave 3): structural authority-escalation phrasing.
+  // The deny set above matches the literal jailbreak vocabulary ("ignore
+  // previous instructions", "you are now", etc.) but MISSED every probe
+  // drawn from the two behavioral-poisoning classes the learnings loader
+  // claims to exclude (agents/hatch3r-learnings-loader.md §"Cross-File
+  // Instruction Enforcement" rules 1-2): tier-escalation ("this takes
+  // precedence over the security rule") and cross-agent targeting ("the
+  // implementer must always …"). Replaying those 2 classes against the
+  // pre-D6-24 set yielded 7/7 MISSED. These patterns close the
+  // DETERMINISTIC subset (authority-keyword-anchored phrasing); arbitrary
+  // semantic/behavioral poisoning that does not surface a structural
+  // authority keyword remains outside deterministic reach — see the
+  // "Enforcement boundary" note in agents/hatch3r-learnings-loader.md
+  // §"Content Validation on Read". Each pattern requires an explicit
+  // authority object or agent-role subject so benign user customization
+  // prose ("the dark theme takes precedence over the light theme", "our
+  // team must always write tests", "when the build runs") does NOT match.
+  // Sources: OWASP LLM01:2025 (Prompt Injection — instruction hierarchy
+  // override); CONSTITUTION §2 P6 trust-tier hierarchy (system > developer
+  // > user). Cross-ref: LEARNINGS_INJECTION_PATTERNS P-LEARN-03 in
+  // src/content/learningsValidation.ts (override agent/rule/skill).
+  //
+  // (i) Tier escalation: user-tier content self-promoting above an
+  // authority object (system/developer/project/framework/security rule,
+  // instruction, prompt, policy, …) via precedence/override/supersede verbs.
+  /(?:takes?\s+precedence\s+over|overrides?|supersedes?|superc[ei]des?)\s+(?:the\s+|all\s+|any\s+|your\s+)*(?:system|developer|project|framework|security|agent|prior|above|previous)\s+(?:instruction|rule|prompt|polic|setting|requirement|directive|config|context)/i,
+  // (ii) "Treat this as a system instruction": re-tiering user content as
+  // system/developer/elevated/privileged authority.
+  /treat\s+(?:this|that|the\s+following|it|these)\s+(?:as\s+)?(?:a\s+|an\s+)?(?:system|developer|higher[\s-]?(?:tier|priority|authority|trust)|elevated|privileged)\s+(?:instruction|prompt|rule|command|message|directive|authority|tier)/i,
+  // (iii) Role-directed "must always …": an agent name/role bound to a
+  // behavioral imperative — the cross-agent-command vector. Requires a
+  // role subject so generic "we must always test" stays clean.
+  /\b(?:implementer|reviewer|planner|orchestrator|fixer|researcher|loader|the\s+(?:agent|assistant|model|llm|ai|bot|system))\b[^.\n]{0,40}\bmust\s+always\b/i,
+  // (iv) Cross-agent targeting "when the <role> runs/reads …": behavioral
+  // instructions keyed to another agent's execution, the inverse framing
+  // of (iii).
+  /\bwhen\s+(?:the\s+)?(?:implementer|reviewer|planner|orchestrator|fixer|researcher|agent|assistant|model|llm|ai)\b[^.\n]{0,30}\b(?:runs?|reads?|loads?|sees?|processes?|executes?)\b/i,
 ];
 
 /**
@@ -359,6 +396,10 @@ const MIXED_SCRIPT_DENY_KEYWORDS = [
   "skip", "ignore", "disable", "exfiltrate", "bypass", "never", "override",
   "disregard", "forget", "delete", "remove", "reveal", "jailbreak", "system",
   "pretend", "execute", "password", "secret", "token", "credentials",
+  // D6-24 (Cycle 11 Wave 3): single-token stems of the structural
+  // authority-escalation deny patterns so a homoglyph-smuggled
+  // "prеcedence"/"supеrsede" still trips the mixed-script signal.
+  "precedence", "supersede",
 ];
 
 /**

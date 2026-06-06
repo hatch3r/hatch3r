@@ -808,6 +808,33 @@ describe("checkAmbiguityGate", () => {
     expect(checkAmbiguityGate("## Step 0 — Ambiguity gate\nbody").hasMarker).toBe(true);
   });
 
+  // ── D5-36: every marker disjunct is heading-anchored ──────────────
+
+  it("does NOT treat an inline `> **Ambiguity detection (P8 B1):**` blockquote as a marker (D5-36)", () => {
+    // The skills/hatch3r-feature/SKILL.md:40 false-positive: prose that names
+    // "Ambiguity detection" without a real §0/Step-0 heading must report
+    // hasMarker=false so the missing-gate ERROR fires.
+    const body =
+      "> **Ambiguity detection (P8 B1):** use the question protocol when scope is unresolved.\n";
+    expect(checkAmbiguityGate(body).hasMarker).toBe(false);
+  });
+
+  it("does NOT treat a bare `ambiguity gate` prose sentence as a marker (D5-36)", () => {
+    expect(checkAmbiguityGate("This skill enforces an ambiguity gate before work.\n").hasMarker).toBe(false);
+  });
+
+  it("does NOT treat a `Step 0: detect ambiguity` Task-Progress checkbox as a marker (D5-36)", () => {
+    expect(checkAmbiguityGate("- [ ] Step 0: Detect ambiguity (P8 B1)\n").hasMarker).toBe(false);
+  });
+
+  it("accepts a `## Step 0 — Detect Ambiguity (P8 B1)` heading (D5-36)", () => {
+    expect(checkAmbiguityGate("## Step 0 — Detect Ambiguity (P8 B1)\nbody").hasMarker).toBe(true);
+  });
+
+  it("accepts an `## Ambiguity-detection gate` heading (D5-36)", () => {
+    expect(checkAmbiguityGate("## Ambiguity-detection gate\nbody").hasMarker).toBe(true);
+  });
+
   // ── D5-46: referencesProtocol accepts the two include hubs ────────
 
   it("accepts a direct user-question-protocol reference (referencesProtocol)", () => {

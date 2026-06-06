@@ -16,6 +16,7 @@ cache_friendly: true
 
 ```
 Task Progress:
+- [ ] Step 0: Detect ambiguity (P8 B1)
 - [ ] Step 1: Read the issue and all relevant specs
 - [ ] Step 1c: Design System Inventory (if UI) — invoke `hatch3r-design-system-detect`
 - [ ] Step 2: Produce an implementation plan
@@ -28,6 +29,10 @@ Task Progress:
 - [ ] Step 6: Open PR
 ```
 
+## Step 0 — Detect Ambiguity (P8 B1)
+
+Before any work, scan the invocation for unresolved questions in scope, intent, acceptance criteria, target files, or irreversibility. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md`. Do not proceed under silent assumption. Default path, not an exception. Triggers for THIS skill: acceptance criteria incomplete or untestable, data shape or error behavior unspecified, UI states (loading/empty/error/partial) undefined, security/entitlement model unstated, or the change requires a schema/API migration with downstream consumers. If the orchestrator already supplied `requirements-elicitation` answers, read them first (Step 1) and ask only about residual gaps.
+
 ## Step 1: Read Inputs
 
 - Parse the issue body: problem/goal, proposed solution, acceptance criteria, scope (in/out), UX notes, edge cases, security considerations, rollout plan.
@@ -36,8 +41,6 @@ Task Progress:
 - **Review reference implementations**: If the orchestrator provided `similar-implementation` researcher output, read the reference implementations and their extracted conventions. These define the patterns this feature should follow (file structure, state management, error handling, data fetching, test structure, component composition).
 - **Review resolved requirements**: If the orchestrator provided `requirements-elicitation` answers, read them to understand explicit user decisions on ambiguities (data shape, error behavior, UI states, security model, etc.). Do not guess when explicit answers are available.
 - For external library docs and current best practices, follow the project's tooling hierarchy.
-
-> **Ambiguity detection (P8 B1):** This skill's Step 1 already requires reading `requirements-elicitation` answers and stopping on ambiguity per the Error Handling block. The canonical ambiguity protocol is `agents/shared/user-question-protocol.md` — use the platform-native question tool when scope, acceptance criteria, or irreversibility remain unresolved after Step 1.
 
 ## Step 1c: Design System Inventory (if UI)
 

@@ -41,6 +41,8 @@ import {
   DEFAULT_INPUT_COST_PER_1M,
   DEFAULT_OUTPUT_COST_PER_1M,
   estimateUsdCost,
+  resolveModelRate,
+  MODEL_RATES,
 } from "../../pipeline/costEstimator.js";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { findPackageRoot } from "../shared/paths.js";
@@ -220,7 +222,7 @@ function tierLabel(tier: number): string {
 function computeTierRows(
   fm: CommandFrontmatter,
   bodyCharCount: number,
-  options: { inputCostPer1M: number; outputCostPer1M: number },
+  options: { inputCostPer1M: number; outputCostPer1M: number; cacheHitRatio: number },
 ): TierCostRow[] {
   const perInvocationInputTokens = estimateTokens(bodyCharCount, CHARS_PER_TOKEN);
   const perInvocationOutputTokens = Math.ceil(perInvocationInputTokens / 4);
@@ -250,6 +252,7 @@ function computeTierRows(
     const cost = estimateUsdCost(summary, {
       inputCostPer1M: options.inputCostPer1M,
       outputCostPer1M: options.outputCostPer1M,
+      cacheHitRatio: options.cacheHitRatio,
     });
     rows.push({
       tier,
@@ -295,6 +298,20 @@ interface ExplainOptions {
   verbose?: boolean;
   inputRate?: string;
   outputRate?: string;
+  /**
+   * D6-18: model selector for `--cost` — a tier alias (`opus`/`sonnet`/`haiku`)
+   * or an exact model id from `MODEL_RATES`. Resolves the per-1M input/output
+   * rates from the versioned rate map. `--input-rate` / `--output-rate` override
+   * the resolved rate per-axis when both `--model` and the explicit flag are
+   * passed. Defaults to the Sonnet-biased `DEFAULT_*_COST_PER_1M` when omitted.
+   */
+  model?: string;
+  /**
+   * D6-19: fraction (0–1) of input tokens served from the prompt cache. Cached
+   * input bills at 0.1× the base input rate (`CACHE_READ_MULTIPLIER`). Defaults
+   * to 0 (no caching) — the conservative upper-bound cost.
+   */
+  cacheHit?: string;
 }
 
 /**
@@ -379,8 +396,30 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   const body = bodyMatch?.[2] ?? raw;
   const bodyCharCount = body.length;
 
-  const inputRate = opts?.inputRate ? Number(opts.inputRate) : DEFAULT_INPUT_COST_PER_1M;
-  const outputRate = opts?.outputRate ? Number(opts.outputRate) : DEFAULT_OUTPUT_COST_PER_1M;
+  // D6-18: resolve the model selector first; it sets the base rate band. The
+  // Sonnet-biased DEFAULT_*_COST_PER_1M apply only when no --model is passed.
+  // --input-rate / --output-rate override the resolved rate per-axis.
+  let modelLabel = "(default — Sonnet rates $3/$15; pass --model to cost another model)";
+  let baseInputRate = DEFAULT_INPUT_COST_PER_1M;
+  let baseOutputRate = DEFAULT_OUTPUT_COST_PER_1M;
+  if (opts?.model) {
+    const resolved = resolveModelRate(opts.model);
+    if (!resolved) {
+      const known = ["opus", "sonnet", "haiku", ...Object.keys(MODEL_RATES)].join(", ");
+      throw new HatchError(
+        `Unknown --model: ${opts.model}. Valid selectors: ${known}.`,
+        2,
+        "VALIDATION_ERROR",
+        `Pass a tier alias (opus, sonnet, haiku) or an exact model id (e.g. claude-opus-4-8) to --model.`,
+      );
+    }
+    baseInputRate = resolved.inputCostPer1M;
+    baseOutputRate = resolved.outputCostPer1M;
+    modelLabel = `${opts.model} ($${resolved.inputCostPer1M}/$${resolved.outputCostPer1M} per 1M in/out, rate accessed ${resolved.accessed})`;
+  }
+
+  const inputRate = opts?.inputRate ? Number(opts.inputRate) : baseInputRate;
+  const outputRate = opts?.outputRate ? Number(opts.outputRate) : baseOutputRate;
 
   if (!Number.isFinite(inputRate) || inputRate < 0) {
     throw new HatchError(
@@ -399,9 +438,21 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
     );
   }
 
+  // D6-19: cache-hit ratio (0–1). Cached input tokens bill at 0.1× base input.
+  const cacheHitRatio = opts?.cacheHit ? Number(opts.cacheHit) : 0;
+  if (!Number.isFinite(cacheHitRatio) || cacheHitRatio < 0 || cacheHitRatio > 1) {
+    throw new HatchError(
+      `Invalid --cache-hit: ${opts?.cacheHit} (expected a number between 0 and 1)`,
+      2,
+      "VALIDATION_ERROR",
+      "Pass --cache-hit as a fraction 0–1, e.g. `--cache-hit 0.9` when ~90% of input is served from the prompt cache.",
+    );
+  }
+
   const rows = computeTierRows(fm, bodyCharCount, {
     inputCostPer1M: inputRate,
     outputCostPer1M: outputRate,
+    cacheHitRatio,
   });
 
   const headerLines: string[] = [
@@ -411,6 +462,9 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
     label("Pipeline", fm.agentPipeline.length > 0 ? `${fm.agentPipeline.length} sub-agent(s)` : "(inline)"),
     label("Tiers", fm.triageTiers.length > 0 ? fm.triageTiers.join(", ") : "(none)"),
     label("Body size", `${formatTokens(bodyCharCount)} chars (~${formatTokens(estimateTokens(bodyCharCount, CHARS_PER_TOKEN))} tokens)`),
+    // D6-18: surface which model the cost figures assume so an Opus run is not
+    // silently priced at Sonnet rates.
+    label("Model", modelLabel),
   ];
 
   printBox("Command", headerLines, "info");
@@ -457,7 +511,8 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
 
   info(
     chalk.dim(
-      `Rates: $${inputRate}/1M input, $${outputRate}/1M output. ` +
+      `Rates: $${inputRate}/1M input, $${outputRate}/1M output` +
+        `${cacheHitRatio > 0 ? `, ${Math.round(cacheHitRatio * 100)}% input cache-hit (cached input billed at 0.1x)` : ""}. ` +
         `Token counts use CHARS_PER_TOKEN=${CHARS_PER_TOKEN} (English prose heuristic).`,
     ),
   );

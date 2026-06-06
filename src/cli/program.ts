@@ -493,8 +493,10 @@ export function createProgram(): Command {
     .option("--source [output-path]", "Show the canonical source files behind a generated output (e.g. CLAUDE.md); omit the path or pass `all` for a per-output source-count summary (add --verbose for every full source list)")
     // --efficiency provenance: D6-M2.
     .option("--efficiency", "Show per-artifact + per-phase aggregate from .hatch3r/efficiency-events.jsonl (telemetry gated by HATCH3R_EFFICIENCY_TELEMETRY=1)")
-    .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens (--cost only)")
-    .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens (--cost only)")
+    .option("--model <selector>", "Cost at a named model's rates: tier alias (opus|sonnet|haiku) or model id (e.g. claude-opus-4-8); default is Sonnet rates (--cost only)")
+    .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens; takes precedence over --model (--cost only)")
+    .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens; takes precedence over --model (--cost only)")
+    .option("--cache-hit <ratio>", "Fraction 0-1 of input served from the prompt cache; cached input billed at 0.1x (--cost only)")
     .option("--verbose", "Show detailed output")
     .action(explainCommand);
 

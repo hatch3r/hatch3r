@@ -238,6 +238,108 @@ describe("explainCommand", () => {
     ).rejects.toThrow(HatchError);
   });
 
+  it("prices at the resolved --model rate and prints the assumed model (D6-18)", async () => {
+    const body = "x".repeat(8000);
+    await writeCommandFile(tempDir, "hatch3r-model.md", body, {
+      id: "hatch3r-model",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "model",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ cost: "hatch3r-model", model: "opus" });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Opus rates: $5/1M input, $25/1M output (not the Sonnet $3/$15 default).
+    expect(output).toContain("Rates: $5/1M input, $25/1M output");
+    expect(output).toContain("opus");
+    expect(output).toContain("rate accessed");
+  });
+
+  it("lets --input-rate override the --model rate per-axis (D6-18)", async () => {
+    const body = "x".repeat(8000);
+    await writeCommandFile(tempDir, "hatch3r-model-override.md", body, {
+      id: "hatch3r-model-override",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "override",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ cost: "hatch3r-model-override", model: "opus", inputRate: "99" });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Explicit --input-rate wins; output keeps the resolved Opus $25 rate.
+    expect(output).toContain("Rates: $99/1M input, $25/1M output");
+  });
+
+  it("rejects an unknown --model selector with an actionable error (D6-18)", async () => {
+    const body = "x";
+    await writeCommandFile(tempDir, "hatch3r-bad-model.md", body, {
+      id: "hatch3r-bad-model",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "bad",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await expect(
+      explainCommand({ cost: "hatch3r-bad-model", model: "gpt-4" }),
+    ).rejects.toThrow(HatchError);
+    try {
+      await explainCommand({ cost: "hatch3r-bad-model", model: "gpt-4" });
+    } catch (e) {
+      expect((e as HatchError).message).toContain("Unknown --model");
+    }
+  });
+
+  it("applies --cache-hit and notes the cached-input discount in the footer (D6-19)", async () => {
+    const body = "x".repeat(8000);
+    await writeCommandFile(tempDir, "hatch3r-cache.md", body, {
+      id: "hatch3r-cache",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "cache",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ cost: "hatch3r-cache", cacheHit: "0.9" });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("90% input cache-hit");
+  });
+
+  it("rejects an out-of-range --cache-hit value (D6-19)", async () => {
+    const body = "x";
+    await writeCommandFile(tempDir, "hatch3r-bad-cache.md", body, {
+      id: "hatch3r-bad-cache",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "bad cache",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await expect(
+      explainCommand({ cost: "hatch3r-bad-cache", cacheHit: "1.5" }),
+    ).rejects.toThrow(HatchError);
+  });
+
   it("does not require orchestrator: true (declared tiers are honored regardless)", async () => {
     // Inline-execution commands rarely declare triage_tiers, but the command
     // should still print whatever the canonical file declares so authors can
