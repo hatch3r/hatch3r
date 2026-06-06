@@ -395,6 +395,51 @@ describe("init command", () => {
     expect(provenance.outputs.every((o) => o.adapter === "cursor")).toBe(true);
   });
 
+  // D12-2 (Cycle 11 Wave 2, D12, P4): size guard for the standard-preset
+  // provenance manifest. Before D12-1 every output carried an identical
+  // 232-file `sourceFiles` array, so a standard init+sync produced a 12.4 MB
+  // provenance.json (~26 KB/entry, largest entry 24,215 bytes). D12-1 made
+  // per-rule/per-agent/per-skill outputs single-source; only a handful of
+  // aggregate outputs (CLAUDE.md, the cursor bridge, the policy/hook docs)
+  // still legitimately reference the whole canonical read set. This guard
+  // asserts the per-entry breadth stays near the post-D12-1 single-source mean
+  // and is a regression alarm against re-introducing the all-outputs-232
+  // attribution: that regression would push the mean back to ~232 sources /
+  // ~26 KB per entry — over 5x past both bounds below.
+  it("keeps provenance.json entry breadth bounded for the standard preset (D12-2)", async () => {
+    await initCommand({ yes: true, tools: "cursor" });
+
+    const provenancePath = join(tempDir, AGENTS_DIR, "provenance.json");
+    const raw = await readFile(provenancePath, "utf-8");
+    const provenance = JSON.parse(raw) as {
+      outputs: Array<{ path: string; adapter: string; sourceFiles: string[] }>;
+    };
+    const n = provenance.outputs.length;
+    expect(n).toBeGreaterThan(0);
+
+    // Mean bytes per entry: the metric the (now-corrected) old sync.ts:1191
+    // comment falsely claimed ("≤200-bytes-per-entry") but never enforced.
+    // Post-D12-1 the cursor standard preset measures ~1.7 KB/entry; the
+    // pathological all-232 state was ~26 KB/entry. Bound at 4 KB → ~2.3x
+    // headroom over the real mean, ~6x below the pathology.
+    const meanBytesPerEntry = Buffer.byteLength(raw, "utf-8") / n;
+    expect(meanBytesPerEntry).toBeLessThan(4096);
+
+    // Mean sourceFiles per output: ~13 post-D12-1 (95%+ are single-source; a
+    // few aggregates carry the full read set). The pathology was 232 for
+    // every output. Bound at 64 → catches a regression to the all-232 fill
+    // while leaving the legitimate aggregate outputs room.
+    const totalSources = provenance.outputs.reduce((s, o) => s + o.sourceFiles.length, 0);
+    const meanSourcesPerOutput = totalSources / n;
+    expect(meanSourcesPerOutput).toBeLessThan(64);
+
+    // At least 80% of outputs must be single-source — the direct, structural
+    // signature of D12-1's per-output attribution. A re-broadening regression
+    // collapses this fraction first.
+    const singleSource = provenance.outputs.filter((o) => o.sourceFiles.length === 1).length;
+    expect(singleSource / n).toBeGreaterThan(0.8);
+  });
+
   // 1.7.1: re-init over an existing `.agents/hatch.json` must defensively
   // preserve GitHub Projects v2 IDs (board.projectNumber, statusFieldId,
   // statusOptions, areas) plus other user-set state (costTracking, specs).
@@ -2676,14 +2721,14 @@ describe("init per-package emission gate (D14-SA14.2-H1)", () => {
 
   it("does NOT write per-package copies by default (opt-out-by-default)", async () => {
     await makeMonorepo(tempDir, ["a", "b"]);
-    await initCommand({ yes: true, tools: "claude" });
+    await initCommand({ yes: true, tools: "cursor" });
 
     // Root emission still happens.
-    await expect(access(join(tempDir, "CLAUDE.md"))).resolves.toBeUndefined();
+    await expect(access(join(tempDir, ".cursor"))).resolves.toBeUndefined();
     // No per-package copies without --per-package.
     let aExists = false;
     try {
-      await access(join(tempDir, "packages", "a", "CLAUDE.md"));
+      await access(join(tempDir, "packages", "a", ".cursor"));
       aExists = true;
     } catch (err) {
       void err;
@@ -2691,27 +2736,28 @@ describe("init per-package emission gate (D14-SA14.2-H1)", () => {
     expect(aExists).toBe(false);
   });
 
-  it("writes outputs × packages per-package copies with --per-package and .gitignore's them", async () => {
+  it("writes outputs × packages per-package copies for cursor with --per-package and .gitignore's them", async () => {
     await makeMonorepo(tempDir, ["a", "b"]);
-    await initCommand({ yes: true, tools: "claude", perPackage: true });
+    await initCommand({ yes: true, tools: "cursor", perPackage: true });
 
     const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
-    const claudeManaged = manifest.managedFilesByAdapter.claude as string[];
-    const rootOutputs = claudeManaged.filter((p) => !p.startsWith("packages/"));
-    const pkgA = claudeManaged.filter((p) => p.startsWith("packages/a/"));
-    const pkgB = claudeManaged.filter((p) => p.startsWith("packages/b/"));
+    const cursorManaged = manifest.managedFilesByAdapter.cursor as string[];
+    const rootOutputs = cursorManaged.filter((p) => !p.startsWith("packages/"));
+    const pkgA = cursorManaged.filter((p) => p.startsWith("packages/a/"));
+    const pkgB = cursorManaged.filter((p) => p.startsWith("packages/b/"));
 
-    // Each package receives a full copy of the root output set (the copy count
+    // Cursor reads `.cursor/rules/*.mdc` from the nearest ancestor, so each
+    // package receives a full copy of the root output set (the copy count
     // scales as outputs × packages — the exact behaviour the cap + bounded
     // batch guard against at scale).
     expect(rootOutputs.length).toBeGreaterThan(0);
     expect(pkgA.length).toBe(rootOutputs.length);
     expect(pkgB.length).toBe(rootOutputs.length);
-    // CLAUDE.md specifically lands under each package.
-    expect(pkgA).toContain("packages/a/CLAUDE.md");
-    expect(pkgB).toContain("packages/b/CLAUDE.md");
-    await expect(access(join(tempDir, "packages", "a", "CLAUDE.md"))).resolves.toBeUndefined();
-    await expect(access(join(tempDir, "packages", "b", "CLAUDE.md"))).resolves.toBeUndefined();
+    // A `.cursor/rules/*.mdc` file specifically lands under each package.
+    expect(pkgA.some((p) => p.startsWith("packages/a/.cursor/"))).toBe(true);
+    expect(pkgB.some((p) => p.startsWith("packages/b/.cursor/"))).toBe(true);
+    await expect(access(join(tempDir, "packages", "a", ".cursor"))).resolves.toBeUndefined();
+    await expect(access(join(tempDir, "packages", "b", ".cursor"))).resolves.toBeUndefined();
 
     // Every generated copy is git-ignored (anchored, leading-slash entries).
     const gitignore = await readFile(join(tempDir, ".gitignore"), "utf-8");
@@ -2719,6 +2765,36 @@ describe("init per-package emission gate (D14-SA14.2-H1)", () => {
     for (const p of [...pkgA, ...pkgB]) {
       expect(ignored.has(`/${p}`)).toBe(true);
     }
+  });
+
+  // D14-6: per-package copying fights the load model of claude (ancestor-loads
+  // root CLAUDE.md → double-load) and copilot (root-only
+  // .github/copilot-instructions.md → never read). Even WITH --per-package they
+  // emit nothing per-package; only the root output is written.
+  it("D14-6: emits NO per-package copies for claude even with --per-package", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await initCommand({ yes: true, tools: "claude", perPackage: true });
+
+    // Root CLAUDE.md is still written.
+    await expect(access(join(tempDir, "CLAUDE.md"))).resolves.toBeUndefined();
+
+    const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+    const claudeManaged = (manifest.managedFilesByAdapter.claude as string[]) ?? [];
+    expect(claudeManaged.some((p) => p.startsWith("packages/"))).toBe(false);
+    await expect(access(join(tempDir, "packages", "a", "CLAUDE.md"))).rejects.toThrow();
+    await expect(access(join(tempDir, "packages", "b", "CLAUDE.md"))).rejects.toThrow();
+  });
+
+  it("D14-6: emits NO per-package copies for copilot even with --per-package", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await initCommand({ yes: true, tools: "copilot", perPackage: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+    const copilotManaged = (manifest.managedFilesByAdapter.copilot as string[]) ?? [];
+    expect(copilotManaged.some((p) => p.startsWith("packages/"))).toBe(false);
+    await expect(
+      access(join(tempDir, "packages", "a", ".github", "copilot-instructions.md")),
+    ).rejects.toThrow();
   });
 });
 

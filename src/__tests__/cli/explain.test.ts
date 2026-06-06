@@ -325,4 +325,77 @@ describe("explainCommand", () => {
     expect(output).toContain("failed");
     expect(output).toMatch(/[1-9]\d* failed/);
   });
+
+  // D12-2 (Cycle 11 Wave 2, D12, P4/P1): `explain --source all` defaults to a
+  // bounded per-output count summary rather than enumerating every canonical
+  // source for every output. The old full enumeration was 224,672 lines /
+  // 19.3 MB for a standard init+sync. These tests pin: (1) the default `all`
+  // form prints counts, not per-source bullet lines; (2) `--verbose` expands
+  // to the full per-path lists; (3) the single-path form is unchanged (full
+  // list for the one requested output).
+  describe("--source provenance summary (D12-2)", () => {
+    // One aggregate output carrying many sources, plus single-source outputs —
+    // mirrors the post-D12-1 shape where ~95% of outputs have one source and a
+    // handful (CLAUDE.md, the cursor bridge) aggregate the canonical read set.
+    const AGG_SOURCES = Array.from({ length: 40 }, (_, i) => `agents/hatch3r-src-${i}.md`);
+    // A grep sentinel that only appears if individual source filenames are printed.
+    const SENTINEL = "agents/hatch3r-src-37.md";
+
+    async function writeProvenanceFixture(): Promise<void> {
+      const dir = join(tempDir, ".hatch3r");
+      await mkdir(dir, { recursive: true });
+      const manifest = {
+        schemaVersion: 1,
+        hatch3rVersion: "2.0.0",
+        generatedAt: "2026-06-06T00:00:00.000Z",
+        lastCommand: "sync",
+        lastRunId: "hr-d122-test",
+        outputs: [
+          { path: "CLAUDE.md", adapter: "claude", sourceFiles: AGG_SOURCES },
+          { path: ".cursor/rules/10-secrets.mdc", adapter: "cursor", sourceFiles: ["rules/hatch3r-secrets-management.md"] },
+          { path: ".cursor/rules/30-supply.mdc", adapter: "cursor", sourceFiles: ["rules/hatch3r-supply-chain.md"] },
+        ],
+      };
+      await writeFile(join(dir, "provenance.json"), JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+    }
+
+    it("`--source all` prints a per-output count summary, not the full source enumeration", async () => {
+      await writeProvenanceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "all" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Header reports total outputs + total source links.
+      expect(output).toContain("Per-output source counts");
+      expect(output).toContain("CLAUDE.md");
+      // The aggregate's source COUNT (40) is shown...
+      expect(output).toContain("40");
+      // ...but NOT the individual source filenames (the 224K-line symptom).
+      expect(output).not.toContain(SENTINEL);
+      // Detail hint is surfaced so the user can opt in.
+      expect(output).toContain("--source all --verbose");
+    });
+
+    it("`--source all --verbose` expands to the full per-path source list", async () => {
+      await writeProvenanceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "all", verbose: true });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Verbose mode prints each individual canonical source filename.
+      expect(output).toContain(SENTINEL);
+      expect(output).toContain("rules/hatch3r-secrets-management.md");
+    });
+
+    it("`--source <single-path>` still prints the full source list for that one output", async () => {
+      await writeProvenanceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "CLAUDE.md" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Single-path form is unaffected by the summary cap: full list shown.
+      expect(output).toContain("Source: CLAUDE.md");
+      expect(output).toContain(SENTINEL);
+    });
+  });
 });

@@ -304,15 +304,16 @@ export async function computeAdapterDrift(
     }
 
     // F14.2-H1 (D14): monorepo per-package emission parity. When the manifest
-    // records workspace packages, init/sync ALSO write each adapter output into
-    // every `<package>/.hatch3r/<rel>` (init.ts ~816 / sync.ts ~931) and stamp
-    // those paths into `manifest.managedFiles`. Re-target this tool's root
-    // outputs through the SAME helper init/sync use and register every
-    // per-package path as seen, so the orphan loop below does not classify a
-    // legitimately-emitted per-package file as `unexpected`. Without this, an
-    // N-package x 3-adapter repo reports ~(root-output-count x N) false orphans
-    // on every status/verify call.
-    for (const perPkg of planPerPackageOutputs(manifest.packages, outputs)) {
+    // records workspace packages AND --per-package was opted in, init/sync ALSO
+    // write per-directory copies for tools whose load model reads them — cursor
+    // only, per D14-6 — into every `<package>/<rel>` and stamp those paths into
+    // `manifest.managedFiles`. Re-target this tool's root outputs through the
+    // SAME helper init/sync use (which returns [] for claude/copilot) and
+    // register every per-package path as seen, so the orphan loop below does not
+    // classify a legitimately-emitted per-package file as `unexpected`. Without
+    // this, an N-package cursor repo reports ~(root-output-count x N) false
+    // orphans on every status/verify call.
+    for (const perPkg of planPerPackageOutputs(tool, manifest.packages, outputs)) {
       seenPaths.add(perPkg.output.path);
     }
   }

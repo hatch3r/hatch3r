@@ -45,7 +45,7 @@ import { analyzeRepo, isGreenfield, analyzeConventionConflicts, formatConvention
 import { detectProjectType } from "../../detect/projectType.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
-import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
+import { planPerPackageOutputs, emitsPerPackage } from "../../content/monorepoEmission.js";
 import {
   printBanner,
   createSpinner,
@@ -909,7 +909,10 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // covers exactly the files that get written.
   if (emitPerPackage && manifest.packages && manifest.packages.length > 0 && manifest.packages.length <= PER_PACKAGE_COUNT_CAP) {
     for (const pa of pendingAdapters) {
-      const perPackageOutputs = planPerPackageOutputs(manifest.packages, pa.outputs);
+      // D14-6: planPerPackageOutputs returns [] for non-per-package tools
+      // (claude/copilot), so the snapshot path set matches the write pass —
+      // only cursor's per-package copies are recorded for rollback.
+      const perPackageOutputs = planPerPackageOutputs(pa.tool, manifest.packages, pa.outputs);
       for (const p of perPackageOutputs) {
         mutationPaths.push(join(rootDir, p.output.path));
       }
@@ -976,9 +979,23 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
           `work inside a package using the root setup, or split the monorepo into smaller workspaces.`,
       );
     } else {
+      // D14-6: per-package emission is scoped to tools whose load model reads
+      // per-directory context files (cursor). claude (ancestor-loads root
+      // CLAUDE.md) and copilot (root-only .github/copilot-instructions.md) get
+      // no copies — planPerPackageOutputs returns [] for them. Surface the
+      // token-cost tradeoff once, naming only the tools that actually emit.
+      const perPackageTools = pendingAdapters.filter((pa) => emitsPerPackage(pa.tool)).map((pa) => pa.tool);
+      if (perPackageTools.length > 0) {
+        warn(
+          `init: --per-package writing per-directory copies for ${perPackageTools.join(", ")} ` +
+            `across ${manifest.packages.length} package(s). These duplicate the root tool context into each ` +
+            `package and add token/context cost when an agent loads several at once; they are .gitignore'd. ` +
+            `Re-run without --per-package to keep root-only output (claude/copilot already ancestor- or root-load and get no copies).`,
+        );
+      }
       const perPackageGitignoreDirs = new Set<string>();
       for (const pa of pendingAdapters) {
-        const perPackageOutputs = planPerPackageOutputs(manifest.packages, pa.outputs);
+        const perPackageOutputs = planPerPackageOutputs(pa.tool, manifest.packages, pa.outputs);
         const existingPaths = new Set<string>(manifest.managedFilesByAdapter[pa.tool] ?? []);
         const written = await mapWithConcurrency(
           perPackageOutputs,
@@ -1006,8 +1023,8 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
           // Ignore the exact generated copy path (POSIX-normalized, leading
           // `/` so the match is anchored to the repo root and cannot collide
           // with an identically-named file deeper in the tree). Per-package
-          // copies land at each adapter's native path under the package
-          // (`<pkg>/.cursor/...`, `<pkg>/CLAUDE.md`, `<pkg>/.github/...`), so
+          // copies land at the per-package tool's native path under the
+          // package (`<pkg>/.cursor/...` — D14-6 scopes emission to cursor), so
           // ignoring the concrete written paths is precise where a single
           // directory glob would be wrong.
           perPackageGitignoreDirs.add(`/${p.output.path.replace(/\\/g, "/")}`);

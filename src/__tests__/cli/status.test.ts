@@ -353,10 +353,10 @@ describe("status command", () => {
   describe("monorepo per-package drift (D14-1)", { timeout: 30_000 }, () => {
     it("reports a 2-package monorepo in-sync with 0 false orphans", async () => {
       // Two-package workspace fixture. The package directories do not need to
-      // pre-exist — sync's safeWriteFile creates `<package>/.hatch3r/...`
-      // parents recursively. Use two tools so the orphan blast radius the
-      // finding describes (per-package x per-adapter) is exercised, not a
-      // single-adapter corner case.
+      // pre-exist — sync's safeWriteFile creates `<package>/...` parents
+      // recursively. Configure cursor (emits per-package copies per D14-6) plus
+      // claude (root-only, no per-package copies) so the orphan loop is
+      // exercised against a mixed adapter set, not a single-adapter corner case.
       await createTestProject(tempDir, {
         tools: ["cursor", "claude"],
         packages: [

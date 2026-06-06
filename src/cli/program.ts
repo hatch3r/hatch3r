@@ -479,7 +479,7 @@ export function createProgram(): Command {
     .description("Explain a hatch3r command's cost model, the customization-applied state, a generated file's canonical sources, OR the recorded efficiency telemetry")
     .option("--cost <command-id>", "Command id to explain (e.g. hatch3r-quick-change, quick-change)")
     .option("--customizations", "List every .customize.yaml/.customize.md pair with applied state and reasons")
-    .option("--source [output-path]", "Show the canonical source files behind a generated output (e.g. CLAUDE.md); omit the path or pass `all` to list every recorded output")
+    .option("--source [output-path]", "Show the canonical source files behind a generated output (e.g. CLAUDE.md); omit the path or pass `all` for a per-output source-count summary (add --verbose for every full source list)")
     // --efficiency provenance: D6-M2.
     .option("--efficiency", "Show per-artifact + per-phase aggregate from .hatch3r/efficiency-events.jsonl (telemetry gated by HATCH3R_EFFICIENCY_TELEMETRY=1)")
     .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens (--cost only)")

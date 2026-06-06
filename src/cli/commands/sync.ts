@@ -953,7 +953,10 @@ export async function syncCommand(
       // permissions issue does not abort the sync (Silent Failure
       // Contract — CONSTITUTION §2 P5).
       if (m.packages && m.packages.length > 0) {
-        const perPackage = planPerPackageOutputs(m.packages, outputs);
+        // D14-6: planPerPackageOutputs re-targets only for tools whose load
+        // model reads per-directory files (cursor); claude/copilot get [] so a
+        // sync never writes copies they would not read.
+        const perPackage = planPerPackageOutputs(tool, m.packages, outputs);
         for (const p of perPackage) {
           if (opts.dryRun) {
             // D11-SA11.2-F9: marker-aware would-be action for per-package

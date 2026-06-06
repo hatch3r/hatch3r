@@ -356,7 +356,7 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   }
 
   if (sourceRequested) {
-    await explainSourceMode(opts!.source);
+    await explainSourceMode(opts!.source, !!opts?.verbose);
     return;
   }
 
@@ -716,8 +716,9 @@ async function explainEfficiencyMode(): Promise<void> {
 
 /**
  * SA12.4-F1 (D12): one provenance record for a generated output file. Mirrors
- * the schema written by `hatch3r sync` to `.hatch3r/provenance.json`
- * (`src/cli/commands/sync.ts` → SA12.4-F1 writer).
+ * the schema in `src/manifest/provenance.ts` ({@link ProvenanceEntry} there),
+ * written by the shared `writeProvenance` helper that `sync`, `init`, and
+ * `update` all call (D12-4).
  */
 interface ProvenanceEntry {
   path: string;
@@ -731,8 +732,9 @@ interface ProvenanceManifest {
   generatedAt?: string;
   /**
    * SA12.1-F-D12-M4 (D12, P1): identifier for the CLI command that produced
-   * this manifest (currently `"sync"`). Lets operators distinguish a
-   * sync-emitted manifest from a possible future update-emitted one.
+   * this manifest — `"sync"`, `"init"`, or `"update"` since D12-4 routed all
+   * three through the shared `writeProvenance` helper. Lets operators
+   * distinguish which command last wrote the manifest.
    */
   lastCommand?: string;
   /**
@@ -746,17 +748,32 @@ interface ProvenanceManifest {
 
 /**
  * SA12.4-F1 (D12): render the canonical-source provenance for a generated
- * adapter output. Reads `.hatch3r/provenance.json` (written by `hatch3r sync`)
- * and prints, for the requested output path, the adapter that produced it and
+ * adapter output. Reads `.hatch3r/provenance.json` (written by `sync`, `init`,
+ * or `update` via the shared `writeProvenance` helper, D12-4) and prints, for
+ * the requested output path, the adapter that produced it and
  * the sorted canonical `sourceFiles[]` that shaped it. This closes the gap
  * where `sourceFiles` provenance was captured in memory by `BaseAdapter` then
  * discarded, leaving operators with no user-visible canonical-source trace.
  *
  * Subject forms:
  *   - a specific output path (`CLAUDE.md`, `.cursor/rules/hatch3r-bridge.mdc`)
- *   - `all` or the valueless flag → one block per recorded output
+ *     → one full block listing every canonical source for that path
+ *   - `all` or the valueless flag → a `path → N source(s)` summary table
+ *     (one line per output). D12-2 (Cycle 11 Wave 2): the prior `all` form
+ *     printed one full per-source block per output, which for a standard
+ *     init+sync was 224,672 lines / 19.3 MB — unreadable and a size
+ *     symptom of the per-output over-attribution fixed by D12-1. The
+ *     default is now a bounded one-line-per-output count; pass `--verbose`
+ *     to expand it back to the full per-path source enumeration.
+ *
+ * @param detail when true (driven by `--verbose`), the `all` form prints the
+ *   full per-path source list instead of the count summary. Ignored for the
+ *   single-path form, which always prints the full list for the one output.
  */
-async function explainSourceMode(subject: string | undefined): Promise<void> {
+async function explainSourceMode(
+  subject: string | undefined,
+  detail = false,
+): Promise<void> {
   const rootDir = process.cwd();
   const provenancePath = join(rootDir, HATCH3R_DIR, "provenance.json");
 
@@ -801,6 +818,7 @@ async function explainSourceMode(subject: string | undefined): Promise<void> {
   const wantAll = normalized === "" || normalized.toLowerCase() === "all";
 
   if (wantAll) {
+    const totalSources = outputs.reduce((sum, o) => sum + o.sourceFiles.length, 0);
     const headerLines = [
       label("Manifest", `${HATCH3R_DIR}/provenance.json`),
       label("hatch3r", manifest.hatch3rVersion ?? "(unknown)"),
@@ -810,13 +828,55 @@ async function explainSourceMode(subject: string | undefined): Promise<void> {
       label("Command", manifest.lastCommand ?? "(unknown)"),
       label("Run id", manifest.lastRunId ?? "(unknown)"),
       label("Outputs", String(outputs.length)),
+      label("Source links", String(totalSources)),
     ];
     printBox("Source provenance — all outputs", headerLines, "info");
+
     // Stable order: by adapter then path (matches the writer's sort).
     const sorted = [...outputs].sort((a, b) => {
       const byAdapter = a.adapter.localeCompare(b.adapter);
       return byAdapter !== 0 ? byAdapter : a.path.localeCompare(b.path);
     });
+
+    // D12-2 (Cycle 11 Wave 2, D12, P4/P1): the `all` form defaults to a
+    // bounded `path → N source(s)` summary — one line per output — instead of
+    // the full per-source block per output. For a standard init+sync (703
+    // outputs, a handful of which aggregate the whole canonical read set) the
+    // old full enumeration was 224,672 lines / 19.3 MB, unreadable in a
+    // terminal and a size symptom of the over-attribution D12-1 corrected.
+    // `--verbose` expands back to the full per-path source list on request.
+    if (!detail) {
+      const COL_OUTPUT = 56;
+      const COL_ADAPTER = 10;
+      const tableLines: string[] = [];
+      tableLines.push(
+        `${"Output".padEnd(COL_OUTPUT)}${"Adapter".padEnd(COL_ADAPTER)}Sources`,
+      );
+      tableLines.push(chalk.dim("─".repeat(COL_OUTPUT + COL_ADAPTER + 8)));
+      for (const entry of sorted) {
+        // Truncate over-long paths so the count column stays aligned; the
+        // single-path form (`--source <path>`) shows the full untruncated path.
+        const pathCell =
+          entry.path.length > COL_OUTPUT - 1
+            ? `${entry.path.slice(0, COL_OUTPUT - 2)}…`
+            : entry.path;
+        const count = entry.sourceFiles.length;
+        const countCell = count === 0 ? chalk.dim("0") : String(count);
+        tableLines.push(
+          `${pathCell.padEnd(COL_OUTPUT)}${entry.adapter.padEnd(COL_ADAPTER)}${countCell}`,
+        );
+      }
+      printBox("Per-output source counts", tableLines, "info");
+      info(
+        chalk.dim(
+          "Showing source counts. Run `hatch3r explain --source <output-path>` for one output's full list, " +
+            "or `hatch3r explain --source all --verbose` for every list.",
+        ),
+      );
+      console.log();
+      return;
+    }
+
     for (const entry of sorted) {
       printSourceBlock(entry);
     }
