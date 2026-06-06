@@ -59,9 +59,9 @@ When a review loop ran this turn, the §5 Confidence line MUST append the action
 
 Omit the mapping when no review loop ran (e.g. a Tier 1 typo edit with no reviewer pass) — no confidence level is derived, so no action line applies.
 
-## Optional Pattern Rationale (D13 in-flow teaching)
+## Pattern Rationale (D13 in-flow teaching — default-ON at Tier ≥ 2)
 
-Orchestrators MAY emit a `## Pattern Rationale` block before the Iteration Summary to teach the user the framework pattern applied — closing the knowledge-transfer gap surfaced by D13 SA13.4 F5. One line per pattern with rule citation + pillar served + plain-language reason:
+In-flow teaching is the default, not opt-in: at Tier ≥ 2 (non-trivial / novel orchestrations) the orchestrator MUST emit a `## Pattern Rationale` block before the Iteration Summary, teaching the user each framework pattern applied this turn — closing the knowledge-transfer gap surfaced by D13 SA13.4 (F5/F6: sub-agent reasoning is summarized away before it reaches the user, so the user learns nothing unless the orchestrator teaches at its own surface). One SHORT line per applied pattern with rule citation + pillar served + plain-language reason:
 
 ```
 pattern_rationale:
@@ -71,7 +71,12 @@ pattern_rationale:
     why: <≤1 sentence plain language>
 ```
 
-Default omission policy: emit when at least one mutated file applies a named rule the user did not request explicitly. Skip on trivial edits (typo, frontmatter-only). When omitted entirely, no field appears — this preserves token budget for Tier 1 runs.
+Emission policy:
+
+- **Default-ON at Tier ≥ 2:** emit one line for each mutated file that applies a named rule the user did not request explicitly. A Tier ≥ 2 turn that applied at least one such pattern and omits the block is a P5 gate failure (same enforcement class as the §9 Validation Gate).
+- **Tier 1 exemption:** Tier 1 trivial edits (typo, frontmatter-only, single-line clarification) skip the block — no pattern is taught, so no field appears, preserving token budget. This mirrors the Tier-1 exemption in `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header).
+- **No-pattern case:** when a Tier ≥ 2 turn applied no named rule beyond what the user requested, emit `pattern_rationale: none (no implicit pattern applied)` rather than dropping the field, so the block's absence is never ambiguous.
+- **`--quiet` opt-out:** the `--quiet` CLI flag suppresses the block at the user surface (same precedent as cost data in `rules/hatch3r-cost-visibility.md` → "appears in user-facing iteration summaries by default … suppressing via the `--quiet` CLI flag"). Suppression is user-surface only; it does not weaken the Tier ≥ 2 emission contract for default (non-`--quiet`) runs.
 
 ## User-Accepted Bypass Record (D13)
 

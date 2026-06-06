@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 6,
     "githubAgents": 4,
-    "testFiles": 220
+    "testFiles": 221
   },
   "files": {
     "adapters": [
@@ -537,6 +537,7 @@
       "src/__tests__/content/index.selection.test.ts",
       "src/__tests__/content/languageTagSkew.test.ts",
       "src/__tests__/content/learningsLoader.test.ts",
+      "src/__tests__/content/learningsMatchKeyParity.test.ts",
       "src/__tests__/content/learningsValidation.test.ts",
       "src/__tests__/content/monorepoEmission.test.ts",
       "src/__tests__/content/orphanScan.test.ts",

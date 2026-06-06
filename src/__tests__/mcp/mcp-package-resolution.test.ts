@@ -28,6 +28,7 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findPackageRoot } from "../../cli/shared/paths.js";
+import { readMcpConfig } from "../../adapters/mcp-utils.js";
 
 interface McpServerEntry {
   command?: unknown;
@@ -144,5 +145,64 @@ describe("bundled mcp.json — dependency-confusion guard (D15-1)", () => {
         `postgres launches \`${arg}\` — @modelcontextprotocol/server-postgres is deprecated/archived with a documented SQL-injection (Datadog); pin a maintained PostgreSQL MCP server instead`,
       ).not.toBe("@modelcontextprotocol/server-postgres");
     }
+  });
+
+  // D15-26 (Cycle 11 Wave 3, Medium, P3 MCP supply-chain currency): the
+  // default-enabled `brave-search` server previously pinned the reference
+  // package `@modelcontextprotocol/server-brave-search@0.6.2`, which npm marks
+  // deprecated ("Package no longer supported") and Brave archived in favour of
+  // its officially maintained `@brave/brave-search-mcp-server` (verified
+  // non-deprecated, `npm view` 2026-06-06). Migrated to the official server
+  // (stdio transport via `--transport stdio`). This static guard locks the root
+  // cause so a future edit cannot reintroduce the archived reference package.
+  it("the brave-search server does not pin the deprecated @modelcontextprotocol/server-brave-search package", () => {
+    const servers = loadBundledMcpServers();
+    const brave = servers["brave-search"];
+    expect(brave, "brave-search server entry must exist in the bundled pack").toBeTruthy();
+
+    const argStrings = Array.isArray(brave.args)
+      ? (brave.args as unknown[]).filter((a): a is string => typeof a === "string")
+      : [];
+    for (const arg of argStrings) {
+      const at = arg.startsWith("@") ? arg.indexOf("@", 1) : arg.indexOf("@");
+      const pkgName = at > 0 ? arg.slice(0, at) : arg;
+      expect(
+        pkgName,
+        `brave-search launches \`${arg}\` — @modelcontextprotocol/server-brave-search is deprecated on npm ("Package no longer supported"); pin Brave's maintained @brave/brave-search-mcp-server instead`,
+      ).not.toBe("@modelcontextprotocol/server-brave-search");
+    }
+  });
+});
+
+// D11-15 (Cycle 11 Wave 3, Medium, P6/SA11.3-F3): the bundled `github` server
+// uses an HTTP transport with `_trust_bypass: true` (its endpoint,
+// api.githubcopilot.com, is a rotating GitHub-operated remote with no stable
+// artifact to SHA-256 pin). Before this fix, `validateMcpEntry` emitted an
+// un-actionable "pinning bypassed" warning on EVERY `readMcpConfig` of the
+// shipped pack, training operators to ignore MCP security warnings (alarm
+// fatigue). The fix records `_trust_bypass_reason` on the entry, which
+// suppresses the per-server warning while keeping the opt-out auditable in the
+// config. This loads the REAL bundled pack (real-deal-first, CONSTITUTION §2 P2
+// Decision 20) so a future edit that drops the reason re-fails here.
+describe("bundled mcp.json — bypass-warning hygiene (D11-15)", () => {
+  it("the github server carries a documented _trust_bypass_reason", () => {
+    const servers = loadBundledMcpServers() as Record<
+      string,
+      McpServerEntry & { _trust_bypass?: unknown; _trust_bypass_reason?: unknown }
+    >;
+    const github = servers.github;
+    expect(github, "github server entry must exist in the bundled pack").toBeTruthy();
+    expect(github._trust_bypass).toBe(true);
+    expect(typeof github._trust_bypass_reason).toBe("string");
+    expect((github._trust_bypass_reason as string).trim()).not.toBe("");
+  });
+
+  it("readMcpConfig of the bundled pack emits no 'pinning bypassed' warning", async () => {
+    const { warnings } = await readMcpConfig(PKG_ROOT);
+    const bypassWarnings = warnings.filter((w) => w.includes("pinning bypassed"));
+    expect(
+      bypassWarnings,
+      `bundled pack should not self-emit bypass-fatigue warnings, got: ${JSON.stringify(bypassWarnings)}`,
+    ).toEqual([]);
   });
 });

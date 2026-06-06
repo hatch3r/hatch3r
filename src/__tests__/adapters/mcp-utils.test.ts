@@ -1260,6 +1260,53 @@ describe("validateMcpEntry HTTP-pin integration (C9-M34)", () => {
     expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(false);
   });
 
+  // D11-15 (D11, P6/SA11.3-F3): a documented bypass rationale suppresses the
+  // repeating per-server warning so the framework's own first-party github
+  // server (rotating endpoint, no pinnable artifact) does not train operators
+  // to ignore MCP security warnings (alarm fatigue).
+  it("suppresses the bypass warning when _trust_bypass_reason is a non-empty string", () => {
+    const entry: McpServerEntry = {
+      url: "https://api.githubcopilot.com/mcp/",
+      _trust_bypass: true,
+      _trust_bypass_reason: "github-first-party",
+    };
+    const warnings = validateMcpEntry("github", entry);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(false);
+    expect(warnings.some((w) => w.includes("invalid _trust_bypass_reason"))).toBe(false);
+  });
+
+  it("still warns on bypass when _trust_bypass_reason is absent (operator-added server)", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+    };
+    const warnings = validateMcpEntry("operator-added", entry);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(true);
+    expect(warnings.some((w) => w.includes("_trust_bypass_reason"))).toBe(true);
+  });
+
+  it("does not suppress, and flags, an empty/whitespace _trust_bypass_reason", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+      _trust_bypass_reason: "   ",
+    };
+    const warnings = validateMcpEntry("blankreason", entry);
+    expect(warnings.some((w) => w.includes("invalid _trust_bypass_reason"))).toBe(true);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(true);
+  });
+
+  it("does not suppress, and flags, a non-string _trust_bypass_reason", () => {
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+      _trust_bypass_reason: 42 as unknown as string,
+    } as McpServerEntry;
+    const warnings = validateMcpEntry("badreasontype", entry);
+    expect(warnings.some((w) => w.includes("invalid _trust_bypass_reason"))).toBe(true);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(true);
+  });
+
   it("emits no HTTP-pin warning for command+url combos (stdio precedence)", () => {
     const entry: McpServerEntry = {
       command: "node",

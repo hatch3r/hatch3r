@@ -137,6 +137,7 @@ The canonical entry targets the live remote endpoint `https://api.githubcopilot.
 - **Mitigation**:
   - Use rate limiting on the API key
   - Monitor API usage for unusual patterns
+- **Server choice**: The original reference package `@modelcontextprotocol/server-brave-search` is deprecated on npm ("Package no longer supported"). The canonical pack pins Brave's officially maintained `@brave/brave-search-mcp-server` instead (`--transport stdio`). If you supply your own Brave Search MCP server, confirm it is currently maintained and not on the deprecated list.
 
 ### sentry
 

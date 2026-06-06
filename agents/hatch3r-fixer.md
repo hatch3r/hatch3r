@@ -161,7 +161,7 @@ Report back to the parent orchestrator with:
 
 The `Delegation proof ID` field below is a short identifier the orchestrator quotes verbatim in its closing End-of-Turn Delegation Attestation (defined in `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation). Set it to a memorable token derived from the review iteration or task (e.g., `fix-#34-pr-iter2` or `fix-feat-followup-stream-1`); the orchestrator cannot fabricate a plausible value without spawning this agent first, so the field functions as a forgery-resistant attribution token for files mutated by Phase 3 (closes the gap previously left by emitting no analogue to the implementer's proof field — audit Cycle 10 F5.1-H1).
 
-The `Reviewer re-run required` field is a structured signal to the parent orchestrator: when `true`, the orchestrator MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. Set `false` ONLY when no files were modified (e.g., all findings reported BLOCKED). This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by carrying an explicit reviewer-loop continuation signal in the structured result rather than relying solely on the orchestrator-LLM to remember the protocol.
+The `Reviewer re-run required` field is an **advisory** signal to the parent orchestrator; its authoritative value is **derived**, not self-asserted. The single source of truth is the `Files changed` list below (itself attested by the `Delegation proof ID`): the orchestrator computes `reRunRequired = (Files changed is non-empty)` and MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean whenever that derivation is `true` — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. The orchestrator honor-rule that performs this derivation and overrides a contradictory self-report lives at `rules/hatch3r-agent-orchestration.md` -> Post-Implementation Quality Pipeline -> Phase 3 step 2. Set the advisory boolean to match: `false` ONLY when `Files changed` is empty (e.g., all findings reported BLOCKED); a `false` printed alongside a non-empty `Files changed` is a self-declared protocol violation the orchestrator overrides to `true`. This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by binding the reviewer-loop continuation signal to the SSOT `Files changed` list rather than relying on a free-standing self-asserted boolean or the orchestrator-LLM to remember the protocol.
 
 ```
 ## Fix Result
@@ -170,7 +170,7 @@ The `Reviewer re-run required` field is a structured signal to the parent orches
 
 **Delegation proof ID:** <short identifier — orchestrator quotes this verbatim in its End-of-Turn Delegation Attestation>
 
-**Reviewer re-run required:** true | false (default true when Status = SUCCESS | PARTIAL; false only when no files were modified)
+**Reviewer re-run required:** true | false (advisory — orchestrator derives the authoritative value as `Files changed` non-empty; print `true` whenever the `Files changed` list below has ≥1 entry, `false` only when it is empty)
 
 **Findings addressed:**
 - [CRITICAL #1] file:line -- description of fix applied

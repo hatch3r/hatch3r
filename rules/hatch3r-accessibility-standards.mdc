@@ -73,7 +73,7 @@ All user-facing features must meet WCAG 2.2 Level AA conformance. This is the ba
 - Test with a screen reader on every feature branch that modifies UI.
 - Minimum testing matrix: VoiceOver (macOS/iOS) + Chrome, NVDA + Firefox (Windows).
 - Run automated accessibility checks (axe-core, Lighthouse) in CI.
-- Automated tools catch ~30% of accessibility issues. Manual testing is required for keyboard flows, screen reader experience, and cognitive accessibility.
+- Automated tools (axe-core) catch roughly 57% of WCAG issues by volume — the remaining ~43% require a human keyboard trace, screen-reader pass, and cognitive-accessibility review (Deque Systems automated-coverage finding; https://www.deque.com/automated-accessibility-testing-coverage/ , accessed 2026-06-06). This figure matches `skills/hatch3r-browser-verify/SKILL.md` per-cycle reminder; the two artifacts state the same denominator.
 - Maintain an accessibility test checklist per component type (form, modal, navigation, data table).
 
 ## WCAG 2.2 New Success Criteria (Mandatory Audit Items)
@@ -96,3 +96,14 @@ Touch surfaces have stricter target and spacing requirements than pointer-only s
 - Apply `env(safe-area-inset-*)` padding on full-bleed surfaces so content clears notches, home indicators, and rounded corners on iOS and Android edge devices.
 - Support Dynamic Type (iOS) and rem-based font scaling — declare body text in `rem` or `em` units, never `px`, so OS-level font size settings cascade.
 - Zoom to 200% and 400% (per WCAG 1.4.4 and 1.4.10 Reflow) must remain functional with no horizontal scroll trap. Audit for `width: 100vw` and fixed pixel widths that break reflow.
+
+### Mobile-native verification path
+
+The touch obligations above are mandated for native UI too, but native targets (React Native, Flutter, SwiftUI/UIKit, Android Compose/View) do not render to a DOM, so the browser gates (axe-core, Lighthouse) cannot run on them. The glob on this rule (`**/*.{tsx,jsx,vue,svelte}` plus `**/components/**`) matches React-Native `.tsx`/`.jsx` components, so a native surface can trigger this rule with no browser. Branch on the detected stack and run the framework-native accessibility check instead — a native obligation without one of these checks is unverified, not satisfied:
+
+- **React Native:** run `eslint-plugin-react-native-a11y` for static touch-target, label, and role lint; assert touch-target size and `accessibilityLabel` presence in a `@testing-library/react-native` render test.
+- **Flutter:** run the `flutter_test` semantics tester with `meets_guideline` matchers — `androidTapTargetGuideline()` (48dp), `iOSTapTargetGuideline()` (44pt), `labeledTapTargetGuideline()`, and `textContrastGuideline()` — which assert the same target and contrast bounds without a browser.
+- **Android (Compose/View):** enable Espresso `AccessibilityChecks.enable()` in instrumented tests so every interaction is audited for target size and content labels; run Accessibility Scanner once per release on the built APK for spacing and contrast.
+- **iOS (SwiftUI/UIKit):** run an XCUITest `app.performAccessibilityAudit()` (`for: [.dynamicType, .hitRegion, .contrast]`) so target size, Dynamic Type scaling, and contrast are checked on-device.
+
+When no native a11y harness is wired for the detected stack, the gate is `BLOCKED_MISSING_TOOL` (per `agents/hatch3r-implementer.md` Step 5c) — it never becomes an unmeasured `PASS`; the orchestrator wires the harness or downgrades scope. Stack-specific patterns and the test-harness setup live in `rules/hatch3r-android-patterns.md`, `rules/hatch3r-swiftui-patterns.md`, and `rules/hatch3r-flutter-patterns.md`.

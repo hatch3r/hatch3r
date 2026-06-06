@@ -10,7 +10,8 @@ This directory holds the Claude Code configuration that ships with the repositor
 | `settings.local.json` | **User-local overrides** layered on top of `settings.json` at session start | No — gitignored |
 | `rules/*.md` | Project rules auto-loaded each session | Yes |
 | `skills/h4tcher-*/SKILL.md` | Framework-internal slash commands (`/h4tcher-*`) | Yes |
-| `hooks/*.mjs` | Session/tool hook implementations referenced from `settings.json` | Yes |
+| `hooks/session-start-registry.mjs` | SessionStart hook implementation referenced from `settings.json` | Yes |
+| `hooks/pretooluse-allowlist.mjs`, `hooks/agent-tool-policies.json`, `hooks/hatch3r-hooks.json` | Generated dogfood: hatch3r's Claude adapter (`src/adapters/claude.ts`) writes these into this dev `.claude/` when the framework is run on itself; referenced from the generated `hooks/hatch3r-hooks.json`, not from `settings.json` | No — gitignored (`.gitignore` lines 54-56) |
 
 ## User-local overrides
 

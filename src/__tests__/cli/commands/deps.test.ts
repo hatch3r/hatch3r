@@ -93,4 +93,48 @@ describe("depsCommand", () => {
     // empty-state line must NOT appear.
     expect(out).not.toContain("no artifacts reference this one");
   });
+
+  it("surfaces prose-derived skill/rule/MCP references in a non-authoritative section (D12-10)", async () => {
+    // hatch3r-implementer declares no agentPipeline/delegates yet references
+    // canonical skills (hatch3r-design-system-detect, hatch3r-ui-ux-verify),
+    // rules (hatch3r-tooling-hierarchy), and "Context7 MCP" in body prose. The
+    // best-effort scan must surface these under the labelled References block so
+    // the old "(none declared)" empty state no longer misleads the operator.
+    const { depsCommand } = await import("../../../cli/commands/deps.js");
+    await depsCommand("hatch3r-implementer");
+    const out = logged();
+    expect(out).toContain("References (best-effort, prose-derived");
+    // index-confirmed skill + rule ids referenced in implementer prose
+    expect(out).toContain("hatch3r-design-system-detect");
+    expect(out).toContain("hatch3r-tooling-hierarchy");
+    // pattern-matched MCP server name ("Context7 MCP" shorthand)
+    expect(out).toContain("Context7");
+    // the References block is populated, so its empty state must be absent
+    expect(out).not.toContain("no skill / rule / MCP references found");
+  });
+
+  it("scans prose references on a command body too, not just agents (D12-10)", async () => {
+    // hatch3r-quick-change is an orchestrator command whose body cites canonical
+    // rules in prose (hatch3r-agent-orchestration, hatch3r-iteration-summary)
+    // that are absent from its agentPipeline. The scan must surface them so the
+    // command's non-agent dependency surface is visible.
+    const { depsCommand } = await import("../../../cli/commands/deps.js");
+    await depsCommand("hatch3r-quick-change");
+    const out = logged();
+    expect(out).toContain("References (best-effort, prose-derived");
+    expect(out).toContain("hatch3r-agent-orchestration");
+    expect(out).toContain("hatch3r-iteration-summary");
+  });
+
+  it("shows the References empty state when an artifact body cites no skill/rule/MCP (D12-10)", async () => {
+    // hatch3r-edge-case-analyst's body cites no canonical skill/rule path refs
+    // and no MCP server, so the References block must render its empty state
+    // rather than fabricate references. Confirms the index-confirmation guard
+    // rejects non-artifact mentions (zero false positives on the id facet).
+    const { depsCommand } = await import("../../../cli/commands/deps.js");
+    await depsCommand("hatch3r-edge-case-analyst");
+    const out = logged();
+    expect(out).toContain("References (best-effort, prose-derived");
+    expect(out).toContain("no skill / rule / MCP references found");
+  });
 });

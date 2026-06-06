@@ -30,6 +30,23 @@ export interface McpServerEntry {
    * compromise risk.
    */
   _trust_bypass?: boolean;
+  /**
+   * D11-15 (Cycle 11 Wave 3, D11, P6/SA11.3-F3): documented rationale for a
+   * `_trust_bypass: true` opt-out. When present and non-empty, the per-server
+   * "pinning bypassed" warning {@link validateMcpEntry} would otherwise emit
+   * on every read is SUPPRESSED — the bypass stays auditable via this recorded
+   * reason rather than a repeating runtime warning. Bypass without a reason
+   * still warns, so the security signal fires only for operator-added unpinned
+   * HTTP servers that have not documented why. The bundled `github` server
+   * carries `_trust_bypass_reason: "github-first-party"` because its endpoint
+   * (`api.githubcopilot.com`) is a rotating GitHub-operated remote with no
+   * stable artifact to SHA-256 pin; emitting an un-actionable warning on a
+   * framework decision trains operators to ignore MCP security warnings (alarm
+   * fatigue). A malformed value (non-string, or empty/whitespace-only string)
+   * is itself a misconfiguration and does NOT suppress — see
+   * {@link validateMcpEntry}.
+   */
+  _trust_bypass_reason?: string;
 }
 
 /**
@@ -500,11 +517,34 @@ export function validateMcpEntry(
   if (!httpPolicy.ok && httpPolicy.reason) {
     warnings.push(`MCP server "${name}" ${httpPolicy.reason}`);
   } else if (entry._trust_bypass === true && entry.url && !entry.command) {
-    warnings.push(
-      `MCP server "${name}" HTTP endpoint "${entry.url}" pinning bypassed ` +
-        `via _trust_bypass: true. Endpoint is trusted on faith — operator ` +
-        `accepts upstream-compromise risk.`,
-    );
+    // D11-15 (D11, P6/SA11.3-F3): suppress the per-server bypass warning when
+    // a documented rationale is recorded. The bypass remains auditable through
+    // the recorded reason; emitting a repeating un-actionable warning for a
+    // deliberate, justified opt-out (e.g. the bundled github server's rotating
+    // first-party endpoint) trains operators to ignore MCP security warnings.
+    // A reason that is present-but-malformed (non-string, or empty/whitespace-
+    // only) does NOT suppress — it is a misconfiguration that gets its own
+    // warning, so an attempt to silence the signal without a real rationale
+    // still surfaces. Bypass with no reason at all keeps the original warning,
+    // preserving the signal for operator-added unpinned HTTP servers.
+    const reason = entry._trust_bypass_reason;
+    const hasValidReason = typeof reason === "string" && reason.trim() !== "";
+    if (reason !== undefined && !hasValidReason) {
+      warnings.push(
+        `MCP server "${name}" has invalid _trust_bypass_reason ` +
+          `(${typeof reason === "string" ? "empty/whitespace string" : `${typeof reason}`}). ` +
+          `Provide a non-empty rationale string to document the pinning opt-out, ` +
+          `or remove the field to restore the bypass warning.`,
+      );
+    }
+    if (!hasValidReason) {
+      warnings.push(
+        `MCP server "${name}" HTTP endpoint "${entry.url}" pinning bypassed ` +
+          `via _trust_bypass: true. Endpoint is trusted on faith — operator ` +
+          `accepts upstream-compromise risk. Document the rationale in ` +
+          `_trust_bypass_reason to suppress this warning.`,
+      );
+    }
   }
 
   // D15 Medium (#15.44): Validate timeout if specified
