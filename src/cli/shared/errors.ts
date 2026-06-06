@@ -132,7 +132,7 @@ export function formatActionableError(
       return { lines: [], exitCode: 0, kind: "hatch-cancel" };
     }
     // SA12.1-F-D12-M3 (D12, P1): per-run correlation id embedded on every
-    // fatal HatchError so the operator can grep `.hatch3r/.failures.log`
+    // fatal HatchError so the operator can grep `.hatch3r/.failure-log.jsonl`
     // by this id to find every entry recorded during the same run.
     const runId = getRunId();
     // SA12.1-F01: resolve the explicit per-call-site hint OR the

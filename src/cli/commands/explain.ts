@@ -739,7 +739,7 @@ interface ProvenanceManifest {
   lastCommand?: string;
   /**
    * SA12.1-F-D12-M4 (D12, P1): per-run correlation id of the producing
-   * command. Operators can grep `.hatch3r/.failures.log` by this id to find
+   * command. Operators can grep `.hatch3r/.failure-log.jsonl` by this id to find
    * every entry recorded during the same run.
    */
   lastRunId?: string;
@@ -824,7 +824,7 @@ async function explainSourceMode(
       label("hatch3r", manifest.hatch3rVersion ?? "(unknown)"),
       label("Generated", manifest.generatedAt ?? "(unknown)"),
       // SA12.1-F-D12-M4: surface the producing command + run id so operators
-      // can correlate the manifest back to a specific `.failures.log` entry.
+      // can correlate the manifest back to a specific `.failure-log.jsonl` entry.
       label("Command", manifest.lastCommand ?? "(unknown)"),
       label("Run id", manifest.lastRunId ?? "(unknown)"),
       label("Outputs", String(outputs.length)),

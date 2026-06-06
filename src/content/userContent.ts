@@ -39,6 +39,7 @@ import { fileURLToPath } from "node:url";
 import { stringify as yamlStringify } from "yaml";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
+import { parseFrontmatter } from "../adapters/canonical.js";
 import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
 import { isValidHookEvent } from "../hooks/types.js";
 import { ALL_TOOL_CATEGORIES } from "../pipeline/agentToolAllowlist.js";
@@ -222,6 +223,39 @@ const SECURITY_BASELINE_PATTERNS: readonly RegExp[] = [
   /hatch3r-security-patterns/i,
   /\*\*Security baseline:\*\*/i,
 ];
+
+/**
+ * Shared decision for the agent tool-grant security baseline (F20.2.A3, D20.2
+ * item 2, D20-2). Returns the over-threshold allowlist width when the grant is
+ * wide AND the body cites no security baseline — `undefined` otherwise. Both the
+ * in-memory funnel ({@link runUserContentGates}) and the on-disk pre-flight
+ * ({@link validateContentBody}) route through this so the width threshold and the
+ * citation patterns stay single-source (P4); previously only the funnel —
+ * reachable solely via the LLM-mediated `/hatch3r-create` path — enforced it, so
+ * a hand-authored unbounded grant (`create.md` invites direct editing) shipped
+ * unflagged by the deterministic CLI gates at every tier (D20-2 / SA20.2-F5).
+ */
+function agentToolGrantOverBaseline(
+  allowed: readonly string[] | undefined,
+  body: string,
+): number | undefined {
+  const allowedWidth = Array.isArray(allowed) ? allowed.length : 0;
+  if (allowedWidth <= AGENT_TOOL_BASELINE_THRESHOLD) return undefined;
+  const hasBaseline = SECURITY_BASELINE_PATTERNS.some((re) => re.test(body));
+  return hasBaseline ? undefined : allowedWidth;
+}
+
+/**
+ * Shared message for the agent tool-grant security-baseline violation (D20-2).
+ * Single-source so the in-memory funnel and the on-disk pre-flight emit the same
+ * remediation text; callers append a tier or path qualifier as needed.
+ */
+function agentToolGrantBaselineMessage(allowedWidth: number): string {
+  return (
+    `Agent declares ${allowedWidth} tool categories (> ${AGENT_TOOL_BASELINE_THRESHOLD}) without a security baseline — ` +
+    "cite `hatch3r-security-patterns` or add a `**Security baseline:**` line scoping the grant"
+  );
+}
 
 /**
  * Valid pillar identifiers for a user artifact's `pillars` frontmatter array
@@ -497,6 +531,14 @@ export interface ContentBodyViolation {
  *   - Returns an empty list when `.hatch3r/overrides/` does not exist.
  *   - Treats deny-pattern hits and injection-scan violations as `severity: "error"`.
  *   - Reads the file body (post-frontmatter) and surfaces every match.
+ *   - D20-2: for `type: agent` files, parses the structured `tools.allowed`
+ *     grant and flags a wide allowlist (> {@link AGENT_TOOL_BASELINE_THRESHOLD}
+ *     categories) that cites no security baseline as `severity: "error"`. This
+ *     is the deterministic CLI floor for the unbounded-grant scenario: the same
+ *     check ran only inside {@link runUserContentGates}, reachable solely via the
+ *     LLM-mediated `/hatch3r-create` path, so a hand-authored grant rode in
+ *     unflagged at every tier (SA20.2-F5). Mirrors the in-memory funnel via the
+ *     shared {@link agentToolGrantOverBaseline} helper.
  *   - Tolerates I/O errors on individual files (logs a warning entry, continues
  *     scanning siblings) — a malformed user file never halts the pre-flight.
  */
@@ -548,6 +590,34 @@ export async function validateContentBody(
         severity: "error",
         message: "body exceeds pipeline input cap and was truncated by sanitizePipelineInput",
       });
+    }
+
+    // D20-2: agent tool-grant security baseline. The funnel
+    // (`runUserContentGates`) enforces this only on the `/hatch3r-create` path;
+    // a hand-edited agent file (`create.md` invites direct editing) reaches the
+    // adapters via this deterministic pre-flight, so the width+citation check
+    // runs here too. Parse the on-disk frontmatter for the structured
+    // `tools.allowed` grant and the author-declared type — discovery buckets by
+    // directory, so we confirm `type: agent` before reading the grant. The
+    // citation patterns scan the already-stripped `body`, matching the funnel.
+    if (artifact.type === "agent") {
+      let toolsAllowed: string[] | undefined;
+      try {
+        toolsAllowed = parseFrontmatter(raw).metadata.toolsAllowed;
+      } catch {
+        // A YAML-malformed frontmatter is already surfaced by the canonical
+        // index / save funnel; here we only need the grant width, so an
+        // unparseable header simply skips the baseline check (no false error).
+        toolsAllowed = undefined;
+      }
+      const overWidth = agentToolGrantOverBaseline(toolsAllowed, body);
+      if (overWidth !== undefined) {
+        violations.push({
+          relativePath,
+          severity: "error",
+          message: agentToolGrantBaselineMessage(overWidth),
+        });
+      }
     }
   }
 
@@ -977,24 +1047,18 @@ async function runUserContentGates(
   // citation requirement closes the gap the membership/overlap check left
   // open. Gentle at `solo`; promoted to strict at `team`+ per F20.2.A1.
   if (artifact.type === "agent") {
-    const allowedWidth = Array.isArray(artifact.tools?.allowed)
-      ? artifact.tools.allowed.length
-      : 0;
-    if (allowedWidth > AGENT_TOOL_BASELINE_THRESHOLD) {
-      const hasBaseline = SECURITY_BASELINE_PATTERNS.some((re) =>
-        re.test(artifact.body),
-      );
-      if (!hasBaseline) {
-        const message =
-          `Agent declares ${allowedWidth} tool categories (> ${AGENT_TOOL_BASELINE_THRESHOLD}) without a security baseline — ` +
-          "cite `hatch3r-security-patterns` or add a `**Security baseline:**` line scoping the grant";
-        if (isTeamPlus) {
-          strict.push(
-            `${message} (required at maturity tier '${maturityTier}')`,
-          );
-        } else {
-          gentle.push(message);
-        }
+    const allowedWidth = agentToolGrantOverBaseline(
+      artifact.tools?.allowed,
+      artifact.body,
+    );
+    if (allowedWidth !== undefined) {
+      const message = agentToolGrantBaselineMessage(allowedWidth);
+      if (isTeamPlus) {
+        strict.push(
+          `${message} (required at maturity tier '${maturityTier}')`,
+        );
+      } else {
+        gentle.push(message);
       }
     }
   }

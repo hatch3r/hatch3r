@@ -1,5 +1,9 @@
-* @denismasatovic
-* @vicdotdevelop
+# Default owners for everything unless a more-specific rule below matches.
+# Both maintainers MUST be on ONE line: GitHub treats the LAST matching
+# pattern as authoritative and only unions owners written on the SAME line, so
+# two separate `* @a` / `* @b` lines silently drop @a. (D4-6; enforced by
+# scripts/validate-codeowners.ts -> npm run validate:codeowners.)
+* @denismasatovic @vicdotdevelop
 
 # Critical paths require explicit review
 src/integrity/** @denismasatovic

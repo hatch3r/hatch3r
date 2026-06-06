@@ -95,8 +95,10 @@ Skip TDD and use the standard flow (Steps 3→4) when:
 ## Step 5: Verify
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 ```
+
+Resolved to the project's language-aware gate at sync time (fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`).
 
 ## Step 5b: Browser Verification (if UI Bug)
 

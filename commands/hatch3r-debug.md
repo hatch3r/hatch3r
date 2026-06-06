@@ -424,10 +424,10 @@ Await both sub-agents. Apply any findings (additional tests, security fixes).
 
 #### 5e. Final Quality Checks
 
-Run the project's quality gates:
+Run the project's quality gates (resolved to the project's language-aware command set at sync time; fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`):
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 ```
 
 Adapt commands to project conventions (check `package.json`, `Makefile`, `README.md`). Fix any failures before proceeding. Max 2 retry loops on quality check failures. After 2 retries:

@@ -157,6 +157,18 @@ describe("hatchJson", () => {
       expect(createManifest({ tools: ["cursor"] }).conflicts).toBeUndefined();
       expect(createManifest({ tools: ["cursor"], conflicts: [] }).conflicts).toBeUndefined();
     });
+
+    it("persists a non-npm package manager (D14-M7)", () => {
+      const manifest = createManifest({ tools: ["cursor"], packageManager: "pnpm" });
+      expect(manifest.packageManager).toBe("pnpm");
+    });
+
+    it("omits packageManager when 'unknown' or absent (byte-identity for npm projects)", () => {
+      expect(createManifest({ tools: ["cursor"] }).packageManager).toBeUndefined();
+      expect(
+        createManifest({ tools: ["cursor"], packageManager: "unknown" }).packageManager,
+      ).toBeUndefined();
+    });
   });
 
   describe("migrateManifest", () => {
@@ -696,6 +708,51 @@ describe("hatchJson", () => {
       await expect(readManifest(rootDir)).rejects.toThrow(
         /Invalid manifest/,
       );
+    });
+
+    it("rejects an out-of-enum packageManager value (D14-M7) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        packageManager: "deno",
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on invalid packageManager");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/packageManager/);
+      }
+    });
+
+    it("round-trips a persisted packageManager through write + read (D14-M7)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        languages: ["typescript"],
+        packageManager: "pnpm",
+      });
+      const manifest = await readManifest(rootDir);
+      expect(manifest?.packageManager).toBe("pnpm");
     });
 
     it("accepts a valid maturity tier", async () => {

@@ -18,6 +18,7 @@ import { generateWorktreeInclude, extractManagedContent } from "../../worktree/i
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { writeFailureLog } from "../../pipeline/failureLog.js";
+import { getRunId } from "../shared/runId.js";
 import { generateWithTimeout } from "../../pipeline/adapterTimeout.js";
 import {
   createCircuitBreaker,
@@ -126,10 +127,17 @@ async function readFileOrNull(filePath: string): Promise<string | null> {
  * helper rather than dropped to a bare `console.error`, so a failing audit
  * trail (EACCES, ENOSPC, read-only mount) is visible in the command output.
  * Failure logging still never breaks the update.
+ *
+ * D12-7 (Cycle 11 Wave 2, D12, P1): threads the per-run `correlationId` so
+ * every CLI-written entry carries the same `HATCH3R_RUN_ID` the error funnel
+ * prints to stderr (`src/cli/shared/errors.ts`, `src/cli/index.ts`). Without
+ * it the entry had no run id and the "grep the failure log by this run id"
+ * guidance in those funnels resolved to a key that was never present.
  */
 async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
   const result = await writeFailureLog(agentsDir, phase, error, {
     tool,
+    correlationId: getRunId(),
     version: HATCH3R_VERSION,
   });
   if (result.warning) warn(`[hatch3r update] ${result.warning}`);
@@ -229,7 +237,7 @@ export async function runRegenerate(
   // but `runRegenerate` is also called directly (e.g. from tests, batch
   // pipelines) so re-run here to keep every entry point covered.
   await migrateAgentsToHatch3r(rootDir);
-  // Wave 7: failure log writes target `.hatch3r/.failures.log`.
+  // Wave 7: failure log writes target `.hatch3r/.failure-log.jsonl` (FAILURE_LOG_FILE).
   const hatch3rDir = join(rootDir, HATCH3R_DIR);
 
   // Decision 27 (Bucket 2.2) wiring: snapshot every file `runRegenerate`
@@ -681,7 +689,6 @@ export async function runRegenerate(
       // Format guidance via createReplayGuidance/formatReplayGuidance so the
       // failure block carries reproduction steps + env snapshot inline.
       try {
-        const { getRunId } = await import("../shared/runId.js");
         const { createReplayGuidance, formatReplayGuidance } = await import("../../pipeline/observability.js");
         const guidance = createReplayGuidance(
           getRunId(),
@@ -741,6 +748,15 @@ export async function runRegenerate(
   s3.start();
   manifest.hatch3rVersion = HATCH3R_VERSION;
   await writeManifest(rootDir, manifest);
+
+  // D12-3 (D12, P6): `writeProvenance` below writes `.hatch3r/provenance.json`
+  // unconditionally, but the only `ensureGitignoreEntry` call above is gated
+  // behind `features.mcp`. A no-MCP update would leave the machine-local
+  // provenance manifest stageable by the next `git add .`. Register the
+  // gitignore carve-out unconditionally before writing it (idempotent — the
+  // MCP-gated call above is a harmless redundant cover), mirroring the same
+  // decoupling init.ts applies for snapshots/handoffs.
+  await ensureGitignoreEntry(rootDir);
 
   // D12-4 (Cycle 11 Wave 2, D12, P2): refresh `.hatch3r/provenance.json` via
   // the shared `writeProvenance` helper so `hatch3r status` drift attribution

@@ -89,9 +89,11 @@ Before changing anything:
 ## Step 5: Verify
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 npm run build
 ```
+
+The gate line is resolved to the project's language-aware command set at sync time (fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`); the build line is illustrative — substitute the project's build command.
 
 - Confirm bundle size within budget (if defined).
 - Run `npm audit` — no critical or high vulnerabilities remaining.

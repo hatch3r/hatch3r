@@ -96,7 +96,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 Run `npx hatch3r validate` to check structural correctness of the bundled canonical content and your project's `.hatch3r/hatch.json` manifest. Below are common errors and how to fix them.
 
-> **validate vs verify:** `validate` checks structural correctness (frontmatter, directories, cross-references). `verify` regenerates adapter outputs from the bundled canonical content and diffs them against the on-disk copy to detect drift or tampering. Use `validate` for content issues, `verify` for drift detection.
+> **validate vs verify:** `validate` checks structural correctness (frontmatter, directories, cross-references). `verify` regenerates adapter outputs from the bundled canonical content and diffs the managed block against the on-disk copy to detect content drift, and also scans the on-disk `HATCH3R:BEGIN`/`HATCH3R:END` marker structure for tampering (orphan/duplicate markers, wrong host-comment syntax) — reported as advisory warnings that do not change the drift PASS/FAIL exit code. Use `validate` for content issues, `verify` for drift detection.
 
 ### Missing hatch.json manifest
 

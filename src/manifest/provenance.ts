@@ -1,11 +1,12 @@
 import { readFile } from "node:fs/promises";
 import { createHash } from "node:crypto";
-import { join } from "node:path";
+import { join, relative, isAbsolute } from "node:path";
 import { extractManagedBlock } from "../merge/managedBlocks.js";
 import { safeWriteFile } from "../merge/safeWrite.js";
 import { HATCH3R_DIR, type AdapterOutput } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { getRunId } from "../cli/shared/runId.js";
+import { resolveBundledContentRoot } from "../content/contentRoot.js";
 
 /**
  * D12-4 (Cycle 11 Wave 2, D12, P2): the relative on-disk location of the
@@ -46,6 +47,33 @@ export function hashEmittedContent(
   const block = extractManagedBlock(content, filePath) ?? managedContent ?? null;
   const payload = block !== null ? block.trim() : content;
   return createHash("sha256").update(payload).digest("hex");
+}
+
+/**
+ * D12-3 (D12, P6): normalize a `BaseAdapter`-populated `sourceFiles` entry to a
+ * path RELATIVE to the bundled content root so the persisted manifest carries
+ * portable `agents/hatch3r-architect.md`-style ids rather than the absolute,
+ * machine-specific `/Users/<name>/…/dist/content/agents/hatch3r-architect.md`
+ * the adapter tracks (built by `readCanonicalFiles` as
+ * `join(resolveBundledContentRoot(), <type>, <relPath>)`). An absolute home
+ * path leaks the operator's username + install layout into a file the operator
+ * may commit (the D12-3 fix also gitignores `provenance.json`), and differs
+ * per machine — defeating diff stability for any team that does commit it.
+ *
+ * Only absolute entries are rewritten: an already-relative value (an adapter
+ * that set `sourceFiles` explicitly to a repo-relative id) is returned
+ * unchanged, because feeding it to `path.relative(contentRoot, rel)` would
+ * resolve it against `process.cwd()` and produce a wrong `..`-laden path. An
+ * absolute path OUTSIDE the content root (no overlap) yields a `..`-prefixed
+ * result from `path.relative`; that is preserved as-is rather than silently
+ * dropping the attribution. POSIX `/` separators are forced so a manifest
+ * written on Windows stays byte-identical to one written on POSIX (the ids are
+ * display/trace strings, never re-opened from disk by any consumer —
+ * status.ts/explain.ts/provenance.ts read them as opaque labels).
+ */
+export function relativizeSourceFile(sourceFile: string, contentRoot: string): string {
+  if (!isAbsolute(sourceFile)) return sourceFile;
+  return relative(contentRoot, sourceFile).split("\\").join("/");
 }
 
 /** One persisted provenance record: an output path + how it was produced. */
@@ -125,6 +153,24 @@ export async function writeProvenance(
   const failedAdapters = opts.failedAdapters ?? [];
   const provenancePath = join(rootDir, HATCH3R_DIR, PROVENANCE_FILE);
   try {
+    // D12-3 (D12, P6): resolve the bundled content root ONCE so every
+    // `sourceFiles` entry is rewritten relative to it (portable, machine-
+    // independent ids). `resolveBundledContentRoot` is process-cached and only
+    // throws when the bundled content is genuinely absent — in that edge layout
+    // we fall back to leaving the absolute paths untouched rather than failing
+    // the whole manifest write (the gitignore carve-out still keeps the file
+    // machine-local). `relativizeSourceFile` no-ops on already-relative ids.
+    let contentRoot: string | null = null;
+    try {
+      contentRoot = resolveBundledContentRoot();
+    } catch {
+      contentRoot = null;
+    }
+    const relSources = (sources: string[] | undefined): string[] =>
+      contentRoot === null
+        ? [...(sources ?? [])].sort()
+        : [...(sources ?? [])].map((s) => relativizeSourceFile(s, contentRoot)).sort();
+
     // F2.7-F5 idempotency contract: sort `successfulOutputs` by `[adapter,
     // path]` to match the on-disk sort applied to the merged `outputs` below.
     // Without this, the `.every((p, i) => …)` index-by-index comparison
@@ -136,7 +182,10 @@ export async function writeProvenance(
         entry.outputs.map((out) => ({
           path: out.path,
           adapter: entry.adapter,
-          sourceFiles: [...(out.sourceFiles ?? [])].sort(),
+          // D12-3: persist content-root-relative source ids, not the absolute
+          // home paths BaseAdapter tracks (sort after relativizing so order is
+          // stable on the rewritten strings).
+          sourceFiles: relSources(out.sourceFiles),
           // F2.7-F5 (D2): emit-time hash of the normalized managed block (or
           // full content when the output has no block). `status` re-derives
           // this from the on-disk file to tell a user edit (on-disk differs
@@ -202,7 +251,7 @@ export async function writeProvenance(
 
     // SA12.1-F-D12-M4 (D12, P1): record which CLI command produced this
     // provenance manifest and under which per-run correlation id. Operators
-    // tracing a stale provenance entry back to a run can grep .failures.log by
+    // tracing a stale provenance entry back to a run can grep .failure-log.jsonl by
     // `lastRunId`, and CI consumers can branch on `lastCommand` to distinguish
     // a sync-emitted manifest from an init- or update-emitted one.
     const provenance: ProvenanceManifest = {

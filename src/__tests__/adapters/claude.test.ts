@@ -1764,6 +1764,53 @@ Low priority rule body.
   // AbortSignal; `BaseAdapter.throwIfSignalAborted` is the documented
   // contract (see src/adapters/base.ts:321). Pin the contract here so any
   // future change that silently swallows the signal cannot regress.
+  // D14-9 (D14, P3 / Decision 16): `claudeMaturityHeader` stamps the resolved
+  // maturity tier atop the CLAUDE.md managed block. Pre-fix CLAUDE.md was
+  // byte-identical across tiers (an enterprise install matched a solo install),
+  // so the declared tier never reached the agent that reads CLAUDE.md as
+  // memory. The directive is delivered at EVERY tier (solo→enterprise), in both
+  // standard and minimal modes, and always points at
+  // `rules/hatch3r-right-sizing.md` — parity with cursor.ts/copilot.ts.
+  describe("maturity right-sizing header (D14-9)", () => {
+    const tiers = ["solo", "team", "scaleup", "enterprise"] as const;
+
+    for (const tier of tiers) {
+      it(`stamps right-size to maturity=${tier} + rule pointer atop CLAUDE.md`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), maturity: tier };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+        expect(claudeMd).toBeDefined();
+        expect(claudeMd!.content).toContain(`right-size to maturity=${tier}`);
+        expect(claudeMd!.content).toContain("rules/hatch3r-right-sizing.md");
+        // The stamp lives inside the hatch3r-managed block.
+        const startIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_START);
+        const stampIdx = claudeMd!.content.indexOf(`right-size to maturity=${tier}`);
+        const endIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_END);
+        expect(startIdx).toBeLessThan(stampIdx);
+        expect(stampIdx).toBeLessThan(endIdx);
+      });
+    }
+
+    it("collapses an absent maturity field to solo (DEFAULT_MATURITY_TIER)", async () => {
+      const manifest = makeManifest();
+      expect(manifest.maturity).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("right-size to maturity=solo");
+    });
+
+    it("stamps the tier in minimal mode too", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "minimal");
+
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("right-size to maturity=enterprise");
+      expect(claudeMd!.content).toContain("rules/hatch3r-right-sizing.md");
+    });
+  });
+
   describe("error paths", () => {
     it("rejects with the abort reason when the signal is pre-aborted", async () => {
       const manifest = makeManifest();

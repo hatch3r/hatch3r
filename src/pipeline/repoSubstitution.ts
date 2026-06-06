@@ -148,12 +148,19 @@ export function verificationGatesFromManifest(manifest: HatchManifest): {
   all: string;
 } {
   const languages = manifest.languages ?? [];
-  // The manifest does not persist the detected package manager on a top-
-  // level field today; npm is the safe default and `resolveVerificationGates`
-  // already accepts an undefined `packageManager` argument.
+  // D14-M7 (Cycle 11): forward the persisted package manager so a pnpm/yarn/
+  // bun JS project renders `pnpm run test` / `yarn test` / `bun run test`
+  // instead of always `npm run test`. `resolveVerificationGates` treats the
+  // `"unknown"` sentinel and `undefined` identically (npm default), so a
+  // pre-Cycle-11 manifest with no `packageManager` field keeps the old
+  // npm-based output — no behavioral regression for npm projects.
+  const packageManager =
+    manifest.packageManager && manifest.packageManager !== "unknown"
+      ? manifest.packageManager
+      : undefined;
   const gates =
     languages.length > 0
-      ? resolveVerificationGates(languages, undefined)
+      ? resolveVerificationGates(languages, packageManager)
       : DEFAULT_GATE_COMMANDS;
   // Collapse the nullable typecheck to a string so callers can substitute
   // the token directly without branching. When the language has no

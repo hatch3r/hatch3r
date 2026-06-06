@@ -1513,6 +1513,93 @@ describe("validateContentBody — pre-flight body scan (C9-H84 / D20-F20.2.2)", 
   });
 });
 
+describe("validateContentBody — agent tool-grant security baseline (D20-2)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-toolgrant-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // Frontmatter shape `composeArtifactFile` writes to disk: a block-sequence
+  // `tools.allowed`. > AGENT_TOOL_BASELINE_THRESHOLD (3) categories = wide.
+  const WIDE_TOOLS_YAML =
+    "tools:\n  allowed:\n    - read\n    - search\n    - write\n    - execute\n    - web";
+  const NARROW_TOOLS_YAML = "tools:\n  allowed:\n    - read\n    - search";
+
+  it("flags a wide agent tool grant with no security baseline as severity=error", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(userRoot, "agents", "wide-grant.md"),
+      `---\nid: wide-grant\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\nA hand-authored agent body with no baseline citation.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    const grantErrors = violations.filter(
+      (v) => v.severity === "error" && /tool categories .* without a security baseline/.test(v.message),
+    );
+    expect(grantErrors.length).toBe(1);
+    expect(grantErrors[0]?.relativePath).toContain("wide-grant.md");
+    // The width (5) and the threshold (3) are both surfaced in the message.
+    expect(grantErrors[0]?.message).toContain("5 tool categories");
+    expect(grantErrors[0]?.message).toContain("> 3");
+  });
+
+  it("clears the grant when the body cites hatch3r-security-patterns", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(userRoot, "agents", "cited-rule.md"),
+      `---\nid: cited-rule\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\nThis agent follows the hatch3r-security-patterns rule for its tool grant.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    expect(violations.filter((v) => /security baseline/.test(v.message))).toEqual([]);
+  });
+
+  it("clears the grant when the body carries a **Security baseline:** line", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(userRoot, "agents", "cited-slot.md"),
+      `---\nid: cited-slot\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\n**Security baseline:** read+search are read-only; write/execute are sandboxed.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    expect(violations.filter((v) => /security baseline/.test(v.message))).toEqual([]);
+  });
+
+  it("does not flag a narrow grant (<= threshold) even without a baseline", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(userRoot, "agents", "narrow-grant.md"),
+      `---\nid: narrow-grant\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${NARROW_TOOLS_YAML}\n---\nA narrow agent body with no baseline citation.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    expect(violations.filter((v) => /security baseline/.test(v.message))).toEqual([]);
+  });
+
+  it("does not apply the grant check to non-agent artifacts", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "rules"), { recursive: true });
+    // A rule file carrying a wide `tools.allowed` block must not trip the
+    // agent-only gate (discovery buckets by directory; the check guards type).
+    await writeFile(
+      join(userRoot, "rules", "wide-rule.md"),
+      `---\nid: wide-rule\ntype: rule\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\nA rule body, not an agent.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    expect(violations.filter((v) => /security baseline/.test(v.message))).toEqual([]);
+  });
+});
+
 describe("hook-event enum parity (F20.1.A1)", () => {
   let tempDir: string;
 

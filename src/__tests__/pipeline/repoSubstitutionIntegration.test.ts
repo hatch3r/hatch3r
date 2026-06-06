@@ -190,3 +190,80 @@ describe("C9-H47 sync-time substitution — adapter integration", () => {
     expect(agentAfter).toContain("${HATCH3R:LINTER}");
   });
 });
+
+// D16-4 (Cycle 11): end-to-end proof that a swept skill/command Verify gate
+// (`${HATCH3R:VERIFY_GATE_ALL}`) resolves to the project's native toolchain at
+// adapter output time — for a non-npm JS project (pnpm) and a non-JS project
+// (python). This is the integration-level closure of the CQ5/CQ9
+// self-contradiction the finding describes.
+describe("D16-4 verify-gate token resolution in skill output", () => {
+  let rootDir: string;
+  let agentsDir: string;
+
+  const SKILL_MD = [
+    "---",
+    "id: verify-gate-skill",
+    "name: verify-gate-skill",
+    "type: skill",
+    "description: Skill body exercising the verification-gate token",
+    "tags: [implementation]",
+    "---",
+    "## Verify",
+    "",
+    "```bash",
+    "${HATCH3R:VERIFY_GATE_ALL}",
+    "```",
+    "",
+  ].join("\n");
+
+  beforeEach(async () => {
+    rootDir = await mkdtemp(join(tmpdir(), "hatch3r-d164-"));
+    agentsDir = join(rootDir, ".agents");
+    const skillDir = join(agentsDir, "skills", "verify-gate-skill");
+    await mkdir(skillDir, { recursive: true });
+    await writeFile(join(skillDir, "SKILL.md"), SKILL_MD);
+  });
+
+  afterEach(async () => {
+    await rm(rootDir, { recursive: true, force: true });
+  });
+
+  it("resolves to pnpm commands for a pnpm-managed TypeScript project", async () => {
+    const manifest = createManifest({
+      tools: ["claude"],
+      mcpServers: [],
+      languages: ["typescript"],
+      packageManager: "pnpm",
+    });
+    const outputs = await new ClaudeAdapter().generate(agentsDir, manifest);
+    const skill = outputs.find((o) => o.path.includes("verify-gate-skill"));
+    expect(skill).toBeDefined();
+    expect(skill!.content).toContain("pnpm run lint && pnpm run typecheck && pnpm run test");
+    expect(skill!.content).not.toContain("${HATCH3R:VERIFY_GATE_ALL}");
+  });
+
+  it("resolves to the Python toolchain for a python project", async () => {
+    const manifest = createManifest({
+      tools: ["claude"],
+      mcpServers: [],
+      languages: ["python"],
+    });
+    const outputs = await new ClaudeAdapter().generate(agentsDir, manifest);
+    const skill = outputs.find((o) => o.path.includes("verify-gate-skill"));
+    expect(skill).toBeDefined();
+    expect(skill!.content).toContain("ruff check . && mypy . && pytest");
+    expect(skill!.content).not.toContain("${HATCH3R:VERIFY_GATE_ALL}");
+  });
+
+  it("falls back to npm for a pre-Cycle-11 manifest with no packageManager", async () => {
+    const manifest = createManifest({
+      tools: ["claude"],
+      mcpServers: [],
+      languages: ["typescript"],
+    });
+    expect(manifest.packageManager).toBeUndefined();
+    const outputs = await new ClaudeAdapter().generate(agentsDir, manifest);
+    const skill = outputs.find((o) => o.path.includes("verify-gate-skill"));
+    expect(skill!.content).toContain("npm run lint && npm run typecheck && npm run test");
+  });
+});

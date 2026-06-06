@@ -141,6 +141,8 @@ The agent runs these commands to produce `proof_trace` blocks. Each row maps a c
 |---|---|---|
 | 1. OAuth PKCE | `rg -n "response_type=code" src/auth/ \| rg -v "code_challenge"` | any match (auth-code flow without PKCE) |
 | 1. OAuth grant hygiene | `rg -n "grant_type=(implicit\|password)" src/auth/` | any match |
+| 1. Refresh-token rotation + reuse detection (CRITICAL trigger) | `rg -n "grant_type=refresh_token\|refresh_token" src/auth/ \| rg -v "rotat\|reuse\|revoke.*family\|family.*revoke"` | any match — static starter; High confidence requires a full flow trace confirming rotation issues a new token AND reuse revokes the family |
+| 1. redirect_uri exact-string allowlist (CRITICAL trigger) | `rg -n "redirect_uris?\b" src/auth/ \| rg -F "*"` | any wildcard in a redirect_uri allowlist — static starter; High confidence requires a full flow trace confirming the matcher is exact-string, not prefix/substring |
 | 2. OIDC validation | `rg -n "jwt\.(verify\|decode)" src/auth/ \| rg -v "audience\|issuer"` | any match (validator missing `aud` or `iss`) |
 | 3. DPoP / mTLS | `rg -n "Bearer " src/ \| rg -v "DPoP\|mTLS\|cnf\.jkt"` | any browser-issued bearer without sender constraint |
 | 4. JWT BCP | `rg -n "alg.*none\|jwt\.verify\([^,]+,[^,)]+\)$" src/` | any match (`alg: none` accepted OR no `algorithms` option pinned) |

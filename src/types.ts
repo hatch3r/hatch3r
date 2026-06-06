@@ -194,6 +194,16 @@ export interface HatchManifest {
   /** Detected project languages from repo analysis. */
   languages?: string[];
   /**
+   * D14-M7 (Cycle 11): detected package manager persisted from `analyzeRepo`
+   * at init time (`RepoInfo.packageManager`). Forwarded to
+   * `resolveVerificationGates` by `verificationGatesFromManifest` so the
+   * `${HATCH3R:VERIFY_GATE_*}` tokens render `pnpm run test` / `yarn test` /
+   * `bun run test` for non-npm JS projects instead of always `npm run test`.
+   * Absence (pre-Cycle-11 manifests) collapses to the npm default in
+   * `resolveVerificationGates` — no behavioral regression for npm projects.
+   */
+  packageManager?: "npm" | "yarn" | "pnpm" | "bun" | "unknown";
+  /**
    * C9-H47 (D14-SA14.4-H01): detected toolchain context persisted from
    * `analyzeRepo` at init time. Used by the adapter pipeline to substitute
    * `${HATCH3R:LINTER}` / `${HATCH3R:TEST_FRAMEWORK}` / `${HATCH3R:CI_PROVIDER}`

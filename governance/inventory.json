@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 6,
     "githubAgents": 4,
-    "testFiles": 206
+    "testFiles": 213
   },
   "files": {
     "adapters": [
@@ -421,6 +421,8 @@
       "scripts/__tests__/validate-adapter-output.test.ts",
       "scripts/__tests__/validate-bridge-budget.test.ts",
       "scripts/__tests__/validate-canonical.test.ts",
+      "scripts/__tests__/validate-codeowners.test.ts",
+      "scripts/__tests__/validate-content-duplication.test.ts",
       "scripts/__tests__/validate-control-reachability.test.ts",
       "scripts/__tests__/validate-efficiency-invariants.test.ts",
       "scripts/__tests__/validate-fanout-emission.test.ts",
@@ -431,6 +433,7 @@
       "scripts/__tests__/validate-rule-pillar-currency.test.ts",
       "scripts/__tests__/validate-severity-vocabulary.test.ts",
       "scripts/__tests__/validate-specialist-roster.test.ts",
+      "scripts/__tests__/validate-verify-gate-literals.test.ts",
       "scripts/__tests__/validate-wiring.test.ts",
       "src/__tests__/adapters/base.test.ts",
       "src/__tests__/adapters/canonical.test.ts",
@@ -546,9 +549,12 @@
       "src/__tests__/e2e/createFlow.test.ts",
       "src/__tests__/env/mcpEnv.test.ts",
       "src/__tests__/env/secretDetection.test.ts",
+      "src/__tests__/governance/audit-execute-skill-npm-separator.test.ts",
       "src/__tests__/governance/content-validation-gate.test.ts",
       "src/__tests__/governance/customize-doc-examples-gate.test.ts",
       "src/__tests__/governance/dogfood-isolation-gate.test.ts",
+      "src/__tests__/governance/pr-resolve-skill-pillar-currency-gate.test.ts",
+      "src/__tests__/governance/security-agent-verification-coverage.test.ts",
       "src/__tests__/hooks/adapterIntegration.test.ts",
       "src/__tests__/hooks/readHookDefinitions.test.ts",
       "src/__tests__/hooks/session-start.test.ts",
@@ -561,6 +567,7 @@
       "src/__tests__/install/selfUpdate.test.ts",
       "src/__tests__/manifest/hatchJson.test.ts",
       "src/__tests__/manifest/mcpFilter.test.ts",
+      "src/__tests__/manifest/provenance.test.ts",
       "src/__tests__/manifest/rehydration.test.ts",
       "src/__tests__/manifests/claude-plugin.test.ts",
       "src/__tests__/mcp/mcp-package-resolution.test.ts",

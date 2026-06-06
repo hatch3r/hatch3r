@@ -34,11 +34,12 @@ For non-hatch3r repos the canonical `/hatch3r-pr-resolve` command (distributed v
 7. For every sub-agent prompt spawned during Step 6 (Fix implementation) and Step 7 (Review loop + final-quality specialists), inject this hatch3r-development context block:
    ```
    Hatch3r-specific constraints:
-   - Pillar Compliance Test: every change must serve one or more of P1–P7
-     (governance/CONSTITUTION.md §2). If none, revert.
-   - Lean thresholds: governance file line limits (CONSTITUTION ≤225,
-     AUDIT ≤600, AUDIT-EXECUTE ≤700, domain files 30–80) — compress
-     within the file before exceeding.
+   - Pillar Compliance Test: every change must serve one or more of P1–P8
+     (governance/CONSTITUTION.md §2). If none, revert. P8 dominates P7:
+     never under-fan-out for token-cost reasons.
+   - Lean thresholds: governance file line limits per CONSTITUTION §2 P5
+     (read the table — do not cache numeric ceilings here, they drift) —
+     compress within the file before exceeding.
    - Anti-slop wordlist: zero hits per
      .claude/rules/anti-slop-enforcement.md.
    - Commit format: type(scope): description with DCO sign-off via
@@ -79,7 +80,7 @@ Run after Step 2 fixes complete. Block commit on any failure.
 For every file modified during Step 2:
 
 10. **Pillar Compliance Test** (`.claude/rules/pillar-compliance.md`):
-    - Which pillar(s) P1–P7 does this change serve?
+    - Which pillar(s) P1–P8 does this change serve?
     - What measurable improvement does it produce?
     - Does it increase total governance size? If yes, justify the net value or compress elsewhere.
     - If no pillar served → revert the change.
@@ -159,7 +160,7 @@ Next action (run manually):
 ## References
 
 - Canonical workflow: `commands/hatch3r-pr-resolve.md`
-- Pillar definitions: `governance/CONSTITUTION.md` §2 (P1–P7)
+- Pillar definitions: `governance/CONSTITUTION.md` §2 (P1–P8)
 - Lean thresholds: `governance/CONSTITUTION.md` §2 P5
 - Anti-slop wordlist: `.claude/rules/anti-slop-enforcement.md`
 - Pillar Compliance Test: `.claude/rules/pillar-compliance.md`

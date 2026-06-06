@@ -752,6 +752,10 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     mcpServers,
     content: contentSelection,
     languages: repoInfo.languages,
+    // D14-M7 (Cycle 11): persist the detected package manager so sync-time
+    // `${HATCH3R:VERIFY_GATE_*}` resolution renders the project's native run
+    // command (pnpm/yarn/bun) instead of always `npm run test`.
+    packageManager: repoInfo.packageManager,
     // C9-H47 (D14-SA14.4-H01): persist detected toolchain so adapter
     // sync can resolve `${HATCH3R:LINTER}` etc. tokens from the manifest
     // alone (sync.ts does not re-run analyzeRepo).

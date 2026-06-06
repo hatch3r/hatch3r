@@ -163,7 +163,13 @@ export function checkContextBudget(
  * Returns null if the budget is not exceeded.
  *
  * C7.5-W2B2-H22 (D6-SA6.1-2): includes an actionable next-step suggestion
- * with a concrete `hatch3r sync --minimal` command (P1 actionable errors).
+ * (P1 actionable errors). D6-3 (Cycle 11 Wave 2): the next step points at levers
+ * that actually shrink the always-loaded slice — disabling the largest always-on
+ * rules and deselecting content — NOT `--minimal`. Under Decision 16 every preset
+ * ships the full corpus, and `--minimal` (BaseAdapter.stripMinimal) only removes
+ * comments/blank-lines/horizontal-rules from that same corpus; on an already-lean
+ * rule slice it trims well under 1% and can never clear an over-budget gate, so
+ * suggesting it as the remedy was a dead-end next step (failed P1).
  */
 export function formatBudgetWarning(result: ContextBudgetResult): string | null {
   if (!result.exceedsBudget) return null;
@@ -175,7 +181,10 @@ export function formatBudgetWarning(result: ContextBudgetResult): string | null 
   return (
     `${result.tool}: always-loaded output is ~${estK}K tokens, ` +
     `exceeding the estimated ${budgetK}K token context budget (${result.utilizationPercent}% utilization, ~${overK}K over). ` +
-    `Run \`hatch3r sync --minimal\` to reduce output size, or remove unused content via \`hatch3r config\`. ` +
+    `To get under budget, drop always-on rules from the slice: disable the largest ones via ` +
+    `\`.hatch3r/rules/<id>.customize.yaml\` with \`enabled: false\` (protected/floor:* rules cannot be disabled), ` +
+    `or deselect content with \`hatch3r config\`. ` +
+    `\`hatch3r sync --minimal\` only strips comments/formatting (same corpus per Decision 16) and will not clear this gate. ` +
     `Use \`--strict-budget\` to fail the sync on overflow.`
   );
 }

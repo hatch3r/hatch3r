@@ -219,6 +219,23 @@ const ROLLOVER_SUMMARY_DISPOSITIONS: ReadonlySet<string> = new Set([
 const AGGREGATE_SEVERITY_RE = /^[A-Z][a-z]+(\+[A-Z][a-z]+)+$/;
 
 /**
+ * Wiring-verb subset (D16-7): a finding whose recommended fix is to connect an
+ * artifact into a live code path — `wire`, `import`, `call`, `register`, `emit`,
+ * the phrase "add … gate", or the negative diagnosis "no production/runtime
+ * callers". For these, "fix landed" (commit_sha present) is not the same as "fix
+ * works" (the new caller/importer actually exists). D10-SA10.8-F1 (SPACE
+ * telemetry, 0 importers) and D16-6 (adoption-tracker closed by a commit that
+ * never built it) both closed `done` with a commit yet zero wiring. The closing
+ * reviewer must therefore record a `reviewer_notes` line citing the new
+ * caller/importer (grep-checkable), and a `done` row whose `reviewer_notes` is
+ * empty fails the strict gate. Matched against `description` (the field carrying
+ * the finding's recommended fix). Each alternative is bounded by a word/phrase
+ * boundary so substrings like "recall" or "preregister" do not false-positive.
+ */
+const WIRING_VERB_RE =
+  /\b(wir(?:e|ed|es|ing)|import(?:ed|s|ing)?|call(?:ed|s|ing)?|register(?:ed|s|ing)?|emit(?:ted|s|ting)?)\b|add[^.]{0,40}?\bgate\b|\bno (?:production|runtime) callers\b/i;
+
+/**
  * Parse a raw JSON value into either v2 envelope or v1 legacy array.
  * Throws RegistryParseError on shapes neither matches.
  */
@@ -292,8 +309,9 @@ export interface ValidateOptions {
  * Validate a parsed registry against AUDIT-EXECUTE.md §Finding Registry
  * Invariants 1-7 (excluding 6 — Registry Anchor — which is checked by a
  * separate anchor-log validator) plus the terminal-evidence contract
- * (D16-6: strict-mode `done`-needs-evidence). Returns drift reports; empty
- * array means no drift.
+ * (D16-6: strict-mode `done`-needs-evidence) and the effectiveness leg
+ * (D16-7: strict-mode wiring-verb `done` needs a `reviewer_notes` line citing
+ * the new caller/importer). Returns drift reports; empty array means no drift.
  */
 export function validateRegistry(
   parsed: ParsedRegistry,
@@ -471,6 +489,28 @@ function validateEntry(
         finding_id: id,
         reason: "done without closure evidence",
         detail: `Finding ${id}: disposition 'targeted' marked 'done' carries neither commit_sha nor disposition_note (terminal-evidence contract — AUDIT-EXECUTE.md / F16.2-C1)`,
+      });
+    }
+
+    // Effectiveness leg (D16-7): the terminal-evidence check above proves a
+    // commit landed, not that the fix is wired. For the wiring-verb subset
+    // (WIRING_VERB_RE on `description`), closure-by-completion and
+    // closure-by-effectiveness diverge: a commit can land while the prescribed
+    // caller/importer/gate never materializes (D10-SA10.8-F1, D16-6). So a
+    // `done` wiring-verb finding must carry a non-empty `reviewer_notes`
+    // citing the new caller/importer (grep-checkable). Strict-only forward
+    // contract, paired with the terminal-evidence gate above (same validator).
+    if (
+      opts.strict &&
+      f.execution_status === "done" &&
+      typeof f.description === "string" &&
+      WIRING_VERB_RE.test(f.description) &&
+      !(typeof f.reviewer_notes === "string" && f.reviewer_notes.trim().length > 0)
+    ) {
+      reports.push({
+        finding_id: id,
+        reason: "wiring-verb done without effectiveness note",
+        detail: `Finding ${id}: a 'done' finding whose recommended fix is a wiring verb (wire/import/call/register/emit/add-gate/no-callers) must carry a reviewer_notes line citing the new caller/importer (effectiveness leg — AUDIT-EXECUTE.md / D16-7)`,
       });
     }
   }

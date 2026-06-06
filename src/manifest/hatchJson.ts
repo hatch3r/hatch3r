@@ -95,6 +95,15 @@ export function createManifest(options: {
   content?: ContentSelection;
   languages?: string[];
   /**
+   * D14-M7 (Cycle 11): detected package manager from `analyzeRepo`
+   * (`RepoInfo.packageManager`). Persisted so `verificationGatesFromManifest`
+   * can forward it to `resolveVerificationGates` at sync time and render
+   * `pnpm run test` / `yarn test` / `bun run test` for non-npm JS projects.
+   * Omitted when absent or `"unknown"` so npm projects and pre-Cycle-11
+   * fixtures stay byte-identical.
+   */
+  packageManager?: "npm" | "yarn" | "pnpm" | "bun" | "unknown";
+  /**
    * C9-H47 (D14-SA14.4-H01): detected toolchain results from
    * `analyzeRepo`. Persisted on the manifest so adapter sync — which does
    * not re-run `analyzeRepo` — can resolve `${HATCH3R:LINTER}` etc.
@@ -175,6 +184,13 @@ export function createManifest(options: {
   }
   if (options.languages && options.languages.length > 0 && options.languages[0] !== "unknown") {
     manifest.languages = options.languages;
+  }
+  // D14-M7 (Cycle 11): persist the detected package manager so sync-time
+  // gate resolution renders the project's native run command. Omit `"unknown"`
+  // and absence so the written manifest stays byte-identical for npm projects
+  // (npm is the resolver default) and pre-Cycle-11 fixtures.
+  if (options.packageManager && options.packageManager !== "unknown") {
+    manifest.packageManager = options.packageManager;
   }
   // C9-H47: persist detection results when at least one axis has content.
   // Empty arrays collapse to omission so the written manifest stays
@@ -533,6 +549,21 @@ function collectManifestErrors(data: unknown): string[] {
           errors.push(`\`managedFilesByAdapter.${k}\` contains non-string entries`);
         }
       }
+    }
+  }
+
+  // D14-M7 (Cycle 11): package manager (optional). A hand-edited manifest
+  // with an out-of-enum value fails closed here rather than silently rendering
+  // an npm command at sync time (the resolver only honors npm/yarn/pnpm/bun).
+  if (obj.packageManager !== undefined) {
+    const validPackageManagers = ["npm", "yarn", "pnpm", "bun", "unknown"];
+    if (
+      typeof obj.packageManager !== "string" ||
+      !validPackageManagers.includes(obj.packageManager)
+    ) {
+      errors.push(
+        `\`packageManager\` is not one of ${validPackageManagers.join(", ")}`,
+      );
     }
   }
 

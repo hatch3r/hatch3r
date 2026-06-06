@@ -72,8 +72,10 @@ Before modifying code, output:
 - Animations at 60fps (if applicable).
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 ```
+
+Resolved to the project's language-aware gate at sync time (fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`).
 
 ### 4b. Browser Verification
 

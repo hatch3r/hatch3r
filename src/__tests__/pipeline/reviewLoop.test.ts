@@ -445,6 +445,38 @@ describe("reviewLoop", () => {
         regex: /review loop retries up to\s+(\d+)\s+iterations/g,
         occurrences: 1,
       },
+      // Finding D7-1: four code-class loop directives that stated a numeric cap
+      // but were absent from the registry — they could drift freely while green
+      // CI hid it (the exact gap the self-check claim at line "11 distinct
+      // files" asserted was closed). Pin each loop-termination directive.
+      {
+        path: "commands/hatch3r-release.md",
+        label: "release Step 7a review-loop termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /for a maximum of \*\*(\d+) iterations\*\* \(code-class cap per/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-debug.md",
+        label: "debug Stage 5c review-loop termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /Run a review-fix loop, maximum (\d+) iterations, until the reviewer/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/board/pickup-delegation.md",
+        label: "board-pickup delegation review-loop termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /Repeat steps 2-3 for a maximum of \*\*(\d+) iterations\*\* until the confidence-aware gate/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/board/pickup-delegation-multi.md",
+        label: "board-pickup delegation-multi review-loop termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /Repeat steps 2-3 for a maximum of \*\*(\d+) iterations\*\* until the confidence-aware gate/g,
+        occurrences: 1,
+      },
     ];
 
     it("every review-loop cap surface in CAP_SURFACE_REGISTRY matches its loop class (Finding D7-3)", () => {
@@ -455,16 +487,18 @@ describe("reviewLoop", () => {
       // when a new cap-stating surface is authored.
       const repoRoot = process.cwd();
       // Self-check: the registry must enumerate every file that states a cap.
-      // 11 distinct files carry cap statements (rule, rule.mdc, reviewer,
+      // 15 distinct files carry cap statements (rule, rule.mdc, reviewer,
       // fixer, bug-pipeline, board-fill, quick-change, revision, board-pickup,
-      // workflow, detail.md, detail.mdc). detail.md/.mdc each state the
-      // code-class cap three times (Finding D7-2: reviewResult.iterations
-      // comment, failure-mode table, retry-policy) => 18 entries. Guard
-      // against a future edit that silently empties the registry.
+      // workflow, detail.md, detail.mdc, release, debug, pickup-delegation,
+      // pickup-delegation-multi). detail.md/.mdc each state the code-class cap
+      // three times (Finding D7-2: reviewResult.iterations comment,
+      // failure-mode table, retry-policy); release/debug/delegation×2 add one
+      // code-class directive each (Finding D7-1) => 22 entries. Guard against a
+      // future edit that silently empties the registry.
       expect(
         CAP_SURFACE_REGISTRY.length,
         "CAP_SURFACE_REGISTRY must remain populated — it is the single enumerated source of review-loop cap surfaces",
-      ).toBeGreaterThanOrEqual(15);
+      ).toBeGreaterThanOrEqual(20);
 
       for (const surface of CAP_SURFACE_REGISTRY) {
         const body = readFileSync(join(repoRoot, surface.path), "utf-8");

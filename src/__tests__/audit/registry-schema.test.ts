@@ -361,6 +361,121 @@ describe("validateRegistry — terminal-evidence contract (D16-6 / F16.2-C1)", (
   });
 });
 
+describe("validateRegistry — effectiveness leg (D16-7)", () => {
+  const EFFECTIVENESS_REASON = "wiring-verb done without effectiveness note";
+
+  function strictV2(f: Finding) {
+    return parseRegistry({
+      schema_version: CURRENT_REGISTRY_VERSION,
+      generated_at: FIXED_DATE,
+      entries: [f],
+    });
+  }
+
+  it("flags a done wiring-verb finding with empty reviewer_notes (strict)", () => {
+    // D16-6's own failure mode: "wire the adoption-tracker" closed `done`
+    // with a commit but no importer ever existed.
+    const f = modernMinimal({
+      description: "wire the adoption tracker into the cycle-close gate",
+      execution_status: "done",
+      commit_sha: "abc1234",
+      reviewer_notes: null,
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    const hit = drifts.find((d) => d.reason === EFFECTIVENESS_REASON);
+    expect(hit).toBeDefined();
+    expect(hit?.detail).toContain("effectiveness leg");
+  });
+
+  it("accepts a done wiring-verb finding that cites the new caller in reviewer_notes", () => {
+    const f = modernMinimal({
+      description: "no production callers — import telemetry into the request path",
+      execution_status: "done",
+      commit_sha: "abc1234",
+      reviewer_notes: "new importer: src/pipeline/observability.ts:88 imports spaceTelemetry",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EFFECTIVENESS_REASON)).toBeUndefined();
+  });
+
+  it("treats a whitespace-only reviewer_notes as empty (trim guard)", () => {
+    const f = modernMinimal({
+      description: "register the new validator in the gate sweep",
+      execution_status: "done",
+      commit_sha: "abc1234",
+      reviewer_notes: "   ",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EFFECTIVENESS_REASON)).toBeDefined();
+  });
+
+  it("matches the 'add … gate' phrase form", () => {
+    const f = modernMinimal({
+      description: "add a registry-validate gate so closure-by-assertion fails closed",
+      execution_status: "done",
+      commit_sha: "abc1234",
+      reviewer_notes: null,
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EFFECTIVENESS_REASON)).toBeDefined();
+  });
+
+  it("does NOT flag a done finding whose description has no wiring verb", () => {
+    const f = modernMinimal({
+      description: "rename the misspelled frontmatter field across all rule twins",
+      execution_status: "done",
+      commit_sha: "abc1234",
+      reviewer_notes: null,
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EFFECTIVENESS_REASON)).toBeUndefined();
+  });
+
+  it("does NOT false-positive on a substring like 'recall' (word-boundary guard)", () => {
+    const f = modernMinimal({
+      description: "document the recall behaviour of the snapshot cache",
+      execution_status: "done",
+      commit_sha: "abc1234",
+      reviewer_notes: null,
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EFFECTIVENESS_REASON)).toBeUndefined();
+  });
+
+  it("does NOT apply in legacy-tolerant (non-strict) mode", () => {
+    const f = modernMinimal({
+      description: "wire the tracker into the gate",
+      execution_status: "done",
+      commit_sha: "abc1234",
+      reviewer_notes: null,
+    });
+    const drifts = validateRegistry(strictV2(f) /* no strict flag */);
+    expect(drifts.find((d) => d.reason === EFFECTIVENESS_REASON)).toBeUndefined();
+  });
+
+  it("does NOT flag a non-done wiring-verb finding (strict)", () => {
+    const f = modernMinimal({
+      description: "wire the tracker into the gate",
+      execution_status: "pending",
+      reviewer_notes: null,
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EFFECTIVENESS_REASON)).toBeUndefined();
+  });
+
+  it("does NOT flag a non-targeted done wiring-verb summary (strict)", () => {
+    const f = modernMinimal({
+      disposition: "already_resolved",
+      description: "wire the tracker into the gate",
+      execution_status: "done",
+      commit_sha: "abc1234",
+      reviewer_notes: null,
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EFFECTIVENESS_REASON)).toBeUndefined();
+  });
+});
+
 describe("validateRegistry — postPhase2", () => {
   it("flags missing work_unit on targeted findings after Phase 2", () => {
     const parsed = parseRegistry({

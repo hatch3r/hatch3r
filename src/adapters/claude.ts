@@ -7,6 +7,7 @@ import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
+import { readMaturityTier } from "../manifest/hatchJson.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
 import {
@@ -504,6 +505,31 @@ function claudeSingleSource(file: CanonicalFile): string[] | undefined {
   return file.sourcePath ? [file.sourcePath] : undefined;
 }
 
+/**
+ * D14-9 (D14, P3 / Decision 16): per-tier maturity header for the Claude
+ * adapter, closing the parity gap with `cursor.ts::cursorMaturityHeader` and
+ * `copilot.ts`'s `> hatch3r: right-size to maturity=<tier>` blockquote.
+ *
+ * Pre-fix the Claude adapter emitted no maturity signal: a CLAUDE.md generated
+ * at `enterprise` was byte-identical to one generated at `solo`, so the
+ * declared tier never reached the agent that reads CLAUDE.md as memory. The
+ * tier resolves through {@link readMaturityTier} (absence collapses to
+ * `"solo"`) and is stamped once at the top of the CLAUDE.md managed-block
+ * payload — the most authoritative runtime surface, mirroring the Copilot
+ * instructions-file placement rather than Cursor's per-rule-body placement.
+ *
+ * The marker is a markdown HTML comment (like the cache-breakpoint sentinels
+ * in this same file) so it renders invisibly in Claude Code's memory view
+ * while remaining greppable for drift checks. The directive text matches the
+ * Cursor/Copilot wording (right-sizing instruction + universal-floor caveat +
+ * `rules/hatch3r-right-sizing.md` pointer) so the calibration signal is
+ * identical across all three adapters.
+ */
+function claudeMaturityHeader(ctx: AdapterContext): string {
+  const tier = readMaturityTier(ctx.manifest);
+  return `<!-- hatch3r: right-size to maturity=${tier}. Invest only as deep as this tier needs; never default to enterprise-grade. Universal floor (security, correctness, a11y basics, baseline tests) always binds. See rules/hatch3r-right-sizing.md. -->`;
+}
+
 export class ClaudeAdapter extends BaseAdapter {
   readonly name = "claude";
 
@@ -513,8 +539,15 @@ export class ClaudeAdapter extends BaseAdapter {
 
     const bridgeOrchestration = await this.bridgeOrchestration(ctx);
     const teamsSection = minimal ? AGENT_TEAMS_SECTION_MINIMAL : AGENT_TEAMS_SECTION;
+    // D14-9 (D14, P3 / Decision 16): stamp the resolved maturity tier at the
+    // top of the CLAUDE.md payload (both minimal and standard) so the declared
+    // tier travels with the artifact — pre-fix CLAUDE.md was byte-identical
+    // across tiers. Parity with cursor.ts/copilot.ts maturity headers.
+    const maturityHeader = claudeMaturityHeader(ctx);
     const innerParts = minimal
       ? [
+          "",
+          maturityHeader,
           "",
           "# Hatch3r Project Instructions",
           "",
@@ -526,6 +559,8 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
         ]
       : [
+          "",
+          maturityHeader,
           "",
           "# Hatch3r Project Instructions",
           "",

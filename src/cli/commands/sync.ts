@@ -161,10 +161,17 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
  * wrapper routes the warning through the `warn()` UI helper so a failing audit
  * trail (EACCES, ENOSPC, read-only mount) is visible in the command output,
  * not silently swallowed. Failure logging still never breaks the sync.
+ *
+ * D12-7 (Cycle 11 Wave 2, D12, P1): threads the per-run `correlationId` so
+ * every CLI-written entry carries the same `HATCH3R_RUN_ID` the error funnel
+ * prints to stderr (`src/cli/shared/errors.ts`, `src/cli/index.ts`). Without
+ * it the entry had no run id and the "grep the failure log by this run id"
+ * guidance in those funnels resolved to a key that was never present.
  */
 async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
   const result = await writeFailureLog(agentsDir, phase, error, {
     tool,
+    correlationId: getRunId(),
     version: HATCH3R_VERSION,
   });
   if (result.warning) warn(`[hatch3r sync] ${result.warning}`);
@@ -1158,7 +1165,7 @@ export async function syncCommand(
       const exitCode = budgetGateFailed ? 2 : undefined;
       const allTransient = classifiedFailures.every((c) => c.failType === "transient");
       const aggregateGuidance = budgetGateFailed
-        ? "Re-run without --strict-budget, or reduce output size with `hatch3r sync --minimal` / `hatch3r config`."
+        ? "Re-run without --strict-budget, or shrink the always-on slice: disable the largest rules via `.hatch3r/rules/<id>.customize.yaml` (`enabled: false`) or deselect content with `hatch3r config`. (`--minimal` only strips formatting from the same corpus and will not clear the gate.)"
         : allTransient
           ? "All failures appear transient. Retry `hatch3r sync`, or run `hatch3r update --offline` to refresh from canonical content."
           : "One or more failures are substantive. Inspect the per-adapter messages above and resolve before retrying.";
@@ -1266,6 +1273,16 @@ export async function syncCommand(
       }
       partialFailureLines.push(`Otherwise: resolve the failed adapter(s) and re-run hatch3r sync.`);
     }
+
+    // D12-3 (D12, P6): the `writeProvenance` call below writes
+    // `.hatch3r/provenance.json` unconditionally, but the only
+    // `ensureGitignoreEntry` call earlier in sync is gated behind
+    // `features.mcp`. A no-MCP sync would leave the machine-local provenance
+    // manifest stageable by the next `git add .`. Register the gitignore
+    // carve-out unconditionally before writing it (idempotent — the MCP-gated
+    // call above is a harmless redundant cover), mirroring the same decoupling
+    // init.ts applies for snapshots/handoffs.
+    await ensureGitignoreEntry(rootDir);
 
     // SA12.4-F1 (D12) / D12-4 (Cycle 11 Wave 2, D12, P2): persist the on-disk
     // provenance manifest at `.hatch3r/provenance.json` via the shared

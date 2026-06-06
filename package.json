@@ -19,7 +19,7 @@
     "inventory": "tsx scripts/inventory.ts",
     "inventory:check-docs": "tsx scripts/inventory.ts --check-docs",
     "validate:rule-parity": "tsx scripts/validate-rule-parity.ts && tsx scripts/validate-rule-pillar-currency.ts",
-    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts && tsx scripts/validate-tag-order.ts && tsx scripts/validate-governance-currency.ts && tsx scripts/validate-traceability-matrix.ts && tsx scripts/validate-decision-id-consistency.ts && tsx scripts/validate-repo-token-adoption.ts && tsx scripts/validate-customize-doc-examples.ts",
+    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts && tsx scripts/validate-tag-order.ts && tsx scripts/validate-governance-currency.ts && tsx scripts/validate-traceability-matrix.ts && tsx scripts/validate-decision-id-consistency.ts && tsx scripts/validate-repo-token-adoption.ts && tsx scripts/validate-verify-gate-literals.ts && tsx scripts/validate-customize-doc-examples.ts",
     "validate:cli-skills": "tsx scripts/validate-cli-skills.ts",
     "validate:wiring": "tsx scripts/validate-wiring.ts",
     "validate:control-reachability": "tsx scripts/validate-control-reachability.ts",
@@ -31,7 +31,7 @@
     "validate:adapter-parity": "tsx scripts/validate-adapter-output.ts",
     "generate:cli-skills": "tsx scripts/generate-cli-skills.ts",
     "calibrate:tier-weights": "tsx scripts/calibrate-tier-weights.ts",
-    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring && npm run validate:control-reachability && npm run validate:anti-slop && npm run validate:specialist-roster && npm run validate:severity-vocabulary && npm run validate:retired-agent-refs && npm run validate:canonical && npm run validate:adapter-parity",
+    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring && npm run validate:control-reachability && npm run validate:anti-slop && npm run validate:specialist-roster && npm run validate:severity-vocabulary && npm run validate:retired-agent-refs && npm run validate:canonical && npm run validate:adapter-parity && npm run validate:codeowners && npm run validate:content-duplication",
     "audit:validate-registry": "tsx scripts/validate-finding-registry.ts",
     "audit:migrate": "tsx scripts/migrate-finding-registry.ts",
     "audit:archive": "tsx scripts/audit-archive.ts",
@@ -42,7 +42,9 @@
     "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity --validate-package-names",
     "mcp:cve-check": "tsx scripts/check-mcp-cves.ts",
     "cli-tools:cve-check": "tsx scripts/check-cli-cves.ts",
-    "validate:action-pins": "tsx scripts/validate-action-pins.ts"
+    "validate:action-pins": "tsx scripts/validate-action-pins.ts",
+    "validate:codeowners": "tsx scripts/validate-codeowners.ts",
+    "validate:content-duplication": "tsx scripts/validate-content-duplication.ts"
   },
   "keywords": [
     "agents",

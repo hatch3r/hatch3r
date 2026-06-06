@@ -236,12 +236,10 @@ Any drift or missing registration halts and routes the specific failure into Ste
 
 ## Step 6: Quality Gates (inline; ci-watcher diagnoses failures)
 
-Run the publish-critical gate set (the local stricter-than-CI subset from `/h4tcher-release-prep` Steps 3 + 5):
+Run the publish-critical gate set (the local stricter-than-CI subset from `/h4tcher-release-prep` Steps 3 + 5). The first line is the language-aware lint+typecheck+test gate (resolved at sync time; fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`); the lines below it are npm-ecosystem publish tooling — substitute the equivalent supply-chain audit + lockfile lint for the project's package manager when it is not npm:
 
 ```bash
-npm test            # 0 failed
-npx tsc --noEmit    # 0 type errors
-npm run lint        # 0 lint errors
+${HATCH3R:VERIFY_GATE_ALL}    # lint + typecheck + test, 0 failures
 npm run validate    # 0 validation errors
 npx lockfile-lint --type npm --allowed-schemes https: --path package-lock.json
 npm audit --audit-level=moderate --omit=dev

@@ -247,15 +247,25 @@ export function parseEnvFile(content: string): Record<string, string> {
  * silently commits operational state and secrets — breaks P1 first-run
  * success and the Silent Failure Contract.
  *
+ * D12-3 (D12, P6): `.hatch3r/provenance.json` is a per-machine drift baseline
+ * (emit-time content hashes + content-root-relative source ids regenerated on
+ * every init/sync/update). It is machine-local state, not a committable
+ * artifact — mirroring the `.env.mcp` carve-out — so it is registered here.
+ * Even after D12-3 rewrote `sourceFiles` to content-root-relative ids, the
+ * `contentHash`/`generatedAt`/`lastRunId` fields still vary per run and per
+ * install, so committing it produces churn-only diffs.
+ *
  * The trailing slash on directory entries makes the gitignore match
  * directory-scoped per `https://git-scm.com/docs/gitignore` (accessed
- * 2026-05-26). `.env.mcp` stays unsuffixed because it is a file.
+ * 2026-05-26). File entries (`.env.mcp`, `.hatch3r/provenance.json`) stay
+ * unsuffixed.
  */
 const REQUIRED_GITIGNORE_ENTRIES = [
   ".env.mcp",
   ".hatch3r-archive/",
   ".hatch3r/snapshots/",
   ".hatch3r/handoffs/",
+  ".hatch3r/provenance.json",
 ] as const;
 
 /**
@@ -283,7 +293,8 @@ function isCoveredByGitignore(entry: string, lines: string[]): boolean {
  *
  * Entries registered: `.env.mcp` (MCP secrets), `.hatch3r-archive/`
  * (archive trees from sync/update), `.hatch3r/snapshots/` (per-session
- * snapshots), `.hatch3r/handoffs/` (handoff payloads). See
+ * snapshots), `.hatch3r/handoffs/` (handoff payloads),
+ * `.hatch3r/provenance.json` (per-machine drift baseline, D12-3). See
  * {@link REQUIRED_GITIGNORE_ENTRIES} for rationale.
  */
 export async function ensureGitignoreEntry(rootDir: string): Promise<void> {

@@ -264,9 +264,20 @@ describe("formatBudgetWarning", () => {
     expect(warning).toContain("~80K tokens");
     expect(warning).toContain("64K token context budget");
     expect(warning).toContain("125% utilization");
-    // C7.5-W2B2-H22: warning now carries actionable next-step guidance
-    expect(warning).toContain("hatch3r sync --minimal");
+    // C7.5-W2B2-H22: warning carries actionable next-step guidance.
+    // D6-3: the remedy points at levers that actually shrink the always-loaded
+    // slice (disable the largest rules / deselect content), not `--minimal`,
+    // which under Decision 16 only strips formatting from the same corpus.
+    expect(warning).toContain(".hatch3r/rules/<id>.customize.yaml");
+    expect(warning).toContain("enabled: false");
+    expect(warning).toContain("hatch3r config");
     expect(warning).toContain("--strict-budget");
+    // `--minimal` must NOT be presented as the size-reducing remedy: it can only
+    // appear inside the explicit "will not clear this gate" caveat, never as the
+    // recommended action. Assert it is paired with the caveat sentence.
+    if (warning?.includes("--minimal")) {
+      expect(warning).toContain("will not clear this gate");
+    }
   });
 
   it("includes the tool name in the warning", () => {
@@ -280,5 +291,40 @@ describe("formatBudgetWarning", () => {
     };
     const warning = formatBudgetWarning(result);
     expect(warning).toContain("cursor:");
+  });
+
+  // D6-3 (Cycle 11 Wave 2, P1 actionable-errors floor): the remediation must
+  // point at a lever that actually reduces the always-loaded slice. `--minimal`
+  // (BaseAdapter.stripMinimal) only removes comments/blank-lines/horizontal-rules
+  // from the SAME corpus (Decision 16: every preset ships the full corpus), so it
+  // cannot move an over-budget slice under budget — recommending it was a
+  // dead-end next step.
+  it("does not recommend --minimal as the size-reducing remedy (D6-3)", () => {
+    const result = {
+      tool: "claude" as Tool,
+      estimatedTokens: 220_000,
+      totalCorpusTokens: 900_000,
+      budgetTokens: 200_000,
+      exceedsBudget: true,
+      utilizationPercent: 110,
+    };
+    const warning = formatBudgetWarning(result);
+    expect(warning).not.toBeNull();
+    const w = warning as string;
+    // The recommended action is to drop always-on rules from the slice.
+    expect(w).toContain("disable the largest");
+    expect(w).toContain(".hatch3r/rules/<id>.customize.yaml");
+    expect(w).toContain("enabled: false");
+    // protected/floor:* rules are exempt — the message says so, mirroring
+    // src/adapters/customization.ts (enabled: false rejected on those).
+    expect(w).toMatch(/protected\/floor:\* rules cannot be disabled/);
+    // `hatch3r config` (selection layer) is the second real lever.
+    expect(w).toContain("hatch3r config");
+    // `--minimal`, if mentioned at all, is flagged as ineffective for the gate
+    // and never phrased as "run --minimal to reduce output size".
+    expect(w).not.toMatch(/Run `hatch3r sync --minimal` to reduce/);
+    if (w.includes("--minimal")) {
+      expect(w).toContain("will not clear this gate");
+    }
   });
 });

@@ -75,8 +75,10 @@ Before changing code, output:
 - Performance verification if refactored code is on a hot path.
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 ```
+
+Resolved to the project's language-aware gate at sync time (fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`).
 
 ## Step 5: Open PR
 

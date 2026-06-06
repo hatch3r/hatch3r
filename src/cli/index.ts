@@ -159,7 +159,7 @@ try {
 } catch (err) {
   // SA12.1-F-D12-M3 (D12, P1): always surface the per-run correlation id in
   // the error block so an operator (or a CI consumer grepping logs) can
-  // tie one failure to the entries in `.hatch3r/.failures.log` produced
+  // tie one failure to the entries in `.hatch3r/.failure-log.jsonl` produced
   // during the same run.
   const runId = getRunId();
   // D10-5 (Cycle 11 Wave 2, P1): `program.exitOverride()` (program.ts) makes

@@ -1,16 +1,24 @@
 import { describe, it, expect, afterEach } from "vitest";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
   createFailureLogEntry,
   formatLogEntry,
   parseFailureLog,
   shouldRotateLog,
   rotateLog,
+  writeFailureLog,
+  FAILURE_LOG_FILE,
   MAX_LOG_SIZE,
   DEFAULT_MAX_LOG_SIZE,
   MIN_RETAINED_ENTRIES,
   FAILURE_LOG_MAX_BYTES_ENV,
   getMaxLogSize,
 } from "../../pipeline/failureLog.js";
+import { getRunId, resetRunIdForTesting } from "../../cli/shared/runId.js";
+import { formatActionableError } from "../../cli/shared/errors.js";
+import { HatchError } from "../../types.js";
 
 describe("failureLog", () => {
   describe("createFailureLogEntry", () => {
@@ -181,6 +189,66 @@ describe("failureLog", () => {
       const rotated = rotateLog(content);
       const parsed = parseFailureLog(rotated);
       expect(parsed).toHaveLength(3);
+    });
+  });
+
+  // D12-7 (Cycle 11 Wave 2, D12, P1): the CLI error funnel
+  // (`src/cli/shared/errors.ts`, `src/cli/index.ts`) prints a per-run id and
+  // tells operators to grep the failure log by it. Before D12-7 both CLI
+  // callers (`sync.ts`/`update.ts` `appendFailure`) omitted `correlationId`,
+  // so every CLI-written entry lacked that key and the guidance was inert.
+  // These tests assert the entry the CLI persists carries the SAME run id the
+  // CLI renders to stderr — i.e. the grep target is now present.
+  describe("D12-7 run-id correlation between failure log and CLI error block", () => {
+    afterEach(() => {
+      resetRunIdForTesting();
+    });
+
+    it("persists correlationId === getRunId() so the entry is grep-able by the printed run id", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-faillog-"));
+      try {
+        const runId = getRunId(); // the id the CLI mints once per process
+
+        const result = await writeFailureLog(dir, "sync:adapter-generate", new Error("adapter crashed"), {
+          tool: "cursor",
+          correlationId: runId,
+          version: "2.0.0",
+        });
+        expect(result.written).toBe(true);
+
+        const raw = await readFile(join(dir, FAILURE_LOG_FILE), "utf-8");
+        const entries = parseFailureLog(raw);
+        expect(entries).toHaveLength(1);
+        // The persisted key must equal the run id getRunId() hands the CLI.
+        expect(entries[0].correlationId).toBe(runId);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("the persisted correlationId matches the run id rendered into the stderr error box", async () => {
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-faillog-"));
+      try {
+        // Same process => getRunId() is stable, so the funnel's printed id and
+        // the log's correlationId resolve to one value. This is the end-to-end
+        // correlation D12-7 restored.
+        const runId = getRunId();
+        await writeFailureLog(dir, "update:adapter-generate", new Error("boom"), {
+          correlationId: runId,
+        });
+
+        // The error funnel embeds `Run id: <id>` in the boxed stderr output.
+        const formatted = formatActionableError(
+          new HatchError("Update failed", 1, "ADAPTER_ERROR", "Re-run `hatch3r update`."),
+        );
+        expect(formatted.box).toContain(`Run id:`);
+        expect(formatted.box).toContain(runId);
+
+        const entries = parseFailureLog(await readFile(join(dir, FAILURE_LOG_FILE), "utf-8"));
+        expect(entries[0].correlationId).toBe(runId);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     });
   });
 });

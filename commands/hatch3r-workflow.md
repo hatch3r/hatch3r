@@ -317,10 +317,10 @@ Await the implementer sub-agent. Collect its structured result.
 
 #### 3d. Run Quality Checks
 
-Run the project's quality checks (adapt to project conventions):
+Run the project's quality checks (adapt to project conventions; resolved to the project's language-aware command set at sync time, fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`):
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 ```
 
 Fix any issues before proceeding. If quality checks fail, loop back and resolve before advancing to Phase 4.

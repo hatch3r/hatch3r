@@ -260,7 +260,9 @@ describe("ensureGitignoreEntry", () => {
   it("creates .gitignore with all required hatch3r entries when file does not exist (F2.7-F3)", async () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n");
+    expect(content).toBe(
+      ".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+    );
   });
 
   it("appends required entries to existing .gitignore (F2.7-F3)", async () => {
@@ -268,7 +270,7 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      "node_modules/\ndist/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+      "node_modules/\ndist/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
     );
   });
 
@@ -277,20 +279,20 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
     );
   });
 
   it("skips entries already present (F2.7-F3)", async () => {
     await writeFile(
       join(tempDir, ".gitignore"),
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
       "utf-8",
     );
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
     );
   });
 
@@ -298,14 +300,17 @@ describe("ensureGitignoreEntry", () => {
     await writeFile(join(tempDir, ".gitignore"), ".env.*\n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(".env.*\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n");
+    expect(content).toBe(
+      ".env.*\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+    );
   });
 
   it("skips .hatch3r/* subdir entries when .hatch3r/ dominates (F2.7-F3)", async () => {
     await writeFile(join(tempDir, ".gitignore"), ".env.mcp\n.hatch3r/\n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    // .hatch3r/ dominates .hatch3r/snapshots/ and .hatch3r/handoffs/.
+    // .hatch3r/ dominates .hatch3r/snapshots/, .hatch3r/handoffs/, AND the
+    // D12-3 .hatch3r/provenance.json file entry.
     // .hatch3r-archive/ is a sibling directory, NOT dominated, so still added.
     expect(content).toBe(".env.mcp\n.hatch3r/\n.hatch3r-archive/\n");
   });
@@ -322,7 +327,9 @@ describe("ensureGitignoreEntry", () => {
     await writeFile(join(tempDir, ".gitignore"), ".env.mcp\n.hatch3r-archive/\n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n");
+    expect(content).toBe(
+      ".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+    );
   });
 
   it("handles .env.mcp with surrounding whitespace in gitignore (F2.7-F3)", async () => {
@@ -331,7 +338,18 @@ describe("ensureGitignoreEntry", () => {
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     // .env.mcp covered by whitespace-trimmed match; other entries still appended.
     expect(content).toBe(
-      "  .env.mcp  \n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n",
+      "  .env.mcp  \n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
     );
+  });
+
+  // D12-3 (D12, P6): `.hatch3r/provenance.json` is a per-machine drift baseline
+  // (regenerated on every init/sync/update) — registering it keeps the file
+  // from being staged by a default `git add .`, mirroring the `.env.mcp`
+  // secret carve-out. Without this entry `git check-ignore` reports it as NOT
+  // ignored and the absolute-home-path leak in older manifests is committable.
+  it("registers .hatch3r/provenance.json as machine-local (D12-3)", async () => {
+    await ensureGitignoreEntry(tempDir);
+    const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    expect(content.split("\n")).toContain(".hatch3r/provenance.json");
   });
 });

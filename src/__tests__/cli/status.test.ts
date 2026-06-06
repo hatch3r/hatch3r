@@ -507,6 +507,86 @@ describe("status command", () => {
       expect(report.driftKindCounts.unknown).toBeGreaterThanOrEqual(1);
     });
 
+    // D12-5 (Cycle 11 Wave 2, High): `update` must advance the emit-time
+    // drift-attribution baseline. Before D12-4 wired the shared `writeProvenance`
+    // writer into `runRegenerate`, only `sync` wrote `provenance.json`, so the
+    // baseline went stale after an `update` that changed on-disk content. A
+    // subsequent single user edit was then scored `both` (on-disk != stale
+    // baseline AND a fresh regeneration != stale baseline) instead of
+    // `user-modified` — directly corrupting the "safe to sync vs back up first"
+    // guidance (SA12.2-F2). This lifecycle test models the stale baseline by
+    // corrupting one output's contentHash post-sync, proves the bug still
+    // reproduces against that stale baseline (negative control: `both === 1`),
+    // then runs `update` and asserts it refreshed the baseline so the same single
+    // edit now scores `userModified === 1`, `both === 0`.
+    it("advances the drift baseline on update so a later user edit scores user-modified, not both", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Pick a stable single-source per-rule output to drive the lifecycle on.
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      const ruleEntries = await readdir(cursorRulesDir);
+      const ruleFile = ruleEntries.find((f) => f.endsWith(".mdc"));
+      expect(ruleFile).toBeDefined();
+      const targetRel = join(".cursor", "rules", ruleFile!);
+      const targetAbs = join(cursorRulesDir, ruleFile!);
+
+      const provenancePath = join(tempDir, HATCH3R_DIR, "provenance.json");
+      const { readFile: read, writeFile: write } = await import("node:fs/promises");
+
+      // Corrupt this output's emit-time hash so the on-disk file no longer
+      // matches the recorded baseline — the exact stale-baseline condition that
+      // existed after an `update` before D12-4 advanced it.
+      const staleManifest = JSON.parse(await read(provenancePath, "utf-8")) as {
+        outputs: { path: string; contentHash?: string }[];
+      };
+      const staleEntry = staleManifest.outputs.find((o) => o.path === targetRel);
+      expect(staleEntry).toBeDefined();
+      staleEntry!.contentHash = "0".repeat(64); // sha256-shaped sentinel, never a real block hash
+      await write(provenancePath, JSON.stringify(staleManifest, null, 2) + "\n");
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+
+      // Negative control: with the stale baseline, a single user edit is
+      // mis-scored `both` — the pre-fix pathology this finding targets.
+      await write(targetAbs, "user hand edit (pre-update baseline is stale)");
+      const stale = await computeAdapterDrift(tempDir, (await readManifest(tempDir))!);
+      const staleDrifted = stale.entries.find((e) => e.path === targetRel);
+      expect(staleDrifted?.driftKind).toBe("both");
+      expect(stale.driftKindCounts.both).toBe(1);
+      expect(stale.driftKindCounts.userModified).toBe(0);
+
+      // Run `update` (network-free regenerate). D12-4's `writeProvenance(...,
+      // "update", ...)` rewrites the baseline with the correct emit-time hash,
+      // overwriting both the stale sentinel and the user's edit on disk.
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const regen = await runRegenerate(tempDir, (await readManifest(tempDir))!);
+      expect(regen.failedTools).toBe(0);
+
+      // The refreshed manifest must record `lastCommand: "update"` and drop the
+      // sentinel hash for the target output.
+      const refreshed = JSON.parse(await read(provenancePath, "utf-8")) as {
+        lastCommand: string;
+        outputs: { path: string; contentHash?: string }[];
+      };
+      expect(refreshed.lastCommand).toBe("update");
+      const refreshedEntry = refreshed.outputs.find((o) => o.path === targetRel);
+      expect(refreshedEntry?.contentHash).not.toBe("0".repeat(64));
+
+      // Now make exactly one user edit on top of the freshly-regenerated output.
+      // Against the advanced baseline this is unambiguously `user-modified`.
+      await write(targetAbs, "user hand edit (post-update baseline is fresh)");
+      const fresh = await computeAdapterDrift(tempDir, (await readManifest(tempDir))!);
+      const freshDrifted = fresh.entries.find((e) => e.path === targetRel);
+      expect(freshDrifted?.status).toBe("modified");
+      expect(freshDrifted?.driftKind).toBe("user-modified");
+      expect(fresh.driftKindCounts.userModified).toBe(1);
+      expect(fresh.driftKindCounts.both).toBe(0);
+    });
+
     it("classifies a manifest-tracked-but-unowned file as `unexpected`", async () => {
       await createTestProject(tempDir);
 
