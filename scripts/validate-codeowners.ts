@@ -36,11 +36,24 @@
  * more-specific pattern shadowing a broader one (that is the intended
  * last-match-wins behavior, not a bug).
  *
+ * ── Stale-path check (Cycle 11 M D4-15, D4) ───────────────────────────────────
+ * A second silent-failure class: a CODEOWNERS pattern whose concrete on-disk path
+ * no longer exists. GitHub never errors on a non-existent path, so the rule is
+ * dead and the file it once protected falls through to the broader `*` match with
+ * no review-routing contract. D4-15 found exactly this — `src/integrity/**`
+ * survived in CODEOWNERS after the subsystem was deleted in 1.9.0 (CHANGELOG.md
+ * "Removed"), and the relocated drift logic (src/cli/commands/{status,verify}.ts)
+ * inherited no explicit owner. This is the standing 1.9.0 integrity-removal
+ * cleanup grep: every pattern with a concrete path anchor is stat-checked, and a
+ * vanished path fails the gate (CODEOWNERS-STALE-PATH) so a dead rule cannot
+ * silently persist. Glob-only patterns with no concrete anchor (`*`, `**`,
+ * `*.md`) are not stat-able and are skipped.
+ *
  * Usage: `npm run validate:codeowners`
  *        `tsx scripts/validate-codeowners.ts`
  *        `tsx scripts/validate-codeowners.ts --json`
  */
-import { readFile } from "node:fs/promises";
+import { readFile, stat } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -178,6 +191,79 @@ export function findSingleOwnerShadows(file: string, rules: OwnerRule[]): Findin
   return findings.sort((a, b) => a.line - b.line);
 }
 
+// ── Stale-path detection (D4-15) ──────────────────────────────────
+
+/**
+ * Reduce a CODEOWNERS pattern to the concrete on-disk path it anchors, or null
+ * when the pattern is glob-only and stat-checking would be meaningless.
+ *
+ * GitHub resolves patterns relative to the repo root. A leading `/` (root-anchor)
+ * is stripped. The pattern is split on `/`; segments are accumulated until the
+ * first one that contains a glob metacharacter (`*`, `?`, `[`, `]`), which is
+ * dropped along with everything after it — the surviving prefix is the deepest
+ * directory the pattern requires to exist. Examples:
+ *
+ *   "src/merge/**"               -> "src/merge"
+ *   "src/cli/commands/status.ts" -> "src/cli/commands/status.ts"
+ *   "/.github/workflows/**"      -> ".github/workflows"
+ *   "docs/*\/api"                -> "docs"
+ *   "*"  / "**" / "*.md"         -> null (no concrete anchor)
+ */
+export function patternConcretePrefix(pattern: string): string | null {
+  const rooted = pattern.replace(/^\//, "");
+  const segments = rooted.split("/");
+  const concrete: string[] = [];
+  for (const seg of segments) {
+    if (seg === "") continue; // collapse `//` and a trailing `/`
+    if (/[*?[\]]/.test(seg)) break; // first glob segment ends the concrete prefix
+    concrete.push(seg);
+  }
+  if (concrete.length === 0) return null;
+  return concrete.join("/");
+}
+
+/**
+ * Detect the D4-15 stale-path class: a CODEOWNERS pattern whose concrete path no
+ * longer exists on disk. GitHub silently ignores such rules, so the once-owned
+ * files fall through to the broader `*` match. Returns one error finding per
+ * vanished path (anchored on the rule's line). Glob-only patterns and the
+ * trivial `*`/`**` catch-alls are skipped (no concrete anchor to stat).
+ */
+export async function findStalePaths(
+  file: string,
+  rules: OwnerRule[],
+  rootDir: string,
+): Promise<Finding[]> {
+  const findings: Finding[] = [];
+  for (const rule of rules) {
+    const prefix = patternConcretePrefix(rule.pattern);
+    if (prefix === null) continue; // glob-only pattern: nothing to stat
+    let exists = true;
+    try {
+      await stat(join(rootDir, prefix));
+    } catch {
+      // ENOENT (or any stat failure) means the path the pattern anchors on is
+      // gone — that IS the finding, not a swallowed error. The `exists = false`
+      // assignment is the detection channel, so the no-silent-catch contract is
+      // satisfied without a disable.
+      exists = false;
+    }
+    if (exists) continue;
+    findings.push({
+      level: "error",
+      code: "CODEOWNERS-STALE-PATH",
+      file,
+      line: rule.line,
+      message:
+        `pattern '${rule.pattern}' points at '${prefix}', which does not exist on disk; ` +
+        `GitHub silently ignores non-existent-path rules, so the owner(s) ${rule.owners.join(", ")} ` +
+        `are never auto-requested and the files fall through to the broader '*' match. ` +
+        `Delete the stale rule or repoint it at the relocated path.`,
+    });
+  }
+  return findings.sort((a, b) => a.line - b.line);
+}
+
 // ── Core ──────────────────────────────────────────────────────────
 
 /** Resolve the first existing CODEOWNERS location, or null. */
@@ -223,6 +309,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
 
   const rules = parseCodeowners(active.content);
   findings.push(...findSingleOwnerShadows(active.rel, rules));
+  findings.push(...(await findStalePaths(active.rel, rules, rootDir)));
 
   return { ...tally(findings), activeFile: active.rel, ruleCount: rules.length };
 }

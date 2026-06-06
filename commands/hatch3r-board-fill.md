@@ -743,7 +743,7 @@ For issues where the reviewer returned `REQUEST CHANGES`:
 
 Per-issue loop, max 4 iterations (spec-class cap). Loop semantics mirror `src/pipeline/reviewLoop.ts`.
 
-> **Iteration-cap rationale (D10-SA10.7-F10.7.7).** This spec-class loop caps at 4 (matching `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`) because issue-spec reviews converge more slowly and deterministically — they refine text against the production-readiness checklist with no runtime regressions feeding back. Code-class loops (`hatch3r-workflow` Phase 4a, `hatch3r-board-pickup` Step 6a.3, `hatch3r-quick-change` Step 6a) cap at 3 because code reviews diverge faster (a fix can spawn a regression the next iteration must catch). Expected convergence is 1–2 iterations; the cap is the divergence backstop, not the target.
+> **Iteration-cap rationale (D10-SA10.7-F10.7.7).** This spec-class loop caps at 4 (matching `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`) because issue-spec reviews converge more slowly and deterministically — they refine text against the production-readiness checklist with no runtime regressions feeding back. Code-class loops (`hatch3r-workflow` Phase 4a, `hatch3r-board-pickup` Step 7a review loop, `hatch3r-quick-change` Step 6a) cap at 3 because code reviews diverge faster (a fix can spawn a regression the next iteration must catch). Expected convergence is 1–2 iterations; the cap is the divergence backstop, not the target.
 
 **Clean termination** (issue passes review):
 - Reviewer returns `APPROVE`, AND

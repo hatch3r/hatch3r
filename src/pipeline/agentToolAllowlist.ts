@@ -198,9 +198,26 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     description: "Architecture: file read/write (docs/ADRs), code search, web research for pattern/scalability comparison, and Context7 MCP API-surface lookups. No execute, git, or board.",
   },
   {
+    // D5-24 (Cycle 11 Wave 3, Medium): added `web` (agents/hatch3r-devops.md
+    // §Design step "Use web research for deployment strategy best practices…" +
+    // §External Knowledge "Web research focus for this agent:" + the `WebSearch`
+    // token in the agent's `tools.allow` frontmatter and §Allowed Tools table)
+    // and `mcp` (§Design step "Use Context7 MCP (`resolve-library-id` then
+    // `query-docs`)…" + §External Knowledge "Context7 focus for this agent:").
+    // The body instructed both; the prior `["read","search","write","execute"]`
+    // policy granted neither, so the emitted Claude allowlist dropped WebSearch
+    // and the PreToolUse hook denied every web/Context7 call silently
+    // (TOOL_NOT_ALLOWED) — the self-contradiction this finding closes. `write`
+    // (IaC/CI authoring) and `execute` (dry-run validation: terraform validate/
+    // plan, kubectl get, docker build, aws/gcloud --dry-run) were already present.
+    // Granting all six functional categories trips the advisory least-privilege
+    // warning in validateToolPolicies (expected — same posture as the docs-writer
+    // and lint-fixer producer agents). Regression-locked by
+    // `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts), which
+    // now scans hatch3r-devops via the D5_2_BODY_CAPABILITY_AGENTS literal.
     agentId: "hatch3r-devops",
-    allowedTools: ["read", "search", "write", "execute"],
-    description: "DevOps: file read/write, code search, CI/CD command execution. No git, board, or web.",
+    allowedTools: ["read", "search", "write", "execute", "web", "mcp"],
+    description: "DevOps: file read/write, code search, CI/CD command execution (dry-run validation only), web research for deployment strategy + cloud-service docs, and Context7 MCP IaC/CI action-API lookups. No git or board.",
   },
   {
     // D5-2 (Cycle 11 Wave 2, High): added `execute` (agents/hatch3r-ci-watcher.md

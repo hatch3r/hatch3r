@@ -93,10 +93,11 @@ jobs:
 
   # Lint, typecheck, test, and audit are handled by ci.yml (which also triggers
   # on pull_request) across the full OS matrix. This workflow only contains
-  # PR-specific checks: title validation (above), DCO (above), and bundle size (below).
+  # PR-specific checks: title validation (above), DCO (above), and the bundle
+  # size regression gate (below).
 
   size-check:
-    name: Bundle size report
+    name: Bundle size gate
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -131,10 +132,57 @@ jobs:
       - name: Build
         run: time npm run build
 
-      - name: Report dist size
+      # Cycle 11 M D4-8 (D4): soft regression gate on the runtime CLI bundle.
+      # The job was report-only (`du -sh dist/`), so the bundle drifted
+      # 919 KB -> 1005 KB unnoticed. The gate compares dist/cli/index.js against
+      # the committed baseline in .github/bundle-size-baseline.json and fails
+      # only when the size exceeds baseline * (1 + tolerancePercent/100); the
+      # +10% tolerance absorbs incidental dependency-bump churn while still
+      # catching a real regression. It deliberately measures ONLY the compiled
+      # CLI bundle — dist/content/ is a verbatim copy of the canonical corpus
+      # whose growth is intentional, so it is excluded by construction (not
+      # netted out). Regenerate the baseline after a justified bundle increase
+      # per the note in .github/bundle-size-baseline.json. See
+      # governance/audit/domains/D04-build-cicd.md SA 4.1 "Bundle size analysis".
+      - name: Bundle size regression gate
         run: |
-          echo "## Bundle size report"
+          node -e '
+            const { statSync, readFileSync } = require("node:fs");
+            const baseline = JSON.parse(readFileSync(".github/bundle-size-baseline.json", "utf8"));
+            const artifact = baseline.artifact;
+            const baseBytes = baseline.cliBundleBytes;
+            const tolerance = baseline.tolerancePercent;
+            const currentBytes = statSync(artifact).size;
+            const limitBytes = Math.floor(baseBytes * (1 + tolerance / 100));
+            const kib = (n) => (n / 1024).toFixed(1);
+            const deltaPct = (((currentBytes - baseBytes) / baseBytes) * 100).toFixed(1);
+            const summary = [
+              "## Bundle size gate",
+              "",
+              "| Metric | Value |",
+              "| --- | --- |",
+              "| Artifact | `" + artifact + "` |",
+              "| Baseline | " + kib(baseBytes) + " KiB (" + baseBytes + " bytes) |",
+              "| Current | " + kib(currentBytes) + " KiB (" + currentBytes + " bytes) |",
+              "| Delta | " + (deltaPct >= 0 ? "+" : "") + deltaPct + "% |",
+              "| Limit (+" + tolerance + "%) | " + kib(limitBytes) + " KiB (" + limitBytes + " bytes) |",
+              "",
+            ].join("\n");
+            const summaryPath = process.env.GITHUB_STEP_SUMMARY;
+            if (summaryPath) require("node:fs").appendFileSync(summaryPath, summary + "\n");
+            console.log(summary);
+            if (currentBytes > limitBytes) {
+              console.log("::error::" + artifact + " is " + kib(currentBytes) + " KiB, exceeding the +" + tolerance + "% budget of " + kib(limitBytes) + " KiB (baseline " + kib(baseBytes) + " KiB). Investigate the size increase, or — if intentional — regenerate .github/bundle-size-baseline.json per its note and commit it.");
+              process.exit(1);
+            }
+            console.log(artifact + " within the +" + tolerance + "% budget.");
+          '
+
+      # Human-readable per-file breakdown for PR review context (no gate).
+      - name: Report dist size
+        if: always()
+        run: |
+          echo "### dist/ contents"
           echo ""
-          echo "dist/ contents:"
           du -sh dist/ 2>/dev/null || true
           find dist -type f -exec du -h {} \; 2>/dev/null | sort -rh || true

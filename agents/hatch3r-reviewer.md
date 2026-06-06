@@ -103,94 +103,25 @@ Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code
 10. **Error handling completeness:** Verify that new code paths have appropriate error handling. Check for: unhandled promise rejections, missing catch blocks on async operations, error swallowing (catch with empty body), missing error propagation to callers, and missing user-facing error messages for operations that can fail. Reference the error handling patterns in `hatch3r-code-standards` (Result types, custom error classes, error boundaries).
     - **Edge-Case Ledger reconciliation (domain correctness):** when a Phase-1 Edge-Case Ledger (`agents/hatch3r-edge-case-analyst.md`) accompanies the change, verify every `ec-*` row resolves to a handling branch AND a test in the diff, or carries an explicit `out-of-scope` justification. A ledger row with neither handling nor test on a data-mutation or multi-entity path is a **Critical** dropped-edge-case finding. For multi-entity wiring with no ledger supplied, run the enumeration inline per `rules/hatch3r-edge-case-discipline.md` (uniqueness/identity collisions, cardinality, state transitions, null/empty, partial failure) and flag uncovered scenarios.
 11. **Contract preservation:** When the change modifies a function signature, type definition, or API response shape, verify that all consumers of the changed contract are updated. Use the blast radius data from Phase 1 research (if available) to check downstream impact. Flag missing consumer updates as Critical.
-12. **copy.review:** Evaluate user-visible strings produced by the implementation:
-    - **Tone:** plain language, second person, corrective verb on errors. Reject vague apologies ("Oops", "Something went wrong" without remediation).
-    - **Jargon:** no exposure of `null`, `undefined`, raw HTTP codes ("500", "401"), protocol names ("FIDO2", "WebAuthn"), or internal IDs to end users. Translate to user-actionable language.
-    - **Specificity:** CTAs are action-oriented and specific ("Save changes", not "Submit"; "Retry sync", not "OK").
-    - **i18n:** every user-visible string flows through the i18n framework (no hardcoded English literals in JSX/templates); ICU MessageFormat handles plurals and gender — flag string concatenation as Critical.
-    - **Empty/error state CTAs:** distinguish first-run from active-filter from network error per `rules/hatch3r-ux-states-and-flows.md` (cold-start CTA differs from clear-filters CTA differs from retry CTA).
+### Domain review surfaces (items 12-20): gate-vs-specialist split + grounding rule
 
-    Cross-reference: copy.review is mandated by `agents/shared/quality-charter.md` UI/UX section and `rules/hatch3r-i18n.md` Microcopy subsection. Findings here use the same severity vocabulary as the rest of the checklist.
+Items 12-20 are **gate criteria**, not the deep enforcement bodies. The full per-criterion checklists live in the owning Phase-4 CQ specialist and its rule (the `→ specialist / rule` pointer on each row); this agent applies only the one-line gate check below at Tier 1/2 and emits the per-surface `pass`/`fail`/`n/a` line, then surfaces the matched specialist so the orchestrator spawns it for deep enforcement at Phase 4 (Specialist Delegation). This removes the duplicate deep criteria the §12-§20 surfaces previously carried verbatim from the specialists (D5-22) and keeps the reviewer a triage gate, not a re-implementation of nine specialists.
 
-13. **observability.review:** Evaluate request-path observability on services touched by the change:
-    - **OTel span on inbound request:** verify the request handler emits a span with `trace_id` propagated to every outbound call (DB, HTTP, queue, RPC). Missing span on a user-facing route is Critical.
-    - **Structured logs with trace correlation:** every log emitted from the change carries `trace_id`, service name, and severity; bare `console.log` or unstructured strings on a service path is Warning.
-    - **RED metrics:** Rate, Errors, Duration counters or histograms exist for the route changed. Latency reported as a histogram, not an average.
-    - **SLO + burn-rate alert:** user-facing route has an SLO file and a multi-window multi-burn-rate alert (2%/5%/10%); raw threshold alerts on a critical route flagged as Warning.
-    - **Error tracker wired:** unhandled errors reach Sentry-class tooling with `release` tag, source maps, and PII scrubber. Releases without the release tag are Critical.
+**Grounding rule (verification hierarchy — D23-1, D23-4).** Anthropic's agent verification guidance (2025-09-29) ranks grounding `rules-based > visual > LLM-as-judge`; an LLM-as-judge surface with no captured tool output is "generally not very robust". So each surface verdict cites EITHER captured output from its named grounding tool (the `tool:` column — e.g. `axe-core`, `oasdiff`, `Pact`, the OTel trace) OR an explicit `tool-not-configured: <surface>` annotation when that tool is absent on the project. A surface that silently degrades to prose-only LLM judgment with no tool output and no annotation is itself a Warning — degradation must be visible in the verdict, never silent. When the tool is configured and captured, the surface is grounded; when annotated `tool-not-configured`, the verdict is explicit LLM-as-judge and the reviewer lowers its confidence accordingly (Confidence Expression).
 
-    Cross-reference: `skills/hatch3r-observability-verify` and `rules/hatch3r-observability-metrics.md`. Findings reuse the severity vocabulary above.
+| # | Surface | Gate criterion (one-line) | tool: (grounding) | → specialist / rule |
+|---|---------|---------------------------|-------------------|---------------------|
+| 12 | copy.review | User-visible strings: plain-language tone, no raw codes/IDs/protocol names, action-specific CTAs, every string through i18n (concatenation = Critical), state-distinct CTAs | i18n-lint / string-extract | `agents/hatch3r-ux.md` / `rules/hatch3r-i18n.md` Microcopy + `rules/hatch3r-ux-states-and-flows.md` |
+| 13 | observability.review | Inbound request emits OTel span with `trace_id` propagated to every outbound call; structured trace-correlated logs; RED metrics as histograms; SLO + multi-burn-rate alert; error tracker with `release` tag. Missing span on a user-facing route = Critical | captured OTel trace / metrics scrape | `agents/hatch3r-reliability.md` / `rules/hatch3r-observability-metrics.md` + `skills/hatch3r-observability-verify` |
+| 14 | migration.review | Schema/event-schema change stages expand→migrate→contract across deploys; online DDL above size threshold; idempotent resumable backfill; tested rollback; replica-lag awareness; registry-declared event compatibility. Single-deploy destructive change = Critical | migration-linter / registry-compat check | `agents/hatch3r-maintainability.md` / `rules/hatch3r-migrations.md` + `rules/hatch3r-event-schema-evolution.md` |
+| 15 | api.review (strengthens item 11 for API surfaces) | Breaking-change CI diff clean on `**/api/**`, `**/proto/**`, OpenAPI/AsyncAPI/GraphQL SDL; RFC 9457 problem+json errors; `Deprecation`/`Sunset` headers; `Idempotency-Key` on chargeable POST; passing contract tests. Missing diff on a stable endpoint = Critical | oasdiff / buf breaking / graphql-inspector / Pact / Schemathesis | `agents/hatch3r-maintainability.md` / `rules/hatch3r-api-design.md` + `rules/hatch3r-api-versioning.md` |
+| 16 | eval.review | AI feature ships golden+adversarial+regression eval set run in CI; versioned prompts; per-request cost telemetry span; model fallback + circuit breaker; hallucination tracked as an SLI. Missing eval on an AI feature = Critical | captured eval-harness CI run / cost-telemetry span | `agents/hatch3r-testability.md` / `rules/hatch3r-ai-evals.md` + `skills/hatch3r-ai-feature` |
+| 17 | supply-chain.review (release-touching PRs) | CycloneDX 1.6 / SPDX 3.0.1 SBOM asset; `npm publish --provenance` via OIDC; SHA-pinned actions; cosign-signed containers consumed by digest; license allow-list pass. Missing SBOM/provenance on a publish = Critical | SBOM scan / provenance attestation / cosign verify | `agents/hatch3r-security.md` (CQ3) / `rules/hatch3r-container-hardening.md` + `rules/hatch3r-dependency-management.md` (D15 SA15.8) |
+| 18 | reliability.review | Touched service has SLO (availability + p95/p99); kill switch; timeout < inbound deadline on every outbound call; decorrelated-jitter retries; liveness/readiness/startup probes; SIGTERM drain; runbook URL on alerts; staged canary with SLO auto-rollback. Naked outbound `await fetch(...)` = Critical | SLO file present / probe manifest / chaos-test result | `agents/hatch3r-reliability.md` / `skills/hatch3r-reliability-verify` |
+| 19 | auth.review | OAuth 2.1 + PKCE + refresh rotation with reuse detection; OIDC `iss`/`aud`/`azp`/`exp`/`nonce`/signature checks; DPoP-bound browser tokens; JWT BCP RFC 8725; `__Host-`/HttpOnly/Secure/SameSite cookies; MFA AAL alignment; documented RBAC/ABAC/ReBAC ADR; full WebAuthn server ceremony. Any missing identity-field check = Critical | auth-flow test / JWT-lint / token-validation suite | `agents/hatch3r-security.md` (CQ3) / `rules/hatch3r-auth-patterns.md` + `rules/hatch3r-passkey-server.md` |
+| 20 | ui-ux.review (promotes item 7 for UI/UX diffs — `**/*.{tsx,jsx,vue,svelte}`, `**/components/**`, route handlers, async views) | axe-core 0 serious/critical per route+component; WCAG 2.2 AA SC 2.5.8 / 2.4.11 / 2.5.7; four-state contract (loading+empty+error+partial); ≥95% design-token adoption; AI-UX streaming/cancel/citation patterns; Core Web Vitals LCP ≤2.5s / INP ≤200ms / CLS ≤0.1 at p75. axe-core serious/critical on a public route = Critical | axe-core / `@axe-core/playwright` / Lighthouse-CI (CWV) | `agents/hatch3r-ui.md` (CQ1) + `agents/hatch3r-ux.md` (CQ2) / `rules/hatch3r-accessibility-standards.md` + `rules/hatch3r-design-system-detection.md` + `rules/hatch3r-ai-ux-patterns.md` (D10 SA10.9) |
 
-14. **migration.review:** Evaluate schema and event-schema changes for safe deploy semantics:
-    - **Expand-contract pattern:** the diff stages expand, migrate, contract across separate deploys; a single-deploy destructive change is Critical.
-    - **Online DDL choice:** on tables above the documented size threshold, the migration uses pt-online-schema-change, gh-ost, or platform-native online DDL; a naked `ALTER TABLE` on a hot table is Critical.
-    - **Backfill idempotency + resumability:** backfills are idempotent on re-run and resumable from a checkpoint; non-resumable backfills on tables larger than the documented threshold are Warning.
-    - **Reversibility:** every forward migration has a documented and tested rollback path; irreversible migrations require an explicit acknowledgement comment.
-    - **Replica-lag awareness:** writes that require read-after-write consistency are routed to primary or wait for replication; otherwise documented eventual-consistency expectations.
-    - **Event-schema compatibility:** event-schema changes declare BACKWARD/FORWARD/FULL compatibility in a registry; a breaking event without a major-version bump is Critical.
-
-    Cross-reference: `rules/hatch3r-migrations.md` and `rules/hatch3r-event-schema-evolution.md`.
-
-15. **api.review** (strengthens existing item 11 contract preservation for API surface changes):
-    - **Breaking-change CI gate:** for diffs touching `**/api/**`, `**/proto/**`, OpenAPI, AsyncAPI, or GraphQL SDL files, verify that oasdiff / buf breaking / graphql-inspector ran on the PR and reported a clean result. Missing the diff on a stable endpoint is Critical.
-    - **Error format:** every new or changed error response follows RFC 9457 `application/problem+json`. Bare strings or leaked stack traces are Warning.
-    - **Deprecation + Sunset:** stable endpoints scheduled for removal emit `Deprecation` (RFC 9745) + `Sunset` (RFC 8594) headers; the OpenAPI spec documents the timeline.
-    - **Idempotency-Key:** non-idempotent endpoints accept and honor an `Idempotency-Key` header per Stripe's pattern; missing on a POST that creates a chargeable resource is Critical.
-    - **Contract tests:** Pact (consumer-driven) and Schemathesis (spec-driven) tests pass; a broken contract on a stable endpoint is Critical.
-
-    Cross-reference: `rules/hatch3r-api-design.md`, `rules/hatch3r-api-versioning.md`.
-
-16. **eval.review:** Evaluate AI feature changes for backend completeness:
-    - **Eval harness present:** the feature ships an automated eval set (golden + adversarial + regression) and it ran in CI on this PR; missing eval on an AI feature is Critical.
-    - **Prompt versioning:** prompts are versioned artifacts with a changelog; bare in-code string literals as the prompt source are Warning.
-    - **Cost telemetry per request:** every LLM call emits a span with `input_tokens`, `output_tokens`, `cached_tokens`, `model`, computed cost; missing telemetry on a production AI feature is Critical.
-    - **Model fallback chain:** primary model has a fallback path and a circuit breaker; a single-model AI feature on a critical path is Warning.
-    - **Hallucination-as-SLI:** hallucination rate is measured on a labelled sample per release and tracked as an SLI; missing measurement on a customer-facing AI feature is Critical.
-
-    Cross-reference: `skills/hatch3r-ai-feature` and `rules/hatch3r-ai-evals.md`.
-
-17. **supply-chain.review** (for release-touching PRs — workflows, Dockerfiles, package manifests):
-    - **SBOM generated:** the release pipeline emits a CycloneDX 1.6 or SPDX 3.0.1 SBOM as a release asset; missing SBOM on a publish is Critical.
-    - **npm provenance:** `npm publish --provenance` runs through OIDC trusted publishing on every npm release; publishes without provenance are Critical.
-    - **SHA-pinned GitHub Actions:** every action reference is a 40-char commit SHA, not a tag; floating tags on actions are Warning.
-    - **Cosign-verified container:** container images are signed with cosign (keyless via OIDC) and consumed by digest, not tag, in production manifests; unsigned containers are Critical.
-    - **License allow-list pass:** every new dependency's license clears the documented allow-list; copyleft licenses outside the allow-list block merge.
-
-    Cross-reference: `rules/hatch3r-container-hardening.md`, `rules/hatch3r-dependency-management.md`. Audited under D15 SA15.8.
-
-18. **reliability.review:** Evaluate service-touching changes for production reliability:
-    - **SLO defined:** the touched service has an SLO file with availability + latency p95/p99; missing SLO on a user-facing service is Warning, missing on a payment or auth service is Critical.
-    - **Kill switch:** new features behind a flag with a documented disable path; features without a kill switch on a critical path are Warning.
-    - **Timeouts on every outbound call:** every external call has a timeout strictly less than the inbound deadline; naked `await fetch(...)` on a service path is Critical.
-    - **Retries with decorrelated jitter:** retry logic uses decorrelated jitter per the AWS pattern, not naked exponential backoff; thundering-herd-prone retries are Warning.
-    - **Probes wired:** Kubernetes liveness, readiness, startup probes are present with documented commands; readiness gates on dependency health.
-    - **Graceful shutdown:** SIGTERM drains in-flight requests; preStop hook waits for service-mesh deregistration. Missing on a user-facing service is Critical.
-    - **Runbook URL on alerts:** every alert rule includes a runbook URL with detect/diagnose/mitigate/recover steps.
-    - **Staged canary rollout:** rollouts stage at 1% → 10% → 50% → 100% with auto-rollback on SLO error-budget burn; direct 100% rollouts on user-facing services are Critical.
-
-    Cross-reference: `skills/hatch3r-reliability-verify`.
-
-19. **auth.review:** Evaluate authentication and identity flow changes:
-    - **OAuth 2.1 + PKCE + refresh rotation:** every OAuth flow uses PKCE; refresh tokens rotate; reuse detection invalidates the token family.
-    - **OIDC validation:** every ID token consumer validates `iss`, `aud`, `azp`, `exp`, `nonce`, signature against the issuer JWKS; missing any field check is Critical.
-    - **DPoP for browser tokens:** browser-issued access tokens are DPoP-bound per RFC 9449; bearer tokens to browsers on sensitive resources are Critical.
-    - **JWT BCP (RFC 8725):** `alg` allow-list per issuer, `none` rejected, `kid` resolved against JWKS, `typ` checked. Any violation is Critical.
-    - **Cookie flags:** session cookies set `__Host-` + HttpOnly + Secure + SameSite (Lax or Strict) + Partitioned where cross-site cookies are needed. Missing flags on a session cookie are Critical.
-    - **MFA AAL alignment:** authenticator strength matches the resource's required AAL per NIST 800-63B-4; phishing-resistant authenticator for AAL3.
-    - **RBAC/ABAC/ReBAC choice documented:** authorization model selected via a documented rubric (ADR) — RBAC, ABAC, or ReBAC. Undocumented authorization on a multi-tenant system is Critical.
-    - **WebAuthn server-side ceremony:** passkey flows implement challenge generation, RP ID binding, attestation verification, sign-count monotonicity, transports check. Missing any step is Critical.
-
-    Cross-reference: `rules/hatch3r-auth-patterns.md`, `rules/hatch3r-passkey-server.md`, `agents/hatch3r-security.md` (CQ3).
-
-20. **ui-ux.review** (promotes item 7 Accessibility to a full surface for UI/UX-touching diffs — files matching `**/*.{tsx,jsx,vue,svelte}`, `**/components/**`, route handlers, or async views):
-    - **axe-core clean:** the change ran axe-core (or `@axe-core/playwright`) with 0 serious/critical violations per route per component; a serious/critical violation on a public route is Critical, a missing axe-core run on a UI diff is Warning.
-    - **WCAG 2.2 AA new criteria:** SC 2.5.8 Target Size (≥24×24 CSS px hit area or 24px spacing exception), SC 2.4.11 Focus Not Obscured (focused control not hidden by sticky chrome), SC 2.5.7 Dragging Movements (single-pointer non-drag alternative). Any unmet criterion on an interactive surface is Warning; lost/trapped focus is Critical.
-    - **Four-state contract:** every async view renders loading + empty + error + partial states per `rules/hatch3r-ux-states-and-flows.md`; a missing error or empty state on a data-fetching surface is Warning.
-    - **Design-token adoption:** ≥95% of color, spacing, and typography values resolve to a design token (not a hex literal, raw `px`, or font-name literal) per `rules/hatch3r-design-system-detection.md`; adoption below 80% on color is Warning.
-    - **AI-UX patterns** (when the surface renders LLM output): streaming UI, tool-call cards, cancel/abort/undo affordances, span-grounded citations per `rules/hatch3r-ai-ux-patterns.md`; missing cancel on a streaming surface is Critical.
-    - **Core Web Vitals at p75:** LCP ≤2.5s, INP ≤200ms, CLS ≤0.1 measured at the 75th percentile per CONSTITUTION §2B CQ7; a regression past budget on a user-facing route is Warning.
-
-    Cross-reference: `skills/hatch3r-ui-ux-verify` (9-gate release check), `rules/hatch3r-accessibility-standards.md`, `agents/hatch3r-ui.md` (CQ1), `agents/hatch3r-ux.md` (CQ2). Findings reuse the severity vocabulary above. Audited under D10 SA10.9.
+Findings on every surface reuse the Critical/Warning/Suggestion severity vocabulary above. A `fail` on any surface implies REQUEST CHANGES.
 
 ## Review Verdicts
 
@@ -284,10 +215,10 @@ Apply this directly to every row in the Critical/Warning/Suggestion tables. A Cr
 
 Your confidence rating is self-assigned by the same model that produced the verdict — without an out-of-band check it is structurally over-trusted, and over-confident models systematically under-emit `confidence: low` (arxiv:2508.06225). The cycle-close calibration sampling measures this drift after the fact; it does not bound it at runtime. Close the runtime gap before exiting the loop on a clean PASS:
 
-- **Trigger:** the **orchestrator** (not this stateless reviewer sub-agent) owns the count and fires the second pass at the would-be-clean loop exit — on every Nth consecutive clean PASS (default `N=5`, project-overridable) tracked across top-level runs via project-local `.hatch3r/calibration-state.json`, OR on the first clean PASS when the diff touches a high-risk surface (`floor:security` / auth / CQ3-security-dispatch files). The reviewer reports its per-verdict outcome; it does not maintain the cross-run counter (spawned fresh per iteration, it cannot). Reset on any REQUEST CHANGES / DESIGN_OBJECTION.
-- **Action:** run one second-pass review of the same diff with a different model class when the orchestrator can route one, else the same model class re-rolled at higher temperature. The second pass renders an independent verdict + confidence.
+- **Trigger:** the **orchestrator** (not this stateless reviewer sub-agent) owns the count and fires the second pass at the would-be-clean loop exit — on every Nth consecutive clean PASS (default `N=5`, project-overridable) tracked across top-level runs via project-local `.hatch3r/calibration-state.json`, OR on the **first** clean PASS when the diff touches a high-risk / safety-class surface (`floor:security` / auth / security / migration files — the CQ3-security-dispatch set plus migration.review surfaces). Safety-class diffs use the lowered default `N=1` so the second pass never waits for a cadence multiple. The reviewer reports its per-verdict outcome; it does not maintain the cross-run counter (spawned fresh per iteration, it cannot). Reset on any REQUEST CHANGES / DESIGN_OBJECTION.
+- **Action:** run one second-pass review of the same diff with an independent judge. A **different model class is the documented setup recommendation** (`rules/hatch3r-reviewer-calibration.md` → Action), because a same-model-family critique shares the generator's blind spot (Huang et al., ICLR 2024). The same-model-class re-roll at higher temperature is the fallback only when no second model class is routable; when it fires, the second pass is NOT independent of family, so emit `calibration: degraded (same-family re-roll)` in the verdict so the weakened independence is visible rather than asserted as a clean cross-family check. The second pass renders an independent verdict + confidence.
 - **Divergence handling:** if the second pass surfaces any Critical or Warning the first pass did not, do NOT exit clean — return to `REQUEST CHANGES` and record both verdicts. If the verdicts agree, exit clean and record alignment.
-- **Logging:** append one record per second-pass to `.hatch3r/calibration-log.jsonl` (project-local) with first-pass verdict, second-pass verdict, divergence flag, and timestamp.
+- **Logging:** append one record per second-pass to `.hatch3r/calibration-log.jsonl` (project-local) with first-pass verdict, second-pass verdict, divergence flag, the `second_pass_model_class` (`different` | `re-roll`), and timestamp.
 
 Directive and N-default source: `rules/hatch3r-reviewer-calibration.md` (the canonical runtime calibration contract; this section is its consumer). The project-local over-claim rate from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`. Skip the second pass when no second model class is available AND the orchestrator has disabled same-model re-roll; in that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent.
 
@@ -395,6 +326,8 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 
 **Verdict:** REQUEST CHANGES
 
+**Confidence:** high
+
 ### Critical
 
 | # | File:Line | Issue | Suggestion |
@@ -411,13 +344,14 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 ### Summary
 
 - Critical: 2 | Warning: 1 | Suggestion: 0
+- Confidence: high — findings verified against the cited file:line and reproduced against the route handler
 - Consulted Learnings: none matched
 - Privacy: VIOLATION — internal IDs exposed
 - Security: VIOLATION — missing ownership check
 - copy.review: n/a — endpoint returns JSON only; no user-visible strings in this change
-- observability.review: fail — route `/api/billing/invoices` emits no OTel span; trace_id absent from logs
+- observability.review: fail — route `/api/billing/invoices` emits no OTel span (captured trace empty); trace_id absent from logs
 - migration.review: n/a — no schema or event-schema changes in this PR
-- api.review: fail — error responses are bare strings, not RFC 9457 problem+json; oasdiff did not run
+- api.review: fail [tool-not-configured: api.review] — error responses are bare strings, not RFC 9457 problem+json; oasdiff/buf not configured on this project, so the breaking-change gate is LLM-as-judge only (confidence lowered accordingly)
 - eval.review: n/a — no AI feature changes in this PR
 - supply-chain.review: n/a — PR does not touch release pipeline
 - reliability.review: fail — no SLO file for the billing service; no timeout on the Postgres call
@@ -427,11 +361,16 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 
 Each review field (`copy.review`, `observability.review`, `migration.review`, `api.review`, `eval.review`, `supply-chain.review`, `reliability.review`, `auth.review`, `ui-ux.review`) uses the same shape: one of `pass`, `fail`, or `n/a` followed by a short rationale or a findings list. Use `n/a` when the change does not touch that surface (e.g., `observability.review: n/a` for a doc-only change, `ui-ux.review: n/a` for a backend-only change). Use `fail` when any checklist item under the corresponding §12-§20 surfaces a Critical or Warning finding. A `fail` on any review field implies REQUEST CHANGES.
 
+When the surface's named grounding tool (the `tool:` column of the items 12-20 table) is absent on the project, append a `[tool-not-configured: <surface>]` annotation to that surface line, as `api.review` shows above. The annotation makes the degradation to LLM-as-judge visible per the Grounding rule (D23-1) — an un-annotated surface verdict asserts the grounding tool ran and was captured. A surface that is neither grounded nor annotated is itself a Warning.
+
+The discrete `**Confidence:** high|medium|low` line below the Verdict (and its echo in `### Summary`) is a top-level field, distinct from the per-finding confidence in the Critical/Warning tables. Four orchestrator commands (`commands/hatch3r-workflow.md` confidence-aware gate at step 1-2, et al.) parse this top-level field to drive the second-pass trigger; omitting it makes `evaluateReviewGate` receive `unknown` and force an unintended second pass.
+
 ## Golden Test
 
-Rationale for absence (D5 universal checklist row 6): this agent is an LLM prompt whose verdict is non-deterministic, so a byte-exact golden-output fixture is not meaningful. The `## Example` above is the behavioral specification — a fresh review of a diff with an IDOR and a missing ownership check must emit a `REQUEST CHANGES` verdict with those findings classified Critical, the Verification Results table, and a per-surface `pass`/`fail`/`n/a` line for every §12-§20 review field. The deterministic loop-termination contract (`DEFAULT_MAX_REVIEW_ITERATIONS`, `evaluateReviewGate`) is exercised by `src/__tests__/pipeline/reviewLoop.test.ts`, not by a prompt fixture.
+Rationale for absence (D5 universal checklist row 6): this agent is an LLM prompt whose verdict is non-deterministic, so a byte-exact golden-output fixture is not meaningful. The `## Example` above is the behavioral specification — a fresh review of a diff with an IDOR and a missing ownership check must emit a `REQUEST CHANGES` verdict, a top-level `**Confidence:** high|medium|low` line (the field the orchestrator's confidence-aware gate parses — D13-19), those findings classified Critical, the Verification Results table, and a per-surface `pass`/`fail`/`n/a` line (with a `[tool-not-configured: <surface>]` annotation wherever the grounding tool is absent — D23-1) for every §12-§20 review field. The deterministic loop-termination contract (`DEFAULT_MAX_REVIEW_ITERATIONS`, `evaluateReviewGate`) is exercised by `src/__tests__/pipeline/reviewLoop.test.ts`, not by a prompt fixture.
 
 ## References
 
 - Google. "What to look for in a code review." `https://google.github.io/eng-practices/review/reviewer/looking-for.html` (accessed 2026-05-28, Google Engineering Practices, peer-reviewed-methodology). Source for this agent's review dimensions — design, functionality, complexity (no speculative generality), tests, naming, comments-explain-why, and the look-at-every-assigned-line discipline behind the checklist completeness rule.
 - Conventional Comments. "Conventional Comments — a standard for formatting review feedback." `https://conventionalcomments.org/` (accessed 2026-05-28, Conventional Comments maintainers, established-library). Source for the labeled-feedback convention this agent's Critical/Warning/Suggestion vocabulary parallels (issue / suggestion / nitpick / question / praise), making findings parseable and unambiguous for the downstream fixer.
+- Anthropic. "Building agents with the Claude Agent SDK." `https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk` (accessed 2026-06-06, Anthropic engineering, official-vendor). Source for the gather-context → take-action → verify-work loop and the `rules-based > visual > LLM-as-judge` verification hierarchy (it calls LLM-as-judge "generally not very robust"). The items 12-20 Grounding rule adopts this hierarchy: each domain surface requires captured grounding-tool output or an explicit `tool-not-configured: <surface>` annotation, so a surface never silently degrades to prose-only LLM judgment (D23-1, D23-4).

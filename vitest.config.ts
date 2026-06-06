@@ -278,6 +278,37 @@ export default defineConfig({
           functions: 85,
           lines: 85,
         },
+        // src/cli/** (D3-11, Cycle 11 Wave-3 Medium). Before this row the CLI —
+        // 19 command files (one, src/cli/index.ts, is coverage-excluded above)
+        // plus 20 shared modules under src/cli/shared/, the largest user-facing
+        // surface in the repo — had NO scoped threshold and rode the global
+        // 78/65/80/80 floor. The directory aggregate cleared that floor on the
+        // back of over-covered modules elsewhere (src/merge, src/content, …), so
+        // a CLI-only regression could drop CLI coverage well below 80 lines and
+        // still merge as long as the repo-wide aggregate held — the exact gap
+        // D3-3 surfaced (deps.ts at 1.35% / show.ts at 3.94% lines rode along
+        // unguarded until D3-3 added their command-body tests). Pinning a
+        // src/cli/** floor isolates the CLI: a CLI-scoped line/statement drop now
+        // trips this key independently of the global aggregate. The post-D3-3
+        // command-body tests (src/__tests__/cli/commands/{deps,show,provenance}.test.ts)
+        // lift the aggregate clear of the values below; statements is set +2 over
+        // the global (80 vs 78) as the added bar, branches/functions/lines match
+        // the global tier so the protection comes from the per-directory scoping
+        // rather than from raising every dimension on an aggregate that cannot be
+        // re-measured inside a non-coverage work unit. These match the SA3.5-F3
+        // recommended floor verbatim. Orchestrator-confirmation step (snapshot.ts
+        // precedent above): the value pins are conservative; if the serialized
+        // final `npm test -- --coverage` gate reports any src/cli/** dimension
+        // below its pin here, lower that single dimension to the measured floor —
+        // a measured-floor pin still gates regression, which is the finding's
+        // intent. Do not lower below the global 78/65/80/80 (that would erase the
+        // gate). Re-measure-and-pin is pre-authorized for this row only.
+        "src/cli/**": {
+          statements: 80,
+          branches: 65,
+          functions: 80,
+          lines: 80,
+        },
       },
     },
   },

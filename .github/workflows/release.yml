@@ -161,9 +161,18 @@ jobs:
       # the highest-value secrets in the repo — so the lifecycle-script deny is
       # enforced via env on every `npm ci`, not only via .npmrc which a malicious
       # transitive Git-dep can rewrite mid-install with an `installconfig` key.
-      # Scoped to install steps only; the downstream `npm publish` step does NOT
-      # carry this env so `prepublishOnly` continues to run (build already ran
-      # above, but the convention stays clean).
+      #
+      # Cycle 11 M D4-13 (D4): this env is scoped to install steps only, but
+      # `prepublishOnly` (package.json) is INTENTIONALLY INERT in this pipeline
+      # regardless of this env, on both axes: (1) .npmrc carries
+      # `ignore-scripts=true` repo-wide, so even the unscoped `npm pack` below
+      # runs no `prepack`/`prepublishOnly`; (2) the Publish step ships the
+      # pre-packed `$TARBALL` file (`npm publish "$TARBALL"`), and publishing a
+      # tarball file never runs `prepublishOnly`. The explicit Build step below
+      # is the real dist/ guarantee for this CI path. `prepublishOnly` is kept
+      # in package.json solely as the dist-rebuild safety net for a local
+      # emergency `npm publish` (no tarball arg, no .npmrc ignore-scripts) — see
+      # the Publish step's provenance comment.
       - name: Install dependencies
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: "true"
@@ -236,6 +245,16 @@ jobs:
       # dependency tree (npm ci ran above) and writes CycloneDX 1.6 JSON.
       # --omit dev keeps the SBOM scoped to what actually ships in the
       # published package (the same scope as `npm publish`).
+      #
+      # Cycle 11 M D4-14 (D4): floor honesty — this generation step (SBOM
+      # produced + uploaded to the Release) is the hard-floor guarantee; npm
+      # provenance at the Publish step is also blocking. The downstream Sigstore
+      # *attestation* of this SBOM is best-effort (continue-on-error, with a
+      # `::warning::` + job-summary flag on drop) because it depends on Sigstore
+      # availability at release time. So "100% supply-chain floor" means SBOM is
+      # always produced + published and provenance is always signed; SBOM
+      # attestation is signed when Sigstore is reachable and loudly flagged when
+      # it is not — it never silently downgrades to green.
       - name: Generate SBOM (CycloneDX)
         run: |
           npx --yes @cyclonedx/cyclonedx-npm@4.2.1 \
@@ -283,12 +302,44 @@ jobs:
       # so a release is not blocked on a transient Sigstore outage during
       # attestation; the attestation is recorded against the immutable
       # packed artifact regardless.
+      #
+      # Cycle 11 M D4-14 (D4): kept non-blocking (continue-on-error) for
+      # Sigstore availability, but the failure is no longer silent. The
+      # follow-up step below fires only when `steps.attest_sbom.outcome` is
+      # `failure` (continue-on-error preserves the true outcome while flipping
+      # the step conclusion to success), emitting a `::warning::` annotation and
+      # a job-summary flag so a green release whose SBOM attestation was dropped
+      # is visible on the run page rather than passing unremarked. Honesty
+      # boundary: npm provenance at the Publish step IS blocking (hard floor);
+      # SBOM attestation is best-effort under Sigstore availability — see the
+      # Generate SBOM step comment for the reconciled floor wording.
       - name: Attest SBOM
+        id: attest_sbom
         uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
         with:
           subject-path: ${{ env.TARBALL }}
           sbom-path: sbom.cdx.json
         continue-on-error: true
+
+      # Cycle 11 M D4-14 (D4): surface a dropped SBOM attestation on the run.
+      # `continue-on-error: true` on the step above sets its `conclusion` to
+      # success (so the job stays green for Sigstore availability) but leaves
+      # `outcome` at the real `failure`, so this guard is forgery-resistant: it
+      # cannot fire on a genuine attestation success. The `::warning::` shows on
+      # the run page and the GITHUB_STEP_SUMMARY line flags the gap in the job
+      # summary; the unsigned sbom.cdx.json still uploads to the Release below so
+      # the component inventory is available, just unattested this run.
+      - name: Flag dropped SBOM attestation
+        if: steps.attest_sbom.outcome == 'failure'
+        run: |
+          echo "::warning title=SBOM attestation dropped::actions/attest-sbom failed (likely transient Sigstore availability). The Release SBOM uploaded below is UNATTESTED for this version. Re-run the workflow or attest sbom.cdx.json out-of-band to restore the supply-chain attestation."
+          {
+            echo "### ⚠ SBOM attestation dropped"
+            echo ""
+            echo "The \`Attest SBOM\` step failed (continue-on-error kept the release green)."
+            echo "\`sbom.cdx.json\` is attached to the Release but is **unattested** for this version."
+            echo "npm provenance (blocking) succeeded; only the best-effort SBOM attestation was dropped."
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Attach the CycloneDX SBOM to the GitHub Release so consumers can fetch
       # the component inventory of this exact version without re-running the

@@ -85,11 +85,31 @@ jobs:
             exit 1
           fi
 
-      - name: Security audit (production)
+      # Cycle 11 M D4-10 (D4): dev-tier severity policy. Three layered audit
+      # gates with distinct severity floors so no (severity, dependency-class)
+      # cell is unguarded:
+      #   1. production deps  — block at >=high  (a high CVE on a shipped dep
+      #      reaches end users, so it fails the PR fast and focused)
+      #   2. all deps         — block at >=high  (closes the prior blind spot:
+      #      the all-deps gate was --audit-level=critical, so a high-severity
+      #      dev-only CVE — severity in {high} AND dev:true — slipped past both
+      #      the production gate (--omit=dev) and this one. high includes dev
+      #      now, so a high dev CVE reds CI)
+      #   3. all deps         — report at >=moderate (informational): surfaces
+      #      the moderate-dev tier (e.g. brace-expansion GHSA-jxxr-4gwj-5jf2,
+      #      D4-9) in the log without failing the build, because a moderate
+      #      dev-tool CVE is remediated via a tracked package.json override
+      #      rather than blocking unrelated PRs on the pre-existing baseline.
+      #      continue-on-error keeps it visible-but-non-blocking.
+      - name: Security audit (production deps, fail >=high)
         run: npm audit --audit-level=high --omit=dev
 
-      - name: Security audit (all dependencies)
-        run: npm audit --audit-level=critical
+      - name: Security audit (all deps, fail >=high)
+        run: npm audit --audit-level=high
+
+      - name: Security audit (all deps, report >=moderate)
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
 
       # Cycle 8 C8-D4-M1: `npm audit` only flags packages that already
       # have a published advisory; it misses the malicious-install class
@@ -332,3 +352,42 @@ jobs:
           else
             echo "finding-registry absent — skipping"
           fi
+
+  # Cycle 11 M D4-12 (D4): stable required-check aggregator. The `build` job is
+  # a matrix (os x node-version), and GitHub names each leg with its matrix
+  # values — `build (ubuntu-latest, 22)`, `build (windows-latest, 26)`, etc. The
+  # Node lane set rotates every cycle (currently [22, 24, 26]; see the build
+  # matrix rationale), so any branch-protection rule that requires a specific
+  # leg name silently un-gates main the moment that lane is dropped, or blocks
+  # every PR on a check name that no longer exists. This job has a single static
+  # name that never changes; it depends on every other job in the workflow and
+  # fails unless all of them succeeded. `if: always()` makes it run even when a
+  # dependency failed or was cancelled, so it cannot be skipped (a skipped
+  # required check counts as not-run and blocks the PR).
+  #
+  # Branch-protection required-check list (human-only follow-up — settings ->
+  # branches -> require status checks on main):
+  #   ci.yml         -> "All CI checks"   (this job; covers supply-chain + the
+  #                                         full build matrix transitively)
+  #   pr-checks.yml  -> "Validate PR title (conventional commits)",
+  #                     "DCO sign-off check", "Bundle size gate"
+  # Require ONLY "All CI checks" from this workflow — never an individual
+  # `build (...)` leg, whose name rotates with the matrix.
+  ci-success:
+    name: All CI checks
+    if: always()
+    needs: [supply-chain, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify all required jobs succeeded
+        env:
+          SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          echo "supply-chain=$SUPPLY_CHAIN_RESULT build=$BUILD_RESULT"
+          if [ "$SUPPLY_CHAIN_RESULT" != "success" ] || [ "$BUILD_RESULT" != "success" ]; then
+            echo "::error::One or more required CI jobs did not succeed (supply-chain=$SUPPLY_CHAIN_RESULT, build=$BUILD_RESULT)."
+            exit 1
+          fi
+          echo "All required CI jobs succeeded."

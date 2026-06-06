@@ -46,7 +46,7 @@ hatch3r includes several security layers:
 - **MCP server warnings** -- init displays security warnings when MCP servers are enabled
 - **Path traversal protection** -- content installation validates paths stay within the project root (null byte injection, directory traversal, and absolute path guards)
 - **Naming convention isolation** -- `hatch3r-*` prefix separates managed from user files, preventing unintended overwrites
-- **Integrity verification** -- `hatch3r verify` detects unauthorized modifications to canonical agent files via SHA-256 content hashing
+- **Drift detection** -- `hatch3r status` / `hatch3r verify` regenerate adapter outputs from the bundled canonical content and diff them against the on-disk copies, flagging drifted, hand-edited, or stale generated files. This is unsigned drift detection (regenerate-and-diff), not cryptographic per-file integrity: there is no `.integrity.json` checksum file (the SHA-256 manifest was removed in 1.9.0 per CONSTITUTION §6 Decision 12). See **Content Signing Limitations** below for the threat-model boundary
 - **Pipeline prompt injection guards** -- ASI01-aligned input sanitization, output validation, and boundary markers for inter-agent communication
 - **Agent tool allowlists** -- ASI02-aligned per-agent capability restrictions enforcing least-privilege access
 - **Atomic file writes** -- all file operations use temp+rename to prevent corruption from interrupted writes

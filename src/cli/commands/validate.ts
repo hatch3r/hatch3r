@@ -2016,11 +2016,12 @@ async function scanUserAgentPolicyCoverage(
  *
  * D5-25 (Cycle 11 Wave 3, Medium) confirms this gate IS the body-vs-policy
  * heuristic the finding requires (its root cause — "no validator detects a body
- * instructing a denied capability" — predates this D5-2 gate). The one named
- * coverage gap, hatch3r-devops, is deferred to D5-24: that finding owns the
- * devops policy grant in src/pipeline/agentToolAllowlist.ts and adds the devops
- * scope entry atomically, so the gate never fires before the grant exists. See
- * the D5_2_BODY_CAPABILITY_AGENTS literal below.
+ * instructing a denied capability" — predates this D5-2 gate). D5-24 (same wave)
+ * closed the one named coverage gap, hatch3r-devops: it grants the devops
+ * `web`+`mcp` categories in src/pipeline/agentToolAllowlist.ts and adds the devops
+ * scope entry to D5_2_BODY_CAPABILITY_AGENTS in the same atomic commit, so the
+ * gate fires on devops only after the grant exists. See the literal below — the
+ * scanned set is now six agents.
  *
  * Detection uses high-precision directive patterns (not loose keyword matching)
  * so an incidental mention ("the agent does not need WebFetch") does not trip a
@@ -2033,16 +2034,16 @@ const D5_2_BODY_CAPABILITY_AGENTS = [
   "hatch3r-context-rules",
   "hatch3r-docs-writer",
   "hatch3r-lint-fixer",
-  // D5-25 (Cycle 11 Wave 3, Medium): hatch3r-devops is the next agent whose body
-  // issues genuine "Use web research" / "Use Context7 MCP" directives without a
-  // matching `web`/`mcp` policy grant (the D5-24 self-contradiction). It is NOT
-  // added to this scanned set here: the matching devops policy grant is owned by
-  // D5-24 (which edits src/pipeline/agentToolAllowlist.ts), and activating the
-  // gate on devops before that grant lands would emit a false-positive ERROR.
-  // D5-24 adds both the policy grant AND this scope entry atomically. The D5-25
-  // root cause — "a body-vs-policy capability gate exists at all" — is satisfied
-  // by validateAgentBodyCapabilityCoverage (this function); D5-25 is the
-  // coverage-extension follow-up that rides D5-24's data fix.
+  // D5-24 (Cycle 11 Wave 3, Medium): hatch3r-devops's body issues genuine "Use
+  // web research" / "Use Context7 MCP" directives (agents/hatch3r-devops.md
+  // §Design steps + §External Knowledge focus sections). D5-24 grants the matching
+  // `web`+`mcp` categories in src/pipeline/agentToolAllowlist.ts AND adds this
+  // scope entry in the same atomic wave commit, so the gate activates only after
+  // the grant exists (no false-positive ERROR). The D5-25 root cause — "a
+  // body-vs-policy capability gate exists at all" — is satisfied by
+  // validateAgentBodyCapabilityCoverage (this function); adding devops here closes
+  // the one named coverage gap D5-25 deferred to D5-24.
+  "hatch3r-devops",
 ] as const;
 
 /**

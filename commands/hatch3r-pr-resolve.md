@@ -440,7 +440,7 @@ Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify
 >
 > (accept / adjust / show N / fix all)
 
-If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-revision.md:286-310`: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
+If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-revision.md` §5b Routing ASK → Critical Deferral Protocol: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
 
 After the user accepts, the run is autonomous until Step 10.
 
@@ -490,7 +490,7 @@ Each sub-agent prompt MUST include:
 
 #### 6c. Await and Integrate
 
-Await all sub-agents. Collect structured results: files changed, tests written, findings addressed, BLOCKED / PARTIAL items. Apply cross-agent conflict resolution per `commands/revision/revision-delegation.md:85-92` (disjoint regions accept both; overlapping regions merge larger-scope; semantic conflicts surface in Step 10 Iteration Summary).
+Await all sub-agents. Collect structured results: files changed, tests written, findings addressed, BLOCKED / PARTIAL items. Apply cross-agent conflict resolution per `commands/revision/revision-delegation.md` §6c → Cross-Agent Conflict Resolution (disjoint regions accept both; overlapping regions merge larger-scope; semantic conflicts surface in Step 10 Iteration Summary).
 
 Update `run_cache.fix_results`.
 
@@ -533,7 +533,7 @@ After 7b is clean:
 - `hatch3r-performance` (CQ7) — when the diff includes hot-path changes (DB queries, API handlers, render loops).
 - `hatch3r-lint-fixer` — when residual lint/type errors surfaced after Step 6.
 
-Each specialist prompt mirrors the requirements in `commands/revision/revision-quality.md:82-89` (agent protocol, scope:always rules, diff, acceptance criteria, confidence requirement). Apply specialist outputs; re-run 7a gates if changes were made.
+Each specialist prompt mirrors the requirements in `commands/revision/revision-quality.md` §Stage 2 → Specialist Prompt Requirements (agent protocol, scope:always rules, diff, acceptance criteria, confidence requirement). Apply specialist outputs; re-run 7a gates if changes were made.
 
 ---
 
@@ -768,7 +768,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 | Sub-agent (Step 6) reports BLOCKED on a finding | Skip the finding for FIX NOW; surface in Step 10 `Not Done`; reply with "Attempted but blocked" template. |
 | Sub-agent (Step 6) returns PARTIAL | Apply partial changes; mark the unaddressed sub-findings as deferred; reply notes partial implementation. |
 | Reply POST persistently fails (Step 8c) | Continue run; record in `run_cache.reply_post_results`; surface in Step 10. |
-| Review loop hits 3 iterations with findings remaining | ASK the user per `commands/revision/revision-quality.md` line 54. |
+| Review loop hits 3 iterations with findings remaining | ASK the user per `commands/revision/revision-quality.md` §Stage 1 Review Loop step 3 (3-iteration ASK). |
 | Quality gate fails 2 retries (Step 7a) | Record in `run_cache.errors`; Step 10 `Status: PARTIAL`. |
 | `git push` rejected (e.g., upstream changed mid-run) | Halt at Step 9 with: "Remote branch changed during run. Run `git pull --rebase`, resolve conflicts, then re-run /hatch3r-pr-resolve to repost any failed replies." |
 | GraphQL `reviewThreads` query fails (GitHub resolution state) | Fall back to evaluating every inline comment (no resolution filter); record a Low-confidence note in `run_cache.errors`. |
