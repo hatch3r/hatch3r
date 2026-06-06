@@ -134,7 +134,7 @@ Failure escalation per `agents/hatch3r-scalability.md` severity calibration: Gat
 ## Cross-References
 
 - `rules/hatch3r-api-design.md` — idempotency requirement.
-- `rules/hatch3r-reliability.md` — bulkheads section.
+- `rules/hatch3r-resilience-patterns.md` — bulkheads section.
 - `rules/hatch3r-observability-metrics.md` — USE method + burn-rate alerts.
 - `skills/hatch3r-observability-verify` — telemetry harness reuse for Gate 7.
 - `agents/shared/quality-charter.md` §Reliability quality + §API quality.

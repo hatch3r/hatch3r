@@ -305,6 +305,154 @@ describe("sweepOrphansForAdapter", () => {
   });
 });
 
+describe("sweepOrphansForAdapter per-package containment (D14-5)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-orphan-pkg-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("reclaims a removed package's per-package output when packageRoots is supplied", async () => {
+    // Monorepo: a prior sync emitted root + per-package copies for two
+    // packages. The user removes `packages/web` from the workspace globs, so
+    // the next sync's current set keeps `packages/api/...` but drops
+    // `packages/web/...`. With the package roots supplied, the dropped
+    // per-package file passes containment and is unlinked.
+    const rootPath = ".cursor/rules/50-hatch3r-testing.mdc";
+    const apiPath = "packages/api/.cursor/rules/50-hatch3r-testing.mdc";
+    const webPath = "packages/web/.cursor/rules/50-hatch3r-testing.mdc";
+    for (const p of [rootPath, apiPath, webPath]) {
+      await mkdir(join(tempDir, p.split("/").slice(0, -1).join("/")), { recursive: true });
+      await writeFile(join(tempDir, p), "# hatch3r-managed\n");
+    }
+
+    // packages/web removed from the workspace -> only api + root remain current.
+    const entries = await sweepOrphansForAdapter(
+      "cursor",
+      tempDir,
+      [rootPath, apiPath, webPath],
+      [rootPath, apiPath],
+      ["packages/api"], // web is no longer a package root
+    );
+
+    expect(entries).toHaveLength(1);
+    expect(entries[0]).toEqual({
+      adapter: "cursor",
+      path: webPath,
+      removed: true,
+      reason: "unlinked",
+    });
+    expect(await fileExists(join(tempDir, webPath))).toBe(false);
+    // Live files untouched.
+    expect(await fileExists(join(tempDir, rootPath))).toBe(true);
+    expect(await fileExists(join(tempDir, apiPath))).toBe(true);
+  });
+
+  it("classifies a per-package path as outside-adapter-root when packageRoots is omitted (back-compat)", async () => {
+    // Without packageRoots, the containment check only accepts repo-root
+    // adapter prefixes — a `packages/web/...` candidate is refused, so a
+    // single-package caller (e.g. update.ts) never deletes a per-package file
+    // it does not know about.
+    const webPath = "packages/web/.cursor/rules/50-hatch3r-testing.mdc";
+    await mkdir(join(tempDir, "packages/web/.cursor/rules"), { recursive: true });
+    await writeFile(join(tempDir, webPath), "# hatch3r-managed\n");
+
+    const entries = await sweepOrphansForAdapter("cursor", tempDir, [webPath], []);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].removed).toBe(false);
+    expect(entries[0].reason).toBe("outside-adapter-root");
+    expect(await fileExists(join(tempDir, webPath))).toBe(true);
+  });
+
+  it("reclaims a per-package rule for the claude adapter (directory-prefix root)", async () => {
+    // The per-package variant of a directory prefix (`<pkg>/.claude/`) must be
+    // accepted in containment so a removed package's claude rule is reclaimed.
+    const webRule = "packages/web/.claude/rules/50-hatch3r-testing.md";
+    await mkdir(join(tempDir, "packages/web/.claude/rules"), { recursive: true });
+    await writeFile(join(tempDir, webRule), "# hatch3r-managed\n");
+
+    const entries = await sweepOrphansForAdapter(
+      "claude",
+      tempDir,
+      [webRule],
+      [],
+      ["packages/web"],
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].reason).toBe("unlinked");
+    expect(await fileExists(join(tempDir, webRule))).toBe(false);
+  });
+
+  it("derives the package root from the candidate itself even when manifest.packages no longer lists it", async () => {
+    // The removed-package case: the prior sync recorded the per-package path,
+    // but the package is gone from `manifest.packages` (so the explicit
+    // packageRoots arg here is empty). The root is recovered structurally from
+    // the candidate path, so the orphan is still reclaimed.
+    const webPath = "packages/legacy/.cursor/rules/50-hatch3r-old.mdc";
+    await mkdir(join(tempDir, "packages/legacy/.cursor/rules"), { recursive: true });
+    await writeFile(join(tempDir, webPath), "# hatch3r-managed\n");
+
+    const entries = await sweepOrphansForAdapter("cursor", tempDir, [webPath], [], []);
+    expect(entries).toHaveLength(1);
+    expect(entries[0].reason).toBe("unlinked");
+    expect(await fileExists(join(tempDir, webPath))).toBe(false);
+  });
+
+  it("refuses a candidate that escapes the repo root via .. even in per-package mode", async () => {
+    // Path-traversal defense holds independently of the per-package widening:
+    // a candidate whose normalised path leaves rootDir is rejected by the
+    // repo-root containment guard before any prefix match, regardless of the
+    // packageRoots argument or candidate-derived roots.
+    const outsideDir = await mkdtemp(join(tmpdir(), "hatch3r-orphan-escape-"));
+    const sentinel = join(outsideDir, ".cursor", "rules", "50-hatch3r-evil.mdc");
+    await mkdir(join(outsideDir, ".cursor", "rules"), { recursive: true });
+    await writeFile(sentinel, "outside-repo-root");
+
+    try {
+      const entries = await sweepOrphansForAdapter(
+        "cursor",
+        tempDir,
+        [sentinel], // absolute path outside rootDir, but shaped like an adapter output
+        [],
+        ["packages/web"], // per-package mode opted in
+      );
+      expect(entries).toHaveLength(1);
+      expect(entries[0].removed).toBe(false);
+      expect(entries[0].reason).toBe("outside-adapter-root");
+      expect(await fileExists(sentinel)).toBe(true);
+    } finally {
+      await rm(outsideDir, { recursive: true, force: true });
+    }
+  });
+
+  it("drops a malicious package root that escapes via .. without widening acceptance", async () => {
+    // A tampered manifest.packages entry pointing outside the repo must not be
+    // turned into an accepted prefix. We probe with a candidate that is NOT a
+    // per-package adapter path (so candidate-derivation contributes nothing),
+    // leaving the malicious explicit root as the only possible widening — which
+    // is dropped, so the candidate stays outside any adapter root.
+    const foreignPath = "src/hatch3r-foo.md";
+    await mkdir(join(tempDir, "src"), { recursive: true });
+    await writeFile(join(tempDir, foreignPath), "# foreign\n");
+
+    const entries = await sweepOrphansForAdapter(
+      "cursor",
+      tempDir,
+      [foreignPath],
+      [],
+      ["../../../etc/.cursor", "packages/../escape"], // unsafe -> dropped
+    );
+    expect(entries).toHaveLength(1);
+    expect(entries[0].removed).toBe(false);
+    expect(entries[0].reason).toBe("outside-adapter-root");
+    expect(await fileExists(join(tempDir, foreignPath))).toBe(true);
+  });
+});
+
 describe("sweepOrphansForAdapter error paths", () => {
   let tempDir: string;
 

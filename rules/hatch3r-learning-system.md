@@ -118,11 +118,11 @@ Triggers consolidation when:
 2. A newer learning sets `supersedes:` — older entries archived to `.hatch3r/learnings/archive/` with a forwarding pointer in the archive header.
 3. Confidence on a 90-day-or-older learning is contradicted by recent commits or test runs — re-evaluate confidence; downgrade to `low` or archive if the contradiction is verified.
 
-Consolidation runs at the end of every meaningful skill or orchestrator session that captured a new learning, plus on demand via the future `hatch3r learnings consolidate` command. The pass is idempotent.
+Consolidation is an agent-performed pass: the capturing skill or orchestrator runs it (reading + archiving with file tools per `skills/hatch3r-learn/SKILL.md` → Learning Lifecycle) at the end of every meaningful session that captured a new learning, or on demand when a maintainer asks. There is no `hatch3r learnings consolidate` CLI subcommand — the only learnings CLI is `hatch3r learn capture` (a single-file guarded write). The pass is idempotent.
 
 ## INDEX.md Format
 
-`.hatch3r/learnings/INDEX.md` is regenerated after every capture or consolidation. Format:
+`.hatch3r/learnings/INDEX.md` is an agent-maintained file: the capturing skill or orchestrator regenerates it from the directory contents after every capture or consolidation (Capture Workflow step 2 below; no CLI writes it). Format:
 
 ```markdown
 # Learnings Index
@@ -157,7 +157,7 @@ outcome: helpful|neutral|harmful|untested
 - `harmful` — applying the learning produced a regression (test red, review rejected, fixer reverted).
 - `untested` — applying was inconclusive (no verification ran or signals were ambiguous).
 
-After every meaningful run that consulted at least one learning, the orchestrator appends one line per consulted entry to `.hatch3r/learnings/.usage.jsonl` (append-only, atomic via `src/merge/safeWrite.ts`):
+After every meaningful run that consulted at least one learning, the orchestrating agent appends one line per consulted entry to `.hatch3r/learnings/.usage.jsonl` with its file tools — append-only (never rewrite prior rows), one whole line per write to match the single-atomic-append discipline of `src/merge/safeWrite.ts` (the agent follows that pattern; it does not call the function — there is no `.usage.jsonl` CLI writer):
 
 ```json
 {"ts": "<ISO-8601>", "learning_id": "<id>", "agent": "<consumer agent id>", "outcome": "helpful|neutral|harmful|untested", "session_id": "<id>", "verification": "<test-pass|review-clean|test-fail|fixer-revert|none>"}

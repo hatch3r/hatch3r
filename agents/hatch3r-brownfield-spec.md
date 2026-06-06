@@ -244,7 +244,7 @@ Proof trace per `agents/shared/rigor-contract.md` §Proof Trace Contract is mand
 **Progress toward pillar:** content-quality.CQ3+0.20
 ```
 
-The body includes all 8 deliverables; integration surface lists every consumer that reads the session cookie (grep-verified), migration plan declares 4-phase expand-contract (add OAuth path → backfill DPoP-bound tokens → flip default → remove session cookie), non-destructive check declares feature-flag gate + 2-release deprecation window + contract tests against 4 consuming services + staged rollout per `rules/hatch3r-reliability.md`.
+The body includes all 8 deliverables; integration surface lists every consumer that reads the session cookie (grep-verified), migration plan declares 4-phase expand-contract (add OAuth path → backfill DPoP-bound tokens → flip default → remove session cookie), non-destructive check declares feature-flag gate + 2-release deprecation window + contract tests against 4 consuming services + staged rollout per `rules/hatch3r-progressive-delivery.md`.
 
 ## References
 

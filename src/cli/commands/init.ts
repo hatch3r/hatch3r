@@ -98,7 +98,12 @@ import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import type { WorkspaceRepoEntry } from "../../workspace/types.js";
 import { parseGitRemote, parseGitDefaultBranch, getGitRemoteUrl, detectPlatformFromRemote, detectRepoGitIdentity } from "../../workspace/git.js";
-import { importCursorRules, type CursorImportSummary } from "../../importers/cursor.js";
+import {
+  runImport,
+  IMPORT_TARGETS,
+  type ImportTarget,
+  type FormatImportSummary,
+} from "../../importers/index.js";
 import { createSnapshot } from "../../pipeline/snapshot.js";
 import { estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
 import { recordFirstRunSuccess } from "../../pipeline/spaceTelemetry.js";
@@ -1727,12 +1732,16 @@ export async function initCommand(
     facets?: string;
     /**
      * Import an existing tool's config into hatch3r at the tail of init.
-     * Only `cursor` is supported today: reads `.cursor/rules/*.mdc` and writes
-     * canonical `.md` + `.mdc` companions under `.hatch3r/overrides/rules/`
-     * with conflict detection against existing rule ids. Interactive runs
-     * preview (dry-run) then confirm before writing; `--yes`/`--json`/`--quiet`
-     * write directly. An unset value is a no-op — init behaves exactly as
-     * before. See `src/importers/cursor.ts::importCursorRules`.
+     * Accepts one of {@link IMPORT_TARGETS}: `cursor` (`.cursor/rules/*.mdc`),
+     * `copilot` (`.github/instructions/*.instructions.md` + legacy
+     * `.github/copilot-instructions.md`), `windsurf` (`.windsurf/rules/*.md` +
+     * legacy `.windsurfrules`), `cursorrules` (legacy `.cursorrules`), or `auto`
+     * (every format). Each converted rule is written as a canonical `.md` +
+     * `.mdc` companion under `.hatch3r/overrides/rules/` with conflict detection
+     * against existing rule ids (shared across formats under `auto`). Interactive
+     * runs preview (dry-run) then confirm before writing; `--yes`/`--json`/`--quiet`
+     * write directly. An unset value is a no-op — init behaves exactly as before.
+     * See `src/importers/index.ts::runImport`.
      */
     import?: string;
     /**
@@ -2033,7 +2042,7 @@ export async function initCommand(
 
     await checkExisting(rootDir, true, contentSelection);
     await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage });
-    await runCursorImport(rootDir, opts.import, true);
+    await runToolImport(rootDir, opts.import, true);
     return;
   }
 
@@ -2365,22 +2374,28 @@ export async function initCommand(
 
   await checkExisting(rootDir, false, contentSelection);
   await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage });
-  await runCursorImport(rootDir, opts.import, false);
+  await runToolImport(rootDir, opts.import, false);
 }
 
 // ── Tool import (--import) ─────────────────────────────────────────
 
-const SUPPORTED_IMPORTERS = ["cursor"] as const;
+/** Sum a numeric field across a list of per-format import summaries. */
+function totalAcross(
+  summaries: readonly FormatImportSummary[],
+  field: (s: FormatImportSummary) => number,
+): number {
+  return summaries.reduce((acc, s) => acc + field(s), 0);
+}
 
 /**
- * Render a one-line headline + per-path breakdown for a cursor-import run.
- * Used for both the interactive dry-run preview and the final post-write
- * summary. Quiet/JSON callers route the counts through their own envelope, so
- * this only emits when `info`/`warn` are live (no-op under `setQuiet(true)`).
+ * Render a per-format headline + per-path breakdown for one import summary.
+ * Quiet/JSON callers route the counts through their own envelope, so this only
+ * emits when `info`/`warn` are live (no-op under `setQuiet(true)`). The format
+ * name leads each headline so an `auto` run reads one line per format.
  */
-function renderCursorImportSummary(summary: CursorImportSummary, headlinePrefix: string): void {
+function renderFormatImportSummary(summary: FormatImportSummary, headlinePrefix: string): void {
   info(
-    `${headlinePrefix}: ${summary.sourceFiles} source file(s) → ` +
+    `${headlinePrefix} [${summary.format}]: ${summary.sourceFiles} source file(s) → ` +
       `${summary.converted.length} converted, ${summary.conflicts.length} conflicts, ` +
       `${summary.manualReview.length} manual-review`,
   );
@@ -2393,35 +2408,36 @@ function renderCursorImportSummary(summary: CursorImportSummary, headlinePrefix:
 }
 
 /**
- * Run the `--import <tool>` step at the tail of init (after content selection +
- * manifest are established). A no-op when `tool` is unset, so a plain init is
+ * Run the `--import <target>` step at the tail of init (after content selection +
+ * manifest are established). A no-op when `target` is unset, so a plain init is
  * unchanged.
  *
- * - Validates `tool` against {@link SUPPORTED_IMPORTERS} (throws VALIDATION_ERROR
- *   otherwise).
+ * - Validates `target` against {@link IMPORT_TARGETS} (throws VALIDATION_ERROR
+ *   otherwise) — one of cursor, copilot, windsurf, cursorrules, or auto.
  * - Gathers existing rule ids (canonical + user) from a fresh content index so
  *   conflict detection sees both shipped rules and prior imports.
- * - Interactive (`headless === false`): dry-run first, render the preview, then
- *   `inquirer` confirm before the real write. A declined confirm leaves disk
- *   untouched.
+ * - Interactive (`headless === false`): dry-run first, render the per-format
+ *   preview, then `inquirer` confirm before the real write. A declined confirm
+ *   leaves disk untouched.
  * - Headless (`--yes`/`--json`/`--quiet`, `headless === true`): writes directly
  *   and surfaces the counts (JSON line under `--json`, summary otherwise).
  */
-async function runCursorImport(
+async function runToolImport(
   rootDir: string,
-  tool: string | undefined,
+  target: string | undefined,
   headless: boolean,
 ): Promise<void> {
-  if (tool === undefined) return;
+  if (target === undefined) return;
 
-  if (!(SUPPORTED_IMPORTERS as readonly string[]).includes(tool)) {
+  if (!(IMPORT_TARGETS as readonly string[]).includes(target)) {
     throw new HatchError(
-      `Unsupported importer: ${tool}`,
+      `Unsupported importer: ${target}`,
       undefined,
       "VALIDATION_ERROR",
-      "Supported importers: cursor. Re-run with --import cursor.",
+      `Supported importers: ${IMPORT_TARGETS.join(", ")}. Re-run with --import <target>.`,
     );
   }
+  const importTarget = target as ImportTarget;
 
   // Existing rule ids (canonical + user) for conflict detection. Build a fresh
   // index that includes the project's `.hatch3r/overrides/` so a re-run detects
@@ -2435,45 +2451,50 @@ async function runCursorImport(
 
   // Interactive: dry-run preview → confirm → real write. Headless: write now.
   if (!headless && !isQuiet()) {
-    const preview = await importCursorRules({ rootDir, dryRun: true, existingRuleIds });
-    renderCursorImportSummary(preview, "Cursor import (preview)");
-    if (preview.converted.length === 0) {
-      info("Cursor import: nothing to write (no convertible rules).");
+    const preview = await runImport({ rootDir, target: importTarget, dryRun: true, existingRuleIds });
+    for (const s of preview) renderFormatImportSummary(s, "Import (preview)");
+    const previewConverted = totalAcross(preview, (s) => s.converted.length);
+    if (previewConverted === 0) {
+      info("Import: nothing to write (no convertible rules).");
       return;
     }
     const { confirmImport } = await inquirer.prompt<{ confirmImport: boolean }>([
       {
         type: "confirm",
         name: "confirmImport",
-        message: `Write ${preview.converted.length} imported rule(s) (.md + .mdc) to .hatch3r/overrides/rules/?`,
+        message: `Write ${previewConverted} imported rule(s) (.md + .mdc) to .hatch3r/overrides/rules/?`,
         default: true,
       },
     ]);
     if (!confirmImport) {
-      info("Cursor import: skipped (no files written).");
+      info("Import: skipped (no files written).");
       return;
     }
   }
 
-  const result = await importCursorRules({ rootDir, dryRun: false, existingRuleIds });
+  const results = await runImport({ rootDir, target: importTarget, dryRun: false, existingRuleIds });
 
   if (isJson()) {
     console.log(
       JSON.stringify({
-        import: "cursor",
-        sourceFiles: result.sourceFiles,
-        converted: result.converted.length,
-        conflicts: result.conflicts.length,
-        manualReview: result.manualReview.length,
-        written: result.written,
+        import: importTarget,
+        formats: results.map((r) => ({
+          format: r.format,
+          sourceFiles: r.sourceFiles,
+          converted: r.converted.length,
+          conflicts: r.conflicts.length,
+          manualReview: r.manualReview.length,
+          written: r.written,
+        })),
       }),
     );
     return;
   }
 
-  renderCursorImportSummary(result, "Cursor import");
-  if (result.written.length > 0) {
-    info(chalk.dim(`  wrote ${result.written.length} file(s) under .hatch3r/overrides/rules/`));
+  for (const r of results) renderFormatImportSummary(r, "Import");
+  const totalWritten = totalAcross(results, (s) => s.written.length);
+  if (totalWritten > 0) {
+    info(chalk.dim(`  wrote ${totalWritten} file(s) under .hatch3r/overrides/rules/`));
   }
 }
 

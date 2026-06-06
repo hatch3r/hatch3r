@@ -177,22 +177,22 @@ Remind user that these will be auto-consulted during future board-pickup and boa
 ### Supersession & Archival
 - A newer learning lists the entries it replaces in its `supersedes: [<id>, ...]` field — the canonical schema's sole archival pointer (`rules/hatch3r-learning-system.md` → Field semantics; `superseded_by`/`deprecated`/`expires` are retired per that rule's migration table and are NOT canonical fields).
 - Superseded entries are archived (moved to `.hatch3r/learnings/archive/`, never deleted) on the next consolidation pass — the rule's §Auto-Consolidation defines the three triggers (overlapping `topic`+`applies-to`, a newer `supersedes:`, or a contradicted 90-day-old confidence). This skill performs the move with the `Read` + `Write` file tools; the only learnings CLI is `hatch3r learn capture` (a single-file write through the security gate) — there is no CLI for archival, search, or consolidation, and the `hatch3r status`/`hatch3r sync` commands do not touch learning lifecycle.
-- Quarterly review: surface a review prompt to the user when more than 50 active learnings exist (count `.hatch3r/learnings/*.md` via the `Glob` tool, excluding the `archive/` subdirectory).
+- Capacity review: surface a review prompt to the user when active learnings reach 80% of the cap (40 of 50; count `.hatch3r/learnings/*.md` via the `Glob` tool, excluding the `archive/` subdirectory).
 
 ### Learnings Count Cap
 
 To prevent unbounded context growth, this skill applies a maximum-count convention on active learnings (it counts `.hatch3r/learnings/*.md` with the `Glob` tool, excluding the `archive/` subdirectory — `hatch3r learn capture` writes one file at a time and does not enforce the cap, so the count check stays here in the skill):
 
-- **Default cap:** 100 active learnings (not counting archived entries).
-- **Enforcement:** When the active count reaches the cap, this skill stops before writing a new learning and surfaces: "Active learnings limit reached ({count}/100). Archive or merge existing learnings before adding new ones." Archive candidates via the Pruning Guidance below.
+- **Default cap:** 50 active learnings (not counting archived entries). This matches the deterministic limit `MAX_LEARNING_FILE_COUNT` enforced by `src/content/learningsValidation.ts::validateLearningsDirectory` — the count this skill checks and the count `hatch3r validate`/`hatch3r sync` hard-error on are the same number, so the doc cap and the enforced cap cannot diverge.
+- **Enforcement:** When the active count reaches the cap, this skill stops before writing a new learning and surfaces: "Active learnings limit reached ({count}/50). Archive or merge existing learnings before adding new ones." Archive candidates via the Pruning Guidance below.
 - **Per-session cap:** A single invocation captures at most 10 learnings. If more than 10 are identified in Step 2, present the top 10 by relevance and inform the user that the remainder can be captured in a follow-up session.
 
 ### Pruning Guidance
 
-When the active learnings count exceeds 80% of the cap (80 of 100), surface a pruning prompt after Step 4. This skill identifies candidates by reading the frontmatter of files under `.hatch3r/learnings/` with the `Read`/`Grep` tools (no CLI is involved):
+When the active learnings count exceeds 80% of the cap (40 of 50), surface a pruning prompt after Step 4. This skill identifies candidates by reading the frontmatter of files under `.hatch3r/learnings/` with the `Read`/`Grep` tools (no CLI is involved):
 
 ```
-Learnings nearing capacity ({count}/100). Consider archiving:
+Learnings nearing capacity ({count}/50). Consider archiving:
   1. Superseded learnings — entries named in another file's `supersedes:` list
   2. Low-confidence learnings — `confidence: low` entries pending verification
   3. Oldest learnings — lowest `created` dates, re-evaluated per the 90-day consolidation trigger

@@ -207,6 +207,37 @@ export function extractUserContentReferences(content: string): string[] {
   return [...refs];
 }
 
+/**
+ * D22-1 (Cycle 11 Wave 2): scan markdown for BACKTICKED references to
+ * canonical rule files by path — `` `rules/hatch3r-foo.md` `` or its `.mdc`
+ * twin — so a citation of a rule file that does not exist on disk is caught.
+ * The id-based scanners (`extractContentReferences`) only resolve bare ids
+ * like `` `hatch3r-foo` ``; a backticked PATH such as
+ * `` `rules/hatch3r-reliability.md` `` matches neither the bare-id regex (the
+ * leading backtick is followed by `rules/`, not `hatch3r-`) nor the bare-prose
+ * scanner (which carves out `/`-prefixed and `.md`-suffixed forms). That gap
+ * let a rule path cited 5× across the corpus dangle while `hatch3r validate`
+ * exited 0. Returns deduplicated repo-relative paths; the CALLER resolves each
+ * against the content root and warns on miss.
+ *
+ * Scope is deliberately narrow — only `rules/hatch3r-*.{md,mdc}` paths — to
+ * keep the false-positive rate at zero: these are first-class canonical rule
+ * artifacts that MUST exist on disk, unlike illustrative `src/...` or
+ * `docs/...` paths that appear in prose as examples. Frontmatter and fenced
+ * code blocks are stripped first so example paths inside ```bash blocks or
+ * frontmatter values are not flagged.
+ */
+export function extractRuleFileReferences(content: string): string[] {
+  const refs = new Set<string>();
+  const scannable = stripFrontmatterAndFences(content);
+  const pattern = /`(rules\/hatch3r-[a-z0-9-]+\.mdc?)`/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(scannable)) !== null) {
+    refs.add(match[1]);
+  }
+  return [...refs];
+}
+
 export interface CrossReferenceResult {
   warnings: string[];
 }
@@ -235,6 +266,25 @@ export async function validateCrossReferences(
   const warnings: string[] = [];
   const allIds = new Set(index.items.map((item) => item.id));
   const allIdsList = [...allIds];
+
+  // D22-1: existence cache for backticked `rules/hatch3r-*.{md,mdc}` path
+  // references. The same rule path is cited many times across the corpus
+  // (e.g. `rules/hatch3r-resilience-patterns.md` appears in 10+ files), so a
+  // per-path `stat` is memoized to one filesystem probe per distinct path.
+  const ruleFileExists = new Map<string, boolean>();
+  const checkRuleFile = async (refPath: string): Promise<boolean> => {
+    const cached = ruleFileExists.get(refPath);
+    if (cached !== undefined) return cached;
+    let exists = false;
+    try {
+      await stat(join(contentRoot, refPath));
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    ruleFileExists.set(refPath, exists);
+    return exists;
+  };
 
   // D2-M10: cheap Levenshtein distance for bare-ref typo detection. Scoped
   // small (≤ 2) so adjective-modifier matches like "hatch3r-generated" never
@@ -307,6 +357,18 @@ export async function validateCrossReferences(
       if (best && bestDistance > 0 && bestDistance <= 2) {
         warnings.push(
           `${item.type} "${item.id}" contains bare prose reference "${bareRef}" which appears to be a typo of "${best}" (edit distance ${bestDistance})`,
+        );
+      }
+    }
+
+    // D22-1: dangling rule-file path scan. A backticked `rules/hatch3r-*.md`
+    // (or `.mdc`) citation that does not resolve on disk is drift — the
+    // id-based scanners above never see it because it is a path, not a bare
+    // id. Warn so the reference is repointed to an existing rule.
+    for (const rulePath of extractRuleFileReferences(content)) {
+      if (!(await checkRuleFile(rulePath))) {
+        warnings.push(
+          `${item.type} "${item.id}" references rule file "${rulePath}" which does not exist on disk — repoint it to an existing rule or author the missing file`,
         );
       }
     }

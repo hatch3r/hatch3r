@@ -1020,15 +1020,30 @@ export async function syncCommand(
       perAdapterOutputs.push({ adapter: tool, outputs });
       // Task #11 orphan-cleanup: sweep paths the prior run wrote but this run
       // did not re-emit. Skipped entirely on dry-run and when no prior history
-      // exists for the adapter (first-run). D14-4: `newManagedByAdapter[tool]`
-      // is seeded with the root paths above and extended with per-package paths
-      // in the block above; `currentPaths` here stays the root-only list the
-      // root-adapter containment check in `sweepOrphansForAdapter` expects
-      // (per-package containment is handled separately under D14-5).
+      // exists for the adapter (first-run).
+      //
+      // D14-5: the diff baseline is the FULL current set
+      // (`newManagedByAdapter[tool]` = root paths seeded above + per-package
+      // paths appended in the block above), NOT root-only `currentPaths`. With
+      // root-only the diff would flag every still-emitted per-package file as an
+      // orphan; per-package roots are now accepted by the containment check, so
+      // those false candidates would be deleted on every sync. Comparing against
+      // the full set leaves live per-package files out of the candidate list and
+      // surfaces only the paths a removed package no longer re-emits. The
+      // `m.packages` paths are passed as `packageRoots` so a removed package's
+      // `<pkg>/<adapter-root>/…` orphan passes containment and is reclaimed.
       if (!opts.dryRun) {
         const priorPaths = previousManagedByAdapter[tool];
         if (priorPaths && priorPaths.length > 0) {
-          const entries = await sweepOrphansForAdapter(tool, rootDir, priorPaths, currentPaths);
+          const currentForDiff = newManagedByAdapter[tool] ?? currentPaths;
+          const packageRoots = m.packages?.map((p) => p.path);
+          const entries = await sweepOrphansForAdapter(
+            tool,
+            rootDir,
+            priorPaths,
+            currentForDiff,
+            packageRoots,
+          );
           orphanEntries.push(...entries);
         }
       }

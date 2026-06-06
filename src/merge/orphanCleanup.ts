@@ -19,7 +19,10 @@
  * 2. Its basename matches `hatch3r-*` or `^\d{2}-hatch3r-*` (the same
  *    dual-prefix recognition used by {@link src/merge/safeWrite.isManagedPath}).
  * 3. It lives inside a known adapter output root (see
- *    {@link src/archive/index.TOOL_PATH_PREFIXES}).
+ *    {@link src/archive/index.TOOL_PATH_PREFIXES}). In a monorepo (D14-5) the
+ *    per-package roots `<pkg>/<prefix>` are also accepted so a removed
+ *    package's outputs can be reclaimed; the candidate is still re-validated
+ *    against the repo root so this never escapes the project tree.
  * 4. It does NOT carry a `HATCH3R:BEGIN ... END` managed block that wraps
  *    user-authored content mid-file — if only a block is managed, we do
  *    not own the file and we must not unlink it.
@@ -119,6 +122,88 @@ export function diffOrphanCandidates(
 }
 
 /**
+ * Match a posix path against a single adapter prefix. A trailing-slash
+ * prefix (`.cursor/`) is a directory and matches any strictly-deeper path;
+ * a bare prefix (`CLAUDE.md`) is an exact-file entry and matches only itself.
+ */
+function posixMatchesPrefix(posix: string, prefix: string): boolean {
+  if (prefix.endsWith("/")) {
+    return posix.startsWith(prefix) && posix.length > prefix.length;
+  }
+  return posix === prefix;
+}
+
+/**
+ * Build the list of accepted adapter-root prefixes for the containment
+ * check. Always includes the repo-root prefixes from {@link TOOL_PATH_PREFIXES}.
+ * When `packageRoots` is supplied (monorepo `manifest.packages` paths), each
+ * `<pkg>/<prefix>` is also accepted so a per-package adapter output —
+ * e.g. `packages/api/.cursor/rules/50-hatch3r-testing.mdc` — passes
+ * containment instead of being classified `outside-adapter-root` (D14-5).
+ *
+ * `packageRoots` entries are posix-normalised and trailing-slash-trimmed;
+ * an entry that is empty, absolute, or escapes the root via `..` is dropped
+ * (it could never be a legitimate package subdirectory and re-admitting it
+ * would weaken the path-traversal defense).
+ */
+function buildAcceptedPrefixes(packageRoots?: readonly string[]): string[] {
+  const prefixes: string[] = [];
+  for (const list of Object.values(TOOL_PATH_PREFIXES)) {
+    for (const prefix of list) prefixes.push(prefix);
+  }
+  if (packageRoots) {
+    for (const root of packageRoots) {
+      const normalized = root.replace(/\\/g, "/").replace(/\/+$/, "");
+      if (normalized.length === 0) continue;
+      if (normalized.startsWith("/")) continue;
+      if (normalized.startsWith("..") || normalized.includes("/..")) continue;
+      for (const list of Object.values(TOOL_PATH_PREFIXES)) {
+        for (const prefix of list) prefixes.push(`${normalized}/${prefix}`);
+      }
+    }
+  }
+  return prefixes;
+}
+
+/**
+ * Derive per-package roots from the orphan candidate set itself (D14-5).
+ *
+ * The literal source named in the finding — `manifest.packages` — lists only
+ * packages the workspace STILL has. The orphan case is the opposite: a package
+ * was removed from the workspace globs, so its outputs must be reclaimed even
+ * though it is gone from `manifest.packages`. A candidate path written by a
+ * prior sync has the shape `<pkg>/<adapter-prefix>…`; stripping a known adapter
+ * prefix recovers `<pkg>`. We union these structurally-recovered roots with the
+ * explicit `manifest.packages` roots so removed packages are still covered.
+ *
+ * This does not weaken the path-traversal defense: a recovered root only widens
+ * the accepted-prefix set, and every candidate is still re-validated by
+ * {@link isPathInKnownAdapterRoot}'s `resolve`/`relative` normalisation before
+ * any unlink — a `..`-bearing candidate is rejected there regardless of what
+ * roots were recovered.
+ */
+function derivePackageRootsFromCandidates(candidates: readonly string[]): string[] {
+  const roots = new Set<string>();
+  for (const candidate of candidates) {
+    const posix = candidate.replace(/\\/g, "/");
+    for (const list of Object.values(TOOL_PATH_PREFIXES)) {
+      for (const prefix of list) {
+        // Match `<pkg>/<prefix>` where `<pkg>` is a non-empty, non-traversing
+        // path segment chain. The prefix is anchored by a `/` separator so a
+        // root-level `.cursor/…` path (no package) does not yield a phantom root.
+        const idx = posix.indexOf(`/${prefix}`);
+        if (idx <= 0) continue;
+        const pkg = posix.slice(0, idx);
+        if (pkg.length === 0) continue;
+        if (pkg.startsWith("..") || pkg.includes("/..") || pkg.startsWith("/")) continue;
+        roots.add(pkg);
+      }
+    }
+  }
+  return [...roots];
+}
+
+/**
  * Check whether a repo-relative path lives inside a declared adapter
  * output root. Used to reject manifest entries pointing outside the
  * adapter surface (path-traversal defense).
@@ -126,8 +211,16 @@ export function diffOrphanCandidates(
  * Normalises the path so `../../../secret` or an absolute path cannot
  * escape the adapter roots. Matches either a file prefix (exact-file
  * entry like `CLAUDE.md`) or a directory prefix (`.cursor/`).
+ *
+ * `acceptedPrefixes` is the precomputed prefix list from
+ * {@link buildAcceptedPrefixes} — root prefixes plus, in a monorepo, the
+ * per-package `<pkg>/<prefix>` variants (D14-5).
  */
-function isPathInKnownAdapterRoot(relPath: string, rootDir: string): boolean {
+function isPathInKnownAdapterRoot(
+  relPath: string,
+  rootDir: string,
+  acceptedPrefixes: readonly string[],
+): boolean {
   // Reject absolute paths and any path that normalizes to outside rootDir.
   // resolve() from a relative path joined with rootDir gives the canonical
   // absolute path; if it does not stay under rootDir the candidate is
@@ -139,14 +232,8 @@ function isPathInKnownAdapterRoot(relPath: string, rootDir: string): boolean {
   if (rel === "" || rel === ".") return false;
   // Normalise to posix-style for prefix comparison with TOOL_PATH_PREFIXES.
   const posix = rel.split(/[\\/]/).join("/");
-  for (const prefixes of Object.values(TOOL_PATH_PREFIXES)) {
-    for (const prefix of prefixes) {
-      if (prefix.endsWith("/")) {
-        if (posix.startsWith(prefix) && posix.length > prefix.length) return true;
-      } else if (posix === prefix) {
-        return true;
-      }
-    }
+  for (const prefix of acceptedPrefixes) {
+    if (posixMatchesPrefix(posix, prefix)) return true;
   }
   return false;
 }
@@ -205,7 +292,15 @@ async function fileExists(absPath: string): Promise<boolean> {
  * @param previousPaths Paths recorded under `managedFilesByAdapter[adapter]`
  *                     from the prior successful run. Pass `undefined` to
  *                     short-circuit (no history => no orphans).
- * @param currentPaths Paths emitted by the current adapter run.
+ * @param currentPaths Paths emitted by the current adapter run. In a monorepo
+ *                     this MUST include both root and per-package paths so a
+ *                     still-emitted per-package file is not mistaken for an
+ *                     orphan (the diff baseline).
+ * @param packageRoots Optional monorepo `manifest.packages` paths. When
+ *                     present, per-package adapter roots (`<pkg>/<prefix>`) are
+ *                     accepted in the containment check so a removed package's
+ *                     outputs can be reclaimed (D14-5). Omit / pass `undefined`
+ *                     for single-package repos.
  * @returns One entry per candidate, including skipped entries. Empty when
  *          `previousPaths` is undefined/empty.
  */
@@ -214,10 +309,28 @@ export async function sweepOrphansForAdapter(
   rootDir: string,
   previousPaths: string[] | undefined,
   currentPaths: Iterable<string>,
+  packageRoots?: readonly string[],
 ): Promise<OrphanCleanupEntry[]> {
   const candidates = diffOrphanCandidates(previousPaths, currentPaths);
   if (candidates.length === 0) return [];
 
+  // D14-5: per-package containment is opt-in via the presence of the
+  // `packageRoots` argument. A monorepo-aware caller (sync.ts) passes the
+  // current `manifest.packages` paths (possibly empty for a non-monorepo
+  // repo); a root-only caller that does not emit per-package outputs (update.ts)
+  // passes `undefined` and keeps the pre-D14-5 root-only containment so it never
+  // deletes a per-package file it did not write. When opted in, we accept BOTH
+  // the explicit `manifest.packages` roots and the roots structurally recovered
+  // from the candidate set — the latter covers a package removed from the
+  // workspace globs (gone from `manifest.packages` but still recorded in the
+  // prior per-adapter path list). Every candidate is re-validated against the
+  // repo root in `isPathInKnownAdapterRoot` below, so widening the prefix set
+  // never bypasses the path-traversal defense.
+  const allPackageRoots =
+    packageRoots === undefined
+      ? undefined
+      : [...packageRoots, ...derivePackageRootsFromCandidates(candidates)];
+  const acceptedPrefixes = buildAcceptedPrefixes(allPackageRoots);
   const results: OrphanCleanupEntry[] = [];
   for (const relPath of candidates) {
     // Filter 1 (security-critical): path must lie inside a known adapter
@@ -226,7 +339,7 @@ export async function sweepOrphansForAdapter(
     // before we touch disk, regardless of basename. Root check runs BEFORE
     // the basename check so a tampered entry with a benign-looking name
     // (e.g. `../hatch3r-evil.mdc`) cannot bypass containment.
-    if (!isPathInKnownAdapterRoot(relPath, rootDir)) {
+    if (!isPathInKnownAdapterRoot(relPath, rootDir, acceptedPrefixes)) {
       results.push({ adapter, path: relPath, removed: false, reason: "outside-adapter-root" });
       continue;
     }

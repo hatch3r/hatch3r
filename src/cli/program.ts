@@ -110,7 +110,7 @@ export function createProgram(): Command {
     .option("--quick", "Skip all prompts and use smart defaults (alias for --yes)")
     .option("--default", "Skip all prompts and use smart defaults (alias for --yes)")
     .option("--preset <preset>", "Content preset: minimal, standard, full, web-app, api-service, cli-tool, monorepo, legacy, security — or a comma-list to compose (e.g. 'api-service,security'). Default: standard")
-    .option("--import <tool>", "Import an existing tool's config into hatch3r (supported: cursor — reads .cursor/rules/*.mdc into .hatch3r/overrides/rules/ with conflict detection + .mdc companions)")
+    .option("--import <target>", "Import an existing tool's config into hatch3r (cursor, copilot, windsurf, cursorrules, or auto — converts each into .hatch3r/overrides/rules/ as .md + .mdc with cross-format conflict detection)")
     .option("--project-type <type>", "Project type: greenfield, brownfield")
     .option("--team-size <size>", "Team size: solo, team")
     .option("--worktree", "Enable git worktree file isolation (overrides tool auto-detect)")

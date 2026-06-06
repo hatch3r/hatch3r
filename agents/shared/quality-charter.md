@@ -269,7 +269,7 @@ Cross-reference: AUDIT Directive 16 (f), D15 SA15.8 (supply-chain end-user floor
 
 When an agent produces a service or a deploy artifact, the charter binds it to these criteria.
 
-- **Circuit breaker + retry with decorrelated jitter:** every outbound call has a circuit breaker with documented thresholds and retries with decorrelated jitter (AWS Architecture Blog pattern), not naked exponential backoff. Reference `rules/hatch3r-reliability.md`.
+- **Circuit breaker + retry with decorrelated jitter:** every outbound call has a circuit breaker with documented thresholds and retries with decorrelated jitter (AWS Architecture Blog pattern), not naked exponential backoff. Reference `rules/hatch3r-resilience-patterns.md`.
 - **Timeouts with deadline propagation:** every outbound call has a timeout strictly less than the inbound deadline; deadlines propagate via gRPC metadata or HTTP `traceparent` + `request-deadline`.
 - **Idempotency keys and bulkheads:** non-idempotent operations gate on idempotency keys; resource pools are bulkheaded so one slow dependency does not exhaust the whole service.
 - **Probes wired:** Kubernetes liveness, readiness, and startup probes are wired with documented commands; readiness gates on dependency health, not on liveness.

@@ -370,9 +370,25 @@ describe("compound system content validation", () => {
   // ── Cross-reference integrity ──────────────────────────────
 
   describe("cross-reference integrity", () => {
+    // D22-1 (Cycle 11 Wave 2) added a dangling rule-file-path check to
+    // validateCrossReferences. It surfaces two pre-existing dead rule-path
+    // citations that are owned by the still-open Medium finding D5-30
+    // (`rules/hatch3r-content-authoring.md`) and its enhancability twin
+    // (`rules/hatch3r-plugin-architecture.md`). Those repoints belong to the
+    // Medium wave, not Wave 2 — allow-list them here so the new check stays
+    // active for every OTHER reference. Remove these two entries when D5-30
+    // lands the repoints; any new dangling reference still fails this test.
+    const D5_30_DEFERRED_DANGLING = [
+      "rules/hatch3r-content-authoring.md",
+      "rules/hatch3r-plugin-architecture.md",
+    ];
+
     it("all content cross-references resolve to existing IDs", async () => {
       const result = await validateCrossReferences(CONTENT_ROOT, contentIndex);
-      expect(result.warnings).toEqual([]);
+      const unexpected = result.warnings.filter(
+        (w) => !D5_30_DEFERRED_DANGLING.some((p) => w.includes(p)),
+      );
+      expect(unexpected).toEqual([]);
     });
   });
 
