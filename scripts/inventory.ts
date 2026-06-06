@@ -532,6 +532,278 @@ interface StaleTokenResult {
 }
 
 /**
+ * Enumeration drift probes (Cycle 11 D10-2, P3 docs currency + P4 lean coverage).
+ *
+ * Count probes assert a *number* matches; these assert *presence* — every
+ * canonical artifact in an inventory class appears as a row on its website
+ * reference page, so an added/renamed artifact that nobody documented is a
+ * build failure (the root cause of the unguarded reference-page drift in
+ * D10-2's F1/F3/F4). Each entry maps an `InventoryFiles` class key to its
+ * `website/docs/reference/*.md` page.
+ *
+ * The reference pages strip the `hatch3r-` prefix and list artifacts by display
+ * name in bold table cells (e.g. canonical `hatch3r-a11y-audit` →
+ * `**a11y-audit**`), so `docTokensFor` derives candidate tokens from the
+ * filename (NOT the frontmatter `id`, which can be a composite like
+ * `ci-failure-ci-watcher` that the docs never use). A class match succeeds when
+ * any candidate token appears verbatim on the page. Detail-rules
+ * (`detail_rule: true`) are internal reference material consumed by a parent
+ * rule per `.claude/rules/content-authoring.md`; they carry no standalone doc
+ * row and are excluded via `ENUMERATION_EXCLUDE`.
+ */
+interface EnumerationProbe {
+  /** Key into `InventoryFiles` whose entries are checked for doc presence. */
+  filesKey: keyof InventoryFiles;
+  /** Reference page (repo-relative) that must enumerate every member. */
+  page: string;
+  /** Human label for the class, used in the failure message. */
+  label: string;
+}
+
+const ENUMERATION_PROBES: EnumerationProbe[] = [
+  { filesKey: "agents", page: "website/docs/reference/agents.md", label: "agent" },
+  { filesKey: "skills", page: "website/docs/reference/skills.md", label: "skill" },
+  { filesKey: "rules", page: "website/docs/reference/rules.md", label: "rule" },
+  { filesKey: "hooks", page: "website/docs/reference/hooks.md", label: "hook" },
+];
+
+/**
+ * Canonical filenames excluded from enumeration coverage. `agent-orchestration`
+ * has a `*-detail` companion (`detail_rule: true`) that is internal reference
+ * material with no standalone reference-page row; keyed by the prefix-stripped
+ * filename token so the probe and this set speak the same dialect.
+ */
+const ENUMERATION_EXCLUDE = new Set<string>(["agent-orchestration-detail"]);
+
+/**
+ * Candidate doc tokens for a canonical filename. Strips the `hatch3r-` prefix
+ * and any `.md`/`/SKILL.md` suffix, then offers the plain token plus a `-rule`
+ * variant. The `-rule` variant covers CQ/security measurement rules whose
+ * filename is `hatch3r-<x>.md` but whose reference-page label is `**<x>-rule**`
+ * (matching their frontmatter id `hatch3r-<x>-rule`), e.g. `hatch3r-security.md`
+ * → doc row `**security-rule**`.
+ */
+function docTokensFor(fileName: string): string[] {
+  const base = fileName.replace(/\/SKILL\.md$/, "").replace(/\.md$/, "");
+  const short = base.startsWith("hatch3r-")
+    ? base.slice("hatch3r-".length)
+    : base;
+  return [short, `${short}-rule`];
+}
+
+interface EnumerationResult {
+  page: string;
+  label: string;
+  id: string;
+}
+
+/**
+ * For each enumeration probe, read its reference page once and assert every
+ * non-excluded canonical id in the class has a candidate token present. A miss
+ * means the class gained an artifact the reference page never documented.
+ * Exported for unit coverage.
+ */
+export async function checkEnumerationDrift(
+  files: InventoryFiles,
+): Promise<EnumerationResult[]> {
+  const misses: EnumerationResult[] = [];
+  for (const probe of ENUMERATION_PROBES) {
+    const absPath = join(ROOT, probe.page);
+    let contents: string;
+    try {
+      contents = await readFile(absPath, "utf-8");
+    } catch (err) {
+      // A missing reference page is itself drift: every listed id is unmatched.
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+        for (const id of files[probe.filesKey]) {
+          misses.push({ page: probe.page, label: probe.label, id });
+        }
+        continue;
+      }
+      throw err;
+    }
+    for (const id of files[probe.filesKey]) {
+      const base = id.replace(/\/SKILL\.md$/, "").replace(/\.md$/, "");
+      const short = base.startsWith("hatch3r-")
+        ? base.slice("hatch3r-".length)
+        : base;
+      if (ENUMERATION_EXCLUDE.has(short)) continue;
+      const present = docTokensFor(id).some((token) =>
+        contents.includes(token),
+      );
+      if (!present) {
+        misses.push({ page: probe.page, label: probe.label, id });
+      }
+    }
+  }
+  return misses;
+}
+
+/**
+ * Marketplace-description count probes (Cycle 11 D17-8, P3 docs currency).
+ *
+ * The external-surface description (GitHub About / social-preview card /
+ * marketplace + plugin-hub blurbs) is the framework's public count claim. The
+ * GitHub About field is not a repo file, but its canonical text lives in
+ * `docs/marketplace-submission.md` (the headline description blurbs and the
+ * embedded `plugin.json` description). D17-8 found that copy stale ("64 rules"
+ * vs an inventory of 66), so these probes assert the marketplace description
+ * counts equal `inventory.json` — the same guard the count-drift probes give
+ * README/CLAUDE.md/plugin.json, extended to the public-marketing surface. The
+ * regexes target the description blurbs (`NN <class>` inside the one-line, long,
+ * embedded-manifest, and PR-style descriptions); each `<class>` literal in
+ * those blurbs is identical, so one count-per-class probe covers all four
+ * blurbs at once.
+ */
+const MARKETPLACE_DESCRIPTION_FILE = "docs/marketplace-submission.md";
+
+const MARKETPLACE_PROBES: { label: string; expected: keyof InventoryCounts; regex: RegExp }[] =
+  [
+    { label: "marketplace description agents count", expected: "agents", regex: /(\d+)\s+agents,/ },
+    { label: "marketplace description skills count", expected: "skills", regex: /(\d+)\s+skills,/ },
+    { label: "marketplace description rules count", expected: "rules", regex: /(\d+)\s+rules,/ },
+    { label: "marketplace description commands count", expected: "commands", regex: /(\d+)\s+commands,/ },
+  ];
+
+interface MarketplaceDriftResult {
+  label: string;
+  expected: number;
+  found: number | null;
+}
+
+/**
+ * Assert the marketplace-description count literals equal the inventory counts.
+ * Returns `[]` when the description file is absent (ENOENT) so the probe is a
+ * no-op in a checkout that does not ship the marketing surface. Exported for
+ * unit coverage.
+ */
+export async function checkMarketplaceDescriptionDrift(
+  counts: InventoryCounts,
+): Promise<MarketplaceDriftResult[]> {
+  const absPath = join(ROOT, MARKETPLACE_DESCRIPTION_FILE);
+  let contents: string;
+  try {
+    contents = await readFile(absPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  const drifts: MarketplaceDriftResult[] = [];
+  for (const probe of MARKETPLACE_PROBES) {
+    const match = contents.match(probe.regex);
+    const expected = counts[probe.expected];
+    if (!match) {
+      drifts.push({ label: probe.label, expected, found: null });
+      continue;
+    }
+    const found = Number.parseInt(match[1], 10);
+    if (found !== expected) {
+      drifts.push({ label: probe.label, expected, found });
+    }
+  }
+  return drifts;
+}
+
+/**
+ * Orphaned-agent probe (Cycle 11 D16-11, P4 lean coverage + P5 governance self-quality).
+ *
+ * D16-11 found `hatch3r-dependency-drafter` orphaned: no functional consumer and
+ * no `agentPipeline` membership, its sole inbound being the §0 trigger-list row in
+ * the shared `agents/shared/clarification-default-block.md` registry. A registry
+ * row is a structural obligation (every agent appears there), not a consumer — so
+ * an agent whose ONLY inbound is a shared registry block earns no existence under
+ * P4 and crosses the D16.3 removal threshold. This probe flags that pattern so a
+ * future orphan is caught at CI time rather than at the next manual audit.
+ *
+ * An agent is orphaned when zero canonical content files outside the agent's own
+ * file AND outside the shared-registry directory (`agents/shared/`) reference its
+ * id. Membership in any `commands/hatch3r-*.md` `agentPipeline:` array counts as a
+ * functional consumer because those command files are inside the scanned set. The
+ * `agents/shared/` exclusion is the crux: those files (clarification-default-block,
+ * quality-charter, etc.) enumerate agent ids in registry tables and examples, which
+ * is exactly the non-consumer inbound D16-11 ruled out. `src/` runtime wiring
+ * (agentToolAllowlist, adapter code) is out of scope — the finding's orphan test is
+ * about content consumers (functional consumer / pipeline), not runtime plumbing.
+ */
+const ORPHAN_SCAN_DIRS = [
+  "agents",
+  "skills",
+  "commands",
+  "rules",
+  "hooks",
+] as const;
+
+/**
+ * Canonical content subtree excluded from the inbound-consumer scan: shared
+ * reference blocks that list every agent id by obligation, not as a consumer.
+ * A reference inside this prefix never clears the orphan condition (D16-11).
+ */
+const ORPHAN_REGISTRY_PREFIX = join("agents", "shared");
+
+interface OrphanResult {
+  /** The orphaned agent's id (e.g. `hatch3r-dependency-drafter`). */
+  id: string;
+}
+
+/**
+ * Recursively list every `*.md` file under a directory, repo-relative. Returns
+ * `[]` for a missing directory so the probe degrades to a no-op rather than
+ * throwing in a partial checkout.
+ */
+async function listMarkdownTree(relDir: string): Promise<string[]> {
+  const absDir = join(ROOT, relDir);
+  const out: string[] = [];
+  let entries: string[];
+  try {
+    entries = await readdir(absDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return out;
+    throw err;
+  }
+  for (const name of entries) {
+    const relPath = join(relDir, name);
+    const s = await stat(join(ROOT, relPath));
+    if (s.isDirectory()) {
+      out.push(...(await listMarkdownTree(relPath)));
+    } else if (name.endsWith(".md")) {
+      out.push(relPath);
+    }
+  }
+  return out;
+}
+
+/**
+ * Flag every canonical agent whose only inbound reference is a shared registry
+ * block (D16-11). Reads each scanned markdown file once, then for each agent id
+ * asserts at least one non-self, non-registry file mentions it. Exported for
+ * unit coverage.
+ */
+export async function checkOrphanAgents(
+  files: InventoryFiles,
+): Promise<OrphanResult[]> {
+  // Gather the scan corpus once: repo-relative path + contents.
+  const corpus: { path: string; contents: string }[] = [];
+  for (const dir of ORPHAN_SCAN_DIRS) {
+    for (const relPath of await listMarkdownTree(dir)) {
+      corpus.push({ path: relPath, contents: await readFile(join(ROOT, relPath), "utf-8") });
+    }
+  }
+  const orphans: OrphanResult[] = [];
+  for (const agentFile of files.agents) {
+    const id = agentFile.replace(/\.md$/, "");
+    const selfPath = join("agents", agentFile);
+    const hasConsumer = corpus.some(
+      (entry) =>
+        entry.path !== selfPath &&
+        !entry.path.startsWith(ORPHAN_REGISTRY_PREFIX) &&
+        entry.contents.includes(id),
+    );
+    if (!hasConsumer) orphans.push({ id });
+  }
+  return orphans;
+}
+
+/**
  * Scan each probe's files for its forbidden token. A hit means a consumer doc
  * still cites a decommissioned identifier. Exported for unit coverage.
  */
@@ -676,15 +948,25 @@ async function main(): Promise<void> {
   const drifts = await checkDocDrift(inventory.counts);
   const versionDrifts = await checkVersionDrift();
   const staleTokens = await checkStaleTokens();
+  const enumerationMisses = await checkEnumerationDrift(inventory.files);
+  const marketplaceDrifts = await checkMarketplaceDescriptionDrift(
+    inventory.counts,
+  );
+  const orphanAgents = await checkOrphanAgents(inventory.files);
   if (
     drifts.length === 0 &&
     versionDrifts.length === 0 &&
-    staleTokens.length === 0
+    staleTokens.length === 0 &&
+    enumerationMisses.length === 0 &&
+    marketplaceDrifts.length === 0 &&
+    orphanAgents.length === 0
   ) {
     // eslint-disable-next-line no-console
     console.log(
       `inventory: doc-drift check PASS — ${DRIFT_PROBES.length} count probes + ` +
-        `${VERSION_PROBES.length} version probes + ${STALE_TOKEN_PROBES.length} stale-token probes, 0 drifts`,
+        `${VERSION_PROBES.length} version probes + ${STALE_TOKEN_PROBES.length} stale-token probes + ` +
+        `${ENUMERATION_PROBES.length} enumeration probes + ${MARKETPLACE_PROBES.length} marketplace probes + ` +
+        `1 orphaned-agent probe, 0 drifts`,
     );
     return;
   }
@@ -723,6 +1005,43 @@ async function main(): Promise<void> {
       // eslint-disable-next-line no-console
       console.error(
         `  - ${h.file}: contains removed token "${h.token}" — use ${h.replacement}`,
+      );
+    }
+  }
+  if (enumerationMisses.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `inventory: enumeration-drift FAIL — ${enumerationMisses.length} canonical ids absent from their reference page:`,
+    );
+    for (const m of enumerationMisses) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `  - ${m.page}: ${m.label} "${m.id}" has no row — add it to the reference page`,
+      );
+    }
+  }
+  if (marketplaceDrifts.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `inventory: marketplace-description-drift FAIL — ${marketplaceDrifts.length} of ${MARKETPLACE_PROBES.length} counts in ${MARKETPLACE_DESCRIPTION_FILE} disagree with inventory.json:`,
+    );
+    for (const d of marketplaceDrifts) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `  - ${MARKETPLACE_DESCRIPTION_FILE} [${d.label}]: expected ${d.expected}, ` +
+          `found ${d.found === null ? "<no match>" : d.found}`,
+      );
+    }
+  }
+  if (orphanAgents.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `inventory: orphaned-agent FAIL — ${orphanAgents.length} agent(s) whose only inbound is a shared registry block (no functional consumer, no agentPipeline):`,
+    );
+    for (const o of orphanAgents) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `  - ${o.id}: wire it into a consuming skill/command (Required Agent Delegation or agentPipeline) or decommission via /h4tcher-capability-remove per D16.3`,
       );
     }
   }

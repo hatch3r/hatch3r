@@ -347,6 +347,25 @@ describe("init command", () => {
     expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
   });
 
+  // D12-4 (Cycle 11 Wave 2, D12, P2): init writes `.hatch3r/provenance.json`
+  // (lastCommand: "init") so `hatch3r explain --source` resolves immediately
+  // after a fresh init — previously only `sync` wrote it, leaving post-init
+  // explain with "No provenance manifest found".
+  it("writes .hatch3r/provenance.json with lastCommand=init after init", async () => {
+    await initCommand({ yes: true, tools: "cursor" });
+
+    const provenancePath = join(tempDir, AGENTS_DIR, "provenance.json");
+    const provenance = JSON.parse(await readFile(provenancePath, "utf-8")) as {
+      schemaVersion: number;
+      lastCommand: string;
+      outputs: Array<{ path: string; adapter: string; sourceFiles: string[] }>;
+    };
+    expect(provenance.schemaVersion).toBe(1);
+    expect(provenance.lastCommand).toBe("init");
+    expect(provenance.outputs.length).toBeGreaterThan(0);
+    expect(provenance.outputs.every((o) => o.adapter === "cursor")).toBe(true);
+  });
+
   // 1.7.1: re-init over an existing `.agents/hatch.json` must defensively
   // preserve GitHub Projects v2 IDs (board.projectNumber, statusFieldId,
   // statusOptions, areas) plus other user-set state (costTracking, specs).

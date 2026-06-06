@@ -269,11 +269,41 @@ export abstract class BaseAdapter implements Adapter {
       }
       filteredOutputs.push(out);
     }
+
+    // D11-3 (Cycle 11 Wave 2, D11, P5): intra-adapter output-path collision
+    // guard. The sync-side collision check (`sync.ts`) only fires across
+    // adapters (`existingOwner !== tool`); two outputs from the SAME adapter at
+    // one path slipped through as silent last-writer-wins. Copilot's
+    // regular-agent path (`.github/agents/{id}.agent.md`) and github-agent path
+    // share that template, so an id shared between `agents/` and
+    // `github-agents/` would emit twice to one path with no warning — the merge
+    // phase would then write one body over the other unattributed (Silent
+    // Failure Contract violation). Centralised here so all 3 adapters inherit
+    // the guard. We keep the LAST occurrence (the on-disk last-writer-wins
+    // reality) but surface a warning per colliding path so the clash is
+    // audit-visible. Deterministic: `dedupedByPath` preserves first-seen order
+    // and overwrites the retained entry in place on a later collision.
+    const dedupedByPath: AdapterOutput[] = [];
+    const pathIndex = new Map<string, number>();
+    for (const out of filteredOutputs) {
+      const existingIdx = pathIndex.get(out.path);
+      if (existingIdx === undefined) {
+        pathIndex.set(out.path, dedupedByPath.length);
+        dedupedByPath.push(out);
+      } else {
+        this.warnings.push(
+          `[${this.name}] Output path collision: "${out.path}" emitted more than once by this adapter — ` +
+            `keeping the last and dropping the earlier copy (would otherwise be a silent last-writer-wins overwrite at the merge phase).`,
+        );
+        dedupedByPath[existingIdx] = out;
+      }
+    }
+
     // Reassign so the rest of this method works against the surviving set.
     // Local mutation only — adapters do not retain references to the
     // returned array between calls.
     outputs.length = 0;
-    outputs.push(...filteredOutputs);
+    outputs.push(...dedupedByPath);
 
     // C8-D12-M3: Attach per-output source provenance. Adapters that already
     // set `sourceFiles` explicitly (e.g. a single-canonical-file output path

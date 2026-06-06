@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
+import { writeProvenance, type PerAdapterOutputs } from "../../manifest/provenance.js";
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
@@ -67,6 +68,7 @@ import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
+import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
 import { isBack } from "../shared/initSteps.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -144,8 +146,14 @@ async function appendFailure(agentsDir: string, phase: string, error: unknown, t
  * from being scored as success. The all-adapters-failed case is handled earlier
  * (inside `runRegenerate`), so this only fires for a true partial failure. A
  * no-op when `failedTools` is 0 or equals `totalTools`.
+ *
+ * D1-3 (Cycle 11 Wave 2, D1, P1): exported so `hatch3r config` can apply the
+ * identical partial-failure contract after its own `runRegenerate` call.
+ * `config` previously rendered a green "Config updated" box and exited 0 even
+ * when one of several adapters failed to regenerate, scoring a partial config
+ * change as success and silently leaving a stale tool output behind.
  */
-function throwOnPartialAdapterFailure(failedTools: number, totalTools: number): void {
+export function throwOnPartialAdapterFailure(failedTools: number, totalTools: number): void {
   if (failedTools <= 0 || failedTools >= totalTools) return;
   const guidance =
     "Re-run `hatch3r update` (or `hatch3r update --offline` to regenerate without the package fetch); " +
@@ -243,6 +251,31 @@ export async function runRegenerate(
       for (const rel of paths) regenSnapshotPaths.push(join(rootDir, rel));
     }
   }
+  // D1-4 (Cycle 11 Wave 2, D1, P1/CQ4): pre-enumerate the output paths the
+  // about-to-run adapters WILL produce and add them to the snapshot set BEFORE
+  // capture, so a `hatch3r rollback --session=<id>` after this run also deletes
+  // files this run newly CREATES — not just the ones it overwrites. The prior
+  // list covered only `manifest.managedFiles`/`managedFilesByAdapter`, i.e. paths
+  // an earlier run already recorded. When a `config`/`update` run enables a NEW
+  // adapter (e.g. adds cursor), that adapter's outputs are absent from the
+  // manifest at capture time, so no tombstone was recorded and rollback left the
+  // freshly-created `.cursor/...` files on disk — contradicting the all-or-nothing
+  // revert the success summary points the operator at. `createSnapshot` records a
+  // `.tombstone` for any enumerated path that does not yet exist (snapshot.ts), so
+  // adding these makes rollback remove them. `getOutputPaths` renders in memory
+  // (no disk writes); a render failure for one adapter is non-fatal — that
+  // adapter's paths simply miss the tombstone (prior behavior) while the rest are
+  // still covered. Resolve the bundled root here (cheap, idempotent; re-resolved
+  // for the generate loop below).
+  const snapshotContentRoot = resolveBundledContentRoot();
+  for (const tool of manifest.tools) {
+    try {
+      const wouldBePaths = await getAdapter(tool).getOutputPaths(snapshotContentRoot, manifest);
+      for (const rel of wouldBePaths) regenSnapshotPaths.push(join(rootDir, rel));
+    } catch (err) {
+      verbose(`${snapshotCommandName}: snapshot path pre-enumeration for ${tool} skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+  }
   const regenSnapshot = await withSnapshot(
     snapshotCommandName,
     Array.from(new Set(regenSnapshotPaths)),
@@ -277,38 +310,74 @@ export async function runRegenerate(
     }
   };
 
-  // F6.4-H1 (D6, OWASP ASI06): materialization-time learnings gate. Like
-  // `hatch3r sync`, the regenerate write path pours `.hatch3r/learnings/` into
-  // each tool's context file. Run the deterministic `validateLearningsDirectory`
-  // pass before any adapter materializes output. Errors refuse the regenerate
-  // unless `--force`; denied-pattern matches are surfaced as a quarantine
-  // notice (loaded user-tier, not as instructions). ENOENT = clean.
+  // F6.4-H1 (D6, OWASP ASI06): materialization-time learnings + handoffs gate.
+  // Like `hatch3r sync`, the regenerate write path pours `.hatch3r/learnings/`
+  // into each tool's context file, and `.hatch3r/handoffs/` are user-tier state
+  // consumed by resuming agents. Run the deterministic validators before any
+  // adapter materializes output. D6-7 (Cycle 11 Wave 2, D6, ASI06): a learnings
+  // injection-pattern hit BLOCKS the regenerate (override with `--force`),
+  // matching the handoffs validator which already treats P-LEARN matches as
+  // hard errors; structural errors still block; benign advisories stay
+  // warnings. ENOENT on either dir = clean state.
   try {
     const learnings = await validateLearningsDirectory(join(rootDir, HATCH3R_DIR, "learnings"));
-    if (learnings.warnings.length > 0) {
-      warn(`Learnings content scan: ${learnings.warnings.length} suspicious pattern(s) quarantined (loaded with user-tier markers, not as instructions):`);
-      for (const w of learnings.warnings) warn(`  ${w}`);
+    const benignWarnings = learnings.warnings.filter((w) => !learnings.injectionHits.includes(w));
+    if (benignWarnings.length > 0) {
+      warn(`Learnings content scan: ${benignWarnings.length} advisory(ies):`);
+      for (const w of benignWarnings) warn(`  ${w}`);
     }
-    if (!learnings.valid) {
-      warn(`Learnings validation: ${learnings.errors.length} error(s) detected`);
-      for (const e of learnings.errors) warn(`  ${e}`);
+    if (learnings.injectionHits.length > 0) {
+      logError(`Learnings injection scan: ${learnings.injectionHits.length} prompt-injection / context-poisoning hit(s) detected (ASI06):`);
+      for (const h of learnings.injectionHits) logError(`  ${h}`);
+    }
+    if (!learnings.valid || learnings.injectionHits.length > 0) {
+      if (!learnings.valid) {
+        warn(`Learnings validation: ${learnings.errors.length} structural error(s) detected`);
+        for (const e of learnings.errors) warn(`  ${e}`);
+      }
       if (!options.force) {
         logError(
-          "Refusing to materialize tool context files with invalid learnings. " +
+          "Refusing to materialize tool context files with invalid or poisoned learnings. " +
           "Fix the offending file(s) under .hatch3r/learnings/, or re-run with --force.",
         );
         throw new HatchError(
           "Learnings pre-flight scan failed (use --force to override)",
           undefined,
           "VALIDATION_ERROR",
-          "Fix the offending learning file(s) listed above (oversized, binary, or invalid name), or re-run with `--force` to materialize them as-is.",
+          "Fix the offending learning file(s) listed above (oversized, binary, invalid name, or matching an injection pattern), or re-run with `--force` to materialize them as-is.",
         );
       }
-      warn("Continuing with --force: invalid learnings will be materialized into tool context.");
+      warn("Continuing with --force: invalid/poisoned learnings will be materialized into tool context.");
+    }
+
+    // D6-7: auto-run the handoffs validator on the regenerate path too. The
+    // handoffs validator classifies injection-pattern hits + integrity
+    // mismatches + malformed frontmatter as blocking `errors`; drift advisories
+    // stay warnings. `--force` overrides, mirroring the learnings gate.
+    const handoffs = await validateHandoffsDirectory(
+      join(rootDir, HATCH3R_DIR, "handoffs", "active"),
+      { archivedDir: join(rootDir, HATCH3R_DIR, "handoffs", "archived") },
+    );
+    if (handoffs.warnings.length > 0) {
+      warn(`Handoffs content scan: ${handoffs.warnings.length} advisory(ies):`);
+      for (const w of handoffs.warnings) warn(`  ${w}`);
+    }
+    if (!handoffs.valid) {
+      logError(`Handoffs validation: ${handoffs.errors.length} blocking error(s) detected (injection / integrity / schema):`);
+      for (const e of handoffs.errors) logError(`  ${e}`);
+      if (!options.force) {
+        throw new HatchError(
+          "Handoffs pre-flight scan failed (use --force to override)",
+          undefined,
+          "VALIDATION_ERROR",
+          "Fix the offending handoff file(s) under .hatch3r/handoffs/active/ (injection pattern, integrity mismatch, or malformed frontmatter), or re-run with `--force`.",
+        );
+      }
+      warn("Continuing with --force: invalid/poisoned handoffs remain on disk for resuming agents.");
     }
   } catch (err) {
     if (err instanceof HatchError) throw err;
-    verbose(`Learnings pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
+    verbose(`Learnings/handoffs pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const s1 = createSpinner(step(offset + 1, total, "Resolving canonical content..."));
@@ -336,6 +405,13 @@ export async function runRegenerate(
     : {};
   const newManagedByAdapter: Record<string, string[]> = {};
   const orphanEntries: OrphanCleanupEntry[] = [];
+  // D12-4 (Cycle 11 Wave 2, D12, P2): collect each successful adapter's
+  // outputs so `writeProvenance` can refresh `.hatch3r/provenance.json` after
+  // the manifest write below. Captured on success only (a failed adapter
+  // leaves its prior provenance rows untouched via the D11-M2 carry-forward),
+  // so the rows always carry the live `sourceFiles[]` populated by
+  // `BaseAdapter.generate()`.
+  const perAdapterOutputs: PerAdapterOutputs[] = [];
   // Per-adapter circuit breakers and a phase-level timeout protect the
   // re-sync loop the same way they protect `hatch3r sync`.
   //
@@ -452,6 +528,8 @@ export async function runRegenerate(
           }
         }
         newManagedByAdapter[tool] = toolPaths;
+        // D12-4: record this adapter's outputs for the provenance refresh.
+        perAdapterOutputs.push({ adapter: tool, outputs });
         // Task #11 orphan-cleanup: sweep paths the prior run recorded that
         // this run did NOT re-emit. Skipped when no prior history exists.
         const priorPaths = previousManagedByAdapter[tool];
@@ -631,6 +709,20 @@ export async function runRegenerate(
   s3.start();
   manifest.hatch3rVersion = HATCH3R_VERSION;
   await writeManifest(rootDir, manifest);
+
+  // D12-4 (Cycle 11 Wave 2, D12, P2): refresh `.hatch3r/provenance.json` via
+  // the shared `writeProvenance` helper so `hatch3r status` drift attribution
+  // and `hatch3r explain --source` reflect the regenerated outputs after an
+  // `update` — previously only `sync` rewrote the baseline, so post-update the
+  // provenance manifest was stale (its `lastCommand` was even hard-coded
+  // "sync"). `lastCommand: "update"` records the originating command;
+  // `failedAdapters` drives the D11-M2 carry-forward so a partially-failed
+  // update keeps the failed adapters' prior rows. Write failures surface via
+  // `warn()` and never abort the regenerate (Silent Failure Contract, P5).
+  await writeProvenance(rootDir, perAdapterOutputs, "update", {
+    failedAdapters: adapterFailures.map((f) => f.tool),
+    onWarn: warn,
+  });
 
   // F16.1-C1: merge phase (worktree + mcp env + manifest) committed.
   await recordPhase(2, "passed");

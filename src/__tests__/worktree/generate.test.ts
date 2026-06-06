@@ -106,6 +106,33 @@ describe("generateWorktreeInclude", () => {
     expect(learningsEntry?.strategy).toBe("copy");
   });
 
+  // D1-12 (Cycle 11 Wave 2): the auto-sync the worktree-setup flow itself runs
+  // rewrites hatch.json/provenance.json/breaker-state via atomic temp+rename,
+  // which de-links or clobbers a symlinked `.hatch3r/`. These three must be
+  // declared as literal copy overrides AFTER the `.hatch3r/` symlink so the
+  // most-specific-match resolver gives each its own regular-file copy.
+  it("hatch.json, provenance.json and breaker-state override the .hatch3r/ symlink with copy", async () => {
+    const out = await generateWorktreeInclude(manifest(["claude"]), ROOT);
+    const entries = parseWorktreeInclude(out);
+    const manifestEntry = entries.find((e) => e.pattern === ".hatch3r/hatch.json");
+    const provenanceEntry = entries.find((e) => e.pattern === ".hatch3r/provenance.json");
+    const breakerEntry = entries.find((e) => e.pattern === ".hatch3r/.breaker-state.jsonl");
+    expect(manifestEntry?.strategy).toBe("copy");
+    expect(provenanceEntry?.strategy).toBe("copy");
+    expect(breakerEntry?.strategy).toBe("copy");
+    // Each copy override must appear AFTER the `.hatch3r/` symlink entry so the
+    // setupWorktree resolver (last-matching-pattern wins) picks copy for them.
+    const symlinkIdx = entries.findIndex((e) => e.pattern === ".hatch3r/");
+    expect(symlinkIdx).toBeGreaterThanOrEqual(0);
+    for (const p of [".hatch3r/hatch.json", ".hatch3r/provenance.json", ".hatch3r/.breaker-state.jsonl"]) {
+      expect(entries.findIndex((e) => e.pattern === p)).toBeGreaterThan(symlinkIdx);
+    }
+    // The symlink reason no longer claims to share the manifest (it is copied now).
+    const stateEntry = entries.find((e) => e.pattern === ".hatch3r/");
+    expect(stateEntry?.strategy).toBe("symlink");
+    expect(stateEntry?.reason ?? "").not.toContain("manifest");
+  });
+
   it("adapter output patterns use copy strategy", async () => {
     const out = await generateWorktreeInclude(manifest(["claude"]), ROOT);
     const entries = parseWorktreeInclude(out);

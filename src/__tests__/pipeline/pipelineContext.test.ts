@@ -12,9 +12,11 @@ import {
   LANGUAGE_SPECIALIST_CONFIGS,
   DEFAULT_MAX_VALIDATION_PASS_ITERATIONS,
   VALIDATION_PASS_CALIBRATION,
+  evaluatePhase4Completion,
   type AgentStatus,
   type PipelineContext,
   type ProjectTypeContext,
+  type QualityResults,
   type ReviewVerdict,
   type ValidationPass,
 } from "../../pipeline/pipelineContext.js";
@@ -709,5 +711,128 @@ describe("Phase 4 Validation Pass calibration (Finding D7-SA7.3-F-7)", () => {
   it("VALIDATION_PASS_CALIBRATION is frozen against mutation", () => {
     expect(Object.isFrozen(VALIDATION_PASS_CALIBRATION)).toBe(true);
     expect(Object.isFrozen(VALIDATION_PASS_CALIBRATION.recalibrationTriggers)).toBe(true);
+  });
+});
+
+describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
+  // Fresh fixture per assertion so a test that mutates one clause cannot leak
+  // into the next. Baseline = both mandatory always-mode floor specialists
+  // (hatch3r-security CQ3, hatch3r-testability CQ5) returned SUCCESS and the
+  // validation pass is green — the only state the contract reports complete.
+  function passingQualityResults(): QualityResults {
+    return {
+      specialists: [
+        { specialist: "hatch3r-security", status: "SUCCESS", findingsCount: 0, summary: "No CQ3 findings" },
+        { specialist: "hatch3r-testability", status: "SUCCESS", findingsCount: 0, summary: "All tests pass" },
+      ],
+      validationPass: {
+        testsPass: true,
+        typecheckPass: true,
+        fixAttempts: 0,
+        regressionsPersist: false,
+      },
+    };
+  }
+
+  it("returns complete:true when every clause passes (all-pass)", () => {
+    const result = evaluatePhase4Completion(passingQualityResults());
+    expect(result.complete).toBe(true);
+    expect(result.mandatoryFloorsSatisfied).toBe(true);
+    expect(result.reReviewIterations).toBe(0);
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.codeMutatingSpecialists).toEqual([]);
+    expect(result.incompletionReason).toBeUndefined();
+  });
+
+  it("fails closed when validationPass.testsPass === false", () => {
+    const q = passingQualityResults();
+    q.validationPass.testsPass = false;
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.testsPass === false");
+  });
+
+  it("fails closed when validationPass.typecheckPass === false", () => {
+    const q = passingQualityResults();
+    q.validationPass.typecheckPass = false;
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.typecheckPass === false");
+  });
+
+  it("fails closed when validationPass.regressionsPersist === true", () => {
+    const q = passingQualityResults();
+    q.validationPass.regressionsPersist = true;
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.regressionsPersist === true");
+  });
+
+  it("fails closed when a mandatory floor specialist did not return SUCCESS (D16-5 security gate)", () => {
+    // D16-5: a mandatory always-mode CQ3/CQ5 specialist that times out (or
+    // crashes) must NOT be treated as an implicit pass. The typed gate reports
+    // mandatoryFloorsSatisfied:false and complete:false — the same fail-closed
+    // posture the orchestration-detail rule now carries in prose.
+    const q = passingQualityResults();
+    const sec = q.specialists.find((s) => s.specialist === "hatch3r-security")!;
+    sec.status = "TIMEOUT";
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+    );
+  });
+
+  it("fails closed when the security specialist is absent (missing-floor, not an implicit pass)", () => {
+    // Absence-of-finding is not an implicit pass: if hatch3r-security never ran
+    // (no SpecialistResult), find() returns undefined and the floor is unsatisfied.
+    const q = passingQualityResults();
+    q.specialists = q.specialists.filter((s) => s.specialist !== "hatch3r-security");
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+  });
+
+  it("fails closed when reReviewIterations exceeds the cap of 1", () => {
+    const result = evaluatePhase4Completion(passingQualityResults(), {
+      reReviewIterations: 2,
+    });
+    expect(result.complete).toBe(false);
+    expect(result.reReviewIterations).toBe(2);
+    expect(result.incompletionReason).toBe(
+      "Phase 4 Validation Pass re-review exceeded max 1 iteration (rules/hatch3r-agent-orchestration.md)",
+    );
+  });
+
+  it("fails closed when unresolvedCriticalFindings > 0", () => {
+    const result = evaluatePhase4Completion(passingQualityResults(), {
+      unresolvedCriticalFindings: 1,
+    });
+    expect(result.complete).toBe(false);
+    expect(result.unresolvedCriticalFindings).toBe(1);
+    expect(result.incompletionReason).toBe(
+      "1 Critical finding(s) unresolved after Phase 4 fixer pass",
+    );
+  });
+
+  it("evaluates clauses in priority order — testsPass failure reported before a missing floor", () => {
+    // Guards the early-return ordering: when both the validation pass and a
+    // mandatory floor fail, the validation-pass clause is reported first.
+    const q = passingQualityResults();
+    q.validationPass.testsPass = false;
+    q.specialists = q.specialists.filter((s) => s.specialist !== "hatch3r-security");
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.testsPass === false");
+  });
+
+  it("passes through codeMutatingSpecialists for the Phase 4 Validation Pass re-review scope", () => {
+    const result = evaluatePhase4Completion(passingQualityResults(), {
+      codeMutatingSpecialists: ["hatch3r-security"],
+    });
+    expect(result.complete).toBe(true);
+    expect(result.codeMutatingSpecialists).toEqual(["hatch3r-security"]);
   });
 });

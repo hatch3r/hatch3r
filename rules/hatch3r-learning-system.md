@@ -77,6 +77,17 @@ This section is the sole authoritative contract for the optional `integrity` fro
 | Verification on read | A reader (e.g., `hatch3r-learnings-loader`) recomputes the digest of the trimmed body and compares against the field; a mismatch or a missing field downgrades the entry to `confidence: low` (it is not excluded — missing integrity is a quality issue, not an injection trigger). |
 | Threat model | Tamper DETECTION (accidental or unnoticed edits), not cryptographic signing. Rationale + the forward-compatible upgrade path to `hmac-sha256:`/`ed25519:` are documented in `agents/hatch3r-learnings-loader.md` → "Design Choice: Hash-Based Integrity". |
 
+## Injection Gate — Deterministic, Not LLM Self-Policing (D6-7)
+
+Context-poisoning defense for learnings (and handoffs) is a deterministic JS read-path gate, not agent prose. A loader agent instructed to "sanitize before consuming" cannot enforce that on itself — it is the actor being hijacked and has no JS runtime. The enforcement point is `src/content/learningsValidation.ts::validateLearningsDirectory`, which scans every `.hatch3r/learnings/*.md` for the denied-pattern set plus the `LEARNINGS_INJECTION_PATTERNS` catalog (`P-LEARN-01..05`, defined in `agents/shared/injection-patterns.md` §B) and returns the matches in an `injectionHits[]` field.
+
+| Property | Contract |
+|----------|----------|
+| Auto-run trigger | Every `hatch3r sync` and `hatch3r update` runs the scan on the materialization write path BEFORE any adapter pours `.hatch3r/learnings/` into a tool context file. It is no longer opt-in to `hatch3r validate`. |
+| Block on hit | A non-empty `injectionHits[]` refuses the run with exit code 2 (`VALIDATION_ERROR`); `--force` overrides and materializes as-is. Structural errors (oversize, binary, malformed name) block the same way. |
+| Handoffs parity | `src/content/handoffs/validation.ts::validateHandoffsDirectory` runs on the same path; it already classifies `P-LEARN` hits + integrity mismatch + malformed frontmatter as blocking `errors`. |
+| Per-file defense-in-depth | `loadValidatedLearnings` additionally skips an individual poisoned file from materialization even under `--force`, routing the skip through `.failures.log`. |
+
 ## Mandatory Consultation Gate
 
 Before answering project-specific questions, these agents MUST read `.hatch3r/learnings/INDEX.md` and any `applies-to` matched entries:

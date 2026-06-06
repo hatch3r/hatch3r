@@ -25,6 +25,7 @@ import {
   scanAntiSlopHits,
   hasPillarReference,
   validateDocsCounts,
+  bodyHasDecision13Handoff,
   type ValidationResult,
 } from "../../cli/commands/validate.js";
 
@@ -715,5 +716,54 @@ describe("scanAntiSlopHits — additional banned phrases", () => {
   it("treats 'as appropriate' (without trigger) as anti-slop", () => {
     const hits = scanAntiSlopHits("Refactor as appropriate when scaling.", "agents/x.md");
     expect(hits.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: bodyHasDecision13Handoff (D5-H8 / D16-H10 — command↔skill twin
+// documentation gate). The collision gate exempts an orchestrating
+// command↔skill pair ONLY when the skill twin carries this section.
+// ═════════════════════════════════════════════════════════════════════
+
+describe("bodyHasDecision13Handoff", () => {
+  it("returns true for the canonical handoff heading", () => {
+    const body =
+      "---\nid: hatch3r-release\n---\n# Release Workflow\n\n" +
+      "## Relationship to `commands/hatch3r-release.md` (Decision 13 handoff)\n\n" +
+      "This skill shares the id with the orchestrator command.\n";
+    expect(bodyHasDecision13Handoff(body)).toBe(true);
+  });
+
+  it("returns true regardless of the linked command path between marker bounds", () => {
+    const body = "## Relationship to `commands/hatch3r-api-spec.md` (Decision 13 handoff)\n";
+    expect(bodyHasDecision13Handoff(body)).toBe(true);
+  });
+
+  it("matches under a deeper heading level (### / ####)", () => {
+    expect(
+      bodyHasDecision13Handoff("### Relationship to the command (Decision 13 handoff)\n"),
+    ).toBe(true);
+  });
+
+  it("is case-insensitive on the heading prose", () => {
+    expect(
+      bodyHasDecision13Handoff("## relationship TO the command (Decision 13 handoff)\n"),
+    ).toBe(true);
+  });
+
+  it("returns false when the (Decision 13 handoff) label is absent", () => {
+    const body =
+      "# Incident Response Workflow\n\n## Relationship to the command\n\nSome prose.\n";
+    expect(bodyHasDecision13Handoff(body)).toBe(false);
+  });
+
+  it("returns false for an undocumented skill body (no handoff section)", () => {
+    const body = "---\nid: x\n---\n# Foo\n\n## Quick Start\n\nbody";
+    expect(bodyHasDecision13Handoff(body)).toBe(false);
+  });
+
+  it("does not match the label outside a heading (prose mention only)", () => {
+    const body = "We follow the Relationship to command (Decision 13 handoff) convention inline.\n";
+    expect(bodyHasDecision13Handoff(body)).toBe(false);
   });
 });

@@ -105,8 +105,10 @@ describe("D8-8.6: EACCES actionable error messages", () => {
   it("opens temp file with r+ mode for fdatasync", async () => {
     await atomicWriteFile("/tmp/test.txt", "data");
 
-    // Verify open was called with "r+" (second argument)
-    expect(mockOpen).toHaveBeenCalledTimes(1);
+    // D11-5 (Cycle 11 Wave 2): a successful write now opens twice — the tmp
+    // file ("r+") for data fdatasync, then the parent directory ("r") for the
+    // post-rename directory fsync. The FIRST open is still the tmp-file "r+".
+    expect(mockOpen).toHaveBeenCalledTimes(2);
     const openArgs = mockOpen.mock.calls[0];
     expect(openArgs[1]).toBe("r+");
   });

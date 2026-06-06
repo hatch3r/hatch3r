@@ -291,8 +291,9 @@ export interface ValidateOptions {
 /**
  * Validate a parsed registry against AUDIT-EXECUTE.md §Finding Registry
  * Invariants 1-7 (excluding 6 — Registry Anchor — which is checked by a
- * separate anchor-log validator). Returns drift reports; empty array means
- * no drift.
+ * separate anchor-log validator) plus the terminal-evidence contract
+ * (D16-6: strict-mode `done`-needs-evidence). Returns drift reports; empty
+ * array means no drift.
  */
 export function validateRegistry(
   parsed: ParsedRegistry,
@@ -449,6 +450,27 @@ function validateEntry(
         finding_id: id,
         reason: "targeted finding parked at cycle close",
         detail: `Finding ${id}: disposition 'targeted' may not hold execution_status '${f.execution_status}' at cycle close (Cycle Drain Contract — AUDIT-EXECUTE.md)`,
+      });
+    }
+
+    // Terminal-evidence contract (D16-6 / F16.2-C1): a targeted finding marked
+    // `done` must carry closure evidence — a `commit_sha` OR a `disposition_note`
+    // recording why no commit landed. F16.2-C1 was closed `done` with a
+    // commit_sha whose diff never built the recommended artifact; the broader
+    // failure mode is a `done` row with neither pointer, which is closure by
+    // assertion. Strict-only (forward contract): the legacy corpus carries
+    // pre-rigor `done` rows lacking both fields, grandfathered exactly like the
+    // execution_tier strict gate below. New closures must satisfy it.
+    if (
+      opts.strict &&
+      f.execution_status === "done" &&
+      !(typeof f.commit_sha === "string" && f.commit_sha.length > 0) &&
+      !(typeof f.disposition_note === "string" && f.disposition_note.length > 0)
+    ) {
+      reports.push({
+        finding_id: id,
+        reason: "done without closure evidence",
+        detail: `Finding ${id}: disposition 'targeted' marked 'done' carries neither commit_sha nor disposition_note (terminal-evidence contract — AUDIT-EXECUTE.md / F16.2-C1)`,
       });
     }
   }

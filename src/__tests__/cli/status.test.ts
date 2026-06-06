@@ -70,7 +70,12 @@ describe("status command", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    // Hardened teardown (matches lifecycle/sync/config/update tests): under the
+    // full-suite `forks` pool, /tmp is saturated with thousands of concurrent
+    // temp dirs; a bare rm of this test's own root can hit a transient FS race
+    // (ENOTEMPTY/ENOENT mid-walk). maxRetries+retryDelay absorbs it so cleanup
+    // of one test never fails the suite.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
   it("should exit with error when no manifest exists", async () => {
@@ -247,7 +252,20 @@ describe("status command", () => {
   // root `adapter.generate()` paths to `seenPaths`, so the orphan loop flagged
   // every per-package copy as `unexpected` — ~(root-output-count x N) false
   // orphans for an N-package x M-adapter repo on every status/verify call.
-  describe("monorepo per-package drift (D14-1)", () => {
+  // Test-robustness (not a logic change): this is the heaviest test in the file
+  // — a real sync of 2 adapters x 2 monorepo packages emits the largest batch of
+  // tmp+rename atomic writes (root + per-package x per-adapter). It used to flake
+  // under the full-suite parallel `forks` pool when its FS batch raced the rest
+  // of the suite's concurrent fork-worker filesystem churn (a just-created
+  // parent dir intermittently invisible to a following mkdir/rename/open — a
+  // contention ENOENT, NOT a product bug; it passes 22/22 in isolation). The fix
+  // is in vitest.config.ts: status.test.ts + verify.test.ts run in a separate
+  // "heavy-fs" project at a later sequence.groupOrder, so they execute ALONE
+  // after the parallel "main" group drains — no concurrent FS churn. The prior
+  // per-test `retry` is gone (the contention it papered over no longer occurs);
+  // `timeout` stays as a margin for the genuinely-large FS batch. Assertions
+  // (0 false orphans / in-sync) are unchanged.
+  describe("monorepo per-package drift (D14-1)", { timeout: 30_000 }, () => {
     it("reports a 2-package monorepo in-sync with 0 false orphans", async () => {
       // Two-package workspace fixture. The package directories do not need to
       // pre-exist — sync's safeWriteFile creates `<package>/.hatch3r/...`

@@ -265,6 +265,17 @@ export interface Phase4CompletionContract {
  * read-only contexts. Returns `complete: false` with `incompletionReason`
  * naming the first failing clause so callers can surface the gap to the user
  * without re-implementing the clause set.
+ *
+ * Finding D16-5 (D16, High): this predicate is the fail-closed authority the
+ * `rules/hatch3r-agent-orchestration-detail.md` → "Phase Failure Protocols"
+ * mandatory-CQ3/CQ5 row mirrors in prose. A mandatory always-mode floor
+ * specialist (`hatch3r-security` CQ3, `hatch3r-testability` CQ5) that did not
+ * return SUCCESS — including the TIMEOUT / crash / no-output case — sets
+ * `mandatoryFloorsSatisfied: false`, which forces `complete: false`. Absence of
+ * a floor specialist's `SpecialistResult` is treated identically (the `find`
+ * returns `undefined`, never an implicit pass), so a security gate that times
+ * out can never be reported as complete. The detail rule cites this function by
+ * name so the prose and the typed gate are one authority, not two.
  */
 export function evaluatePhase4Completion(
   qualityResults: QualityResults,

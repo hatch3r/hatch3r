@@ -55,10 +55,9 @@ hatch3r provides `.customize.yaml` files for fine-grained overrides without modi
 
 ### Agents
 
-Create `.hatch3r/agents/{agent-id}.customize.yaml`:
+Create `.hatch3r/agents/{agent-id}.customize.yaml` (the file is keyed by id via its filename, so set only the override fields — `model` for agents):
 
 ```yaml
-agent: hatch3r-reviewer
 model: codex
 ```
 
@@ -66,20 +65,20 @@ Run the `/hatch3r-customize` skill (an AI-tool slash command inside Cursor or Cl
 
 ### Skills
 
-Create `.hatch3r/skills/{skill-id}.customize.yaml`:
+Create `.hatch3r/skills/{skill-id}.customize.yaml`. Skills accept `description` and `enabled`:
 
 ```yaml
-skill: hatch3r-feature
+description: Feature workflow tuned for our service conventions
 ```
 
 The `/hatch3r-customize` skill handles skills too — pass the skill id when it asks what to customize.
 
 ### Rules
 
-Create `.hatch3r/rules/{rule-id}.customize.yaml`:
+Create `.hatch3r/rules/{rule-id}.customize.yaml`. Rules accept `scope` (when the rule applies) plus `description` and `enabled`:
 
 ```yaml
-rule: hatch3r-code-standards
+scope: always
 ```
 
 The `/hatch3r-customize` skill handles rules too — pass the rule id when it asks what to customize.
@@ -92,10 +91,10 @@ Validate with `npx hatch3r validate`. Parity between `.md` and `.mdc` variants i
 
 ### Commands
 
-Create `.hatch3r/commands/{command-id}.customize.yaml`:
+Create `.hatch3r/commands/{command-id}.customize.yaml`. Commands accept `description` and `enabled`:
 
 ```yaml
-command: hatch3r-board-fill
+enabled: false
 ```
 
 The `/hatch3r-customize` skill handles commands too — pass the command id when it asks what to customize.

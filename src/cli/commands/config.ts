@@ -38,7 +38,7 @@ import {
   warn,
   verbose,
 } from "../shared/ui.js";
-import { runRegenerate } from "./update.js";
+import { runRegenerate, throwOnPartialAdapterFailure } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
@@ -1427,7 +1427,30 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     summaryLines.push(label("Archived", `${allArchivedFiles.length} files to .hatch3r-archive/`));
   }
 
-  printBox("Config updated", summaryLines, "success");
+  // D1-3 (Cycle 11 Wave 2, D1, P1): honour the partial-adapter-failure contract
+  // `hatch3r update`/`sync` already enforce. `runRegenerate` logs each failed
+  // adapter inline (update.ts) but returns only a count; previously config
+  // ignored it and always rendered a green "Config updated" box at exit 0, so a
+  // run where one of several adapters failed to regenerate scored as success and
+  // left a stale tool output behind. When the failure is partial (some tools
+  // succeeded), title the box "Config updated with errors", style it as a
+  // warning, name the failed-adapter count, then throw the exit-2 ADAPTER_ERROR
+  // so a CI consumer can branch on it. (All-adapters-failed already throws
+  // inside runRegenerate; `throwOnPartialAdapterFailure` is a no-op there.)
+  const partialAdapterFailure =
+    updateResult.failedTools > 0 && updateResult.failedTools < manifest.tools.length;
+  if (partialAdapterFailure) {
+    summaryLines.push("");
+    summaryLines.push(
+      `${chalk.red("✗")} Adapters failed: ${updateResult.failedTools} of ${manifest.tools.length} (see per-adapter errors above)`,
+    );
+  }
+  printBox(
+    partialAdapterFailure ? "Config updated with errors" : "Config updated",
+    summaryLines,
+    partialAdapterFailure ? "warning" : "success",
+  );
+  throwOnPartialAdapterFailure(updateResult.failedTools, manifest.tools.length);
 
   if (allMigrations.length > 0) {
     console.log();

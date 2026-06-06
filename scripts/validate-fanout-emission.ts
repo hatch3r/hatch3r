@@ -33,7 +33,22 @@
  *      spawn sub-agents nor mutate files carry no fan-out obligation")
  *      is exempt even if a delegation phrase appears elsewhere in prose.
  *
- * The third class the rule names — delegating `agents/hatch3r-*.md` — is
+ *   3. MAINTAINER SKILLS — every `.claude/skills/h4tcher-<name>/SKILL.md`
+ *      that delegates carries the same RUNTIME-emission obligation as the
+ *      canonical skill class above. Delegation is triggered by EITHER a
+ *      frontmatter `allowed-tools` grant of the literal `Task` tool OR a
+ *      body `## Step N: Sub-Agent Dispatch` stage (five lifecycle presets
+ *      carry the heading; `h4tcher-pr-resolve` delegates inside the
+ *      canonical workflow it invokes and is caught by the `Task` grant).
+ *      The audit-cycle orchestrators
+ *      (`h4tcher-audit-cycle`, `h4tcher-audit-execute`, `h4tcher-re-envision`)
+ *      delegate through the `Agent`/`Workflow` primitives instead and
+ *      describe fan-out narratively, mirroring the `AUDIT_EXEMPT_GLOBS`
+ *      carve-out for `commands/hatch3r-audit-cycle*.md`; they grant no
+ *      `Task` tool, so this pass leaves them untouched. The Tier-1
+ *      reference-card opt-out applies identically.
+ *
+ * The fourth class the rule names — delegating `agents/hatch3r-*.md` — is
  * prose-bound (inherited through `rules/hatch3r-agent-orchestration.md`),
  * not scanned here: agents carry no `orchestrator` frontmatter marker and
  * the Task-mention agents (creator/fixer/implementer/reviewer) are worker
@@ -59,7 +74,10 @@
  *   P8-FANOUT-RATIO       command `rationale` is missing or not a
  *                         non-empty string
  *   P8-FANOUT-SKILL-MISS  a delegating, non-exempt skill body omits the
- *                         runtime-emission directive
+ *                         runtime-emission directive (covers both the
+ *                         canonical `skills/hatch3r-*` class and the
+ *                         `Task`-granting `.claude/skills/h4tcher-*`
+ *                         maintainer-preset class)
  *
  * The audit-cycle prompts (`commands/hatch3r-audit-cycle*.md`) are hard
  * exempt — they run framework-owner dialogs whose fan-out is described
@@ -83,6 +101,10 @@ const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 const COMMANDS_DIR = join(ROOT, "commands");
 const SKILLS_DIR = join(ROOT, "skills");
+// Framework-dev maintainer presets (`/h4tcher-*`). The Task-granting subset
+// dispatches parallel sub-agents and carries the same P8 B2 runtime-emission
+// obligation as the canonical skill class.
+const MAINTAINER_SKILLS_DIR = join(ROOT, ".claude", "skills");
 
 // ── Audit-cycle exempt list (hard-coded) ──────────────────────────
 //
@@ -120,6 +142,8 @@ export interface RunOptions {
   commandsDir?: string;
   /** Skills root (`skills/`); test fixtures inject a tmpdir. */
   skillsDir?: string;
+  /** Maintainer-preset root (`.claude/skills/`); test fixtures inject a tmpdir. */
+  maintainerSkillsDir?: string;
 }
 
 export interface RunResult {
@@ -130,6 +154,8 @@ export interface RunResult {
   checkedFiles: number;
   /** Delegating skills checked for the runtime-emission directive. */
   checkedSkills: number;
+  /** Task-granting maintainer presets checked for the runtime-emission directive. */
+  checkedMaintainerSkills: number;
 }
 
 // ── Path / exempt-list helpers ────────────────────────────────────
@@ -202,6 +228,23 @@ async function listSkillCandidates(dir: string): Promise<string[]> {
   }
   return (entries as unknown as { name: string; isDirectory(): boolean }[])
     .filter((e) => e.isDirectory() && e.name.startsWith("hatch3r-"))
+    .map((e) => e.name)
+    .sort((a, b) => a.localeCompare(b))
+    .map((name) => join(dir, name, "SKILL.md"));
+}
+
+// Each maintainer preset lives at `.claude/skills/h4tcher-<name>/SKILL.md`
+// (the `h4tcher-` prefix marks the framework-dev slash surface). Same
+// directory-walk shape as `listSkillCandidates`, different prefix.
+async function listMaintainerSkillCandidates(dir: string): Promise<string[]> {
+  let entries: string[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true } as never);
+  } catch {
+    return [];
+  }
+  return (entries as unknown as { name: string; isDirectory(): boolean }[])
+    .filter((e) => e.isDirectory() && e.name.startsWith("h4tcher-"))
     .map((e) => e.name)
     .sort((a, b) => a.localeCompare(b))
     .map((name) => join(dir, name, "SKILL.md"));
@@ -331,6 +374,54 @@ function isDelegatingSkill(file: ParsedFile): boolean {
   return !SKILL_TIER1_EXEMPTION.test(file.body) && SKILL_DELEGATION_TRIGGER.test(file.body);
 }
 
+// ── Maintainer-preset markers (`.claude/skills/h4tcher-*`) ─────────
+//
+// A maintainer preset's fan-out trigger is its frontmatter `Task` grant,
+// not a body phrase: the lifecycle presets grant `allowed-tools: ... Task`
+// to dispatch parallel sub-agents, while the Agent/Workflow-based audit
+// orchestrators (audit-cycle, audit-execute, re-envision) describe fan-out
+// narratively and grant no `Task`. `allowed-tools` is a space-separated
+// scalar in these files (e.g. `Read Grep Glob Bash(*) Write Edit Task`),
+// so the grant is detected by whole-word match against that string.
+function grantsTaskTool(fm: Record<string, unknown>): boolean {
+  const v = fm["allowed-tools"];
+  if (typeof v !== "string") return false;
+  return /(^|\s)Task(\s|$)/.test(v);
+}
+
+// Body trigger: a `## Step N: Sub-Agent Dispatch` stage. Five lifecycle
+// presets carry this heading; `h4tcher-pr-resolve` delegates inside the
+// canonical workflow it invokes (no own dispatch heading) and is caught by
+// the `Task` grant instead. The union of the two triggers matches the
+// finding's "frontmatter grants `Task` OR body has a Step-N dispatch" rule.
+const MAINTAINER_DISPATCH_TRIGGER = /^#{1,4}\s+Step\s+\d+:?\s+Sub-Agent Dispatch\b/im;
+
+// A maintainer preset carries the runtime-emission obligation when it either
+// grants the Task tool OR declares a Sub-Agent Dispatch step, and is not a
+// Tier-1 reference card. Same emission-directive + exemption regexes as the
+// canonical skill class.
+function isDelegatingMaintainerSkill(file: ParsedFile): boolean {
+  if (SKILL_TIER1_EXEMPTION.test(file.body)) return false;
+  return grantsTaskTool(file.frontmatter) || MAINTAINER_DISPATCH_TRIGGER.test(file.body);
+}
+
+function checkMaintainerSkillEmission(file: ParsedFile): Finding[] {
+  if (!isDelegatingMaintainerSkill(file)) return [];
+  if (SKILL_EMISSION_DIRECTIVE.test(file.body)) return [];
+  return [
+    {
+      level: "error",
+      code: "P8-FANOUT-SKILL-MISS",
+      file: file.relPath,
+      message:
+        "delegating maintainer preset (grants Task or declares a Sub-Agent " +
+        "Dispatch step) omits the runtime-emission directive (P8 B2): add " +
+        "``Emit `sub_agents_spawned: { count, rationale }` in your output.`` " +
+        "to the body, or mark the preset `Tier 1 reference card — no fan-out`",
+    },
+  ];
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
@@ -380,13 +471,42 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     findings.push(...checkSkillEmission(f));
   }
 
+  // ── Maintainer-preset class: same directive on Task-granting presets ──
+  const maintainerDir = opts.maintainerSkillsDir ?? MAINTAINER_SKILLS_DIR;
+  const maintainerBase = resolve(maintainerDir, "..", "..");
+  const maintainerCandidates = await listMaintainerSkillCandidates(maintainerDir);
+  let checkedMaintainerSkills = 0;
+
+  for (const p of maintainerCandidates) {
+    let f: ParsedFile;
+    try {
+      f = await loadFile(p, maintainerBase);
+    } catch {
+      // A preset directory without a readable SKILL.md carries no fan-out
+      // obligation; skipping it is the intended discovery-time best-effort,
+      // not a swallowed fault (same contract as the skill pass above).
+      // eslint-disable-next-line silent-failure/no-silent-catch
+      continue;
+    }
+    if (!isDelegatingMaintainerSkill(f)) continue;
+    checkedMaintainerSkills += 1;
+    findings.push(...checkMaintainerSkillEmission(f));
+  }
+
   let errorCount = 0;
   let warningCount = 0;
   for (const f of findings) {
     if (f.level === "error") errorCount += 1;
     else warningCount += 1;
   }
-  return { findings, errorCount, warningCount, checkedFiles, checkedSkills };
+  return {
+    findings,
+    errorCount,
+    warningCount,
+    checkedFiles,
+    checkedSkills,
+    checkedMaintainerSkills,
+  };
 }
 
 // ── Output ────────────────────────────────────────────────────────
@@ -421,7 +541,8 @@ async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(
       `validate-fanout-emission: ${result.checkedFiles} orchestrator command(s) + ` +
-        `${result.checkedSkills} delegating skill(s) checked; ` +
+        `${result.checkedSkills} delegating skill(s) + ` +
+        `${result.checkedMaintainerSkills} maintainer preset(s) checked; ` +
         `${result.errorCount} error(s), ${result.warningCount} warning(s)`,
     );
   }

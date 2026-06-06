@@ -9,7 +9,7 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-06
 
 # Capability Add (Maintainer)
 
@@ -71,6 +71,8 @@ For T1: inline authoring — skip to Step 5. For T2/T3: dispatch parallel `Task`
 4. Explicit guardrail: "no branches, no commits, no PRs".
 5. Workspace write target: `.audit-workspace/capability-add-{slot}.md`.
 
+Fan-out is task-derived (P8 B2): 0 sub-agents on T1 (inline), 1-3 on T2, >=3 on T3 — one per artifact-type slot. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 7 summary).
+
 ## Step 5: Cross-Skill Delegation (load-bearing)
 
 The orchestrator sets up context only. Body authoring delegates to the matching author skill via `Task`:
@@ -118,6 +120,7 @@ Sources:             <url> (<access-date>, <org>, <trust-tier>) x N
 Inventory delta:     +<n> artifacts (<types>)
 Pillar(s) served:    P<n>, P<n>
 Lean deltas:         <file: before -> after / limit>
+Sub-agents:          count=<0|1-3|>=3>, rationale=<one-line task-decomposition justification>
 
 Gates:
   npm run validate              <PASS|FAIL>

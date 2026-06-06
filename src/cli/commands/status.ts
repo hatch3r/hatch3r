@@ -1,8 +1,8 @@
 import { access, readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
+import { hashEmittedContent } from "../../manifest/provenance.js";
 import { getAdapter } from "../../adapters/index.js";
 import { HATCH3R_DIR, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
@@ -70,29 +70,13 @@ export interface DriftReport {
   };
 }
 
-/**
- * F2.7-F5 / SA12.4-F1 (D2/D12): canonical normalization used by BOTH the
- * provenance writer (`sync.ts`) and this drift reader, so the emit-time hash
- * matches the hash derived from an on-disk file. Hashes the trimmed managed
- * block when one is present (the part hatch3r owns and overwrites), else the
- * full content. The same logic mirrors the comparison in
- * {@link computeAdapterDrift}: there, on-disk block is compared to expected
- * block; here we reduce each side to a stable sha256 so a stored baseline can
- * be compared across runs without retaining full file bodies.
- */
-export function hashEmittedContent(
-  content: string,
-  managedContent?: string,
-  filePath?: string,
-): string {
-  // D11-6 (Cycle 11 Wave 2): pass filePath so block extraction is line-anchored
-  // and variant-aware — drift hashing never truncates the block at a marker
-  // token quoted in user content, which would otherwise hash a wrong slice and
-  // report phantom drift.
-  const block = extractManagedBlock(content, filePath) ?? managedContent ?? null;
-  const payload = block !== null ? block.trim() : content;
-  return createHash("sha256").update(payload).digest("hex");
-}
+// D12-4 (Cycle 11 Wave 2): `hashEmittedContent` moved to
+// `src/manifest/provenance.ts` (alongside the `writeProvenance` writer it
+// pairs with) so `init`/`update` can emit a hash-bearing provenance baseline
+// without importing the whole status command graph. Re-exported here so
+// existing `import { hashEmittedContent } from "./status.js"` call sites keep
+// working unchanged; the drift reader below uses the same binding.
+export { hashEmittedContent };
 
 /**
  * F2.7-F5 (D2): one entry of the emit-time provenance baseline read from

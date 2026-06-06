@@ -253,6 +253,59 @@ const FS_ERRNO_MESSAGE: Record<string, (filePath: string) => string> = {
 };
 
 /**
+ * Errnos tolerated when fsync-ing the parent directory of a just-renamed file.
+ * - EPERM / ENOTSUP / EINVAL: filesystem/OS rejects fdatasync on the directory
+ *   fd (FAT32, some network mounts) — matches the tmp-file datasync guard.
+ * - EISDIR: a platform that surfaces "this is a directory" rather than honoring
+ *   datasync on a directory fd.
+ * - EBADF: a platform that opened the directory but does not back a real fd for
+ *   datasync.
+ * On Windows, `open(dir)` itself rejects (EISDIR/EPERM/EACCES depending on the
+ * runtime) and is swallowed at the open call site — the rename is already atomic
+ * there, so the directory sync is a no-op upgrade we skip rather than fail on.
+ */
+const DIR_SYNC_TOLERATED_ERRNOS = new Set(["EPERM", "ENOTSUP", "EINVAL", "EISDIR", "EBADF"]);
+
+/**
+ * D11-5 (Cycle 11 Wave 2, P5): persist a directory-entry change (a rename) to
+ * stable storage by opening the parent directory and `datasync()`-ing its fd.
+ *
+ * POSIX makes `rename(2)` atomic but does NOT guarantee the new directory entry
+ * is durable until the directory itself is fsync'd. `atomicWriteFile` already
+ * datasyncs the tmp file's DATA before the rename; this closes the second half
+ * of the durable-replace contract by syncing the DIRECTORY after the rename, so
+ * a crash cannot leave the entry pointing at the pre-rename state.
+ *
+ * Best-effort by design — see {@link DIR_SYNC_TOLERATED_ERRNOS}. Any tolerated
+ * errno (and a failure to open the directory at all, e.g. on Windows) is
+ * swallowed because the atomic rename already provides complete-or-nothing
+ * safety; the directory sync only upgrades durability across a crash. An
+ * unrecognised errno re-throws so a genuinely broken filesystem still surfaces.
+ */
+async function syncParentDirectory(filePath: string): Promise<void> {
+  const dir = dirname(filePath);
+  let dh: Awaited<ReturnType<typeof open>>;
+  try {
+    // A directory fd must be opened read-only ("r"); "r+" is rejected for
+    // directories on POSIX. Opening a directory is unsupported on Windows, where
+    // this rejects — tolerate that the same way as a rejected datasync.
+    dh = await open(dir, "r");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code && DIR_SYNC_TOLERATED_ERRNOS.has(code)) return;
+    throw err;
+  }
+  try {
+    await dh.datasync();
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (!code || !DIR_SYNC_TOLERATED_ERRNOS.has(code)) throw err;
+  } finally {
+    await dh.close();
+  }
+}
+
+/**
  * Write a file atomically via tmp+rename with fsync.
  *
  * **Concurrency:** By default this function does not use file locking. Two
@@ -286,6 +339,21 @@ const FS_ERRNO_MESSAGE: Record<string, (filePath: string) => string> = {
  * for arbitrary bytes ≥ 0x80, which a `string` re-encode would corrupt into
  * U+FFFD. Callers restoring captured user content — `snapshot.ts` rollback —
  * pass the original Buffer so non-UTF-8 files survive a round-trip intact.
+ *
+ * **Durability (D11-5, Cycle 11 Wave 2, P5):** the durable complete-or-nothing
+ * replace is a two-step fsync. `fh.datasync()` on the tmp file persists the file
+ * DATA before the rename. After the rename, {@link syncParentDirectory} opens the
+ * parent directory and `datasync()`s it to persist the DIRECTORY ENTRY change
+ * (the rename itself). Without the directory sync, a crash between the rename and
+ * the next periodic writeback could leave the directory inode pointing at the old
+ * name (or no name) even though the file data was synced — the classic
+ * rename-without-dir-fsync durability gap (POSIX leaves directory-entry durability
+ * to a separate fsync of the directory fd). Both syncs are best-effort: a
+ * filesystem or platform that rejects the operation (Windows cannot open a
+ * directory as an fd; FAT32/network mounts may reject fdatasync) does not fail the
+ * write, because the atomic rename already gives the complete-or-nothing
+ * guarantee; the directory sync only upgrades it from "atomic" to "atomic AND
+ * durable across a crash". Tolerated errnos: EPERM/ENOTSUP/EINVAL/EISDIR/EBADF.
  */
 export async function atomicWriteFile(
   filePath: string,
@@ -332,6 +400,12 @@ export async function atomicWriteFile(
         throw err;
       }
     }
+    // D11-5 (Cycle 11 Wave 2, P5): fsync the parent directory so the rename's
+    // directory-entry change is durable, not just atomic. Best-effort — a
+    // platform/filesystem that cannot sync a directory fd (Windows, FAT32,
+    // some network mounts) is tolerated; the atomic rename already gives
+    // complete-or-nothing safety. See {@link syncParentDirectory}.
+    await syncParentDirectory(filePath);
   } catch (err) {
     // #239 (D8-8.6) + D8-SA8.2-F8.2.7 (Cycle 10, P1): map known write-side
     // errnos (ENOSPC/EACCES and the EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO family)

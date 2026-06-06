@@ -67,11 +67,19 @@ vi.mock("../../manifest/hatchJson.js", () => ({
   isValidGitBranchName: vi.fn(() => true),
 }));
 
-vi.mock("../../cli/commands/update.js", () => ({
-  runUpdate: vi.fn(),
-  runRegenerate: vi.fn(),
-  runPackageUpdate: vi.fn(),
-}));
+vi.mock("../../cli/commands/update.js", async (importOriginal) => {
+  // D1-3 (Cycle 11 Wave 2): config now calls the real partial-failure gate after
+  // runRegenerate. Keep the heavy update entry points stubbed (no network/disk),
+  // but pull the REAL `throwOnPartialAdapterFailure` from the actual module so the
+  // exit-2 contract is exercised end-to-end rather than re-implemented in the test.
+  const actual = await importOriginal<typeof import("../../cli/commands/update.js")>();
+  return {
+    runUpdate: vi.fn(),
+    runRegenerate: vi.fn(),
+    runPackageUpdate: vi.fn(),
+    throwOnPartialAdapterFailure: actual.throwOnPartialAdapterFailure,
+  };
+});
 
 vi.mock("../../archive/index.js", () => ({
   archiveToolOutputs: vi.fn(),
@@ -972,6 +980,53 @@ describe("config command", () => {
       const toolsLine = lines.find((l) => typeof l === "string" && l.includes("Tools") && l.includes("synced"));
       expect(filesLine).toContain("15");
       expect(toolsLine).toContain("2");
+    });
+
+    // D1-3 (Cycle 11 Wave 2): a partial adapter-regenerate failure must NOT
+    // exit 0 with a green "Config updated" box. config now honours the same
+    // partial-failure contract `update`/`sync` enforce — it titles the box
+    // "Config updated with errors", styles it as a warning, names the failed
+    // count, then throws an exit-2 ADAPTER_ERROR.
+    it("throws exit-2 ADAPTER_ERROR and renders a warning box on partial adapter failure", async () => {
+      const manifest = makeManifest({ tools: ["cursor"] });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      // 2 tools resolved, 1 regenerated, 1 failed → partial failure.
+      vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 8, syncedTools: 1, failedTools: 1, version: "1.1.0" });
+      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+
+      let thrown: unknown;
+      try {
+        await (await importConfigCommand())();
+        expect.unreachable("Expected a partial-adapter-failure HatchError");
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(HatchError);
+      expect((thrown as HatchError).exitCode).toBe(2);
+      expect((thrown as HatchError).errorCode).toBe("ADAPTER_ERROR");
+
+      // The summary box rendered as a warning titled "Config updated with errors",
+      // and the green "Config updated" box was NOT used.
+      const calls = vi.mocked(printBox).mock.calls as unknown as [string, string[], string][];
+      const warnBox = calls.find((c) => c[0] === "Config updated with errors");
+      expect(warnBox).toBeDefined();
+      expect(warnBox![2]).toBe("warning");
+      expect(warnBox![1].some((l) => typeof l === "string" && l.includes("Adapters failed"))).toBe(true);
+      expect(calls.some((c) => c[0] === "Config updated")).toBe(false);
+    });
+
+    // D1-3: a clean regenerate (failedTools 0) keeps the green box and does not throw.
+    it("keeps the green 'Config updated' box when no adapters fail", async () => {
+      const manifest = makeManifest({ tools: ["cursor"] });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 12, syncedTools: 2, failedTools: 0, version: "1.1.0" });
+      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+
+      await (await importConfigCommand())();
+
+      const calls = vi.mocked(printBox).mock.calls as unknown as [string, string[], string][];
+      expect(calls.some((c) => c[0] === "Config updated")).toBe(true);
+      expect(calls.some((c) => c[0] === "Config updated with errors")).toBe(false);
     });
 
     it("should show MCP added in summary", async () => {

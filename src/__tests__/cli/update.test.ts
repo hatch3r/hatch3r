@@ -239,6 +239,45 @@ describe("update command", () => {
       expect(result.failedTools).toBe(0);
       expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
     });
+
+    // D1-4 (Cycle 11 Wave 2): rollback after a regenerate that ENABLES a new
+    // adapter must delete that adapter's newly-created outputs (all-or-nothing
+    // revert). Before the fix the snapshot enumerated only previously-recorded
+    // managedFiles, so a freshly-added adapter's outputs had no tombstone and
+    // survived rollback. The test starts cursor-only, regenerates with claude
+    // added (CLAUDE.md is newly created), then rolls back and asserts CLAUDE.md
+    // is gone.
+    it("rollback after enabling a new adapter deletes its newly-created output", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+      vi.mocked(execFileSync).mockClear();
+
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const { applyRollback } = await import("../../pipeline/snapshot.js");
+
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+      // Enable claude as a brand-new adapter — its CLAUDE.md is not yet tracked
+      // in manifest.managedFiles, so only the D1-4 pre-enumeration can tombstone it.
+      manifest!.tools = ["cursor", "claude"];
+
+      const claudeMdPath = join(tempDir, "CLAUDE.md");
+      // Sanity: CLAUDE.md does not exist before the regenerate.
+      await expect(readFile(claudeMdPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
+
+      const result = await runRegenerate(tempDir, manifest!);
+      expect(result.failedTools).toBe(0);
+      expect(result.snapshotSessionId).toBeTruthy();
+      // The new adapter's output now exists on disk.
+      const created = await readFile(claudeMdPath, "utf-8");
+      expect(created.length).toBeGreaterThan(0);
+
+      // Roll the session back: the pre-enumerated would-be path was tombstoned,
+      // so restoring deletes the newly-created CLAUDE.md.
+      const rollback = await applyRollback(result.snapshotSessionId!, { projectRoot: tempDir });
+      expect(rollback.errors).toEqual([]);
+      await expect(readFile(claudeMdPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
+    });
   });
 
   // C8-D1-M6 (D1): --offline / --skip-fetch flag

@@ -12,6 +12,16 @@ cache_friendly: true
 
 # Release Workflow
 
+## Relationship to `commands/hatch3r-release.md` (Decision 13 handoff)
+
+This skill shares the `id: hatch3r-release` with the orchestrator command `commands/hatch3r-release.md`. The two are NOT duplicates — they split the release workflow by execution model per CONSTITUTION §6 Decision 13:
+
+- **`commands/hatch3r-release.md` (orchestrator entry):** the multi-agent release pipeline — implementer applies the version-bump + changelog + SBOM mutations, docs-writer reconciles repo/website docs, a reviewer↔fixer loop verifies the diff, testability + security run the final-quality pass, ci-watcher diagnoses red gates (`agentPipeline: [hatch3r-implementer, hatch3r-docs-writer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security, hatch3r-ci-watcher]`). Use the command when the release warrants sub-agent fan-out (parallel mutation + review-loop + specialist gates) and stops before publish/merge for human approval.
+- **This skill (inline procedure):** the single-pass reference body the command's implementer and docs-writer stages follow for the bump → changelog → quality-gate → tag → supply-chain → deploy sequence. Use the skill directly for a Tier 1 single-maintainer patch release where no fan-out is needed, OR as the step-by-step procedure cited inside the command's mutation stages.
+- **Unique to this skill:** Step 5b (CycloneDX SBOM + npm provenance + SLSA L3 + cosign wiring, with solo/team maturity gating) and the Rollback Procedure are the inline-procedure detail the command references rather than restates.
+
+The merge-candidate review (F16.3-H3) flagged the shared id; this handoff documentation is the explicit workflow-split declaration that disambiguates the pair, enforced by the Decision-13 command↔skill gate in `src/cli/commands/validate.ts`. A future collapse into a single command appendix requires coordinated edits to the command body, the bundled content inventory (skills count), and that gate.
+
 ## Quick Start
 
 ```

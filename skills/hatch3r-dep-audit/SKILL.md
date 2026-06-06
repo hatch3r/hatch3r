@@ -38,6 +38,18 @@ This skill delegates per task size:
 
 Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
+## Required Agent Delegation
+
+> **Note:** When this skill is invoked via an orchestration pipeline (a `commands/hatch3r-*.md` flow), skip this section — the orchestrator handles agent delegation.
+
+This skill realizes the two-agent dependency pattern (governance PRD Decision 13, F13.1-F04): the agent that *assesses* upgrade risk is distinct from the agent that *applies* it. Spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the points below:
+
+- **`hatch3r-dependency-drafter`** (analysis phase, Steps 1–3) — MUST spawn to inventory the dependency surface, classify each candidate by SemVer band, cross-check advisories, and draft the per-dependency proposal (current pin → proposed pin, band, driver, risk, consumer call sites, verification gate). The drafter is read-only (its `tools.deny` forbids manifest edits and installs), so its proposal is a reviewable decision artifact, not a mutation. Skip only for a trivial single-package patch already scoped by the invocation.
+- **`hatch3r-fixer`** (apply phase, Step 4) — MUST spawn under reviewer authority to perform the manifest edit + `npm install` + per-upgrade verification the drafter's proposal names. The fixer flips each proposal from `drafted` to `applied` after its row's verification gate passes.
+- **`hatch3r-devops`** (apply phase, Step 4 — CI-wiring variant) — spawn instead of `hatch3r-fixer` when the upgrade requires CI manifest wiring (lockfile-cache keys, build-matrix version pins, Renovate/Dependabot config) rather than only a source-tree dependency bump.
+
+The drafter never applies and the fixer/devops never re-assess risk — the split keeps risk assessment separate from risk acceptance.
+
 ## Step 1: Gather Findings
 
 - Run `npm audit` and capture output. Categorize by severity: critical, high, moderate, low.

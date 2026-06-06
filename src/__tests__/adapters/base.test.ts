@@ -633,6 +633,72 @@ describe("BaseAdapter", () => {
     });
   });
 
+  // ── D11-3: intra-adapter output-path collision guard (P5) ──────────
+  //
+  // The sync-side collision check only fires across adapters; two outputs
+  // from the SAME adapter at one path previously slipped through as silent
+  // last-writer-wins (e.g. Copilot's regular-agent + github-agent both
+  // emitting `.github/agents/{id}.agent.md`). `BaseAdapter.generate` now
+  // dedupes by path, keeps the LAST occurrence, and warns per colliding path.
+  describe("intra-adapter output-path collisions (D11-3)", () => {
+    class CollidingAdapter extends BaseAdapter {
+      readonly name = "colliding";
+      constructor(private readonly outs: AdapterOutput[]) {
+        super();
+      }
+      protected async doGenerate(): Promise<AdapterOutput[]> {
+        return this.outs;
+      }
+    }
+
+    it("dedupes two outputs at one path, keeping the last and warning", async () => {
+      const adapter = new CollidingAdapter([
+        output(".github/agents/x.agent.md", "FIRST regular-agent body"),
+        output(".github/agents/x.agent.md", "SECOND github-agent body"),
+      ]);
+      const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      // Only one output survives for the shared path.
+      const collided = outs.filter((o) => o.path === ".github/agents/x.agent.md");
+      expect(collided).toHaveLength(1);
+      // Last writer wins (matches the on-disk last-writer-wins reality).
+      expect(collided[0].content).toBe("SECOND github-agent body");
+      // The clash is audit-visible, not silent.
+      expect(
+        adapter.warnings.some(
+          (w) =>
+            w.includes("Output path collision") &&
+            w.includes(".github/agents/x.agent.md"),
+        ),
+      ).toBe(true);
+    });
+
+    it("preserves first-seen order and leaves non-colliding paths untouched", async () => {
+      const adapter = new CollidingAdapter([
+        output("a.md", "a1"),
+        output("b.md", "b"),
+        output("a.md", "a2"),
+        output("c.md", "c"),
+      ]);
+      const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      // a.md retained at its first-seen position with the last body; b/c intact.
+      expect(outs.map((o) => o.path)).toEqual(["a.md", "b.md", "c.md"]);
+      expect(outs.find((o) => o.path === "a.md")?.content).toBe("a2");
+      const collisionWarnings = adapter.warnings.filter((w) =>
+        w.includes("Output path collision"),
+      );
+      expect(collisionWarnings).toHaveLength(1);
+    });
+
+    it("emits no collision warning when every path is unique", async () => {
+      const adapter = new CollidingAdapter([
+        output("one.md", "1"),
+        output("two.md", "2"),
+      ]);
+      await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(adapter.warnings.some((w) => w.includes("Output path collision"))).toBe(false);
+    });
+  });
+
   // ── C9-H20 (D8-H8.3.1): AbortSignal threading ─────────────────────
   //
   // Verifies the optional `signal?: AbortSignal` parameter on `generate`

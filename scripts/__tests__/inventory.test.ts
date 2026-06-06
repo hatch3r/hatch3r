@@ -6,6 +6,9 @@ import { fileURLToPath } from "node:url";
 
 import {
   buildInventory,
+  checkEnumerationDrift,
+  checkMarketplaceDescriptionDrift,
+  checkOrphanAgents,
   checkStaleTokens,
   reconcileLastUpdated,
   sameInventoryContent,
@@ -208,5 +211,96 @@ describe("inventory: checkStaleTokens (D10-9 docs-currency probe)", () => {
     // green; a regression that reintroduces one would flip this to >0 hits.
     const hits = await checkStaleTokens();
     expect(hits).toEqual([]);
+  });
+});
+
+describe("inventory: checkEnumerationDrift (D10-2 reference-page presence probe)", () => {
+  it("reports 0 misses for the REAL committed corpus (every canonical id is documented)", async () => {
+    // Cycle 11 D10-2: every agent/skill/rule/hook must appear on its website
+    // reference page. Build the live file lists from the filesystem and assert
+    // the live reference pages enumerate all of them — a green CI `--check-docs`.
+    const doc = await buildInventory("2099-01-01");
+    const misses = await checkEnumerationDrift(doc.files);
+    expect(misses).toEqual([]);
+  });
+
+  it("reports a miss when a canonical id has no row on its reference page", async () => {
+    // Synthetic: inject an id that cannot appear on agents.md. The probe must
+    // surface it so an added-but-undocumented artifact fails the gate.
+    const doc = await buildInventory("2099-01-01");
+    const tampered = {
+      ...doc.files,
+      agents: [...doc.files.agents, "hatch3r-zzz-nonexistent-agent.md"],
+    };
+    const misses = await checkEnumerationDrift(tampered);
+    expect(misses).toHaveLength(1);
+    expect(misses[0]).toMatchObject({
+      label: "agent",
+      id: "hatch3r-zzz-nonexistent-agent.md",
+      page: "website/docs/reference/agents.md",
+    });
+  });
+
+  it("excludes detail-rules (agent-orchestration-detail) from the presence requirement", async () => {
+    // The `*-detail` rule carries `detail_rule: true` and has no standalone
+    // reference-page row by design; it must not be reported as a miss even
+    // though rules.md never lists `agent-orchestration-detail`.
+    const doc = await buildInventory("2099-01-01");
+    const misses = await checkEnumerationDrift(doc.files);
+    expect(
+      misses.some((m) => m.id === "hatch3r-agent-orchestration-detail.md"),
+    ).toBe(false);
+  });
+});
+
+describe("inventory: checkMarketplaceDescriptionDrift (D17-8 external-surface count probe)", () => {
+  it("reports 0 drift for the REAL committed marketplace description (counts match inventory)", async () => {
+    // Cycle 11 D17-8: the marketplace/About description counts must equal
+    // inventory.json. Build the live counts and assert the committed
+    // docs/marketplace-submission.md description blurbs agree — green CI.
+    const doc = await buildInventory("2099-01-01");
+    const drifts = await checkMarketplaceDescriptionDrift(doc.counts);
+    expect(drifts).toEqual([]);
+  });
+
+  it("reports drift when the marketplace description count disagrees with inventory", async () => {
+    // Synthetic: claim an impossible rules count. The probe must flag the
+    // marketplace blurb's real literal (66) against the injected expectation.
+    const doc = await buildInventory("2099-01-01");
+    const drifts = await checkMarketplaceDescriptionDrift({
+      ...doc.counts,
+      rules: 999,
+    });
+    const ruleDrift = drifts.find((d) =>
+      d.label.includes("rules"),
+    );
+    expect(ruleDrift).toBeDefined();
+    expect(ruleDrift).toMatchObject({ expected: 999, found: doc.counts.rules });
+  });
+});
+
+describe("inventory: checkOrphanAgents (D16-11 orphaned-agent probe)", () => {
+  it("reports 0 orphans for the REAL committed corpus (every agent has a functional consumer)", async () => {
+    // Cycle 11 D16-11: an agent whose only inbound is the shared §0 registry
+    // block (agents/shared/clarification-default-block.md) is orphaned. Build the
+    // live agent list and assert each has at least one non-self, non-registry
+    // consumer — a green CI `--check-docs`. The fix that wired
+    // hatch3r-dependency-drafter into hatch3r-dep-audit's Required Agent
+    // Delegation is what makes this pass; reverting that wiring flips it to 1.
+    const doc = await buildInventory("2099-01-01");
+    const orphans = await checkOrphanAgents(doc.files);
+    expect(orphans).toEqual([]);
+  });
+
+  it("reports an orphan when an agent has no consumer outside the shared registry", async () => {
+    // Synthetic: inject an agent id that no skill/command/rule/hook references.
+    // The probe must surface it so a future orphan fails the gate at CI time.
+    const doc = await buildInventory("2099-01-01");
+    const tampered = {
+      ...doc.files,
+      agents: [...doc.files.agents, "hatch3r-zzz-orphan-agent.md"],
+    };
+    const orphans = await checkOrphanAgents(tampered);
+    expect(orphans).toEqual([{ id: "hatch3r-zzz-orphan-agent" }]);
   });
 });

@@ -72,7 +72,12 @@ describe("verify command", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    // Hardened teardown (matches lifecycle/sync/config/update tests): under the
+    // full-suite `forks` pool, /tmp is saturated with thousands of concurrent
+    // temp dirs; a bare rm of this test's own root can hit a transient FS race
+    // (ENOTEMPTY/ENOENT mid-walk). maxRetries+retryDelay absorbs it so cleanup
+    // of one test never fails the suite.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
   it("exits with error when no manifest exists", async () => {
@@ -305,7 +310,20 @@ describe("verify command", () => {
   // per-package files are all in sync must verify PASS (exit 0, no throw),
   // where before the fix it threw INTEGRITY_ERROR on ~(outputs x packages)
   // false orphans.
-  it("verifies a 2-package monorepo as PASS with no false-orphan drift (D14-1)", async () => {
+  // Test-robustness (not a logic change): this is the heaviest test in the file
+  // — a real sync of 2 adapters x 2 monorepo packages emits the largest batch of
+  // tmp+rename atomic writes (root + per-package x per-adapter). It used to flake
+  // under the full-suite parallel `forks` pool when its FS batch raced the rest
+  // of the suite's concurrent fork-worker filesystem churn (a just-created
+  // parent dir intermittently invisible to a following mkdir/rename/open — a
+  // contention ENOENT, NOT a product bug; it passes 22/22 in isolation). The fix
+  // is in vitest.config.ts: status.test.ts + verify.test.ts run in a separate
+  // "heavy-fs" project at a later sequence.groupOrder, so they execute ALONE
+  // after the parallel "main" group drains — no concurrent FS churn. The prior
+  // per-test `retry` is gone (the contention it papered over no longer occurs);
+  // `timeout` stays as a margin for the genuinely-large FS batch. Assertions
+  // (verify PASS / 0 false orphans) are unchanged.
+  it("verifies a 2-package monorepo as PASS with no false-orphan drift (D14-1)", { timeout: 30_000 }, async () => {
     await createTestProject(tempDir, {
       tools: ["cursor", "claude"],
       packages: [

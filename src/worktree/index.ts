@@ -6,9 +6,16 @@ import {
   MANAGED_BLOCK_START,
   MANAGED_BLOCK_END,
   WORKTREE_INCLUDE_FILE,
+  HATCH3R_DIR,
+  MANIFEST_FILE,
   HatchError,
   type HatchManifest,
 } from "../types.js";
+// D1-12 (Cycle 11 Wave 2): the per-worktree copy overrides reference these two
+// state-file names so the `.worktreeinclude` entries stay in lock-step with the
+// constants the writers use, rather than hard-coding the literals here.
+import { PROVENANCE_FILE } from "../manifest/provenance.js";
+import { BREAKER_STATE_FILE } from "../pipeline/circuitBreaker.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { WorktreeEntry, WorktreeSetupResult, WorktreeSkipReason } from "./types.js";
 import { resolvePatterns, findMainWorktree } from "./resolve.js";
@@ -108,8 +115,35 @@ export async function generateWorktreeInclude(
   entries.push({ pattern: ".env", strategy: "copy", reason: "environment variables" });
   entries.push({ pattern: ".env.*", strategy: "copy", reason: "environment variables (includes .env.mcp)" });
 
-  // .hatch3r/ — Wave 6: state-tier footprint (manifest + overrides + learnings + handoffs + mcp).
-  entries.push({ pattern: ".hatch3r/", strategy: "symlink", reason: "shared hatch3r state (manifest, overrides, mcp)" });
+  // .hatch3r/ — Wave 6: state-tier footprint (overrides + mcp + per-tool managed-file index).
+  entries.push({ pattern: ".hatch3r/", strategy: "symlink", reason: "shared hatch3r state (overrides, mcp)" });
+  // D1-12 (Cycle 11 Wave 2, D1, P2): override the `.hatch3r/` symlink for the
+  // per-worktree state files that the worktree-setup flow's own auto-sync
+  // (`npx hatch3r sync` inside the new worktree) mutates. Those writes go through
+  // `atomicWriteFile` (temp + rename); a rename onto a symlinked path replaces the
+  // symlink with a fresh regular file (de-linking it) OR — when the symlink target
+  // is followed — overwrites the MAIN repo's copy from the worktree. Either way the
+  // symlinked-manifest invariant the `.hatch3r/` symlink implied is corrupted on the
+  // very first post-setup sync. Declaring these three as literal `copy` entries AFTER
+  // the directory symlink makes the most-specific-match resolver (`setupWorktree`)
+  // give each its own regular-file copy, so the worktree's manifest/provenance/breaker
+  // state evolve independently and the main repo's files are untouched. The remaining
+  // `.hatch3r/` subtree (overrides, mcp) stays symlinked and genuinely shared.
+  entries.push({
+    pattern: `${HATCH3R_DIR}/${MANIFEST_FILE}`,
+    strategy: "copy",
+    reason: "per-worktree manifest (auto-sync rewrites it; symlink would de-link or clobber the main repo)",
+  });
+  entries.push({
+    pattern: `${HATCH3R_DIR}/${PROVENANCE_FILE}`,
+    strategy: "copy",
+    reason: "per-worktree provenance baseline (rewritten by sync)",
+  });
+  entries.push({
+    pattern: `${HATCH3R_DIR}/${BREAKER_STATE_FILE}`,
+    strategy: "copy",
+    reason: "per-worktree circuit-breaker state (rewritten by sync)",
+  });
   entries.push({
     pattern: ".hatch3r/learnings/",
     strategy: "copy",

@@ -3,11 +3,11 @@
 
 import { createProgram } from "./program.js";
 import { classifyCliError } from "./errorClassification.js";
+import { formatActionableError, writeFormattedCliError } from "./shared/errors.js";
 import { checkForUpdates } from "./shared/updateNotifier.js";
 import { registerBackablePrompts } from "./shared/backablePrompts.js";
 import { resolveInvokedCommand } from "./shared/invokedCommand.js";
 import { getRunId } from "./shared/runId.js";
-import { HatchError } from "../types.js";
 
 // SA12.1-F-D12-M3 (D12, P1): mint the per-run correlation id once at startup
 // so every subsequent log line / error block / failure log entry references
@@ -162,24 +162,6 @@ try {
   // tie one failure to the entries in `.hatch3r/.failures.log` produced
   // during the same run.
   const runId = getRunId();
-  if (err instanceof HatchError) {
-    // C9-H27 (D10-SA10.2-F2): surface the structured recoveryHint on stderr
-    // before exiting so the user sees an actionable next step. Skip on exit 0
-    // (clean user-initiated cancellation) — printing a recovery hint there
-    // would imply a failure happened. Diagnostics go to stderr per POSIX so
-    // they remain visible when stdout is piped (matches src/cli/shared/ui.ts
-    // error()/warn() conventions).
-    if (err.exitCode !== 0 && err.recoveryHint) {
-      console.error(`\nhatch3r: ${err.message}`);
-      console.error(`  Try: ${err.recoveryHint}`);
-      console.error(`  Run id: ${runId}`);
-    } else if (err.exitCode !== 0) {
-      // Even when no hint is available, embed the run id so the failure can
-      // be correlated across logs.
-      console.error(`  Run id: ${runId}`);
-    }
-    process.exit(err.exitCode);
-  }
   // D10-5 (Cycle 11 Wave 2, P1): `program.exitOverride()` (program.ts) makes
   // commander THROW instead of calling `process.exit` itself, so every parse
   // outcome now arrives here as a `CommanderError`. Commander has already
@@ -191,6 +173,9 @@ try {
   //   - exitCode ≠ 0 → usage error: append ONLY the run id (commander already
   //     printed the message + help pointer; re-printing a "usage error" banner
   //     would duplicate it) and exit 2 so CI can branch on the usage class.
+  // This branch is kept ahead of the funnel because the funnel re-emits a
+  // full "usage error" banner + help pointer for a CommanderError, which would
+  // duplicate what commander already wrote.
   if (err instanceof Error && err.name === "CommanderError") {
     const commanderExit = (err as { exitCode?: number }).exitCode ?? 0;
     if (commanderExit === 0) {
@@ -202,28 +187,22 @@ try {
     }
     process.exit(2);
   }
-  // D1-SA1.8.1: Classify ExitPromptError (SIGINT during inquirer prompt) and
-  // shuttingDown as clean user cancellations — emitting an "unexpected error"
-  // banner for a user-initiated Ctrl-C is a CLI UX regression (P1).
-  const kind = classifyCliError(err, { shuttingDown });
-  if (kind === "exit-prompt" || kind === "shutting-down") {
-    process.exit(SIGNAL_EXIT_CODES.SIGINT);
-  }
-  const isUsageError = kind === "usage";
-  console.error(
-    `\nhatch3r encountered an ${isUsageError ? "usage" : "unexpected"} error: ${err instanceof Error ? err.message : String(err)}`,
-  );
-  if (isUsageError) {
-    console.error(`  Run "hatch3r --help" for usage information.`);
-  } else {
-    console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
-    console.error("  Check .hatch3r/.failure-log.jsonl for recent failure details.");
-    console.error("  Set DEBUG=1 for a full stack trace.");
-  }
-  // SA12.1-F-D12-M3: per-run correlation id for log triangulation.
-  console.error(`  Run id: ${runId}`);
+  // D8-1 (Cycle 11 Wave 2, P1): route every remaining caught value through the
+  // single CLI error funnel `src/cli/shared/errors.ts`. Before this wave the
+  // top-level catch had an inline HatchError block that surfaced ONLY
+  // `err.recoveryHint` and never the errorCode-keyed `DEFAULT_RECOVERY_HINT`
+  // floor — so the 53% of fatal HatchErrors with no explicit hint (28 of 53)
+  // exited silently, defeating the funnel the same audit cycle built to close
+  // that gap. `formatActionableError` resolves the explicit hint OR the floor,
+  // boxes it, classifies generic/unknown errors (usage vs unexpected), and
+  // treats ExitPromptError / shutting-down as clean cancellations — so the
+  // catch no longer duplicates that logic inline. `writeFormattedCliError`
+  // renders the box (or the multi-line footer) to stderr; we keep
+  // `process.exit` here so the handler retains control of flush timing.
+  const formatted = formatActionableError(err, { shuttingDown });
+  writeFormattedCliError(formatted);
   if (process.env.DEBUG) {
     console.error(err);
   }
-  process.exit(isUsageError ? 2 : 1);
+  process.exit(formatted.exitCode);
 }

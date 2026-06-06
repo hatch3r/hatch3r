@@ -84,6 +84,19 @@ export interface LearningValidationResult {
   valid: boolean;
   errors: string[];
   warnings: string[];
+  /**
+   * D6-7 (Cycle 11 Wave 2, D6, ASI06): the subset of advisories that are
+   * prompt-injection / context-poisoning hits — denied-pattern matches plus
+   * `LEARNINGS_INJECTION_PATTERNS` (P-LEARN-01..05) matches. These messages
+   * are ALSO present in `warnings` for back-compat (the `validate` command
+   * keeps reporting them as warnings), but the materialization gate in
+   * `sync`/`update` BLOCKS on a non-empty `injectionHits` (override with
+   * `--force`) — matching the handoffs validator, which already treats
+   * injection-pattern hits as hard errors. This closes the asymmetry where a
+   * poisoned learning was poured into every adapter context file behind a
+   * non-blocking warning.
+   */
+  injectionHits: string[];
   fileCount: number;
   totalBytes: number;
 }
@@ -92,6 +105,8 @@ export interface SingleLearningValidation {
   valid: boolean;
   errors: string[];
   warnings: string[];
+  /** See {@link LearningValidationResult.injectionHits}. */
+  injectionHits: string[];
 }
 
 // ── Single-file validation ───────────────────────────────────────
@@ -111,11 +126,12 @@ export function validateLearningContent(
 ): SingleLearningValidation {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const injectionHits: string[] = [];
 
   // Empty content check
   if (content.trim().length === 0) {
     errors.push(`Learning "${fileName}" is empty`);
-    return { valid: false, errors, warnings };
+    return { valid: false, errors, warnings, injectionHits };
   }
 
   // Binary / encoding check (null bytes indicate non-UTF-8 content)
@@ -124,7 +140,7 @@ export function validateLearningContent(
       `Learning "${fileName}" contains binary content (null bytes detected). ` +
       `Only UTF-8 text files are allowed.`,
     );
-    return { valid: false, errors, warnings };
+    return { valid: false, errors, warnings, injectionHits };
   }
 
   // Per-file size limit
@@ -139,13 +155,33 @@ export function validateLearningContent(
   // Denied pattern scan
   const violations = scanForDeniedPatterns(content);
   for (const v of violations) {
-    warnings.push(`Learning "${fileName}" contains suspicious content: ${v}`);
+    const msg = `Learning "${fileName}" contains suspicious content: ${v}`;
+    warnings.push(msg);
+    injectionHits.push(msg);
+  }
+
+  // D6-7 (Cycle 11 Wave 2, D6, ASI06): also run the learnings-specific
+  // injection-pattern catalog (P-LEARN-01..05) that `sanitizeLearningsContent`
+  // and the handoffs validator already use. The prior content scan ran ONLY
+  // `scanForDeniedPatterns`, so a fake `## System Prompt:` header or an
+  // embedded `HATCH3R:BEGIN` marker (P-LEARN-01 / P-LEARN-04) passed the
+  // materialization gate clean. Each match is both a warning (back-compat) and
+  // an injection hit (blocks materialization unless `--force`).
+  for (const { patternId, pattern } of LEARNINGS_INJECTION_PATTERNS) {
+    if (pattern.test(content)) {
+      const msg =
+        `Learning "${fileName}" matches injection pattern ${patternId} ` +
+        `(see agents/shared/injection-patterns.md §B). Review and sanitize before consuming.`;
+      warnings.push(msg);
+      injectionHits.push(msg);
+    }
   }
 
   return {
     valid: errors.length === 0,
     errors,
     warnings,
+    injectionHits,
   };
 }
 
@@ -241,6 +277,7 @@ export async function validateLearningsDirectory(
 ): Promise<LearningValidationResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const injectionHits: string[] = [];
   let fileCount = 0;
   let totalBytes = 0;
 
@@ -249,7 +286,7 @@ export async function validateLearningsDirectory(
     entries = await readdir(learningsDir);
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      return { valid: true, errors: [], warnings: [], fileCount: 0, totalBytes: 0 };
+      return { valid: true, errors: [], warnings: [], injectionHits: [], fileCount: 0, totalBytes: 0 };
     }
     throw err;
   }
@@ -280,6 +317,7 @@ export async function validateLearningsDirectory(
       const result = validateLearningContent(content, file);
       errors.push(...result.errors);
       warnings.push(...result.warnings);
+      injectionHits.push(...result.injectionHits);
     } catch (err) {
       errors.push(
         `Failed to read learning file "${file}": ${(err as Error).message}`,
@@ -310,6 +348,7 @@ export async function validateLearningsDirectory(
     valid: errors.length === 0,
     errors,
     warnings,
+    injectionHits,
     fileCount,
     totalBytes,
   };

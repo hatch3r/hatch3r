@@ -193,6 +193,24 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
+      # Cycle 11 H D2-1 (D2): the strict canonical-read release gate
+      # (scripts/validate-canonical.ts) and the rest of the `npm run validate`
+      # chain (rule-parity, efficiency, cli-skills, wiring, control-reachability,
+      # anti-slop, specialist-roster, severity-vocabulary, canonical,
+      # adapter-parity) gate push/PR-to-main in ci.yml's D16-1 umbrella step, but
+      # a `v*` tag pushed to an older or out-of-band main commit would otherwise
+      # reach `npm publish` below WITHOUT re-running them on the exact shipping
+      # commit. validate-canonical throws on any canonical-read warning (degraded
+      # YAML, PERMISSION_DENIED, TYPE_MISMATCH, promptGuard injection token), so a
+      # tarball that silently lost canonical files cannot pass this step. Placed
+      # before the irreversible Pack/Publish boundary (npm publish is immutable —
+      # npm blocks unpublish after 72h), mirroring the Lint/Typecheck/Test
+      # defense-in-depth steps above. The whole chain runs offline via tsx against
+      # source + the bundled content root (no network host), so it is compatible
+      # with the egress-policy: block allowlist — no allowed-endpoint entry added.
+      - name: Content + governance validation gates
+        run: npm run validate
+
       - name: Test
         run: npm test
 

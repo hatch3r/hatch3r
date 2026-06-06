@@ -299,6 +299,68 @@ describe("validateRegistry — strict mode", () => {
   });
 });
 
+describe("validateRegistry — terminal-evidence contract (D16-6 / F16.2-C1)", () => {
+  const EVIDENCE_REASON = "done without closure evidence";
+
+  function strictV2(f: Finding) {
+    return parseRegistry({
+      schema_version: CURRENT_REGISTRY_VERSION,
+      generated_at: FIXED_DATE,
+      entries: [f],
+    });
+  }
+
+  it("flags a targeted done finding carrying neither commit_sha nor disposition_note (strict)", () => {
+    // F16.2-C1's broader failure mode: `done` asserted with no closure pointer.
+    const f = modernMinimal({
+      execution_status: "done",
+      commit_sha: null,
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    const hit = drifts.find((d) => d.reason === EVIDENCE_REASON);
+    expect(hit).toBeDefined();
+    expect(hit?.detail).toContain("terminal-evidence contract");
+  });
+
+  it("accepts a targeted done finding with a commit_sha", () => {
+    const f = modernMinimal({ execution_status: "done", commit_sha: "abc1234" });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EVIDENCE_REASON)).toBeUndefined();
+  });
+
+  it("accepts a targeted done finding with a disposition_note but no commit_sha", () => {
+    const f = modernMinimal({
+      execution_status: "done",
+      commit_sha: null,
+      disposition_note: "closed via doc-only clarification; no diff",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EVIDENCE_REASON)).toBeUndefined();
+  });
+
+  it("does NOT apply in legacy-tolerant (non-strict) mode — grandfathers the legacy corpus", () => {
+    const f = modernMinimal({ execution_status: "done", commit_sha: null });
+    const drifts = validateRegistry(strictV2(f) /* no strict flag */);
+    expect(drifts.find((d) => d.reason === EVIDENCE_REASON)).toBeUndefined();
+  });
+
+  it("does NOT flag a non-done targeted finding for missing evidence (strict)", () => {
+    const f = modernMinimal({ execution_status: "pending", commit_sha: null });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EVIDENCE_REASON)).toBeUndefined();
+  });
+
+  it("does NOT flag a non-targeted done summary for missing evidence (strict)", () => {
+    const f = modernMinimal({
+      disposition: "already_resolved",
+      execution_status: "done",
+      commit_sha: null,
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === EVIDENCE_REASON)).toBeUndefined();
+  });
+});
+
 describe("validateRegistry — postPhase2", () => {
   it("flags missing work_unit on targeted findings after Phase 2", () => {
     const parsed = parseRegistry({

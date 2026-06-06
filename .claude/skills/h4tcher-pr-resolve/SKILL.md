@@ -5,7 +5,7 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit Task
 ---
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-06
 
 # PR Resolve (Maintainer)
 
@@ -44,6 +44,7 @@ For non-hatch3r repos the canonical `/hatch3r-pr-resolve` command (distributed v
    - Commit format: type(scope): description with DCO sign-off via
      git commit -s.
    ```
+   Fan-out is task-derived (P8 B2): sub-agent count tracks the canonical workflow's Step 6/7 fan-out (implementers per fix slot, reviewer + fixer review loop, final-quality specialists). Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 5 summary).
 
 ## Step 3: Hatch3r Quality Gates
 
@@ -125,6 +126,7 @@ Pillars served: P<n>, P<n>, ...
 Lean threshold deltas: <file: before -> after / limit>
 Anti-slop hits: <count> (must be 0 to commit)
 Inventory regenerated: <yes|no>
+Sub-agents: count=<integer>, rationale=<one-line task-decomposition justification>
 
 Suggested commit message:
   <type>(<scope>): <one-line description>

@@ -16,6 +16,7 @@ import {
 } from "../../manifest/hatchJson.js";
 import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
+import { writeProvenance, type PerAdapterOutputs } from "../../manifest/provenance.js";
 import { migrateAgentsToHatch3r } from "../../migration/agentsToHatch3r.js";
 import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -1035,6 +1036,25 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // only on-disk hatch3r directory the user sees.
   await mkdir(join(rootDir, HATCH3R_DIR), { recursive: true });
   await writeManifest(rootDir, manifest);
+
+  // D12-4 (Cycle 11 Wave 2, D12, P2): write `.hatch3r/provenance.json` at init
+  // via the shared `writeProvenance` helper so `hatch3r explain --source all`
+  // resolves immediately after a fresh `init` (previously it reported "No
+  // provenance manifest found … Run `hatch3r sync`" because only `sync` wrote
+  // it). `pendingAdapters` holds exactly the adapters whose generation
+  // succeeded (failures were diverted to `adapterFailures` above and the
+  // all-failed case already threw), so each entry's outputs carry the
+  // `sourceFiles[]` populated by `BaseAdapter.generate()`. `lastCommand:
+  // "init"` attributes the manifest to the originating run; a write failure is
+  // surfaced via `warn()` and never aborts init (Silent Failure Contract, P5).
+  const initProvenanceOutputs: PerAdapterOutputs[] = pendingAdapters.map((pa) => ({
+    adapter: pa.tool,
+    outputs: pa.outputs,
+  }));
+  await writeProvenance(rootDir, initProvenanceOutputs, "init", {
+    failedAdapters: tools.filter((t) => !pendingAdapters.some((pa) => pa.tool === t)),
+    onWarn: warn,
+  });
 
   // Wave 6: seed `.hatch3r/learnings/` and `.hatch3r/handoffs/` with README
   // primers (relocated from W3-removed `.agents/` seeding). Idempotent —

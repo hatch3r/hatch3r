@@ -1437,6 +1437,49 @@ async function commandOrchestrates(commandPath: string, result: ValidationResult
   return orchestrator && hasPipeline;
 }
 
+// D5-H8 / D16-H10 (Decision 13): the mandatory handoff-section marker a
+// skill twin must carry to document a command↔skill execution-model split.
+// Heading form: `## Relationship to ... (Decision 13 handoff)`. The
+// `(Decision 13 handoff)` label is the load-bearing token; the linked
+// command path between "Relationship to" and the label varies per skill.
+const DECISION13_HANDOFF_MARKER = /^#{1,4}\s+Relationship to\b.*\(Decision 13 handoff\)/im;
+
+/**
+ * D5-H8 / D16-H10 (Decision 13): returns true when a skill body declares the
+ * Decision-13 handoff section that documents the command↔skill split. Pure
+ * (no I/O) so the marker contract is unit-testable; `skillDocumentsDecision13Split`
+ * is the file-reading wrapper used by the collision gate.
+ */
+export function bodyHasDecision13Handoff(raw: string): boolean {
+  return DECISION13_HANDOFF_MARKER.test(raw);
+}
+
+/**
+ * D5-H8 / D16-H10 (Decision 13): returns true when the skill twin at
+ * `skillPath` carries the mandatory Decision-13 handoff section. Without
+ * this documentation an orchestrating command and its id-sharing skill ship
+ * as an undocumented twin pair: Claude Code resolves the slash name to the
+ * skill, shadowing the command, with no artifact recording the split. A read
+ * failure returns false (fail toward surfacing the gap) and records a
+ * diagnostic on `result.warnings` (Silent Failure Contract, CONSTITUTION §2
+ * P5).
+ */
+async function skillDocumentsDecision13Split(
+  skillPath: string,
+  result: ValidationResult,
+): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = await readFile(skillPath, "utf-8");
+  } catch (err) {
+    result.warnings.push(
+      `Could not read skill ${skillPath} to verify the Decision-13 handoff section — treating the command↔skill twin as undocumented (${err instanceof Error ? err.message : String(err)})`,
+    );
+    return false;
+  }
+  return bodyHasDecision13Handoff(raw);
+}
+
 async function listMarkdownFiles(dirPath: string): Promise<string[]> {
   const found: string[] = [];
   try {
@@ -2481,14 +2524,21 @@ export async function validateCommand(opts?: {
 
       // Content ID collision validation.
       //
-      // F16.3-H3 (D16) / Decision 13: a command↔skill ID pair is legitimate
-      // ONLY when the command genuinely orchestrates — `orchestrator: true`
-      // with a non-empty `agentPipeline` — so the command (delegation) and the
-      // skill (inline execution) are distinct artifacts, not a duplicate. A
-      // bare command↔skill pair where the command does NOT orchestrate is a
-      // Decision-13 violation (a duplicate that should collapse to one
-      // artifact) and is surfaced as a warning. Previously ALL command↔skill
-      // pairs were silently exempted, which let undocumented duplicates ship.
+      // F16.3-H3 (D16) / D5-H8 / D16-H10 / Decision 13: a command↔skill ID
+      // pair is legitimate ONLY when BOTH (1) the command genuinely
+      // orchestrates — `orchestrator: true` with a non-empty `agentPipeline`
+      // — so the command (delegation) and the skill (inline execution) are
+      // distinct artifacts, AND (2) the skill twin carries the Decision-13
+      // handoff section documenting the split. Either gap is a finding:
+      //   - command does NOT orchestrate -> Decision-13 duplicate (collapse
+      //     to one artifact or promote the command to a real orchestrator).
+      //   - command orchestrates but the skill twin OMITS the handoff doc ->
+      //     the slash-name collision (Claude resolves `/hatch3r-X` to the
+      //     skill, shadowing the command) ships undocumented. The fix is the
+      //     `## Relationship to ... (Decision 13 handoff)` section, modeled
+      //     on `skills/hatch3r-api-spec/SKILL.md`.
+      // Previously a qualifying command silently exempted the pair, which let
+      // the undocumented twin ship (D5-H8: "no artifact documents it").
       // Same-type duplicates and other cross-type pairs are always warnings.
       for (const collision of index.collisions) {
         if (collision.kind === "cross-type") {
@@ -2497,15 +2547,29 @@ export async function validateCommand(opts?: {
             const commandPath = collision.existingType === "command"
               ? collision.existingPath
               : collision.duplicatePath;
+            const skillPath = collision.existingType === "skill"
+              ? collision.existingPath
+              : collision.duplicatePath;
             const qualifies = await commandOrchestrates(join(canonicalRoot, commandPath), result);
-            if (qualifies) {
-              // Legitimate Decision-13 command/skill pair — the command
-              // delegates via agentPipeline; the skill is its inline sibling.
+            if (!qualifies) {
+              result.warnings.push(
+                `Content ID collision: "${collision.id}" exists as both a command (${commandPath}) and a skill (${skillPath}), but the command is not orchestrator:true with a non-empty agentPipeline — per Decision 13 this is a duplicate: collapse to one artifact or promote the command to a real orchestrator (.claude/rules/content-authoring.md item 9)`,
+              );
               continue;
             }
-            result.warnings.push(
-              `Content ID collision: "${collision.id}" exists as both a command (${collision.existingType === "command" ? collision.existingPath : collision.duplicatePath}) and a skill (${collision.existingType === "skill" ? collision.existingPath : collision.duplicatePath}), but the command is not orchestrator:true with a non-empty agentPipeline — per Decision 13 this is a duplicate: collapse to one artifact or promote the command to a real orchestrator (.claude/rules/content-authoring.md item 9)`,
+            const documented = await skillDocumentsDecision13Split(
+              join(canonicalRoot, skillPath),
+              result,
             );
+            if (!documented) {
+              result.warnings.push(
+                `Content ID collision: "${collision.id}" — command ${commandPath} orchestrates, but its id-sharing skill ${skillPath} omits the Decision-13 handoff section, so the command↔skill split is undocumented (Claude Code resolves /hatch3r-${collision.id.replace(/^hatch3r-/, "")} to the skill, shadowing the command). Add a "## Relationship to \`${commandPath}\` (Decision 13 handoff)" section to the skill (model: skills/hatch3r-api-spec/SKILL.md), OR collapse the pair to one artifact.`,
+              );
+              continue;
+            }
+            // Legitimate, documented Decision-13 command/skill pair — the
+            // command delegates via agentPipeline; the skill is its inline
+            // sibling and records the split.
             continue;
           }
         }

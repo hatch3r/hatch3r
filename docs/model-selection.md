@@ -75,10 +75,9 @@ model: opus
 
 ### Customization YAML
 
-In `.hatch3r/agents/hatch3r-reviewer.customize.yaml`:
+In `.hatch3r/agents/hatch3r-reviewer.customize.yaml` (keyed by id via its filename, so set only override fields):
 
 ```yaml
-agent: hatch3r-reviewer
 model: codex
 ```
 

@@ -21,6 +21,46 @@ const pkg = JSON.parse(readFileSync("./package.json", "utf-8")) as {
 // table printed.
 const coverageDir = join(import.meta.dirname, "coverage");
 
+// D3/D14-1 heavy-FS lane isolation. The two heaviest filesystem tests run a real
+// `syncCommand()` over a 2-package × 2-adapter monorepo — the largest batch of
+// tmp+rename atomic writes in the suite (root + per-package × per-adapter, plus
+// the post-rename parent-dir datasync in src/merge/safeWrite.ts, D11-5). When
+// that batch is scheduled into the default parallel `forks` pool alongside the
+// rest of the FS-heavy suite, the concurrent fork-worker filesystem churn makes
+// a just-created parent dir intermittently invisible to a subsequent
+// `mkdir`/`rename`/`open` in the same batch — a flood of `ENOENT` that fails
+// these two tests under load while they pass 22/22 in isolation. Proven
+// environmental: it reproduces identically whether the temp root is on the OS
+// /tmp or the repo's own volume, so it is contention, not a /tmp-saturation or
+// product bug (src/ write logic is unchanged).
+//
+// Fix: run exactly these two files in a SEPARATE project ("heavy-fs") with a
+// later `sequence.groupOrder` than the rest of the suite. Vitest runs project
+// groups from lowest groupOrder to highest, one group at a time (vitest docs:
+// "groups are run from lowest to highest"). So the "main" group runs the whole
+// suite in full parallel first; only after it drains does "heavy-fs" run — and
+// it runs ALONE, with no concurrent FS churn, removing the contention at the
+// source. The two heavy files still run in parallel WITHIN their own group
+// (that is the same shape that passes 22/22 in isolation), so the only added
+// wall-clock cost is the short serial tail of these two files (~60-90s),
+// appended after the existing parallel run. The rest of the suite keeps its
+// existing parallelism — no global serialization.
+const HEAVY_FS_TEST_FILES = [
+  "src/__tests__/cli/status.test.ts",
+  "src/__tests__/cli/verify.test.ts",
+];
+
+// Test-file glob for the "main" project. Must match the SAME file set vitest's
+// built-in default include resolved before this split — the suite has tests in
+// BOTH `src/__tests__/` (186 files) and `scripts/__tests__/` (18 files), 204
+// total. Restricting to `src/**` here would silently drop the 18 script tests,
+// so both roots are listed explicitly. `node_modules`/`dist` are covered by
+// vitest's default excludes.
+const DEFAULT_TEST_GLOB = [
+  "src/**/*.{test,spec}.?(c|m)[jt]s?(x)",
+  "scripts/**/*.{test,spec}.?(c|m)[jt]s?(x)",
+];
+
 export default defineConfig({
   define: {
     __VERSION__: JSON.stringify(pkg.version),
@@ -28,6 +68,43 @@ export default defineConfig({
   test: {
     testTimeout: 30000,
     hookTimeout: 30000,
+    // Two-group project split (see HEAVY_FS_TEST_FILES note above). `coverage`,
+    // `define`, and the timeouts stay at the root: `coverage` is a vitest
+    // non-project option that aggregates across every project, so the global +
+    // per-directory thresholds below still gate the full run. Each project
+    // re-declares `testTimeout`/`hookTimeout` because, unlike `coverage`, those
+    // are per-project options that do NOT inherit the root value once `projects`
+    // is set.
+    projects: [
+      {
+        define: { __VERSION__: JSON.stringify(pkg.version) },
+        test: {
+          name: "main",
+          include: DEFAULT_TEST_GLOB,
+          // Re-state vitest's built-in default excludes alongside the heavy-FS
+          // pair: a project-level `exclude` REPLACES the defaults rather than
+          // extending them, so omitting these would let the main project scan
+          // node_modules/.git for specs. (The restrictive `include` above
+          // already gates those out, so this is defense-in-depth, not a
+          // behavior change — verified via `vitest list` parity.)
+          exclude: ["**/node_modules/**", "**/.git/**", ...HEAVY_FS_TEST_FILES],
+          testTimeout: 30000,
+          hookTimeout: 30000,
+          sequence: { groupOrder: 0 },
+        },
+      },
+      {
+        define: { __VERSION__: JSON.stringify(pkg.version) },
+        test: {
+          name: "heavy-fs",
+          include: HEAVY_FS_TEST_FILES,
+          testTimeout: 30000,
+          hookTimeout: 30000,
+          // Later group → runs alone, after "main" fully drains.
+          sequence: { groupOrder: 1 },
+        },
+      },
+    ],
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
@@ -110,6 +187,24 @@ export default defineConfig({
           branches: 77,
           functions: 90,
           lines: 90,
+        },
+        // pipelineContext.ts (D7-4, Cycle 11 Wave 2, D7 Phase 4 completion /
+        // test infra). The module is `@library_export_only` (the CLI never
+        // instantiates a PipelineContext — runtime is the host coding tool), so
+        // the directory aggregate above masked the file at 59.85% stmts and
+        // evaluatePhase4Completion (the Phase 4 fail-closed gate) sat at 0 hits
+        // while npm test exited 0. The D7-4 describe block lifted it to 75.91
+        // stmts / 78.26 branch / 70 func / 76.51 line (SHA-local measurement).
+        // Pinned to the measured floor — like snapshot.ts above — so the Phase 4
+        // completion-contract coverage cannot silently regress. Floors are below
+        // the 85 critical tier because the remaining gap is untested sibling
+        // type/constant exports outside this finding's scope; raising the floor
+        // to 85 is a Cycle 11 follow-up (cover the residual library exports).
+        "src/pipeline/pipelineContext.ts": {
+          statements: 75,
+          branches: 78,
+          functions: 70,
+          lines: 76,
         },
         "src/content/**": {
           statements: 85,
