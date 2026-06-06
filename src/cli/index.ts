@@ -5,6 +5,7 @@ import { createProgram } from "./program.js";
 import { classifyCliError } from "./errorClassification.js";
 import { checkForUpdates } from "./shared/updateNotifier.js";
 import { registerBackablePrompts } from "./shared/backablePrompts.js";
+import { resolveInvokedCommand } from "./shared/invokedCommand.js";
 import { getRunId } from "./shared/runId.js";
 import { HatchError } from "../types.js";
 
@@ -38,7 +39,17 @@ const BACKABLE_COMMANDS = new Set([
   "mcp",
   "cli-tools",
 ]);
-const invokedCommand = process.argv[2];
+// D1-8 (Cycle 11 Wave 2, P1): resolve the invoked subcommand by skipping
+// leading global-flag tokens (anything starting with "-") rather than reading
+// a fixed `process.argv[2]`. A global flag placed before the subcommand —
+// e.g. `hatch3r --no-update-check init` — would otherwise make argv[2] the
+// flag, the BACKABLE_COMMANDS check would miss, and registerBackablePrompts()
+// would never fire, silently defeating Shift+Tab back-navigation in init.
+// The `--no-update-check` strip below runs AFTER this block, so it cannot be
+// relied on to have removed the flag from argv yet. Resolution logic lives in
+// `resolveInvokedCommand` (side-effect-free, unit-tested in
+// src/__tests__/cli/invokedCommand.test.ts).
+const invokedCommand = resolveInvokedCommand(process.argv);
 if (invokedCommand && BACKABLE_COMMANDS.has(invokedCommand)) {
   registerBackablePrompts();
 }
@@ -81,6 +92,38 @@ process.on("unhandledRejection", (reason) => {
   );
   if (process.env.DEBUG) {
     console.error(reason);
+  }
+  process.stdout.write("", () => {
+    process.stderr.write("", () => {
+      process.exit(1);
+    });
+  });
+});
+
+// D1-9 (Cycle 11 Wave 2, P1): uncaughtException safety net. The signal handlers
+// and unhandledRejection handler above do not cover a synchronous throw raised
+// from an emitter / timer / stream callback — such a throw escapes the
+// `program.parseAsync()` try/catch below, so its run-id block + failure-log
+// pointer (the operator's only triangulation handles) are never printed and
+// Node exits with a bare uncaught-exception trace. Mirror the catch block:
+// classify clean user cancellations (Ctrl-C during a prompt, in-flight
+// shutdown) as exit code 130 with no banner, and surface getRunId() + the
+// failure-log pointer for genuine faults before draining and exiting 1.
+process.on("uncaughtException", (err) => {
+  const kind = classifyCliError(err, { shuttingDown });
+  if (kind === "exit-prompt" || kind === "shutting-down") {
+    process.exit(SIGNAL_EXIT_CODES.SIGINT);
+  }
+  const runId = getRunId();
+  console.error(
+    `\nhatch3r encountered an unexpected error: ${err instanceof Error ? err.message : String(err)}`,
+  );
+  console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
+  console.error("  Check .hatch3r/.failure-log.jsonl for recent failure details.");
+  console.error("  Set DEBUG=1 for a full stack trace.");
+  console.error(`  Run id: ${runId}`);
+  if (process.env.DEBUG) {
+    console.error(err);
   }
   process.stdout.write("", () => {
     process.stderr.write("", () => {
@@ -136,6 +179,28 @@ try {
       console.error(`  Run id: ${runId}`);
     }
     process.exit(err.exitCode);
+  }
+  // D10-5 (Cycle 11 Wave 2, P1): `program.exitOverride()` (program.ts) makes
+  // commander THROW instead of calling `process.exit` itself, so every parse
+  // outcome now arrives here as a `CommanderError`. Commander has already
+  // written its own message to the right stream before throwing (verified
+  // against commander 14.0.3): help/version go to stdout with exitCode 0; a
+  // usage error (unknown option, excess/missing args) goes to stderr —
+  // `error: <msg>` plus the `showHelpAfterError` pointer — with exitCode 1.
+  //   - exitCode 0 → clean help/version request: exit 0, emit nothing more.
+  //   - exitCode ≠ 0 → usage error: append ONLY the run id (commander already
+  //     printed the message + help pointer; re-printing a "usage error" banner
+  //     would duplicate it) and exit 2 so CI can branch on the usage class.
+  if (err instanceof Error && err.name === "CommanderError") {
+    const commanderExit = (err as { exitCode?: number }).exitCode ?? 0;
+    if (commanderExit === 0) {
+      process.exit(0);
+    }
+    console.error(`  Run id: ${runId}`);
+    if (process.env.DEBUG) {
+      console.error(err);
+    }
+    process.exit(2);
   }
   // D1-SA1.8.1: Classify ExitPromptError (SIGINT during inquirer prompt) and
   // shuttingDown as clean user cancellations — emitting an "unexpected error"

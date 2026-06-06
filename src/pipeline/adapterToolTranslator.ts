@@ -301,7 +301,14 @@ export interface AskUserToolEntry {
 // item "User-question tool"). Bumping a tool name without updating the
 // date stamp is a Medium finding.
 const ASK_USER_TOOLS: Readonly<Record<string, AskUserToolEntry | null>> = {
-  // verified 2026-05-28 @ https://code.claude.com/docs/en/sub-agents (AskUserQuestion native tool documented).
+  // verified 2026-06-06 @ https://code.claude.com/docs/en/sub-agents (AskUserQuestion native tool documented).
+  // Sub-agent exclusion: AskUserQuestion is the orchestrator/main-conversation question
+  // tool; Claude Code filters it out of every Task-tool sub-agent context (foreground and
+  // background) regardless of the agent's `tools` declaration, so a spawned hatch3r-* agent
+  // cannot call it. Sub-agents instead RETURN Status BLOCKED_AMBIGUITY with the rendered
+  // question and the orchestrator owns the live ASK (agents/shared/clarification-default-block.md
+  // -> Protocol; agents/shared/quality-charter.md §17). Upstream-confirmed: anthropics/claude-code
+  // issues #18721 (docs limitation), #12890, #34592 (verified 2026-06-06).
   claude: { name: "AskUserQuestion" },
   // verified 2026-05-28 @ https://cursor.com/docs/agent/subagents (no native question tool documented; plain-text fallback applies).
   cursor: null,

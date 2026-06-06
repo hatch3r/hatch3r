@@ -101,6 +101,10 @@ vi.mock("../../content/index.js", () => ({
     items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
   }),
   countPresetExclusions: vi.fn().mockReturnValue(0),
+  // D10-12 (Cycle 11 Wave 2): the preset picker now renders the realized
+  // post-floor omit clusters via presetOmittedClusters; stub it so the picker
+  // step renders without hitting an undefined export.
+  presetOmittedClusters: vi.fn().mockReturnValue([]),
   estimatePresetItemCount: vi.fn().mockReturnValue(50),
   getAllContentIds: vi.fn().mockReturnValue(new Set<string>()),
 }));

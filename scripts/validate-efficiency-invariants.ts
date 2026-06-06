@@ -10,8 +10,10 @@
  *                     contain a Triage/Tier/Scale heading.
  *   --static-first    Orchestrator commands, agents, and AUDIT-EXECUTE.md do
  *                     not reference volatile tokens (timestamp, now, run-id,
- *                     session-counter, "today is") before their first `##`
- *                     heading.
+ *                     session-counter, "today is") anywhere in their cacheable
+ *                     static prefix — the first 80 body lines (Cycle 11 D6-10:
+ *                     the whole inlined body is the cacheable prefix, not only
+ *                     the slice before the first `##` heading).
  *   --parallel-tool   Files with >=2 tool/sub-agent mentions include a
  *                     parallel-execution directive (error since Cycle 9 D6-M9
  *                     — multi-tool serialization without a dependency edge
@@ -321,20 +323,61 @@ function checkTriageFirst(file: ParsedFile): Finding[] {
 }
 
 // ── Mode B: static-first ──────────────────────────────────────────
+//
+// The whole inlined artifact body is the LLM-cacheable static prefix — a
+// per-run volatile substitution anywhere in it moves the cache breakpoint, not
+// only one occurring before the first `##` heading.
+//
+// Audit Cycle 11 D6-10: the prior implementation scanned ONLY the pre-first-
+// `##` window. When the first `##` heading sat on body line 0 (e.g.
+// `commands/hatch3r-debug.md`, whose body opens with `## §0 Detect Ambiguity`)
+// the stop index was 0 and the loop scanned ZERO lines — a ~95% coverage hole
+// that let a volatile token after the first heading pass green. The scan now
+// covers the whole body up to STATIC_SCAN_CAP lines, with a two-band match:
+//
+//   - Preamble band (before the first `##` heading): the bare-word
+//     VOLATILE_TOKEN_RE trips. The preamble is the stable lead-in an author
+//     writes as static instruction; a bare reference to `timestamp`/`now`/
+//     `run-id` there is almost always an actual per-run value, so the strict
+//     word match (the historical contract) is retained.
+//   - Body band (at/after the first `##` heading): only a TEMPLATE-SUBSTITUTION
+//     form trips — `{{timestamp}}`, `{now}`, `${run_id}`, `%session-counter%`.
+//     These are what a renderer replaces per run, defeating the cache. Section
+//     bodies legitimately *document* dynamic tokens in prose and tables (a
+//     field named `timestamp`, a `<run-id>` CLI placeholder, the adverb "now"),
+//     so the bare-word match is not applied past the preamble — that is the
+//     exact distinction that keeps the full-body scan free of false positives
+//     on the canonical corpus while still catching a real `{{timestamp}}`
+//     injected mid-body.
 
 const VOLATILE_TOKEN_RE = /\b(timestamp|now|run[-_]?id|session[-_]?counter|today\s+is)\b/i;
+// A volatile token wrapped in a template-substitution delimiter — `{{tok}}`,
+// `{tok}`, `${tok}` / `$tok`, `%tok%`, `<<tok>>`. The inner token reuses the
+// VOLATILE_TOKEN_RE alternation (sans anchors). These are renderer-replaced
+// per run and so break the cacheable prefix even inside a section body.
+const VOLATILE_SUBST_RE =
+  /(\{\{?\s*(?:timestamp|now|run[-_]?id|session[-_]?counter)\s*\}?\}|\$\{?\s*(?:timestamp|now|run[-_]?id|session[-_]?counter)\s*\}?|%\s*(?:timestamp|now|run[-_]?id|session[-_]?counter)\s*%|<<\s*(?:timestamp|now|run[-_]?id|session[-_]?counter)\s*>>)/i;
+// Cacheable-prefix scan budget. Raised from the prior 60-line slice ceiling so
+// a token deeper in a mid-length static body is still caught; bodies longer
+// than this are bounded for scan cost (the head governs breakpoint stability).
+const STATIC_SCAN_CAP = 80;
 
 function checkStaticFirst(file: ParsedFile): Finding[] {
-  const lines = file.body.split("\n").slice(0, 60);
+  const lines = file.body.split("\n").slice(0, STATIC_SCAN_CAP);
   const firstH2 = lines.findIndex((l) => /^##\s+/.test(l));
-  const stopAt = firstH2 === -1 ? lines.length : firstH2;
-  for (let i = 0; i < stopAt; i++) {
-    const m = lines[i].match(VOLATILE_TOKEN_RE);
+  // When there is no heading in the scanned window the whole window is preamble.
+  const preambleEnd = firstH2 === -1 ? lines.length : firstH2;
+  for (let i = 0; i < lines.length; i++) {
+    const inPreamble = i < preambleEnd;
+    const m = inPreamble
+      ? lines[i].match(VOLATILE_TOKEN_RE)
+      : lines[i].match(VOLATILE_SUBST_RE);
     if (m) {
+      const where = inPreamble ? "preamble" : "section body (template-substitution form)";
       return [{
         level: "error", code: "P7-STATIC-VIOL", file: file.relPath,
         line: file.bodyStartLine + i,
-        message: `volatile token "${m[0]}" before first heading`,
+        message: `volatile token "${m[0].trim()}" in the cacheable static prefix — ${where} (within the first ${STATIC_SCAN_CAP} body lines)`,
       }];
     }
   }

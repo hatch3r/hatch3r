@@ -10,7 +10,13 @@ import {
 } from "../pipeline/adapterToolTranslator.js";
 import { HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
-import type { ContentPreset } from "./presets.js";
+import {
+  getPreset,
+  capabilityLabel,
+  FULL_CAPABILITY_SUPERSET,
+  type ContentPreset,
+  type CapabilityTag,
+} from "./presets.js";
 import {
   TAG_CTX_BROWNFIELD_ONLY,
   TAG_CTX_GREENFIELD_ONLY,
@@ -924,6 +930,67 @@ export function countPresetExclusions(
     count++;
   }
   return count;
+}
+
+/**
+ * D10-12 (Cycle 11 Wave 2, P1): the capability clusters a preset actually drops
+ * from a generated repo, computed from the realized post-floor selection delta
+ * `resolveSelection(full) \ resolveSelection(preset)` rather than the
+ * capability-intent gap in `presets.ts::omittedCapabilityClusters`.
+ *
+ * Why this exists: floor admission (stage 2 of `resolveSelection`) ships every
+ * `floor:*`-tagged item for every non-custom preset, so the capability-intent
+ * gap systematically over-states what a preset removes. A `minimal` preset that
+ * intent-omits "review" still ships `floor:content-quality`-tagged review
+ * artifacts; labeling it "omits review" in the picker was a lie (D10-12). This
+ * function names only the clusters whose items are genuinely absent after floor
+ * admission, so the picker's `omits:` line matches the generated output.
+ *
+ * Method:
+ *   1. Resolve `full` and `preset` with `skipContextFilters: true` on BOTH —
+ *      the cluster labels describe the capability/floor dial, independent of
+ *      project-type / team-size context filtering (which the picker surfaces
+ *      separately via its `Filters:` line and the `(excludes N of M)` count).
+ *   2. Diff the id sets → the items `preset` drops that `full` keeps.
+ *   3. Collect those dropped items' capability tags, intersect with the `full`
+ *      capability superset, and emit the matching labels in superset order via
+ *      the shared `capabilityLabel` map (single source of truth with
+ *      `presets.ts`). Non-capability tags on dropped items (e.g. `supply-chain`,
+ *      `ctx:*`) are not cluster labels and are excluded.
+ *
+ * `full` and `custom` return `[]` (full drops nothing; custom is user-driven).
+ * Pure read-only over `index`; no I/O.
+ */
+export function presetOmittedClusters(
+  preset: ContentPreset,
+  index: ContentIndex,
+): string[] {
+  if (preset.id === "full" || preset.id === "custom") return [];
+
+  const opts = { skipContextFilters: true } as const;
+  const fullIds = getAllContentIds(
+    resolveSelection(getPreset("full"), "brownfield", "team", index, undefined, undefined, opts),
+  );
+  const presetIds = getAllContentIds(
+    resolveSelection(preset, "brownfield", "team", index, undefined, undefined, opts),
+  );
+
+  // Capability tags carried by at least one genuinely-dropped item.
+  const droppedCapabilities = new Set<string>();
+  for (const id of fullIds) {
+    if (presetIds.has(id)) continue;
+    const item = index.byId.get(id);
+    if (!item) continue;
+    for (const tag of item.tags) {
+      if (isCapabilityTag(tag)) droppedCapabilities.add(tag);
+    }
+  }
+
+  // Emit in full-superset order via the shared label map so the picker labels
+  // match `presets.ts` exactly (e.g. ai → "AI feature engineering").
+  return FULL_CAPABILITY_SUPERSET.filter((cap) => droppedCapabilities.has(cap)).map(
+    (cap) => capabilityLabel(cap as CapabilityTag),
+  );
 }
 
 /**

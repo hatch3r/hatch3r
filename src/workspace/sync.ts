@@ -31,7 +31,7 @@ import { resolveRepoConfig, buildSelectionFromIds, applyMemberCliToolsOverrides 
 import { detectRepoGitIdentity } from "./git.js";
 import { CHARS_PER_TOKEN } from "../pipeline/observability.js";
 import { verbose } from "../cli/shared/ui.js";
-import type { WorkspaceManifest, WorkspaceRepoEntry, WorkspaceSyncResult, WorkspaceRepoSyncResult } from "./types.js";
+import type { WorkspaceManifest, WorkspaceRepoEntry, WorkspaceSyncResult, WorkspaceRepoSyncResult, WorkspaceGroupDelta } from "./types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const CONTENT_ROOT = findPackageRoot(__dirname);
@@ -375,6 +375,34 @@ export async function syncWorkspaceRepos(
   return { repos: results };
 }
 
+/**
+ * Resolve a repo's `groups[]` membership names to their `WorkspaceGroupDelta`
+ * bundles from `defaults.groups`, preserving the repo's declared order.
+ *
+ * D1-10 (Cycle 11): wires the D14-M4 group layer into resolution. A name with
+ * no matching key in `defaults.groups` is dropped with a `verbose()` warning
+ * (per the `WorkspaceRepoEntry.groups` JSDoc contract) so a typo'd group
+ * reference does not silently broaden — or silently no-op — a member's
+ * effective selection.
+ */
+function resolveGroupDeltas(
+  defined: Record<string, WorkspaceGroupDelta> | undefined,
+  memberships: string[] | undefined,
+  repoPath: string,
+): WorkspaceGroupDelta[] {
+  if (!memberships || memberships.length === 0) return [];
+  const deltas: WorkspaceGroupDelta[] = [];
+  for (const name of memberships) {
+    const delta = defined?.[name];
+    if (!delta) {
+      verbose(`workspace/sync: repo "${repoPath}" references unknown group "${name}" — skipped`);
+      continue;
+    }
+    deltas.push(delta);
+  }
+  return deltas;
+}
+
 async function syncSingleRepo(
   workspaceRoot: string,
   wsManifest: WorkspaceManifest,
@@ -406,8 +434,15 @@ async function syncSingleRepo(
   // reading its manifest. Idempotent — no-op on already-migrated repos.
   await migrateAgentsToHatch3r(repoDir);
 
-  // Resolve effective config
-  const resolved = resolveRepoConfig(wsManifest.defaults, repoEntry.overrides, unconditionalIds);
+  // Resolve effective config. D1-10 (Cycle 11): resolve this repo's group
+  // memberships (`repoEntry.groups[]` names) to their `defaults.groups[name]`
+  // deltas, in declared order, and feed them into the layered merge. Unknown
+  // group names are dropped with a verbose() warning per the
+  // WorkspaceRepoEntry.groups contract — a typo must not silently broaden a
+  // member's selection. Before this the group layer was validated + persisted
+  // but never applied at resolution time.
+  const groupDeltas = resolveGroupDeltas(wsManifest.defaults.groups, repoEntry.groups, repoEntry.path);
+  const resolved = resolveRepoConfig(wsManifest.defaults, repoEntry.overrides, unconditionalIds, groupDeltas);
   const effectiveSelection = buildSelectionFromIds(resolved.contentIds, wsManifest.defaults.content, index.items);
 
   // Compute diff

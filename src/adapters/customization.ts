@@ -138,6 +138,14 @@ const HOMOGLYPH_MAP: Record<string, string> = {
   '\u041D': 'H', '\u043E': 'o', '\u0420': 'P', '\u0440': 'p',
   '\u0421': 'C', '\u0441': 'c', '\u0422': 'T', '\u0443': 'y',
   '\u0425': 'X', '\u0445': 'x',
+  // D2-2 (Cycle 11 Wave 2): three Cyrillic UTS #39 confusables that fall
+  // inside the existing \u0400-\u04FF sweep range (the BMP .replace below)
+  // but had no HOMOGLYPH_MAP entry, so they survived normalization and
+  // bypassed the deny scan. Probes \u0455kip / d\u0456sable / exfi\u04CFtrate
+  // returned [] pre-fix while the ASCII forms were BLOCKED.
+  '\u0455': 's', // CYRILLIC SMALL LETTER DZE → s
+  '\u0456': 'i', // CYRILLIC SMALL LETTER BYELORUSSIAN-UKRAINIAN I → i
+  '\u04CF': 'l', // CYRILLIC SMALL LETTER PALOCHKA → l
   // Greek → Latin
   '\u0391': 'A', '\u03B1': 'a', '\u0392': 'B', '\u03B2': 'b',
   '\u0395': 'E', '\u03B5': 'e', '\u0397': 'H', '\u03B7': 'h',
@@ -146,6 +154,10 @@ const HOMOGLYPH_MAP: Record<string, string> = {
   '\u03A1': 'P', '\u03C1': 'p', '\u03A4': 'T', '\u03C4': 't',
   '\u03A5': 'Y', '\u03C5': 'y', '\u03A7': 'X', '\u03C7': 'x',
   '\u0396': 'Z', '\u03B6': 'z',
+  // D2-2 (Cycle 11 Wave 2): Greek small nu \u03BD is a UTS #39 confusable
+  // for Latin 'v'; it fell inside the existing \u0370-\u03FF sweep range
+  // but had no map entry (probe ne\u03BDer returned [] pre-fix).
+  '\u03BD': 'v', // GREEK SMALL LETTER NU → v
   // Armenian → Latin
   '\u0531': 'A', '\u0561': 'a', '\u0532': 'B', '\u0562': 'b',
   '\u0533': 'G', '\u0563': 'g', '\u0534': 'D', '\u0564': 'd',
@@ -294,7 +306,122 @@ function normalizeHomoglyphs(text: string): string {
     .replace(/[\u0100-\u024F\u0370-\u03FF\u0400-\u04FF\u0530-\u058F\u10D0-\u10FF\u13A0-\u13FF\u2C80-\u2CFF]/g, (ch) => HOMOGLYPH_MAP[ch] ?? ch)
     // Deseret (U+10400–U+1044F) and Osage (U+104B0–U+104FF) supplementary planes
     .replace(/[\u{10400}-\u{1044F}\u{104B0}-\u{104FF}]/gu, (ch) => HOMOGLYPH_MAP[ch] ?? ch)
-    .replace(/[\u2000-\u200F\uFEFF]/g, ''); // Remove zero-width characters
+    .replace(/[ -‏﻿]/g, ''); // Remove zero-width characters
+}
+
+/**
+ * D2-2 (Cycle 11 Wave 2): orthogonal mixed-script confusable signal.
+ *
+ * HOMOGLYPH_MAP is a hand-curated subset of UTS #39 confusables (~331 of the
+ * several-thousand confusable codepoints). Any letter outside the map that
+ * visually impersonates ASCII survives normalizeHomoglyphs() intact, so the
+ * post-normalization deny scan never sees the keyword (probes ѕkip,
+ * dіsable, exfiӏtrate, neνer each fell into a swept range but
+ * had no map entry and bypassed the scan). Adding those four codepoints closes
+ * the exact probes; this signal closes the CLASS by not depending on
+ * per-codepoint map coverage.
+ *
+ * The signal is structural, not enumerative: a single word that mixes ASCII
+ * Latin letters with letters drawn from a Latin-confusable script block is a
+ * UTS #39 mixed-script confusable (a transliterated word uses ONE script; a
+ * smuggled keyword splices a non-ASCII look-alike into an otherwise-ASCII
+ * word). Intent is confirmed before flagging by folding the word -- mapped
+ * confusables to their Latin target, every other non-ASCII letter to a `.`
+ * wildcard -- then using the FOLDED WORD AS A REGEX (the wildcards match any
+ * single char) against the deny-keyword vocabulary. So benign mixed text never
+ * matches a deny keyword, while dіsable / neνer / ѕkip / ԁisable do, regardless
+ * of whether the impersonating codepoint is in HOMOGLYPH_MAP. Cross-ref: AWS
+ * "Defending LLM applications against Unicode character smuggling" 2026;
+ * UTS #39 section 5 Mixed-Script Detection.
+ */
+// Latin-confusable script blocks (BMP): Latin Extended-A/B, IPA Extensions,
+// Greek/Coptic, Cyrillic, Armenian, Georgian, Cherokee, modern Coptic. Kept
+// a superset of the normalizeHomoglyphs() sweep (it also spans Cyrillic
+// Supplement U+0500-U+052F and IPA Extensions) so an unmapped look-alike
+// such as U+0261 ɡ or U+0501 ԁ is still recognized as a confusable-script char.
+const CONFUSABLE_SCRIPT_CHAR =
+  /[Ā-ʯͰ-ϿЀ-ԯ԰-֏ა-ჿᎠ-᏿Ⲁ-⳿]/u;
+// Supplementary-plane confusable blocks (Deseret, Osage) require astral syntax.
+const CONFUSABLE_SCRIPT_ASTRAL = /[\u{10400}-\u{1044F}\u{104B0}-\u{104FF}]/u;
+// A "word" for mixed-script purposes: a run of ASCII letters and/or letters
+// from any confusable script block (BMP or astral). Punctuation/whitespace
+// terminate the run, matching how a smuggled keyword sits inside surrounding
+// prose.
+const MIXED_SCRIPT_WORD =
+  /[A-Za-zĀ-ʯͰ-ϿЀ-ԯ԰-֏ა-ჿᎠ-᏿Ⲁ-⳿\u{10400}-\u{1044F}\u{104B0}-\u{104FF}]+/gu;
+
+// Core deny-keyword vocabulary for the mixed-script pre-scan. These are the
+// single-token verbs/nouns that anchor the multi-word DENY_PATTERNS above; a
+// mixed-script confusable that folds to any of them is treated as a smuggling
+// attempt independent of whether each impersonating codepoint is in
+// HOMOGLYPH_MAP. Kept in sync with the keyword stems of DENY_PATTERNS.
+const MIXED_SCRIPT_DENY_KEYWORDS = [
+  "skip", "ignore", "disable", "exfiltrate", "bypass", "never", "override",
+  "disregard", "forget", "delete", "remove", "reveal", "jailbreak", "system",
+  "pretend", "execute", "password", "secret", "token", "credentials",
+];
+
+/**
+ * Fold a single mixed-script word toward ASCII so it can be used AS A REGEX
+ * PATTERN against the deny vocabulary: ASCII letters pass through, mapped
+ * confusables become their Latin target, and any remaining non-ASCII letter
+ * becomes `.` (single-char wildcard). Returns null when the word is pure ASCII
+ * or carries no confusable-script letter, so a fully-ASCII or fully-foreign
+ * word is never flagged by this signal.
+ */
+function foldMixedScriptWord(word: string): string | null {
+  if (!CONFUSABLE_SCRIPT_CHAR.test(word) && !CONFUSABLE_SCRIPT_ASTRAL.test(word)) {
+    return null;
+  }
+  if (!/[A-Za-z]/.test(word)) {
+    // All-confusable word with no ASCII anchor: not a mixed-script splice.
+    // normalizeHomoglyphs + the post-normalization scan already handle the
+    // fully-confusable case; this signal targets the ASCII-spliced form.
+    return null;
+  }
+  let pattern = "";
+  for (const ch of word) {
+    if (ch.charCodeAt(0) < 0x80) {
+      // Escape ASCII so regex metachars in the word stay literal.
+      pattern += ch.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    } else if (HOMOGLYPH_MAP[ch]) {
+      pattern += HOMOGLYPH_MAP[ch].replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    } else {
+      pattern += "."; // unmapped confusable -> single-char wildcard
+    }
+  }
+  return pattern;
+}
+
+/**
+ * Detect any mixed-script word whose folded form matches a deny keyword.
+ * Returns a single violation string when found, else null. Orthogonal to the
+ * HOMOGLYPH_MAP-driven normalization path, so it catches confusables the map
+ * does not enumerate (the D2-2 generalization of the previous Cyrillic-only,
+ * ignore/system-only pre-scan). The folded word is compiled to an
+ * anchored, case-insensitive regex; `.` wildcards (unmapped confusables) match
+ * any single keyword char, so a keyword-length splice matches while longer
+ * benign tokens do not.
+ */
+function detectMixedScriptConfusable(content: string): string | null {
+  const words = content.match(MIXED_SCRIPT_WORD);
+  if (!words) return null;
+  for (const word of words) {
+    const pattern = foldMixedScriptWord(word);
+    if (pattern === null) continue;
+    let wordRe: RegExp;
+    try {
+      wordRe = new RegExp(`^(?:${pattern})$`, "i");
+    } catch {
+      continue; // defensive: malformed fold never blocks legitimate content
+    }
+    for (const keyword of MIXED_SCRIPT_DENY_KEYWORDS) {
+      if (wordRe.test(keyword)) {
+        return "Denied pattern found: mixed-script confusable spelling of deny keyword";
+      }
+    }
+  }
+  return null;
 }
 
 /**
@@ -390,6 +517,20 @@ export function scanForDeniedPatterns(content: string): string[] {
     if (match) {
       violations.push(`Denied pattern found: "${match[0]}"`);
     }
+  }
+  // D2-2 (Cycle 11 Wave 2): orthogonal mixed-script confusable signal.
+  // Generalizes the Cyrillic-only, ignore/system-only pre-scan above to EVERY
+  // deny keyword and EVERY Latin-confusable script block, and does not depend
+  // on per-codepoint HOMOGLYPH_MAP coverage -- so a confusable the map omits
+  // (the D2-2 root cause) still trips here. Runs AFTER the normalization loop
+  // and appends, so when a mapped confusable was already caught by the
+  // post-normalization scan the keyword match stays at violations[0]; this
+  // signal only becomes the leading violation for the unmapped-confusable
+  // case the normalization path cannot reach. The signal is orthogonal to
+  // normalization (works on the RAW input word boundaries).
+  const mixedScript = detectMixedScriptConfusable(content);
+  if (mixedScript) {
+    violations.push(mixedScript);
   }
   return violations;
 }
@@ -514,11 +655,37 @@ async function applyCustomizationImpl(
   for (const field of ["description", "scope", "model"] as const) {
     const value = overrides[field];
     if (value !== undefined) {
+      // D11-9 (Cycle 11 Wave 2): structural YAML-frontmatter-injection guard.
+      // Every adapter emits these fields as an UNQUOTED single-line scalar
+      // (`lines.push(\`model: ${model}\`)` in claude.ts/cursor.ts/copilot.ts,
+      // `description: ${desc}`), so a value carrying a newline breaks out of
+      // the scalar and injects attacker-chosen keys — `model`/`description`
+      // with `\ntools: [...]` YAML-parses to an arbitrary tool allowlist
+      // (ASI02 privilege escalation) or a DUPLICATE_KEY parse failure, and the
+      // description vector lands on EVERY emitted artifact. sanitizePipelineInput
+      // + scanForDeniedPatterns below do NOT enumerate `tools:`/`name:`/
+      // `alwaysApply:` and do NOT reject a bare newline, so neither catches
+      // this. Reject the structural break-out at the source:
+      //   - model: allow only the frontmatter-safe character set (alias,
+      //     full model id, or `inherit`). This inherently forbids \n \r space
+      //     `:` `[` `]`, so no model value can introduce a second YAML key.
+      //   - description/scope: a single-line frontmatter scalar must stay
+      //     single-line; reject any CR/LF.
+      const structural: string[] = [];
+      if (field === "model" && !/^[A-Za-z0-9._/-]+$/.test(value)) {
+        structural.push(
+          "model value must match /^[A-Za-z0-9._/-]+$/ (alias, full model id, or inherit) — frontmatter-injection guard",
+        );
+      }
+      if ((field === "description" || field === "scope") && /[\r\n]/.test(value)) {
+        structural.push(`${field} value must be single-line (no CR/LF) — frontmatter-injection guard`);
+      }
       // C7.5-W2B2-H43: also run the pipeline promptGuard on yaml string
       // fields so structural injection tokens smuggled via description/
       // scope/model are blocked before the semantic deny-pattern scan.
       const guard = sanitizePipelineInput(value);
       const violations = [
+        ...structural,
         ...guard.violations.map((v) => `promptGuard: ${v}`),
         ...scanForDeniedPatterns(value),
       ];
@@ -550,10 +717,15 @@ async function applyCustomizationImpl(
     // customization input path so every sync/update/init/add invocation
     // runs ASI01 injection-token sanitization — previously reachable only
     // from pipeline tests — before the semantic deny-pattern scan. The
-    // guard catches structural injection tokens ([INST], chat template
-    // tokens, role colons, null bytes, ANSI escapes) that the deny-pattern
-    // list does not enumerate, closing the "Wiring Before Declaration"
-    // gap called out in D15 synthesis.
+    // guard catches the injection tokens it enumerates ([INST], chat
+    // template tokens, role colons, null bytes, ANSI escapes); it does NOT
+    // enumerate every token, so it is one layer of the body defense, not a
+    // complete one. D11-9 (Cycle 11 Wave 2) scope note: the promptGuard does
+    // NOT reject a bare newline or YAML keys (`tools:`/`name:`/`alwaysApply:`),
+    // so it is not the guard that prevents frontmatter-field injection — that
+    // is the per-field structural check in the description/scope/model loop
+    // above. This body-path guard protects the appended Layer-3 markdown, a
+    // different surface from the single-line frontmatter scalars.
     const guard = sanitizePipelineInput(sanitizedMd);
     for (const v of guard.violations) {
       warnings.push(`Blocked: Customization for ${file.id} — promptGuard: ${v}`);

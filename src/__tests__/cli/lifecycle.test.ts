@@ -78,7 +78,20 @@ const HATCH3R_DIR = ".hatch3r";
 // Heavy filesystem I/O per test (mkdtemp + init creates 131 files + per-adapter
 // generation + integrity hashing + rm -rf teardown). On Windows Node 22 CI
 // runners this regularly exceeds the 30s default (vitest#7302, nodejs/node#60397).
-describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
+//
+// D3-1 (Cycle 11 Wave-2 High): `sequential: true` pins this suite to in-order
+// execution. The `beforeEach` calls `process.chdir(tempDir)` (line below) and
+// `process.cwd()` is process-global state that the `forks` pool reuses across
+// files and that `isolate: true` does NOT reset (same mechanism documented in
+// vitest.config.ts under D3-4). Without an explicit `sequential` marker a
+// future `describe.concurrent` edit, or vitest interleaving these chdir-mutating
+// tests with a sibling that also chdirs, could let one test observe a cwd a
+// concurrent test moved out from under it. The flake symptom was the
+// idempotency test seeing `Map(248) vs Map(218)` — one snapshot missing the 30
+// `.cursor/commands/hatch3r-*.md` files. Vitest already runs intra-file tests
+// in order by default; this marker makes the contract explicit and inheritance-
+// proof. Paired with the warm-sync hardening in "sync is idempotent".
+describe("init -> sync -> update lifecycle", { timeout: 60_000, sequential: true }, () => {
   let tempDir: string;
   let originalCwd: string;
   let exitSpy: MockInstance;
@@ -164,11 +177,26 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
 
     const { syncCommand } = await import("../../cli/commands/sync.js");
 
-    // First sync
+    // D3-1 (Cycle 11 Wave-2 High): warm the project state with a throwaway
+    // sync BEFORE the two snapshots compared below. The idempotency invariant
+    // this test protects is sync(warm) == sync(warm), not init-then-sync ==
+    // sync. The first sync after `init` is the only run that diffs its
+    // per-adapter output against the manifest history `init` wrote, sweeps a
+    // cold orphan set, and first-creates non-deterministic operational ledgers
+    // (`.hatch3r/.breaker-state.jsonl`, the `.sync-workspace/` checkpoint).
+    // Snapshotting after the FIRST sync (the prior shape of this test) compared
+    // a post-init-cold state against a warm one, leaving a window where the two
+    // snapshots could legitimately differ on first-run-only side effects. With
+    // the warm-up sync, both `snapshot1` and `snapshot2` are taken after a warm
+    // sync, so any inequality is a real adapter-output regression — the signal
+    // the test exists to catch — not a cold/warm asymmetry.
+    await syncCommand();
+
+    // First measured sync (state already warm from the throwaway above).
     await syncCommand();
     const snapshot1 = await snapshotProject(tempDir);
 
-    // Second sync (must be byte-identical — every adapter output, every
+    // Second measured sync (must be byte-identical — every adapter output, every
     // managed file, every wrap/insert round-trip. The previous version of
     // this test only compared AGENTS.md, which missed the v1.7.0 worktree-
     // setup symptom where adapter outputs drifted by trailing-newline bytes

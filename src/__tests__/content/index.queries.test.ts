@@ -14,6 +14,7 @@ import {
   countSelectionItems,
   selectionSummary,
   countPresetExclusions,
+  presetOmittedClusters,
   countProjectTypeExclusions,
   countTeamSizeExclusions,
   applyCommandPrefix,
@@ -29,8 +30,10 @@ import {
   TAG_ORCHESTRATION,
   TAG_BOARD,
   TAG_PERFORMANCE,
+  TAG_AI,
   TAG_FLOOR_SECURITY,
   TAG_FLOOR_UI_UX,
+  TAG_FLOOR_CONTENT_QUALITY,
   TAG_CTX_GREENFIELD_ONLY,
   TAG_CTX_BROWNFIELD_ONLY,
   TAG_CTX_TEAM_ONLY,
@@ -844,6 +847,100 @@ describe("content/index — queries, mutations & counts", () => {
       ]);
       const carveOut = { ...getPreset("minimal"), includeIds: ["perf-only"] };
       expect(countPresetExclusions(carveOut, rescued)).toBe(0);
+    });
+  });
+
+  // ── presetOmittedClusters (D10-12) ───────────────────────
+  // The realized post-floor omit-cluster labels. The systematic bug D10-12
+  // flagged: the picker's "omits:" line claimed a preset dropped a capability
+  // cluster (e.g. "review") that floor admission actually ships, because the
+  // old line read the capability-intent gap (`presets.ts::omittedCapabilityClusters`).
+  // These tests pin that a cluster appears in the omit list ONLY when the
+  // preset genuinely drops at least one item of it after floor admission.
+  describe("presetOmittedClusters", () => {
+    it("returns [] for full (drops nothing)", () => {
+      const idx = makeIndex([
+        makeCatalogItem({ id: "p", type: "command", tags: [TAG_PLANNING], relativePath: "commands/p.md" }),
+      ]);
+      expect(presetOmittedClusters(getPreset("full"), idx)).toEqual([]);
+    });
+
+    it("returns [] for custom (user-driven)", () => {
+      const idx = makeIndex([
+        makeCatalogItem({ id: "p", type: "command", tags: [TAG_PLANNING], relativePath: "commands/p.md" }),
+      ]);
+      expect(presetOmittedClusters(getPreset("custom"), idx)).toEqual([]);
+    });
+
+    it("names a cluster minimal genuinely drops (non-floor planning item)", () => {
+      const idx = makeIndex([
+        makeCatalogItem({ id: "orch", tags: [TAG_ORCHESTRATION], relativePath: "agents/orch.md" }),
+        // pure planning, no floor tag → genuinely dropped by minimal
+        makeCatalogItem({ id: "plan", type: "command", tags: [TAG_PLANNING], relativePath: "commands/plan.md" }),
+      ]);
+      expect(presetOmittedClusters(getPreset("minimal"), idx)).toEqual(["planning"]);
+    });
+
+    it("does NOT name a cluster whose only item is floor-admitted (the D10-12 lie)", () => {
+      const idx = makeIndex([
+        makeCatalogItem({ id: "orch", tags: [TAG_ORCHESTRATION], relativePath: "agents/orch.md" }),
+        // review capability BUT carries a content-quality floor tag → ships under
+        // minimal via floor admission. The old capability-intent line claimed
+        // minimal "omits review"; this realized line must NOT, because the item
+        // is in the generated repo.
+        makeCatalogItem({
+          id: "review-floor", type: "agent",
+          tags: [TAG_REVIEW, TAG_FLOOR_CONTENT_QUALITY],
+          relativePath: "agents/review-floor.md",
+        }),
+      ]);
+      expect(presetOmittedClusters(getPreset("minimal"), idx)).toEqual([]);
+    });
+
+    it("names only the genuinely-dropped clusters when floor and non-floor items mix", () => {
+      const idx = makeIndex([
+        makeCatalogItem({ id: "orch", tags: [TAG_ORCHESTRATION], relativePath: "agents/orch.md" }),
+        // planning ships nothing under minimal (no floor) → omitted
+        makeCatalogItem({ id: "plan", type: "command", tags: [TAG_PLANNING], relativePath: "commands/plan.md" }),
+        // review is floor-admitted → NOT omitted despite minimal not requesting review
+        makeCatalogItem({
+          id: "review-floor", type: "agent",
+          tags: [TAG_REVIEW, TAG_FLOOR_UI_UX],
+          relativePath: "agents/review-floor.md",
+        }),
+        // board, no floor → omitted
+        makeCatalogItem({ id: "board", type: "command", tags: [TAG_BOARD], relativePath: "commands/board.md" }),
+      ]);
+      const omitted = presetOmittedClusters(getPreset("minimal"), idx);
+      // full-superset order: planning before board; review excluded (floor-shipped).
+      expect(omitted).toEqual(["planning", "board"]);
+    });
+
+    it("maps the ai capability tag to the 'AI feature engineering' label", () => {
+      const idx = makeIndex([
+        makeCatalogItem({ id: "orch", tags: [TAG_ORCHESTRATION], relativePath: "agents/orch.md" }),
+        // ai item with no floor tag → genuinely dropped by standard (no ai cap)
+        makeCatalogItem({ id: "ai", type: "agent", tags: [TAG_AI], relativePath: "agents/ai.md" }),
+      ]);
+      expect(presetOmittedClusters(getPreset("standard"), idx)).toEqual(["AI feature engineering"]);
+    });
+
+    it("does not surface non-capability tags (e.g. ctx:* or floor) as cluster labels", () => {
+      const idx = makeIndex([
+        makeCatalogItem({ id: "orch", tags: [TAG_ORCHESTRATION], relativePath: "agents/orch.md" }),
+        // a team-only item with NO capability tag is dropped by minimal, but it
+        // contributes no capability label — the omit list stays empty.
+        makeCatalogItem({
+          id: "ctx-only", type: "command",
+          tags: [TAG_CTX_TEAM_ONLY],
+          relativePath: "commands/ctx-only.md",
+        }),
+      ]);
+      // skipContextFilters is set inside presetOmittedClusters, so ctx:team-only
+      // is not removed by the context filter — but it has no capability tag, so
+      // it cannot name a cluster. The item is simply not admitted (no capability,
+      // no floor), and produces no label.
+      expect(presetOmittedClusters(getPreset("minimal"), idx)).toEqual([]);
     });
   });
 

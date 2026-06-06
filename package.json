@@ -36,7 +36,7 @@
     "audit:archive": "tsx scripts/audit-archive.ts",
     "audit:find": "tsx scripts/audit-find.ts",
     "audit:reset": "tsx scripts/clean-audit-workspace.ts",
-    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https",
+    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity --validate-package-names",
     "mcp:cve-check": "tsx scripts/check-mcp-cves.ts",
     "cli-tools:cve-check": "tsx scripts/check-cli-cves.ts",
     "validate:action-pins": "tsx scripts/validate-action-pins.ts"

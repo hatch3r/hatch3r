@@ -1,7 +1,7 @@
 import { describe, it, expect } from "vitest";
 import { resolveRepoConfig, buildSelectionFromIds } from "../../workspace/resolve.js";
 import { DEFAULT_FEATURES } from "../../types.js";
-import type { WorkspaceDefaults, WorkspaceRepoOverrides } from "../../workspace/types.js";
+import type { WorkspaceDefaults, WorkspaceGroupDelta, WorkspaceRepoOverrides } from "../../workspace/types.js";
 import type { ContentSelection } from "../../types.js";
 
 describe("workspace resolve", () => {
@@ -143,6 +143,98 @@ describe("workspace resolve", () => {
       };
       const result = resolveRepoConfig(defaults, overrides);
       expect(result.addedContent).not.toContain("hatch3r-researcher");
+    });
+  });
+
+  describe("group-layer merge (D1-10)", () => {
+    it("is a no-op when no group deltas are supplied (legacy two-layer merge)", () => {
+      const withEmpty = resolveRepoConfig(defaults, undefined, undefined, []);
+      const without = resolveRepoConfig(defaults);
+      expect(withEmpty.tools).toEqual(without.tools);
+      expect(withEmpty.features).toEqual(without.features);
+      expect(withEmpty.mcp).toEqual(without.mcp);
+      expect([...withEmpty.contentIds].sort()).toEqual([...without.contentIds].sort());
+    });
+
+    it("replaces tools from a group delta (later layer wins, defaults overridden)", () => {
+      const group: WorkspaceGroupDelta = { tools: ["copilot"] };
+      const result = resolveRepoConfig(defaults, undefined, undefined, [group]);
+      expect(result.tools).toEqual(["copilot"]);
+    });
+
+    it("partially merges features across the group layer", () => {
+      const group: WorkspaceGroupDelta = { features: { mcp: false } };
+      const result = resolveRepoConfig(defaults, undefined, undefined, [group]);
+      expect(result.features.mcp).toBe(false);
+      expect(result.features.agents).toBe(true);
+    });
+
+    it("replaces MCP from a group delta", () => {
+      const group: WorkspaceGroupDelta = { mcp: { servers: ["postgres"] } };
+      const result = resolveRepoConfig(defaults, undefined, undefined, [group]);
+      expect(result.mcp.servers).toEqual(["postgres"]);
+    });
+
+    it("applies group-layer content include and exclude deltas", () => {
+      const group: WorkspaceGroupDelta = {
+        contentOverrides: { include: ["hatch3r-security"], exclude: ["hatch3r-researcher"] },
+      };
+      const result = resolveRepoConfig(defaults, undefined, undefined, [group]);
+      expect(result.contentIds.has("hatch3r-security")).toBe(true);
+      expect(result.contentIds.has("hatch3r-researcher")).toBe(false);
+      expect(result.addedContent).toContain("hatch3r-security");
+      expect(result.excludedContent).toContain("hatch3r-researcher");
+    });
+
+    it("applies multiple group deltas in declared order (later group wins on tools)", () => {
+      const g1: WorkspaceGroupDelta = { tools: ["claude"] };
+      const g2: WorkspaceGroupDelta = { tools: ["copilot"] };
+      const result = resolveRepoConfig(defaults, undefined, undefined, [g1, g2]);
+      expect(result.tools).toEqual(["copilot"]);
+    });
+
+    it("lets a per-repo override outrank the group layer (override is the final layer)", () => {
+      const group: WorkspaceGroupDelta = { tools: ["claude"], mcp: { servers: ["postgres"] } };
+      const overrides: WorkspaceRepoOverrides = { tools: ["cursor"] };
+      const result = resolveRepoConfig(defaults, overrides, undefined, [group]);
+      expect(result.tools).toEqual(["cursor"]); // override wins over group
+      expect(result.mcp.servers).toEqual(["postgres"]); // group still applies where override is silent
+    });
+
+    it("re-includes in a per-repo override an id a group excluded (net-delta reporting)", () => {
+      const group: WorkspaceGroupDelta = {
+        contentOverrides: { exclude: ["hatch3r-researcher"] },
+      };
+      const overrides: WorkspaceRepoOverrides = {
+        contentOverrides: { include: ["hatch3r-researcher"] },
+      };
+      const result = resolveRepoConfig(defaults, overrides, undefined, [group]);
+      expect(result.contentIds.has("hatch3r-researcher")).toBe(true);
+      expect(result.excludedContent).not.toContain("hatch3r-researcher");
+    });
+
+    it("refuses a group-layer exclude of an unconditionally-admitted (floor) id", () => {
+      const unconditionalIds = new Set(["hatch3r-code-standards"]);
+      const group: WorkspaceGroupDelta = {
+        contentOverrides: { exclude: ["hatch3r-code-standards"] },
+      };
+      const result = resolveRepoConfig(defaults, undefined, unconditionalIds, [group]);
+      expect(result.contentIds.has("hatch3r-code-standards")).toBe(true);
+      expect(result.excludedContent).not.toContain("hatch3r-code-standards");
+    });
+
+    it("deep-merges models across the group layer (group agent override applied)", () => {
+      const defaultsWithModels: WorkspaceDefaults = {
+        ...defaults,
+        models: { default: "claude-base", agents: { "hatch3r-researcher": "claude-r" } },
+      };
+      const group: WorkspaceGroupDelta = {
+        models: { agents: { "hatch3r-implementer": "claude-i" } },
+      };
+      const result = resolveRepoConfig(defaultsWithModels, undefined, undefined, [group]);
+      expect(result.models?.default).toBe("claude-base");
+      expect(result.models?.agents?.["hatch3r-researcher"]).toBe("claude-r");
+      expect(result.models?.agents?.["hatch3r-implementer"]).toBe("claude-i");
     });
   });
 

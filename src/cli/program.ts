@@ -30,6 +30,16 @@ import {
 import { HATCH3R_VERSION } from "../version.js";
 import { TOOL_CHOICES } from "../types.js";
 
+// D1-5 (Cycle 11 Wave 2, P1): single source of truth for the `verify`
+// one-liner. The legacy text described a removed SHA-256 crypto-integrity
+// manifest; `verify` has been a drift-detection wrapper over
+// `computeAdapterDrift` since the integrity subsystem was deleted in 1.9.0.
+// Sourced here so the command `.description()` and the `command:*` "Common
+// commands" hint can never drift apart again (the prior bug had two stale
+// copies).
+const VERIFY_SUMMARY =
+  "Detect drift in hatch3r-managed files by regenerating from canonical content and diffing";
+
 // Agent command names that users might try to run directly in the terminal.
 // These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.
 const AGENT_COMMAND_NAMES = new Set([
@@ -68,6 +78,20 @@ export function createProgram(): Command {
     // truth for the runtime effect.
     .option("--no-update-check", "Skip the daily update-notifier probe for this run");
 
+  // D10-5 (Cycle 11 Wave 2, P1): route parse errors through the structured
+  // funnel. `exitOverride()` makes commander throw a `CommanderError` out of
+  // `parseAsync()` instead of calling `process.exit(1)` itself — that internal
+  // self-exit previously bypassed `formatActionableError` in `src/cli/index.ts`,
+  // so an unknown option / too-many-args / missing-required mistake exited 1
+  // with no help pointer or run-id. With the override the catch in index.ts
+  // classifies the CommanderError (`code` is `commander.*`) as a usage error
+  // (exit 2 + run-id) and `showHelpAfterError` appends a help pointer to every
+  // parse failure. Help/version requests throw a CommanderError with exitCode 0
+  // (`commander.helpDisplayed` / `commander.version`); index.ts exits 0 cleanly
+  // for those so `hatch3r --help` keeps working.
+  program.exitOverride();
+  program.showHelpAfterError("(run `hatch3r --help` for usage)");
+
   program
     .command("init")
     .description("Install a complete agent setup into the current repo (first-run: creates .hatch3r/ state + per-tool output files)")
@@ -99,8 +123,11 @@ export function createProgram(): Command {
     .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet")
     .option("--no-banner", "Skip the ASCII banner at startup")
     .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json")
-    // --maturity provenance: Decision 4. --role: D14-M6. --facets: D14-M9. --per-package: D14-SA14.2-H1.
-    .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — gates content admission")
+    // --maturity provenance: Decision 4 / #16. --role: D14-M6. --facets: D14-M9. --per-package: D14-SA14.2-H1.
+    // D14-8 (Cycle 11 Wave 2, P1): help text was a content-admission claim that
+    // contradicts Decision 16 — every tier installs the identical corpus; the
+    // tier only calibrates how deep the agents invest (see docs/maturity-tiers.md).
+    .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — calibrates investment depth; does not change which content is installed")
     .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role")
     .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability")
     .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd")
@@ -141,7 +168,14 @@ export function createProgram(): Command {
     .command("status")
     .description("Check sync status between bundled canonical content and generated files")
     .option("--verbose", "Show detailed per-file status information")
-    .option("--deep", "Regenerate every adapter's output in-memory to compare byte-for-byte (slower; default uses integrity-manifest fast path)")
+    // D1-6 (Cycle 11 Wave 2, P5 Silent-Failure): the prior `--deep` option was
+    // registered but never read — `statusCommand` does not destructure it and
+    // `computeAdapterDrift` always regenerates every adapter's output in memory
+    // (the integrity-manifest "fast path" it claimed to toggle was removed with
+    // the integrity subsystem in 1.9.0). A flag that documents a non-existent
+    // default and silently no-ops violates the Silent Failure Contract, so it
+    // is removed. Re-introduce only alongside a real fidelity toggle wired
+    // through statusCommand + computeAdapterDrift.
     // --diff provenance: D12-SA12.2-F5. --format provenance: SA12.1-F-D12-M2.
     .option("--diff", "Show a before/after diff summary for each generated file (same box `hatch3r sync --diff` emits)")
     .option(
@@ -171,6 +205,12 @@ export function createProgram(): Command {
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
     .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
+    // --pin-version provenance: F15.4-H2 (D15-SA15.4, P6). D15-5 (Cycle 11
+    // Wave 2): the option was missing from registration, so the documented
+    // supply-chain version-pinning control errored at parse — `updateCommand`
+    // already reads `pinVersion` and persists it to `versionConstraint`, and
+    // `selfUpdate` already builds the pinned `hatch3r@<semver>` install spec.
+    .option("--pin-version <semver>", "Pin `hatch3r update` to a semver range or exact version (persisted to .hatch3r/hatch.json::versionConstraint); pass `latest` to clear the pin")
     // --format provenance: SA12.1-F-D12-M2.
     .option(
       "--format <format>",
@@ -205,8 +245,8 @@ export function createProgram(): Command {
 
   program
     .command("verify")
-    .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
-    .option("--fix", "Auto-fix integrity issues by running hatch3r update")
+    .description(VERIFY_SUMMARY)
+    .option("--fix", "Auto-fix detected drift by running hatch3r update")
     .option("--max-fix-attempts <n>", "Maximum verify-fix cycles (default: 2, max: 5)", parseInt)
     // --verbose provenance: D1-SA1.4-F11. --diff: D12-SA12.2-F5. --format: SA12.1-F-D12-M2.
     .option("--verbose", "Show the per-tool / per-file drift breakdown (same detail as `hatch3r status`) before the PASS/FAIL summary")
@@ -426,7 +466,7 @@ export function createProgram(): Command {
         `\n    hatch3r sync      Regenerate tool outputs from canonical content` +
         `\n    hatch3r status    Check sync status` +
         `\n    hatch3r validate  Check canonical content structure and safety` +
-        `\n    hatch3r verify    Check file integrity (SHA-256)` +
+        `\n    hatch3r verify    ${VERIFY_SUMMARY}` +
         `\n    hatch3r config    Reconfigure tools, features, MCP` +
         `\n    hatch3r clean     Remove hatch3r artifacts\n`,
       );

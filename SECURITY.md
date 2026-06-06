@@ -12,7 +12,7 @@ If you discover a security vulnerability in hatch3r, please report it responsibl
 
 ### How to Report
 
-Send an email to **security@hatch3r.dev** with:
+Send an email to **security@hatch3r.com** with:
 
 - A description of the vulnerability
 - Steps to reproduce the issue

@@ -93,16 +93,33 @@ describe("omittedCapabilityClusters derivation (D10 anti-drift invariant)", () =
 });
 
 describe("preset descriptions name exclusions (D10 F10.6-10)", () => {
-  it("standard description names the AI omission instead of inclusion-only framing", () => {
+  it("standard description names the AI dial-off instead of inclusion-only framing", () => {
     const desc = getPreset("standard").description;
-    expect(desc).toContain("AI feature engineering");
-    // The old inclusion-only wording opened with "including board, customize"
-    // and never said what Standard dropped — guard against regressing to it.
-    expect(desc).toContain("Drops");
+    // D10-12 (Cycle 11): standard does NOT genuinely omit AI content — most AI
+    // artifacts carry floor tags and ship at every tier, so the picker's
+    // realized omit line would not list "AI feature engineering". The honest
+    // framing names the AI *dial* being off, not an AI content omission. The
+    // old inclusion-only wording opened with "including board, customize" and
+    // never said what Standard narrowed — guard against regressing to it.
+    expect(desc).toMatch(/AI/);
+    expect(desc).toMatch(/dial/i);
   });
 
-  it("minimal description names what it drops", () => {
-    expect(getPreset("minimal").description).toContain("Drops");
+  it("minimal description names the capability dial it narrows to", () => {
+    expect(getPreset("minimal").description).toMatch(/dial/i);
+  });
+
+  // D10-12 (Cycle 11 Wave 2): the picker prose previously claimed "the security
+  // & UI/UX floor"; the floor also ships the content-quality specialists, so
+  // every non-custom preset's description must name the content-quality floor.
+  it("every non-custom preset description names the content-quality floor", () => {
+    for (const p of PRESETS) {
+      if (p.id === "custom") continue;
+      expect(
+        p.description,
+        `${p.id} description should mention the content-quality floor`,
+      ).toContain("content-quality");
+    }
   });
 });
 

@@ -82,13 +82,14 @@ import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/triggers.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, estimatePresetItemCount, resolveUserContentRoot } from "../../content/index.js";
+import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, presetOmittedClusters, estimatePresetItemCount, resolveUserContentRoot, type ContentIndex } from "../../content/index.js";
 import {
   PRESETS,
   getPreset,
   resolvePresetArg,
   KNOWN_PRESET_IDS,
   type PresetId,
+  type ContentPreset,
 } from "../../content/presets.js";
 import { KNOWN_ROLES, KNOWN_FACETS, type RoleId, type FacetId } from "../../content/tags.js";
 import { detectSubRepos, shouldSuggestWorkspace } from "../../workspace/detect.js";
@@ -387,6 +388,45 @@ function warnBoardPrerequisites(selection: ContentSelection): void {
     `Board commands selected. Prerequisites: ${chalk.bold("GitHub Projects V2")} must be enabled ` +
     `and your PAT needs the ${chalk.bold("project")} scope. ` +
     `See ${chalk.dim("https://docs.github.com/en/issues/planning-and-tracking-with-projects")}`,
+  );
+}
+
+/**
+ * D10-15 (Cycle 11 Wave 2, P1): when a solo developer's selection drops the
+ * board cluster, say so explicitly. All board commands/skills carry
+ * `[board, ctx:team-only]` (no floor tag), so `resolveSelection`'s solo
+ * team-size filter removes them silently — yet the quick-start presents the
+ * board chain (Steps 5-7) as the primary workflow. Without this note a solo
+ * user who follows the quick-start hits "skill not found" with no explanation.
+ *
+ * Fires only when the SAME preset would ship board content at team size but the
+ * realized solo selection has none — i.e. the team-only filter is the reason
+ * board is absent, not the preset's capability dial (e.g. `minimal`, which
+ * never requested board, prints nothing). Re-resolves once at `teamSize:
+ * "team"` to make that distinction; the call is in-memory and only runs on the
+ * solo path, so it adds no cost to team installs.
+ */
+function warnBoardDroppedForSolo(
+  teamSize: "solo" | "team",
+  preset: ContentPreset,
+  projectType: "greenfield" | "brownfield",
+  index: ContentIndex,
+  projectLanguages: string[],
+  selectionOptions: { role?: RoleId; facets?: FacetId[] },
+  soloSelection: ContentSelection,
+): void {
+  if (teamSize !== "solo") return;
+  if (selectionHasBoardContent(soloSelection)) return; // board shipped; nothing dropped
+  // Would this preset ship board content for a team? If not, the absence is by
+  // capability dial, not the solo filter — stay silent.
+  const teamSelection = resolveSelection(
+    preset, projectType, "team", index, undefined, projectLanguages, selectionOptions,
+  );
+  if (!selectionHasBoardContent(teamSelection)) return;
+  info(
+    `Board workflows are team-scoped and were not installed for this solo repo. ` +
+    `Re-run with ${chalk.bold("--team-size team")} to add them, ` +
+    `or ${chalk.bold("hatch3r config")} to switch later.`,
   );
 }
 
@@ -1946,6 +1986,7 @@ export async function initCommand(
     for (const w of orchWarnings) { warn(w); }
 
     warnBoardPrerequisites(contentSelection);
+    warnBoardDroppedForSolo(teamSize, preset, projectType, index, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
     await checkExisting(rootDir, true, contentSelection);
     await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage });
@@ -2098,11 +2139,13 @@ export async function initCommand(
                     : "";
               const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
               // F10.6-1 (D10): name WHAT each preset drops, not just a count, so
-              // a user picking "Standard" sees it omits AI + performance before
-              // committing. `p.omits` is the audited cluster list from presets.ts.
-              // Optional-chain so a preset (or test mock) without the field
-              // renders no omit line rather than throwing.
-              const omitLine = p.omits?.length ? `omits: ${p.omits.join(", ")}` : undefined;
+              // a user picking "Standard" sees the real omissions before
+              // committing. D10-12 (Cycle 11): derive the labels from the
+              // realized post-floor selection delta via presetOmittedClusters —
+              // the static `p.omits` field is capability *intent* and over-states
+              // drops because floor-tagged items ship regardless of preset.
+              const omittedClusters = presetOmittedClusters(p, filterIndex);
+              const omitLine = omittedClusters.length ? `omits: ${omittedClusters.join(", ")}` : undefined;
               return {
                 name: `${p.name} — ${p.description}${countHint}${suffix}`,
                 value: p.id,
@@ -2275,6 +2318,7 @@ export async function initCommand(
   for (const w of orchWarnings) { warn(w); }
 
   warnBoardPrerequisites(contentSelection);
+  warnBoardDroppedForSolo(teamSize, selectedPreset, projectType, filterIndex, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
   await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage });
@@ -2567,6 +2611,9 @@ async function runWorkspaceInit(
     // D1-SA1.2-H1: thread the forwarded role/facets into the headless
     // workspace selection (was dropped — `--workspace --yes --role <r>` no-op).
     contentSelection = resolveSelection(preset, projectType, teamSize, index, undefined, projectLanguages, { role: selectionFilter.role, facets: selectionFilter.facets });
+    // D10-15 (Cycle 11): tell a solo workspace user when the board cluster was
+    // dropped by the team-only filter (in-branch: preset/index are block-scoped).
+    warnBoardDroppedForSolo(teamSize, preset, projectType, index, projectLanguages, { role: selectionFilter.role, facets: selectionFilter.facets }, contentSelection);
   } else {
     // Interactive workspace-wide config prompts — driven by the
     // step-machine for back-navigation. The per-repo identity-edit loop
@@ -2644,10 +2691,13 @@ async function runWorkspaceInit(
                       ? ` (~${wsEstimated} items)`
                       : "";
                 const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
-                // F10.6-1 (D10): name the omitted capability clusters (not just a
-                // count) so the workspace operator sees what each preset drops.
-                // Optional-chain to tolerate a preset (or test mock) lacking it.
-                const omitLine = p.omits?.length ? `omits: ${p.omits.join(", ")}` : undefined;
+                // F10.6-1 (D10): name the omitted clusters (not just a count) so
+                // the workspace operator sees what each preset drops. D10-12
+                // (Cycle 11): use the realized post-floor delta via
+                // presetOmittedClusters, not the over-stating capability-intent
+                // `p.omits` field.
+                const wsOmittedClusters = presetOmittedClusters(p, wsFilterIndex);
+                const omitLine = wsOmittedClusters.length ? `omits: ${wsOmittedClusters.join(", ")}` : undefined;
                 return {
                   name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
                   value: p.id,
@@ -2775,6 +2825,10 @@ async function runWorkspaceInit(
     // D1-SA1.2-H1: thread the forwarded role/facets into the interactive
     // workspace selection (was dropped — `--workspace --role <r>` no-op).
     contentSelection = resolveSelection(selectedPreset, projectType, teamSize, wsFilterIndex, customSelections, projectLanguages, { role: selectionFilter.role, facets: selectionFilter.facets });
+    // D10-15 (Cycle 11): tell a solo workspace user when the board cluster was
+    // dropped by the team-only filter (in-branch: selectedPreset/wsFilterIndex
+    // are block-scoped to this interactive branch).
+    warnBoardDroppedForSolo(teamSize, selectedPreset, projectType, wsFilterIndex, projectLanguages, { role: selectionFilter.role, facets: selectionFilter.facets }, contentSelection);
   }
 
   // Warn if orchestration-critical agents are missing from selection

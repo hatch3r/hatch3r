@@ -1,15 +1,21 @@
 export type Platform = "github" | "azure-devops" | "gitlab";
 
 /**
- * Project maturity tier. Decision 4 / #16: gates content admission so install
- * footprint and gate strictness scale with the project's operational maturity.
+ * Project maturity tier. Decision 4 / #16: an investment-calibration dial.
+ * It does NOT gate content admission — every tier installs the identical
+ * corpus (Decision 16; see `docs/maturity-tiers.md`). The tier only calibrates
+ * how deep the agents invest (robustness, scalability, testing, infra) and how
+ * strict the user-content gates run, anchored by a universal floor that never
+ * relaxes at any tier.
  *
- * - `solo`     — individual developer / hobby project. Drops items tagged
- *                `floor:enterprise-only`. Default at init.
- * - `team`     — small team with shared repo. Admits team-tagged items.
- * - `scaleup`  — multi-team org with formal review processes.
- * - `enterprise` — regulated environment, full audit/compliance posture.
- *                  Admits every artifact regardless of tier tag.
+ * - `solo`     — individual developer / hobby project. Universal floor only;
+ *                gentle (warn-only) user-content gates. Default at init.
+ * - `team`     — small team with shared repo. + duplication/design-system
+ *                discipline; user-content gates promote to strict.
+ * - `scaleup`  — multi-team org. + production-operations depth (SLOs, tracing,
+ *                performance budgets).
+ * - `enterprise` — regulated environment. + org-governance depth (full
+ *                  mutation/property/contract testing, AI-eval coverage, FinOps).
  *
  * Persisted in `.hatch3r/hatch.json` under the `maturity` field.
  * Set via `hatch3r config maturity=<tier>`.
@@ -168,11 +174,13 @@ export interface HatchManifest {
   /** Content selection from init. undefined = legacy "full" (backward compat). */
   content?: ContentSelection;
   /**
-   * Project maturity tier (Decision 4 / #16). Gates content admission in
-   * `resolveSelection`: higher tiers admit broader sets, lower tiers drop
-   * `floor:enterprise-only` items. Absence is treated as `"solo"` by
-   * consumers — see `readMaturityTier` in `src/manifest/hatchJson.ts`.
-   * Set via `hatch3r config maturity=<tier>`.
+   * Project maturity tier (Decision 4 / #16). An investment-calibration dial,
+   * NOT a content-admission gate (Decision 16): selection is tier-invariant —
+   * every tier resolves the identical artifact set. The tier calibrates the
+   * adapter header's right-sizing directive and the user-content gate strictness
+   * (gentle at `solo`, strict at `team`+); see `docs/maturity-tiers.md`. Absence
+   * is treated as `"solo"` by consumers — see `readMaturityTier` in
+   * `src/manifest/hatchJson.ts`. Set via `hatch3r config maturity=<tier>`.
    */
   maturity?: MaturityTier;
   /**

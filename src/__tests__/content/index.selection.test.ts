@@ -32,6 +32,8 @@ import {
   TAG_CTX_TEAM_ONLY,
   TAG_CUSTOMIZE,
   TAG_A11Y,
+  TAG_ACCESSIBILITY,
+  TAG_OBSERVABILITY,
 } from "../../content/tags.js";
 
 // ── Fixture helper ─────────────────────────────────────────────
@@ -1026,6 +1028,123 @@ describe("content/index — selection & index", () => {
       // skipContextFilters they stay.
       expect(allIds.has("team-only")).toBe(true);
       expect(allIds.has("board-cmd")).toBe(true);
+    });
+
+    // ── Role filter (D3-7: `init --role` was previously untested) ──
+    // The `if (options?.role)` branch (Stage 6) had 0 test coverage — the true
+    // arm was never exercised, so a regression that broke role filtering would
+    // ship silently. These tests pin the contract: a role keeps role-tagged +
+    // floor + protected items and drops everything else.
+    describe("role filter (options.role)", () => {
+      // reviewer-tagged review rule — kept by {role:"reviewer"}.
+      const reviewerRule = makeCatalogItem({
+        id: "reviewer-rule", type: "rule",
+        tags: [TAG_REVIEW, "role:reviewer"],
+        relativePath: "rules/reviewer-rule.md",
+      });
+      // implementation command with NO role tag — dropped by {role:"reviewer"}.
+      const nonRoleCmd = makeCatalogItem({
+        id: "non-role-cmd", type: "command",
+        tags: [TAG_IMPLEMENTATION],
+        relativePath: "commands/non-role-cmd.md",
+      });
+      // security-floor rule — kept regardless of role (floor invariant).
+      const floorRule = makeCatalogItem({
+        id: "role-floor-rule", type: "rule",
+        tags: [TAG_FLOOR_SECURITY],
+        relativePath: "rules/role-floor-rule.md",
+      });
+      // protected agent with no role tag — kept regardless of role.
+      const protectedRoleAgent = makeCatalogItem({
+        id: "role-protected", protected: true, tags: [],
+        relativePath: "agents/role-protected.md",
+      });
+      const roleIndex = makeIndex([reviewerRule, nonRoleCmd, floorRule, protectedRoleAgent]);
+
+      it("{role:'reviewer'} keeps role-matching, floor, and protected items and drops the rest", () => {
+        // Use full so the capability gate admits both candidates BEFORE the
+        // role filter runs — isolating the role stage as the discriminator.
+        const selection = resolveSelection(
+          getPreset("full"), "brownfield", "team", roleIndex,
+          undefined, undefined, { role: "reviewer" },
+        );
+        const ids = getAllContentIds(selection);
+        expect(ids.has("reviewer-rule")).toBe(true);   // matching role:reviewer
+        expect(ids.has("role-floor-rule")).toBe(true); // floor survives every role
+        expect(ids.has("role-protected")).toBe(true);  // protected survives every role
+        expect(ids.has("non-role-cmd")).toBe(false);   // no role tag → dropped
+      });
+
+      it("a role with no matching tagged items collapses to floor + protected only", () => {
+        const selection = resolveSelection(
+          getPreset("full"), "brownfield", "team", roleIndex,
+          undefined, undefined, { role: "security-lead" },
+        );
+        const ids = getAllContentIds(selection);
+        expect(ids.has("reviewer-rule")).toBe(false);  // role:reviewer ≠ security-lead
+        expect(ids.has("non-role-cmd")).toBe(false);
+        expect(ids.has("role-floor-rule")).toBe(true);
+        expect(ids.has("role-protected")).toBe(true);
+      });
+    });
+
+    // ── Facet admission (D3-7: `init --facets` was previously untested) ──
+    // FACET_TAG_ADMISSIONS maps a11y/performance/observability to live tags, so
+    // `--facets` is NOT dormant: it admits items the preset's capability gate
+    // would otherwise drop. These tests pin that additive admission so a broken
+    // facet map cannot silently emit the wrong content set.
+    describe("facet admission (options.facets)", () => {
+      // performance agent with no floor tag — minimal's capability gate
+      // (orchestration + implementation only) would NOT admit it.
+      const perfFacetAgent = makeCatalogItem({
+        id: "perf-facet-agent", tags: [TAG_PERFORMANCE],
+        relativePath: "agents/perf-facet-agent.md",
+      });
+      // observability agent — not in minimal's capabilities, not floor.
+      const obsFacetAgent = makeCatalogItem({
+        id: "obs-facet-agent", tags: [TAG_OBSERVABILITY],
+        relativePath: "agents/obs-facet-agent.md",
+      });
+      // accessibility agent tagged with the long-form `accessibility` tag (the
+      // a11y facet admits both `accessibility` and `a11y` spellings). Carries
+      // no floor tag so admission is attributable to the facet, not the floor.
+      const a11yFacetAgent = makeCatalogItem({
+        id: "a11y-facet-agent", tags: [TAG_ACCESSIBILITY],
+        relativePath: "agents/a11y-facet-agent.md",
+      });
+      const facetIndex = makeIndex([perfFacetAgent, obsFacetAgent, a11yFacetAgent]);
+
+      it("minimal preset drops these capability items when no facets are requested", () => {
+        // Baseline: confirm the items are genuinely excluded without the facet,
+        // so the admission assertions below are meaningful (not vacuous).
+        const selection = resolveSelection(getPreset("minimal"), "brownfield", "team", facetIndex);
+        const ids = getAllContentIds(selection);
+        expect(ids.has("perf-facet-agent")).toBe(false);
+        expect(ids.has("obs-facet-agent")).toBe(false);
+        expect(ids.has("a11y-facet-agent")).toBe(false);
+      });
+
+      it("{facets:['performance']} admits a performance item the minimal preset would drop", () => {
+        const selection = resolveSelection(
+          getPreset("minimal"), "brownfield", "team", facetIndex,
+          undefined, undefined, { facets: ["performance"] },
+        );
+        const ids = getAllContentIds(selection);
+        expect(ids.has("perf-facet-agent")).toBe(true);   // admitted by facet
+        expect(ids.has("obs-facet-agent")).toBe(false);   // unrelated facet untouched
+        expect(ids.has("a11y-facet-agent")).toBe(false);
+      });
+
+      it("{facets:['observability','a11y']} admits matching items including the long-form accessibility tag", () => {
+        const selection = resolveSelection(
+          getPreset("minimal"), "brownfield", "team", facetIndex,
+          undefined, undefined, { facets: ["observability", "a11y"] },
+        );
+        const ids = getAllContentIds(selection);
+        expect(ids.has("obs-facet-agent")).toBe(true);    // observability facet
+        expect(ids.has("a11y-facet-agent")).toBe(true);   // a11y facet admits `accessibility`
+        expect(ids.has("perf-facet-agent")).toBe(false);  // performance not requested
+      });
     });
 
     // ── Maturity is not a selection input (calibration dial) ──

@@ -184,6 +184,78 @@ Design systems with measurable trade-offs.
     expect(errorCount).toBe(0);
   });
 
+  it("Mode B (D6-10): ERRORs on a `{{timestamp}}` template token AFTER the first heading (the pre-fix coverage hole)", async () => {
+    // The body opens with a `##` heading on its first line — the exact
+    // `commands/hatch3r-debug.md` shape that made stopAt === 0 and scanned
+    // ZERO lines before the fix. A renderer-replaced `{{timestamp}}` deeper in
+    // the body must now trip.
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-debug.md"),
+      `id: hatch3r-debug
+type: command
+orchestrator: true
+triage_tiers: [1, 2, 3]
+parallel_tool_default: true
+description: Debug command`,
+      `## §0 Detect Ambiguity
+
+Scan the brief for unresolved questions before acting.
+
+## Step 1: Gather Context
+
+Stamp each artifact with {{timestamp}} so the run is traceable.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: true, parallelTool: false },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    const violations = findings.filter((f) => f.code === "P7-STATIC-VIOL");
+    expect(violations).toHaveLength(1);
+    expect(violations[0].file).toMatch(/hatch3r-debug\.md$/);
+    expect(violations[0].message).toMatch(/timestamp/i);
+    expect(violations[0].message).toMatch(/section body/i);
+    expect(errorCount).toBe(1);
+  });
+
+  it("Mode B (D6-10): PASSes on bare documentation tokens (a `timestamp` field, a `<run-id>` placeholder, the adverb \"now\") in a section body", async () => {
+    // The full-body scan must NOT regress the canonical corpus: section bodies
+    // legitimately document dynamic tokens in prose and tables. Only the
+    // template-substitution form trips past the preamble.
+    await writeArtifact(
+      join(fx.agentsDir, "hatch3r-handoff-loader.md"),
+      `id: hatch3r-handoff-loader
+type: agent
+description: Handoff loader
+tags: [handoff]`,
+      `# Handoff Loader
+
+Load the most recent handoff before planning.
+
+## Schema
+
+| Field | Meaning |
+| \`created\` | ISO-8601 timestamp at write |
+
+## Usage
+
+Run \`gh run view <run-id>\` and record every action now.
+`,
+    );
+
+    const { findings, errorCount } = await runValidator({
+      flags: { triageFirst: false, staticFirst: true, parallelTool: false },
+      commandsDir: fx.commandsDir,
+      agentsDir: fx.agentsDir,
+    });
+
+    expect(findings.filter((f) => f.code === "P7-STATIC-VIOL")).toHaveLength(0);
+    expect(errorCount).toBe(0);
+  });
+
   // ── Mode C: parallel-tool ───────────────────────────────────────
 
   it("Mode C: ERRORs (blocking) on agent with 3 tool mentions and no parallel directive (D6-M9: promoted from warning)", async () => {

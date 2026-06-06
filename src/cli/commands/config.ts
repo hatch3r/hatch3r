@@ -67,6 +67,7 @@ import {
   validateOrchestrationDependencies,
   resolveSelection,
   countPresetExclusions,
+  presetOmittedClusters,
   estimatePresetItemCount,
   getAllContentIds,
 } from "../../content/index.js";
@@ -259,7 +260,8 @@ async function printCurrentConfig(rootDir: string, manifest: HatchManifest): Pro
  * `hatch3r config set <key> <value>`. Each entry validates its input and
  * mutates the manifest in place; the caller persists with `writeManifest`.
  *
- * - `maturity`         — Decision 4 / #16 content-admission tier.
+ * - `maturity`         — Decision 4 / #16 investment-calibration tier (does
+ *                        not gate content admission; see docs/maturity-tiers.md).
  * - `confidence_floor` — D13-SA13.3-F13.3.3 agent-assertiveness floor
  *                        consumed by the core orchestrators when no explicit
  *                        `--confidence-floor` run flag is given.
@@ -936,11 +938,13 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
                 : 0;
               const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
               const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
-              // F10.6-1 (D10): surface the omitted capability clusters by name
-              // (not just a count) so reconfiguring a preset is an informed choice.
-              // Optional-chain `omits` so a preset lacking the field (or a test
-              // mock that omits it) renders no omit line instead of throwing.
-              const omitLine = p.omits?.length ? `omits: ${p.omits.join(", ")}` : undefined;
+              // F10.6-1 (D10): surface the omitted clusters by name (not just a
+              // count) so reconfiguring a preset is an informed choice. D10-12
+              // (Cycle 11): derive from the realized post-floor delta via
+              // presetOmittedClusters — the static `p.omits` capability-intent
+              // field over-states drops (floor items ship regardless of preset).
+              const omittedClusters = presetOmittedClusters(p, contentIndex);
+              const omitLine = omittedClusters.length ? `omits: ${omittedClusters.join(", ")}` : undefined;
               return {
                 name: `${p.name} — ${p.description}${countHint}${suffix}`,
                 value: p.id,

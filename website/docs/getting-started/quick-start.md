@@ -62,10 +62,12 @@ Canonical content (agents, skills, rules, commands, hooks) is no longer material
 
 | Profile | What's included | Best for |
 |---------|----------------|----------|
-| **Minimal** | Core orchestration + implementation, plus the security & UI/UX floor. Drops 7 capability clusters: planning, review, devops, maintenance, board, AI feature engineering, performance | Quick setup, minimal footprint |
-| **Standard** (recommended) | Full development lifecycle (planning, implementation, review, devops, maintenance, board, customize) + floor. **Drops 2 capability clusters: AI feature engineering + performance** — pick Full if you need those | Most projects |
-| **Full** | Every capability, including AI feature engineering and performance, plus floor and customize | Large teams, full coverage |
+| **Minimal** | Capability dial set to core orchestration + implementation, plus the security, UI/UX & content-quality floor. Non-floor planning/review/devops/board helpers are off — pick Standard or Full to dial them in | Quick setup, minimal footprint |
+| **Standard** (recommended) | Full development lifecycle (planning, implementation, review, devops, maintenance, board, customize) plus the security, UI/UX & content-quality floor. The performance and AI feature-engineering dials are off — pick Full to turn them on | Most projects |
+| **Full** | Every capability, including AI feature engineering and performance, plus the security, UI/UX & content-quality floor and customize | Large teams, full coverage |
 | **Custom** | Interactive picker per artifact type | Fine-grained control |
+
+The floor (security, UI/UX, content-quality specialists) ships at every profile and is never dropped — a profile narrows the *capability* dial, not the floor. Because most cluster artifacts also carry a floor tag, a profile drops fewer items than its capability list implies: the `init` / `config` picker computes the realized `omits:` line per profile so you see exactly what a profile leaves out before committing.
 
 The profile is combined with greenfield/brownfield and solo/team filters, so a `solo + greenfield + standard` install carries materially less content than `team + brownfield + full`.
 
@@ -183,6 +185,10 @@ If you took the tiny-change path, you are done — jump to [Step 8](#step-8--mai
 ---
 
 ## Step 5 — Set up the board
+
+:::note Board workflows are team-scoped
+Steps 5–7 (board init / fill / pickup) install only when your repo resolved to **team** size. `hatch3r init` infers team size from git history (more than one distinct commit-author email ⇒ team) and defaults a single-author or fresh repo to **solo**, where the board cluster is not installed. If you ran a solo install, `init` prints a one-line note saying so — re-run with `--team-size team` (or switch later via `hatch3r config`) to add the board chain. Solo developers who work issue-by-issue can skip to [Step 8](#step-8--maintain-canonical-state) and drive single features without a board.
+:::
 
 Invoke the `hatch3r-board-init` skill from your editor (Claude Code: `Skill: hatch3r-board-init`; Cursor: load the skill from the skills picker; Copilot: reference the skill in the chat).
 

@@ -8,13 +8,18 @@ cache_friendly: true
 
 ## §0 Detect Ambiguity (P8 B1)
 
-> Last updated: 2026-05-28
+> Last updated: 2026-06-06
 
 This is the canonical body of the §0 Detect Ambiguity block referenced by every `agents/hatch3r-*.md`. Each agent's body cites this file via a one-line pointer plus a one-line domain-specific trigger list. The shared protocol is the constant; the trigger list is the variable.
 
 ### Protocol (constant across all agents)
 
-Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for residual ambiguity discovered mid-execution.
+Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, surface the question per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for residual ambiguity discovered mid-execution.
+
+How you surface the question depends on your execution context — these agents run as Task-tool sub-agents, not in the main conversation:
+
+- **Sub-agent (this file's consumers, spawned via the Task tool).** Do NOT attempt to call the platform-native question tool. On Claude Code the `AskUserQuestion` tool is filtered out of every sub-agent context (foreground and background) regardless of the agent's `tools` declaration — see `src/pipeline/adapterToolTranslator.ts::ASK_USER_TOOLS` (`claude` entry) for the upstream-confirmed exclusion. Instead RETURN the canonical Status `BLOCKED_AMBIGUITY` (`agents/shared/quality-charter.md` §17) with the question rendered in the structured result using the Plain-Text Fallback Template from `agents/shared/user-question-protocol.md` (numbered options + mandatory `Default if no response:` line). The orchestrator owns the live ASK — it reads the `BLOCKED_AMBIGUITY` status and routes the rendered question to the user (`quality-charter.md` §17 → "orchestrator routes to ASK checkpoint").
+- **Orchestrator command (`commands/hatch3r-*.md`, running in the main conversation).** Invoke the platform-native question tool directly per `agents/shared/user-question-protocol.md`; the native ASK path is available only here.
 
 CONSTITUTION §2 P8 establishes the B1 directive verbatim:
 
