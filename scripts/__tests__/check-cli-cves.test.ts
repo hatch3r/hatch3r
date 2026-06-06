@@ -531,8 +531,12 @@ describe("checkCliCves", () => {
       "every advisory-citing tool with a 0-row OSV result must be in VACUOUS_ACK",
     ).toEqual([]);
     // The acknowledged set is exactly the documented CVE-citing tools.
+    // playwright joined at Cycle 11 (D21-4): its securityNote now cites
+    // CVE-2025-59288 (installer MitM, fixed at the pinned 1.55.1) + CVE-2026-2441
+    // (Chromium roll, not keyed under the npm @playwright/test coordinate), so a
+    // 0-row Critical/High result is the documented expected-clean outcome.
     expect(report.acknowledgedVacuous.map((t) => t.tool).sort()).toEqual(
-      ["curl", "dasel", "docker", "gh", "llm", "podman"].sort(),
+      ["curl", "dasel", "docker", "gh", "llm", "playwright", "podman"].sort(),
     );
   });
 });

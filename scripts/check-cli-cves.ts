@@ -357,9 +357,9 @@ export function securityNoteCitesAdvisoryId(note: string | undefined): boolean {
 const VACUOUS_ACK: Record<string, { reason: string; addedISO: string; reviewBy: string }> = {
   gh: {
     reason:
-      "GHSA-crc3-h8v6-qh57 is fixed in gh 2.92.0; the registry pins minVersion >=2.92.0, so OSV correctly returns no Critical/High advisory for the pinned (patched) version.",
-    addedISO: "2026-06-05",
-    reviewBy: "2026-09-05",
+      "CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9 (Authorization-header leak to TUF mirrors) is fixed in gh 2.93.0; the registry pins minVersion >=2.93.0, so OSV correctly returns no Critical/High advisory for the pinned (patched) version. The also-cited CVE-2026-45803 / GHSA-crc3-h8v6-qh57 is a LOW escape-injection (fixed 2.92.0) and never reaches the Critical/High path.",
+    addedISO: "2026-06-06",
+    reviewBy: "2026-09-06",
   },
   curl: {
     reason:
@@ -384,6 +384,12 @@ const VACUOUS_ACK: Record<string, { reason: string; addedISO: string; reviewBy: 
       "CVE-2026-46377/46378/33320 are all fixed in dasel 3.11.0; the registry pins minVersion >=3.11.0 and the OSV coordinate carries the `/v3` major suffix, so OSV correctly returns no Critical/High advisory for the pinned (patched) version.",
     addedISO: "2026-06-05",
     reviewBy: "2026-09-05",
+  },
+  playwright: {
+    reason:
+      "CVE-2025-59288 (installer MitM in `npx playwright install`) is fixed in @playwright/test 1.55.1; the registry pins minVersion >=1.55.1, so OSV correctly returns no Critical/High advisory for the pinned version. The also-cited CVE-2026-2441 is a Chromium CSS use-after-free not keyed under the npm @playwright/test coordinate (it lives in the bundled browser engine, rolled per monthly playwright release), so OSV surfaces no npm-package row for it either — both 0-row outcomes are correct, with the browser-engine roll tracked in the registry securityNote.",
+    addedISO: "2026-06-06",
+    reviewBy: "2026-09-06",
   },
   llm: {
     reason:

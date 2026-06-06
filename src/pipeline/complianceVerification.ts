@@ -192,6 +192,29 @@ export function verifyMonotonicPrivilege(
 
 // ── Types ────────────────────────────────────────────────────────
 
+/**
+ * How a control is actually enforced, mirroring the Enforcement column of the
+ * Control-to-Trust Mapping in `governance/audit/domains/D15-trust-reference.md`
+ * (D15-4). Distinguishes a live CLI gate from a typed library contract so the
+ * compliance report never overstates runtime coverage.
+ *
+ * - `runtime-CLI` — implementing module is imported by ≥1 `src/cli/commands/`
+ *   file, so `validate`/`sync`/`update` exercises it on a real CLI code path.
+ * - `setup-time-shape-check` — a constant-range or structural assertion run at
+ *   validation time, not a runtime data path.
+ * - `library-contract-for-downstream` — module self-declares
+ *   `@library_export_only` with 0 CLI importers; consumed by hatch3r-* agent
+ *   prompts (the Task-tool pipeline), not a CLI runtime path. `validate`
+ *   self-tests the contract but does not gate a CLI flow with it.
+ * - `prompt-directive` — enforced as instruction text inside an agent/rule
+ *   prompt, with no module call on any CLI path.
+ */
+export type EnforcementClass =
+  | "runtime-CLI"
+  | "setup-time-shape-check"
+  | "library-contract-for-downstream"
+  | "prompt-directive";
+
 export interface ComplianceCheck {
   /** Short identifier for the check. */
   id: string;
@@ -201,6 +224,11 @@ export interface ComplianceCheck {
   controlRef: string;
   /** Status of the check. */
   status: "pass" | "fail" | "warn";
+  /**
+   * How the control is enforced (D15-4). Mirrors the Enforcement column of the
+   * Control-to-Trust Mapping in `governance/audit/domains/D15-trust-reference.md`.
+   */
+  enforcement: EnforcementClass;
   /** Detail message for failures/warnings. */
   detail?: string;
 }
@@ -244,6 +272,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "asi01-input-limit",
     description: "Pipeline input length limit is configured",
     controlRef: "ASI01",
+    enforcement: "setup-time-shape-check",
     status: MAX_PHASE_INPUT_LENGTH > 0 && MAX_PHASE_INPUT_LENGTH <= 10_000_000 ? "pass" : "fail",
     detail: MAX_PHASE_INPUT_LENGTH > 0
       ? `Input limit: ${MAX_PHASE_INPUT_LENGTH.toLocaleString()} characters`
@@ -254,6 +283,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "asi01-output-limit",
     description: "Agent output length limit is configured",
     controlRef: "ASI01",
+    enforcement: "setup-time-shape-check",
     status: MAX_AGENT_OUTPUT_LENGTH > 0 && MAX_AGENT_OUTPUT_LENGTH <= 50_000_000 ? "pass" : "fail",
     detail: MAX_AGENT_OUTPUT_LENGTH > 0
       ? `Output limit: ${MAX_AGENT_OUTPUT_LENGTH.toLocaleString()} characters`
@@ -266,6 +296,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "asi02-tool-allowlists",
     description: "Tool allowlists are defined for all agent types",
     controlRef: "ASI02",
+    enforcement: "runtime-CLI",
     status: agentCount > 0 ? "pass" : "fail",
     detail: `${agentCount} agent tool policies registered`,
   });
@@ -278,6 +309,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
       id: "asi02-policy-validation",
       description: "Tool allowlist policies are well-formed",
       controlRef: "ASI02",
+      enforcement: "runtime-CLI",
       status: policyWarnings.length === 0 ? "pass" : "warn",
       detail: policyWarnings.length === 0
         ? "All policies are well-formed"
@@ -288,6 +320,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
       id: "asi02-policy-validation",
       description: "Tool allowlist policies are well-formed",
       controlRef: "ASI02",
+      enforcement: "runtime-CLI",
       status: "fail",
       detail: err instanceof Error ? err.message : String(err),
     });
@@ -304,6 +337,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "asi02-least-privilege",
     description: "No agent has write + git + board access simultaneously",
     controlRef: "ASI02",
+    enforcement: "runtime-CLI",
     status: overPrivileged.length === 0 ? "pass" : "warn",
     detail: overPrivileged.length === 0
       ? "Least privilege maintained"
@@ -321,6 +355,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     description:
       "D15 trust Invariant 1: agent allowedTools is a strict subset of orchestrator root",
     controlRef: "ASI03",
+    enforcement: "runtime-CLI",
     status: monotonic.ok ? "pass" : "fail",
     detail: monotonic.ok
       ? `All ${AGENT_TOOL_POLICIES.length} agents declare a strict subset of ALL_TOOL_CATEGORIES`
@@ -350,6 +385,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     description:
       "hatch3r-fixer write surface is contractually bounded by diff-hash review (D15-M6)",
     controlRef: "ASI02",
+    enforcement: "runtime-CLI",
     status: fixerScopeOk ? "pass" : "fail",
     detail: fixerScopeOk
       ? "fixer carries writeScope='diff-hash-review'; implementer remains unscoped (no surface collapse)."
@@ -368,6 +404,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "asi07-phase-schemas",
     description: "Phase output compaction is invoked from a CLI command",
     controlRef: "ASI07",
+    enforcement: "runtime-CLI",
     status: phaseSchemaInvoked ? "pass" : "fail",
     detail: phaseSchemaInvoked
       ? "phaseOutputSchema.compactPhaseOutput is imported by at least one CLI command"
@@ -379,6 +416,11 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "review-loop-limit",
     description: "Review loop has a hard maximum iteration limit",
     controlRef: "ASI-LOOP",
+    // reviewLoop.ts is @library_export_only (0 src/cli/commands/ importers):
+    // the hard cap is enforced inside the hatch3r-reviewer/hatch3r-fixer agent
+    // prompts, not on a CLI runtime path. This check asserts the constant's
+    // shape only. (D15-4)
+    enforcement: "library-contract-for-downstream",
     status: HARD_MAX_REVIEW_ITERATIONS > 0 && HARD_MAX_REVIEW_ITERATIONS <= 20 ? "pass" : "warn",
     detail: `Hard max: ${HARD_MAX_REVIEW_ITERATIONS}, default: ${DEFAULT_MAX_REVIEW_ITERATIONS}`,
   });
@@ -391,6 +433,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "pipeline-timeout",
     description: "Pipeline execution timeout is configured and invoked from a CLI command",
     controlRef: "ASI-TIMEOUT",
+    enforcement: "runtime-CLI",
     status: DEFAULT_PIPELINE_TIMEOUT_MS > 0 && pipelineTimeoutInvoked ? "pass" : "fail",
     detail: `Default: ${Math.round(DEFAULT_PIPELINE_TIMEOUT_MS / 1000)}s, max: ${Math.round(MAX_PIPELINE_TIMEOUT_MS / 1000)}s; ` +
       `pipelineTimeout invoked from CLI: ${pipelineTimeoutInvoked ? "yes" : "no"}`,
@@ -406,6 +449,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
       id: `resilience-${mod.toLowerCase()}`,
       description: `Resilience module \`${mod}\` is invoked from a CLI command`,
       controlRef: "ASI-RESILIENCE",
+      enforcement: "runtime-CLI",
       status: invoked ? "pass" : "fail",
       detail: invoked
         ? `pipeline/${mod} is imported by at least one CLI command`
@@ -473,6 +517,11 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "diff-hash-verify",
     description: "Diff-hash handoff verification contract is intact (round-trip self-test)",
     controlRef: "ASI-INTEGRITY",
+    // diffHash.ts is @library_export_only (0 src/cli/commands/ importers):
+    // consumed by the hatch3r-fixer/hatch3r-reviewer agent prompts, not a CLI
+    // runtime path. This check self-tests the SHA-256 contract but does not gate
+    // a CLI flow with it. (D15-4)
+    enforcement: "library-contract-for-downstream",
     status: diffHashSelfTest.ok ? "pass" : "fail",
     detail: diffHashSelfTest.detail,
   });
@@ -482,6 +531,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "content-safety-patterns",
     description: "Content safety deny patterns are configured",
     controlRef: "ASI-CONTENT",
+    enforcement: "prompt-directive",
     status: "pass",
     detail: "Deny patterns cover prompt injection, code execution, exfiltration, and credential exposure",
   });
@@ -491,6 +541,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "mcp-input-boundary",
     description: "MCP server input boundaries are enforced",
     controlRef: "ASI-MCP",
+    enforcement: "setup-time-shape-check",
     status: "pass",
     detail: "MCP-specific injection patterns and tool delimiter detection enabled",
   });
@@ -500,6 +551,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "mcp-integrity-coverage",
     description: "MCP configuration files are covered by integrity manifests",
     controlRef: "ASI-MCP",
+    enforcement: "setup-time-shape-check",
     status: "pass",
     detail: "Integrity scans include mcp/ directory (.json files). MCP timeout configurable per-server (default: 30s, max: 5m)",
   });
@@ -509,6 +561,7 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     id: "integrity-signing-status",
     description: "Integrity manifest signing status",
     controlRef: "ASI-INTEGRITY",
+    enforcement: "setup-time-shape-check",
     status: "warn",
     detail: "Content-addressed integrity (SHA-256) detects modifications but does not prevent re-generation by an attacker with write access. No HMAC signing is currently applied — see SECURITY.md for trust model details",
   });
@@ -543,7 +596,10 @@ export function formatComplianceReport(report: ComplianceReport): string[] {
       check.status === "fail" ? "FAIL" :
       "WARN";
     const detail = check.detail ? ` — ${check.detail}` : "";
-    lines.push(`  [${icon}] [${check.controlRef}] ${check.description}${detail}`);
+    // Mirror the Enforcement column of the Control-to-Trust Mapping
+    // (D15-trust-reference.md, D15-4) so the report never implies a library
+    // contract is a live CLI gate.
+    lines.push(`  [${icon}] [${check.controlRef}] (${check.enforcement}) ${check.description}${detail}`);
   }
 
   lines.push("");

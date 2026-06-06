@@ -166,15 +166,25 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(azDevops!.extensionProbe!.name).toBe("azure-devops");
   });
 
-  it("gh entry carries minVersion + securityNote citing GHSA-crc3-h8v6-qh57 (D21-SA21.5-F01)", () => {
-    // C9-H88: gh CLI before 2.92.0 (released 2026-05-06) leaks tokens via
-    // auxiliary host extension calls per GHSA-crc3-h8v6-qh57. Surface
-    // minVersion + securityNote so the installer/picker flag old builds.
+  it("gh entry floors at >=2.93.0 + securityNote attributes the Authorization-header leak to CVE-2026-48501 (D21-1/D21-2, Cycle 11)", () => {
+    // Cycle 11 D21-1/D21-2 (SA21.5-F1/F2): the prior note misattributed the
+    // token leak to GHSA-crc3-h8v6-qh57. That advisory is CVE-2026-45803 (LOW
+    // terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0).
+    // The real Authorization-header leak to TUF mirrors is CVE-2026-48501 /
+    // GHSA-8xvp-7hj6-mcj9, fixed in 2.93.0 — so the floor is raised to >=2.93.0
+    // and the securityNote attributes each advisory to its correct CVE.
     const gh = AVAILABLE_CLI_TOOLS.gh;
-    expect(gh.minVersion).toBe(">=2.92.0");
+    expect(gh.minVersion).toBe(">=2.93.0");
     expect(gh.securityNote).toBeDefined();
-    expect(gh.securityNote).toContain("GHSA-crc3-h8v6-qh57");
-    expect(gh.securityNote).toContain("2.92.0");
+    // The Authorization-header leak (the HIGH-impact token exposure) is the
+    // real CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9, fixed 2.93.0.
+    expect(gh.securityNote).toContain("CVE-2026-48501");
+    expect(gh.securityNote).toContain("GHSA-8xvp-7hj6-mcj9");
+    expect(gh.securityNote).toContain("2.93.0");
+    // GHSA-crc3-h8v6-qh57 is still mentioned, but correctly framed as the LOW
+    // escape-injection (CVE-2026-45803) — never as a token leak.
+    expect(gh.securityNote).toContain("CVE-2026-45803");
+    expect(gh.securityNote).not.toMatch(/GHSA-crc3-h8v6-qh57[^.]*token/i);
   });
 
   it("gh + glab entries are annotated releaseCadence:'rapid' (D21-SA21.5-F-21.5.2, Cycle 10)", () => {
@@ -260,6 +270,38 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(xh!.trigger).toBe("web-project");
     expect(xh!.minVersion).toBe(">=0.25.3");
     expect(xh!.releaseCadence).toBe("quarterly");
+  });
+
+  it("playwright entry floors at >=1.55.1 + securityNote cites the installer-MitM + Chromium-roll CVEs + releaseCadence monthly (D21-4, Cycle 11)", () => {
+    // Cycle 11 D21-4 (SA21.6-F1): playwright was the only tier-2 browser tool
+    // with no version floor while its sandbox image is recommended for
+    // navigating untrusted URLs. CVE-2025-59288 (installer MitM in
+    // `npx playwright install`, CVSS 8.7) is fixed in 1.55.1; the bundled
+    // Chromium carries CVE-2026-2441 (rolled per monthly release). The entry
+    // pins >=1.55.1 and tags releaseCadence monthly so an un-rolled Chromium
+    // is a staleness signal rather than suppressed.
+    const playwright = AVAILABLE_CLI_TOOLS.playwright;
+    expect(playwright.minVersion).toBe(">=1.55.1");
+    expect(playwright.releaseCadence).toBe("monthly");
+    expect(playwright.securityNote).toBeDefined();
+    expect(playwright.securityNote).toContain("CVE-2025-59288");
+    expect(playwright.securityNote).toContain("CVE-2026-2441");
+    expect(playwright.securityNote).toContain("1.55.1");
+  });
+
+  it("sd Linux recipe uses cargo binstall (v1.1.0 GitHub-release binary) + minVersion >=1.1.0 (D21-6, Cycle 11)", () => {
+    // Cycle 11 D21-6 (SA21.2-F1): `cargo install sd` pins crates.io 1.0.0 while
+    // brew/scoop ship 1.1.0 and the documented line-by-line default + -A flag
+    // are 1.1.0-only. The GitHub v1.1.0 release ships prebuilt Linux binaries;
+    // `cargo binstall sd` fetches that binary, aligning all three OSes on 1.1.0
+    // so the >=1.1.0 floor is satisfiable everywhere.
+    const sd = AVAILABLE_CLI_TOOLS.sd;
+    expect(sd.minVersion).toBe(">=1.1.0");
+    // The linux recipe is the binstall channel (v1.1.0 GitHub-release binary),
+    // not the crates.io-pinned `cargo install sd` (which resolves to 1.0.0).
+    const linuxCommands = sd.install.linux.map((c) => c.command);
+    expect(linuxCommands).toContain("cargo binstall sd");
+    expect(linuxCommands).not.toContain("cargo install sd");
   });
 
   it("dasel entry registered as tier-3 with minVersion >=3.11.0 + securityNote citing 3-CVE cluster (D21-SA21.3-F-21.3.5/F-21.3.6, Cycle 10)", () => {

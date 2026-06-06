@@ -249,16 +249,23 @@ export const AVAILABLE_CLI_TOOLS = {
       win: [{ manager: "winget", command: "winget install GitHub.cli" }],
     },
     requiresEnv: ["GH_TOKEN"],
-    // Cycle 9 D21-SA21.5-F01 (C9-H88): gh <2.92.0 is exposed to
-    // GHSA-crc3-h8v6-qh57; the 2.92.0 release (2026-05-06) ships the fix.
-    minVersion: ">=2.92.0",
+    // Cycle 11 D21-1/D21-2 (SA21.5-F1/F2): the prior >=2.92.0 floor + securityNote
+    // misattributed the token leak to GHSA-crc3-h8v6-qh57. That advisory is
+    // CVE-2026-45803 (CVSS 3.1 LOW, terminal-escape-sequence injection in
+    // `gh run view --log`, fixed 2.92.0) — NOT a token leak. The real
+    // Authorization-header leak is CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh
+    // <=2.92.0 attaches the github.com (or GH_ENTERPRISE_TOKEN) Authorization
+    // header to TUF repository-mirror requests via `gh attestation`,
+    // `gh release verify`, and `gh release verify-asset`, fixed in 2.93.0
+    // (2026-…). Floor raised to >=2.93.0 so installs clear the header leak.
+    minVersion: ">=2.93.0",
     // Cycle 10 D21-SA21.5-F-21.5.2: gh ships at rapid cadence (~30-day mean,
     // 7 releases across 2025-06 → 2026-04). Tagged `rapid` so a cadence-aware
     // staleness heuristic treats a 45-day pause as an anomaly rather than
     // waiting for the default 90/180-day window.
     releaseCadence: "rapid",
     securityNote:
-      "GHSA-crc3-h8v6-qh57: gh CLI before 2.92.0 may leak authentication tokens via auxiliary host extension calls. Upgrade to 2.92.0 or later before using gh against untrusted GitHub Enterprise hosts.",
+      "CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh CLI 2.92.0 and earlier attach the Authorization header (github.com token, or GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN) to TUF repository-mirror requests made by `gh attestation`, `gh release verify`, and `gh release verify-asset` — leaking the token to hosts such as tuf-repo.github.com / tuf-repo-cdn.sigstore.dev. Fixed in 2.93.0; upgrade before running attestation or release-verify commands. (Separately, CVE-2026-45803 / GHSA-crc3-h8v6-qh57 is a LOW terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0.)",
     homepage: "https://cli.github.com/",
   },
   delta: {
@@ -307,7 +314,14 @@ export const AVAILABLE_CLI_TOOLS = {
     tier: 1,
     install: {
       mac: [{ manager: "brew", command: "brew install sd" }],
-      linux: [{ manager: "cargo", command: "cargo install sd" }],
+      // Cycle 11 D21-6 (SA21.2-F1): `cargo install sd` resolves to crates.io,
+      // whose max published version is 1.0.0 — so the prior Linux recipe pinned
+      // 1.0.0 while brew (mac) and scoop (win) ship 1.1.0, and the documented
+      // line-by-line default + `-A`/`--across` flag only exist in 1.1.0. The
+      // GitHub `v1.1.0` release ships prebuilt Linux binaries (GNU + musl,
+      // x86_64 + aarch64); `cargo binstall sd` fetches that GitHub-release
+      // binary (not the crates.io 1.0.0 source), aligning Linux on 1.1.0.
+      linux: [{ manager: "cargo", command: "cargo binstall sd" }],
       win: [{ manager: "scoop", command: "scoop install sd" }],
     },
     // Cycle 9 D21-SA21.2-F01: sd 1.1.0 (released 2025-02-24) was 447 days old
@@ -315,6 +329,11 @@ export const AVAILABLE_CLI_TOOLS = {
     // long gaps between minor releases are intentional, not abandonment.
     // Tagged `stable` so the staleness heuristic stops flagging this entry.
     releaseCadence: "stable",
+    // Cycle 11 D21-6 (SA21.2-F1): floored at >=1.1.0 now that all three OS
+    // channels (brew, scoop, cargo binstall from the v1.1.0 GitHub release)
+    // can satisfy it — the documented line-by-line default + `-A`/`--across`
+    // flag are 1.1.0 features absent from the crates.io 1.0.0 build.
+    minVersion: ">=1.1.0",
     homepage: "https://github.com/chmln/sd",
   },
   "ast-grep": {
@@ -384,6 +403,21 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "npm", command: "npm install -D @playwright/test && npx playwright install --with-deps" }],
       win: [{ manager: "npm", command: "npm install -D @playwright/test && npx playwright install" }],
     },
+    // Cycle 11 D21-4 (SA21.6-F1): playwright was the only tier-2 browser tool
+    // with no version floor while the skill recommends its sandbox image for
+    // navigating untrusted URLs. CVE-2025-59288 (CVSS 8.7) is an installer
+    // man-in-the-middle in `npx playwright install` (browser binaries fetched
+    // without integrity verification) fixed in 1.55.1; the floor clears it.
+    // The bundled Chromium also carries CVE-2026-2441 (CSS use-after-free RCE);
+    // each monthly playwright release rolls a patched Chromium, so keeping the
+    // install current — not just at the floor — matters for the browser engine.
+    minVersion: ">=1.55.1",
+    // playwright ships ~monthly point releases pinned to a Chromium roll, so a
+    // long gap is itself a staleness signal (an un-rolled Chromium accrues
+    // browser-engine CVEs). Tagged `monthly` rather than `stable`.
+    releaseCadence: "monthly",
+    securityNote:
+      "CVE-2025-59288 (CVSS 8.7): `npx playwright install` in versions before 1.55.1 fetched browser binaries without integrity verification, allowing an installer man-in-the-middle to substitute a malicious browser build. Upgrade to >=1.55.1. The bundled Chromium also carries CVE-2026-2441 (CSS use-after-free RCE); each monthly playwright release rolls a patched Chromium, so track a current release and pin the sandbox container image to a current `*-noble` tag (not an 18-month-stale tag) when navigating untrusted URLs.",
     homepage: "https://playwright.dev/",
   },
   httpie: {

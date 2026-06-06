@@ -4,6 +4,7 @@ import {
   formatComplianceReport,
   detectResilienceInvocations,
   verifyMonotonicPrivilege,
+  type EnforcementClass,
 } from "../../pipeline/complianceVerification.js";
 import { ALL_TOOL_CATEGORIES } from "../../pipeline/agentToolAllowlist.js";
 
@@ -157,6 +158,58 @@ describe("complianceVerification", () => {
       const lines = formatComplianceReport(report);
       const joined = lines.join("\n");
       expect(joined).not.toContain("NON-COMPLIANT");
+    });
+
+    // D15-4: the report mirrors the Enforcement column of the
+    // Control-to-Trust Mapping so a library contract is never read as a live
+    // CLI gate. Each rendered check line carries its enforcement class.
+    it("mirrors the enforcement class into every rendered check line", async () => {
+      const report = await runComplianceChecks();
+      const lines = formatComplianceReport(report);
+      const checkLines = lines.filter(
+        (l) => l.includes("[PASS]") || l.includes("[FAIL]") || l.includes("[WARN]"),
+      );
+      expect(checkLines.length).toBe(report.checks.length);
+      for (const line of checkLines) {
+        expect(line).toMatch(
+          /\((runtime-CLI|setup-time-shape-check|library-contract-for-downstream|prompt-directive)\)/,
+        );
+      }
+    });
+  });
+
+  // D15-4: every compliance check declares an enforcement class, and the
+  // library-only controls (reviewLoop, diffHash — both @library_export_only with
+  // 0 CLI importers) are not mislabeled as runtime-CLI gates.
+  describe("D15-4: enforcement classification", () => {
+    const VALID: ReadonlyArray<EnforcementClass> = [
+      "runtime-CLI",
+      "setup-time-shape-check",
+      "library-contract-for-downstream",
+      "prompt-directive",
+    ];
+
+    it("assigns a valid enforcement class to every check", async () => {
+      const report = await runComplianceChecks();
+      for (const check of report.checks) {
+        expect(VALID, `enforcement for ${check.id}`).toContain(check.enforcement);
+      }
+    });
+
+    it("classifies the @library_export_only controls as library-contract-for-downstream", async () => {
+      const report = await runComplianceChecks();
+      const reviewLoop = report.checks.find((c) => c.id === "review-loop-limit");
+      const diffHash = report.checks.find((c) => c.id === "diff-hash-verify");
+      expect(reviewLoop?.enforcement).toBe("library-contract-for-downstream");
+      expect(diffHash?.enforcement).toBe("library-contract-for-downstream");
+    });
+
+    it("classifies CLI-wired controls as runtime-CLI", async () => {
+      const report = await runComplianceChecks();
+      const asi07 = report.checks.find((c) => c.id === "asi07-phase-schemas");
+      const pipelineTimeout = report.checks.find((c) => c.id === "pipeline-timeout");
+      expect(asi07?.enforcement).toBe("runtime-CLI");
+      expect(pipelineTimeout?.enforcement).toBe("runtime-CLI");
     });
   });
 

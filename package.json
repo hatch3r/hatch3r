@@ -35,6 +35,7 @@
     "audit:migrate": "tsx scripts/migrate-finding-registry.ts",
     "audit:archive": "tsx scripts/audit-archive.ts",
     "audit:find": "tsx scripts/audit-find.ts",
+    "audit:closed-loop": "tsx scripts/audit-closed-loop-report.ts",
     "audit:reset": "tsx scripts/clean-audit-workspace.ts",
     "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity --validate-package-names",
     "mcp:cve-check": "tsx scripts/check-mcp-cves.ts",

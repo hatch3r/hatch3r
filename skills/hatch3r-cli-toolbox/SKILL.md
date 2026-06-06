@@ -118,6 +118,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### sd
 - **When to use:** literal-string stream substitution with no regex foot-guns — defaults to regex but `-s` switches to literal mode.
 - **Recipe:** `rg --files-with-matches 'oldName' -tts | xargs sd 'oldName' 'newName'`
+- **Version floor:** `>=1.1.0` — the line-by-line default and the `-A`/`--across` flag are 1.1.0 features. On Linux use `cargo binstall sd` (fetches the v1.1.0 GitHub-release binary); `cargo install sd` resolves to crates.io, whose max published version is 1.0.0.
 - **Wrong choice when:** identifier-aware rename — use `ast-grep`; multi-step transforms — use `sed -e`.
 
 ---
@@ -255,6 +256,7 @@ docker run --rm --read-only --tmpfs /tmp \
 ### playwright
 - **When to use:** end-to-end browser test execution capturing screenshots and traces; deterministic locators, multi-browser.
 - **Recipe:** `npx playwright test --grep '@smoke' --workers=1 --reporter=line`
+- **Version floor:** `>=1.55.1` — earlier `npx playwright install` builds carry CVE-2025-59288 (installer man-in-the-middle, CVSS 8.7). Keep current beyond the floor so the bundled Chromium rolls the CVE-2026-2441 fix; pin the sandbox container image to a current `*-noble` tag.
 - **Wrong choice when:** API-only system — use `curl` + `jq`; agent-driven natural-language browsing — use `stagehand`.
 
 #### Sandbox callout — credential isolation when navigating untrusted URLs
@@ -262,7 +264,7 @@ docker run --rm --read-only --tmpfs /tmp \
 Playwright launches real Chrome / Firefox / WebKit processes that inherit the host user's environment (`HOME`, `~/.aws`, browser profiles under `~/.config/google-chrome/`). Visiting an attacker-controlled URL with the host user's credential store is the equivalent of granting that URL read access to every site you are logged into. F15.7-H5 (Cycle 10 D15-SA15.7) hardening — apply when navigating to URLs the agent has not vetted:
 
 - Disposable profile: pass `userDataDir: tmp.dirSync().name` (or `--user-data-dir=$(mktemp -d)`) so the browser sees no saved sessions, no autofill, no cookies from the host profile.
-- Run inside the official sandbox image: Microsoft maintains pinned, signed Playwright containers — `mcr.microsoft.com/playwright:v1.49.0-jammy` (pin the exact tag). The image preinstalls every browser binary and isolates filesystem + network from the host. Reference: https://playwright.dev/docs/docker (Microsoft's official Playwright image is the maintained surface; pin to the immutable digest).
+- Run inside the official sandbox image: Microsoft maintains pinned, signed Playwright containers — `mcr.microsoft.com/playwright:v1.60.0-noble` (pin a current tag; keep it current so the bundled Chromium carries the CVE-2026-2441 fix — an 18-month-stale tag like `v1.49.0-jammy` ships an unpatched browser-engine RCE). The image preinstalls every browser binary and isolates filesystem + network from the host. Reference: https://playwright.dev/docs/docker (Microsoft's official Playwright image is the maintained surface; pin to the immutable digest of a current release).
 - Disable hardware acceleration / GPU access on untrusted runs: `args: ['--disable-gpu', '--no-sandbox']` is acceptable inside a hardened container, never on the host.
 - Reset between scenarios: `await context.close(); context = await browser.newContext();` between unvetted URLs so cookie state does not leak across hops.
 - **D15-M14: `playwright codegen <url>` against an authed site.** `npx playwright codegen` opens a browser session the user logs into, then writes the captured locators and credentials into a test file on disk. Running codegen against a host browser profile bakes the live session cookie / Authorization header into the emitted test, exposing the credential in any artefact the test is checked into. Mitigation: always pass `--save-storage=storageState.json` to capture state into a single named file you can scrub or `.gitignore` (instead of writing inline credentials), pass `--user-data-dir=$(mktemp -d)` so codegen does not start from the host's logged-in profile, and review the emitted test for any literal token, bearer string, or `cookie:` header before committing. Reference: https://playwright.dev/docs/codegen#preserve-authenticated-state (preserve auth via the storage-state file rather than inline credentials).
@@ -271,7 +273,7 @@ Playwright launches real Chrome / Firefox / WebKit processes that inherit the ho
 Hardened equivalent of the recipe above (inside Microsoft's pinned image):
 ```
 docker run --rm --network none -v "$PWD:/work:ro" -w /work \
-  mcr.microsoft.com/playwright:v1.49.0-jammy \
+  mcr.microsoft.com/playwright:v1.60.0-noble \
   npx playwright test --grep '@smoke' --workers=1 --reporter=line
 ```
 
@@ -330,11 +332,11 @@ Install commands:
 | `llm` | `brew install llm` | `pipx install llm` |
 | `miller` | `brew install miller` | `apt install miller` |
 | `mods` | `brew install charmbracelet/tap/mods` | `apt install mods` (Charm repo) |
-| `playwright` | `npm install -D @playwright/test && npx playwright install` | same |
+| `playwright` | `npm install -D @playwright/test && npx playwright install` (pin >=1.55.1) | same (verify >=1.55.1; sandbox image `mcr.microsoft.com/playwright:v1.60.0-noble`) |
 | `podman` | `brew install podman` | `apt install podman` |
 | `qsv` | `brew install qsv` | `cargo install qsv` |
 | `rtk` | `brew install rtk-ai/tap/rtk` | check upstream release |
-| `sd` | `brew install sd` | `cargo install sd` |
+| `sd` | `brew install sd` (1.1.0) | `cargo binstall sd` (v1.1.0 GitHub release; `cargo install sd` pins crates.io 1.0.0 — older, no `-A`/`--across`) |
 | `stagehand` | `npm install -g @browserbasehq/stagehand` | same |
 | `taplo` | `brew install taplo` | `cargo install taplo-cli --locked` |
 | `xh` | `brew install xh` (pin >=0.25.3) | `cargo install xh --locked` |
