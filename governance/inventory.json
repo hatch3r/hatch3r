@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 6,
     "githubAgents": 4,
-    "testFiles": 218
+    "testFiles": 220
   },
   "files": {
     "adapters": [
@@ -500,6 +500,7 @@
       "src/__tests__/cli/migration-checkpoints.test.ts",
       "src/__tests__/cli/rollback.test.ts",
       "src/__tests__/cli/shared/errors.test.ts",
+      "src/__tests__/cli/shared/output.test.ts",
       "src/__tests__/cli/shared/requireManifest.test.ts",
       "src/__tests__/cli/shared/updateNotifier.test.ts",
       "src/__tests__/cli/status.test.ts",
@@ -558,6 +559,7 @@
       "src/__tests__/governance/content-validation-gate.test.ts",
       "src/__tests__/governance/customize-doc-examples-gate.test.ts",
       "src/__tests__/governance/dogfood-isolation-gate.test.ts",
+      "src/__tests__/governance/fanout-path-currency-gate.test.ts",
       "src/__tests__/governance/pr-resolve-skill-pillar-currency-gate.test.ts",
       "src/__tests__/governance/security-agent-verification-coverage.test.ts",
       "src/__tests__/hooks/adapterIntegration.test.ts",

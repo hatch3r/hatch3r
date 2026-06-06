@@ -34,6 +34,25 @@ async function fileExists(path: string): Promise<boolean> {
 }
 
 /**
+ * D11-12 (Cycle 11 Wave 3, P5): pick a `.bak` path for the managed-block
+ * auto-repair backup that does NOT overwrite an existing one. Returns the
+ * canonical `<filePath>.bak` when it is free; otherwise a uniquely-suffixed
+ * `<filePath>.bak.<8hex>` so a second corruption/recovery cannot clobber the
+ * backup the first recovery wrote (the single-rolling-slot data-loss the
+ * finding flags). The 8-hex suffix uses the same 4-byte `randomBytes` scheme as
+ * the `.tmp.<8hex>` writer; a fresh suffix is drawn on the astronomically-rare
+ * collision so the returned path is always free at return time.
+ */
+async function resolveNonClobberingBakPath(filePath: string): Promise<string> {
+  const canonical = filePath + ".bak";
+  if (!(await fileExists(canonical))) return canonical;
+  for (;;) {
+    const candidate = `${filePath}.bak.${randomBytes(4).toString("hex")}`;
+    if (!(await fileExists(candidate))) return candidate;
+  }
+}
+
+/**
  * D1-SA1.5.1: Default timeout in ms for cross-process file lock acquisition
  * when HATCH3R_LOCK=1 is set. 5 retries × 500ms ≈ 5s ceiling.
  */
@@ -306,7 +325,15 @@ async function syncParentDirectory(filePath: string): Promise<void> {
 }
 
 /**
- * Write a file atomically via tmp+rename with fsync.
+ * Write a file via tmp+rename. The guarantee is scoped precisely (D11-13,
+ * Cycle 11 Wave 3, P5): atomic VISIBILITY comes from the rename — a reader sees
+ * either the old file or the new file's complete bytes, never a torn write. The
+ * tmp file's DATA is fdatasync'd before the rename, and the parent directory is
+ * fsync'd after it (best-effort — see the **Durability** section and
+ * {@link syncParentDirectory}; a platform/filesystem that rejects the directory
+ * fdatasync, e.g. Windows or FAT32, downgrades the guarantee from "atomic AND
+ * crash-durable" to "atomic"). This is NOT a generic disk-flush of every cached
+ * write — only the tmp file and its parent directory are synced.
  *
  * **Concurrency:** By default this function does not use file locking. Two
  * hatch3r processes writing the same target path concurrently can silently
@@ -485,8 +512,12 @@ export async function atomicWriteFile(
 // calling it on entry is safe even when a concurrent write is in flight.
 // ──────────────────────────────────────────────────────────────────────────
 
-/** Matches `<anything>.tmp.<8 hex chars>` — the exact pattern produced by atomicWriteFile. */
-const ORPHAN_TMP_SUFFIX_RE = /\.tmp\.[0-9a-f]{8}$/;
+/** Matches `<basename>.tmp.<exactly-8 hex chars>` — the exact pattern produced
+ *  by {@link atomicWriteFile} (`filePath + ".tmp." + randomBytes(4).toString("hex")`,
+ *  i.e. 4 bytes → 8 lowercase hex chars). Anchored at end-of-string AND requiring
+ *  a non-empty basename before `.tmp.` so a bare `.tmp.deadbeef` (no owning file)
+ *  or a 7/9-hex suffix from some other tool is not swept (D8-8 match-tightening). */
+const ORPHAN_TMP_SUFFIX_RE = /[^/\\]\.tmp\.[0-9a-f]{8}$/;
 
 /** Minimum age (ms) before a tmp file is treated as an orphan. Younger
  *  files may be in flight from a concurrent atomicWriteFile on another
@@ -494,6 +525,89 @@ const ORPHAN_TMP_SUFFIX_RE = /\.tmp\.[0-9a-f]{8}$/;
  *  conservative — atomic writes should complete in sub-second on healthy
  *  hardware, so a minute-old tmp file is almost certainly abandoned. */
 const ORPHAN_MIN_AGE_MS = 60_000;
+
+/**
+ * D8-8 (Cycle 11 Wave 3, P6): directory names the recursive tmp walk never
+ * descends into. The prior implementation handed `{ recursive: true }` straight
+ * to `readdir`, which walked the ENTIRE tree from the repo root — including
+ * `node_modules/` (tens of thousands of files on a typical repo) on every
+ * mutating command, and would have unlinked a by-name `*.tmp.<8hex>` collision
+ * anywhere under it (e.g. a dependency's own temp artifact). hatch3r only ever
+ * writes tmp files beside its managed outputs (`.cursor/`, `.claude/`, `.github/`,
+ * repo-root dotfiles, `.hatch3r/`), none of which live under these directories,
+ * so pruning them removes the blast radius AND the per-command full-tree walk
+ * cost with zero loss of coverage. `.git`/`.hg`/`.svn` are VCS internals and
+ * `dist`/`coverage`/`.next`/`.turbo`/`.cache` are build/test output trees — all
+ * off-limits to hatch3r writes. Kept as an internal literal set (not imported
+ * from `src/archive/index.ts::TOOL_PATH_PREFIXES`) because that module already
+ * imports `atomicWriteFile` from this file; importing back would form a cycle. */
+const SWEEP_SKIP_DIRS = new Set<string>([
+  "node_modules",
+  ".git",
+  ".hg",
+  ".svn",
+  "dist",
+  "coverage",
+  ".next",
+  ".turbo",
+  ".cache",
+]);
+
+/** One tmp-file candidate discovered by {@link walkTmpCandidates}: an absolute
+ *  path plus its parent directory, before any age/stat gate is applied. */
+interface TmpCandidate {
+  fullPath: string;
+}
+
+/**
+ * Walk `dir` for files whose basename matches {@link ORPHAN_TMP_SUFFIX_RE},
+ * pruning {@link SWEEP_SKIP_DIRS} so noise trees (node_modules, VCS internals,
+ * build output) are never entered. Non-recursive by default; `recursive: true`
+ * descends via an explicit manual stack rather than `readdir`'s `recursive`
+ * option so the prune can skip ENTERING a directory, not merely filter results
+ * after the full tree was already read (D8-8).
+ *
+ * A `readdir` failure on the TOP-LEVEL `dir` rethrows (the caller classifies
+ * ENOENT vs. a real error); a failure on a NESTED directory during recursion is
+ * swallowed so one unreadable subtree does not abort the whole sweep. Shared by
+ * {@link sweepOrphanTmpFiles} and {@link detectConcurrentWriteRisk}.
+ */
+async function walkTmpCandidates(
+  dir: string,
+  recursive: boolean,
+): Promise<TmpCandidate[]> {
+  const candidates: TmpCandidate[] = [];
+  // Manual stack so a skip-dir is never entered. `top` marks the root level:
+  // a readdir error there must rethrow for the caller's ENOENT classification,
+  // while a nested readdir error is swallowed (one bad subtree ≠ failed sweep).
+  const stack: Array<{ path: string; top: boolean }> = [{ path: dir, top: true }];
+  while (stack.length > 0) {
+    const { path: current, top } = stack.pop()!;
+    let dirents;
+    try {
+      dirents = await readdir(current, { withFileTypes: true });
+    } catch (err) {
+      if (top) throw err;
+      console.error(
+        `hatch3r: orphan-tmp sweep could not read ${current}: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+      continue;
+    }
+    for (const ent of dirents) {
+      if (ent.isDirectory()) {
+        if (!recursive) continue;
+        if (SWEEP_SKIP_DIRS.has(ent.name)) continue;
+        stack.push({ path: join(current, ent.name), top: false });
+        continue;
+      }
+      if (!ent.isFile()) continue;
+      if (!ORPHAN_TMP_SUFFIX_RE.test(ent.name)) continue;
+      candidates.push({ fullPath: join(current, ent.name) });
+    }
+  }
+  return candidates;
+}
 
 /**
  * One orphan tmp file discovered by {@link sweepOrphanTmpFiles}.
@@ -529,19 +643,13 @@ export async function sweepOrphanTmpFiles(
 ): Promise<OrphanTmpSweepEntry[]> {
   const nowMs = options.nowMs ?? Date.now();
   const results: OrphanTmpSweepEntry[] = [];
-  let entries: Array<{ name: string; isFile: boolean; parent: string }> = [];
+  let candidates: TmpCandidate[];
   try {
-    const raw = await readdir(dir, {
-      withFileTypes: true,
-      recursive: options.recursive === true,
-    });
-    entries = raw.map((e) => {
-      const parent =
-        (e as unknown as { parentPath?: string }).parentPath ??
-        (e as unknown as { path?: string }).path ??
-        dir;
-      return { name: e.name, isFile: e.isFile(), parent };
-    });
+    // D8-8: prune SWEEP_SKIP_DIRS during the walk so node_modules/.git/dist are
+    // never entered (no full-tree readdir from the repo root, no by-name match
+    // on a dependency's own temp file). A top-level readdir failure rethrows
+    // from walkTmpCandidates; classify it here.
+    candidates = await walkTmpCandidates(dir, options.recursive === true);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     // ENOENT is expected on fresh checkouts before .agents/ is created.
@@ -555,10 +663,7 @@ export async function sweepOrphanTmpFiles(
     return results;
   }
 
-  for (const entry of entries) {
-    if (!entry.isFile) continue;
-    if (!ORPHAN_TMP_SUFFIX_RE.test(entry.name)) continue;
-    const fullPath = join(entry.parent, entry.name);
+  for (const { fullPath } of candidates) {
     let fileStat;
     try {
       fileStat = await stat(fullPath);
@@ -582,6 +687,74 @@ export async function sweepOrphanTmpFiles(
   }
 
   return results;
+}
+
+/**
+ * D11-14 (Cycle 11 Wave 3, P6): detect a likely CONCURRENT in-flight write to a
+ * hatch3r-managed tree and return an advisory warning, or `null` when there is
+ * no signal. The default single-repo write path takes no cross-process lock
+ * ({@link isLockingEnabled} is false unless `HATCH3R_LOCK=1` or a
+ * workspace/worktree command enabled the default), so two `hatch3r sync` runs
+ * from two shells can last-writer-wins clobber a managed file with no warning.
+ * A mutating command calls this at start-of-run; if the warning is non-null it
+ * surfaces it via `warn()`.
+ *
+ * Signal: a `*.tmp.<8hex>` file YOUNGER than {@link ORPHAN_MIN_AGE_MS} — the
+ * inverse of the orphan-sweep gate. {@link atomicWriteFile} creates exactly that
+ * file immediately before its rename and unlinks it after, so a fresh one means
+ * another writer is mid-flight RIGHT NOW (an aged one is a crash orphan the
+ * sweep handles, not live contention — those are excluded here). Returns `null`
+ * when locking is already active (the lock makes the warning moot) so a
+ * workspace run, which serializes internally, stays quiet.
+ *
+ * Best-effort and never throws: a readdir failure (including ENOENT on a fresh
+ * checkout) yields `null`. Shares {@link walkTmpCandidates} with the sweep, so
+ * it also prunes {@link SWEEP_SKIP_DIRS} and carries the same near-zero cost.
+ */
+export async function detectConcurrentWriteRisk(
+  dir: string,
+  options: { recursive?: boolean; nowMs?: number } = {},
+): Promise<string | null> {
+  // When a lock is held, overlapping writes serialize — no clobber to warn about.
+  if (isLockingEnabled()) return null;
+  const nowMs = options.nowMs ?? Date.now();
+  let candidates: TmpCandidate[];
+  try {
+    candidates = await walkTmpCandidates(dir, options.recursive === true);
+  } catch (err) {
+    // Best-effort: an unreadable root is not a contention signal, so we return
+    // null rather than a false warning. ENOENT (fresh checkout, dir absent) is
+    // the expected no-op and stays quiet; any OTHER errno gets a diagnostic per
+    // the Silent Failure Contract (CONSTITUTION.md §2 P5) so an operator sees a
+    // genuinely broken root rather than a silently-skipped concurrency check.
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      console.error(
+        `hatch3r: concurrency-risk check could not read ${dir}: ` +
+          `${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    return null;
+  }
+  for (const { fullPath } of candidates) {
+    let fileStat;
+    try {
+      fileStat = await stat(fullPath);
+    } catch {
+      continue;
+    }
+    const age = nowMs - fileStat.mtimeMs;
+    // YOUNG (< gate) ⇒ a live in-flight write. Aged ⇒ a crash orphan the sweep
+    // owns; not contention, so it does not raise this warning.
+    if (age < ORPHAN_MIN_AGE_MS) {
+      return (
+        `Another hatch3r write appears to be in flight (fresh temp file ${fullPath}). ` +
+        `Concurrent runs against the same repo can clobber managed files last-writer-wins. ` +
+        `Pass HATCH3R_LOCK=1 on both runs to serialize them, or wait for the other run to finish.`
+      );
+    }
+  }
+  return null;
 }
 
 /**
@@ -868,7 +1041,18 @@ export async function safeWriteFile(
       // Auto-repair always writes through — skipIfUnchanged does not apply
       // here because the file shape on disk is broken even when bytes
       // happen to match.
-      const bakPath = filePath + ".bak";
+      //
+      // D11-12 (Cycle 11 Wave 3, P5): do NOT clobber an existing `.bak`. The
+      // prior code copied unconditionally to a fixed `<target>.bak`, so a
+      // SECOND corruption/recovery overwrote the ONLY off-file copy of the
+      // user's original from the FIRST recovery — silent loss of the earlier
+      // backup. Use the canonical `<target>.bak` only when it is free; if it is
+      // already taken, fall back to a uniquely-suffixed `<target>.bak.<8hex>`
+      // (same 4-byte randomBytes convention as the `.tmp.<8hex>` writer) so each
+      // recovery keeps its own backup. The session snapshot under `.hatch3r/`
+      // remains the primary, complete recovery path (`hatch3r rollback`); these
+      // `.bak*` files are the convenience copy the warning still points at.
+      const bakPath = await resolveNonClobberingBakPath(filePath);
       await copyFile(filePath, bakPath);
       const srcStat = await stat(filePath);
       const bakStat = await stat(bakPath);

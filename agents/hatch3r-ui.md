@@ -101,7 +101,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ1
 
 ## Sub-agent delegation
 
-See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-surface audits run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ1 unit of decomposition: **surface** (route / page / modal / component family). De-duplicate findings that recur across surfaces — report once at the component level, not once per consumer.
+See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-surface audits run in parallel per `rules/hatch3r-fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ1 unit of decomposition: **surface** (route / page / modal / component family). De-duplicate findings that recur across surfaces — report once at the component level, not once per consumer.
 
 ## Audit checklist
 

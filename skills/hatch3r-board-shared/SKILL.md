@@ -301,9 +301,33 @@ The export is idempotent and safe to re-set. `GH_PAGER` is scoped to `gh`; `PAGE
 
 ---
 
+## Todo Grammar
+
+Single source of truth for the `todo.md` line format shared by the producers (`hatch3r-roadmap` Step 5, `hatch3r-project-spec` Step 6) and the consumer (`hatch3r-board-fill` Step 1). Producers MUST emit this grammar; board-fill MUST parse it with the rules below so checkbox glyphs and scope tags never leak into issue titles and priority headers never parse as items.
+
+**Line forms:**
+
+| Form | Pattern | Parse as |
+|------|---------|----------|
+| Priority header | `## P{N} — {Label}` (N = 0–3) | Section header — sets the `priority:p{N}` default for items beneath it. NOT a todo item. |
+| Future-ideas header | `## Future Ideas` | Section header — items beneath it default to `priority:p3`. NOT a todo item. |
+| Todo item | `- [ ] **[{TAG}] {Title}**: {Description}[ Ref: {path}.]` | One todo item. `{TAG}` ∈ `{BIZ, TECH, BOTH}`. |
+
+**Parse rules (board-fill Step 1 applies in order):**
+
+1. **Skip headers.** A line matching `^## ` (priority header or `## Future Ideas`) is a section marker, not an item. Record its `P{N}` value (or `p3` for `## Future Ideas`) as the priority default for items until the next header.
+2. **Strip the list/checkbox token.** Strip a leading list marker (`- ` or `* `) and, if present, a checkbox token (`[ ]` or `[x]`, case-insensitive) that immediately follows it. Lines without `- `/`* ` are not items.
+3. **Extract the scope tag.** Parse the leading `**[{TAG}]` token; capture `{TAG}` ∈ `{BIZ, TECH, BOTH}` and remove it from the title. `BIZ` → business-driven, `TECH` → technically-driven, `BOTH` → cross-cutting. Feed the tag into Step 3 classification (area/executor lean), not the title.
+4. **Split title and description.** The bold span `**…**` is the item title (strip the surrounding `**`); the text after the first `:` is the description. A trailing `Ref: {path}.` carries the source spec/ADR path — surface it as a documentation reference, not part of the title.
+5. **Carry the priority default.** Apply the enclosing header's `P{N}` as the item's default `priority:*` (overridable by Step 3 triage). Items above the first header default to `p2`.
+
+Items not matching the todo-item form (blank lines, prose, stray bullets without a `**[{TAG}]…**` span) are skipped with a one-line note in the parsed-list output so the user can correct malformed entries.
+
+---
+
 ## Fan-out Discipline (P8 B2)
 
-Reference library — no fan-out. This skill ships shared board context (configuration, sync procedures, tooling directives) consumed by the delegating board commands (`board-fill`, `board-pickup`, `board-init`, `board-refresh`, `board-groom`). It spawns no sub-agents itself; fan-out is owned by the consuming command per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+Reference library — no fan-out. This skill ships shared board context (configuration, sync procedures, tooling directives) consumed by the delegating board commands (`board-fill`, `board-pickup`, `board-init`, `board-refresh`, `board-groom`). It spawns no sub-agents itself; fan-out is owned by the consuming command per its own Fan-out Discipline block. Source: `rules/hatch3r-fan-out-discipline.md` (P8 B2).
 
 ---
 

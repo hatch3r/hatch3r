@@ -99,6 +99,24 @@ export function createProgram(): Command {
   program.exitOverride();
   program.showHelpAfterError("(run `hatch3r --help` for usage)");
 
+  // D11-14 (Cycle 11 Wave 3, P6): document the cross-process write-locking env
+  // var on the global help. By default a single-repo mutating command (init,
+  // sync, update, config, mcp, cli-tools, rollback) takes NO file lock, so two
+  // runs against the same repo from two shells can last-writer-wins clobber a
+  // managed file. Operators had no documented way to discover the serialization
+  // control. `HATCH3R_LOCK=1` opts every write into a `proper-lockfile` advisory
+  // lock; workspace/worktree commands already enable it by default.
+  program.addHelpText(
+    "after",
+    "\nEnvironment:\n" +
+      "  HATCH3R_LOCK=1   Serialize concurrent hatch3r runs against the same repo via a\n" +
+      "                   cross-process advisory lock. The single-repo default takes no\n" +
+      "                   lock, so two runs from two shells can clobber managed files\n" +
+      "                   last-writer-wins; set this on each run to make them wait.\n" +
+      "                   (Workspace/worktree commands enable locking by default;\n" +
+      "                   HATCH3R_LOCK=0 force-disables it there.)\n",
+  );
+
   program
     .command("init")
     .description("Install a complete agent setup into the current repo (first-run: creates .hatch3r/ state + per-tool output files)")

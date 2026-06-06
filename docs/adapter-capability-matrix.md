@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-05-28 | **hatch3r version**: 2.0.0
+> **Last verified**: 2026-06-06 | **hatch3r version**: 2.0.0
 
 Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Cursor, GitHub Copilot, and Claude Code. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut — see [CHANGELOG.md](../CHANGELOG.md) §[1.9.0]. This document tracks what each remaining adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -46,7 +46,7 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 
 #### Hook-surface notes
 
-- **copilot** carries `hooks: --` because GitHub Copilot Chat exposes no `PreToolUse` / pre-edit hook, no transcript access for external processes, and no tool-refusal API (verified against [GitHub Copilot Chat docs](https://docs.github.com/en/copilot/customizing-copilot/about-customizing-github-copilot-chat-responses) on 2026-05-12). Hatch3r enforces pipeline orchestration on Copilot via instructional rules only — the `## Copilot Enforcement Model (no hook surface)` section emitted into `.github/copilot-instructions.md` by `src/adapters/copilot.ts` documents the trust-based model and self-detectable drift indicators. See [hatch3r issue #73](https://github.com/hatch3r-dev/hatch3r/issues/73).
+- **copilot** carries `hooks: --` because hatch3r emits no Copilot hook file yet (`ADAPTER_CAPABILITIES.copilot.hooks = false`). The platform surface is now mixed: VS Code documents a **Preview** `PreToolUse` hook with `permissionDecision: "deny"` plus an agent-scoped `hooks:` field ([VS Code custom-agents docs](https://code.visualstudio.com/docs/copilot/customization/custom-agents), verified 2026-06-06), so server-side blocking IS reachable on VS Code Preview — but it is not GA, is absent on github.com, and exposes no transcript access for external processes there. Until the Preview stabilizes and the adapter emits a hook, hatch3r enforces pipeline orchestration on Copilot via instructional rules only — the `## Copilot Enforcement Model (no hook surface)` section emitted into `.github/copilot-instructions.md` by `src/adapters/copilot.ts` documents the trust-based model and self-detectable drift indicators. Emitting a Preview-gated PreToolUse deny-gate is a CL-2 candidate (D9-17). See [hatch3r issue #73](https://github.com/hatch3r-dev/hatch3r/issues/73).
 
 ### Agent Model Customization
 
@@ -191,11 +191,11 @@ set -a && source .env.mcp && set +a && <editor-command> .
 
 | Adapter | Capability | Reason |
 |---------|------------|--------|
-| **copilot** | hooks | GitHub Copilot Chat exposes no documented hook/event surface (see Hook-surface notes above). |
+| **copilot** | hooks | No adapter hook file is emitted yet. A VS Code Preview `PreToolUse` deny-hook now exists (not GA, absent on github.com); emitting it is a CL-2 candidate, not a permanent omission (see Hook-surface notes above). |
 | **all** | guardrails | No adapter emits policy files. Canonical location `policy/` exists in bundled content for future use. |
 | **all** | prompts (except copilot) | Only Copilot has a dedicated prompts format (`.github/prompts/`). Cursor and Claude map prompts to commands or skills. |
 | **all** | githubAgents (except copilot) | Copilot-specific capability; only the Copilot adapter emits. |
-| **gemini → antigravity** | (retired adapter migration) | Gemini CLI (removed in the 1.9.0 hard cut) sunsets for AI Pro/Ultra/free tiers on 2026-06-18; Google's sanctioned migration target is Antigravity CLI ([Google Developers Blog](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), accessed 2026-05-26). Antigravity is tracked but not re-introduced: its config surface launched <30 days before assessment and fails the SA9.5 re-introduction trigger T2 (stable config surface ≥6 months). Surveillance for the Gemini market position transfers from `gemini` to `antigravity`. Re-evaluation cadence: D09 SA9.5, each audit cycle. |
+| **gemini → antigravity** | (retired adapter migration) | Gemini CLI (removed in the 1.9.0 hard cut) sunsets for AI Pro/Ultra/free tiers on 2026-06-18; Google's sanctioned migration target is Antigravity CLI ([Google Developers Blog](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), accessed 2026-06-06). Antigravity is tracked but not re-introduced — Tier 3 keep-retired: it fails the SA9.5 re-introduction trigger T2. The current question is no longer days-since-launch but schema stability: Antigravity's config surface is now documented (the migration moves skills from `.gemini/skills/` to `.agents/skills/`, reads `GEMINI.md`/`AGENTS.md` context files unchanged, and relocates MCP config to `mcp_config.json` with the `url`→`serverUrl` rename — [Antigravity Gemini-CLI migration docs](https://antigravity.google/docs/gcli-migration), accessed 2026-06-06), yet T2 requires that schema be stable ≥6 months and no schema-stability dates are published for the post-migration surface. **`.agents/` collision note:** Antigravity's documented config directory `.agents/` is the same root-level path hatch3r removed in the 1.9.0 hard cut (the `/.agents/` materialization mirror was dropped in favor of bundled content per CONSTITUTION §6 Decision 12); re-introducing this adapter would re-collide an end-user repo path the framework deliberately deleted, so any future re-grade must resolve that path conflict before T2 can clear. Surveillance for the Gemini market position transfers from `gemini` to `antigravity`. Re-evaluation cadence: D09 SA9.5, each audit cycle. |
 
 ---
 
@@ -205,7 +205,7 @@ set -a && source .env.mcp && set +a && <editor-command> .
 |-------|------|
 | **Agent model customization** | [model-selection.md](model-selection.md) — configuration, aliases, resolution order; [hatch3r-customize](../skills/hatch3r-customize/SKILL.md) — per-artifact overrides |
 | Cursor | [Cursor Rules](https://docs.cursor.com/context/rules-for-ai) / [Subagents](https://cursor.com/docs/context/subagents) / [Plugins](https://cursor.com/docs/plugins) |
-| Copilot | [Custom Instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) / [Agent Skills](https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills) |
+| Copilot | [Custom Instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) / [Agent Skills](https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills) / [VS Code Custom Agents](https://code.visualstudio.com/docs/copilot/customization/custom-agents) (Preview PreToolUse hook + handoffs) |
 | Claude | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
 
 ---

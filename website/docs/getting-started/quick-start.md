@@ -77,15 +77,15 @@ Maturity is a separate axis. The `--maturity` dial (`solo`/`team`/`scaleup`/`ent
 
 ### Time to first value
 
-Measured on a clean macOS / Linux box with Node 22 installed and a fresh git repo on `main`:
+Only the `init` row below is instrumented and measured; the spec and PR rows are **model-dependent estimates**, not benchmarked wall-clock numbers. They scale with the agentic model you run, task complexity, and (for the PR row) human review latency, so treat them as a rough planning guide rather than a guarantee.
 
-| Milestone | Wall clock |
-|-----------|------------|
-| `npx hatch3r init` (interactive ≤5 prompts, default flags) | 1-2 min |
-| First successful spec (`/hatch3r-spec` → committed plan) | 5-10 min |
-| First PR from board pickup (`/hatch3r-board-pickup` → merged PR) | 30-60 min |
+| Milestone | Wall clock | Basis |
+|-----------|------------|-------|
+| `npx hatch3r init` (interactive ≤5 prompts, default flags) | 1-2 min | Measured: clean macOS / Linux box, Node 22, fresh git repo on `main` |
+| First successful spec (`/hatch3r-spec` → committed plan) | 5-10 min (estimate) | Model-dependent — varies with model + task scope |
+| First PR from board pickup (`/hatch3r-board-pickup` → merged PR) | 30-60 min (estimate) | Model-dependent — varies with model, task scope, and review latency |
 
-`hatch3r init` prints a `Completed in Xs` line via the `printTimingSummary` helper (D10-M9) so you can compare your local install time against the benchmark above. If your init exceeds ~3 minutes, the most common cause is npm cache cold-start — re-running `npx hatch3r init --yes` shows the typical steady-state cost.
+The `init` figure is the only one hatch3r can self-time: `hatch3r init` prints a `Completed in Xs` line via the `printTimingSummary` helper (D10-M9) so you can compare your local install time against the measured row above. If your init exceeds ~3 minutes, the most common cause is npm cache cold-start — re-running `npx hatch3r init --yes` shows the typical steady-state cost. hatch3r does not instrument the spec or PR milestones, so those two ranges are not produced by a reproducible benchmark.
 
 ---
 

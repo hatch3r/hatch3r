@@ -19,7 +19,11 @@ PipelineContext {
   correlationId: string          // UUID v4, generated before Phase 1
   taskType: "bug" | "feature" | "refactor" | "qa"
   issueRef: string | null        // Issue number or null for plain chat
-  deepContextTier: 1 | 2 | 3    // From hatch3r-deep-context scoring
+  deepContextTier: 1 | 2 | 3    // Pre-Phase-1 baseline from hatch3r-deep-context scoring
+
+  // Mid-run tier upgrade (Finding D7-14): set when execution surfaces complexity
+  // the baseline missed (see Complexity-Driven Adaptation + Tier-upgrade propagation).
+  tierUpgrade?: { from: 1|2|3; to: 1|2|3; reason: string; atPhase: 1|2|3|4 }
 
   // Detected project type for specialist selection (Finding #56)
   projectType?: {
@@ -182,10 +186,12 @@ The pipeline should adapt its behavior based on observed task complexity, not ju
 
 | Signal During Execution | Adaptation |
 |------------------------|------------|
-| Phase 1 research finds >10 affected files (initial estimate was <5) | Upgrade tier to 3 if currently 2. Re-run `codebase-impact` at `deep` depth before Phase 2. |
+| Phase 1 research finds >10 affected files (initial estimate was <5) | Upgrade tier to 3 if currently 2. Record the upgrade in `PipelineContext.tierUpgrade` (`src/pipeline/pipelineContext.ts::TierUpgrade`: `{from, to, reason, atPhase}`) and re-run `codebase-impact` at `deep` depth before Phase 2. |
 | Phase 2 implementer reports >3 research gaps | Pause Phase 2. Run targeted researcher with gap-specific modes before continuing. |
 | Phase 3 review loop reaches iteration 2 with increasing Critical count | Classify as complexity underestimate. Surface to user with recommendation to break the task into smaller sub-tasks. |
 | Phase 4 validation pass fails on first attempt | Check whether failure is in hatch3r-testability's new tests (expected -- fix test) or in pre-existing tests (regression -- fix implementation). Route to appropriate fixer. |
+
+**Tier-upgrade propagation (Finding D7-14).** A mid-run upgrade is not just a log line — it MUST change downstream behavior. After populating `PipelineContext.tierUpgrade`, the orchestrator reads the tier for every subsequent depth decision via `resolveEffectiveTier(context)` (returns `tierUpgrade.to` when an upgrade is recorded, else `deepContextTier`), so the Tier→Phase-4-specialist-depth mapping in `hatch3r-agent-orchestration.md` (Deep Context Integration) scales to the upgraded tier instead of staying pinned to the stale baseline. The carrier only ever raises the tier (a recorded `to <= from` is ignored). Surface the upgrade once in the iteration summary via `formatTierUpgradeNote(context)` (one line, returns `null` when no upgrade occurred) so the adaptation is visible, not silent.
 
 ### Post-Pipeline Learning
 

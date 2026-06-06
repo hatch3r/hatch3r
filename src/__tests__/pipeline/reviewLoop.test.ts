@@ -17,6 +17,8 @@ import {
   DEFAULT_MAX_REVIEW_ITERATIONS,
   HARD_MAX_REVIEW_ITERATIONS,
   MIN_MAX_REVIEW_ITERATIONS,
+  MIN_DIVERGENCE_HISTORY,
+  DIVERGENCE_MESSAGE,
   type ReviewConfidenceLevel,
   type ReviewVerdict,
 } from "../../pipeline/reviewLoop.js";
@@ -672,14 +674,17 @@ describe("reviewLoop", () => {
       expect(result.oscillating).toBe(false);
     });
 
-    it("should report no oscillation for a single direction change", () => {
+    it("should detect oscillation on a single direction change (Finding D7-16 re-threshold)", () => {
       let state = createReviewLoop(5);
-      // Findings: 5 -> 2 -> 4 (down, up = 1 direction change, threshold is 2)
+      // Findings: 5 -> 2 -> 4 (down, up = 1 direction change). Cycle 11 lowered
+      // the threshold from 2 changes to 1 (Finding D7-16) so a fix-break cycle
+      // is caught on the first reversal within a 3-entry default-reachable history.
       state = recordReviewIteration(state, "warning", 5);
       state = recordReviewIteration(state, "warning", 2);
       state = recordReviewIteration(state, "warning", 4);
       const result = detectOscillation(state);
-      expect(result.oscillating).toBe(false);
+      expect(result.oscillating).toBe(true);
+      expect(result.description).toContain("oscillation detected");
     });
 
     it("should fire in default configuration (Finding C7.5-W2B2-H26)", () => {
@@ -697,6 +702,81 @@ describe("reviewLoop", () => {
       const result = detectOscillation(state);
       expect(result.oscillating).toBe(true);
       expect(result.description).toContain("oscillation detected");
+    });
+  });
+
+  describe("monotonic_divergence escape (Finding D7-17)", () => {
+    it("terminates with 'divergence' on a strictly-increasing findings series", () => {
+      // Findings: 2 -> 3 -> 4 (fixer strictly worsening every pass). The
+      // oscillation detector cannot see this (0 direction changes); the trend
+      // escape must catch it before the iteration cap.
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "warning", 4);
+      expect(state.terminated).toBe(true);
+      expect(state.terminationReason).toBe("divergence");
+      expect(state.unresolvedFindings).toBe(4);
+      // confidence on a diverging loop is the weakest signal.
+      expect(state.confidence).toBe("low");
+      // detectOscillation still reports no oscillation for the monotone series.
+      expect(detectOscillation(state).oscillating).toBe(false);
+    });
+
+    it("the strictly-diverging [2,3,4,5] case the detail rule flags is caught", () => {
+      // Mirrors the detail-rule failure-mode row: increasing Critical count
+      // across passes => complexity underestimate. The loop must not run to the
+      // cap; it halts on the third strictly-worse pass.
+      let state = createReviewLoop(10);
+      state = recordReviewIteration(state, "critical", 2);
+      state = recordReviewIteration(state, "critical", 3);
+      expect(state.terminated).toBe(false); // two entries: not yet divergent
+      state = recordReviewIteration(state, "critical", 4);
+      expect(state.terminated).toBe(true);
+      expect(state.terminationReason).toBe("divergence");
+      // currentIteration stopped at 3, well below the cap of 10.
+      expect(state.currentIteration).toBe(3);
+    });
+
+    it("requires MIN_DIVERGENCE_HISTORY entries before firing", () => {
+      // A single uptick after one pass (2 -> 3) must NOT abort the loop — only a
+      // persistent strictly-increasing run of MIN_DIVERGENCE_HISTORY does.
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 3);
+      expect(MIN_DIVERGENCE_HISTORY).toBe(3);
+      expect(state.terminated).toBe(false);
+      expect(state.terminationReason).toBeUndefined();
+    });
+
+    it("does not fire when an early decrease breaks the monotone run", () => {
+      // 5 -> 2 -> 6 is not strictly increasing over the last 3 entries (2 < 5),
+      // so divergence does not fire; the loop continues.
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 5);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 6);
+      expect(state.terminated).toBe(false);
+    });
+
+    it("a clean verdict still wins over divergence on the same pass", () => {
+      // Even if the prior two passes were rising, a clean verdict (0 findings)
+      // is a decrease, breaks the monotone run, and terminates as 'clean'.
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "clean", 0);
+      expect(state.terminationReason).toBe("clean");
+    });
+
+    it("reviewLoopSummary surfaces the complexity-underestimate recommendation", () => {
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "warning", 4);
+      const summary = reviewLoopSummary(state);
+      expect(summary).toContain(DIVERGENCE_MESSAGE);
+      expect(summary).toContain("confidence: low");
     });
   });
 
@@ -1059,6 +1139,163 @@ describe("evaluateReviewGate (C8-D13-M1)", () => {
       });
       expect(r.decision).toBe("fail");
       expect(r.reason).toContain("Warning");
+    });
+  });
+
+  describe("D13-21: confidence reconciliation (min(reviewLoopConfidence, selfAssigned))", () => {
+    it("caps an over-confident self-rating with the lower deterministic signal", () => {
+      // self-assigned "high" but the iteration-derived signal is "low" — the
+      // floor must evaluate against "low", forcing a second pass.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        reviewLoopConfidence: "low",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.effectiveConfidence).toBe("low");
+      expect(r.reason).toContain("min(reviewLoopConfidence");
+    });
+
+    it("does not raise confidence above the self-assigned value", () => {
+      // self-assigned "low", deterministic "high" — the worse (low) still wins,
+      // so an under-confident reviewer is never overridden upward.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "low",
+        reviewLoopConfidence: "high",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.effectiveConfidence).toBe("low");
+    });
+
+    it("passes when both signals agree on high", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        reviewLoopConfidence: "high",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.decision).toBe("pass");
+      expect(r.effectiveConfidence).toBe("high");
+    });
+
+    it("uses the self-assigned value unchanged when reviewLoopConfidence is omitted (pre-D13-21)", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.decision).toBe("pass");
+      expect(r.effectiveConfidence).toBe("high");
+      expect(r.reason).not.toContain("min(reviewLoopConfidence");
+    });
+
+    it("the reconciled signal interacts with the high floor", () => {
+      // deterministic "medium" caps self-assigned "high" to "medium"; under the
+      // "high" floor medium no longer passes.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        reviewLoopConfidence: "medium",
+        confidenceFloor: "high",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.effectiveConfidence).toBe("medium");
+      expect(r.decision).toBe("second_pass");
+    });
+  });
+
+  describe("D7-18 / D13-16 / D15-20: provider-independence gating on security diffs", () => {
+    it("forces second_pass on a clean same_family verdict for a security-touching diff", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.reason).toContain("security-touching diff");
+      expect(r.reason).toContain("not provider-independent");
+    });
+
+    it("forces second_pass on a clean unknown-independence verdict for a security-touching diff", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        // verdictIndependence omitted -> "unknown"
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.verdictIndependence).toBe("unknown");
+    });
+
+    it("escalates when a security-touching non-independent verdict has no iteration budget", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 0,
+        verdictIndependence: "same_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("escalate");
+      expect(r.reason).toContain("security-touching diff");
+    });
+
+    it("passes a clean different_family verdict on a security-touching diff (already independent)", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "different_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("pass");
+    });
+
+    it("leaves non-security same_family verdicts as pass (everyday-review path unchanged)", () => {
+      // securityTouchingDiff defaults to false -> the pre-Cycle-11 advisory-only
+      // behaviour for same_family is preserved.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+      });
+      expect(r.decision).toBe("pass");
+      expect(r.reason).toContain("share a model family");
+    });
+
+    it("Critical findings still fail regardless of securityTouchingDiff", () => {
+      const r = evaluateReviewGate({
+        severityCount: { critical: 1, warning: 0, suggestion: 0 },
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("fail");
+    });
+
+    it("combines with reconciliation: a low effective confidence below floor takes the standard second_pass path", () => {
+      // When the verdict is already below floor, the standard below-floor
+      // second_pass fires; the security-independence branch only applies to
+      // otherwise-passing verdicts.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        reviewLoopConfidence: "low",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.effectiveConfidence).toBe("low");
+      // below-floor reason, not the security-independence reason
+      expect(r.reason).toContain("below floor");
     });
   });
 });

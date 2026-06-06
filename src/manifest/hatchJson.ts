@@ -961,6 +961,26 @@ export function readMaturityTier(m: HatchManifest | null | undefined): MaturityT
 }
 
 /**
+ * D6-29 (Cycle 11 Wave 3, D6, P3/P7): single-source maturity-marker directive
+ * payload shared by all three adapters (claude/cursor/copilot). Before this,
+ * each adapter inlined its own directive string and they had drifted — copilot
+ * said "The universal floor", "accessibility basics", and "baseline tests on
+ * changed surfaces" with a backtick-wrapped rule path, while claude/cursor said
+ * "Universal floor", "a11y basics", and "baseline tests" with a bare rule path.
+ * The maturity-marker contract is the directive PAYLOAD (this string), applied
+ * identically across adapters; each adapter keeps its native wrapper (claude and
+ * cursor wrap it in an HTML comment so it renders invisibly while staying
+ * greppable; copilot emits it as a blockquote line in copilot-instructions.md).
+ * `efficiencyParity.test.ts` asserts the three adapters emit this exact payload
+ * for the same canonical input. The per-adapter tests assert the interpolated
+ * `right-size to maturity=<tier>` substring + the `rules/hatch3r-right-sizing.md`
+ * pointer, both of which this string carries.
+ */
+export function maturityDirective(tier: MaturityTier): string {
+  return `hatch3r: right-size to maturity=${tier}. Invest only as deep as this tier needs; never default to enterprise-grade. Universal floor (security, correctness, a11y basics, baseline tests on changed surfaces) always binds. See rules/hatch3r-right-sizing.md.`;
+}
+
+/**
  * Lowest maturity rank that defaults the agent-assertiveness floor to `"high"`
  * when the manifest carries no explicit `confidenceFloor` (D13-SA13.3-F2). Ranks
  * come from {@link MATURITY_TIER_RANK}: solo=0, team=1, scaleup=2, enterprise=3.

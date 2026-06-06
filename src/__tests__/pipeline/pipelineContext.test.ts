@@ -13,8 +13,11 @@ import {
   DEFAULT_MAX_VALIDATION_PASS_ITERATIONS,
   VALIDATION_PASS_CALIBRATION,
   evaluatePhase4Completion,
+  resolveEffectiveTier,
+  formatTierUpgradeNote,
   type AgentStatus,
   type PipelineContext,
+  type TierUpgrade,
   type ProjectTypeContext,
   type QualityResults,
   type ReviewVerdict,
@@ -834,5 +837,87 @@ describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
     });
     expect(result.complete).toBe(true);
     expect(result.codeMutatingSpecialists).toEqual(["hatch3r-security"]);
+  });
+});
+
+describe("mid-run tier upgrade (Finding D7-14)", () => {
+  describe("resolveEffectiveTier", () => {
+    it("returns the baseline deepContextTier when no upgrade is recorded", () => {
+      expect(resolveEffectiveTier({ deepContextTier: 2 })).toBe(2);
+    });
+
+    it("returns the upgraded tier when a mid-run upgrade escalates above the baseline", () => {
+      const upgrade: TierUpgrade = {
+        from: 2,
+        to: 3,
+        reason: "Phase 1 research found 12 affected files (initial estimate <5)",
+        atPhase: 1,
+      };
+      expect(resolveEffectiveTier({ deepContextTier: 2, tierUpgrade: upgrade })).toBe(3);
+    });
+
+    it("ignores a malformed non-escalating upgrade (to <= from) — never downgrades coverage", () => {
+      // A bad record must not lower the effective tier below the baseline.
+      expect(
+        resolveEffectiveTier({
+          deepContextTier: 3,
+          tierUpgrade: { from: 3, to: 2, reason: "stale record", atPhase: 2 },
+        }),
+      ).toBe(3);
+      expect(
+        resolveEffectiveTier({
+          deepContextTier: 2,
+          tierUpgrade: { from: 2, to: 2, reason: "no-op", atPhase: 1 },
+        }),
+      ).toBe(2);
+    });
+  });
+
+  describe("formatTierUpgradeNote", () => {
+    it("returns null when no upgrade is recorded", () => {
+      expect(formatTierUpgradeNote({ deepContextTier: 2 })).toBeNull();
+    });
+
+    it("renders a one-line note naming from→to, phase, reason, and the depth consequence", () => {
+      const note = formatTierUpgradeNote({
+        deepContextTier: 1,
+        tierUpgrade: {
+          from: 1,
+          to: 3,
+          reason: "Phase 2 surfaced 4 undocumented dependencies",
+          atPhase: 2,
+        },
+      });
+      expect(note).not.toBeNull();
+      expect(note).toContain("Tier upgraded 1→3 at Phase 2");
+      expect(note).toContain("Phase 2 surfaced 4 undocumented dependencies");
+      expect(note).toContain("Tier 3");
+      // Single line — no embedded newlines in the iteration-summary surfacing.
+      expect(note).not.toContain("\n");
+    });
+
+    it("returns null for a recorded-but-non-escalating upgrade (agrees with resolveEffectiveTier)", () => {
+      expect(
+        formatTierUpgradeNote({
+          deepContextTier: 3,
+          tierUpgrade: { from: 3, to: 2, reason: "stale record", atPhase: 2 },
+        }),
+      ).toBeNull();
+    });
+  });
+
+  it("PipelineContext accepts an optional tierUpgrade field (type-level + runtime carry)", () => {
+    const ctx: Partial<PipelineContext> = {
+      ...validBaseContext(),
+      tierUpgrade: {
+        from: 2,
+        to: 3,
+        reason: "Phase 1 research found >10 affected files",
+        atPhase: 1,
+      },
+    };
+    // The carrier does not disturb existing phase-transition validation.
+    expect(validatePhaseTransition(ctx, 1)).toHaveLength(0);
+    expect(resolveEffectiveTier(ctx as PipelineContext)).toBe(3);
   });
 });

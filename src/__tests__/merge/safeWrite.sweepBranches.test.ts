@@ -7,7 +7,7 @@ import { formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 // ───────────────────────────────────────────────────────────────────────────
 // Remaining branch coverage for src/merge/safeWrite.ts:
 //   - safeWriteFile fileExists() non-ENOENT rethrow (line 31 catch in fileExists)
-//   - sweepOrphanTmpFiles Dirent parent-path fallbacks (parentPath ?? path ?? dir)
+//   - sweepOrphanTmpFiles manual-walk parent derivation (root dir + nested subpath)
 //   - sweepOrphanTmpFiles readdir/unlink non-Error rejection String() branches
 //   - formatOrphanTmpSweepDiagnostic `error ?? "unknown"` fallback
 // ───────────────────────────────────────────────────────────────────────────
@@ -50,7 +50,7 @@ describe("safeWriteFile — fileExists non-ENOENT propagation (mocked access)", 
   });
 });
 
-describe("sweepOrphanTmpFiles — Dirent parent fallbacks + non-Error rejections (mocked node:fs/promises)", () => {
+describe("sweepOrphanTmpFiles — manual-walk parent derivation + non-Error rejections (mocked node:fs/promises)", () => {
   let tempDir: string;
 
   beforeEach(async () => {
@@ -64,20 +64,23 @@ describe("sweepOrphanTmpFiles — Dirent parent fallbacks + non-Error rejections
     vi.resetModules();
   });
 
-  it("falls back to `dir` for the parent when a Dirent exposes neither parentPath nor path", async () => {
-    // The parent resolution is `parentPath ?? path ?? dir`. Older Node Dirent
-    // shapes (or non-standard fs impls) may expose neither field; the sweep
-    // must then join against the scanned `dir`. We hand readdir a synthetic
-    // Dirent lacking both, plus a real aged orphan reachable at `dir`.
+  // D8-8 (Cycle 11 Wave 3): the sweep walks via an explicit manual stack
+  // (`walkTmpCandidates`) that derives a candidate's parent from the directory
+  // it is walking, not from Dirent `parentPath`/`path` fields (the prior
+  // `readdir({recursive:true})` shape). The parent of a root-level orphan is
+  // therefore the scanned `dir`; a nested orphan's parent is the joined subpath.
+  it("derives a root-level orphan's parent from the scanned dir (manual-walk, no Dirent.parentPath)", async () => {
     const orphanName = "target.md.tmp.deadbeef";
 
     vi.doMock("node:fs/promises", async (importOriginal) => {
       const actual = await importOriginal<typeof import("node:fs/promises")>();
       return {
         ...actual,
+        // Synthetic Dirent: a plain file (isDirectory false, isFile true). The
+        // walker derives the parent from the dir it is reading, so no parentPath
+        // field is consulted.
         readdir: vi.fn().mockResolvedValue([
-          // No parentPath, no path — forces the `?? dir` fallback.
-          { name: orphanName, isFile: () => true },
+          { name: orphanName, isDirectory: () => false, isFile: () => true },
         ]),
         // stat returns an aged mtime so the orphan passes the 60s gate.
         stat: vi.fn().mockResolvedValue({ mtimeMs: Date.now() - 600_000 }),
@@ -90,36 +93,42 @@ describe("sweepOrphanTmpFiles — Dirent parent fallbacks + non-Error rejections
 
     expect(result).toHaveLength(1);
     expect(result[0].removed).toBe(true);
-    // Parent fell back to `dir`, so the reported path is dir/orphanName.
     expect(result[0].path).toBe(join(tempDir, orphanName));
   });
 
-  it("uses a Dirent `path` field as the parent when parentPath is absent", async () => {
-    // The middle fallback: `parentPath ?? path`. Provide only `path`.
+  it("derives a nested orphan's parent from the joined subdirectory path (recursive manual walk)", async () => {
     const orphanName = "x.md.tmp.0badf00d";
-    const customParent = join(tempDir, "nested");
+    const subdirName = "nested";
 
     vi.doMock("node:fs/promises", async (importOriginal) => {
       const actual = await importOriginal<typeof import("node:fs/promises")>();
+      const readdirMock = vi.fn(async (path: string) => {
+        if (path === tempDir) {
+          // Root level: one subdirectory to descend into.
+          return [{ name: subdirName, isDirectory: () => true, isFile: () => false }];
+        }
+        // Inside the subdirectory: the orphan tmp file.
+        return [{ name: orphanName, isDirectory: () => false, isFile: () => true }];
+      });
       return {
         ...actual,
-        readdir: vi.fn().mockResolvedValue([
-          { name: orphanName, isFile: () => true, path: customParent },
-        ]),
+        readdir: readdirMock as unknown as typeof actual.readdir,
         stat: vi.fn().mockResolvedValue({ mtimeMs: Date.now() - 600_000 }),
         unlink: vi.fn().mockResolvedValue(undefined),
       };
     });
 
     const { sweepOrphanTmpFiles } = await import("../../merge/safeWrite.js");
-    const result = await sweepOrphanTmpFiles(tempDir);
+    const result = await sweepOrphanTmpFiles(tempDir, { recursive: true });
 
     expect(result).toHaveLength(1);
-    expect(result[0].path).toBe(join(customParent, orphanName));
+    // Parent is the joined subdir path the walker descended into.
+    expect(result[0].path).toBe(join(tempDir, subdirName, orphanName));
   });
 
   it("stringifies a NON-Error readdir rejection in the diagnostic (String() branch) and returns []", async () => {
-    // readdir catch: `err instanceof Error ? err.message : String(err)`.
+    // Top-level readdir rejects → walkTmpCandidates rethrows → sweepOrphanTmpFiles
+    // catch logs `err instanceof Error ? err.message : String(err)` and returns [].
     const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
 
     vi.doMock("node:fs/promises", async (importOriginal) => {
@@ -153,7 +162,7 @@ describe("sweepOrphanTmpFiles — Dirent parent fallbacks + non-Error rejections
       return {
         ...actual,
         readdir: vi.fn().mockResolvedValue([
-          { name: orphanName, isFile: () => true, parentPath: tempDir },
+          { name: orphanName, isDirectory: () => false, isFile: () => true },
         ]),
         stat: vi.fn().mockResolvedValue({ mtimeMs: Date.now() - 600_000 }),
         unlink: vi.fn().mockRejectedValue({ toString: () => "non-error-unlink" }),

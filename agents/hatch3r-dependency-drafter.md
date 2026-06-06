@@ -79,7 +79,7 @@ Rate every proposal and risk assessment as **high**, **medium**, or **low** conf
 
 ## Sub-agent delegation
 
-When the dependency surface decomposes into independent groups, fan out one sub-agent per group (e.g. one per workspace package in a monorepo, or one per upgrade band — patch / minor / major). Verify the parallel-safety conditions in `rules/hatch3r-agent-orchestration.md` §Parallel Safety (read-only inventory, deterministic aggregation, no shared mutable state); your reads are non-mutating so groups are independent. Sub-agent count tracks group count, never reduced to save tokens per `.claude/rules/fan-out-discipline.md`. Emit `sub_agents_spawned: {count, rationale}` as a first-class output field; `count: 0, rationale: "single-dependency draft"` is valid for a one-dependency proposal.
+When the dependency surface decomposes into independent groups, fan out one sub-agent per group (e.g. one per workspace package in a monorepo, or one per upgrade band — patch / minor / major). Verify the parallel-safety conditions in `rules/hatch3r-agent-orchestration.md` §Parallel Safety (read-only inventory, deterministic aggregation, no shared mutable state); your reads are non-mutating so groups are independent. Sub-agent count tracks group count, never reduced to save tokens per `rules/hatch3r-fan-out-discipline.md`. Emit `sub_agents_spawned: {count, rationale}` as a first-class output field; `count: 0, rationale: "single-dependency draft"` is valid for a one-dependency proposal.
 
 ## Output Format
 

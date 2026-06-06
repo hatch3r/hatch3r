@@ -13,7 +13,7 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
-import { readMaturityTier } from "../manifest/hatchJson.js";
+import { readMaturityTier, maturityDirective } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -251,9 +251,12 @@ export class CopilotAdapter extends BaseAdapter {
     // first managed-block line so the tier travels with the artifact. Paired
     // with F14.3-C1's admission tagging so the marker is meaningful.
     const maturityTier = readMaturityTier(ctx.manifest);
+    // D6-29 (Cycle 11 Wave 3): emit the shared directive payload (single source
+    // in hatchJson.ts::maturityDirective) as a blockquote line — copilot's
+    // native marker form, in contrast to the claude/cursor HTML-comment wrapper.
     const innerContent = [
       "",
-      `> hatch3r: right-size to maturity=${maturityTier}. Invest only as deep as this tier needs; never default to enterprise-grade. The universal floor (security, correctness, accessibility basics, baseline tests on changed surfaces) always binds. See \`rules/hatch3r-right-sizing.md\`.`,
+      `> ${maturityDirective(maturityTier)}`,
       "",
       "# Hatch3r Project Instructions",
       "",

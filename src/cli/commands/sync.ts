@@ -21,7 +21,7 @@ import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatc
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
-import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
+import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic, detectConcurrentWriteRisk } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -301,6 +301,19 @@ export async function syncCommand(
       if (tmpDiag) warn(tmpDiag);
     } catch (err) {
       verbose(`sync: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+    // D11-14 (Cycle 11 Wave 3, P6): after the aged-orphan sweep (which removes
+    // crash leftovers), check for a YOUNG `.tmp.<8hex>` — the signal of another
+    // hatch3r write in flight RIGHT NOW. The single-repo default takes no lock,
+    // so two concurrent `hatch3r sync` runs clobber managed files
+    // last-writer-wins; warn the operator to pass HATCH3R_LOCK=1 on both runs.
+    // Returns null (no warning) when locking is already active. Best-effort,
+    // never aborts the sync.
+    try {
+      const concurrencyWarning = await detectConcurrentWriteRisk(rootDir, { recursive: true });
+      if (concurrencyWarning) warn(concurrencyWarning);
+    } catch (err) {
+      verbose(`sync: concurrency-risk check skipped — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 

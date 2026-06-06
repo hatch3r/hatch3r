@@ -117,7 +117,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ3
 
 ## Sub-agent delegation
 
-See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-domain audits run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ3 unit of decomposition: **security domain**. Default decomposition: (a) authentication flows (OAuth 2.1 + OIDC + DPoP + JWT BCP + cookies), (b) WebAuthn server ceremony, (c) supply-chain floor (SBOM + provenance + SHA-pin + cosign + license allow-list), (d) OWASP ASI01-10 control coverage on agent-produced code, (e) CVE advisory acknowledgement. Cross-cutting analysis (session-fixation spanning auth + cookie + WebAuthn) runs after per-domain audits complete.
+See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-domain audits run in parallel per `rules/hatch3r-fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ3 unit of decomposition: **security domain**. Default decomposition: (a) authentication flows (OAuth 2.1 + OIDC + DPoP + JWT BCP + cookies), (b) WebAuthn server ceremony, (c) supply-chain floor (SBOM + provenance + SHA-pin + cosign + license allow-list), (d) OWASP ASI01-10 control coverage on agent-produced code, (e) CVE advisory acknowledgement. Cross-cutting analysis (session-fixation spanning auth + cookie + WebAuthn) runs after per-domain audits complete.
 
 ## Audit checklist
 

@@ -215,7 +215,7 @@ Status decision rules:
 
 ## Sub-agent fan-out contract
 
-This command emits the `sub_agents_spawned` field declared in frontmatter (`count: 2`) per `.claude/rules/fan-out-discipline.md`. The two sub-agents (`hatch3r-security` verification, then `hatch3r-pack-installer` install) run on a dependency edge — the install consumes the verification verdict — so serialization here is dependency-driven, not cost-driven. Per CONSTITUTION §2 P8 B2, token cost is never a valid reason to serialize independent work; this serialization is valid only because a true dependency exists.
+This command emits the `sub_agents_spawned` field declared in frontmatter (`count: 2`) per `rules/hatch3r-fan-out-discipline.md`. The two sub-agents (`hatch3r-security` verification, then `hatch3r-pack-installer` install) run on a dependency edge — the install consumes the verification verdict — so serialization here is dependency-driven, not cost-driven. Per CONSTITUTION §2 P8 B2, token cost is never a valid reason to serialize independent work; this serialization is valid only because a true dependency exists.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 

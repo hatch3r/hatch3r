@@ -1024,7 +1024,7 @@ Confirm, or tell me what to adjust."
 
 ### Step 6: Generate Initial todo.md
 
-From the feature researcher's priority ordering, the business model researcher's GTM requirements, and the production researcher's infrastructure needs, create a `todo.md` at the project root in the format that `hatch3r-board-fill` expects. Tag each item with `[BIZ]`, `[TECH]`, or `[BOTH]`.
+From the feature researcher's priority ordering, the business model researcher's GTM requirements, and the production researcher's infrastructure needs, create a `todo.md` at the project root in the canonical **Todo Grammar** defined in `hatch3r-board-shared` — the single source of truth that `hatch3r-board-fill` Step 1 parses. Emit `## P{N} — {Label}` priority headers and `- [ ] **[BIZ|TECH|BOTH] {title}**: {description}. Ref: {path}.` item lines; tag each item with `[BIZ]`, `[TECH]`, or `[BOTH]`.
 
 ```markdown
 ## P0 — Critical / Launch Blockers
@@ -1326,7 +1326,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Always use web search** in business model and production researcher sub-agents. These sub-agents MUST research externally — do not rely solely on training data.
 - **Stay within the project scope** defined by the user in Step 1. Do not invent features or modules the user did not describe or imply.
 - **Specs must use stable IDs from the glossaries.** Generate glossaries first, then reference their IDs in all subsequent specs. Business and technical glossaries must cross-reference each other.
-- **todo.md must be compatible with board-fill format** — markdown checklist with bold titles, grouped by priority, referencing source specs, tagged with `[BIZ]`/`[TECH]`/`[BOTH]`.
+- **todo.md must match the canonical Todo Grammar** in `hatch3r-board-shared` — the single source of truth `hatch3r-board-fill` Step 1 parses (`## P{N} — {Label}` headers; `- [ ] **[BIZ|TECH|BOTH] {title}**: {description}. Ref: {path}.` items referencing source specs).
 - **Do not over-specify.** Keep specs at the right level of detail for the project's stage. Avoid implementation details that belong in code, not documentation.
 - **Stage-adaptive recommendations.** Never recommend enterprise-tier (per CONSTITUTION §6 Decision 4) solutions for solo-tier pre-revenue startups. Never recommend MVP shortcuts for scaleup-tier or enterprise-tier companies. Calibrate all recommendations to the company stage from Step 1c.
 - **All 7 researchers must complete before proceeding to Step 3.** Do not generate specs from partial research.

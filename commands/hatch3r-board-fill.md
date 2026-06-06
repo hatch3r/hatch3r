@@ -114,8 +114,8 @@ Auto-tiering can misclassify — a 3-item todo scored as Tier 3, or a 20-item gr
 ### Step 1: Read and Parse todo.md
 
 1. Read `todo.md` at the project root.
-2. Parse each non-empty line as a separate todo item. Strip leading `- ` or `* ` markers.
-3. Present the parsed list numbered.
+2. Parse the file with the **Todo Grammar** in `hatch3r-board-shared` (the single source of truth the `hatch3r-roadmap` and `hatch3r-project-spec` producers emit). Apply its parse rules in order: skip `## P{N}` / `## Future Ideas` headers (recording each as the priority default for items beneath it — not a todo item), strip the leading `- `/`* ` list marker plus any `[ ]`/`[x]` checkbox token, extract the `**[BIZ|TECH|BOTH]**` scope tag out of the title (feed it to Step 3 classification), split the bold title from the description, and capture a trailing `Ref: {path}.` as a documentation reference. Lines that do not match the todo-item form are skipped with a one-line note so the user can fix malformed entries.
+3. Present the parsed list numbered. Show each item's stripped title, its carried `priority:p{N}` default (from the enclosing header), and its `[BIZ|TECH|BOTH]` tag so the user can confirm the parse before processing.
 
 **ASK:** "Here are the items I found in todo.md. Which items should I process? (all / specific numbers / exclude specific numbers)"
 
@@ -290,7 +290,7 @@ If the user declines to answer a dimension ("skip", "not sure", "figure it out")
 
 ### Step 3: Issue Type & Executor Classification
 
-For each remaining item, classify across all dimensions using the mapping tables below **combined with Triage Context from Step 2.5**. Triage answers take precedence over keyword heuristics when they conflict.
+For each remaining item, classify across all dimensions using the mapping tables below **combined with Triage Context from Step 2.5** and the `[BIZ|TECH|BOTH]` scope tag extracted in Step 1. Triage answers take precedence over keyword heuristics when they conflict. The scope tag is a soft signal: `TECH` leans `executor:agent`/`executor:hybrid` and a technical `area:*`; `BIZ` leans `executor:human`/`executor:hybrid` and surfaces stakeholder/value context; `BOTH` flags cross-cutting work for decomposition review in Step 5c. Triage answers and the keyword tables override the tag when they conflict.
 
 **Type:**
 

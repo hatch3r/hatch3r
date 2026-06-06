@@ -128,7 +128,7 @@ This skill delegates per task size:
 
 Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
 
-Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
+Source: `rules/hatch3r-fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
 
 ## Required Agent Delegation
 

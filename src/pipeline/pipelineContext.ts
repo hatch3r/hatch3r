@@ -473,6 +473,38 @@ export interface PendingUserInput {
 }
 
 /**
+ * Mid-run tier upgrade carrier (Finding D7-14).
+ *
+ * `deepContextTier` is a single pre-Phase-1 value. The Complexity-Driven
+ * Adaptation table in `rules/hatch3r-agent-orchestration-detail.md` mandates
+ * upgrading the tier mid-run when execution surfaces complexity the initial
+ * score missed (e.g. Phase 1 research finds >10 affected files when the initial
+ * estimate was <5). Without a typed carrier the upgraded tier lived only in the
+ * orchestrator's prose reasoning and never reached the Tier→Phase-4-depth
+ * mapping in `rules/hatch3r-agent-orchestration.md` (Deep Context Integration),
+ * so Phase 4 specialist depth stayed pinned to the stale initial tier. This
+ * record is that carrier: the orchestrator populates it when it adapts the tier,
+ * `resolveEffectiveTier` reads it so downstream depth selection uses the
+ * upgraded value, and `formatTierUpgradeNote` renders the one-line iteration-
+ * summary surfacing so the adaptation is visible, not silent.
+ */
+export interface TierUpgrade {
+  /** Tier the run started at (the pre-Phase-1 `deepContextTier`). */
+  from: DeepContextTier;
+  /** Tier the run was upgraded to mid-execution. */
+  to: DeepContextTier;
+  /**
+   * Adaptation trigger naming the observed complexity signal, cited per
+   * Charter directive 20 (never adapt silently). Matches a Complexity-Driven
+   * Adaptation table row, e.g. "Phase 1 research found 12 affected files
+   * (initial estimate <5)".
+   */
+  reason: string;
+  /** Phase at which the upgrade was applied. */
+  atPhase: 1 | 2 | 3 | 4;
+}
+
+/**
  * The PipelineContext is the canonical handoff object passed between
  * all four pipeline phases. Each phase populates its section.
  */
@@ -482,8 +514,18 @@ export interface PipelineContext {
   taskType: TaskType;
   /** Issue number or null for plain chat. */
   issueRef: string | null;
-  /** From hatch3r-deep-context scoring. */
+  /** From hatch3r-deep-context scoring (the pre-Phase-1 baseline tier). */
   deepContextTier: DeepContextTier;
+
+  /**
+   * Mid-run tier upgrade applied by the orchestrator when execution surfaced
+   * complexity the initial `deepContextTier` missed (Finding D7-14). Absent →
+   * no adaptation occurred and `deepContextTier` is authoritative. When present,
+   * `resolveEffectiveTier(context)` returns `tierUpgrade.to` so the Tier→
+   * Phase-4-depth mapping uses the upgraded tier; `formatTierUpgradeNote` renders
+   * the one-line iteration-summary surfacing.
+   */
+  tierUpgrade?: TierUpgrade;
 
   /** Detected project type for specialist selection (Finding #56). */
   projectType?: ProjectTypeContext;
@@ -533,6 +575,60 @@ export interface PipelineContext {
   completedAt: string | null;
   /** Total duration in milliseconds. */
   totalDuration: number | null;
+}
+
+// ── Mid-run tier upgrade resolution (Finding D7-14) ──────────────
+
+/**
+ * Resolve the tier the orchestrator should drive downstream depth from.
+ *
+ * Finding D7-14: returns `tierUpgrade.to` when a mid-run upgrade is recorded,
+ * else the baseline `deepContextTier`. The Tier→Phase-4-depth mapping in
+ * `rules/hatch3r-agent-orchestration.md` (Deep Context Integration) MUST read
+ * the effective tier via this function rather than `context.deepContextTier`
+ * directly, so an upgrade applied at Phase 1 (e.g. research found >10 affected
+ * files) actually raises Phase 4 specialist depth instead of leaving it pinned
+ * to the stale initial score.
+ *
+ * Defensive: a malformed upgrade whose `to` is not a smaller-blast-radius
+ * escalation above `from` (i.e. `to <= from`) is ignored — the carrier only
+ * ever raises the tier, never silently lowers it, so a bad record cannot
+ * downgrade quality coverage. Pure function with no I/O; safe to call from
+ * read-only orchestrator paths.
+ */
+export function resolveEffectiveTier(
+  context: Pick<PipelineContext, "deepContextTier" | "tierUpgrade">,
+): DeepContextTier {
+  const upgrade = context.tierUpgrade;
+  if (upgrade && upgrade.to > context.deepContextTier) {
+    return upgrade.to;
+  }
+  return context.deepContextTier;
+}
+
+/**
+ * Render the one-line iteration-summary surfacing for a mid-run tier upgrade,
+ * or `null` when no upgrade is recorded (Finding D7-14).
+ *
+ * The orchestrator appends the returned string to its iteration summary when a
+ * tier upgrade occurred, so the adaptation is visible to the user rather than
+ * silent. Mirrors the `formatPhaseHandoffWarning` surfacing pattern in
+ * `src/pipeline/observability.ts`. A recorded-but-non-escalating upgrade
+ * (`to <= from`, the same case `resolveEffectiveTier` ignores) returns `null`
+ * so the two helpers agree on what counts as an effective upgrade. Pure
+ * function; never throws.
+ */
+export function formatTierUpgradeNote(
+  context: Pick<PipelineContext, "deepContextTier" | "tierUpgrade">,
+): string | null {
+  const upgrade = context.tierUpgrade;
+  if (!upgrade || upgrade.to <= context.deepContextTier) {
+    return null;
+  }
+  return (
+    `Tier upgraded ${upgrade.from}→${upgrade.to} at Phase ${upgrade.atPhase}: ` +
+    `${upgrade.reason} — Phase 4 specialist depth now scales to Tier ${upgrade.to}.`
+  );
 }
 
 // ── Phase Skip Criteria (Finding #53) ────────────────────────────

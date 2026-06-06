@@ -13,7 +13,7 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
-import { readMaturityTier } from "../manifest/hatchJson.js";
+import { readMaturityTier, maturityDirective } from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -49,8 +49,10 @@ import {
  * the tier shown here matches the content actually selected.
  */
 function cursorMaturityHeader(ctx: AdapterContext): string {
-  const tier = readMaturityTier(ctx.manifest);
-  return `<!-- hatch3r: right-size to maturity=${tier}. Invest only as deep as this tier needs; never default to enterprise-grade. Universal floor (security, correctness, a11y basics, baseline tests) always binds. See rules/hatch3r-right-sizing.md. -->`;
+  // D6-29 (Cycle 11 Wave 3): wrap the shared directive payload (single source in
+  // hatchJson.ts::maturityDirective) in an HTML comment so it renders invisibly
+  // in Cursor's rule view while staying greppable for drift checks.
+  return `<!-- ${maturityDirective(readMaturityTier(ctx.manifest))} -->`;
 }
 
 /**

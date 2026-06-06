@@ -31,11 +31,13 @@ Score every task against these signals before implementation. Each signal adds w
 
 ### Tier Assignment
 
-| Total Weight | Tier | Label |
-|-------------|------|-------|
-| 0–2 | 1 | Light |
-| 3–5 | 2 | Standard |
-| 6+ | 3 | Deep |
+| Total Weight | Tier | Label | Model Class (per-adapter) |
+|-------------|------|-------|---------------------------|
+| 0–2 | 1 | Light | economy |
+| 3–5 | 2 | Standard | default |
+| 6+ | 3 | Deep | strongest |
+
+The **Model Class** column is an abstract effort lever: tier scales the model class the same way it scales researcher depth (`quick`/`deep`) and Phase 4 specialist depth — `economy` for cheap mechanical changes, `default` for routine multi-file work, `strongest` for high-blast-radius reasoning. It is a hint resolved per-adapter against that adapter's model map (`src/models/resolve.ts::resolveAgentModel`, `models.default`), not a literal model id — adapters with no model-routing surface ignore it. Model class is a first-order effort lever alongside depth (`hatch3r-agent-orchestration` -> Tier-to-Phase-4 specialist depth mapping).
 
 ## Tier Actions
 

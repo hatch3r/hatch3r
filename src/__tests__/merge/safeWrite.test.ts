@@ -9,6 +9,7 @@ import {
   safeWriteFile,
   sweepOrphanTmpFiles,
   formatOrphanTmpSweepDiagnostic,
+  detectConcurrentWriteRisk,
 } from "../../merge/safeWrite.js";
 
 describe("safeWrite", () => {
@@ -509,12 +510,17 @@ describe("safeWrite", () => {
       expect(bakExists).toBe(false);
     });
 
-    it("overwrites existing .bak file on repeated corruption recovery", async () => {
+    // D11-12 (Cycle 11 Wave 3): a SECOND corruption/recovery must NOT clobber the
+    // `.bak` written by the FIRST recovery — that single rolling slot was the only
+    // off-file copy of the user's original, and overwriting it silently lost the
+    // earlier backup. The canonical `.bak` is now used only when free; a second
+    // recovery preserves it and writes a uniquely-suffixed `.bak.<8hex>` instead.
+    it("does not clobber an existing .bak on repeated recovery — preserves it and writes .bak.<8hex>", async () => {
       const dir = await createTempDir();
       const filePath = join(dir, "repeat-corrupt.md");
       const bakPath = filePath + ".bak";
 
-      // First corruption
+      // First corruption → canonical `.bak` is free, so it is used.
       const corrupted1 = [
         "<!-- HATCH3R:BEGIN -->",
         "first corruption",
@@ -539,10 +545,21 @@ describe("safeWrite", () => {
       ].join("\n");
       await writeFile(filePath, corrupted2, "utf-8");
 
-      await safeWriteFile(filePath, "repair2", { managedContent: "m2" });
-      const bak2 = await readFile(bakPath, "utf-8");
-      // .bak should now contain the second corruption
+      const result2 = await safeWriteFile(filePath, "repair2", { managedContent: "m2" });
+
+      // The first backup is INTACT — not overwritten.
+      const bak1After = await readFile(bakPath, "utf-8");
+      expect(bak1After).toBe(corrupted1);
+
+      // The second recovery wrote a distinct, uniquely-suffixed backup.
+      const allFiles = await readdir(dir);
+      const suffixedBaks = allFiles.filter((f) => /^repeat-corrupt\.md\.bak\.[0-9a-f]{8}$/.test(f));
+      expect(suffixedBaks).toHaveLength(1);
+      const bak2 = await readFile(join(dir, suffixedBaks[0]), "utf-8");
       expect(bak2).toBe(corrupted2);
+
+      // The warning names the actual (suffixed) backup path the recovery used.
+      expect(result2.warning).toContain(join(dir, suffixedBaks[0]));
     });
 
     it("recovery replaces file with full content parameter, not managedContent", async () => {
@@ -1200,5 +1217,161 @@ describe("safeWrite", () => {
       const files = await readdir(dir);
       expect(files.filter((f) => f.includes(".tmp."))).toEqual([]);
     });
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// D8-8 (Cycle 11 Wave 3, P6): the recursive sweep prunes noise directories
+// (node_modules, .git, .hg, .svn, dist, …) so it never walks or deletes inside
+// them, and the suffix matcher requires a non-empty basename before `.tmp.<8hex>`.
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("sweepOrphanTmpFiles — D8-8 skip-dir pruning + match tightening", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function createTempDir(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-sweep-skip-"));
+    return tempDir;
+  }
+
+  async function makeAgedOrphan(dir: string, name: string): Promise<string> {
+    const path = join(dir, name);
+    await writeFile(path, "orphan", "utf-8");
+    const past = new Date(Date.now() - 120_000);
+    await utimes(path, past, past);
+    return path;
+  }
+
+  for (const skipDir of ["node_modules", ".git", ".hg", ".svn", "dist", "coverage", ".next", ".turbo", ".cache"]) {
+    it(`does not descend into ${skipDir}/ even with recursive: true`, async () => {
+      const dir = await createTempDir();
+      const { mkdir } = await import("node:fs/promises");
+      const nested = join(dir, skipDir);
+      await mkdir(nested, { recursive: true });
+      const insideSkip = await makeAgedOrphan(nested, "dep.md.tmp.deadbeef");
+      const atRoot = await makeAgedOrphan(dir, "real.md.tmp.cafef00d");
+
+      const result = await sweepOrphanTmpFiles(dir, { recursive: true });
+
+      // Only the root-level orphan is swept; the one inside the skip-dir survives.
+      expect(result).toHaveLength(1);
+      expect(result[0].path).toBe(atRoot);
+      const survived = await access(insideSkip).then(() => true).catch(() => false);
+      expect(survived).toBe(true);
+    });
+  }
+
+  it("sweeps an orphan in a normal (non-skip) nested directory", async () => {
+    const dir = await createTempDir();
+    const { mkdir } = await import("node:fs/promises");
+    const nested = join(dir, ".cursor", "rules");
+    await mkdir(nested, { recursive: true });
+    const orphan = await makeAgedOrphan(nested, "50-hatch3r-x.mdc.tmp.0badf00d");
+
+    const result = await sweepOrphanTmpFiles(dir, { recursive: true });
+
+    expect(result).toHaveLength(1);
+    expect(result[0].path).toBe(orphan);
+    expect(result[0].removed).toBe(true);
+  });
+
+  it("ignores a bare `.tmp.<8hex>` with no basename before it (match tightening)", async () => {
+    const dir = await createTempDir();
+    // A dotfile whose entire name is `.tmp.<8hex>` — no owning file precedes it.
+    const bare = await makeAgedOrphan(dir, ".tmp.abcdef01");
+
+    const result = await sweepOrphanTmpFiles(dir);
+
+    expect(result).toEqual([]);
+    const survived = await access(bare).then(() => true).catch(() => false);
+    expect(survived).toBe(true);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// D11-14 (Cycle 11 Wave 3, P6): detectConcurrentWriteRisk warns when a YOUNG
+// `.tmp.<8hex>` (a live in-flight write) is present and no lock is held.
+// ──────────────────────────────────────────────────────────────────────────
+
+describe("detectConcurrentWriteRisk (D11-14)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    delete process.env.HATCH3R_LOCK;
+  });
+
+  async function createTempDir(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-conc-"));
+    return tempDir;
+  }
+
+  it("returns a HATCH3R_LOCK=1 warning when a fresh (young) tmp file is present", async () => {
+    const dir = await createTempDir();
+    const fresh = join(dir, "managed.md.tmp.abcd1234");
+    await writeFile(fresh, "in-flight", "utf-8"); // mtime ~ now, under the 60s gate
+
+    const warning = await detectConcurrentWriteRisk(dir);
+
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("HATCH3R_LOCK=1");
+    expect(warning).toContain(fresh);
+  });
+
+  it("returns null when the only tmp file is aged (a crash orphan, not live contention)", async () => {
+    const dir = await createTempDir();
+    const aged = join(dir, "managed.md.tmp.abcd1234");
+    await writeFile(aged, "orphan", "utf-8");
+    const past = new Date(Date.now() - 120_000);
+    await utimes(aged, past, past);
+
+    const warning = await detectConcurrentWriteRisk(dir);
+
+    expect(warning).toBeNull();
+  });
+
+  it("returns null when there is no tmp file at all", async () => {
+    const dir = await createTempDir();
+    await writeFile(join(dir, "regular.md"), "x", "utf-8");
+
+    const warning = await detectConcurrentWriteRisk(dir);
+
+    expect(warning).toBeNull();
+  });
+
+  it("returns null when locking is already enabled (HATCH3R_LOCK=1) — overlap serializes", async () => {
+    const dir = await createTempDir();
+    const fresh = join(dir, "managed.md.tmp.abcd1234");
+    await writeFile(fresh, "in-flight", "utf-8");
+    process.env.HATCH3R_LOCK = "1";
+
+    const warning = await detectConcurrentWriteRisk(dir);
+
+    expect(warning).toBeNull();
+  });
+
+  it("returns null (no throw) when the directory does not exist", async () => {
+    const warning = await detectConcurrentWriteRisk(
+      "/definitely-missing-hatch3r-concurrency-dir",
+    );
+    expect(warning).toBeNull();
+  });
+
+  it("finds a young tmp file nested under a normal subdirectory with recursive: true", async () => {
+    const dir = await createTempDir();
+    const { mkdir } = await import("node:fs/promises");
+    const nested = join(dir, ".claude");
+    await mkdir(nested, { recursive: true });
+    const fresh = join(nested, "CLAUDE.md.tmp.99887766");
+    await writeFile(fresh, "in-flight", "utf-8");
+
+    const warning = await detectConcurrentWriteRisk(dir, { recursive: true });
+
+    expect(warning).not.toBeNull();
+    expect(warning).toContain(fresh);
   });
 });

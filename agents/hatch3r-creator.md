@@ -107,11 +107,11 @@ Return to the orchestrator:
 
 `status: "WRITTEN"` is returned only when every strict gate passes. `STRICT_GATE_FAILED` lists every blocking error. `BLOCKED` signals a precondition failure (e.g., file collision detected before the gate funnel ran).
 
-The schema intentionally carries no `delegation_proof_id` field. This agent runs in end-user contexts where the framework-dev End-of-Turn Delegation Attestation rule (`.claude/rules/fan-out-discipline.md`) is not loaded, so no proof-id is emitted or expected. Do not add one to "fix" the gap — it would be dead frontmatter on the user surface (D20-SA20.1-F20.1.B2).
+The schema intentionally carries no `delegation_proof_id` field. This agent runs in end-user contexts where the framework-dev End-of-Turn Delegation Attestation rule (the repo-internal `.claude/`-loaded twin of this discipline, not shipped to user repos) is not loaded, so no proof-id is emitted or expected. Do not add one to "fix" the gap — it would be dead frontmatter on the user surface (D20-SA20.1-F20.1.B2).
 
 Per the impact-horizon and pillar-progress emission convention, `impact_horizon` declares whether this user artifact yields short-, medium-, or long-term value (default `medium` for new agents/skills, `short` for one-shot rules, `long` for new commands that ship with reusable orchestration). `progress_toward_pillar` records the pillar-delta — creator output is governance-axis P5 (Governance Self-Quality) because user-tier content extends the framework's quality-floor surface.
 
-Per CONSTITUTION §2 P8 B2 and `.claude/rules/fan-out-discipline.md`, `sub_agents_spawned` reports the count + rationale for any internal fan-out within this invocation (Finding D7-M15 / D7-SA7.5-5). The creator authors exactly one artifact per invocation and does not currently delegate downstream sub-agents, so the canonical emission is:
+Per CONSTITUTION §2 P8 B2 and `rules/hatch3r-fan-out-discipline.md`, `sub_agents_spawned` reports the count + rationale for any internal fan-out within this invocation (Finding D7-M15 / D7-SA7.5-5). The creator authors exactly one artifact per invocation and does not currently delegate downstream sub-agents, so the canonical emission is:
 
 ```
 sub_agents_spawned:

@@ -48,7 +48,7 @@ Use `hatch3r-diagnose` when a hatch3r command misbehaves, adapter output looks w
 Optional positional argument: `<symptom>` (free-text description of the problem).
 
 - If supplied: seed the Step 2 triage with the described symptom.
-- If omitted: capture the full state bundle (Step 1) and ASK the user which symptom to investigate before delegating — a blind full-surface diagnosis is over-fan-out per `.claude/rules/fan-out-discipline.md`.
+- If omitted: capture the full state bundle (Step 1) and ASK the user which symptom to investigate before delegating — a blind full-surface diagnosis is over-fan-out per `rules/hatch3r-fan-out-discipline.md`.
 
 ---
 

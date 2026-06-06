@@ -173,7 +173,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "ba5bbf30d4a8a53422984b9606407ec49455be8e75d0f9e5dec0b4a82074d065",
+    "bodyHash": "72ba41e23835fabd670dd48037184a501576745d5d654e34c41e792637c1d1b7",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "AGENT_TEAMS",
@@ -256,7 +256,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "bodyHash": "82fbb9ff9d5e228b1bdd147f3ca21f4df7a8caa388092e3216cac594e07adee9",
+    "bodyHash": "b6c079ed7b24f9e6c00d081309a476b85561b505c6b4eda07982d29caaeb6266",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",
@@ -454,7 +454,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "bd91f85e6c42f5cadf3d03b9f57b525bcf59697d9ce79c6397b7e02c3140b42f",
+    "bodyHash": "0e2c5462233d690989cdd8ddb671c088ffb08e5233a2b97b691e89ff6cc6f79b",
     "contentMarkers": [
       "CURSOR_GLOBS",
       "FRONTMATTER",
@@ -465,7 +465,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "8f390b22eaff566a378c552b9d792c9d6b9be4973f17b170a7dbc30b0155a2ca",
+    "bodyHash": "a399e11f586066695cff950429142df796624a3a7b01e792606ae819ed37a0f5",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",

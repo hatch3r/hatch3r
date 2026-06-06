@@ -41,7 +41,7 @@ The protocol binds at Tier 2 and Tier 3 only. Score the task per the `hatch3r-de
 
 - **Tier 1** — trivial single-file edit, no cross-module reasoning. The header and attestation are NOT required; a single targeted edit is acceptable. State "Tier 1 — protocol not required" and exit the scaffold.
 - **Tier 2** — multi-file or behavior-changing task with bounded scope. Full protocol applies.
-- **Tier 3** — multi-module / high-risk task. Full protocol applies; fan out one sub-agent per independent module per `.claude/rules/fan-out-discipline.md` (P8 B2).
+- **Tier 3** — multi-module / high-risk task. Full protocol applies; fan out one sub-agent per independent module per `rules/hatch3r-fan-out-discipline.md` (P8 B2).
 
 Record the score and the one-line rationale. The tier is the load-bearing input to every block below.
 
@@ -105,7 +105,7 @@ Before declaring the turn complete, verify every item — a failed item is the C
 - [ ] Per-Turn Pipeline-State Header emitted at the start of every task-touching turn (Step 2).
 - [ ] Zero inline `Edit` / `Write` / `MultiEdit` from the orchestrator turn; every code mutation went through `hatch3r-implementer` or `hatch3r-fixer` (Step 3).
 - [ ] End-of-Turn Delegation Attestation emitted before the Iteration Summary, every mutated file attributed to a sub-agent with its `delegation_proof_id` quoted verbatim (Step 4).
-- [ ] `sub_agents_spawned: { count, rationale }` emitted as a first-class field per `.claude/rules/fan-out-discipline.md`.
+- [ ] `sub_agents_spawned: { count, rationale }` emitted as a first-class field per `rules/hatch3r-fan-out-discipline.md`.
 - [ ] Iteration Summary follows per `rules/hatch3r-iteration-summary.md`.
 
 ## Error Handling
@@ -126,6 +126,6 @@ Before declaring the turn complete, verify every item — a failed item is the C
 
 - `CLAUDE.md` -> "Orchestrator Self-Discipline (Bypass Protection)" — the three-requirement contract this skill scaffolds; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
 - `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive (No Inline Implementation) — block formats and rules reproduced here; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
-- `.claude/rules/fan-out-discipline.md` — P8 B2 fan-out scaling, `sub_agents_spawned` first-class field, attestation forgery-resistance rationale; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
+- `rules/hatch3r-fan-out-discipline.md` — P8 B2 fan-out scaling, `sub_agents_spawned` first-class field, attestation forgery-resistance rationale; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
 - `skills/hatch3r-incident-response/SKILL.md` — canonical skill structure (Quick Start + Step pattern + Fan-out Discipline section) modeled here; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
 - hatch3r governance self-audit analysis — source rationale for the missing ad-hoc Tier >= 2 orchestrator scaffold; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).

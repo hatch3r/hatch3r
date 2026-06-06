@@ -25,6 +25,14 @@
  * Pillar service: P7 (Efficiency-First, static-first contract preservation
  * across adapters) + P3 (Adapter Currency, consistent treatment of canonical
  * structure across the supported set).
+ *
+ * D6-28 / D6-29 (Cycle 11 Wave 3) extend this suite past frontmatter ordering —
+ * the gap that let D6-1 (globs dropped) ship green — with three cross-adapter
+ * parity gates: (1) maturity-marker directive payload is byte-identical across
+ * adapters; (2) scoped rules carry the real glob via each native scoping
+ * primitive (cursor `globs:`, copilot `applyTo:`, claude `paths:`), never the
+ * literal "conditional"; (3) the always-loaded (session-start) rule count is
+ * equal across all three adapters (tolerance band 0).
  */
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { mkdtemp, rm, cp } from "node:fs/promises";
@@ -33,7 +41,8 @@ import { tmpdir } from "node:os";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
-import { createManifest } from "../../manifest/hatchJson.js";
+import { createManifest, maturityDirective } from "../../manifest/hatchJson.js";
+import type { HatchManifest, MaturityTier } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -162,5 +171,195 @@ describe("cross-adapter efficiency parity (D6-M14)", () => {
         ).toBe(true);
       }
     }
+  });
+
+  /**
+   * D6-29 (Cycle 11 Wave 3): maturity-marker contract parity.
+   *
+   * Pre-fix each adapter inlined its own maturity directive string and they had
+   * drifted — copilot said "The universal floor", "accessibility basics", and
+   * "baseline tests on changed surfaces" with a backtick-wrapped rule path,
+   * while claude/cursor said "Universal floor", "a11y basics", and "baseline
+   * tests" with a bare path. The maturity-marker CONTRACT is the directive
+   * PAYLOAD (`hatchJson.ts::maturityDirective`); each adapter keeps its native
+   * wrapper (claude/cursor → HTML comment so it renders invisibly while staying
+   * greppable; copilot → blockquote). This gate asserts every adapter emits the
+   * identical payload for the same canonical input + resolved tier, so a future
+   * adapter-local reword re-drifts here instead of shipping green.
+   *
+   * Scope of the assertion: the directive payload bytes only — the comment-vs-
+   * blockquote wrapper is an adapter-native rendering detail, consistent with
+   * this suite's structural (not byte-equal) contract philosophy above.
+   */
+  it("maturity-marker directive payload is identical across adapters", async () => {
+    const tiers: MaturityTier[] = ["solo", "team", "scaleup", "enterprise"];
+    const adapters = [
+      { name: "claude", inst: new ClaudeAdapter(), tools: ["claude"] as const },
+      { name: "cursor", inst: new CursorAdapter(), tools: ["cursor"] as const },
+      { name: "copilot", inst: new CopilotAdapter(), tools: ["copilot"] as const },
+    ];
+
+    for (const tier of tiers) {
+      const expectedPayload = maturityDirective(tier);
+      for (const { name, inst, tools } of adapters) {
+        const manifest: HatchManifest = {
+          ...createManifest({
+            tools: tools as unknown as Parameters<typeof createManifest>[0]["tools"],
+            mcpServers: [],
+          }),
+          maturity: tier,
+        };
+        const outputs = await inst.generate(fixtureRoot, manifest);
+        // The payload appears in the primary memory/instruction surface for
+        // each adapter (CLAUDE.md, any .cursor/rules/*.mdc body, copilot-
+        // instructions.md). Concatenate all output bodies and assert the exact
+        // shared payload is present — proves the directive text is identical,
+        // independent of which surface or wrapper carries it.
+        const corpus = outputs.map((o) => o.content ?? "").join("\n");
+        expect(
+          corpus.includes(expectedPayload),
+          `${name} adapter at maturity=${tier} did not emit the shared maturityDirective payload verbatim — adapter-local reword re-drifted the maturity-marker contract (D6-29)`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  /**
+   * D6-29 (Cycle 11 Wave 3): scoped-rule parity — the test gap that let D6-1
+   * (globs dropped) and D6-28 (footprint asymmetry) ship green.
+   *
+   * The pre-fix suite asserted only frontmatter-first ordering and had zero
+   * glob/scope/applyTo/paths coverage, so the 52/65 conditional rules that
+   * mis-scoped to the literal "conditional" glob never surfaced. This gate runs
+   * the fixture's scoped-rule (canonical glob-scoped to TypeScript files) through
+   * every adapter and asserts each emits the REAL glob via its native scoping
+   * primitive — cursor via the `globs:` frontmatter array, copilot via the
+   * `applyTo:` frontmatter string, claude via the `paths:` frontmatter array.
+   * The literal string "conditional" (the D6-1 mis-scope value) must NOT appear
+   * in any rule scoping field. (Glob literals live in the assertions below, not
+   * here, to keep the JSDoc free of the comment-closing token.)
+   */
+  it("scoped rules carry real globs (not the literal 'conditional') across adapters", async () => {
+    const cursor = new CursorAdapter();
+    const copilot = new CopilotAdapter();
+    const claude = new ClaudeAdapter();
+    const mk = (t: "cursor" | "copilot" | "claude") =>
+      createManifest({
+        tools: [t] as unknown as Parameters<typeof createManifest>[0]["tools"],
+        mcpServers: [],
+      });
+
+    const cursorOut = await cursor.generate(fixtureRoot, mk("cursor"));
+    const cursorScoped = cursorOut.find(
+      (o) => o.path.startsWith(".cursor/rules/") && o.path.includes("scoped-rule"),
+    );
+    expect(cursorScoped, "cursor emitted no .cursor/rules/ scoped-rule output").toBeDefined();
+    expect(cursorScoped!.content).toContain('globs: ["**/*.ts"]');
+    expect(cursorScoped!.content).not.toContain('globs: ["conditional"]');
+
+    const copilotOut = await copilot.generate(fixtureRoot, mk("copilot"));
+    const copilotScoped = copilotOut.find(
+      (o) => o.path.startsWith(".github/instructions/") && o.path.includes("scoped-rule"),
+    );
+    expect(
+      copilotScoped,
+      "copilot emitted no .github/instructions/ scoped-rule output",
+    ).toBeDefined();
+    expect(copilotScoped!.content).toContain('applyTo: "**/*.ts"');
+    expect(copilotScoped!.content).not.toContain('applyTo: "conditional"');
+
+    const claudeOut = await claude.generate(fixtureRoot, mk("claude"));
+    const claudeScoped = claudeOut.find(
+      (o) => o.path.startsWith(".claude/rules/") && o.path.includes("scoped-rule"),
+    );
+    expect(claudeScoped, "claude emitted no .claude/rules/ scoped-rule output").toBeDefined();
+    expect(claudeScoped!.content).toContain('paths: ["**/*.ts"]');
+    expect(claudeScoped!.content).not.toContain('paths: ["conditional"]');
+  });
+
+  /**
+   * D6-28 (Cycle 11 Wave 3): cross-adapter always-loaded-rule footprint parity.
+   *
+   * The same CANONICAL rule corpus (the files under `rules/`) must yield the
+   * same always-loaded (session-start) rule count across adapters — a §6.6
+   * parity invariant. Pre-fix D6-1 dropped `globs:` so every `scope: conditional`
+   * canonical rule loaded unconditionally on some adapters and not others,
+   * asymmetrically inflating the always-loaded footprint (the report's ~4×
+   * claude-vs-cursor gap). Fixing D6-1 collapsed it; this assertion is the
+   * regression gate.
+   *
+   * Scope of the count: CANONICAL rules ONLY. Each adapter additionally emits
+   * adapter-injected scaffolding (hook→rule shims, the per-agent tool-allowlist
+   * rule, the orchestration bridge rule) whose count legitimately differs by
+   * adapter design and is NOT part of the canonical-corpus parity claim — so the
+   * count is restricted to outputs whose path carries a canonical rule id
+   * (the fixture ships `test-rule` (always) + `scoped-rule` (scoped)). Counting
+   * the scaffolding too would compare unrelated artifacts.
+   *
+   * Always-loaded detection per adapter, from each native shape:
+   *   - claude  → canonical-rule `.md` whose body has NO leading `paths:`
+   *               frontmatter (scoped rules carry `paths:`).
+   *   - cursor  → canonical-rule `.mdc` whose frontmatter has `alwaysApply: true`
+   *               (scoped rules carry `globs:` + `alwaysApply: false`).
+   *   - copilot → canonical rule inlined under `## Hatch3r Rules` in
+   *               copilot-instructions.md (scoped canonical rules become separate
+   *               `.github/instructions/` files, so they are absent from the
+   *               inlined set — total canonical minus scoped instruction files).
+   * With all three routed through the shared `resolveRuleGlobs` helper post-D6-1
+   * the canonical always-loaded count is EQUAL, so the tolerance band is 0 — the
+   * tightest correct assertion. The fixture has 1 canonical always rule
+   * (`test-rule`) + 1 canonical scoped rule (`scoped-rule`), so each adapter
+   * must report exactly 1 canonical always-loaded rule.
+   */
+  it("canonical always-loaded-rule count is equal across adapters (D6-28 footprint parity)", async () => {
+    // Canonical rule ids shipped by the fixture (src/__tests__/fixtures/agents/rules).
+    const CANONICAL_RULE_IDS = ["test-rule", "scoped-rule"] as const;
+    const isCanonicalRulePath = (p: string) =>
+      CANONICAL_RULE_IDS.some((id) => p.includes(id));
+    const mk = (t: "cursor" | "copilot" | "claude") =>
+      createManifest({
+        tools: [t] as unknown as Parameters<typeof createManifest>[0]["tools"],
+        mcpServers: [],
+      });
+
+    const claudeOut = await new ClaudeAdapter().generate(fixtureRoot, mk("claude"));
+    const claudeAlways = claudeOut.filter(
+      (o) =>
+        o.path.startsWith(".claude/rules/") &&
+        o.path.endsWith(".md") &&
+        isCanonicalRulePath(o.path) &&
+        !/^---\r?\npaths:/.test(o.content ?? ""),
+    ).length;
+
+    const cursorOut = await new CursorAdapter().generate(fixtureRoot, mk("cursor"));
+    const cursorAlways = cursorOut.filter(
+      (o) =>
+        o.path.startsWith(".cursor/rules/") &&
+        o.path.endsWith(".mdc") &&
+        isCanonicalRulePath(o.path) &&
+        /\balwaysApply:\s*true\b/.test(o.content ?? ""),
+    ).length;
+
+    // Copilot inlines always-canonical-rules into copilot-instructions.md and
+    // emits scoped canonical rules as separate .github/instructions/ files.
+    // Canonical always-loaded = (total canonical rules) − (canonical scoped
+    // instruction files). Total canonical rules in the fixture = 2.
+    const copilotOut = await new CopilotAdapter().generate(fixtureRoot, mk("copilot"));
+    const copilotScopedCanonical = copilotOut.filter(
+      (o) =>
+        o.path.startsWith(".github/instructions/") &&
+        o.path.endsWith(".instructions.md") &&
+        isCanonicalRulePath(o.path),
+    ).length;
+    const copilotAlways = CANONICAL_RULE_IDS.length - copilotScopedCanonical;
+
+    // Fixture canonical corpus: 1 always rule (test-rule) + 1 scoped (scoped-rule).
+    expect(claudeAlways).toBe(1);
+    expect(cursorAlways).toBe(1);
+    expect(copilotAlways).toBe(1);
+    // Parity: tolerance band 0 — all three adapters agree on the canonical
+    // always-loaded footprint for the identical canonical input.
+    expect(cursorAlways).toBe(claudeAlways);
+    expect(copilotAlways).toBe(claudeAlways);
   });
 });

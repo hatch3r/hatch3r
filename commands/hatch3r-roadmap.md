@@ -423,7 +423,7 @@ Business-Critical Path: {biz milestone 1} → {biz milestone 2} → {launch}
 
 ### Step 5: Generate todo.md
 
-Write `todo.md` in the exact format that `hatch3r-board-fill` expects, with `[BIZ]`/`[TECH]`/`[BOTH]` tags.
+Write `todo.md` in the canonical **Todo Grammar** defined in `hatch3r-board-shared` — the single source of truth that `hatch3r-board-fill` Step 1 parses. Emit `## P{N} — {Label}` priority headers and `- [ ] **[BIZ|TECH|BOTH] {title}**: {description}. Ref: {path}.` item lines exactly as the grammar specifies; the template below is the authoring example for this command.
 
 **Format specification:**
 
@@ -701,7 +701,7 @@ hatch3r supports 3 adapters as of 1.9.0 (Cursor, Claude Code, Copilot). Adapter 
 - **When in doubt, ASK.** It is better to ask one question too many than to make one wrong assumption. Discovery questions are never wasted.
 - **Never write files without user review and confirmation.** All generated content is presented first.
 - **Never overwrite todo.md without explicit user confirmation.**
-- **todo.md format must be compatible with board-fill** — markdown checklist with bold titles, priority headers matching `## P{N} — {Label}`, items tagged with `[BIZ]`/`[TECH]`/`[BOTH]`.
+- **todo.md format must match the canonical Todo Grammar** in `hatch3r-board-shared` — the single source of truth `hatch3r-board-fill` Step 1 parses (`## P{N} — {Label}` headers; `- [ ] **[BIZ|TECH|BOTH] {title}**: {description}` items).
 - **Keep items at the right granularity** — epic-level for complex features (XL effort), standalone for simple tasks (S/M effort).
 - **Always reference source documentation** (specs, ADRs) where items were derived from. Use `docs/specs/business/` or `docs/specs/technical/` paths matching the item's category.
 - **Do not duplicate work already tracked in GitHub issues.**
