@@ -1257,9 +1257,16 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
           // path cannot drift from the real destination. The prior literal said
           // `.hatch3r/archive/<tool>/` but archiveToolOutputs writes to
           // `${ARCHIVE_DIR}/<tool>/<timestamp>/` (archive/index.ts; ARCHIVE_DIR
-          // = ".hatch3r-archive"), and lines below already print the correct
-          // ".hatch3r-archive/" — the prompt was the lone disagreeing string.
-          message: `Archive these files? They move to \`${ARCHIVE_DIR}/<tool>/<timestamp>/\` and can be recovered.`,
+          // = ".hatch3r-archive").
+          // D2-5 (Cycle 11 Wave 2, D2, P1): the prior "...and can be recovered"
+          // wording pointed users at the archive as the recovery path, but
+          // `${ARCHIVE_DIR}/` is gitignored AND `hatch3r clean` deletes it
+          // (clean/index.ts) — so it is an inspection copy, not a durable
+          // restore source. The actual revert is the `config-<ts>` rollback
+          // snapshot D2-7 captures below (advertised in the success summary as
+          // `hatch3r rollback --session=<id>`). Name the supported command and
+          // demote the archive to its real role so the promise is truthful.
+          message: `Archive these files? Originals move to \`${ARCHIVE_DIR}/<tool>/<timestamp>/\` (an inspection copy; \`hatch3r clean\` removes it). To undo this removal, use the rollback snapshot named in the summary (\`hatch3r rollback --session=<id>\`).`,
           default: true,
         },
       ]);
@@ -1508,7 +1515,18 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     console.log();
     info("Tool migration notes:");
     if (diff.removedTools.length > 0) {
-      info(chalk.dim(`  Removed tool output archived to .hatch3r-archive/ (recoverable).`));
+      // D2-5 (Cycle 11 Wave 2, D2, P1): the recovery path is the rollback
+      // snapshot D2-7 captures (`removalSnapshotSessionId`), NOT the archive
+      // dir — `${ARCHIVE_DIR}/` is gitignored and `hatch3r clean` deletes it.
+      // Point users at the supported `hatch3r rollback --session=<id>` revert
+      // (naming the live id when present) and describe the archive copy as the
+      // inspection-only artifact it is, so the "recoverable" claim is truthful.
+      if (removalSnapshotSessionId) {
+        info(chalk.dim(`  To undo: hatch3r rollback --session=${removalSnapshotSessionId} (restores the removed tool's files).`));
+      } else {
+        info(chalk.dim(`  To undo, use the rollback snapshot named in the summary above (hatch3r rollback --session=<id>).`));
+      }
+      info(chalk.dim(`  An inspection copy of the removed output is under ${ARCHIVE_DIR}/ — hatch3r clean reclaims it; it is not the restore source.`));
       info(chalk.dim(`  Customizations in .hatch3r/ are tool-agnostic and carry forward.`));
       // D10-SA10.5-F4 (Cycle 10 Wave 4): point users at the "Switching tools"
       // guide so they know what carries forward, what is rebuilt, and that

@@ -10,14 +10,14 @@
     "commands": 30,
     "hooks": 7,
     "pipeline": 22,
-    "cliCommands": 18,
+    "cliCommands": 19,
     "agentsModes": 21,
     "agentsShared": 13,
     "commandsBoard": 11,
     "commandsRevision": 4,
     "checks": 6,
     "githubAgents": 4,
-    "testFiles": 205
+    "testFiles": 206
   },
   "files": {
     "adapters": [
@@ -328,6 +328,7 @@
       "deps.ts",
       "explain.ts",
       "init.ts",
+      "learn.ts",
       "mcp.ts",
       "provenance.ts",
       "rollback.ts",
@@ -472,6 +473,7 @@
       "src/__tests__/cli/commands/init.backNav.test.ts",
       "src/__tests__/cli/commands/init.cliToolsDisclaimer.test.ts",
       "src/__tests__/cli/commands/init.userPrompt.test.ts",
+      "src/__tests__/cli/commands/learn.test.ts",
       "src/__tests__/cli/commands/provenance.test.ts",
       "src/__tests__/cli/commands/show.test.ts",
       "src/__tests__/cli/commands/validate.learnings.test.ts",

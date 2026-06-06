@@ -12,7 +12,7 @@ hatch3r is an open-source CLI (TypeScript, Commander.js) that generates tool-agn
 
 | Directory | Contents |
 |-----------|----------|
-| `src/cli/commands/` | 18 CLI commands: init, sync, status, update, validate, verify, config, clean, add, worktree-setup, worktree-cleanup, cliTools, mcp, explain, rollback, provenance, show, deps <!-- count auto-derived; see governance/inventory.json (cliCommands) --> |
+| `src/cli/commands/` | 19 CLI commands: init, sync, status, update, validate, verify, config, clean, add, worktree-setup, worktree-cleanup, cliTools, mcp, explain, rollback, provenance, show, deps, learn <!-- count auto-derived; see governance/inventory.json (cliCommands) --> |
 | `src/adapters/` | 3 platform adapters: cursor, claude, copilot <!-- count auto-derived; see governance/inventory.json (adapters) --> |
 | `src/pipeline/` | 22 pipeline modules: adapterTimeout, adapterToolTranslator, agentIdentity, agentToolAllowlist, checkpoint, circuitBreaker, complianceVerification, costEstimator, diffHash, failureLog, mcpDescriptionScan, observability, phaseOutputSchema, phaseTimeout, pipelineContext, pipelineTimeout, promptGuard, repoSubstitution, retryWithBackoff, reviewLoop, snapshot, spaceTelemetry <!-- count auto-derived; see governance/inventory.json (pipeline) --> |
 | `src/content/` | Content indexing, presets (minimal/standard/full), tag system |

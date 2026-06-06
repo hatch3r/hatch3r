@@ -174,6 +174,31 @@ describe("getUnsupportedFeatureWarnings", () => {
     const warnings = getUnsupportedFeatureWarnings("cursor", manifest);
     expect(warnings).toEqual([]);
   });
+
+  // ── Cycle 11 D2-3 regression: default `prompts` warns no adapter ──
+  //
+  // A fresh `createManifest({ tools: [tool] })` applies DEFAULT_FEATURES
+  // verbatim. Before D2-3, DEFAULT_FEATURES.prompts was `true` while every
+  // adapter sets `prompts: false`, so the default init/sync/update path fired a
+  // spurious "prompts not supported" warning on each of the 3 adapters with no
+  // canonical `prompts/` content able to satisfy it. D2-3 flips the default to
+  // `false`; this pins it: no adapter emits a `prompts` warning on the default
+  // path. Flipping DEFAULT_FEATURES.prompts back to true fails this test.
+  //
+  // NOTE: this asserts on the `prompts` substring specifically, not on an empty
+  // list — DEFAULT_FEATURES.githubAgents is `true` (a real Copilot feature) so
+  // cursor/claude still surface a separate "GitHub agents" not-applicable
+  // warning on the default path. That is a distinct issue outside D2-3's scope.
+  it("emits no `prompts` unsupported-feature warning on the DEFAULT_FEATURES path (all 3 adapters)", () => {
+    for (const tool of ["cursor", "claude", "copilot"] as Tool[]) {
+      const manifest = createManifest({ tools: [tool] });
+      const warnings = getUnsupportedFeatureWarnings(tool, manifest);
+      expect(
+        warnings.some((w) => w.includes("prompts")),
+        `${tool}: default path must not warn about prompts (got: ${JSON.stringify(warnings)})`,
+      ).toBe(false);
+    }
+  });
 });
 
 // ── C9-H39 (D11-SA11.1-01): sourceFiles provenance non-emptiness gate ──

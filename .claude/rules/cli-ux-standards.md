@@ -18,6 +18,6 @@ Requirements for all CLI code in `src/cli/`:
 3. **Existing UI dependencies only:** `ora` (spinners), `chalk` (color), `boxen` (framed output), `inquirer` (prompts). Do not introduce new UI libraries
 4. **First-run success:** `npx hatch3r init` must succeed with only Node 22+ installed — no other prerequisites
 5. **Minimize decisions:** Reduce prompts per flow. Use smart defaults with override flags
-6. **Exit codes:** 0 = success, 1 = unexpected error, 2 = usage error. SIGINT = 130, SIGTERM = 143
+6. **Exit codes:** differentiated per failure kind via `ERROR_CODE_TO_EXIT_CODE` in `src/types.ts` (single source of truth, BSD `sysexits.h` convention): 0 = success / clean user cancel, 2 = usage error (Commander), 64 `VALIDATION_ERROR`, 65 `CONFIG_ERROR`, 69 `ADAPTER_ERROR`, 70 `UNKNOWN_ERROR`, 73 `INTEGRITY_ERROR`, 74 `FS_ERROR`/`CLEAN_ERROR`, 75 `NETWORK_ERROR`/`LOCK_TIMEOUT`, 130 = SIGINT. The published user-facing table lives in `docs/troubleshooting.md` → Exit Codes. CI scripts MUST branch on the exact code, not `[ $? -eq 1 ]` (hatch3r emits no exit 1 for command failures).
 
 Audit checklist: `governance/audit/domains/D10-documentation-devex.md`

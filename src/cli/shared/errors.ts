@@ -86,7 +86,15 @@ export interface FormattedCliError {
   lines: string[];
   /** Optional boxen block to write to stderr instead of `lines` (when a hint is present). */
   box?: string;
-  /** POSIX exit code: 0 = clean cancel, 2 = usage error, 1 = anything else. */
+  /**
+   * POSIX exit code. For a {@link HatchError} this is its `exitCode`, which
+   * defaults to the sysexits-derived code from `ERROR_CODE_TO_EXIT_CODE` in
+   * `src/types.ts` (64/65/69/70/73/74/75) unless an explicit code was passed.
+   * For a non-HatchError: 0 = clean cancel, 130 = SIGINT, 2 = usage error,
+   * 1 = unexpected error. Published table: `docs/troubleshooting.md` → Exit
+   * Codes. NOTE: command failures never collapse to 1 — do not branch CI on
+   * `[ $? -eq 1 ]`.
+   */
   exitCode: number;
   /** Classification of the error (useful for callers/tests). */
   kind: CliErrorKind | "hatch-error" | "hatch-cancel";

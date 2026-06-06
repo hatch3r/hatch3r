@@ -334,22 +334,63 @@ describe("BaseAdapter", () => {
       expect(sources).toEqual(sorted);
     });
 
-    it("populates sourceFiles for every output an adapter emits (shared tracked set)", async () => {
-      class MultiOutputAdapter extends BaseAdapter {
-        readonly name = "multi-output";
+    it("attributes each per-file output to its single canonical source (D12-1)", async () => {
+      // D12-1 (Cycle 11 Wave 2, D12, P2): per-FILE emission paths
+      // (processCommandsRaw / processSkillsRaw) emit one output per canonical
+      // file, each derived from exactly one source. Before D12-1 the base
+      // class over-attributed every such output with the whole adapter-wide
+      // read set; now each output's sourceFiles is the single file it came
+      // from. The commands fixture has test-command.md; the skills fixture has
+      // test-skill + the hatch3r-cli-* skills, so multiple per-file outputs
+      // are emitted and each must carry its own one-element sourceFiles.
+      class PerFileAdapter extends BaseAdapter {
+        readonly name = "per-file";
         protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
-          await this.inlineRules(ctx);
-          // Emit two output files; both should receive the tracked sourceFiles.
-          return [
-            output("first.md", "first"),
-            output("second.md", "second"),
-          ];
+          const commands = await this.processCommandsRaw(ctx, (id) => `cmd/${id}.md`);
+          const skills = await this.processSkillsRaw(ctx, (id) => `skill/${id}.md`);
+          return [...commands, ...skills];
         }
       }
-      const adapter = new MultiOutputAdapter();
+      const adapter = new PerFileAdapter();
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      // At least the test-command + test-skill outputs are present.
+      expect(outputs.length).toBeGreaterThanOrEqual(2);
+      const cmd = outputs.find((o) => o.path === "cmd/test-command.md");
+      const skill = outputs.find((o) => o.path === "skill/test-skill.md");
+      expect(cmd?.sourceFiles).toHaveLength(1);
+      expect(cmd?.sourceFiles?.[0]).toMatch(/test-command\.md$/);
+      expect(skill?.sourceFiles).toHaveLength(1);
+      expect(skill?.sourceFiles?.[0]).toMatch(/test-skill[/\\]SKILL\.md$/);
+      // Cross-attribution regression guard: the command output must NOT carry
+      // the skill's source (the old shared-set behavior would have stamped
+      // every read file onto every output).
+      expect(cmd?.sourceFiles?.some((s) => /test-skill/.test(s))).toBe(false);
+      // Each per-file output's source set is its own singleton, so distinct
+      // per-file outputs do not share a sourceFiles array.
+      expect(skill?.sourceFiles).not.toEqual(cmd?.sourceFiles);
+    });
+
+    it("fills the adapter-wide tracked set on aggregate outputs that do not self-attribute (C8-D12-M3)", async () => {
+      // The broad-set fill is RESERVED for aggregate outputs (CLAUDE.md, the
+      // Cursor bridge, copilot-instructions.md): an output that reads canonical
+      // files via a helper but leaves sourceFiles unset still inherits the
+      // whole tracked read set. Two such outputs share the identical set.
+      class AggregateAdapter extends BaseAdapter {
+        readonly name = "aggregate";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          await this.inlineRules(ctx); // reads rules into the tracked set
+          // Neither output self-declares sourceFiles → both get the broad set.
+          return [output("first.md", "first"), output("second.md", "second")];
+        }
+      }
+      const adapter = new AggregateAdapter();
       const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
       expect(outputs.length).toBe(2);
       expect(outputs[0]?.sourceFiles?.length).toBeGreaterThan(0);
+      // Both rules fixtures contributed; the aggregate output carries both.
+      expect(outputs[0]?.sourceFiles?.some((s) => s.endsWith("test-rule.md"))).toBe(true);
+      expect(outputs[0]?.sourceFiles?.some((s) => s.endsWith("scoped-rule.md"))).toBe(true);
+      // Both aggregate outputs receive the identical adapter-wide set.
       expect(outputs[1]?.sourceFiles).toEqual(outputs[0]?.sourceFiles);
     });
 

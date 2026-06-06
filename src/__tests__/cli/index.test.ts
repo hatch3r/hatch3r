@@ -42,6 +42,9 @@ describe("createProgram() command registration", () => {
     "explain",
     // Decision 27 (hatch3r 2.0.0 / Bucket 2.2): per-session snapshot rollback
     "rollback",
+    // D13-5 (Cycle 11 Wave 2): `learn capture` — shell entry point the /learn
+    // skill shells out to so writes run through the persistLearning pipeline.
+    "learn",
   ] as const;
 
   it("registers all expected commands", () => {

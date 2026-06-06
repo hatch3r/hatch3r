@@ -7,9 +7,16 @@ import {
   removeManagedFilesForPaths,
   getManagedFilesForTool,
   pruneArchives,
+  fileMatchesTool,
+  TOOL_PATH_PREFIXES,
 } from "../../archive/index.js";
 import { createManifest } from "../../manifest/hatchJson.js";
-import { ARCHIVE_DIR, MANAGED_BLOCK_START, MANAGED_BLOCK_END, type HatchManifest } from "../../types.js";
+import { ARCHIVE_DIR, MANAGED_BLOCK_START, MANAGED_BLOCK_END, type HatchManifest, type Tool } from "../../types.js";
+import { CursorAdapter } from "../../adapters/cursor.js";
+import { ClaudeAdapter } from "../../adapters/claude.js";
+import { CopilotAdapter } from "../../adapters/copilot.js";
+import type { BaseAdapter } from "../../adapters/base.js";
+import { resolveTestPath } from "../fixtures.js";
 
 function wrapManaged(content: string): string {
   return `${MANAGED_BLOCK_START}\n${content}\n${MANAGED_BLOCK_END}`;
@@ -551,5 +558,68 @@ Always check for SQL injection`;
     // post-cp overwrite against the archive function) outweighs the value
     // for a single 5-line content-check branch with deterministic SHA-256
     // semantics.
+  });
+});
+
+// D10-11 (Cycle 11 Wave 2, D10, P1): structural invariant — every path an
+// adapter emits must be covered by that adapter's TOOL_PATH_PREFIXES entry.
+// The leak the finding reports: copilot.ts:442 emits `.github/checks/{name}.md`
+// but TOOL_PATH_PREFIXES.copilot omitted `.github/checks/`, so config
+// tool-removal (which archives via collectToolFiles -> these prefixes) left the
+// 6 canonical checks/ outputs orphaned on disk. This generates each real
+// adapter against the repo's own canonical content root (source dirs agents/,
+// skills/, rules/, commands/, hooks/, checks/ — feature-complete by
+// DEFAULT_FEATURES) and asserts fileMatchesTool() — the exact coverage
+// predicate collectToolFiles uses — returns true for every output path. A
+// future adapter that emits a new top-level dir without a matching prefix
+// fails here instead of silently leaking files past removal.
+describe("TOOL_PATH_PREFIXES output coverage (D10-11)", () => {
+  // Repo root: src/__tests__/archive/ -> up 3 -> package root, which holds the
+  // canonical source content dirs (agents/, checks/, skills/, ...). Build-state
+  // independent (does not depend on dist/ or resolveBundledContentRoot caching).
+  const repoRoot = resolveTestPath(import.meta.url, "../../../");
+
+  const adapters: Array<{ tool: Tool; adapter: BaseAdapter }> = [
+    { tool: "cursor", adapter: new CursorAdapter() },
+    { tool: "claude", adapter: new ClaudeAdapter() },
+    { tool: "copilot", adapter: new CopilotAdapter() },
+  ];
+
+  for (const { tool, adapter } of adapters) {
+    it(`every ${tool} output path is covered by TOOL_PATH_PREFIXES.${tool}`, async () => {
+      // mcpServers populated so the MCP-config output path materializes; all
+      // content features default ON via DEFAULT_FEATURES so every emit branch
+      // (agents/skills/rules/commands/hooks/checks) runs.
+      const manifest = createManifest({
+        tools: [tool],
+        mcpServers: ["github"],
+      });
+      const outputs = await adapter.generate(repoRoot, manifest);
+      expect(outputs.length).toBeGreaterThan(0);
+
+      const uncovered = outputs
+        .map((o) => o.path)
+        .filter((p) => !fileMatchesTool(p, tool));
+      expect(
+        uncovered,
+        `${tool} emits output path(s) absent from TOOL_PATH_PREFIXES.${tool} ` +
+          `(${TOOL_PATH_PREFIXES[tool].join(", ")}); these files would orphan on ` +
+          `tool removal. Add the missing prefix(es): ${uncovered.join(", ")}`,
+      ).toEqual([]);
+    });
+  }
+
+  it("emits the .github/checks/ outputs the prefix now covers (copilot)", async () => {
+    // Direct regression pin for the exact leak: copilot must emit at least one
+    // `.github/checks/` output AND that output must be covered. Guards against a
+    // future refactor that drops the checks emission (making the coverage test
+    // vacuously pass) or re-drops the prefix.
+    const manifest = createManifest({ tools: ["copilot"], mcpServers: ["github"] });
+    const outputs = await new CopilotAdapter().generate(repoRoot, manifest);
+    const checkOutputs = outputs.filter((o) => o.path.startsWith(".github/checks/"));
+    expect(checkOutputs.length).toBeGreaterThan(0);
+    for (const o of checkOutputs) {
+      expect(fileMatchesTool(o.path, "copilot")).toBe(true);
+    }
   });
 });

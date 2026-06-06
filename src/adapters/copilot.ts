@@ -115,6 +115,20 @@ function splitFrontmatter(raw: string): { frontmatter: string; body: string } {
 }
 
 /**
+ * D12-1 (Cycle 11 Wave 2, D12, P2): single-canonical-source attribution for a
+ * per-file Copilot output (one scoped-rule `.instructions.md`, one
+ * `.agent.md`, one github-agent `.agent.md`). Returns `[file.sourcePath]` so
+ * the output self-attributes to its one canonical input instead of inheriting
+ * the adapter-wide read set; `undefined` for a synthesised fixture whose
+ * `sourcePath` is empty. The inlined always-rules in
+ * copilot-instructions.md are NOT per-file — that artifact aggregates many
+ * rules and correctly keeps the adapter-wide set.
+ */
+function copilotSingleSource(file: CanonicalFile): string[] | undefined {
+  return file.sourcePath ? [file.sourcePath] : undefined;
+}
+
+/**
  * A VS Code `.vscode/mcp.json` top-level input-variable entry. VS Code prompts
  * the user for the value and substitutes it wherever `${input:<id>}` appears.
  * Schema verified against
@@ -315,6 +329,7 @@ jobs:
           instrPath,
           `${fm}\n\n${wrapManagedFor(instrPath, body)}`,
           body,
+          copilotSingleSource(rule),
         ),
       );
     }
@@ -361,7 +376,7 @@ jobs:
         }
         const fm = `---\n${lines.join("\n")}\n---`;
         const agentPath = `.github/agents/${prefixedId}.agent.md`;
-        results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, content)}`, content));
+        results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, content)}`, content, copilotSingleSource(agent)));
       }
     }
 
@@ -396,7 +411,7 @@ jobs:
         const ghAgentPath = `.github/agents/${toPrefixedId(agent.id)}.agent.md`;
         const wrappedBody = wrapManagedFor(ghAgentPath, body);
         const content = frontmatter ? `${frontmatter}\n\n${wrappedBody}` : wrappedBody;
-        results.push(output(ghAgentPath, content, body));
+        results.push(output(ghAgentPath, content, body, copilotSingleSource(agent)));
       }
     }
 

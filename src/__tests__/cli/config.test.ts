@@ -866,6 +866,38 @@ describe("config command", () => {
       expect(archiveQuestion?.message).not.toContain(".hatch3r/archive/");
     });
 
+    // D2-5 (Cycle 11 Wave 2): the prompt must name the SUPPORTED recovery path —
+    // the `hatch3r rollback` snapshot D2-7 captures — and must NOT present the
+    // gitignored, clean-deleted `${ARCHIVE_DIR}/` as the recovery source. The
+    // prior "...and can be recovered" wording made the archive look durable.
+    it("tool-removal confirm prompt points recovery at hatch3r rollback, not the archive dir", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      const confirmCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "confirmArchive");
+      });
+      const archiveQuestion = (confirmCall![0] as unknown as Array<{ name?: string; message?: string }>).find(
+        (q) => q.name === "confirmArchive",
+      );
+      // Recovery is steered to the rollback command...
+      expect(archiveQuestion?.message).toContain("hatch3r rollback");
+      // ...and the archive is qualified as an inspection copy, not "recovered".
+      expect(archiveQuestion?.message).toContain("inspection");
+      expect(archiveQuestion?.message).not.toContain("can be recovered");
+    });
+
     // D2-7 (Cycle 11 Wave 2): tool removal must snapshot the dropped tool's files
     // BEFORE the archive deletes them and thread that session into runRegenerate
     // (reuseSessionId) so the single advertised `config-<ts>` rollback restores
@@ -891,6 +923,33 @@ describe("config command", () => {
       // A real `config-<ts>` session id was minted by the pre-deletion snapshot
       // and handed to runRegenerate to accumulate into.
       expect(opts.reuseSessionId).toMatch(/^config-/);
+    });
+
+    // D2-5 (Cycle 11 Wave 2): the tool-removal migration notes must steer
+    // recovery to the rollback snapshot (`hatch3r rollback --session=<id>`),
+    // not present `${ARCHIVE_DIR}/` as "recoverable" — the archive is gitignored
+    // and `hatch3r clean` deletes it, so it is an inspection copy only.
+    it("migration notes steer undo to hatch3r rollback, not the archive (recoverable claim removed)", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md", ".claude/settings.json"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md", ".claude/settings.json"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      const infoMessages = vi.mocked(info).mock.calls.map((c) => String(c[0]));
+      // The undo line names the live rollback session captured by D2-7.
+      expect(infoMessages.some((m) => /hatch3r rollback --session=config-/.test(m))).toBe(true);
+      // No surface calls the archive dir "recoverable" anymore.
+      expect(infoMessages.some((m) => m.includes("(recoverable)"))).toBe(false);
+      // The archive copy is described as inspection-only.
+      expect(infoMessages.some((m) => m.includes("inspection copy"))).toBe(true);
     });
 
     // D2-7: when NO tool is removed, runRegenerate mints its own session — the

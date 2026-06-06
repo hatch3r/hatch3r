@@ -493,6 +493,17 @@ function isClaudeRecognizableModel(model: string): boolean {
   );
 }
 
+/**
+ * D12-1 (Cycle 11 Wave 2, D12, P2): single-canonical-source attribution for a
+ * per-file Claude output (one rule `.md`, one agent `.md`). Returns
+ * `[file.sourcePath]` so the output self-attributes to its one canonical input
+ * instead of inheriting the adapter-wide read set; `undefined` for a
+ * synthesised fixture whose `sourcePath` is empty.
+ */
+function claudeSingleSource(file: CanonicalFile): string[] | undefined {
+  return file.sourcePath ? [file.sourcePath] : undefined;
+}
+
 export class ClaudeAdapter extends BaseAdapter {
   readonly name = "claude";
 
@@ -589,6 +600,7 @@ export class ClaudeAdapter extends BaseAdapter {
             rulePath,
             `${pathsFm}${wrapManagedFor(rulePath, body)}`,
             body,
+            claudeSingleSource(rule),
           ),
         );
       }
@@ -691,7 +703,7 @@ export class ClaudeAdapter extends BaseAdapter {
           const modelNote = model ? `\nModel: \`${model}\`` : "";
           const body = withCacheBreakpoints(`${this.stripMinimal(content)}${modelNote}${restrictionsSuffix}`);
           const agentPath = `.claude/agents/${agentId}.md`;
-          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body));
+          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body, claudeSingleSource(agent)));
         } else {
           // The `## Recommended Model` prose is retained for EVERY resolved
           // model (Claude or not) so the env-var/`/model` override path stays
@@ -702,7 +714,7 @@ export class ClaudeAdapter extends BaseAdapter {
             : "";
           const body = withCacheBreakpoints(`${content}${modelGuidance}${restrictionsSuffix}`);
           const agentPath = `.claude/agents/${agentId}.md`;
-          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body));
+          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body, claudeSingleSource(agent)));
         }
       }
     }

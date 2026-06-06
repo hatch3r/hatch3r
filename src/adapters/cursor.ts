@@ -130,8 +130,20 @@ function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): str
   return `---\n${lines.join("\n")}\n---`;
 }
 
-function mdcOutput(path: string, frontmatter: string, body: string): AdapterOutput {
-  return output(path, `${frontmatter}\n\n${wrapManagedFor(path, body)}`, body);
+function mdcOutput(path: string, frontmatter: string, body: string, sourceFiles?: string[]): AdapterOutput {
+  return output(path, `${frontmatter}\n\n${wrapManagedFor(path, body)}`, body, sourceFiles);
+}
+
+/**
+ * D12-1 (Cycle 11 Wave 2, D12, P2): single-canonical-source attribution for a
+ * per-file Cursor output (one rule `.mdc`, one agent `.md`). Returns
+ * `[file.sourcePath]` so the output self-attributes to its one canonical input
+ * instead of inheriting the adapter-wide read set in `BaseAdapter.generate`;
+ * `undefined` for a synthesised fixture whose `sourcePath` is empty (falls back
+ * to the broad set rather than a `[""]` row).
+ */
+function cursorSingleSource(file: CanonicalFile): string[] | undefined {
+  return file.sourcePath ? [file.sourcePath] : undefined;
 }
 
 export class CursorAdapter extends BaseAdapter {
@@ -173,7 +185,7 @@ export class CursorAdapter extends BaseAdapter {
         const ruleWithDesc = { ...rule, description: desc };
         const nn = precedenceRank(rule.precedence) / 10;
         const baseName = `${nn}-${toPrefixedId(rule.id)}.mdc`;
-        results.push(mdcOutput(`.cursor/rules/${baseName}`, cursorRuleFrontmatter(ruleWithDesc, overrides.scope), content));
+        results.push(mdcOutput(`.cursor/rules/${baseName}`, cursorRuleFrontmatter(ruleWithDesc, overrides.scope), content, cursorSingleSource(rule)));
       }
     }
 
@@ -206,7 +218,7 @@ export class CursorAdapter extends BaseAdapter {
         if (effectiveReadonly) lines.push("readonly: true");
         if (agent.background) lines.push("is_background: true");
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(mdcOutput(`.cursor/agents/${prefixedId}.md`, fm, content));
+        results.push(mdcOutput(`.cursor/agents/${prefixedId}.md`, fm, content, cursorSingleSource(agent)));
       }
     }
 

@@ -59,13 +59,25 @@ export interface Adapter {
   getOutputPaths(canonicalRoot: string, manifest: HatchManifest): Promise<string[]>;
 }
 
-/** Convenience factory for creating an AdapterOutput with `action: "create"`. */
+/**
+ * Convenience factory for creating an AdapterOutput with `action: "create"`.
+ *
+ * D12-1 (Cycle 11 Wave 2, D12, P2): the optional `sourceFiles` argument lets a
+ * per-file emission path declare the SINGLE canonical file that shaped this
+ * output (e.g. one rule `.mdc` derives from one `rules/*.md`). When set, it
+ * survives the adapter-wide tracked-set fill in {@link BaseAdapter.generate}
+ * (which only stamps the broad read set onto outputs that left the field
+ * `undefined`). Aggregated outputs (CLAUDE.md, the Cursor bridge,
+ * copilot-instructions.md) omit the argument and inherit the adapter-wide set,
+ * which is the accurate attribution for a many-source artifact.
+ */
 export function output(
   path: string,
   content: string,
   managedContent?: string,
+  sourceFiles?: string[],
 ): AdapterOutput {
-  return { path, content, managedContent, action: "create" };
+  return { path, content, managedContent, action: "create", sourceFiles };
 }
 
 export interface AdapterContext {
@@ -311,6 +323,16 @@ export abstract class BaseAdapter implements Adapter {
     // retain their value — we only fill the default tracked set for outputs
     // that left the field unset. The tracked list is deterministic (sorted)
     // so downstream diffs over `.provenance.json` stay stable across runs.
+    //
+    // D12-1 (Cycle 11 Wave 2, D12, P2): per-FILE emission paths (one rule
+    // `.mdc`, one agent `.md`, one skill `SKILL.md`, one command, one
+    // companion file) now self-declare `sourceFiles: [thisFile.sourcePath]`
+    // via the {@link output} factory's 4th argument, so this broad fill no
+    // longer over-attributes them with the whole read set. Only AGGREGATED
+    // outputs (CLAUDE.md, the Cursor bridge, copilot-instructions.md — each
+    // assembled from many canonical files) leave the field unset and inherit
+    // the adapter-wide `trackedList`, which is the accurate many-source
+    // attribution for those artifacts.
     //
     // SA12.1-F-D12-M5 (Cycle 10 Wave 3, D12, P1): when an adapter produced
     // outputs without using `readTrackedCanonicalFiles` AND without setting
@@ -657,6 +679,19 @@ export abstract class BaseAdapter implements Adapter {
     return lines;
   }
 
+  /**
+   * D12-1 (Cycle 11 Wave 2, D12, P2): the single-canonical-source attribution
+   * for a per-file output. Each skill/command/agent/rule file emits exactly
+   * one adapter output derived from exactly one canonical file, so its
+   * `sourceFiles` must be `[thisFile.sourcePath]` — not the adapter-wide read
+   * set. Returns `undefined` for the rare synthesised fixture whose
+   * `sourcePath` is empty, so the output falls back to the broad tracked set
+   * rather than carrying a `[""]` row.
+   */
+  private singleSource(file: Pick<CanonicalFile, "sourcePath">): string[] | undefined {
+    return file.sourcePath ? [file.sourcePath] : undefined;
+  }
+
   /** Process skills and output each as a raw managed-block file at the path returned by `pathFn`. */
   protected async processSkillsRaw(
     ctx: AdapterContext,
@@ -671,7 +706,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content));
+      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content, this.singleSource(skill)));
     }
     return results;
   }
@@ -692,7 +727,7 @@ export abstract class BaseAdapter implements Adapter {
       const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
       const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
-      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content));
+      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content, this.singleSource(skill)));
     }
     return results;
   }
@@ -744,7 +779,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content));
+      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content, this.singleSource(skill)));
     }
     return results;
   }
@@ -791,7 +826,7 @@ export abstract class BaseAdapter implements Adapter {
         fmLines.push(`allowed-tools: [${skill.allowedTools.map((t) => `"${t}"`).join(", ")}]`);
       }
       const fm = `---\n${fmLines.join("\n")}\n---`;
-      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content));
+      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content, this.singleSource(skill)));
     }
     return results;
   }
@@ -813,7 +848,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(cmd.id), wrapManagedFor(pathFn(cmd.id), content), content));
+      results.push(output(pathFn(cmd.id), wrapManagedFor(pathFn(cmd.id), content), content, this.singleSource(cmd)));
     }
     return results;
   }
@@ -894,7 +929,10 @@ export abstract class BaseAdapter implements Adapter {
       const substituted = this.substituteCanonicalContent(raw, ctx);
       const body = minimal ? this.stripMinimal(substituted) : substituted;
       this._trackedSourceFiles.add(src);
-      results.push(output(pathFn(entry.name), wrapManagedFor(pathFn(entry.name), body), body));
+      // D12-1: a companion file is single-source — its only canonical input is
+      // `src` (the absolute path just read), so attribute it directly rather
+      // than letting the adapter-wide fill stamp the broad read set.
+      results.push(output(pathFn(entry.name), wrapManagedFor(pathFn(entry.name), body), body, [src]));
     }
     return results;
   }

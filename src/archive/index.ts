@@ -50,6 +50,16 @@ export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
     ".github/agents/",
     ".github/prompts/",
     ".github/skills/",
+    // D10-11 (Cycle 11 Wave 2, D10, P1): copilot.ts:442 emits the `checks/`
+    // companion subdir to `.github/checks/{name}.md`, but this prefix list
+    // omitted it — so config tool-removal (which previews from
+    // `managedFilesByAdapter` yet archives via `collectToolFiles`/these
+    // prefixes) left the 6 canonical checks/ files orphaned on disk after a
+    // copilot removal. Adding the prefix lets `collectToolFiles` sweep them.
+    // The structural test in archive.test.ts asserts no adapter omits a
+    // top-level output dir from its prefix entry, so a future emit gap fails
+    // CI instead of leaking files.
+    ".github/checks/",
   ],
 };
 
@@ -86,7 +96,17 @@ function stripFrontmatter(content: string): string {
   return content.trim();
 }
 
-function fileMatchesTool(filePath: string, tool: Tool): boolean {
+/**
+ * True when `filePath` (repo-relative, posix-style) is covered by `tool`'s
+ * {@link TOOL_PATH_PREFIXES} entry — a directory prefix (`endsWith("/")`)
+ * matches by `startsWith`, an exact-file prefix matches by equality. This is
+ * the same coverage predicate {@link collectToolFiles} archives against, so
+ * any adapter output path it returns `false` for would be orphaned on tool
+ * removal (the D10-11 leak). Exported so the archive structural test in
+ * `src/__tests__/archive/archive.test.ts` can assert every adapter's emitted
+ * output path is covered by its prefix entry.
+ */
+export function fileMatchesTool(filePath: string, tool: Tool): boolean {
   const prefixes = TOOL_PATH_PREFIXES[tool];
   if (!prefixes) return false;
   return prefixes.some((prefix) =>

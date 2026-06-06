@@ -297,6 +297,8 @@ Any mismatch routes back to the Step 3 implementer (record the `delegation_proof
 
 This command **never publishes, merges, tags-and-pushes, or submits to a marketplace.** It assembles the release on the `release/X.Y.Z` branch, stages and commits with DCO sign-off, then stops and hands the publish decision to the human.
 
+Terminus alignment (D10-14): this command and its id-sharing inline sibling `skills/hatch3r-release/SKILL.md` enforce the same stop-before-irreversible boundary, so `/release` is safe regardless of which artifact it resolves to. This command stops here at Step 9; the skill gates every irreversible step (tag push, publish, production deploy) default-OFF behind `--publish` or a typed confirmation (skill → Irreversibility Gate). Neither auto-publishes or auto-deploys on a bare invocation.
+
 #### 9a. Stage + commit on the release branch (DCO)
 
 When release files changed, stage and commit on the current `release/*` branch with a Conventional-Commit, DCO-signed message (`-s`) per `.claude/rules/commit-conventions.md`:

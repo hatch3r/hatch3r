@@ -15,6 +15,7 @@ import { rollbackCommand, rollbackListCommand } from "./commands/rollback.js";
 import { showCommand, listCommand } from "./commands/show.js";
 import { provenanceCommand } from "./commands/provenance.js";
 import { depsCommand } from "./commands/deps.js";
+import { learnCaptureCommand } from "./commands/learn.js";
 import {
   mcpSetupCommand,
   mcpListCommand,
@@ -49,7 +50,13 @@ const AGENT_COMMAND_NAMES = new Set([
   "board-init", "board-pickup", "board-groom", "board-refresh", "board-fill",
   "board-shared",
   "security-audit", "dep-audit", "benchmark", "healthcheck", "context-health",
-  "learn", "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
+  // D13-5 (Cycle 11 Wave 2): `learn` is NO LONGER an editor-only redirect.
+  // `hatch3r learn capture --file <path>` is a registered terminal subcommand
+  // (the shell entry point the `/learn` LLM skill shells out to so writes run
+  // through the `persistLearning` security pipeline). The bare `/learn` slash
+  // command still lives in the editor — the registered `learn` group's bare
+  // action points the user there — so `learn` is dropped from this redirect set.
+  "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
   "command-customize", "agent-customize", "rule-customize", "skill-customize",
 ]);
 
@@ -427,6 +434,39 @@ export function createProgram(): Command {
     .command("deps <id>")
     .description("Show orchestration dependencies (downstream + upstream) declared in frontmatter")
     .action((id: string) => depsCommand(id));
+
+  // D13-5 (Cycle 11 Wave 2, ASI06): `learn` command group. The `/learn` LLM
+  // skill authors a learning file then shells out to `hatch3r learn capture
+  // --file <path>` so the write runs through the `persistLearning` security
+  // pipeline (3 injection gates + integrity verification + refuse-overwrite +
+  // atomic temp+rename) instead of a raw `Write` that bypasses all of it. The
+  // bare `learn` group prints guidance toward the editor `/learn` skill, since
+  // learning EXTRACTION (asking the user, drafting the body) is an LLM task.
+  const learnCmd = program
+    .command("learn")
+    .description("Capture learnings authored by the /learn editor skill into .hatch3r/learnings/ via the security pipeline")
+    .addHelpText(
+      "after",
+      "\nLearning extraction (drafting the body) runs in your AI editor via the /learn skill.\n" +
+        "That skill stages a file, then shells out to `hatch3r learn capture --file <path>`\n" +
+        "so the write is screened by the persistLearning gates before it reaches disk.\n",
+    )
+    .action(() => {
+      // Bare `hatch3r learn` is not the capture path — point at the subcommand
+      // and the editor skill rather than silently no-op'ing.
+      console.error(
+        "\n  `hatch3r learn` has one terminal subcommand: `hatch3r learn capture --file <path>`." +
+          "\n  To DRAFT a learning, open your AI editor and run the /learn skill — it stages a" +
+          "\n  file and invokes `hatch3r learn capture` for you.\n",
+      );
+      process.exit(2);
+    });
+  learnCmd
+    .command("capture")
+    .description("Commit a staged learning file through the persistLearning security pipeline into .hatch3r/learnings/")
+    .requiredOption("--file <path>", "Path to the staged learning file the /learn skill authored")
+    .option("--as <filename>", "Destination filename in .hatch3r/learnings/ (default: the staged file's basename)")
+    .action((opts: { file?: string; as?: string }) => learnCaptureCommand(opts));
 
   // C9-H13: surface the triage-first cost model declared in canonical
   // command frontmatter (triage_tiers + agentPipeline) so users can answer

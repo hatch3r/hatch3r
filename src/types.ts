@@ -331,6 +331,20 @@ export interface Features {
   agents: boolean;
   skills: boolean;
   rules: boolean;
+  /**
+   * Controls whether adapters emit prompt-file outputs (e.g. Copilot
+   * `.github/prompts/*.prompt.md`) from a `prompts/` content source.
+   *
+   * Cycle 11 D2-3 (Pillar P1/P4): defaults to `false` in
+   * {@link DEFAULT_FEATURES}. Canonical hatch3r ships no `prompts/` content
+   * (the class is reserved for pack supply per
+   * `governance/pack-trust-model.md`) and all 3 adapters set
+   * `ADAPTER_CAPABILITIES.*.prompts = false`, so a default of `true` made the
+   * happy-path sync/update fire a spurious unsupported-feature warning via
+   * {@link getUnsupportedFeatureWarnings}. Packs that supply prompts content
+   * set this to `true` explicitly, which still warns on adapters that cannot
+   * emit prompt files (intended capability-gap surfacing).
+   */
   prompts: boolean;
   commands: boolean;
   mcp: boolean;
@@ -875,7 +889,13 @@ export const DEFAULT_FEATURES: Features = {
   agents: true,
   skills: true,
   rules: true,
-  prompts: true,
+  // Cycle 11 D2-3 (P1/P4): default OFF. No adapter emits prompt files
+  // (ADAPTER_CAPABILITIES.*.prompts === false) and canonical hatch3r ships no
+  // `prompts/` content (class reserved for pack supply per
+  // governance/pack-trust-model.md), so a `true` default made the happy-path
+  // sync/update fire a spurious unsupported-feature warning. See the `prompts`
+  // field JSDoc on the Features interface.
+  prompts: false,
   commands: true,
   mcp: true,
   githubAgents: true,

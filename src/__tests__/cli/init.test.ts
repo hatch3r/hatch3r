@@ -257,7 +257,10 @@ describe("init command", () => {
     expect(manifest.features.agents).toBe(true);
     expect(manifest.features.skills).toBe(true);
     expect(manifest.features.rules).toBe(true);
-    expect(manifest.features.prompts).toBe(true);
+    // Cycle 11 D2-3: prompts defaults OFF — no adapter emits prompt files and
+    // canonical ships no `prompts/` content, so defaulting it on fired a
+    // spurious unsupported-feature warning on the happy path.
+    expect(manifest.features.prompts).toBe(false);
     expect(manifest.features.commands).toBe(true);
     expect(manifest.features.mcp).toBe(true);
     expect(manifest.features.githubAgents).toBe(true);

@@ -1,0 +1,194 @@
+/**
+ * D13-5 (Cycle 11 Wave 2, D13, ASI06): `hatch3r learn capture --file <path>`.
+ *
+ * Closes the feedback-loop security gap where the mandated learnings write-gate
+ * `persistLearning` (`src/content/learningsValidation.ts`) had ZERO non-test
+ * callers. `skills/hatch3r-learn/SKILL.md` makes "always route through
+ * `persistLearning`" a hard guardrail, but `hatch3r-learn` is an LLM skill with
+ * no shell affordance to reach the pipeline — so the agent wrote markdown with a
+ * raw `Write`, bypassing the three injection gates (`scanForDeniedPatterns` +
+ * `validateAgentOutput` + `sanitizeUserContent`), the in-memory integrity check,
+ * and the refuse-overwrite rule (SA13.4-F1).
+ *
+ * This subcommand is the shell entry point the skill shells out to: it reads the
+ * staged learning file the skill authored, verifies the declared body-integrity
+ * frontmatter against a recomputed digest, then commits the bytes through
+ * `persistLearning` (atomic temp+rename write into `.hatch3r/learnings/`). Any
+ * gate rejection prints the reasons and exits 1 fail-closed; nothing is written.
+ *
+ * Pillar service: P6 (Security & Trust — the documented write-gate is now
+ * reachable, so the guardrail is enforced rather than aspirational), P1 (CLI
+ * affordance: the skill has a real command to invoke instead of a guardrail it
+ * cannot honor).
+ */
+
+import { mkdir, readFile } from "node:fs/promises";
+import { basename, isAbsolute, join, resolve } from "node:path";
+import {
+  computeLearningIntegrity,
+  persistLearning,
+  validateLearningFileName,
+} from "../../content/learningsValidation.js";
+import { HatchError, HATCH3R_DIR } from "../../types.js";
+import { printBanner, printBox, label, error as logError, info, warn } from "../shared/ui.js";
+
+export interface LearnCaptureOptions {
+  /** Absolute or cwd-relative path to the staged learning file to capture. */
+  file?: string;
+  /**
+   * Destination filename in `.hatch3r/learnings/`. Defaults to the staged
+   * file's basename. Validated via {@link validateLearningFileName} so a
+   * traversal or non-`.md` name is rejected before any path is built.
+   */
+  as?: string;
+}
+
+const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
+const INTEGRITY_LINE_REGEX = /^integrity:\s*sha256:([0-9a-fA-F]{64})\s*$/m;
+
+/**
+ * Split a learning file into `{ body }` — the content after the closing `---`
+ * of the frontmatter — and the declared body-integrity hex (when present).
+ * Mirrors the skill's "SHA-256 of body content (everything after frontmatter)"
+ * contract so the recomputed digest matches what the skill stamped.
+ */
+function extractBodyAndIntegrity(raw: string): {
+  body: string;
+  declaredIntegrity?: string;
+} {
+  const match = raw.match(FRONTMATTER_REGEX);
+  if (!match) {
+    // No frontmatter: the whole file is the body, no declared integrity.
+    return { body: raw };
+  }
+  const [, frontmatter, body] = match;
+  const integrityMatch = frontmatter.match(INTEGRITY_LINE_REGEX);
+  return {
+    body,
+    declaredIntegrity: integrityMatch ? integrityMatch[1].toLowerCase() : undefined,
+  };
+}
+
+/**
+ * `hatch3r learn capture --file <path>` — commit a staged learning file through
+ * the `persistLearning` security pipeline into `.hatch3r/learnings/`.
+ */
+export async function learnCaptureCommand(options: LearnCaptureOptions): Promise<void> {
+  printBanner(true);
+
+  if (!options.file || typeof options.file !== "string") {
+    logError("hatch3r learn capture requires --file <path> pointing at the staged learning file.");
+    throw new HatchError(
+      "Missing --file argument",
+      2,
+      "VALIDATION_ERROR",
+      "Pass the path to the learning file your /learn flow wrote, e.g. `hatch3r learn capture --file .hatch3r/learnings/.staging/2026-06-06-vitest-tip.md`.",
+    );
+  }
+
+  const rootDir = process.cwd();
+  const sourcePath = isAbsolute(options.file) ? options.file : resolve(rootDir, options.file);
+
+  // Read the staged file. A read failure (missing / unreadable) is a usage
+  // error — the caller pointed --file at a path that does not exist.
+  let raw: string;
+  try {
+    raw = await readFile(sourcePath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    logError(`Cannot read staged learning file at ${sourcePath}.`);
+    throw new HatchError(
+      `Failed to read --file: ${(err as Error).message}`,
+      2,
+      code === "ENOENT" ? "VALIDATION_ERROR" : "FS_ERROR",
+      "Confirm the path your /learn flow wrote to exists and is readable, then re-run `hatch3r learn capture --file <path>`.",
+    );
+  }
+
+  // Resolve the destination filename (explicit --as wins, else the source
+  // basename) and validate it BEFORE building the target path so a traversal
+  // or non-.md name never reaches the join.
+  const destName = typeof options.as === "string" && options.as.trim().length > 0
+    ? options.as.trim()
+    : basename(sourcePath);
+  const nameErrors = validateLearningFileName(destName);
+  if (nameErrors.length > 0) {
+    for (const e of nameErrors) logError(e);
+    throw new HatchError(
+      `Invalid learning filename: ${destName}`,
+      2,
+      "VALIDATION_ERROR",
+      "Use a `.md` filename with only alphanumerics, hyphens, underscores, and dots (no path separators).",
+    );
+  }
+
+  const learningsDir = join(rootDir, HATCH3R_DIR, "learnings");
+  const targetPath = join(learningsDir, destName);
+
+  // Recompute the body-only integrity (everything after frontmatter, trimmed)
+  // and compare against the `integrity: sha256:<hex>` the skill stamped. This
+  // is the body-scope hash the skill's contract documents; persistLearning's
+  // own expectedIntegrity hashes the FULL file bytes, so the two checks are
+  // complementary — this one verifies the stamped frontmatter is self-consistent,
+  // persistLearning's verifies the bytes were not mutated between here and disk.
+  const { body, declaredIntegrity } = extractBodyAndIntegrity(raw);
+  if (declaredIntegrity) {
+    const recomputed = computeLearningIntegrity(body);
+    if (recomputed !== declaredIntegrity) {
+      logError(
+        `Integrity mismatch: frontmatter declares sha256:${declaredIntegrity} but the body hashes to sha256:${recomputed}.`,
+      );
+      throw new HatchError(
+        "Learning body integrity mismatch",
+        // C8-D1-M5: omit exitCode so the central ERROR_CODE_TO_EXIT_CODE map
+        // assigns the sysexits.h-aligned VALIDATION_ERROR code (EX_USAGE 64).
+        undefined,
+        "VALIDATION_ERROR",
+        "The body was edited after the integrity hash was stamped. Recompute `integrity: sha256:<sha256-of-trimmed-body>` and re-run, or re-run the /learn flow to regenerate the file.",
+      );
+    }
+  } else {
+    warn(
+      "Staged learning has no `integrity: sha256:<hex>` frontmatter line; writing without a body-integrity cross-check. The /learn flow should stamp one.",
+    );
+  }
+
+  // persistLearning's atomic temp+rename writes the staging temp file INSIDE
+  // the target directory, so `.hatch3r/learnings/` must exist first. The skill
+  // contract ("If .hatch3r/learnings/ does not exist, create it") makes dir
+  // provisioning the caller's job; create it idempotently before the write.
+  await mkdir(learningsDir, { recursive: true });
+
+  // Commit through the security pipeline. persistLearning runs the three
+  // injection gates + structural validation + refuse-overwrite, computes the
+  // full-content digest, and atomic-writes the EXACT raw bytes (frontmatter +
+  // body) so the on-disk learning retains the schema the loader reads. The
+  // declared body-integrity (verified above) is preserved verbatim in those bytes.
+  const result = await persistLearning(targetPath, raw, { source: "learn-command" });
+
+  for (const w of result.warnings) warn(w);
+
+  if (!result.written) {
+    logError(`Refused to capture ${destName} — the security pipeline rejected it:`);
+    for (const r of result.rejections) logError(`  ${r}`);
+    throw new HatchError(
+      `Learning capture blocked by ${result.rejections.length} gate rejection(s)`,
+      // C8-D1-M5: omit exitCode so the central ERROR_CODE_TO_EXIT_CODE map
+      // assigns the sysexits.h-aligned VALIDATION_ERROR code (EX_USAGE 64).
+      undefined,
+      "VALIDATION_ERROR",
+      "Revise the learning content (rephrase injection-resembling text, split oversized bodies, or pick a non-colliding filename) and re-run. Never bypass the gate with a raw file write.",
+    );
+  }
+
+  printBox(
+    "Learning captured",
+    [
+      label("File", result.path ?? targetPath),
+      label("Integrity", `sha256:${result.integrity}`),
+      label("Gates", "passed (deny-scan + agent-output + user-quarantine + structural)"),
+    ],
+    "success",
+  );
+  info("Auto-consulted during future board-pickup and board-fill runs.");
+}
