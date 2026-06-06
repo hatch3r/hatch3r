@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { mkdtemp, readFile, writeFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
@@ -9,7 +9,9 @@ import {
   parseEnvFile,
   ensureEnvMcp,
   ensureGitignoreEntry,
+  type EnvVar,
 } from "../../env/mcpEnv.js";
+import { setVerbose } from "../../cli/shared/ui.js";
 
 describe("collectRequiredEnvVars", () => {
   it("returns env vars for servers that require them", () => {
@@ -80,6 +82,90 @@ describe("generateEnvMcpContent", () => {
   it("returns empty string when no vars needed", () => {
     const content = generateEnvMcpContent([]);
     expect(content).toBe("");
+  });
+
+  // D3-17 (D3, P6): the comment/url fields are the documented pack extension
+  // point (governance/pack-trust-model.md). sanitizeEnvMcpComment strips
+  // `\r\n=` at the render boundary so a pack-supplied value containing a
+  // newline + `KEY=value` cannot inject an attacker-controlled assignment into
+  // the rendered `.env.mcp`, which the operator then sources (CWE-78-adjacent).
+  // Adversarial coverage of the strip branch (mcpEnv.ts:174-180).
+  describe("comment-injection sanitizer (D3-17)", () => {
+    afterEach(() => {
+      setVerbose(false);
+    });
+
+    /** A var whose comment and url each carry a newline-smuggled assignment. */
+    function injectedVar(): EnvVar {
+      return {
+        name: "MYTOKEN",
+        server: "evil-pack",
+        comment: "ok\nINJECTED=1",
+        url: "http://x\nALSO=2",
+      };
+    }
+
+    it("strips smuggled newline + KEY=value so no attacker assignment is rendered", () => {
+      const content = generateEnvMcpContent([injectedVar()]);
+      const lines = content.split("\n");
+
+      // The smuggled assignments never appear as standalone lines.
+      expect(lines).not.toContain("INJECTED=1");
+      expect(lines).not.toContain("ALSO=2");
+
+      // Exactly one `=`-bearing line belongs to MYTOKEN: the placeholder. The
+      // comment line that carried the smuggled `=` has had it collapsed to a
+      // space, so it no longer parses as an assignment.
+      const tokenAssignmentLines = lines.filter((l) => /^MYTOKEN=/.test(l));
+      expect(tokenAssignmentLines).toEqual(["MYTOKEN="]);
+
+      // The rendered comment line for MYTOKEN carries the sanitized text with
+      // `\n` and `=` replaced by spaces — it contains no `=`.
+      const commentLine = lines.find((l) => l.startsWith("# ok "));
+      expect(commentLine).toBeDefined();
+      expect(commentLine).not.toContain("=");
+      expect(commentLine).toContain("INJECTED 1");
+      expect(commentLine).toContain("ALSO 2");
+
+      // parseEnvFile (the same parser the operator's shell mimics) recovers
+      // only MYTOKEN — never the smuggled keys.
+      const parsed = parseEnvFile(content);
+      expect(Object.keys(parsed)).toEqual(["MYTOKEN"]);
+      expect(parsed).not.toHaveProperty("INJECTED");
+      expect(parsed).not.toHaveProperty("ALSO");
+    });
+
+    it("emits a --verbose strip diagnostic naming the offending field", () => {
+      // verbose() writes via console.error (see cli/shared/ui.ts).
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      setVerbose(true);
+
+      generateEnvMcpContent([injectedVar()]);
+
+      const stderr = spy.mock.calls.map((c: unknown[]) => c.join(" "));
+      expect(
+        stderr.some((line) => /mcpEnv: stripped .* comment for MYTOKEN/.test(line)),
+      ).toBe(true);
+      expect(
+        stderr.some((line) => /mcpEnv: stripped .* url for MYTOKEN/.test(line)),
+      ).toBe(true);
+
+      spy.mockRestore();
+    });
+
+    it("stays silent when comment/url contain no injection characters", () => {
+      const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+      setVerbose(true);
+
+      generateEnvMcpContent([
+        { name: "CLEAN", server: "ok-pack", comment: "a clean comment", url: "https://example.com" },
+      ]);
+
+      const stderr = spy.mock.calls.map((c: unknown[]) => c.join(" "));
+      expect(stderr.some((line) => /mcpEnv: stripped/.test(line))).toBe(false);
+
+      spy.mockRestore();
+    });
   });
 });
 
@@ -251,17 +337,19 @@ describe("ensureGitignoreEntry", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  // F2.7-F3 (D2, P1): `ensureGitignoreEntry` registers all four hatch3r
-  // entries — `.env.mcp` (MCP secrets), `.hatch3r-archive/` (archive trees),
-  // `.hatch3r/snapshots/` (snapshot dirs), `.hatch3r/handoffs/` (handoff
-  // payloads). Without these, `git add .` silently commits operational
+  // F2.7-F3 (D2, P1) + D1-14 (D1, P1): `ensureGitignoreEntry` registers all
+  // hatch3r entries — `.env.mcp` (MCP secrets), `.hatch3r-archive/` (archive
+  // trees), `.hatch3r/snapshots/` (snapshot dirs), `.hatch3r/handoffs/`
+  // (handoff payloads), `.hatch3r/provenance.json` (drift baseline, D12-3),
+  // `.init-workspace/` + `.sync-workspace/` (per-run `--resume` checkpoint
+  // trees, D1-14). Without these, `git add .` silently commits operational
   // state + secrets per the Silent Failure Contract.
 
   it("creates .gitignore with all required hatch3r entries when file does not exist (F2.7-F3)", async () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      ".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+      ".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
     );
   });
 
@@ -270,7 +358,7 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      "node_modules/\ndist/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+      "node_modules/\ndist/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
     );
   });
 
@@ -279,20 +367,20 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
     );
   });
 
   it("skips entries already present (F2.7-F3)", async () => {
     await writeFile(
       join(tempDir, ".gitignore"),
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
       "utf-8",
     );
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
     );
   });
 
@@ -301,7 +389,7 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      ".env.*\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+      ".env.*\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
     );
   });
 
@@ -310,9 +398,12 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     // .hatch3r/ dominates .hatch3r/snapshots/, .hatch3r/handoffs/, AND the
-    // D12-3 .hatch3r/provenance.json file entry.
-    // .hatch3r-archive/ is a sibling directory, NOT dominated, so still added.
-    expect(content).toBe(".env.mcp\n.hatch3r/\n.hatch3r-archive/\n");
+    // D12-3 .hatch3r/provenance.json file entry. The D1-14 .init-workspace/
+    // and .sync-workspace/ are top-level siblings, NOT dominated, so still
+    // added. .hatch3r-archive/ is likewise a sibling directory, still added.
+    expect(content).toBe(
+      ".env.mcp\n.hatch3r/\n.hatch3r-archive/\n.init-workspace/\n.sync-workspace/\n",
+    );
   });
 
   it("is idempotent across repeated invocations (F2.7-F3)", async () => {
@@ -328,7 +419,7 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      ".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+      ".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
     );
   });
 
@@ -338,8 +429,21 @@ describe("ensureGitignoreEntry", () => {
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     // .env.mcp covered by whitespace-trimmed match; other entries still appended.
     expect(content).toBe(
-      "  .env.mcp  \n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n",
+      "  .env.mcp  \n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
     );
+  });
+
+  // D1-14 (D1, P1): `.init-workspace/` and `.sync-workspace/` hold the per-run
+  // `--resume` checkpoint trees written unconditionally by init/sync
+  // `recordPhase`. Registering them keeps a default `git add .` from staging
+  // resume state, mirroring the `.hatch3r/snapshots/` operational-state
+  // carve-out. Without these entries `git check-ignore` reports them as NOT
+  // ignored after any init/sync run.
+  it("registers .init-workspace/ and .sync-workspace/ checkpoint dirs (D1-14)", async () => {
+    await ensureGitignoreEntry(tempDir);
+    const lines = (await readFile(join(tempDir, ".gitignore"), "utf-8")).split("\n");
+    expect(lines).toContain(".init-workspace/");
+    expect(lines).toContain(".sync-workspace/");
   });
 
   // D12-3 (D12, P6): `.hatch3r/provenance.json` is a per-machine drift baseline

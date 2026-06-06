@@ -43,15 +43,20 @@ async function makeFixture(): Promise<Fixture> {
       join(rootDir, "agents", `${t.specialist}.md`),
     );
   }
-  // implementer + reviewer carry the Phase 4 enumerations.
-  await cp(
-    join(REPO_ROOT, "agents", "hatch3r-implementer.md"),
-    join(rootDir, "agents", "hatch3r-implementer.md"),
-  );
-  await cp(
-    join(REPO_ROOT, "agents", "hatch3r-reviewer.md"),
-    join(rootDir, "agents", "hatch3r-reviewer.md"),
-  );
+  // The four core 4-phase pipeline agents: implementer + reviewer carry the
+  // Phase 4 enumerations; researcher + fixer round out the watchdog-coverage
+  // required set (D8-12). Clone all four so the unmodified fixture is green.
+  for (const core of [
+    "hatch3r-researcher",
+    "hatch3r-implementer",
+    "hatch3r-fixer",
+    "hatch3r-reviewer",
+  ]) {
+    await cp(
+      join(REPO_ROOT, "agents", `${core}.md`),
+      join(rootDir, "agents", `${core}.md`),
+    );
+  }
   await cp(
     join(REPO_ROOT, "rules", "hatch3r-agent-orchestration.md"),
     join(rootDir, "rules", "hatch3r-agent-orchestration.md"),
@@ -283,6 +288,54 @@ describe("validate-specialist-roster", () => {
     expect(
       r.findings.some(
         (f) => f.code === "ROSTER-CMD-MISSING" && f.file === "commands/hatch3r-workflow.md",
+      ),
+    ).toBe(false);
+  });
+
+  // ── Watchdog coverage (D8-12) ──────────────────────────────────
+
+  it("ERRORs (ROSTER-WATCHDOG-MISSING) when an agent declares no watchdog directive", async () => {
+    // Strip the watchdog directive from a core pipeline agent: remove both the
+    // frontmatter field and any shared-frame reference.
+    const fixerPath = join(fx.rootDir, "agents", "hatch3r-fixer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(fixerPath, "utf-8");
+    const stripped = body
+      .split("\n")
+      .filter((l) => !/^\s*wall_clock_advisory_ms\s*:/.test(l))
+      .join("\n")
+      .split("quality-specialist-frame")
+      .join("quality-OTHER-frame");
+    await writeFile(fixerPath, stripped, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const miss = r.findings.find(
+      (f) => f.code === "ROSTER-WATCHDOG-MISSING" && f.file === "agents/hatch3r-fixer.md",
+    );
+    expect(miss).toBeDefined();
+    expect(miss?.message).toMatch(/wall_clock_advisory_ms/);
+    expect(r.errorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("accepts the shared-frame reference as a watchdog carrier (no field needed)", async () => {
+    // Replace docs-writer's watchdog field with a quality-specialist-frame
+    // reference in the body — the second accepted carrier (D8-11). The gate
+    // must NOT flag it.
+    const dwPath = join(fx.rootDir, "agents", "hatch3r-docs-writer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(dwPath, "utf-8");
+    const withoutField = body
+      .split("\n")
+      .filter((l) => !/^\s*wall_clock_advisory_ms\s*:/.test(l))
+      .join("\n");
+    const withFrameRef =
+      withoutField + "\n\nWatchdog: see `agents/shared/quality-specialist-frame.md`.\n";
+    await writeFile(dwPath, withFrameRef, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    expect(
+      r.findings.some(
+        (f) => f.code === "ROSTER-WATCHDOG-MISSING" && f.file === "agents/hatch3r-docs-writer.md",
       ),
     ).toBe(false);
   });

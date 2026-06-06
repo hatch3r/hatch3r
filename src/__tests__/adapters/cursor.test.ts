@@ -313,6 +313,66 @@ You are a test agent.`,
     expect(parsed.mcpServers.github.url).toBe("https://api.githubcopilot.com/mcp/");
   });
 
+  // D2-13 (Cycle 11 Wave 3, D2, P6): no `_`-prefixed framework marker may leak
+  // into the committed `.cursor/mcp.json`. Before the fix, `_pinned_sha256`,
+  // `_trust_bypass`, and `_timeout` survived `readFilteredMcp` (which strips
+  // only `_disabled`/`_description`) and were emitted verbatim by the cursor
+  // adapter. The shared `stripPrivateMcpFields` helper now removes every
+  // underscore-prefixed key per entry before emission.
+  it("strips all `_`-prefixed private fields from .cursor/mcp.json (D2-13)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-mcp-priv-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            "pinned-http": {
+              _description: "private description",
+              _trust_bypass: true,
+              _timeout: 45000,
+              _pinned_sha256:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              url: "https://example.com/mcp",
+              headers: { Authorization: "Bearer ${env:API_TOKEN}" },
+            },
+            "stdio-server": {
+              _timeout: 1000,
+              command: "npx",
+              args: ["-y", "@scope/some-mcp@1.0.0"],
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({ mcpServers: ["pinned-http", "stdio-server"] });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".cursor/mcp.json");
+      expect(mcp).toBeDefined();
+      // No underscore-prefixed key may appear anywhere in the serialized file.
+      expect(mcp!.content).not.toContain("_trust_bypass");
+      expect(mcp!.content).not.toContain("_pinned_sha256");
+      expect(mcp!.content).not.toContain("_timeout");
+      expect(mcp!.content).not.toContain("_description");
+
+      const parsed = JSON.parse(mcp!.content);
+      for (const server of Object.values(
+        parsed.mcpServers as Record<string, Record<string, unknown>>,
+      )) {
+        for (const key of Object.keys(server)) {
+          expect(key.startsWith("_")).toBe(false);
+        }
+      }
+      // Public fields survive untouched.
+      expect(parsed.mcpServers["pinned-http"].url).toBe("https://example.com/mcp");
+      expect(parsed.mcpServers["stdio-server"].command).toBe("npx");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("does not generate mcp.json when no servers configured", async () => {
     const manifest = makeManifest({ mcpServers: [] });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

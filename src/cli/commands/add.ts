@@ -1,13 +1,20 @@
 import chalk from "chalk";
 import { printBanner, info } from "../shared/ui.js";
 
-export async function addCommand(_opts: { force?: boolean } = {}): Promise<void> {
+export async function addCommand(): Promise<void> {
   printBanner(true);
   // Wave 7: the integrity-manifest preflight that previously gated `add` was
   // removed along with the integrity subsystem. The command is still a
   // placeholder advertising the community-pack roadmap; when the body is
   // wired up, drift gating should reuse `computeAdapterDrift` from
   // `status.ts` instead of the deleted `verifyIntegrity` helper.
+  //
+  // D1-SA1.3-F2 (Medium, P1): the `--force` option and the exit-1
+  // "integrity drift blocked" help row were removed from the `add`
+  // registration in program.ts in the same pass — the stub reads no options
+  // and only exits 0, so advertising an integrity-override flag and a
+  // drift-block exit code contradicted the body. Re-add the option + its
+  // handling here when the pack installer lands.
 
   // C8-D1-M8 (D1-SA1.3.1, P1): `hatch3r add` is advertised in `--help` as a
   // community-pack installer that is not yet shipped. Exiting with code 2

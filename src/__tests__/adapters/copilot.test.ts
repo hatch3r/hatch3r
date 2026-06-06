@@ -380,6 +380,57 @@ Applies to API code and protobufs.`,
     }
   });
 
+  // D10-32 (Cycle 11 Wave 3, D10, P6/CQ4): a VS-Code-unexpandable bare
+  // `$`-prefixed secret (e.g. `Bearer $GITHUB_PAT`) must never reach a header
+  // value in `.vscode/mcp.json` — VS Code does not shell-expand `$VAR` in
+  // header values, so it would authenticate with the literal string. The
+  // adapter rewrites `${env:NAME}` to a VS Code `${input:NAME}` reference and
+  // declares a matching top-level `inputs[]` entry. This regression test
+  // asserts no bare `$`-prefixed token survives in any header value.
+  it("rejects bare `$`-prefixed secrets in HTTP-transport headers, emits ${input:NAME} (D10-32)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-mcp-hdr-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            github: {
+              _trust_bypass: true,
+              url: "https://api.githubcopilot.com/mcp/",
+              headers: {
+                Authorization: "Bearer ${env:GITHUB_PAT}",
+                "X-Static": "literal-value",
+              },
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({ mcpServers: ["github"] });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".vscode/mcp.json");
+      expect(mcp).toBeDefined();
+      const parsed = JSON.parse(mcp!.content);
+
+      const auth = parsed.servers.github.headers.Authorization as string;
+      // The secret rides as a VS Code input reference, not a bare `$VAR`.
+      expect(auth).toBe("Bearer ${input:GITHUB_PAT}");
+      // No bare `$`-prefixed token (e.g. `$GITHUB_PAT`) anywhere in the file.
+      // `${input:...}` / `${workspaceFolder}` use `${` and are not bare.
+      expect(/(?<!\{)\$[A-Za-z_]/.test(mcp!.content)).toBe(false);
+      // Static (non-secret) headers pass through unchanged.
+      expect(parsed.servers.github.headers["X-Static"]).toBe("literal-value");
+      // A matching top-level input variable is declared.
+      const inputs = parsed.inputs as Array<Record<string, unknown>>;
+      expect(inputs.some((i) => i.id === "GITHUB_PAT" && i.password === true)).toBe(true);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("does not generate MCP config when no servers configured", async () => {
     const manifest = makeManifest({ mcpServers: [] });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

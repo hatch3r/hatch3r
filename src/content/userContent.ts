@@ -1273,10 +1273,19 @@ async function writeArtifactFiles(
       const mdTarget = join(dir, `${artifact.name}.md`);
       await atomicWriteFile(mdTarget, composed);
       written.push(mdTarget);
-      // Generate paired .mdc companion via the canonical helper.
+      // Generate paired .mdc companion via the canonical helper. When the
+      // author used the canonical two-line form (`ruleScope: conditional` plus
+      // a separate `globs:` in frontmatter), thread that CSV through so the
+      // `.mdc` carries the same auto-attach glob set as the `.md` — otherwise a
+      // conditional rule would silently emit `alwaysApply: false` (D2-18).
+      const ruleGlobs =
+        typeof artifact.frontmatter.globs === "string"
+          ? artifact.frontmatter.globs
+          : undefined;
       const mdcFrontmatter = cursorCompanionFrontmatter(
         artifact.description,
         artifact.ruleScope,
+        ruleGlobs,
       );
       const mdcContent = `${mdcFrontmatter}\n${artifact.body.startsWith("\n") ? artifact.body : `\n${artifact.body}`}`;
       const mdcTarget = join(dir, `${artifact.name}.mdc`);

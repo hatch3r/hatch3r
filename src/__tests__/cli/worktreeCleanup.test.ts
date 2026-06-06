@@ -7,7 +7,7 @@ vi.mock("../../worktree/resolve.js", () => ({
   isInsideWorktree: vi.fn(() => false),
   findMainWorktree: vi.fn(() => "/fake/main"),
   listWorktrees: vi.fn((): WorktreeListEntry[] => []),
-  getWorktreeStatus: vi.fn((): WorktreeStatus => ({ modified: 0, untracked: 0, stashes: 0 })),
+  getWorktreeStatus: vi.fn((): WorktreeStatus => ({ modified: 0, untracked: 0 })),
 }));
 
 vi.mock("../../worktree/index.js", async (importOriginal) => {
@@ -88,7 +88,7 @@ describe("worktreeCleanupCommand", () => {
     isInsideWorktree.mockReset().mockReturnValue(false);
     findMainWorktree.mockReset().mockReturnValue(MAIN);
     listWorktrees.mockReset().mockReturnValue([]);
-    getWorktreeStatus.mockReset().mockReturnValue({ modified: 0, untracked: 0, stashes: 0 });
+    getWorktreeStatus.mockReset().mockReturnValue({ modified: 0, untracked: 0 });
     cleanupWorktree.mockReset().mockResolvedValue(undefined);
     removeGitWorktree.mockReset();
 
@@ -226,7 +226,7 @@ describe("worktreeCleanupCommand", () => {
     (process.stdin as { isTTY?: boolean }).isTTY = true;
     listWorktrees.mockReturnValue([entry(MAIN, "main"), entry(W1, "feat-a")]);
     getWorktreeStatus.mockImplementation((p: string) =>
-      p === W1 ? { modified: 3, untracked: 1, stashes: 0 } : { modified: 0, untracked: 0, stashes: 0 },
+      p === W1 ? { modified: 3, untracked: 1 } : { modified: 0, untracked: 0 },
     );
     inquirerPrompt
       .mockResolvedValueOnce({ mode: "all" })
@@ -239,7 +239,7 @@ describe("worktreeCleanupCommand", () => {
 
   it("--yes bypasses the dirty confirmation", async () => {
     listWorktrees.mockReturnValue([entry(MAIN, "main"), entry(W1, "feat-a")]);
-    getWorktreeStatus.mockReturnValue({ modified: 5, untracked: 0, stashes: 2 });
+    getWorktreeStatus.mockReturnValue({ modified: 5, untracked: 0 });
 
     await worktreeCleanupCommand({ yes: true });
 

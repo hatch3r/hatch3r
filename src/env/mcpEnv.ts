@@ -255,6 +255,13 @@ export function parseEnvFile(content: string): Record<string, string> {
  * `contentHash`/`generatedAt`/`lastRunId` fields still vary per run and per
  * install, so committing it produces churn-only diffs.
  *
+ * D1-14 (D1, P1): `.init-workspace/` and `.sync-workspace/` hold the
+ * `--resume` checkpoint trees (`checkpoint.json`) written unconditionally by
+ * `init.ts::recordPhase` (init.ts:695-715) and `sync.ts::recordPhase`. Every
+ * `init`/`sync` run creates one of these directories regardless of MCP state,
+ * so without these entries a default `git add .` stages per-run resume state —
+ * the same Silent-Failure-Contract leak as `.hatch3r/snapshots/`.
+ *
  * The trailing slash on directory entries makes the gitignore match
  * directory-scoped per `https://git-scm.com/docs/gitignore` (accessed
  * 2026-05-26). File entries (`.env.mcp`, `.hatch3r/provenance.json`) stay
@@ -266,6 +273,8 @@ const REQUIRED_GITIGNORE_ENTRIES = [
   ".hatch3r/snapshots/",
   ".hatch3r/handoffs/",
   ".hatch3r/provenance.json",
+  ".init-workspace/",
+  ".sync-workspace/",
 ] as const;
 
 /**
@@ -294,8 +303,9 @@ function isCoveredByGitignore(entry: string, lines: string[]): boolean {
  * Entries registered: `.env.mcp` (MCP secrets), `.hatch3r-archive/`
  * (archive trees from sync/update), `.hatch3r/snapshots/` (per-session
  * snapshots), `.hatch3r/handoffs/` (handoff payloads),
- * `.hatch3r/provenance.json` (per-machine drift baseline, D12-3). See
- * {@link REQUIRED_GITIGNORE_ENTRIES} for rationale.
+ * `.hatch3r/provenance.json` (per-machine drift baseline, D12-3),
+ * `.init-workspace/` + `.sync-workspace/` (per-run `--resume` checkpoint
+ * trees, D1-14). See {@link REQUIRED_GITIGNORE_ENTRIES} for rationale.
  */
 export async function ensureGitignoreEntry(rootDir: string): Promise<void> {
   const gitignorePath = join(rootDir, ".gitignore");

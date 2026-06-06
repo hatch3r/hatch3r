@@ -1,7 +1,7 @@
 import { readFile, readdir, cp, mkdir, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, dirname, normalize, isAbsolute, posix } from "node:path";
-import { parseFrontmatter } from "../adapters/canonical.js";
+import { parseFrontmatter, csvToGlobList } from "../adapters/canonical.js";
 import { extractAdaptersFrontmatter } from "./frontmatter.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import {
@@ -610,8 +610,28 @@ async function scanContentRoot(
 
       for (const file of entries) {
         const filePath = join(dirPath, file);
-        const raw = await readFile(filePath, "utf-8");
-        const { metadata } = parseFrontmatter(raw);
+        let raw: string;
+        let metadata: ReturnType<typeof parseFrontmatter>["metadata"];
+        try {
+          raw = await readFile(filePath, "utf-8");
+          ({ metadata } = parseFrontmatter(raw));
+        } catch (err) {
+          // D2-19 (Cycle 11 Wave 3): one malformed-YAML file (realistic trigger:
+          // a `.hatch3r/overrides/` typo) previously threw a YAMLParseError with
+          // no source path and aborted the entire index build for
+          // init/sync/status/add/show/config. ENOENT means the file vanished
+          // between readdir and readFile — a genuine filesystem race worth
+          // surfacing loudly — so re-throw it. Any other error (parse failure,
+          // permission) is per-file: record an actionable named warning naming
+          // the offending path and continue indexing the rest of the corpus.
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") throw err;
+          recordContentProbeFailure(
+            `buildContentIndex: skipped ${posix.join(config.dir, file)} (unreadable or malformed frontmatter)`,
+            err,
+            warnings,
+          );
+          continue;
+        }
         const rawId = metadata.id || metadata.name || file.replace(/\.md$/, "");
         const id = applyCommandPrefix(rawId, config.type);
 
@@ -1587,18 +1607,52 @@ export function selectionSummary(selection: ContentSelection): string {
 
 /**
  * Generate Cursor-native frontmatter from canonical rule metadata.
- * Maps `scope` to `alwaysApply` / `globs` as the Cursor adapter does.
+ * Maps `scope` (+ a separate `globs` CSV) to `alwaysApply` / `globs` using the
+ * same `.md → .mdc` transform the Cursor adapter applies via `resolveRuleGlobs`
+ * (`src/adapters/canonical.ts`):
+ *   - `scope: always`                      → `alwaysApply: true` (no globs)
+ *   - `scope: conditional` + `globs: <csv>`→ `globs: ["g1", ...]` (auto-attached)
+ *   - `scope: conditional` with no `globs`  → `alwaysApply: false` (manual-only;
+ *                                             deprecated globs-less conditional)
+ *   - `scope: "<csv>"` (legacy inline form) → `globs: ["g1", ...]`
+ *   - absent / empty scope                  → `alwaysApply: false`
+ *
+ * D2-18 (Cycle 11 Wave 3): before the `globs` parameter existed, the canonical
+ * two-line form (`scope: conditional` + a separate `globs:` line — the form
+ * `.claude/rules/content-authoring.md` mandates for new rules) fell through to
+ * the final `alwaysApply: false` branch with NO globs, silently demoting every
+ * auto-attached Cursor rule (50+ canonical rules) to manual-only `@`-mention.
+ * Routing the CSV through `csvToGlobList` mirrors the parity gate
+ * (`scripts/validate-rule-parity.ts` `csvToSet`) so the emitted `.mdc` glob set
+ * matches what the validator derives from the same `.md`.
  */
-function cursorCompanionFrontmatter(description: string, scope?: string): string {
+function cursorCompanionFrontmatter(
+  description: string,
+  scope?: string,
+  globs?: string,
+): string {
   const lines: string[] = [`description: ${description}`];
   if (scope === "always") {
     lines.push("alwaysApply: true");
-  } else if (scope && scope !== "conditional") {
-    // Treat non-"always", non-"conditional" scope values as glob patterns
-    const globs = scope.includes(",")
-      ? scope.split(",").map((g) => g.trim())
-      : [scope];
-    lines.push(`globs: [${globs.map((g) => `"${g}"`).join(", ")}]`);
+  } else if (scope === "conditional") {
+    // Canonical two-line form: the real patterns live in the separate `globs`
+    // CSV, never in `scope`. A conditional rule with no `globs` is a deprecated
+    // globs-less rule → manual-only (alwaysApply: false), per the transform.
+    const list = csvToGlobList(globs);
+    if (list.length > 0) {
+      lines.push(`globs: [${list.map((g) => `"${g}"`).join(", ")}]`);
+    } else {
+      lines.push("alwaysApply: false");
+    }
+  } else if (scope) {
+    // Legacy inline-CSV form (`scope: "**/*.ts, **/*.tsx"` or a single bare
+    // glob): the patterns live in the scope string itself.
+    const list = csvToGlobList(scope);
+    if (list.length > 0) {
+      lines.push(`globs: [${list.map((g) => `"${g}"`).join(", ")}]`);
+    } else {
+      lines.push("alwaysApply: false");
+    }
   } else {
     lines.push("alwaysApply: false");
   }
@@ -1652,7 +1706,8 @@ export async function generateMdcCompanions(rulesDir: string): Promise<string[]>
     const { metadata, content } = parseFrontmatter(raw);
     const description = metadata.description || "";
     const scope = metadata.scope;
-    const frontmatter = cursorCompanionFrontmatter(description, scope);
+    const globs = metadata.globs;
+    const frontmatter = cursorCompanionFrontmatter(description, scope, globs);
     const mdcContent = `${frontmatter}\n${content}`;
     const mdcFile = mdFile.replace(/\.md$/, ".mdc");
     const mdcPath = join(rulesDir, mdcFile);

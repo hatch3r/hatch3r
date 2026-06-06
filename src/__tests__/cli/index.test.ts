@@ -165,6 +165,32 @@ describe("status --deep removal (D1-6)", () => {
   });
 });
 
+// D1-20 (Cycle 11 Wave 3, P1 / SA1.3-F2): `add` is a stub that always exits 0
+// and reads no options, yet its registration advertised a `--force`
+// "preflight integrity check" override and an exit-1 "integrity drift blocked"
+// contract. The integrity subsystem was removed in Wave 7 (1.9.0); both were
+// stale help-text claims that contradict the body. They must be gone from the
+// registration until the pack installer lands.
+describe("add --force / integrity-drift help removal (D1-20)", () => {
+  it("add no longer registers a --force option", () => {
+    const add = createProgram().commands.find((c) => c.name() === "add")!;
+    const flags = add.options.map((o) => o.long);
+    expect(flags).not.toContain("--force");
+  });
+
+  // The exit-1 / --force claims lived in the `.addHelpText("after", ...)` block,
+  // which Commander renders only on help OUTPUT, not in `helpInformation()`, so
+  // these guards grep the source — the same approach the maturity drift guard
+  // (below) and verify-summary guard (above) use. The exact removed phrases are
+  // matched (not loose substrings) so the SA1.3-F2 explanatory comment that
+  // mentions "preflight integrity" is not a false positive.
+  it("program.ts no longer advertises the integrity-drift gate on `add`", () => {
+    const src = readSource("src/cli/program.ts");
+    expect(src).not.toContain("Override the preflight integrity check and proceed despite drift");
+    expect(src).not.toContain("Integrity drift blocked the command");
+  });
+});
+
 // D14-8 (Cycle 11 Wave 2, P1): Decision 16 retired the maturity content-
 // admission gate — every tier installs the identical corpus. CLI help and the
 // canonical type docs must use calibration language, never the stale

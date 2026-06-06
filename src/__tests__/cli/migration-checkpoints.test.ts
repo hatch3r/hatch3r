@@ -454,7 +454,12 @@ describe("migration checkpoints", () => {
 
       const allOutput = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
       expect(allOutput).toContain("Update complete");
-      expect(allOutput).toContain("canonical files");
+      // D1-19 (Cycle 11 Wave 3): the summary's Files label was "N canonical
+      // files updated", but Wave 3 removed user-side canonical copying so that
+      // count was permanently 0 and the wording factually false. update.ts now
+      // renders "N file(s) written" (count of adapter-output files actually
+      // emitted this run). Assert the corrected, accurate label.
+      expect(allOutput).toContain("file(s) written");
     });
   });
 

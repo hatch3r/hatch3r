@@ -27,6 +27,32 @@ export type PresetId =
  * Capability tags admitted as preset positive-list entries. Floor tags
  * (`floor:*`) are deliberately NOT included here — floor admission is a
  * structural invariant of `resolveSelection` and bypasses preset config.
+ *
+ * Deliberate narrowing (D2-20, Cycle 11 Wave 3): `tags.ts::TAG_REGISTRY` marks
+ * 44 distinct tag values as facet `"capability"`, but this union — and every
+ * `preset.capabilities` array below — lists only 9 of them (the lifecycle
+ * clusters: planning, implementation, review, devops, maintenance,
+ * orchestration, board, performance, ai). The other 35 capability-facet tags
+ * (e.g. `security`, `reliability`, `testing`, `accessibility`, `spec`,
+ * `migration`, `telemetry`, `proof`, `playwright`, …) are sub-facet refinements
+ * that describe WHAT a content-quality or work-type artifact does within a
+ * cluster; canonical artifacts carrying them ALSO carry either a `floor:*` tag
+ * (the CQ specialists are `floor:content-quality`; security artifacts are
+ * `floor:security`) or one of the 9 primary capability tags, so they are
+ * admitted via floor admission (stage 2) or the 9-tag capability gate (stage 3)
+ * regardless of the 35 refinement tags. Adding a refinement tag to this union
+ * is therefore unnecessary AND would over-admit: a refinement-only preset would
+ * shape a non-lifecycle slice the picker has no concept of.
+ *
+ * The unguarded risk this narrowing creates: an artifact whose ONLY capability
+ * tags fall in the 35-tag refinement set, with no `floor:*` tag and
+ * `protected !== true`, intersects no preset's `capabilities` and is dropped by
+ * EVERY preset including `full` (a silent corpus hole — `full` is meant to ship
+ * everything). The corpus currently has 0 such orphans. The
+ * "every canonical artifact is admitted by `full` OR floor-tagged OR protected"
+ * guard in `src/__tests__/content/compound.test.ts` fails the build the moment
+ * one is introduced, converting the silent drop into a CI failure that names the
+ * offending file.
  */
 export type CapabilityTag =
   | typeof TAG_PLANNING

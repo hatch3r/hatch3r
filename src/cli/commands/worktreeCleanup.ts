@@ -80,7 +80,6 @@ function statusBadge(s: WorktreeStatus): string {
   const parts: string[] = [];
   if (s.modified) parts.push(`${s.modified} modified`);
   if (s.untracked) parts.push(`${s.untracked} untracked`);
-  if (s.stashes) parts.push(`${s.stashes} stash${s.stashes === 1 ? "" : "es"}`);
   return parts.length === 0 ? chalk.dim("clean") : chalk.yellow(parts.join(", "));
 }
 
@@ -201,7 +200,7 @@ function findDirty(
   return selected
     .map((p) => lookup.get(p))
     .filter((c): c is Candidate =>
-      !!c && (c.status.modified > 0 || c.status.untracked > 0 || c.status.stashes > 0),
+      !!c && (c.status.modified > 0 || c.status.untracked > 0),
     );
 }
 

@@ -67,6 +67,7 @@ import {
 import { runSelfUpdate, pickReExecBin } from "../../install/selfUpdate.js";
 import { pruneArchives } from "../../archive/index.js";
 import { buildSelectionsFromDisk } from "../../content/index.js";
+import { detectLanguages } from "../../detect/repoAnalyzer.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
@@ -175,6 +176,15 @@ export function throwOnPartialAdapterFailure(failedTools: number, totalTools: nu
 }
 
 export interface UpdateResult {
+  /**
+   * D1-19 (Cycle 11 Wave 3, D1, P1): count of adapter-output files actually
+   * written to disk this run (sum of every successful adapter's emitted paths).
+   * Field name kept for back-compat (`config` + tests consume it), but the
+   * value no longer means "canonical files copied" — Wave 3 removed user-side
+   * canonical copying, so the old `copied[]` source was permanently empty and
+   * rendered a factually false "0 canonical files updated". This counts the
+   * files the regenerate genuinely produced.
+   */
   copiedFiles: number;
   syncedTools: number;
   failedTools: number;
@@ -428,7 +438,6 @@ export async function runRegenerate(
   // resolveBundledContentRoot. No canonical or root AGENTS.md emission
   // (per blueprint v2 decisions #3 and #8).
   const canonicalContentRoot = resolveBundledContentRoot();
-  const copied: string[] = [];
   s1.succeed(step(offset + 1, total, "Canonical content resolved"));
 
   // --diff: track file snapshots before and after generation
@@ -784,8 +793,17 @@ export async function runRegenerate(
 
   s3.succeed(step(offset + 3, total, "Manifest updated"));
 
+  // D1-19 (Cycle 11 Wave 3, D1, P1): count the files this regenerate actually
+  // wrote — the union of every successful adapter's emitted output paths
+  // (`newManagedByAdapter`). The legacy `copied[]` source was dead after Wave 3
+  // removed user-side canonical copying, so it always reported 0.
+  const filesWritten = Object.values(newManagedByAdapter).reduce(
+    (sum, paths) => sum + paths.length,
+    0,
+  );
+
   return {
-    copiedFiles: copied.length,
+    copiedFiles: filesWritten,
     syncedTools: manifest.tools.length - adapterFailures.length,
     failedTools: adapterFailures.length,
     version: HATCH3R_VERSION,
@@ -1105,6 +1123,71 @@ async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string,
   return { manifest: current, allNotices };
 }
 
+/**
+ * D14-16 (Cycle 11 Wave 3, D14, P3): the project language set is detected once
+ * at `init` and frozen on the manifest as `manifest.languages`. `update`
+ * previously never re-ran detection, so a polyglot repo that ADDED a language
+ * after init (e.g. a TypeScript service that grows a `pyproject.toml`) kept the
+ * stale init-time set — and `manifest.languages` is read at generate time by
+ * `repoSubstitution.ts::verificationGatesFromManifest` to render the
+ * `${HATCH3R:VERIFY_GATE_*}` tokens (test / lint / typecheck command strings).
+ * A stale set there meant the regenerated agents still emitted the original
+ * language's verification commands (e.g. `npm run test`) for a repo that had
+ * since become polyglot. This is the explicit behavior chosen for the finding's
+ * option (a): re-detect on every `update`, refresh `manifest.languages`, and
+ * let the immediately-following regenerate re-render the gate tokens from the
+ * live set. Bypassed with `--no-redetect`.
+ *
+ * Scope note (Decision 16, "dial not gate"): the per-item tracked selection
+ * (`manifest.content.items`) is NOT a generate-time content filter — every
+ * preset already admits the full corpus, so adapters emit every `lang:*`-tagged
+ * rule to every repo regardless of detected languages (see
+ * `src/adapters/base.ts::readTrackedCanonicalFiles`, which filters only by
+ * adapter-scope / user-facing rules). The load-bearing staleness is therefore
+ * the manifest's `languages` field, not the item selection — so this refreshes
+ * exactly that field and does not mutate `content.items`.
+ *
+ * Why a focused {@link detectLanguages} probe and not {@link analyzeRepo}:
+ * `analyzeRepo` runs ~12 detection probes in parallel; `update` only needs the
+ * language set, so the single probe keeps the added cost to a handful of
+ * `access()` calls on a clean (no-drift) update — the common case.
+ *
+ * Mutates `manifest.languages` in place and returns notices for the caller to
+ * surface. No-op (empty notices) when the detected set equals the stored set.
+ */
+export async function redetectLanguages(
+  manifest: HatchManifest,
+  rootDir: string,
+): Promise<{ notices: string[] }> {
+  const notices: string[] = [];
+  // Manifest-shaped set: drop the "unknown" sentinel so a repo with no language
+  // indicator compares equal to a manifest that omits `languages` (init writes
+  // no field for an all-"unknown" detection — `createManifest`).
+  const detected = (await detectLanguages(rootDir)).filter((l) => l !== "unknown");
+  const previous = manifest.languages ?? [];
+  const detectedSet = new Set(detected);
+  const previousSet = new Set(previous);
+  const unchanged =
+    detectedSet.size === previousSet.size &&
+    [...detectedSet].every((l) => previousSet.has(l));
+  if (unchanged) return { notices };
+
+  const added = detected.filter((l) => !previousSet.has(l));
+  const removed = previous.filter((l) => !detectedSet.has(l));
+  manifest.languages = detected.length > 0 ? detected : undefined;
+
+  const changeSummary =
+    "Languages changed since init" +
+    (added.length > 0 ? ` (added: ${added.join(", ")})` : "") +
+    (removed.length > 0 ? ` (removed: ${removed.join(", ")})` : "");
+  notices.push(
+    `${changeSummary}. Refreshed the stored language set — verification-gate ` +
+      "commands in the regenerated agents now reflect the current languages. " +
+      "Run `hatch3r config` to re-pick language-gated content if needed.",
+  );
+  return { notices };
+}
+
 export async function updateCommand(
   _opts?: Record<string, unknown> & {
     yes?: boolean;
@@ -1137,6 +1220,15 @@ export async function updateCommand(
      * the pin until the user passes `--pin-version latest` to clear it.
      */
     pinVersion?: string;
+    /**
+     * D14-16 (Cycle 11 Wave 3, D14): default-true re-detection toggle.
+     * Commander maps the `--no-redetect` flag to `redetect: false`. When false,
+     * `update` skips post-init language re-detection and keeps the init-pinned
+     * language set verbatim. When unset/true, `update` re-detects languages and
+     * refreshes `manifest.languages` so the regenerated agents render
+     * verification-gate commands for the current set (see {@link redetectLanguages}).
+     */
+    redetect?: boolean;
     /**
      * SA12.1-F-D12-M2 (D12, P1): output format for CI consumers. `"json"`
      * emits a one-shot structured payload in place of the decorated summary
@@ -1210,6 +1302,25 @@ export async function updateCommand(
 
   for (const notice of allNotices) {
     warn(notice);
+  }
+
+  // D14-16 (Cycle 11 Wave 3, D14, P3): re-detect project languages and refresh
+  // `m.languages` BEFORE the dry-run preview and the regenerate so a repo that
+  // added a language post-init re-renders its verification-gate tokens from the
+  // current set (the field is consumed at generate time by
+  // `repoSubstitution.ts::verificationGatesFromManifest`). `runRegenerate`
+  // persists `m` via `writeManifest`, so the refreshed set is written on the
+  // real-run path; the dry-run path reflects it in-memory without writing.
+  // Default-on; `--no-redetect` (Commander → `redetect: false`) keeps the
+  // init-pinned set. Best-effort: a detection probe failure routes through
+  // verbose() and never aborts the update (Silent Failure Contract, P5).
+  if (_opts?.redetect !== false) {
+    try {
+      const { notices: langNotices } = await redetectLanguages(m, rootDir);
+      for (const n of langNotices) info(n);
+    } catch (err) {
+      verbose(`update: language re-detection skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // Wave 7: the canonical-content integrity preflight is gone — canonical
@@ -1413,7 +1524,7 @@ export async function updateCommand(
     version: result.version,
   });
   const updateSummaryLines = [
-    label("Files", `${compactedResult.copiedFiles} canonical files updated`),
+    label("Files", `${compactedResult.copiedFiles} file(s) written`),
     label("Tools", `${compactedResult.syncedTools} tool(s) re-synced`),
     label("Version", `v${compactedResult.version}`),
   ];

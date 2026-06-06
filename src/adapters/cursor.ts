@@ -18,7 +18,7 @@ import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
-import { transformEnvVarSyntax } from "./mcp-utils.js";
+import { stripPrivateMcpFields, transformEnvVarSyntax } from "./mcp-utils.js";
 import { toCursorReadonlyFrontmatter } from "../pipeline/adapterToolTranslator.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import {
@@ -258,7 +258,18 @@ export class CursorAdapter extends BaseAdapter {
       // sentry, postgres, linear, azure-devops, gitlab). The canonical
       // MCP fixture already uses `${env:VAR}` form, so "passthrough"
       // keeps it byte-identical to Cursor's required syntax.
-      const transformed = transformEnvVarSyntax(mcp, "passthrough") as Record<string, Record<string, unknown>>;
+      //
+      // D2-13 (Cycle 11 Wave 3, D2, P6): strip every `_`-prefixed framework
+      // marker per entry before emission. `readFilteredMcp` removes only
+      // `_disabled`/`_description`, so without this the endpoint-pin opt-out
+      // (`_pinned_sha256`/`_trust_bypass`) and `_timeout` leaked verbatim into
+      // the committed `.cursor/mcp.json` (claude.ts already destructures them
+      // out — this closes the adapter inconsistency at the shared helper).
+      const cleaned: Record<string, Record<string, unknown>> = {};
+      for (const [name, entry] of Object.entries(mcp)) {
+        cleaned[name] = stripPrivateMcpFields(entry);
+      }
+      const transformed = transformEnvVarSyntax(cleaned, "passthrough") as Record<string, Record<string, unknown>>;
       results.push(output(".cursor/mcp.json", JSON.stringify({ mcpServers: transformed }, null, 2)));
     }
 

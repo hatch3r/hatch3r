@@ -4,6 +4,7 @@ import { basename, dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
+import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
 import {
   applyPreservedManifestFields,
   createManifest,
@@ -893,6 +894,25 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     }
   }
 
+  // D6-12 (D6, P7): context-budget coverage on the first-run/highest-output
+  // path. `init` generates the same adapter outputs as `sync` but previously had
+  // 0 budget checks, so a content selection whose always-loaded slice overflows
+  // a platform's context window (e.g. copilot's ~64K) installed silently and the
+  // user only learned of the overflow on a later `sync`. Route init through the
+  // SAME shared assessment `sync` uses (`checkContextBudget` + `formatBudgetWarning`
+  // over `isAlwaysLoaded`, `src/adapters/contextBudget.ts`) so both code paths
+  // measure the identical always-loaded slice. WARN-ONLY here by design: unlike
+  // sync, init is the first-run path (P1 first-run success — Node 22 only), so
+  // an over-budget selection must not abort a fresh install; the warning is the
+  // signal and `hatch3r sync --strict-budget` remains the hard gate for CI.
+  for (const pa of pendingAdapters) {
+    const budgetResult = checkContextBudget(pa.tool, pa.outputs);
+    const budgetWarning = formatBudgetWarning(budgetResult);
+    if (budgetWarning) {
+      warn(budgetWarning);
+    }
+  }
+
   // Decision 27: capture a pre-mutation snapshot of every file we are about
   // to write. The snapshot module's tombstone mode records "did not exist"
   // for files we will create, so `hatch3r rollback --session=<id>` deletes
@@ -1270,27 +1290,32 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     label("Tools", tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")),
     label("Features", enabledFeatures.join(", ")),
   ];
-  // D14-M5 (Cycle 10 rollover): when teamSize=solo + preset=full, the
-  // `ctx:team-only` items are silently kept (because preset=full has every
-  // capability, and floor admission bypasses team-size filtering for floor
-  // items). Solo developers running `full` end up with team-shaped
-  // workflows (`hatch3r-handoff-*`, board, etc.) they may not need. Emit a
-  // one-line disclosure so the choice is visible.
-  // D14-SA14.3-H1 (D14, P1): the remediation pointed at
-  // `hatch3r config preset=standard`, but `config` has no `preset` scalar
-  // setter (SCALAR_CONFIG_KEYS = {maturity, confidence_floor}) — the token was
-  // silently discarded and the user got the full reconfiguration wizard, not a
-  // targeted switch. Point instead at `hatch3r init --preset=standard` (which
-  // re-runs `resolveSelection` and rewrites the manifest — the actual switch),
-  // with the interactive `hatch3r config` profile picker as the alternative.
+  // D14-17 (D14-SA14.3-F4, P1): surface the resolved maturity tier so it is no
+  // longer an invisible setting. `maturity` is seeded from the inferred team
+  // size when no `--maturity` flag is passed (see runInitInteractive); printing
+  // it here makes the investment-calibration dial discoverable from the success
+  // box and names the change command (`maturity` is a config scalar key —
+  // SCALAR_CONFIG_KEYS in `config`).
+  const resolvedMaturity = manifest.maturity ?? maturity ?? DEFAULT_MATURITY_TIER;
+  summaryLines.push(label("Maturity", `${resolvedMaturity} (change with: hatch3r config maturity=<tier>)`));
+  // D10-37 (D14-SA14.3-F, P1): when teamSize=solo + preset=full, the prior
+  // disclosure was inverted. It claimed "full preset includes team-only
+  // workflows even on solo", but `resolveSelection` Stage 4
+  // (`src/content/index.ts` team-size filter) strips every NON-floor
+  // `ctx:team-only` item for solo, and init never passes `skipContextFilters`.
+  // So a solo+full install does NOT carry the team-only workflows (only the
+  // floor-tagged ones bypass the filter), and the suggested "switch to standard"
+  // was a no-op for that concern. State the actual contract — team-scoped
+  // workflows are EXCLUDED for solo even under full — and name the lever that
+  // includes them (`--team-size team` re-runs resolution with the team filter).
   if (
     contentSelection.teamSize === "solo" &&
     contentSelection.preset === "full"
   ) {
     summaryLines.push(
       chalk.dim(
-        `  Note: full preset includes team-only workflows even on solo projects. ` +
-          `Drop them with 'hatch3r init --preset=standard' (or run 'hatch3r config' and choose the Standard profile).`,
+        `  Note: team-scoped workflows (ctx:team-only) are excluded for solo even under full; ` +
+          `floor-tagged items still ship. Pass 'hatch3r init --team-size team' to include the team-scoped set.`,
       ),
     );
   }
@@ -1348,7 +1373,11 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     summaryLines.push(`${chalk.yellow("→")} ${chalk.bold(`Verify with: npx hatch3r validate`)} (${adapterFailures.length} adapter(s) failed — output may be incomplete)`);
   }
   if (repoIsGreenfield) {
-    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to define your new project (routes greenfield/brownfield automatically), then ${chalk.bold(formatCommandHint(tools, "roadmap"))}`);
+    // D10-27 (D10, P1): `hatch3r-spec.md` opens with an MVP-vs-vision ASK gate
+    // (commands/hatch3r-spec.md "MVP vs full vision") that presumes the user can
+    // describe a product. Name that up front so a greenfield user is not
+    // surprised by the prompt and arrives with the scope decision ready.
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to define your new project (routes greenfield/brownfield automatically; you'll be asked to describe your product idea and MVP scope), then ${chalk.bold(formatCommandHint(tools, "roadmap"))}`);
     summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "quick-change"))} for a tiny change`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "project-spec"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "codebase-map"))}`);
   } else {
@@ -1356,6 +1385,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "quick-change"))} for a tiny change`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "codebase-map"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "project-spec"))}`);
   }
+  // D10-25 (D10, P1): the CTAs above print `/`-prefixed invocations, but not
+  // every named workflow is a slash command. Some (e.g. the board-init step the
+  // roadmap flow enters at Step 5) ship as SKILLS, which each tool invokes
+  // differently — Claude Code via the skill picker or a `Skill:` prefix, Cursor
+  // / Copilot via their own skill surfaces — not via a `/command`. Name that
+  // divergence once so a user who types `/board-init` and gets nothing knows to
+  // reach for the skill picker instead.
+  summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Some workflows ship as skills (not /commands) — invoke them via your tool's skill picker or a 'Skill:' prefix.")}`);
   // D10-SA10.3-F-10: on the clean path, offer the verification command as a
   // dimmed alternate so users who want to confirm the install have a named
   // command without cluttering the primary CTA. Skipped when failures already
@@ -1396,19 +1433,27 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     if (autoLoadTools.length > 0) {
       summaryLines.push(`  ${chalk.dim(`${autoLoadTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} auto-load .env.mcp on a terminal launch; for a macOS Dock/Finder launch run \`launchctl setenv <VAR> <value>\` per secret.`)}`);
     }
+  }
+  // D10-24 (D10, P1): fold the per-tool secret-loading note (TOOL_SECRET_NOTES)
+  // into the DURABLE success box whenever MCP is active — not only when there
+  // are NEW secrets to fill. The prior placement gated this note behind
+  // `envResult.newVars.length > 0`, so a re-init (or any run where `.env.mcp`
+  // already holds the keys) showed the per-tool divergence ONLY as transient
+  // `info()` chrome at tool-selection time, which scrolls away before the box.
+  // Anchoring it to `features.mcp && mcpServers.length > 0` keeps the precise
+  // per-tool loading instruction visible in the box the user actually re-reads.
+  if (features.mcp && mcpServers.length > 0) {
     // Per-tool secret-loading note (TOOL_SECRET_NOTES) — emitted on every path
     // (incl. --yes) so the headless install documents the divergence too.
     const boxSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
     for (const note of boxSecretNotes) {
       summaryLines.push(`  ${chalk.dim(note)}`);
     }
-  }
-  // D10-SA10.2-H1 (D10, P1): MCP server configs are read at editor launch, so a
-  // user who follows only the success box hits the primary CTA against an
-  // editor that has not loaded the new MCP servers. Surface the mandatory
-  // editor-restart step (quick-start.md makes it required) on both the
-  // interactive and `--yes --mcp` paths whenever MCP servers were configured.
-  if (features.mcp && mcpServers.length > 0) {
+    // D10-SA10.2-H1 (D10, P1): MCP server configs are read at editor launch, so
+    // a user who follows only the success box hits the primary CTA against an
+    // editor that has not loaded the new MCP servers. Surface the mandatory
+    // editor-restart step (quick-start.md makes it required) on both the
+    // interactive and `--yes --mcp` paths whenever MCP servers were configured.
     summaryLines.push(`  ${chalk.yellow("→")} Restart your editor so the new MCP servers load (configs are read at launch).`);
   }
 
@@ -1827,6 +1872,26 @@ export async function initCommand(
         `Use \`hatch3r rollback --session=<id>\` after the run if you need to revert.`,
       );
     } else if (checkpoint.meta.baselineSha === HATCH3R_VERSION && checkpoint.status === "passed") {
+      // D1-15 (D1, P1): the human report goes through `info()`, which is
+      // suppressed under `--quiet`/`--json`. Without a machine-readable line a
+      // `--resume --json` short-circuit produced EMPTY stdout+stderr at exit 0,
+      // so a CI caller could not tell "already complete" from "did nothing".
+      // Emit a stable `{"status":"resumed",...}` line on stdout before the early
+      // return so the JSON consumer gets a parseable terminal signal that
+      // matches the success-box payload's status field convention.
+      if (isJson()) {
+        console.log(
+          JSON.stringify({
+            status: "resumed",
+            version: HATCH3R_VERSION,
+            phase: checkpoint.phase,
+            wave: checkpoint.wave,
+            checkpointPath: checkpointPath(initWorkspace),
+            message: "Prior init at this version already completed; nothing to resume.",
+          }),
+        );
+        return;
+      }
       info(
         `Resume: the last init at this hatch3r version (v${HATCH3R_VERSION}) completed ` +
         `(phase=${checkpoint.phase} wave=${checkpoint.wave}). Nothing to resume — re-run ` +
@@ -2125,11 +2190,22 @@ export async function initCommand(
     inferTeamSizeFromGit(rootDir),
     "team-size",
   );
-  // maturity is a 2.0.0 addition (post-finding); default + `--maturity` flag.
+  // D14-17 (D14-SA14.3-F4, P1): maturity tier is not a prompted input under the
+  // ≤5-prompt ceiling, so without a seed it silently defaulted to
+  // DEFAULT_MATURITY_TIER ("solo") for every repo — a multi-author codebase got
+  // the lowest-investment calibration. `inferTeamSizeFromGit` already
+  // distinguishes solo vs multi-author by distinct commit-author count; reuse
+  // that orthogonal signal to seed the maturity default (team-authored repo →
+  // "team" tier, otherwise "solo"). An explicit `--maturity` flag still wins
+  // (validateFlag returns the flag value when present), and the resolved tier is
+  // surfaced in the success-box "Maturity" line below so the inference is
+  // visible, not silent. This keeps the solo path at ≤5 prompts (no new prompt).
+  const seededMaturityDefault: MaturityTier =
+    inferredTeamSize === "team" ? "team" : DEFAULT_MATURITY_TIER;
   const inferredMaturity: MaturityTier = validateFlag(
     opts.maturity,
     [...MATURITY_TIERS],
-    DEFAULT_MATURITY_TIER,
+    seededMaturityDefault,
     "maturity",
   );
   // CLI tools default to the post-pivot tier-1 + triggered tier-2 set (matches

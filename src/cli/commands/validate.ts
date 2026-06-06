@@ -11,6 +11,8 @@ import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError, exitCodeForErrorCode, getMarke
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
+import { readCanonicalFilesDetailed } from "../../adapters/canonical.js";
+import type { CanonicalType, CanonicalReadError } from "../../adapters/canonical.js";
 import { ALL_TAGS, facetOf } from "../../content/tags.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies, resolveUserContentRoot } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
@@ -214,8 +216,76 @@ async function validateFrontmatter(
     }
   }
 
+  // D2-11 (Cycle 11 Wave 3, Medium): the per-file loop above is non-recursive
+  // and only checks id/type presence — a strictly weaker diagnostic set than the
+  // canonical reader. Run `readCanonicalFilesDetailed` over each canonical type
+  // so the deeper checks the reader already implements (TYPE_MISMATCH for a
+  // wrong-typed id/tags field, INJECTION_TOKEN for a structural-injection body
+  // token, UTF8/encoding decode failures, and subdirectory coverage the flat
+  // readdir misses) surface here too instead of slipping past `validate` to
+  // misbehave at preset-resolution / adapter-generation time. NOT_FOUND is the
+  // normal skills-strategy "no SKILL.md" / absent-dir signal and is suppressed,
+  // matching `readCanonicalFiles`. `mcp` is excluded — it is a JSON config dir,
+  // not a CanonicalType.
+  await scanCanonicalReadDiagnostics(canonicalRoot, result);
+
   // Wave 4: the root AGENTS.md is no longer emitted (W3). Bundled content
   // contains no AGENTS.md either — the bridge file is the orchestration doc.
+}
+
+/**
+ * D2-11: surface the per-file diagnostics that `readCanonicalFilesDetailed`
+ * already computes (TYPE_MISMATCH / INJECTION_TOKEN / encoding / recursive
+ * subdir coverage) as warnings on the validation result. The canonical reader
+ * keeps the file loaded with the offending field coerced to its empty fallback,
+ * so every diagnostic here is advisory (warning), matching how the
+ * `readCanonicalFiles` adapter path treats the same channel. NOT_FOUND is
+ * suppressed (normal absent-file / absent-dir signal).
+ */
+function formatCanonicalDiagnostic(error: CanonicalReadError): string {
+  return `[canonical] ${error.code}: ${error.message}`;
+}
+
+export async function scanCanonicalReadDiagnostics(
+  canonicalRoot: string,
+  result: ValidationResult,
+): Promise<void> {
+  // Canonical types that overlap the frontmatter-bearing content dirs above.
+  // `mcp` is intentionally absent (JSON config, not a CanonicalType).
+  const types: CanonicalType[] = [
+    "agents",
+    "skills",
+    "rules",
+    "commands",
+    "prompts",
+    "policy",
+    "github-agents",
+  ];
+  for (const type of types) {
+    let results;
+    try {
+      results = await readCanonicalFilesDetailed(canonicalRoot, type);
+    } catch (err) {
+      // A reader-level throw (not a per-file error) is itself a diagnostic —
+      // surface it rather than letting validateFrontmatter abort (Silent
+      // Failure Contract, CONSTITUTION §2 P5).
+      const message = err instanceof Error ? err.message : String(err);
+      result.warnings.push(`[canonical] reader failed for "${type}": ${message}`);
+      continue;
+    }
+    for (const r of results) {
+      if (r.error) {
+        // NOT_FOUND is the normal skills "no SKILL.md" / absent-dir signal.
+        if (r.error.code === "NOT_FOUND") continue;
+        result.warnings.push(formatCanonicalDiagnostic(r.error));
+      }
+      if (r.typeMismatches) {
+        for (const m of r.typeMismatches) {
+          result.warnings.push(formatCanonicalDiagnostic(m));
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -732,20 +802,28 @@ async function validateCustomizations(
   manifest: HatchManifest,
   result: ValidationResult,
 ): Promise<void> {
+  // D10-30 (Cycle 11 Wave 3, Medium): resolve the backing canonical artifact
+  // through `findContentFile` rather than a flat `join`. The prior flat join
+  // mislocated two artifact classes:
+  //   - skills resolved to a bare `skills/<id>` directory (the real artifact is
+  //     `skills/<id>/SKILL.md`), so a `.customize.yaml` for a non-existent skill
+  //     never warned when an empty same-named directory happened to exist.
+  //   - commands joined flat under `commands/<id>.md`, missing the `board/` and
+  //     `revision/` subdirs (and the manifest `cmd-` prefix), so a legitimate
+  //     override of a subdir command false-warned as "non-existent".
+  // `findContentFile` handles the subdir walk, the `cmd-` prefix strip, the
+  // frontmatter-id fallback, and asserts `skills/<id>/SKILL.md` for the subdir
+  // strategy — the same resolver `validateContentConsistency` already uses.
   for (const { dir, canonical } of CUSTOMIZATION_TYPES) {
     const customDir = join(rootDir, ".hatch3r", dir);
+    const strategy: "glob" | "subdir" = canonical === "skills" ? "subdir" : "glob";
     try {
       const customFiles = await readdir(customDir);
       for (const file of customFiles) {
         if (file.endsWith(".customize.yaml")) {
           const itemId = file.replace(".customize.yaml", "");
-          const canonicalPath = canonical === "skills"
-            ? join(agentsDir, canonical, itemId)
-            : join(agentsDir, canonical, `${itemId}.md`);
-          try {
-            await access(canonicalPath);
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+          const found = await findContentFile(agentsDir, { dir: canonical, strategy }, itemId);
+          if (!found) {
             result.warnings.push(`Customization file for non-existent ${canonical.slice(0, -1)}: .hatch3r/${dir}/${file}`);
           }
         }
@@ -1665,7 +1743,7 @@ async function validateContentBody(
  * mutating artifact, mirroring the filename-prefix exemption in
  * `.claude/rules/content-authoring.md`.
  */
-function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
+export function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
   if (dir !== "agents" && dir !== "commands" && dir !== "skills") return false;
   const EXEMPT_SUBDIRS = [
     "agents/shared/",
@@ -1699,9 +1777,20 @@ function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
  * deliberately broad so authors can phrase the heading naturally (e.g. "§0 —
  * Ambiguity & Safety Gate", "Step 0 — Ambiguity gate").
  */
-function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProtocol: boolean } {
+export function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProtocol: boolean } {
   const hasMarker =
-    /§0/.test(body) ||
+    // D13-26 (SA13.5-F4): anchor the §0 marker to a heading. The previous bare
+    // `/§0/.test(body)` matched `§0.5` (a real cross-reference in
+    // user-question-protocol.md) or `§0` in unrelated prose, so a body that
+    // merely *mentioned* §0 falsely registered hasMarker===true — downgrading
+    // the missing-gate ERROR to a missing-protocol WARNING. Require the marker
+    // to lead a markdown heading (`## §0 ...`, up to 3 leading spaces, optional
+    // space between § and 0) so only a real gate section satisfies it. The
+    // remaining disjuncts (Step 0 ambiguity prose, ambiguity-gate phrasing) are
+    // unchanged so authors who phrase the heading without the § glyph still pass.
+    // The `(?!\.\d)` negative lookahead rejects a `§0.5`-style subsection
+    // heading so only the top-level §0 gate satisfies the marker.
+    /^\s{0,3}#{1,4}\s*§\s*0\b(?!\.\d)/m.test(body) ||
     /step\s*0\b[^\n]*ambig/i.test(body) ||
     /\bambiguity[- ](detection|gate|&)/i.test(body) ||
     /\bambiguity\b[^\n]*\bgate\b/i.test(body);
@@ -1911,15 +2000,27 @@ async function scanUserAgentPolicyCoverage(
  * capability instruction (or a policy edit that drops a category) fails CI.
  *
  * Scope: the five agents named in D5-2. The gate is deliberately NOT corpus-wide
- * — several review-only agents (the 9 CQ specialists, hatch3r-reviewer) carry
- * prose that mentions shell commands they describe but do not themselves run
- * (e.g. the shared VERIFY_GATE placeholder, an illustrative `gh run list` for
- * reading CI history), and their `["read","search"]` least-privilege policy is a
- * deliberate invariant (agentToolAllowlist.test.ts "applies review-only
- * allowlist"). A naive "any command mention ⇒ require execute" scan would force
- * those policies to widen against their own Boundaries. The gate therefore binds
- * exactly the agents whose policies D5-2 corrected; generalizing it to the full
- * corpus is a separate change that must first reconcile the review-only prose.
+ * — several review-only agents (the 9 CQ specialists, hatch3r-reviewer,
+ * hatch3r-learnings-loader) carry prose that mentions shell commands they
+ * describe but do not themselves run (e.g. the shared VERIFY_GATE placeholder,
+ * an illustrative `gh run list` for reading CI history), and producer agents
+ * (implementer/fixer) name `WebSearch`/Context7 in boundary/never clauses or
+ * when describing the researcher's modes, not as their own directives. Their
+ * `["read","search"]` (review-only) and execute-only (producer) policies are
+ * deliberate invariants (agentToolAllowlist.test.ts "applies review-only
+ * allowlist"). A naive "any capability mention ⇒ require the category" scan
+ * false-positives on ~15 such prose sites, so the gate binds an explicit
+ * allowlist of producer agents whose bodies issue genuine self-directives;
+ * full-corpus generalization is a separate change that must first reconcile that
+ * review-only/boundary prose.
+ *
+ * D5-25 (Cycle 11 Wave 3, Medium) confirms this gate IS the body-vs-policy
+ * heuristic the finding requires (its root cause — "no validator detects a body
+ * instructing a denied capability" — predates this D5-2 gate). The one named
+ * coverage gap, hatch3r-devops, is deferred to D5-24: that finding owns the
+ * devops policy grant in src/pipeline/agentToolAllowlist.ts and adds the devops
+ * scope entry atomically, so the gate never fires before the grant exists. See
+ * the D5_2_BODY_CAPABILITY_AGENTS literal below.
  *
  * Detection uses high-precision directive patterns (not loose keyword matching)
  * so an incidental mention ("the agent does not need WebFetch") does not trip a
@@ -1932,6 +2033,16 @@ const D5_2_BODY_CAPABILITY_AGENTS = [
   "hatch3r-context-rules",
   "hatch3r-docs-writer",
   "hatch3r-lint-fixer",
+  // D5-25 (Cycle 11 Wave 3, Medium): hatch3r-devops is the next agent whose body
+  // issues genuine "Use web research" / "Use Context7 MCP" directives without a
+  // matching `web`/`mcp` policy grant (the D5-24 self-contradiction). It is NOT
+  // added to this scanned set here: the matching devops policy grant is owned by
+  // D5-24 (which edits src/pipeline/agentToolAllowlist.ts), and activating the
+  // gate on devops before that grant lands would emit a false-positive ERROR.
+  // D5-24 adds both the policy grant AND this scope entry atomically. The D5-25
+  // root cause — "a body-vs-policy capability gate exists at all" — is satisfied
+  // by validateAgentBodyCapabilityCoverage (this function); D5-25 is the
+  // coverage-extension follow-up that rides D5-24's data fix.
 ] as const;
 
 /**

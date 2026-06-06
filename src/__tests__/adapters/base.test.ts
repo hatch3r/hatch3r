@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { BaseAdapter, output } from "../../adapters/base.js";
 import type { AdapterContext } from "../../adapters/base.js";
 import type { AdapterOutput, HatchManifest } from "../../types.js";
 import { createManifest } from "../../manifest/hatchJson.js";
+import { ClaudeAdapter } from "../../adapters/claude.js";
+import { CursorAdapter } from "../../adapters/cursor.js";
+import { CopilotAdapter } from "../../adapters/copilot.js";
+import { PLATFORM_TOOL_MARKER } from "../../pipeline/adapterToolTranslator.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -913,4 +920,239 @@ describe("BaseAdapter", () => {
       ).rejects.toMatchObject({ name: "AbortError" });
     });
   });
+});
+
+/**
+ * D2-8 (Cycle 11 Wave 3, D2, P4/P5): processCompanionSubdir must not emit a
+ * self-excluded `type: documentation` companion file (e.g. `checks/README.md`)
+ * as a real artifact. The fix parses each companion file's frontmatter and
+ * skips documentation-typed entries (and any README.md by name), so the
+ * emission set mirrors the canonical-content reader's documentation exclusion
+ * across all 3 adapters.
+ */
+describe("processCompanionSubdir documentation-type exclusion (D2-8)", () => {
+  // Each real adapter and the native checks/ path it maps a checks/ file to.
+  const adapterCases: ReadonlyArray<{
+    name: string;
+    make: () => BaseAdapter;
+    readmePath: string;
+    realCheckPath: string;
+  }> = [
+    {
+      name: "claude",
+      make: () => new ClaudeAdapter(),
+      readmePath: ".claude/checks/README.md",
+      realCheckPath: ".claude/checks/real-check.md",
+    },
+    {
+      name: "cursor",
+      make: () => new CursorAdapter(),
+      readmePath: ".cursor/checks/README.md",
+      realCheckPath: ".cursor/checks/real-check.md",
+    },
+    {
+      name: "copilot",
+      make: () => new CopilotAdapter(),
+      readmePath: ".github/checks/README.md",
+      realCheckPath: ".github/checks/real-check.md",
+    },
+  ];
+
+  async function writeChecksFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-companion-doc-"));
+    const checksDir = join(root, "checks");
+    await mkdir(checksDir, { recursive: true });
+    // A self-excluded authoring guide — must NOT be emitted.
+    await writeFile(
+      join(checksDir, "README.md"),
+      `---\nid: checks-readme\ntype: documentation\ndescription: Authoring guide for the checks/ directory. Not a check.\n---\n# Checks\n\nAuthoring guide body.\n`,
+      "utf-8",
+    );
+    // A real check — MUST be emitted.
+    await writeFile(
+      join(checksDir, "real-check.md"),
+      `---\nid: real-check\ntype: check\ndescription: A real review-criteria check.\n---\n# Real Check\n\nPass/fail criteria body.\n`,
+      "utf-8",
+    );
+    return root;
+  }
+
+  for (const tc of adapterCases) {
+    it(`${tc.name}: drops checks/README.md (type: documentation) but emits the real check`, async () => {
+      const root = await writeChecksFixture();
+      try {
+        const adapter = tc.make();
+        const manifest = createManifest({ tools: [tc.name as never] });
+        const outputs = await adapter.generate(root, manifest);
+        const paths = new Set(outputs.map((o) => o.path));
+        expect(paths.has(tc.readmePath)).toBe(false);
+        expect(paths.has(tc.realCheckPath)).toBe(true);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+/**
+ * D11-16 (Cycle 11 Wave 3, D11, P5/SA11.3-F4): MCP validation warnings are
+ * scoped to the SELECTED + enabled servers, not the whole bundle. A 2-server
+ * selection must not surface validation warnings about the other servers
+ * (including a disabled one). The fix runs validateMcpEntry/scanMcpServers
+ * AFTER the selection + `_disabled` filter inside readFilteredMcp.
+ */
+describe("MCP validation warning scope (D11-16)", () => {
+  class McpProbeAdapter extends ClaudeAdapter {}
+
+  async function writeMultiServerFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-mcp-scope-"));
+    await mkdir(join(root, "mcp"), { recursive: true });
+    await writeFile(
+      join(root, "mcp", "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          // Selected + valid.
+          github: { _trust_bypass: true, url: "https://api.githubcopilot.com/mcp/" },
+          // Selected + valid stdio.
+          "brave-search": {
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-brave-search"],
+          },
+          // Disabled — must never produce a warning even though it would fail
+          // the HTTP-pin policy (no pin, no trust_bypass).
+          gitlab: { _disabled: true, url: "https://gitlab.example.com/mcp" },
+          // Unselected + would warn (unrecognized command). Must stay silent.
+          "noisy-bash": { command: "bash", args: ["-c", "echo hi"] },
+          // Unselected + would warn (unpinned http). Must stay silent.
+          "noisy-http": { url: "https://untrusted.example.com/mcp" },
+          // Unselected + would warn (unpinned npx package). Must stay silent.
+          "noisy-npx": { command: "npx", args: ["-y", "some-unpinned-pkg"] },
+        },
+      }),
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("emits no validation warnings about unselected or disabled servers", async () => {
+    const root = await writeMultiServerFixture();
+    try {
+      const adapter = new McpProbeAdapter();
+      const manifest = createManifest({
+        tools: ["claude"],
+        mcpServers: ["github", "brave-search"],
+      });
+      await adapter.generate(root, manifest);
+
+      // No warning may name any unselected or disabled server.
+      for (const silent of ["gitlab", "noisy-bash", "noisy-http", "noisy-npx"]) {
+        expect(
+          adapter.warnings.some((w) => w.includes(`"${silent}"`)),
+          `expected no warning mentioning unselected/disabled server "${silent}", got: ${JSON.stringify(adapter.warnings)}`,
+        ).toBe(false);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("still surfaces a validation warning for a SELECTED server with an issue", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-mcp-scope-sel-"));
+    try {
+      await mkdir(join(root, "mcp"), { recursive: true });
+      await writeFile(
+        join(root, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            // Selected but unpinned npx — validateMcpEntry warns; the server
+            // still emits (warn-only), so the warning must reach the operator.
+            "selected-noisy": { command: "npx", args: ["-y", "some-unpinned-pkg"] },
+          },
+        }),
+        "utf-8",
+      );
+      const adapter = new McpProbeAdapter();
+      const manifest = createManifest({
+        tools: ["claude"],
+        mcpServers: ["selected-noisy"],
+      });
+      await adapter.generate(root, manifest);
+      expect(
+        adapter.warnings.some(
+          (w) => w.includes('"selected-noisy"') && w.includes("unpinned"),
+        ),
+      ).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * D3-8 (Cycle 11 Wave 3, D2/D3, P8 B1): the `<!-- HATCH3R:PLATFORM-TOOL -->`
+ * marker substitution is verified THROUGH real adapter output, not only at the
+ * helper layer. A shared `agents/shared/` companion body carrying the marker is
+ * run through all 3 adapters; each emission must contain the native platform
+ * note AND must NOT leak the raw marker comment. A marker-spelling drift (the
+ * helper no longer matching the canonical token) would fail this gate instead
+ * of silently shipping the raw comment to every adapter.
+ */
+describe("PLATFORM-TOOL marker substitution through adapter output (D3-8)", () => {
+  const adapterCases: ReadonlyArray<{
+    name: string;
+    make: () => BaseAdapter;
+    emittedPath: string;
+    // A substring of the substituted native note unique to this adapter.
+    nativeNote: string;
+  }> = [
+    {
+      name: "claude",
+      make: () => new ClaudeAdapter(),
+      emittedPath: ".claude/agents/shared/marker-fixture.md",
+      // claude has a documented native tool (AskUserQuestion).
+      nativeNote: "AskUserQuestion",
+    },
+    {
+      name: "cursor",
+      make: () => new CursorAdapter(),
+      emittedPath: ".cursor/agents/shared/marker-fixture.md",
+      // cursor has no native tool — falls back to the plain-text note.
+      nativeNote: "No documented native question tool for `cursor`",
+    },
+    {
+      name: "copilot",
+      make: () => new CopilotAdapter(),
+      emittedPath: ".github/agents/shared/marker-fixture.md",
+      nativeNote: "No documented native question tool for `copilot`",
+    },
+  ];
+
+  async function writeMarkerFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-platform-marker-"));
+    const sharedDir = join(root, "agents", "shared");
+    await mkdir(sharedDir, { recursive: true });
+    await writeFile(
+      join(sharedDir, "marker-fixture.md"),
+      `---\nid: marker-fixture\ntype: reference\ndescription: Companion fixture carrying the platform-tool marker.\n---\n# Marker Fixture\n\nAsk the user using the platform-native tool.\n\n${PLATFORM_TOOL_MARKER}\n\nThen continue.\n`,
+      "utf-8",
+    );
+    return root;
+  }
+
+  for (const tc of adapterCases) {
+    it(`${tc.name}: substitutes the native note and leaks no raw marker`, async () => {
+      const root = await writeMarkerFixture();
+      try {
+        const adapter = tc.make();
+        const manifest = createManifest({ tools: [tc.name as never] });
+        const outputs = await adapter.generate(root, manifest);
+        const emitted = outputs.find((o) => o.path === tc.emittedPath);
+        expect(emitted, `expected companion output at ${tc.emittedPath}`).toBeDefined();
+        expect(emitted!.content).toContain(tc.nativeNote);
+        expect(emitted!.content).not.toContain("HATCH3R:PLATFORM-TOOL");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
 });

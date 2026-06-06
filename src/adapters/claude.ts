@@ -9,7 +9,7 @@ import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.
 import { resolveAgentModel } from "../models/resolve.js";
 import { readMaturityTier } from "../manifest/hatchJson.js";
 import { applyCustomization } from "./customization.js";
-import { transformEnvVarSyntax, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
+import { transformEnvVarSyntax, stripPrivateMcpFields, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
 import {
   toClaudeToolsFrontmatter,
   toClaudeToolsFrontmatterFromCategories,
@@ -1080,23 +1080,22 @@ export class ClaudeAdapter extends BaseAdapter {
         // Code ignores unknown underscore-prefixed keys), with the
         // server falling back to the runtime default.
         //
-        // Other private-prefixed fields preserved by `readFilteredMcp`
-        // (`_pinned_sha256`, `_trust_bypass`) are framework-internal
-        // policy markers consumed by `validateMcpHttpEndpoint` at
-        // generation time; they have no Claude Code runtime meaning
-        // and are stripped here so they do not surface in the emitted
-        // `.mcp.json`. `_description` and `_disabled` are already
-        // stripped upstream by `readFilteredMcp` (see
-        // `BaseAdapter.readFilteredMcp` in `base.ts`).
-        const { _timeout, _pinned_sha256, _trust_bypass, ...publicEntry } = entry;
+        // D2-13 (Cycle 11 Wave 3, D2, P6): strip every `_`-prefixed framework
+        // marker via the shared {@link stripPrivateMcpFields} helper rather
+        // than a hand-maintained destructure list. `_pinned_sha256` and
+        // `_trust_bypass` are policy markers consumed by
+        // `validateMcpHttpEndpoint` at generation time; they have no Claude
+        // Code runtime meaning and must not surface in the emitted `.mcp.json`.
+        // `_timeout` is read first below for the public `timeout` translation,
+        // then dropped by the strip. `_description`/`_disabled` are already
+        // removed upstream by `readFilteredMcp`. A future `_`-field is stripped
+        // automatically, so this path can never re-leak a private marker.
+        const publicEntry = stripPrivateMcpFields(entry);
         const type = entry.command ? "stdio" : entry.url ? "http" : undefined;
         const timeout =
-          typeof _timeout === "number" && _timeout > 0 ? _timeout : undefined;
-        // Suppress unused-binding lint for the stripped policy markers
-        // — referencing them here documents that the destructure is
-        // intentional rather than dead code.
-        void _pinned_sha256;
-        void _trust_bypass;
+          typeof entry._timeout === "number" && entry._timeout > 0
+            ? entry._timeout
+            : undefined;
         const withType: Record<string, unknown> = {
           ...(type !== undefined ? { type } : {}),
           ...(timeout !== undefined ? { timeout } : {}),

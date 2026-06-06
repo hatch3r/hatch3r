@@ -9,28 +9,48 @@
  *   npx vitest -u src/__tests__/adapters/snapshots.test.ts
  */
 import { describe, it, expect } from "vitest";
+import { createHash } from "node:crypto";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
 import { createManifest } from "../../manifest/hatchJson.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import type { HatchManifest } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
 
 /**
+ * Strip the only volatile substring from adapter output bodies — the embedded
+ * `HATCH3R_VERSION` (claude.ts:776 `.claude/settings.json`, claude.ts:989
+ * `.claude/hooks/hatch3r-hooks.json`) — so a `bodyHash` over the result is
+ * stable across version bumps. Probed 2026-06-06: the resolved version is the
+ * sole byte difference between two consecutive generations of every adapter;
+ * there are no timestamps in `src/merge/managedBlocks.ts` or `src/adapters/`.
+ * Keep this list aligned with any future volatile field added to adapter output.
+ */
+function normalizeBody(content: string): string {
+  return content.split(HATCH3R_VERSION).join("<HATCH3R_VERSION>");
+}
+
+/**
  * Normalize adapter output into a deterministic shape suitable for snapshots.
- * Strips volatile content (timestamps, versions) but preserves structure.
+ * `bodyHash` is sha256 over the version-normalized body (`normalizeBody`), so
+ * any body change — including a marker-preserving one like a PLATFORM-TOOL
+ * substitution regression — flips the hash and fails the snapshot (D3-10),
+ * while path churn stays tolerant via the `path` sort. `contentMarkers` remains
+ * a secondary human-readable signal that localizes which structural section moved.
  */
 function normalizeOutputs(
   outputs: Array<{ path: string; content: string; action: string; managedContent?: string }>,
-): Array<{ path: string; action: string; contentMarkers: string[]; hasManagedContent: boolean }> {
+): Array<{ path: string; action: string; contentMarkers: string[]; hasManagedContent: boolean; bodyHash: string }> {
   return outputs
     .map((o) => ({
       path: o.path,
       action: o.action,
       contentMarkers: extractMarkers(o.content),
       hasManagedContent: o.managedContent !== undefined && o.managedContent !== null,
+      bodyHash: createHash("sha256").update(normalizeBody(o.content), "utf-8").digest("hex"),
     }))
     .sort((a, b) => a.path.localeCompare(b.path));
 }

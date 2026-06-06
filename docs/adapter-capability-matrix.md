@@ -121,7 +121,7 @@ Inlining ensures every platform receives orchestration guidance directly in cont
 | prompts | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
 | commands | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
 | githubAgents | `.github/agents/hatch3r-{id}.agent.md` | Raw content |
-| mcp | `.vscode/mcp.json` | Canonical MCP config with `env` object for secret passing |
+| mcp | `.vscode/mcp.json` | Canonical MCP config; STDIO secrets via `envFile` (`.env.mcp`), HTTP header secrets via `${input:NAME}` prompts |
 | setup | `.github/workflows/copilot-setup-steps.yml` | YAML build steps |
 
 ### Claude
@@ -171,7 +171,7 @@ All MCP secrets are centralized in a single `.env.mcp` file at the project root 
 
 | Adapter | Secret loading method | Auto-loads `.env.mcp`? | Notes |
 |---------|----------------------|:----------------------:|-------|
-| **copilot** | `env` object per server | No | Env vars are passed directly via the `env` object in `.vscode/mcp.json`; user must source `.env.mcp` or set vars manually |
+| **copilot** | `envFile` (STDIO) + `${input:NAME}` (HTTP headers) | STDIO: yes | STDIO servers set `envFile: "${workspaceFolder}/.env.mcp"`, which VS Code auto-loads (VS Code does not shell-expand an inline `env` object). HTTP-transport header secrets are not read from `.env.mcp`; VS Code prompts for them via `${input:NAME}` variables on first use |
 | **cursor** | `${env:VAR}` from process env | No | User must source `.env.mcp` before launching, or set vars in shell profile / Cursor UI |
 | **claude** | `${env:VAR}` from process env | No | User must source `.env.mcp` before launching |
 

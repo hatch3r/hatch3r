@@ -5,6 +5,7 @@ description: Technical writer who maintains specs, ADRs, and documentation. Use 
 model: standard
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
+wall_clock_advisory_ms: 600000
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true

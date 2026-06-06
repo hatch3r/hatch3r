@@ -50,8 +50,18 @@ export interface WorktreeListEntry {
   prunable: boolean;
 }
 
+/**
+ * Per-worktree working-tree status. Counts are derived from
+ * `git -C <wt> status --porcelain`, which is genuinely per-worktree.
+ *
+ * Stash count is deliberately absent: `git stash` writes to a single
+ * repo-global `refs/stash`, so `git -C <wt> stash list` returns the SAME
+ * shared stack from every linked worktree and the main repo. Git exposes no
+ * reliable per-worktree stash ownership, so a stash created anywhere would
+ * mis-badge every worktree as dirty and trigger a false destruction-confirm
+ * prompt in `worktree-cleanup` (D1-32, Cycle 11 Wave 3).
+ */
 export interface WorktreeStatus {
   modified: number;
   untracked: number;
-  stashes: number;
 }

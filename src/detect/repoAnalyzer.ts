@@ -1,5 +1,6 @@
 import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { parse as parseYaml, YAMLParseError } from "yaml";
 import type { Framework, PackageEntry, RepoInfo, Tool } from "../types.js";
 import { detectPackageManager } from "./packageManager.js";
 import {
@@ -123,8 +124,16 @@ export const DETECTABLE_LANGUAGES: readonly string[] = [
   "csharp",
 ];
 
-/** Detect programming languages by probing for language-specific config files. */
-async function detectLanguages(rootDir: string): Promise<string[]> {
+/**
+ * Detect programming languages by probing for language-specific config files.
+ *
+ * D14-16 (Cycle 11): exported so `hatch3r update` can re-detect languages
+ * post-init without paying for the full 12-probe {@link analyzeRepo}. Returns
+ * `["unknown"]` when no language indicator is found (same fallback `analyzeRepo`
+ * surfaces). Callers that want the manifest-shaped set (no `unknown`) filter it
+ * the way `init.ts::languagesForSelection` does.
+ */
+export async function detectLanguages(rootDir: string): Promise<string[]> {
   const languages: string[] = [];
 
   for (const [lang, files] of Object.entries(LANGUAGE_INDICATORS)) {
@@ -261,12 +270,16 @@ export async function detectMonorepoPackages(rootDir: string): Promise<PackageEn
 async function collectWorkspaceGlobs(rootDir: string): Promise<string[]> {
   const globs: string[] = [];
 
-  // pnpm-workspace.yaml — minimal `packages:` list parser (no YAML dep available).
+  // pnpm-workspace.yaml — parse the `packages:` list via the `yaml` dep.
+  // A malformed YAML body is treated as "no signal" (parity with the
+  // SyntaxError-swallowing JSON branches below), so a corrupt workspace file
+  // never crashes the surrounding analyzeRepo() probe.
   try {
     const raw = await readFile(join(rootDir, "pnpm-workspace.yaml"), "utf-8");
     globs.push(...parsePnpmWorkspacePackages(raw));
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    const isExpected = (err as NodeJS.ErrnoException).code === "ENOENT" || err instanceof YAMLParseError;
+    if (!isExpected) throw err;
   }
 
   // package.json workspaces (array or { packages: [...] }).
@@ -300,36 +313,33 @@ async function collectWorkspaceGlobs(rootDir: string): Promise<string[]> {
 }
 
 /**
- * Parse the `packages:` block of a `pnpm-workspace.yaml` file into a list of
- * glob strings. Handles the common shape:
+ * Parse the `packages:` list of a `pnpm-workspace.yaml` file into a list of
+ * glob strings. Uses the `yaml` dependency (same parser as the rest of the
+ * codebase, e.g. `src/adapters/canonical.ts`) so BOTH the block shape and the
+ * YAML flow shape resolve:
  *
- *   packages:
+ *   packages:            packages: ['packages/*', 'apps/*']
  *     - "packages/*"
  *     - 'apps/*'
  *
- * Stops at the next top-level key. Comments and blank lines are ignored. This
- * is a targeted parser, not a general YAML reader — non-list `packages:` shapes
- * yield nothing.
+ * D1-24 (Cycle 11): the previous hand-rolled line-regex matched only
+ * dash-prefixed block items, so a flow-style `packages: ['packages/*']` parsed
+ * to `[]` — collapsing `manifest.packages` and skipping per-package `.hatch3r/`
+ * sync. A real YAML parse handles both shapes. Non-list `packages:` values and
+ * non-string list items yield nothing (string filter mirrors the JSON branches
+ * in {@link collectWorkspaceGlobs}); a malformed YAML body throws and is caught
+ * by the caller. Other top-level keys (`catalog:`, `catalogs:`) are ignored
+ * because only the `packages` field is read.
  */
 function parsePnpmWorkspacePackages(raw: string): string[] {
-  const lines = raw.split(/\r?\n/);
-  const result: string[] = [];
-  let inPackages = false;
-  for (const line of lines) {
-    if (/^\s*#/.test(line) || line.trim().length === 0) continue;
-    if (!inPackages) {
-      if (/^packages\s*:/.test(line)) inPackages = true;
-      continue;
-    }
-    // A new top-level key (no leading whitespace, contains a colon) ends the block.
-    if (/^\S.*:/.test(line)) break;
-    const m = line.match(/^\s*-\s*(.+)\s*$/);
-    if (m) {
-      const value = m[1].trim().replace(/^["']|["']$/g, "");
-      if (value.length > 0) result.push(value);
-    }
-  }
-  return result;
+  const doc: unknown = parseYaml(raw);
+  if (!doc || typeof doc !== "object") return [];
+  const packages = (doc as { packages?: unknown }).packages;
+  if (!Array.isArray(packages)) return [];
+  return packages
+    .filter((p): p is string => typeof p === "string")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
 }
 
 /**

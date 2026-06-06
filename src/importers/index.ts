@@ -262,6 +262,7 @@ export async function runFormatImport(opts: {
       const mdcFrontmatter = cursorCompanionFrontmatter(
         rule.canonical.description,
         rule.canonical.scope,
+        rule.canonical.globs,
       );
       const body = rule.canonical.content.startsWith("\n")
         ? rule.canonical.content

@@ -2798,3 +2798,113 @@ describe("init per-package emission gate (D14-SA14.2-H1)", () => {
   });
 });
 
+// ── Cycle-11 Wave-3 Medium fixes (init.ts) ────────────────────────────
+describe("init Wave-3 Medium fixes (D10-37, D14-17, D1-15, D6-12)", () => {
+  let initCommand: (opts?: {
+    tools?: string;
+    yes?: boolean;
+    preset?: string;
+    teamSize?: string;
+    maturity?: string;
+    json?: boolean;
+    resume?: boolean;
+  }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-w3-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // D10-37: the solo+full disclosure must state team-scoped workflows are
+  // EXCLUDED for solo (not the inverted "included even on solo"), and name
+  // `--team-size team` (not the no-op `--preset=standard`) as the lever.
+  it("D10-37: solo+full success box says team-scoped workflows are excluded and points at --team-size team", async () => {
+    await initCommand({ yes: true, tools: "claude", preset: "full", teamSize: "solo" });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("excluded for solo");
+    // `boxen` word-wraps the Note line, so the multi-word `--team-size team`
+    // phrase can split across box rows; assert the load-bearing flag token
+    // (which survives wrapping) rather than the full phrase.
+    expect(stdout).toContain("--team-size");
+    // The inverted prior wording must be gone.
+    expect(stdout).not.toContain("includes team-only workflows even on solo");
+    expect(stdout).not.toContain("--preset=standard");
+  });
+
+  // D14-17: the resolved maturity tier must be surfaced in the success box so
+  // it is discoverable rather than a silent default.
+  it("D14-17: success box surfaces the resolved Maturity tier with a change command", async () => {
+    await initCommand({ yes: true, tools: "claude", maturity: "team" });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("Maturity");
+    expect(stdout).toContain("team");
+    expect(stdout).toContain("hatch3r config maturity=");
+    // The persisted manifest carries the same tier.
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.maturity).toBe("team");
+  });
+
+  // D1-15: a `--resume --json` short-circuit (after a prior completed init)
+  // must emit a structured `{"status":"resumed",...}` line, not empty output.
+  it("D1-15: --resume --json on a completed checkpoint emits a resumed JSON line", async () => {
+    // First run writes a `passed` checkpoint.
+    await initCommand({ yes: true, tools: "claude" });
+    consoleSpy.mockClear();
+    consoleErrorSpy.mockClear();
+
+    // Resume with --json: short-circuits and must print one JSON line.
+    await initCommand({ yes: true, tools: "claude", resume: true, json: true });
+
+    const jsonLines = consoleSpy.mock.calls
+      .map((c) => String(c[0]))
+      .filter((line) => line.trim().startsWith("{") && line.trim().endsWith("}"));
+    expect(jsonLines.length).toBe(1);
+    const payload = JSON.parse(jsonLines[0]);
+    expect(payload.status).toBe("resumed");
+    expect(payload.version).toBe(HATCH3R_VERSION);
+    expect(payload.phase).toBe("init");
+    // No success box (json implies quiet; the short-circuit returns early).
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Hatch complete");
+  });
+
+  // D6-12: the first-run path now routes through the shared context-budget
+  // assessment, but WARN-ONLY — a highest-output (full, all-adapters) install
+  // must still complete (P1 first-run success), never abort like sync
+  // --strict-budget. Locks the non-fatal invariant of the new gate.
+  it("D6-12: full-preset all-adapter init runs the budget gate without aborting", async () => {
+    await expect(
+      initCommand({ yes: true, tools: "claude,cursor,copilot", preset: "full" }),
+    ).resolves.toBeUndefined();
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Install completed despite the budget assessment running on every adapter.
+    expect(stdout).toContain("Hatch complete");
+    // Output was actually written (manifest present).
+    await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
+  });
+});
+

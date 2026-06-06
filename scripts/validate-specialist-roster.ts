@@ -30,6 +30,11 @@
  *      is the documented Tier-1 carve-out that intentionally skips docs-writer
  *      (`commands/hatch3r-quick-change.md` "intentionally skips"), but is still
  *      held to the always-mode (test-writer / security-auditor) floor.
+ *   5. Watchdog coverage (D8-12) — every SSOT specialist + the four core
+ *      4-phase pipeline agents (researcher / implementer / fixer / reviewer)
+ *      declares the watchdog directive via EITHER a numeric
+ *      `wall_clock_advisory_ms` frontmatter field OR a body reference to the
+ *      shared carrier `agents/shared/quality-specialist-frame.md`.
  *
  * Failure modes (each emits one ERROR finding):
  *
@@ -40,6 +45,8 @@
  *   ROSTER-REVIEW-MISSING  SSOT specialist not named in reviewer.md Phase 4
  *   ROSTER-CMD-MISSING     always/evaluate specialist absent from a command's
  *                          agentPipeline
+ *   ROSTER-WATCHDOG-MISSING  SSOT specialist or core pipeline agent declares
+ *                          no watchdog directive (field or shared-frame ref)
  *
  * Warnings (non-blocking):
  *
@@ -80,6 +87,27 @@ const FULL_PIPELINE_COMMANDS: readonly string[] = [
   "hatch3r-board-pickup.md",
 ];
 const ALWAYS_FLOOR_COMMANDS: readonly string[] = ["hatch3r-quick-change.md"];
+
+// ── Watchdog-coverage policy (D8-12) ──────────────────────────────
+//
+// D8-12 (Cycle 11 D8, Medium): watchdog-field coverage was unenforced by any
+// gate, so the 14-of-29 split (only some dispatched agents declared
+// `wall_clock_advisory_ms`) was silently drift-prone. This gate asserts every
+// SSOT Phase-4 specialist PLUS the four core 4-phase pipeline agents declares
+// the watchdog directive. D8-11 documents two accepted carriers of that
+// directive, so the gate accepts EITHER: a numeric `wall_clock_advisory_ms`
+// frontmatter field, OR a body reference to the shared watchdog carrier
+// `agents/shared/quality-specialist-frame.md` (whose "Wall-clock advisory"
+// section restates the clause for the CQ specialists that inherit it). A miss
+// emits a ROSTER-WATCHDOG-MISSING error, converting F1 from latent to
+// CI-blocked.
+const CORE_PIPELINE_AGENTS: readonly string[] = [
+  "hatch3r-researcher",
+  "hatch3r-implementer",
+  "hatch3r-fixer",
+  "hatch3r-reviewer",
+];
+const WATCHDOG_FRAME_REF = "quality-specialist-frame";
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -422,6 +450,53 @@ async function checkCommands(commandsDir: string): Promise<Finding[]> {
   return out;
 }
 
+// ── Watchdog-coverage check (D8-12) ───────────────────────────────
+
+/** True when the agent body declares the watchdog directive via either carrier. */
+function hasWatchdogDirective(raw: string): boolean {
+  // Carrier 1: a numeric `wall_clock_advisory_ms` frontmatter field.
+  if (/^\s*wall_clock_advisory_ms\s*:\s*\d+\s*$/m.test(raw)) return true;
+  // Carrier 2: a body reference to the shared watchdog frame (D8-11).
+  if (raw.includes(WATCHDOG_FRAME_REF)) return true;
+  return false;
+}
+
+/**
+ * D8-12: assert every SSOT specialist + the four core pipeline agents declares
+ * the watchdog directive (frontmatter field OR shared-frame reference). Emits
+ * one ROSTER-WATCHDOG-MISSING error per offending agent id.
+ */
+async function checkWatchdogCoverage(agentsDir: string, ssot: string[]): Promise<Finding[]> {
+  const out: Finding[] = [];
+  const required = [...new Set([...ssot, ...CORE_PIPELINE_AGENTS])].sort();
+  for (const id of required) {
+    const raw = await readFileSafe(join(agentsDir, `${id}.md`));
+    if (raw === null) {
+      // A missing core agent file is the diagnostic; specialist files absent
+      // from disk are already reported by checkAgentFiles, so scope this error
+      // to the core pipeline agents to avoid double-reporting.
+      if (CORE_PIPELINE_AGENTS.includes(id)) {
+        out.push({
+          level: "error",
+          code: "ROSTER-WATCHDOG-MISSING",
+          file: `agents/${id}.md`,
+          message: `core pipeline agent file agents/${id}.md not found; cannot verify watchdog coverage (D8-12)`,
+        });
+      }
+      continue;
+    }
+    if (!hasWatchdogDirective(raw)) {
+      out.push({
+        level: "error",
+        code: "ROSTER-WATCHDOG-MISSING",
+        file: `agents/${id}.md`,
+        message: `agents/${id}.md declares no watchdog directive — add a numeric \`wall_clock_advisory_ms\` frontmatter field OR reference agents/shared/quality-specialist-frame.md in the body so a dispatched agent cannot exhaust its phase budget without an advisory (D8-12)`,
+      });
+    }
+  }
+  return out;
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
@@ -452,6 +527,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     ...checkAgentEnumeration(reviewBody, ssot, "agents/hatch3r-reviewer.md", "ROSTER-REVIEW-MISSING"),
   );
   findings.push(...(await checkCommands(commandsDir)));
+  findings.push(...(await checkWatchdogCoverage(agentsDir, ssot)));
 
   let errorCount = 0;
   let warningCount = 0;

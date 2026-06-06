@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 6,
     "githubAgents": 4,
-    "testFiles": 213
+    "testFiles": 216
   },
   "files": {
     "adapters": [
@@ -427,6 +427,7 @@
       "scripts/__tests__/validate-efficiency-invariants.test.ts",
       "scripts/__tests__/validate-fanout-emission.test.ts",
       "scripts/__tests__/validate-lean-threshold-currency.test.ts",
+      "scripts/__tests__/validate-modes-parity.test.ts",
       "scripts/__tests__/validate-pillar-currency.test.ts",
       "scripts/__tests__/validate-repo-token-adoption.test.ts",
       "scripts/__tests__/validate-retired-agent-refs.test.ts",
@@ -455,6 +456,8 @@
       "src/__tests__/adapters/snapshots.test.ts",
       "src/__tests__/adapters/toml-utils.test.ts",
       "src/__tests__/adapters/userContentParity.test.ts",
+      "src/__tests__/archive/archive.integrityBranches.test.ts",
+      "src/__tests__/archive/archive.retentionBranches.test.ts",
       "src/__tests__/archive/archive.test.ts",
       "src/__tests__/audit/archive.coldpack.errorPaths.test.ts",
       "src/__tests__/audit/archive.coldpack.test.ts",

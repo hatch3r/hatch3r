@@ -82,6 +82,55 @@ describe("secretDetection", () => {
       );
       expect(findings[0].maskedValue).toBe("ghp_****");
     });
+
+    // D1-26: Azure DevOps PAT pattern currency + anchoring.
+    it("should detect the 84-char Azure DevOps PAT marker form", () => {
+      const adoPat = "A".repeat(75) + "AZDO" + "B".repeat(5); // 84 chars
+      const findings = scanValueForSecrets("AZURE_DEVOPS_PAT", adoPat);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].secretType).toBe("Azure DevOps PAT");
+      expect(findings[0].severity).toBe("high");
+    });
+
+    it("should not match the deprecated 52-char base32 form as an Azure DevOps PAT", () => {
+      // Old stale pattern was /[a-z2-7]{52}$/ (52 lowercase base32 chars).
+      // Use a non-credential variable name so the long-base64 catch-all
+      // (contextRequired) stays inert and only the ADO pattern is in play.
+      const oldBase32 = "abcdefghijklmnopqrstuvwxyz234567abcdefghijklmnopqrst"; // 52 chars
+      const findings = scanValueForSecrets("BUILD_ID", oldBase32);
+      expect(findings.some((f) => f.secretType === "Azure DevOps PAT")).toBe(false);
+    });
+
+    it("should not match an Azure DevOps PAT as a tail substring of a longer value", () => {
+      // Anchoring regression: prefix the valid 84-char token so the
+      // unanchored-tail match the old pattern allowed cannot fire.
+      const tail = "Z".repeat(75) + "AZDO" + "Y".repeat(5);
+      const findings = scanValueForSecrets("BUILD_ID", "prefix-" + tail);
+      expect(findings.some((f) => f.secretType === "Azure DevOps PAT")).toBe(false);
+    });
+
+    // D1-27: report the highest-severity match, not the first array match.
+    it("should report the high provider-specific match over the medium base64 catch-all", () => {
+      // The 84-char Azure DevOps PAT is pure alphanumerics, so it matches
+      // BOTH the medium "Base64-encoded Secret (long)" catch-all (index 8)
+      // AND the high "Azure DevOps PAT" pattern (later in the array). The
+      // TOKEN-named variable grants the catch-all's credential-context gate,
+      // so the catch-all is a live contender. Before the fix, first-match-wins
+      // returned the medium base64 finding; after the fix, highest-severity
+      // selection returns the high ADO finding regardless of array order.
+      const adoPat = "A".repeat(75) + "AZDO" + "B".repeat(5); // 84 chars
+      const findings = scanValueForSecrets("ADO_TOKEN", adoPat);
+      expect(findings).toHaveLength(1);
+      expect(findings[0].secretType).toBe("Azure DevOps PAT");
+      expect(findings[0].severity).toBe("high");
+    });
+
+    it("should still report the medium base64 catch-all when no higher-severity pattern matches", () => {
+      const findings = scanValueForSecrets("API_TOKEN", "A".repeat(50));
+      expect(findings).toHaveLength(1);
+      expect(findings[0].secretType).toBe("Base64-encoded Secret (long)");
+      expect(findings[0].severity).toBe("medium");
+    });
   });
 
   describe("detectSecrets", () => {

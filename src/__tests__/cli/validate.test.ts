@@ -26,6 +26,9 @@ import {
   hasPillarReference,
   validateDocsCounts,
   bodyHasDecision13Handoff,
+  checkAmbiguityGate,
+  requiresAmbiguityGate,
+  scanCanonicalReadDiagnostics,
   type ValidationResult,
 } from "../../cli/commands/validate.js";
 
@@ -765,5 +768,134 @@ describe("bodyHasDecision13Handoff", () => {
   it("does not match the label outside a heading (prose mention only)", () => {
     const body = "We follow the Relationship to command (Decision 13 handoff) convention inline.\n";
     expect(bodyHasDecision13Handoff(body)).toBe(false);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: checkAmbiguityGate / requiresAmbiguityGate (D13-26 + D5-46)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("checkAmbiguityGate", () => {
+  // ── D13-26: §0 marker anchored to a heading ──────────────────────
+
+  it("does NOT treat a §0.5-only prose reference as a marker (D13-26)", () => {
+    // The user-question-protocol.md:22 `§0.5` reference is the cited
+    // false-positive. A body that only mentions §0.5 in prose must report
+    // hasMarker=false so the missing-gate ERROR fires (not a WARNING).
+    const body = "This step routes back per §0.5 of the protocol.\nMore prose here.\n";
+    expect(checkAmbiguityGate(body).hasMarker).toBe(false);
+  });
+
+  it("does NOT treat a bare §0 prose mention as a marker (D13-26)", () => {
+    const body = "See §0 elsewhere in the document for the gate.\n";
+    expect(checkAmbiguityGate(body).hasMarker).toBe(false);
+  });
+
+  it("treats a `## §0 ...` heading as a marker", () => {
+    expect(checkAmbiguityGate("## §0 Detect Ambiguity (P8 B1)\nbody").hasMarker).toBe(true);
+  });
+
+  it("treats a spaced `### § 0` heading and an em-dash variant as markers", () => {
+    expect(checkAmbiguityGate("### § 0 Ambiguity\nbody").hasMarker).toBe(true);
+    expect(checkAmbiguityGate("## §0 — Ambiguity & Safety Gate\nbody").hasMarker).toBe(true);
+  });
+
+  it("does NOT treat a `## §0.5` subsection heading as the §0 gate marker (D13-26)", () => {
+    expect(checkAmbiguityGate("## §0.5 Something Else\nbody").hasMarker).toBe(false);
+  });
+
+  it("still accepts a Step-0-ambiguity heading without the § glyph", () => {
+    expect(checkAmbiguityGate("## Step 0 — Ambiguity gate\nbody").hasMarker).toBe(true);
+  });
+
+  // ── D5-46: referencesProtocol accepts the two include hubs ────────
+
+  it("accepts a direct user-question-protocol reference (referencesProtocol)", () => {
+    const body = "Follow `agents/shared/user-question-protocol.md` when asking.";
+    expect(checkAmbiguityGate(body).referencesProtocol).toBe(true);
+  });
+
+  it("accepts the clarification-default-block include hub (D5-46)", () => {
+    const body = "See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity.";
+    expect(checkAmbiguityGate(body).referencesProtocol).toBe(true);
+  });
+
+  it("accepts the quality-specialist-frame include hub (D5-46)", () => {
+    const body = "See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity.";
+    expect(checkAmbiguityGate(body).referencesProtocol).toBe(true);
+  });
+});
+
+describe("requiresAmbiguityGate", () => {
+  it("requires the gate on top-level agents / commands / skill SKILL.md", () => {
+    expect(requiresAmbiguityGate("agents", "agents/hatch3r-ui.md")).toBe(true);
+    expect(requiresAmbiguityGate("commands", "commands/hatch3r-workflow.md")).toBe(true);
+    expect(requiresAmbiguityGate("skills", "skills/hatch3r-foo/SKILL.md")).toBe(true);
+  });
+
+  it("exempts companion subdirs and non-SKILL skill files", () => {
+    expect(requiresAmbiguityGate("agents", "agents/shared/quality-charter.md")).toBe(false);
+    expect(requiresAmbiguityGate("agents", "agents/modes/user-flows.md")).toBe(false);
+    expect(requiresAmbiguityGate("commands", "commands/board/foo.md")).toBe(false);
+    expect(requiresAmbiguityGate("skills", "skills/hatch3r-foo/references/x.md")).toBe(false);
+    expect(requiresAmbiguityGate("rules", "rules/hatch3r-x.md")).toBe(false);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: scanCanonicalReadDiagnostics (D2-11)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("scanCanonicalReadDiagnostics", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "validate-d2-11-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("surfaces a TYPE_MISMATCH warning for a numeric agent id (D2-11)", async () => {
+    // A numeric `id:` parses as a YAML number — the manual id/type-presence
+    // loop accepts it (truthy), but the canonical reader flags TYPE_MISMATCH.
+    await mkdir(join(dir, "agents"), { recursive: true });
+    await writeFile(
+      join(dir, "agents", "hatch3r-numeric.md"),
+      "---\nid: 123\ntype: agent\ndescription: x\ntags: [implementation]\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(r.warnings.some((w) => w.includes("TYPE_MISMATCH"))).toBe(true);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("is silent for a well-formed canonical agent", async () => {
+    await mkdir(join(dir, "agents"), { recursive: true });
+    await writeFile(
+      join(dir, "agents", "hatch3r-clean.md"),
+      "---\nid: hatch3r-clean\ntype: agent\ndescription: A clean agent.\ntags: [implementation]\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(r.warnings).toHaveLength(0);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("recurses into command subdirectories the flat readdir misses (D2-11)", async () => {
+    // A malformed command in commands/board/ — the legacy non-recursive
+    // frontmatter loop never reached subdirs; the reader does.
+    await mkdir(join(dir, "commands", "board"), { recursive: true });
+    await writeFile(
+      join(dir, "commands", "board", "hatch3r-sub.md"),
+      "---\nid: 456\ntype: command\ndescription: x\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(r.warnings.some((w) => w.includes("TYPE_MISMATCH"))).toBe(true);
   });
 });

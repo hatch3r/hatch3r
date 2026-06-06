@@ -212,6 +212,12 @@ export function createProgram(): Command {
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
     .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
+    // --no-redetect provenance: D14-16 (Cycle 11 Wave 3, D14, P3). Commander
+    // maps the negated flag to `redetect: false`; default-on re-detects project
+    // languages and refreshes `.hatch3r/hatch.json::languages` so the
+    // regenerated agents render verification-gate commands for the current
+    // language set instead of the frozen init-time one.
+    .option("--no-redetect", "Skip post-init language re-detection; keep the init-pinned language set and verification-gate commands")
     // --pin-version provenance: F15.4-H2 (D15-SA15.4, P6). D15-5 (Cycle 11
     // Wave 2): the option was missing from registration, so the documented
     // supply-chain version-pinning control errored at parse — `updateCommand`
@@ -300,7 +306,13 @@ export function createProgram(): Command {
   program
     .command("add [pack]")
     .description("Install a community pack (coming soon)")
-    .option("--force", "Override the preflight integrity check and proceed despite drift")
+    // D1-SA1.3-F2 (Medium, P1): `--force` advertised a "preflight integrity
+    // check" override and an exit-1 "integrity drift blocked" contract. The
+    // integrity-manifest subsystem was removed in Wave 7 (1.9.0) and the body
+    // (add.ts) is a stub that always exits 0, never reading any option — so
+    // both were stale help-text claims. They are dropped here until the pack
+    // installer body lands; re-add the option + exit-1 row alongside the
+    // pack-trust-model §3/§4/§5 gates flagged in add.ts when it does.
     .addHelpText(
       "after",
       [
@@ -314,7 +326,6 @@ export function createProgram(): Command {
         "",
         "Exit codes:",
         "  0  Informational (feature pending; no action required)",
-        "  1  Integrity drift blocked the command (use --force to override; see `hatch3r verify`)",
         "",
       ].join("\n"),
     )

@@ -12,14 +12,16 @@ import { resolveAgentModel } from "../models/resolve.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { resolveUserContentRoot } from "../content/index.js";
-import { filterUserFacing, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
+import { filterUserFacing, parseFrontmatter, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import {
   readMcpConfig,
   transformEnvVarSyntax,
+  validateMcpEntry,
   validateMcpHttpEndpoint,
   type McpServerEntry,
 } from "./mcp-utils.js";
+import { scanMcpServers } from "../pipeline/mcpDescriptionScan.js";
 import { readHookDefinitions } from "../hooks/index.js";
 import { PLATFORM_TOOL_MARKER, toAskUserPlatformNote } from "../pipeline/adapterToolTranslator.js";
 import {
@@ -926,6 +928,19 @@ export abstract class BaseAdapter implements Adapter {
         continue;
       }
 
+      // D2-8 (Cycle 11 Wave 3, D2, P4/P5): a companion subdir is filtered by
+      // `.md` extension alone, so a self-excluded authoring guide such as
+      // `checks/README.md` (frontmatter `type: documentation`) was emitted as
+      // a real artifact to `.claude/checks/`, `.cursor/checks/`,
+      // `.github/checks/`. Parse the frontmatter and skip non-content types so
+      // the emission set mirrors the canonical-content reader's documentation
+      // exclusion. README.md is also hard-excluded by name to cover an
+      // untyped/frontmatter-less README dropped into a companion dir.
+      const { rawType } = parseFrontmatter(raw);
+      if (rawType === "documentation" || entry.name.toLowerCase() === "readme.md") {
+        continue;
+      }
+
       const substituted = this.substituteCanonicalContent(raw, ctx);
       const body = minimal ? this.stripMinimal(substituted) : substituted;
       this._trackedSourceFiles.add(src);
@@ -955,12 +970,28 @@ export abstract class BaseAdapter implements Adapter {
    *      endpoint. The drop is auditable: the policy reason is appended to
    *      `this.warnings` (Silent Failure Contract, CONSTITUTION §2 P5) so the
    *      operator sees which server was withheld and why.
+   *
+   * D11-16 (Cycle 11 Wave 3, D11, P5/SA11.3-F4): warn-only per-entry
+   * validation ({@link validateMcpEntry} + {@link scanMcpServers}) is SCOPED to
+   * the post-selection survivors. {@link readMcpConfig} is called with
+   * `validateEntries: false` so the bundle-wide validation pass does not run;
+   * the refusal-grade drop gates (server-name reject, dangerous-arg scan) still
+   * fire there. Each surviving server is then re-validated below after the
+   * `_disabled` + selection + HTTP-pin filter, so a 2-server selection surfaces
+   * warnings only about those 2 servers — not the other (e.g. disabled gitlab)
+   * entries the repo never emits. Full-bundle validation remains available via
+   * the default `readMcpConfig` mode for `hatch3r validate`.
    */
   protected async readFilteredMcp(
     ctx: AdapterContext,
   ): Promise<Record<string, CleanMcpEntry> | null> {
     if (!ctx.features.mcp || ctx.manifest.mcp.servers.length === 0) return null;
-    const { servers: mcpServers, warnings } = await readMcpConfig(ctx.canonicalRoot);
+    // D11-16: skip the bundle-wide warn-only validation; it is re-run below on
+    // the selected survivors only. Drop gates inside readMcpConfig still apply.
+    const { servers: mcpServers, warnings } = await readMcpConfig(
+      ctx.canonicalRoot,
+      { validateEntries: false },
+    );
     this.warnings.push(...warnings);
     if (Object.keys(mcpServers).length === 0) return null;
     const selectedSet = new Set(ctx.manifest.mcp.servers);
@@ -984,6 +1015,12 @@ export abstract class BaseAdapter implements Adapter {
       }
     }
     const filtered: Record<string, CleanMcpEntry> = {};
+    // D11-16: survivors of the _disabled + selection + HTTP-pin filter, keyed
+    // by name, in their raw form (the warn-only validators read private
+    // `_pinned_sha256`/`_trust_bypass`/`_timeout` markers). Per-entry
+    // validateMcpEntry runs inside the loop on each survivor; scanMcpServers
+    // runs once after the loop over the whole survivor set.
+    const survivors: Record<string, McpServerEntry> = {};
     for (const [name, entry] of Object.entries(mcpServers)) {
       if (entry._disabled) continue;
       if (!selectedSet.has(name)) continue;
@@ -998,8 +1035,16 @@ export abstract class BaseAdapter implements Adapter {
         );
         continue;
       }
+      // D11-16: warn-only per-entry validation, scoped to this survivor.
+      this.warnings.push(...validateMcpEntry(name, entry));
+      survivors[name] = entry;
       const { _disabled, _description, ...clean } = entry;
       filtered[name] = clean;
+    }
+    // D11-16: description/tool-poisoning scan, scoped to the emitted survivors
+    // only — never the unselected or disabled remainder of the bundle.
+    if (Object.keys(survivors).length > 0) {
+      this.warnings.push(...scanMcpServers(survivors));
     }
     return Object.keys(filtered).length > 0 ? filtered : null;
   }

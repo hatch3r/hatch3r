@@ -32,6 +32,38 @@ export interface McpServerEntry {
   _trust_bypass?: boolean;
 }
 
+/**
+ * D2-13 (Cycle 11 Wave 3, D2, P6): strip every `_`-prefixed key from an MCP
+ * server entry, returning a shallow copy that carries only public, on-disk-safe
+ * fields.
+ *
+ * The `_` prefix is the framework-internal namespace (`_description`,
+ * `_disabled`, `_timeout`, `_pinned_sha256`, `_trust_bypass`). These are
+ * hatch3r policy/metadata markers consumed at generation time
+ * ({@link validateMcpHttpEndpoint}, the manifest selection gate, the Claude
+ * `_timeout`→`timeout` translation) — none of them has a meaning in a committed
+ * client config, and `_pinned_sha256`/`_trust_bypass` in particular leak the
+ * endpoint-pin opt-out into a file the user commits. Before this helper,
+ * `readFilteredMcp` only removed `_disabled`/`_description` by name, so cursor
+ * (`.cursor/mcp.json`) shipped the remaining `_`-prefixed keys verbatim while
+ * claude destructured them out inline — an adapter inconsistency.
+ *
+ * Prefix-based (not a hand-maintained omit list) so a future `_`-field added to
+ * {@link McpServerEntry} is stripped automatically rather than silently
+ * leaking until someone notices. Returns the entry's own public keys only;
+ * inherited/prototype keys are not copied (`Object.entries`).
+ */
+export function stripPrivateMcpFields<T extends Record<string, unknown>>(
+  entry: T,
+): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(entry)) {
+    if (key.startsWith("_")) continue;
+    clean[key] = value;
+  }
+  return clean;
+}
+
 /** Default MCP server request timeout in milliseconds. */
 export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
 /** Maximum allowed MCP timeout in milliseconds (5 minutes). */
@@ -843,15 +875,43 @@ export interface McpConfigResult {
 }
 
 /**
+ * Options for {@link readMcpConfig}.
+ *
+ * D11-16 (Cycle 11 Wave 3, D11, P5/SA11.3-F4): `validateEntries` toggles the
+ * warn-only per-entry validation pass ({@link validateMcpEntry} +
+ * {@link scanMcpServers}).
+ *
+ *  - `true` (default): full-bundle validation — every server entry is checked
+ *    and its warnings accumulated. This is the surface `hatch3r validate`
+ *    relies on to report problems across the WHOLE bundled `mcp.json`,
+ *    independent of any per-repo selection.
+ *  - `false`: skip the warn-only validation. The refusal-grade drop gates
+ *    ({@link validateServerName}, {@link validateMcpServerArgs}) still run —
+ *    they protect every consumer regardless of selection. The adapter path
+ *    ({@link BaseAdapter.readFilteredMcp}) passes `false` so it can re-run
+ *    per-entry validation AFTER the manifest-selection + `_disabled` filter,
+ *    surfacing warnings only about the servers the repo actually emits — a
+ *    2-server selection no longer reports warnings about the other 8.
+ */
+export interface ReadMcpConfigOptions {
+  validateEntries?: boolean;
+}
+
+/**
  * Read and validate the MCP server configuration from `.agents/mcp/mcp.json`.
  *
  * Parses the JSON, validates each server name and entry, and returns
  * the validated servers with any accumulated warnings. Servers with
- * invalid names are skipped entirely.
+ * invalid names — or with argv that fail the refusal-grade dangerous-character
+ * scan — are dropped entirely. The warn-only per-entry validation pass is
+ * controlled by `opts.validateEntries` (default `true`; see
+ * {@link ReadMcpConfigOptions}).
  */
 export async function readMcpConfig(
   agentsDir: string,
+  opts?: ReadMcpConfigOptions,
 ): Promise<McpConfigResult> {
+  const validateEntries = opts?.validateEntries ?? true;
   const mcpPath = join(agentsDir, "mcp", "mcp.json");
   const warnings: string[] = [];
   try {
@@ -870,6 +930,8 @@ export async function readMcpConfig(
         // hit DROPS the entry so the adapter never emits an unsafe
         // launcher invocation. The warning is auditable (Silent Failure
         // Contract, CONSTITUTION.md §2 P5) so operators see the drop.
+        // Runs regardless of `validateEntries`: a drop gate protects every
+        // consumer and is not a selection-scoped diagnostic.
         const argsResult = validateMcpServerArgs(entry);
         if (!argsResult.ok) {
           warnings.push(
@@ -877,7 +939,9 @@ export async function readMcpConfig(
           );
           continue;
         }
-        warnings.push(...validateMcpEntry(name, entry));
+        // D11-16: warn-only per-entry validation is skipped when the caller
+        // will re-run it on a filtered subset (the adapter selection path).
+        if (validateEntries) warnings.push(...validateMcpEntry(name, entry));
         validServers[name] = entry;
       }
       // C7.5-W2B2-H46 (D15-F15.6-03, Pillar P6): static scan of MCP
@@ -885,8 +949,9 @@ export async function readMcpConfig(
       // injection / tool-poisoning markers (Invariant Labs 2025). Warns
       // only — servers still emit so legitimate servers whose descriptions
       // happen to hit a pattern are not silently dropped (Silent Failure
-      // Contract, CONSTITUTION.md §2 P5).
-      warnings.push(...scanMcpServers(validServers));
+      // Contract, CONSTITUTION.md §2 P5). D11-16: scoped with the rest of
+      // the warn-only pass so the adapter can run it on survivors only.
+      if (validateEntries) warnings.push(...scanMcpServers(validServers));
       return { servers: validServers, warnings };
     }
     return { servers: {}, warnings };

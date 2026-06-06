@@ -451,7 +451,7 @@ describe("getWorktreeStatus", () => {
 
   it("returns zeros for a clean worktree", () => {
     const s = getWorktreeStatus(mainRoot);
-    expect(s).toEqual({ modified: 0, untracked: 0, stashes: 0 });
+    expect(s).toEqual({ modified: 0, untracked: 0 });
   });
 
   it("counts modified and untracked files", () => {
@@ -463,16 +463,21 @@ describe("getWorktreeStatus", () => {
     expect(s.untracked).toBe(1);
   });
 
-  it("counts stashes", () => {
+  // D1-32 (Cycle 11 Wave 3): `git stash` writes to a single repo-global
+  // `refs/stash`, so a stash is not per-worktree state. After stashing all
+  // changes the working tree is clean and getWorktreeStatus must report zeros —
+  // it must NOT surface the shared stash stack as worktree dirtiness, which
+  // previously triggered a false `worktree-cleanup` destruction-confirm prompt.
+  it("does not report a repo-global stash as worktree dirtiness", () => {
     writeFileSync(join(mainRoot, "README.md"), "changed\n", "utf-8");
     execFileSync("git", ["-C", mainRoot, "stash", "push", "-m", "wip"], { stdio: "ignore" });
     const s = getWorktreeStatus(mainRoot);
-    expect(s.stashes).toBe(1);
+    expect(s).toEqual({ modified: 0, untracked: 0 });
   });
 
   it("returns zeros (no throw) on missing path", () => {
     const s = getWorktreeStatus("/nonexistent-dir-xyz");
-    expect(s).toEqual({ modified: 0, untracked: 0, stashes: 0 });
+    expect(s).toEqual({ modified: 0, untracked: 0 });
   });
 });
 

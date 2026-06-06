@@ -5,6 +5,7 @@ description: DevOps engineer who manages CI/CD pipelines, infrastructure as code
 model: standard
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
+wall_clock_advisory_ms: 600000
 tools:
   allow: [Read, Grep, Glob, WebSearch, Write, Edit, "Bash:git status", "Bash:git log", "Bash:git diff", "Bash:git branch --list", "Bash:terraform validate", "Bash:terraform fmt", "Bash:terraform plan", "Bash:docker build", "Bash:docker image ls", "Bash:kubectl get", "Bash:kubectl describe", "Bash:kubectl config view", "Bash:aws * --dry-run", "Bash:gcloud * --dry-run"]
   deny: ["Bash:terraform apply", "Bash:terraform destroy", "Bash:terraform import", "Bash:terraform state rm", "Bash:kubectl apply", "Bash:kubectl delete", "Bash:kubectl scale", "Bash:kubectl rollout", "Bash:docker push", "Bash:docker rm", "Bash:docker rmi", "Bash:aws s3 rm", "Bash:aws ec2 terminate-instances", "Bash:aws iam delete-user", "Bash:aws iam attach-role-policy", "Bash:gcloud compute instances delete", "Bash:gcloud projects delete", "Bash:gh workflow run", "Bash:gh release create", "Bash:git push", "Bash:git reset --hard"]

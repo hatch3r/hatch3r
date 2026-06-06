@@ -29,7 +29,10 @@ function recordCleanProbeFailure(operation: string, err: unknown): void {
  *   - strip managed blocks from every adapter-output file the manifest
  *     tracks (preserving any user-authored content outside the markers);
  *   - delete `.hatch3r/hatch.json`;
- *   - delete `.hatch3r-archive/` (rollback snapshots);
+ *   - delete `.hatch3r-archive/` (tool-output archive — the copies of a
+ *     removed tool's adapter outputs that `archiveToolOutputs` stashes
+ *     before deleting the originals; NOT the rollback snapshots, which live
+ *     under `.hatch3r/snapshots/` and are out of scope for `clean`);
  *   - preserve user state under `.hatch3r/`:
  *       learnings/, handoffs/, overrides/ (Wave 5), mcp/, plus any
  *       `.customize.yaml` / `.customize.md` files alongside.
@@ -260,7 +263,10 @@ export async function executeClean(
     }
   }
 
-  // 5. `.hatch3r-archive/` (rollback snapshots — safe to remove on clean).
+  // 5. `.hatch3r-archive/` (tool-output archive — stashed copies of removed
+  //    tools' adapter outputs, retention MAX_ARCHIVE_ENTRIES=5 per tool;
+  //    distinct from the `.hatch3r/snapshots/` rollback store, which `clean`
+  //    leaves untouched). Safe to remove on clean.
   if (inventory.archiveDir) {
     try {
       await rm(join(rootDir, ARCHIVE_DIR), { recursive: true, force: true });

@@ -1132,6 +1132,44 @@ describe("detectMonorepoPackages", () => {
     expect(packages).toEqual([{ name: "only", path: "packages/only" }]);
   });
 
+  // D1-24 (Cycle 11): YAML flow-style `packages` list. The old line-regex
+  // parser matched only dash-prefixed block items, so this yielded [] and
+  // skipped per-package sync. A real YAML parse resolves both shapes.
+  it("enumerates packages from a pnpm-workspace.yaml flow-style list", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "pnpm-workspace.yaml"),
+      "packages: ['packages/*', \"apps/*\"]\n",
+    );
+    await makePackage(root, "packages/core", "core");
+    await makePackage(root, "apps/site", "site");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([
+      { name: "site", path: "apps/site" },
+      { name: "core", path: "packages/core" },
+    ]);
+  });
+
+  it("yields no pnpm globs for a non-list packages value", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: packages/*\n");
+    await makePackage(root, "packages/core", "core");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([]);
+  });
+
+  it("treats a malformed pnpm-workspace.yaml as no signal rather than throwing", async () => {
+    const root = await createTempRepo();
+    // Unparseable YAML body (unclosed flow sequence).
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - [unclosed\n");
+    await makePackage(root, "packages/core", "core");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([]);
+  });
+
   it("enumerates packages from lerna.json packages array", async () => {
     const root = await createTempRepo();
     await writeFile(join(root, "lerna.json"), JSON.stringify({ packages: ["modules/*"] }));
