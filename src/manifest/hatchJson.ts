@@ -17,6 +17,7 @@ import {
   type CliToolsConfig,
   type ConfidenceFloor,
   type ContentSelection,
+  type ConventionConflict,
   type CostTrackingConfig,
   type CustomizationManifest,
   type HatchManifest,
@@ -125,6 +126,14 @@ export function createManifest(options: {
    * repos).
    */
   packages?: PackageEntry[];
+  /**
+   * D14-13 (D14-SA14.4-F3, P1/P4): mutually-exclusive convention conflicts
+   * detected from the toolchain lists at init time (e.g. both `vitest` and
+   * `jest`). Persisted so `status`/`verify` can re-surface that generated
+   * single-toolchain guidance may contradict a second config. Empty/absent
+   * writes no field (preserves manifest byte-identity for unambiguous repos).
+   */
+  conflicts?: ConventionConflict[];
 }): HatchManifest {
   const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
@@ -181,6 +190,12 @@ export function createManifest(options: {
       if (testFrameworks.length > 0) manifest.detected.testFrameworks = testFrameworks;
       if (ciProviders.length > 0) manifest.detected.ciProviders = ciProviders;
     }
+  }
+  // D14-13 (D14-SA14.4-F3): persist convention conflicts when any were
+  // detected. Empty/absent collapses to omission so the written manifest
+  // stays byte-identical for repos with unambiguous toolchains.
+  if (options.conflicts && options.conflicts.length > 0) {
+    manifest.conflicts = options.conflicts;
   }
   if (options.defaultBranch) {
     manifest.board = createMinimalBoardConfig(owner, repo, options.defaultBranch);
@@ -537,6 +552,35 @@ function collectManifestErrors(data: unknown): string[] {
           errors.push(`\`detected.${key}\` contains non-string entries`);
         }
       }
+    }
+  }
+
+  // D14-13 (D14-SA14.4-F3): convention conflicts (optional). Each entry must
+  // carry a string `dimension`, a `string[]` `tools`, and a string `message`
+  // so a hand-edited manifest fails closed with HatchError rather than a
+  // downstream TypeError when `status`/`verify` re-render the warning.
+  if (obj.conflicts !== undefined) {
+    if (!Array.isArray(obj.conflicts)) {
+      errors.push("`conflicts` is not an array");
+    } else {
+      (obj.conflicts as unknown[]).forEach((c, i) => {
+        if (typeof c !== "object" || c === null || Array.isArray(c)) {
+          errors.push(`\`conflicts[${i}]\` is not an object`);
+          return;
+        }
+        const conflict = c as Record<string, unknown>;
+        if (typeof conflict.dimension !== "string") {
+          errors.push(`\`conflicts[${i}].dimension\` is not a string`);
+        }
+        if (typeof conflict.message !== "string") {
+          errors.push(`\`conflicts[${i}].message\` is not a string`);
+        }
+        if (!Array.isArray(conflict.tools)) {
+          errors.push(`\`conflicts[${i}].tools\` is not an array`);
+        } else if (!(conflict.tools as unknown[]).every((t) => typeof t === "string")) {
+          errors.push(`\`conflicts[${i}].tools\` contains non-string entries`);
+        }
+      });
     }
   }
 

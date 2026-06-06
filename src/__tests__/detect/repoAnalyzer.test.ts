@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages, analyzeConventionConflicts, detectDockerfile, detectDataArtifacts } from "../../detect/repoAnalyzer.js";
+import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages, analyzeConventionConflicts, formatConventionConflicts, detectDockerfile, detectDataArtifacts } from "../../detect/repoAnalyzer.js";
 
 describe("analyzeRepo", () => {
   let tempDir: string;
@@ -660,6 +660,41 @@ describe("analyzeRepo", () => {
 
       const info = await analyzeRepo(root);
       expect(info.rootDir).toBe(root);
+    });
+  });
+
+  // D14-13 (D14-SA14.4-F3): the live `hatch3r init` path runs
+  // `analyzeRepo` -> `analyzeConventionConflicts` -> `formatConventionConflicts`
+  // and warns the user. This fixture exercises that exact chain on a repo that
+  // carries both a vitest and a jest config (a mid-migration smell).
+  describe("convention-conflict detection (D14-13)", () => {
+    it("surfaces the conflict line for a vitest.config.ts + jest.config.js fixture", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "package.json"), "{}");
+      await writeFile(join(root, "vitest.config.ts"), "export default {};");
+      await writeFile(join(root, "jest.config.js"), "module.exports = {};");
+
+      const info = await analyzeRepo(root);
+      expect(info.testFrameworks).toContain("vitest");
+      expect(info.testFrameworks).toContain("jest");
+
+      const conflicts = analyzeConventionConflicts(info);
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]!.dimension).toBe("testFramework");
+
+      const block = formatConventionConflicts(conflicts);
+      expect(block).toContain("Convention conflicts detected:");
+      expect(block).toContain("jest, vitest");
+    });
+
+    it("emits no conflict line for an unambiguous single-runner fixture", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "package.json"), "{}");
+      await writeFile(join(root, "vitest.config.ts"), "export default {};");
+
+      const info = await analyzeRepo(root);
+      const block = formatConventionConflicts(analyzeConventionConflicts(info));
+      expect(block).toBe("");
     });
   });
 });

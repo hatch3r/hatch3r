@@ -134,6 +134,29 @@ describe("hatchJson", () => {
       expect(manifest.namespace).toBe("acme");
       expect(manifest.project).toBe("webapp");
     });
+
+    // D14-13 (D14-SA14.4-F3): convention conflicts persist on the manifest so
+    // status/verify can re-surface the single-toolchain-guidance warning.
+    it("persists detected convention conflicts", () => {
+      const manifest = createManifest({
+        tools: ["cursor"],
+        conflicts: [
+          {
+            dimension: "testFramework",
+            tools: ["jest", "vitest"],
+            message: "Detected 2 competing test frameworks (jest, vitest); pick one.",
+          },
+        ],
+      });
+      expect(manifest.conflicts).toHaveLength(1);
+      expect(manifest.conflicts![0]!.dimension).toBe("testFramework");
+      expect(manifest.conflicts![0]!.tools).toEqual(["jest", "vitest"]);
+    });
+
+    it("omits the conflicts field when none are detected", () => {
+      expect(createManifest({ tools: ["cursor"] }).conflicts).toBeUndefined();
+      expect(createManifest({ tools: ["cursor"], conflicts: [] }).conflicts).toBeUndefined();
+    });
   });
 
   describe("migrateManifest", () => {
@@ -1336,6 +1359,13 @@ describe("hatchJson", () => {
       ["detected is not an object", "detected", "x"],
       ["detected.linters is not an array", "detected", { linters: "eslint" }],
       ["detected.linters has a non-string entry", "detected", { linters: [1] }],
+      // conflicts (D14-13)
+      ["conflicts is not an array", "conflicts", { dimension: "testFramework" }],
+      ["conflicts[0] is not an object", "conflicts", ["nope"]],
+      ["conflicts[0].dimension is not a string", "conflicts", [{ dimension: 1, tools: [], message: "x" }]],
+      ["conflicts[0].message is not a string", "conflicts", [{ dimension: "testFramework", tools: [], message: 9 }]],
+      ["conflicts[0].tools is not an array", "conflicts", [{ dimension: "testFramework", tools: "vitest", message: "x" }]],
+      ["conflicts[0].tools has a non-string entry", "conflicts", [{ dimension: "testFramework", tools: [1], message: "x" }]],
       // userContent (hatchJson.ts:393-404)
       ["userContent is not an object", "userContent", 9],
       ["userContent.count is not a number", "userContent", { count: "1", lastModified: "x", types: {} }],
@@ -1376,6 +1406,7 @@ describe("hatchJson", () => {
       data.workspace = { rootPath: "/repo", lastSync: "2026-05-27T00:00:00.000Z", syncVersion: "3.0.0", workspaceChecksum: "abc", excludedContent: ["x"] };
       data.managedFilesByAdapter = { cursor: [".cursor/rules/a.mdc"] };
       data.detected = { linters: ["eslint"], testFrameworks: ["vitest"], ciProviders: ["github-actions"] };
+      data.conflicts = [{ dimension: "testFramework", tools: ["jest", "vitest"], message: "two runners" }];
       data.userContent = { count: 2, lastModified: "2026-05-27T00:00:00.000Z", types: { agents: 1, rules: 1 } };
       await writeFile(
         join(rootDir, ".hatch3r", "hatch.json"),
@@ -1386,6 +1417,7 @@ describe("hatchJson", () => {
       expect(result).not.toBeNull();
       expect(result!.costTracking?.sessionBudget).toBe(5);
       expect(result!.detected?.linters).toEqual(["eslint"]);
+      expect(result!.conflicts?.[0]!.tools).toEqual(["jest", "vitest"]);
     });
   });
 

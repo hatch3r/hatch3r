@@ -32,6 +32,7 @@ import {
   type CliToolId,
   type CliToolsConfig,
   type ContentSelection,
+  type ConventionConflict,
   type CustomizationManifest,
   type Features,
   type MaturityTier,
@@ -40,7 +41,7 @@ import {
   type Tool,
 } from "../../types.js";
 import { readFile } from "node:fs/promises";
-import { analyzeRepo, isGreenfield } from "../../detect/repoAnalyzer.js";
+import { analyzeRepo, isGreenfield, analyzeConventionConflicts, formatConventionConflicts } from "../../detect/repoAnalyzer.js";
 import { detectProjectType } from "../../detect/projectType.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
@@ -584,6 +585,14 @@ export interface RunInitOptions {
    * keep large monorepos from a serial `outputs × packages` write storm.
    */
   perPackage?: boolean;
+  /**
+   * D14-13 (D14-SA14.4-F3, P1/P4): mutually-exclusive convention conflicts
+   * detected from `repoInfo` (via `analyzeConventionConflicts`). Forwarded to
+   * `createManifest` so they persist on `HatchManifest.conflicts` and a later
+   * `status`/`verify` can re-surface the warning. Omitted/empty when the repo
+   * carries no competing toolchains (no field is written to the manifest).
+   */
+  conflicts?: ConventionConflict[];
 }
 
 // C8-D1-M3: Guard against a double `runInit` on the same target directory.
@@ -622,7 +631,7 @@ export async function runInit(options: RunInitOptions): Promise<void> {
 }
 
 async function runInitInner(options: RunInitOptions): Promise<void> {
-  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity, perPackage } = options;
+  const { rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, customization, cliTools, maturity, perPackage, conflicts } = options;
   // D14-SA14.2-H1 (D14, P4/P1): per-package monorepo emission is opt-in.
   // `emitPerPackage` is the single gate the snapshot-path collection and the
   // write pass both read; the `manifest.packages` non-empty check is applied
@@ -755,6 +764,10 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     // which `<package>/.hatch3r/` targets to refresh without re-detecting
     // the workspace layout.
     packages: repoInfo.packages,
+    // D14-13 (D14-SA14.4-F3): persist detected convention conflicts so
+    // `status`/`verify` can re-surface the single-toolchain-guidance warning
+    // without re-running detection. Empty/absent writes no field.
+    conflicts,
     worktreeEnabled,
     customization: effectiveCustomization,
     cliTools,
@@ -1953,6 +1966,19 @@ export async function initCommand(
     info(chalk.dim(`Detected: ${detected.join(", ")}`));
   }
 
+  // D14-13 (D14-SA14.4-F3, P1/P4): warn when the repo carries two or more
+  // tools competing for one mutually-exclusive role (e.g. both `vitest` and
+  // `jest`, or two linters). Without this the generated single-toolchain
+  // rules silently contradict the second config a mid-migration repo still
+  // carries. `formatConventionConflicts` returns "" when there are none, so
+  // unambiguous repos see no extra output. The conflicts are also threaded
+  // into the manifest (persisted on `HatchManifest.conflicts`) below.
+  const conventionConflicts = analyzeConventionConflicts(repoInfo);
+  const conflictBlock = formatConventionConflicts(conventionConflicts);
+  if (conflictBlock.length > 0) {
+    warn(conflictBlock);
+  }
+
   if (opts.yes) {
     const remoteUrl = getGitRemoteUrl();
     const platform = detectPlatformFromRemote(remoteUrl);
@@ -2041,7 +2067,7 @@ export async function initCommand(
     warnBoardDroppedForSolo(teamSize, preset, projectType, index, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
     await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage });
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts });
     await runToolImport(rootDir, opts.import, true);
     return;
   }
@@ -2373,7 +2399,7 @@ export async function initCommand(
   warnBoardDroppedForSolo(teamSize, selectedPreset, projectType, filterIndex, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
   await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage });
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts });
   await runToolImport(rootDir, opts.import, false);
 }
 

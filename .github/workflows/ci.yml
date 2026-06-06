@@ -301,6 +301,26 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         run: npm run validate
 
+      # Cycle 11 H D13-9 (D13-SA13.5-F2): the `npm run validate` umbrella above
+      # runs the scripts/validate-*.ts chain (including validate:efficiency ->
+      # validate-fanout-emission.ts, the P8 B2 fan-out gate), but it does NOT
+      # invoke the `hatch3r validate` CLI command. The P8 B1 §0 ambiguity-gate
+      # floor lives only in that command (src/cli/commands/validate.ts
+      # requiresAmbiguityGate/checkAmbiguityGate): a published agent/command/skill
+      # that drops its §0 gate is a hard error there but was invisible at merge,
+      # so the B1 100%-coverage invariant was honor-system on PRs. This step runs
+      # the CLI (default mode: missing-gate = error, exit 64; anti-slop + pillar
+      # findings stay warnings, so the 379-warning canonical baseline does not red
+      # the gate) via tsx against source — no built dist/ needed, matching the
+      # content-gate pattern above. program.ts validate help text already states
+      # "CI should run BOTH `hatch3r validate` AND `npm run validate`"; this closes
+      # that gap. Escalating the §0-present-no-protocol warning to error is a
+      # follow-up validate.ts change, deferred so the current warning does not
+      # block this gate. Gated to the canonical Linux/Node-22 matrix entry.
+      - name: Canonical content B1 gate (hatch3r validate)
+        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
+        run: npx tsx src/cli/index.ts validate
+
       # Audit-state hygiene: finding-registry shape + invariants 1-7 from
       # AUDIT-EXECUTE.md §Finding Registry. Blocking once Phase 3 archival
       # tooling lands (plan-implementing-a-sofficticated-ancient-penguin.md).

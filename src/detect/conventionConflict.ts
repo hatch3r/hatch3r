@@ -31,26 +31,14 @@
  *   https://thepromptshelf.dev/blog/cursorrules-vs-claude-md/ (accessed
  *     2026-05-28) — single-toolchain assumptions in generated rule content.
  */
-import type { RepoInfo } from "../types.js";
+import type { RepoInfo, ConventionConflict, ConventionDimension } from "../types.js";
 
-/** A detected convention dimension that admits at most one tool per project. */
-export type ConventionDimension = "linter" | "formatter" | "testFramework" | "ciProvider";
-
-/**
- * A surfaced conflict: two or more detected tools that occupy the same
- * mutually-exclusive role within one project.
- */
-export interface ConventionConflict {
-  /** The role the conflicting tools compete for. */
-  dimension: ConventionDimension;
-  /**
-   * The conflicting tool names, sorted for deterministic output. Length is
-   * always >= 2 (a single tool is never a conflict).
-   */
-  tools: string[];
-  /** One-line human-readable explanation of the conflict. */
-  message: string;
-}
+// `ConventionDimension` / `ConventionConflict` are defined in `src/types.ts`
+// (the canonical type home) so `HatchManifest.conflicts` can reference
+// `ConventionConflict` without a types -> detect import cycle. Re-exported here
+// to preserve this module's existing public type surface (consumers such as
+// `src/detect/repoAnalyzer.ts` and the unit tests import them from here).
+export type { ConventionConflict, ConventionDimension } from "../types.js";
 
 /**
  * Tools whose mere co-presence is NOT a conflict because they fill
@@ -213,15 +201,15 @@ export function formatConventionConflicts(conflicts: ConventionConflict[]): stri
   return lines.join("\n");
 }
 
-// ── Cross-WU remainder (F14.4-H3 consumer) ───────────────────────────
-// The init.ts / types.ts slices are owned by another work unit. To finish the
-// feature end-to-end, the init flow must:
-//   1. Call `detectConventionConflicts(repoInfo)` after `analyzeRepo`.
-//   2. Print `formatConventionConflicts(...)` as a warning in the post-init box
-//      when the result is non-empty.
-//   3. Persist a permanent record on the manifest, e.g. a `conflicts:
-//      ConventionConflict[]` field on `Manifest` round-tripped through
-//      `src/manifest/hatchJson.ts` (the finding's `.hatch3r/hatch.json.conflicts`
-//      line). Adding that field is a `src/types.ts` edit (cross-WU).
+// ── Consumer wiring (F14.4-H3 / D14-13) — DONE ───────────────────────
+// The init flow consumes this module end-to-end (the cross-WU remainder noted
+// in Cycle 10 is resolved in Cycle 11, D14-13):
+//   1. `src/cli/commands/init.ts` calls `analyzeConventionConflicts(repoInfo)`
+//      after `analyzeRepo` and prints `formatConventionConflicts(...)` via
+//      `warn()` when the result is non-empty (the live `Detected:` summary).
+//   2. The detected conflicts are threaded through `runInit` -> `createManifest`
+//      and persisted on `HatchManifest.conflicts` (defined in `src/types.ts`;
+//      written by `src/manifest/hatchJson.ts`) so a later `status`/`verify` can
+//      re-surface the warning without re-running `analyzeRepo`.
 // This module deliberately exposes both the detector and the formatter so the
 // init consumer needs zero additional logic — it wires the two calls only.
