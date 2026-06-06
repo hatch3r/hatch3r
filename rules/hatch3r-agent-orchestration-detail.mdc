@@ -185,7 +185,7 @@ The pipeline should adapt its behavior based on observed task complexity, not ju
 | Phase 1 research finds >10 affected files (initial estimate was <5) | Upgrade tier to 3 if currently 2. Re-run `codebase-impact` at `deep` depth before Phase 2. |
 | Phase 2 implementer reports >3 research gaps | Pause Phase 2. Run targeted researcher with gap-specific modes before continuing. |
 | Phase 3 review loop reaches iteration 2 with increasing Critical count | Classify as complexity underestimate. Surface to user with recommendation to break the task into smaller sub-tasks. |
-| Phase 4 validation pass fails on first attempt | Check whether failure is in test-writer's new tests (expected -- fix test) or in pre-existing tests (regression -- fix implementation). Route to appropriate fixer. |
+| Phase 4 validation pass fails on first attempt | Check whether failure is in hatch3r-testability's new tests (expected -- fix test) or in pre-existing tests (regression -- fix implementation). Route to appropriate fixer. |
 
 ### Post-Pipeline Learning
 

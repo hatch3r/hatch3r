@@ -150,7 +150,7 @@ Execute these steps in order. **Do not skip any step.** The only ASK gate is Ste
 
 Classify the run before delegating. Counts and severity come from the Step 4 evaluation, so reorder if needed — for runs with no comments at all, take the early-exit path in Step 2.
 
-- **Tier 1** (≤5 comments, all single-line nits, 0 critical, 0 architectural-discussion items): reduced pipeline — implement inline or via one specialist; skip Step 7a review loop; still run Step 7b mandatory specialists (test-writer, security-auditor).
+- **Tier 1** (≤5 comments, all single-line nits, 0 critical, 0 architectural-discussion items): reduced pipeline — implement inline or via one specialist; skip Step 7a review loop; still run Step 7b mandatory specialists (hatch3r-testability, hatch3r-security).
 - **Tier 2** (6–30 comments, mixed severity, no critical disagreements or design objections): standard pipeline — Steps 6, 7a (review loop, max 3 iterations), 7b mandatory + 7c triggered.
 - **Tier 3** (>30 comments OR any Critical-severity item OR any architectural-discussion item OR cross-cutting changes): full pipeline + merge-readiness assessment after Step 9.
 
@@ -471,7 +471,7 @@ Delegate every FIX NOW finding to specialist sub-agents using the delegation con
 | Dead code, unused imports, type fixes, lint errors | `hatch3r-lint-fixer` | hatch3r-lint-fixer agent protocol |
 | Missing tests, insufficient coverage | `hatch3r-testability` | hatch3r-testability agent protocol |
 
-Blast-radius rule: same-file findings → same sub-agent (priority: implementer > lint-fixer > test-writer); disjoint files → parallel sub-agents.
+Blast-radius rule: same-file findings → same sub-agent (priority: hatch3r-implementer > hatch3r-lint-fixer > hatch3r-testability); disjoint files → parallel sub-agents.
 
 #### 6b. Spawn Sub-Agents
 
@@ -662,8 +662,8 @@ Emit the canonical Iteration Summary block from `rules/hatch3r-iteration-summary
 | typecheck | pass |
 | tests | pass ({n} passed) |
 | reviewer/fixer loop | clean after {n} iteration(s) |
-| security-auditor | pass |
-| test-writer | pass — added {n} test(s) |
+| hatch3r-security | pass |
+| hatch3r-testability | pass — added {n} test(s) |
 
 **Suggested Next Action:** {one line — e.g., "Wait for reviewer response on the 2 NEEDS_CLARIFICATION items, then re-run /hatch3r-pr-resolve."}
 ```

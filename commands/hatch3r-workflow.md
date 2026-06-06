@@ -80,7 +80,7 @@ Downstream propagation: every ASK checkpoint that reports verification quality, 
 Classify the development task before delegating. Detailed mode classification runs in Step 0 (Triage / Scale-Adaptive Mode Selection); this section summarizes the routing:
 
 - **Tier 1 (trivial)**: single-line edit, typo, or trivial config change; Quick Mode runs the streamlined 3-step path. The B1 ambiguity gate (`§0 Detect Ambiguity` per `.claude/rules/clarification-default.md`) is NEVER skipped — Tier 1 admission already requires that the brief alone be testable, single-file, and single-concern, so the gate evaluates trivially and passes silently when those preconditions hold. ASK checkpoints downstream of the brief (mid-plan, end-of-implementation, mid-review) are reduced to one consolidated end-of-run "merge or revise?" prompt rather than per-phase prompts — Tier 1 work is short enough that incremental ASK fatigue would dominate the workflow without proportional benefit. Any mid-run ambiguity that wasn't visible at the brief surface re-invokes the B1 protocol on the spot. This satisfies P8 B1 default-not-exception: the protocol still applies; the checkpoint cadence is right-sized (Finding D7-M11 / D7-SA7.4-4).
-- **Tier 2 (standard)**: bug fix or small feature in 1–3 files; Quick Mode with full sub-agent delegation (researcher, implementer, reviewer, fixer, test-writer, security-auditor).
+- **Tier 2 (standard)**: bug fix or small feature in 1–3 files; Quick Mode with full sub-agent delegation (researcher, implementer, reviewer, fixer, hatch3r-testability, hatch3r-security).
 - **Tier 3 (deep)**: multi-module feature, architectural change, or cross-cutting refactor; Full Mode with all 4 phases (Analyze, Plan, Implement, Review) and deep research before mutating files.
 
 If Tier 1, take Quick Mode with reduced sub-agent prompts. If Tier 2, take Quick Mode below. If Tier 3, switch to Full Mode and confirm the plan with the user before implementation.
@@ -246,7 +246,7 @@ Map the task type to the appropriate skill:
 | Visual refactor  | hatch3r-visual-refactor        |
 | QA validation    | hatch3r-qa-validation          |
 
-Identify supporting agents needed: test-writer, docs-writer, reviewer, security-auditor.
+Identify supporting agents needed: hatch3r-testability, docs-writer, reviewer, hatch3r-security.
 
 #### 2c. Identify Risks
 
@@ -412,8 +412,8 @@ For each criterion, rate verification confidence: high (tested and confirmed via
 Review Results:
   Acceptance Criteria: {N/M met}
   Code Quality: {reviewer findings}
-  Security: {security-auditor findings}
-  Test Coverage: {test-writer results}
+  Security: {hatch3r-security findings}
+  Test Coverage: {hatch3r-testability results}
   Documentation: {docs-writer results / not applicable}
   Performance: {pass/issues}
   Overall Confidence: {high/medium/low}

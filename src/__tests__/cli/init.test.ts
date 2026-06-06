@@ -322,6 +322,32 @@ describe("init command", () => {
     expect(output).toContain("Features");
   });
 
+  // D10-17 (D10, P1): init wires `recordFirstRunSuccess` at its success
+  // terminus, persisting the primary SPACE metric `firstRunSuccessRate` to
+  // `.hatch3r/telemetry/space-<date>.jsonl`. This proves the SPACE-telemetry
+  // module is an invoked runtime feature (closing the F10.8-1 integration gap),
+  // not a tested-but-uncalled library.
+  it("records firstRunSuccessRate=1 SPACE telemetry on a successful init", async () => {
+    await initCommand({ yes: true });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryPath = join(tempDir, AGENTS_DIR, "telemetry", `space-${today}.jsonl`);
+    const content = await readFile(telemetryPath, "utf-8");
+    const records = content
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { metricId: string; axis: string; value: number; source?: string; tags?: Record<string, string> });
+
+    const firstRun = records.find((r) => r.metricId === "firstRunSuccessRate");
+    expect(firstRun).toBeDefined();
+    expect(firstRun?.axis).toBe("performance");
+    expect(firstRun?.value).toBe(1);
+    expect(firstRun?.source).toBe("hatch3r-init");
+    // A clean (non-partial) init tags the record so the aggregator can segment
+    // partial-failure runs.
+    expect(firstRun?.tags?.partialAdapterFailure).toBe("false");
+  });
+
   it("should display sourcing hint in success box when --mcp is passed", async () => {
     // Wave 3: the .env.mcp hint only shows when an MCP setup is generated;
     // pass --mcp to re-opt-in so this assertion remains meaningful.

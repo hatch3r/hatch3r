@@ -9,7 +9,7 @@ import { writeProvenance, type PerAdapterOutputs } from "../../manifest/provenan
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
-import { withSnapshot } from "../../pipeline/snapshot.js";
+import { withSnapshot, createSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { HATCH3R_DIR, HatchError, WORKTREE_CAPABLE_TOOLS, WORKTREE_INCLUDE_FILE, type HatchManifest, type Platform } from "../../types.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
@@ -221,7 +221,7 @@ export async function runPackageUpdate(
 export async function runRegenerate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string; force?: boolean } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string; reuseSessionId?: string; force?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 3;
@@ -276,13 +276,45 @@ export async function runRegenerate(
       verbose(`${snapshotCommandName}: snapshot path pre-enumeration for ${tool} skipped — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
-  const regenSnapshot = await withSnapshot(
-    snapshotCommandName,
-    Array.from(new Set(regenSnapshotPaths)),
-    async (_sessionId) => undefined,
-    { projectRoot: rootDir, onWarn: warn },
-  );
-  const snapshotSessionId = regenSnapshot.sessionId;
+  // D2-7 (Cycle 11 Wave 2, D2, P2): when the caller (config tool-removal path)
+  // has already opened a snapshot session and captured the about-to-be-deleted
+  // tool outputs into it BEFORE deletion, accumulate this regenerate's paths
+  // into that SAME session id rather than minting a fresh one. `createSnapshot`
+  // unions paths per session id (snapshot.ts), so the single session the caller
+  // advertises (`hatch3r rollback --session=<id>`) restores both the removed
+  // tool's files (captured pre-deletion by the caller) AND everything this run
+  // overwrites/creates. Without this, config deleted the removed-tool outputs,
+  // shrank `manifest.managedFiles`, and the regenerate snapshot — built from the
+  // already-shrunken manifest — never captured the dropped paths, so the
+  // advertised rollback could not restore them. A capture failure here downgrades
+  // to a warning (Silent Failure Contract) but keeps the reused id, because the
+  // caller's pre-deletion capture of the removed-tool bytes already succeeded.
+  const dedupedSnapshotPaths = Array.from(new Set(regenSnapshotPaths));
+  let snapshotSessionId: string | null;
+  if (options.reuseSessionId) {
+    snapshotSessionId = options.reuseSessionId;
+    try {
+      await createSnapshot(options.reuseSessionId, dedupedSnapshotPaths, {
+        projectRoot: rootDir,
+        onWarn: warn,
+      });
+    } catch (err) {
+      warn(
+        `${snapshotCommandName}: extending snapshot session ${options.reuseSessionId} failed — ` +
+          `${err instanceof Error ? err.message : String(err)}. ` +
+          `Removed-tool files captured before deletion remain restorable via ` +
+          `\`hatch3r rollback --session=${options.reuseSessionId}\`.`,
+      );
+    }
+  } else {
+    const regenSnapshot = await withSnapshot(
+      snapshotCommandName,
+      dedupedSnapshotPaths,
+      async (_sessionId) => undefined,
+      { projectRoot: rootDir, onWarn: warn },
+    );
+    snapshotSessionId = regenSnapshot.sessionId;
+  }
 
   // F16.1-C1 (Decision 27 / Bucket 2.2): record a checkpoint after each
   // mutation phase under `.<command>-workspace/checkpoint.json` (namespaced by

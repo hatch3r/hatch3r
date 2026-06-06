@@ -49,7 +49,7 @@ For Tier 2/3: cache researcher output (reference conventions, blast radius data)
 When multiple findings affect the same file or module, batch them to a single sub-agent to avoid cross-agent file conflicts:
 
 1. Build a file-to-findings map from all [FIX NOW] items.
-2. Findings in the same file go to the same sub-agent instance, even if they span categories (use the highest-priority specialist: implementer > lint-fixer > test-writer).
+2. Findings in the same file go to the same sub-agent instance, even if they span categories (use the highest-priority specialist: hatch3r-implementer > hatch3r-lint-fixer > hatch3r-testability).
 3. Findings in disjoint files can run in parallel sub-agents.
 4. If findings span independent areas within the same specialist type, spawn one sub-agent per area to parallelize.
 

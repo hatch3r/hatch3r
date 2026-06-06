@@ -12,7 +12,7 @@
  * Usage: `npm run inventory` (invokes via tsx). No build step required.
  */
 import { readdir, readFile, stat, writeFile } from "node:fs/promises";
-import { join, dirname, resolve } from "node:path";
+import { join, dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -68,6 +68,16 @@ interface InventoryCounts {
   commandsRevision: number;
   checks: number;
   githubAgents: number;
+  /**
+   * Every `*.{test,spec}.{js,ts}(x)` file under `src/` and `scripts/` — the
+   * exact set `vitest.config.ts` `DEFAULT_TEST_GLOB` runs (both roots, 204 at
+   * authoring time: 186 in `src/__tests__/` + 18 in `scripts/__tests__/`).
+   * Added in Cycle 11 (D3-5): `governance/audit/domains/D03-test-infrastructure.md`
+   * previously cited a non-existent `inventory.json.testFiles` array and a stale
+   * hand-maintained count; this collector makes the array real and gates its
+   * count under the CI inventory drift check so the D03 figure self-maintains.
+   */
+  testFiles: number;
 }
 
 interface InventoryFiles {
@@ -89,6 +99,8 @@ interface InventoryFiles {
   commandsRevision: string[];
   checks: string[];
   githubAgents: string[];
+  /** File list backing `counts.testFiles` (repo-relative, sorted). */
+  testFiles: string[];
 }
 
 export interface InventoryDocument {
@@ -204,6 +216,76 @@ async function listSrcDirTs(relDir: string): Promise<string[]> {
 }
 
 /**
+ * Roots scanned for test files, in stable order. Mirrors the two roots listed
+ * in `vitest.config.ts` `DEFAULT_TEST_GLOB` (`src/**` + `scripts/**`) so the
+ * inventory's `testFiles` set is exactly what `npm test` runs (D3-5).
+ */
+const TEST_FILE_ROOTS = ["src", "scripts"] as const;
+
+/**
+ * Matches a vitest test/spec filename: a `.test`/`.spec` segment followed by an
+ * optional `c`/`m` module marker, then a `j`/`t`-script extension with optional
+ * `x`. Equivalent to the `*.{test,spec}.?(c|m)[jt]s?(x)` glob in
+ * `vitest.config.ts`, so the collector never drifts from the runner's include
+ * set. The whole corpus is `.test.ts` today; the broader pattern future-proofs
+ * against a `.spec`/`.tsx`/`.mts` test being added without a collector edit.
+ */
+const TEST_FILE_RE = /\.(?:test|spec)\.(?:c|m)?[jt]sx?$/;
+
+/**
+ * Directory names skipped during the recursive test-file walk. `node_modules`
+ * and `dist` can appear nested under a scanned root and never hold first-party
+ * tests; excluding them keeps the walk fast and the set free of vendored or
+ * built artifacts (matches vitest's default excludes).
+ */
+const TEST_WALK_SKIP_DIRS = new Set<string>(["node_modules", "dist"]);
+
+/**
+ * Recursively list every vitest test file under the given root, repo-relative
+ * and sorted. Returns `[]` for a missing root (ENOENT) so a partial checkout
+ * degrades to a no-op rather than throwing. Skips `node_modules`/`dist`.
+ */
+async function listTestFilesUnder(relDir: string): Promise<string[]> {
+  const absDir = join(ROOT, relDir);
+  const out: string[] = [];
+  let entries: string[];
+  try {
+    entries = await readdir(absDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return out;
+    throw err;
+  }
+  for (const name of entries) {
+    if (TEST_WALK_SKIP_DIRS.has(name)) continue;
+    const relPath = join(relDir, name);
+    const s = await stat(join(ROOT, relPath));
+    if (s.isDirectory()) {
+      out.push(...(await listTestFilesUnder(relPath)));
+    } else if (TEST_FILE_RE.test(name)) {
+      out.push(relPath);
+    }
+  }
+  return out;
+}
+
+/**
+ * Collect every vitest test file across all `TEST_FILE_ROOTS`, repo-relative
+ * with forward slashes, globally sorted for a deterministic inventory. Paths
+ * are normalized to `/` so the committed `inventory.json` is byte-identical on
+ * Windows checkouts (`path.join` yields `\` there) — matching the LF/`/`
+ * convention the rest of the inventory and the `.gitattributes` enforce.
+ */
+async function listTestFiles(): Promise<string[]> {
+  const collected = await Promise.all(
+    TEST_FILE_ROOTS.map((root) => listTestFilesUnder(root)),
+  );
+  return collected
+    .flat()
+    .map((p) => p.split(sep).join("/"))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
  * Build the inventory document from the filesystem.
  *
  * `today` is injected (date-only `YYYY-MM-DD`, UTC) rather than read inline so
@@ -229,6 +311,7 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
     commandsRevision,
     checks,
     githubAgents,
+    testFiles,
   ] = await Promise.all([
     listAdapters(),
     listTopLevelMd("agents", "hatch3r-"),
@@ -245,6 +328,7 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
     listCompanionMd("commands/revision"),
     listCompanionMd("checks"),
     listCompanionMd("github-agents"),
+    listTestFiles(),
   ]);
 
   const cliSkills = listCliSkills(skills);
@@ -268,6 +352,7 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
       commandsRevision: commandsRevision.length,
       checks: checks.length,
       githubAgents: githubAgents.length,
+      testFiles: testFiles.length,
     },
     files: {
       adapters,
@@ -286,6 +371,7 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
       commandsRevision,
       checks,
       githubAgents,
+      testFiles,
     },
   };
 }
@@ -460,6 +546,18 @@ const DRIFT_PROBES: DriftProbe[] = [
     label: "plugin.json hooks count",
     expected: "hooks",
     regex: /(\d+)\s+hooks/,
+  },
+  // Cycle 11 D3-5: D03's scope line cited a hand-maintained "All NNN test files"
+  // figure that drifted (133 claimed vs 204 actual) and pointed at a then-absent
+  // `inventory.json.testFiles` array. With the array now collected from the
+  // filesystem (every vitest test under src/ + scripts/), this probe gates the
+  // D03 figure against `counts.testFiles` so the scope line self-maintains under
+  // the CI inventory drift check rather than re-staleing on the next test added.
+  {
+    file: "governance/audit/domains/D03-test-infrastructure.md",
+    label: "D03 scope test-file count",
+    expected: "testFiles",
+    regex: /All\s+(\d+)\s+test files/,
   },
 ];
 

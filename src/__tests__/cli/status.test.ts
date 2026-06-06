@@ -111,6 +111,91 @@ describe("status command", () => {
     expect(output).toContain("Status");
   });
 
+  // D10-17 (D10, P1): status is the reporting surface that reads the SPACE
+  // telemetry JSONL written by `init.ts::recordFirstRunSuccess`. Seeding a
+  // firstRunSuccessRate record and asserting the "Developer productivity
+  // (SPACE)" box renders proves the read path is wired (not a dead module).
+  it("renders the SPACE developer-productivity box from persisted telemetry", async () => {
+    await createTestProject(tempDir);
+
+    // Seed two success + one failure firstRunSuccessRate records for today.
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryDir = join(tempDir, HATCH3R_DIR, "telemetry");
+    await mkdir(telemetryDir, { recursive: true });
+    const ts = `${today}T12:00:00.000Z`;
+    const lines = [
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts, source: "hatch3r-init" },
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts, source: "hatch3r-init" },
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 0, timestamp: ts, source: "hatch3r-init" },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n");
+    await writeFile(join(telemetryDir, `space-${today}.jsonl`), lines + "\n");
+
+    consoleSpy.mockClear();
+    const { statusCommand } = await import("../../cli/commands/status.js");
+    await statusCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Developer productivity (SPACE)");
+    // 2 of 3 success -> 67% first-run success, 3 runs.
+    expect(output).toContain("First-run success");
+    expect(output).toContain("67%");
+    expect(output).toContain("3 runs");
+  });
+
+  it("omits the SPACE box when no telemetry exists", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+    consoleSpy.mockClear();
+
+    const { statusCommand } = await import("../../cli/commands/status.js");
+    await statusCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).not.toContain("Developer productivity (SPACE)");
+  });
+
+  it("emits spaceTelemetry in the --json payload", async () => {
+    await createTestProject(tempDir);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryDir = join(tempDir, HATCH3R_DIR, "telemetry");
+    await mkdir(telemetryDir, { recursive: true });
+    const ts = `${today}T12:00:00.000Z`;
+    await writeFile(
+      join(telemetryDir, `space-${today}.jsonl`),
+      JSON.stringify({ metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts }) + "\n",
+    );
+
+    // emitJson writes via process.stdout.write, not console.log — spy on it.
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+
+    try {
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand({ format: "json" });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const combined = stdoutChunks.join("");
+    const start = combined.indexOf("{");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const payload = JSON.parse(combined.slice(start).trim()) as {
+      spaceTelemetry: { recordCount: number; firstRunSuccessRate: number | null };
+    };
+    expect(payload.spaceTelemetry.recordCount).toBe(1);
+    expect(payload.spaceTelemetry.firstRunSuccessRate).toBe(1);
+  });
+
   it("should report drifted when a generated file differs", async () => {
     await createTestProject(tempDir);
 

@@ -86,12 +86,12 @@ Present available events with descriptions:
 Present available hatch3r agents:
 
 - `lint-fixer` — Automatic lint error resolution
-- `test-writer` — Test generation for new or changed code
+- `hatch3r-testability` — Test generation for new or changed code
 - `reviewer` — Code review and quality checks
-- `security-auditor` — Security vulnerability scanning
+- `hatch3r-security` — Security vulnerability scanning
 - `ci-watcher` — CI/CD pipeline monitoring and diagnosis
 - `a11y-auditor` — Accessibility compliance checks
-- `perf-profiler` — Performance analysis and optimization
+- `hatch3r-performance` — Performance analysis and optimization
 - `dependency-auditor` — Dependency security and update checks
 - `docs-writer` — Documentation generation and updates
 

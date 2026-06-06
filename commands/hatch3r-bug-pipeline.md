@@ -118,7 +118,7 @@ Apply the **Research Completeness Checklist** (`rules/hatch3r-agent-orchestratio
 
 ### Step 2: Regression-Test + Fix Authored Together (Phase 2)
 
-Spawn `hatch3r-implementer` via the Task tool (`subagent_type: "generalPurpose"`). Unlike the default pipeline — where the test-writer runs in Phase 4 after the fix — this phase authors the failing regression test FIRST, then the minimal fix that makes it pass.
+Spawn `hatch3r-implementer` via the Task tool (`subagent_type: "generalPurpose"`). Unlike the default pipeline — where hatch3r-testability runs in Phase 4 after the fix — this phase authors the failing regression test FIRST, then the minimal fix that makes it pass.
 
 The implementer prompt MUST include the confirmed root cause + reproduction path from Step 1, all `scope: always` rule directives from `rules/`, the `correlation_id`, the confidence expression requirement, an explicit instruction NOT to create branches / commits / PRs, and the following test-first contract (verbatim):
 

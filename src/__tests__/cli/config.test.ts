@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { HatchError, DEFAULT_FEATURES, type HatchManifest } from "../../types.js";
+import { ARCHIVE_DIR, HatchError, DEFAULT_FEATURES, type HatchManifest } from "../../types.js";
 import {
   makeManifest,
   makeContentSelection,
@@ -137,12 +137,29 @@ vi.mock("../../cli/shared/agentsContent.js", () => ({
   generateRootAgentsMd: vi.fn(),
 }));
 
-vi.mock("../../merge/safeWrite.js", () => ({
-  safeWriteFile: vi.fn(),
-  // F1.2-H1 (Cycle 10): configCommand wraps its body in an outer manifest
-  // lock; mock returns a no-op release so tests do not need HATCH3R_LOCK=1.
-  acquireWriteLock: vi.fn().mockResolvedValue(async () => {}),
-}));
+vi.mock("../../merge/safeWrite.js", async () => {
+  // D2-7 (Cycle 11 Wave 2): the tool-removal path now opens a real pre-deletion
+  // snapshot via `withSnapshot` (pipeline/snapshot.js is NOT mocked here), and
+  // `createSnapshot` writes its meta.json through `atomicWriteFile`. The prior
+  // mock omitted that export, so the snapshot capture threw `atomicWriteFile is
+  // not a function`, the Silent Failure Contract downgraded it to a warning, and
+  // the session id came back null. Provide a functional `atomicWriteFile` that
+  // performs the externally-observable write (mkdir parent + writeFile) so the
+  // snapshot lands and a real `config-<ts>` session id is minted — matching
+  // production. The fsync/lock ceremony is irrelevant to these assertions.
+  const { writeFile, mkdir } = await import("node:fs/promises");
+  const { dirname } = await import("node:path");
+  return {
+    safeWriteFile: vi.fn(),
+    // F1.2-H1 (Cycle 10): configCommand wraps its body in an outer manifest
+    // lock; mock returns a no-op release so tests do not need HATCH3R_LOCK=1.
+    acquireWriteLock: vi.fn().mockResolvedValue(async () => {}),
+    atomicWriteFile: vi.fn(async (filePath: string, content: string | Buffer) => {
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, content as Parameters<typeof writeFile>[1]);
+    }),
+  };
+});
 
 vi.mock("../../env/mcpEnv.js", () => ({
   ensureEnvMcp: vi.fn(),
@@ -815,6 +832,80 @@ describe("config command", () => {
         manifest,
         ["CLAUDE.md", ".claude/settings.json"],
       );
+    });
+
+    // D2-6 (Cycle 11 Wave 2): the tool-removal confirm prompt must name the real
+    // archive destination via ARCHIVE_DIR, not the drifted `.hatch3r/archive/`
+    // literal it used to print (the on-disk path is `${ARCHIVE_DIR}/<tool>/<ts>/`).
+    it("tool-removal confirm prompt references ARCHIVE_DIR (no path drift)", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      // Find the inquirer.prompt call that posed the `confirmArchive` question.
+      const confirmCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "confirmArchive");
+      });
+      expect(confirmCall).toBeDefined();
+      const archiveQuestion = (confirmCall![0] as unknown as Array<{ name?: string; message?: string }>).find(
+        (q) => q.name === "confirmArchive",
+      );
+      // The literal ".hatch3r-archive" (ARCHIVE_DIR's value) must appear; the
+      // stale ".hatch3r/archive/" literal must not.
+      expect(archiveQuestion?.message).toContain(ARCHIVE_DIR);
+      expect(archiveQuestion?.message).not.toContain(".hatch3r/archive/");
+    });
+
+    // D2-7 (Cycle 11 Wave 2): tool removal must snapshot the dropped tool's files
+    // BEFORE the archive deletes them and thread that session into runRegenerate
+    // (reuseSessionId) so the single advertised `config-<ts>` rollback restores
+    // the removed tool. Asserts runRegenerate receives a `reuseSessionId`.
+    it("reuses the pre-deletion snapshot session for runRegenerate on tool removal", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md", ".claude/settings.json"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md", ".claude/settings.json"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      const regenCall = vi.mocked(runRegenerate).mock.calls.at(-1);
+      expect(regenCall).toBeDefined();
+      const opts = regenCall![2] as { snapshotCommandName?: string; reuseSessionId?: string };
+      expect(opts.snapshotCommandName).toBe("config");
+      // A real `config-<ts>` session id was minted by the pre-deletion snapshot
+      // and handed to runRegenerate to accumulate into.
+      expect(opts.reuseSessionId).toMatch(/^config-/);
+    });
+
+    // D2-7: when NO tool is removed, runRegenerate mints its own session — the
+    // reuseSessionId field is absent so behavior is unchanged from pre-D2-7.
+    it("does not pass reuseSessionId when no tool is removed", async () => {
+      const manifest = makeManifest({ tools: ["cursor"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
+
+      await (await importConfigCommand())();
+
+      const regenCall = vi.mocked(runRegenerate).mock.calls.at(-1);
+      expect(regenCall).toBeDefined();
+      const opts = regenCall![2] as { snapshotCommandName?: string; reuseSessionId?: string };
+      expect(opts.snapshotCommandName).toBe("config");
+      expect(opts.reuseSessionId).toBeUndefined();
     });
   });
 

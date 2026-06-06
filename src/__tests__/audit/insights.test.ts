@@ -5,11 +5,13 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   CURRENT_INSIGHTS_VERSION,
   HISTORY_MAX,
+  InsightsAccumulatorError,
   InsightsParseError,
   parseInsights,
   promote,
   promoteToHistory,
   readInsights,
+  validateAccumulator,
   validateInsights,
   writeInsights,
   type CycleInsight,
@@ -266,6 +268,67 @@ describe("validateInsights", () => {
   });
 });
 
+describe("validateAccumulator", () => {
+  it("accepts a complete accumulator (no errors, no warnings)", () => {
+    const v = validateAccumulator({
+      cycle_date: "2026-05-29",
+      cycle_number: 10,
+      fix_success_rate: { code: { rate: 1.0 } },
+      cl2_artifact_closure: { P0: {}, P1: {}, P2: {}, P3: {} },
+    });
+    expect(v.errors).toEqual([]);
+    expect(v.warnings).toEqual([]);
+  });
+
+  it("accepts `cycle` (live-accumulator shape) as a cycle identifier", () => {
+    const v = validateAccumulator({
+      cycle_date: "2026-05-29",
+      cycle: 10,
+      fix_success_rate: {},
+      cl2_artifact_closure: {},
+    });
+    expect(v.errors).toEqual([]);
+  });
+
+  it("errors when cycle_date is missing", () => {
+    const v = validateAccumulator({
+      cycle_number: 10,
+      fix_success_rate: {},
+    });
+    expect(v.errors).toContain("missing required field `cycle_date`");
+  });
+
+  it("errors when fix_success_rate is missing", () => {
+    const v = validateAccumulator({
+      cycle_date: "2026-05-29",
+      cycle_number: 10,
+    });
+    expect(v.errors).toContain("missing required field `fix_success_rate`");
+  });
+
+  it("errors when no cycle identifier is present", () => {
+    const v = validateAccumulator({
+      cycle_date: "2026-05-29",
+      fix_success_rate: {},
+    });
+    expect(
+      v.errors.some((e) => e.includes("missing cycle identifier")),
+    ).toBe(true);
+  });
+
+  it("warns (does not error) when cl2_artifact_closure is missing", () => {
+    const v = validateAccumulator({
+      cycle_date: "2026-05-29",
+      cycle_number: 10,
+      fix_success_rate: {},
+    });
+    expect(v.errors).toEqual([]);
+    expect(
+      v.warnings.some((w) => w.includes("cl2_artifact_closure")),
+    ).toBe(true);
+  });
+});
+
 describe("readInsights / writeInsights round-trip", () => {
   let fx: Fixture;
 
@@ -387,6 +450,56 @@ describe("promoteToHistory — end-to-end", () => {
     });
     await writeFile(fx.paths.currentFile, "{not json");
     await expect(promoteToHistory(fx.paths)).rejects.toThrow(InsightsParseError);
+  });
+
+  it("throws InsightsAccumulatorError when the accumulator lacks required fields", async () => {
+    await writeInsights(fx.paths, {
+      schema_version: CURRENT_INSIGHTS_VERSION,
+      current: null,
+      history: [],
+    });
+    // Missing fix_success_rate AND any cycle identifier.
+    await writeFile(
+      fx.paths.currentFile,
+      JSON.stringify({ cycle_date: "2026-05-29" }),
+    );
+    await expect(promoteToHistory(fx.paths)).rejects.toThrow(
+      InsightsAccumulatorError,
+    );
+
+    // The ring is left untouched — promotion refused before any write.
+    const onDisk = await readInsights(fx.paths);
+    expect(onDisk.history).toEqual([]);
+  });
+
+  it("returns a warning (but still promotes) when cl2_artifact_closure is absent", async () => {
+    await writeInsights(fx.paths, {
+      schema_version: CURRENT_INSIGHTS_VERSION,
+      current: null,
+      history: [],
+    });
+    // Required fields present; the recommended cl2_artifact_closure is not.
+    await writeFile(
+      fx.paths.currentFile,
+      JSON.stringify(cycle({ cycle_number: 9 })),
+    );
+    const result = await promoteToHistory(fx.paths);
+    expect(result.promoted).toBe(true);
+    expect(result.ring.history).toHaveLength(1);
+    expect(
+      result.warnings.some((w) => w.includes("cl2_artifact_closure")),
+    ).toBe(true);
+  });
+
+  it("returns an empty warnings array on the no-op (absent currentFile) path", async () => {
+    await writeInsights(fx.paths, {
+      schema_version: CURRENT_INSIGHTS_VERSION,
+      current: null,
+      history: [],
+    });
+    const result = await promoteToHistory(fx.paths);
+    expect(result.promoted).toBe(false);
+    expect(result.warnings).toEqual([]);
   });
 
   it("initializes a fresh ring when neither file exists then promotes", async () => {

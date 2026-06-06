@@ -352,17 +352,27 @@ agentPipeline: [hatch3r-reviewer]`,
 // ── Shipped-corpus regression gate ───────────────────────────────────
 //
 // The unit tests above use a tmpdir, so they never check the real
-// `commands/` + `skills/` corpus. This block runs the validator with NO
-// directory overrides — the same way `npm run validate:efficiency` runs
-// it in CI — so removing the `sub_agents_spawned` key from a command or
-// the runtime-emission directive from a delegating skill fails `npm test`
-// directly, not only the standalone validator (D7-8 / D7-9 gap closure).
+// `commands/` + `skills/` + `.claude/skills/` corpus. This block runs the
+// validator with NO directory overrides — the same way
+// `npm run validate:efficiency` runs it in CI — so removing the
+// `sub_agents_spawned` key from a command or the runtime-emission directive
+// from a delegating skill or maintainer preset fails `npm test` directly,
+// not only the standalone validator (D7-8 / D7-9 gap closure).
+//
+// The three `checked*` counts are asserted `> 0` so a SILENT discovery
+// regression cannot pass green: if a path-resolution break made any of the
+// three `list*Candidates` walks return `[]`, the 0-error assertion would
+// still hold (nothing scanned ⇒ nothing flagged) — exactly the D7-8
+// "removing the field merges green" failure mode. Asserting each class was
+// actually scanned closes that hole for all three classes the validator
+// checks, not just commands.
 describe("validate-fanout-emission — shipped corpus", () => {
-  it("the live commands/ + skills/ corpus emits 0 P8 B2 fan-out errors", async () => {
+  it("the live commands/ + skills/ + maintainer-preset corpus emits 0 P8 B2 fan-out errors", async () => {
     const result = await runValidator();
     const errors = result.findings.filter((f) => f.level === "error");
     expect(errors, errors.map((f) => `${f.code} ${f.file}`).join("\n")).toHaveLength(0);
     expect(result.checkedFiles).toBeGreaterThan(0);
     expect(result.checkedSkills).toBeGreaterThan(0);
+    expect(result.checkedMaintainerSkills).toBeGreaterThan(0);
   });
 });

@@ -21,33 +21,63 @@ const pkg = JSON.parse(readFileSync("./package.json", "utf-8")) as {
 // table printed.
 const coverageDir = join(import.meta.dirname, "coverage");
 
-// D3/D14-1 heavy-FS lane isolation. The two heaviest filesystem tests run a real
-// `syncCommand()` over a 2-package × 2-adapter monorepo — the largest batch of
-// tmp+rename atomic writes in the suite (root + per-package × per-adapter, plus
+// D3/D14-1 heavy-FS lane isolation (widened: D14 lane-fix-v2). A class of tests
+// drive a real command/snapshot path — `initCommand()`, `syncCommand()`,
+// `updateCommand()`, `createSnapshot()`/`withSnapshot()`, `rollbackCommand()` —
+// over a fresh `os.tmpdir()` working tree, performing the suite's largest
+// batches of tmp+rename atomic writes (root + per-package × per-adapter, plus
 // the post-rename parent-dir datasync in src/merge/safeWrite.ts, D11-5). When
-// that batch is scheduled into the default parallel `forks` pool alongside the
-// rest of the FS-heavy suite, the concurrent fork-worker filesystem churn makes
-// a just-created parent dir intermittently invisible to a subsequent
-// `mkdir`/`rename`/`open` in the same batch — a flood of `ENOENT` that fails
-// these two tests under load while they pass 22/22 in isolation. Proven
+// these batches are scheduled into the default parallel `forks` pool alongside
+// each other, concurrent fork-worker filesystem churn makes a just-created
+// parent dir intermittently invisible to a subsequent `mkdir`/`rename`/`open`
+// in the same batch — a flood of `ENOENT` plus 30s/60s timeouts that fails the
+// tests under the full parallel load while ALL of them pass together in
+// isolation (7 files / 240 tests green run alone; verified). Proven
 // environmental: it reproduces identically whether the temp root is on the OS
 // /tmp or the repo's own volume, so it is contention, not a /tmp-saturation or
 // product bug (src/ write logic is unchanged).
 //
-// Fix: run exactly these two files in a SEPARATE project ("heavy-fs") with a
-// later `sequence.groupOrder` than the rest of the suite. Vitest runs project
-// groups from lowest groupOrder to highest, one group at a time (vitest docs:
-// "groups are run from lowest to highest"). So the "main" group runs the whole
-// suite in full parallel first; only after it drains does "heavy-fs" run — and
-// it runs ALONE, with no concurrent FS churn, removing the contention at the
-// source. The two heavy files still run in parallel WITHIN their own group
-// (that is the same shape that passes 22/22 in isolation), so the only added
-// wall-clock cost is the short serial tail of these two files (~60-90s),
-// appended after the existing parallel run. The rest of the suite keeps its
-// existing parallelism — no global serialization.
+// Fix (two parts):
+//   1. Run exactly these files in a SEPARATE project ("heavy-fs") with a later
+//      `sequence.groupOrder` (1) than the rest of the suite (0). Vitest runs
+//      project groups from lowest groupOrder to highest, one group at a time
+//      (vitest docs: "groups are run from lowest to highest"). So the "main"
+//      group runs in full parallel first; only after it drains does "heavy-fs"
+//      run — ALONE, with no concurrent main-group FS churn.
+//   2. Give the heavy-fs project NO internal parallelism: `fileParallelism:
+//      false` + `poolOptions.forks.singleFork: true` runs its files ONE AT A
+//      TIME in a single fork. With at most one heavy FS batch in flight at any
+//      instant, the parent-dir-visibility race has no concurrent writer to race
+//      against — contention is removed at the source, not merely reduced.
+// The "main" group keeps full parallelism (no global serialization); the only
+// added wall-clock cost is the sequential tail of the heavy-fs files (~5-10
+// min), appended after the existing parallel run. Acceptable per D14 lane-fix-v2.
+//
+// Membership rule: a file belongs here iff it runs a real (unmocked) command or
+// snapshot path over os.tmpdir. Files that mock the snapshot/safeWrite/sync
+// layer stay in "main". `src/__tests__/workspace/resolve.test.ts` was evaluated
+// and kept in "main" — it is pure logic with no tmpdir/command FS work.
 const HEAVY_FS_TEST_FILES = [
+  // Originally isolated (D14-1).
   "src/__tests__/cli/status.test.ts",
   "src/__tests__/cli/verify.test.ts",
+  // CLI commands that init/sync/update a real tmpdir tree.
+  "src/__tests__/cli/init.test.ts",
+  "src/__tests__/cli/sync.test.ts",
+  "src/__tests__/cli/update.test.ts",
+  "src/__tests__/cli/lifecycle.test.ts",
+  "src/__tests__/cli/migration-checkpoints.test.ts",
+  "src/__tests__/cli/config.test.ts",
+  "src/__tests__/cli/rollback.test.ts",
+  "src/__tests__/cli/commands/init.userPrompt.test.ts",
+  "src/__tests__/cli/commands/init.cliToolsDisclaimer.test.ts",
+  // End-to-end real init/create flow over tmpdir.
+  "src/__tests__/e2e/createFlow.test.ts",
+  // Workspace monorepo sync over a real tmpdir tree.
+  "src/__tests__/workspace/sync.test.ts",
+  // Snapshot/rollback engine: real createSnapshot tmp+rename batches.
+  "src/__tests__/pipeline/snapshot.test.ts",
+  "src/__tests__/pipeline/snapshot.errorPaths.test.ts",
 ];
 
 // Test-file glob for the "main" project. Must match the SAME file set vitest's
@@ -82,11 +112,13 @@ export default defineConfig({
           name: "main",
           include: DEFAULT_TEST_GLOB,
           // Re-state vitest's built-in default excludes alongside the heavy-FS
-          // pair: a project-level `exclude` REPLACES the defaults rather than
+          // set: a project-level `exclude` REPLACES the defaults rather than
           // extending them, so omitting these would let the main project scan
-          // node_modules/.git for specs. (The restrictive `include` above
-          // already gates those out, so this is defense-in-depth, not a
-          // behavior change — verified via `vitest list` parity.)
+          // node_modules/.git for specs. Spreading HEAVY_FS_TEST_FILES here also
+          // keeps the {main, heavy-fs} partition mutually exclusive — each test
+          // file runs in exactly one project. (The restrictive `include` above
+          // already gates node_modules/.git out, so that part is
+          // defense-in-depth — verified via `vitest list` parity.)
           exclude: ["**/node_modules/**", "**/.git/**", ...HEAVY_FS_TEST_FILES],
           testTimeout: 30000,
           hookTimeout: 30000,
@@ -102,6 +134,23 @@ export default defineConfig({
           hookTimeout: 30000,
           // Later group → runs alone, after "main" fully drains.
           sequence: { groupOrder: 1 },
+          // No internal parallelism: run heavy-fs files ONE AT A TIME in a
+          // single worker so no two heavy FS batches are ever in flight at once
+          // — the parent-dir visibility race (ENOENT under load) then has no
+          // concurrent writer to race against. This, not the groupOrder split
+          // alone, makes the lane deterministic: groupOrder only removes
+          // main-group contention, `fileParallelism: false` removes the
+          // contention BETWEEN these heavy files. In Vitest 4 the legacy
+          // `poolOptions.forks.singleFork` was removed (pool rework); the
+          // top-level levers below are the v4 equivalent. Per the v4 InlineConfig
+          // JSDoc (node_modules/vitest/dist/chunks/reporters.d.*.d.ts), setting
+          // `fileParallelism: false` "will override `maxWorkers` option to `1`",
+          // i.e. one worker, one file at a time — exactly single-fork behavior.
+          // `pool: "forks"` (the v4 default) and `maxWorkers: 1` are stated
+          // explicitly to document the single-worker guarantee.
+          pool: "forks",
+          fileParallelism: false,
+          maxWorkers: 1,
         },
       },
     ],

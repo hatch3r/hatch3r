@@ -44,6 +44,7 @@ function makeDoc(
       commandsRevision: 4,
       checks: 6,
       githubAgents: 4,
+      testFiles: 2,
     },
     files: {
       adapters: ["claude.ts", "copilot.ts", "cursor.ts"],
@@ -62,6 +63,7 @@ function makeDoc(
       commandsRevision: ["rev.md"],
       checks: ["security.md"],
       githubAgents: ["agent.md"],
+      testFiles: ["scripts/__tests__/foo.test.ts", "src/__tests__/bar.test.ts"],
     },
     ...overrides,
   };
@@ -200,6 +202,44 @@ describe("inventory: buildInventory (injectable date)", () => {
     const rendered = `${JSON.stringify(reconciled, null, 2)}\n`.replace(/\r\n/g, "\n");
     const committedRaw = (await readFile(COMMITTED_INVENTORY, "utf-8")).replace(/\r\n/g, "\n");
     expect(rendered).toBe(committedRaw);
+  });
+});
+
+describe("inventory: testFiles collector (D3-5)", () => {
+  // Cycle 11 D3-5: D03 cited a then-absent `inventory.json.testFiles` array and a
+  // stale hand-maintained count. These assert the collector now produces a real,
+  // deterministic set equal to what `vitest.config.ts` DEFAULT_TEST_GLOB runs.
+  it("collects the live vitest suite across both roots, sorted and slash-normalized", async () => {
+    const doc = await buildInventory("2099-01-01");
+    const { testFiles } = doc.files;
+
+    // Non-empty and count agrees with the array length.
+    expect(testFiles.length).toBeGreaterThan(0);
+    expect(doc.counts.testFiles).toBe(testFiles.length);
+
+    // Every entry is a vitest test/spec file (mirrors DEFAULT_TEST_GLOB).
+    expect(
+      testFiles.every((p) => /\.(?:test|spec)\.(?:c|m)?[jt]sx?$/.test(p)),
+    ).toBe(true);
+
+    // Both configured roots are represented (src/ + scripts/), proving the walk
+    // is not silently restricted to one tree (the vitest.config.ts caveat).
+    expect(testFiles.some((p) => p.startsWith("src/__tests__/"))).toBe(true);
+    expect(testFiles.some((p) => p.startsWith("scripts/__tests__/"))).toBe(true);
+
+    // Deterministic: forward-slash separators (Windows-stable) and locale sort.
+    expect(testFiles.every((p) => !p.includes("\\"))).toBe(true);
+    const sorted = [...testFiles].sort((a, b) => a.localeCompare(b));
+    expect(testFiles).toEqual(sorted);
+
+    // No vendored or built artifacts leak in.
+    expect(
+      testFiles.some((p) => p.includes("node_modules") || p.startsWith("dist/")),
+    ).toBe(false);
+
+    // This file is itself a member — a concrete anchor that the walk reaches
+    // scripts/__tests__/ and uses the canonical relative path the probe expects.
+    expect(testFiles).toContain("scripts/__tests__/inventory.test.ts");
   });
 });
 

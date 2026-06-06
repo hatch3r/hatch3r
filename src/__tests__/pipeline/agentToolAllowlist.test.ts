@@ -300,9 +300,19 @@ describe("agentToolAllowlist", () => {
   });
 
   describe("validateToolPolicies", () => {
-    it("should return no warnings for the default policies", () => {
+    it("returns only the expected all-category least-privilege advisories for the default policies", () => {
+      // D5-2 (Cycle 11 Wave 2): hatch3r-docs-writer and hatch3r-lint-fixer now
+      // grant all six functional categories (read, search, write, execute, web,
+      // mcp) because their bodies instruct every one of them (docs-writer:
+      // markdown-lint + web research + Context7; lint-fixer: lint:fix +
+      // typecheck/test + web research + Context7). validateToolPolicies surfaces
+      // an all-categories advisory WARNING (not an error) for each — these are
+      // expected and assert the least-privilege signal still fires.
       const warnings = validateToolPolicies();
-      expect(warnings).toEqual([]);
+      expect(warnings).toEqual([
+        `Agent "hatch3r-docs-writer" has access to all tool categories — consider restricting to least privilege.`,
+        `Agent "hatch3r-lint-fixer" has access to all tool categories — consider restricting to least privilege.`,
+      ]);
     });
 
     // C8-D15-M3: unknown tool categories (typos) must be HARD errors, not

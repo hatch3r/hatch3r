@@ -278,6 +278,47 @@ describe("update command", () => {
       expect(rollback.errors).toEqual([]);
       await expect(readFile(claudeMdPath, "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
     });
+
+    // D2-7 (Cycle 11 Wave 2): when a caller (config tool-removal path) opens a
+    // snapshot session and captures the to-be-deleted tool's files into it BEFORE
+    // deletion, runRegenerate must accumulate its own paths into that SAME session
+    // (reuseSessionId) rather than minting a fresh one — so the single advertised
+    // rollback restores both the removed tool's bytes and the regenerated outputs.
+    it("runRegenerate accumulates into a reused snapshot session (reuseSessionId)", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+      vi.mocked(execFileSync).mockClear();
+
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const { createSnapshot, sessionDir } = await import("../../pipeline/snapshot.js");
+
+      // Caller pre-captures a removed-tool file into a config-<ts> session BEFORE
+      // any deletion. Use a real file so a tombstone is not what we assert on.
+      const removedFile = join(tempDir, "REMOVED.md");
+      await writeFile(removedFile, "removed-tool original bytes\n");
+      const sessionId = "config-2026-01-01T00-00-00-000Z";
+      await createSnapshot(sessionId, [removedFile], { projectRoot: tempDir });
+
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+
+      const result = await runRegenerate(tempDir, manifest!, {
+        snapshotCommandName: "config",
+        reuseSessionId: sessionId,
+      });
+      expect(result.failedTools).toBe(0);
+      // The reused session id — not a freshly minted one — is surfaced back so the
+      // caller's success summary advertises a single coherent rollback target.
+      expect(result.snapshotSessionId).toBe(sessionId);
+
+      // The session's meta now unions the pre-captured removed-tool path AND the
+      // regenerate's own snapshot paths (hatch.json among them) — one session
+      // restores everything.
+      const metaRaw = await readFile(join(sessionDir(sessionId, tempDir), "meta.json"), "utf-8");
+      const meta = JSON.parse(metaRaw) as { paths: string[] };
+      expect(meta.paths).toContain(removedFile);
+      expect(meta.paths.some((p) => p.endsWith(join(HATCH3R_DIR, "hatch.json")))).toBe(true);
+    });
   });
 
   // C8-D1-M6 (D1): --offline / --skip-fetch flag

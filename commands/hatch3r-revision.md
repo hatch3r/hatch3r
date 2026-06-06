@@ -583,7 +583,7 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 6 fix delegation).
 - **Post-execution `cost_actuals` + `delta`** — appended to the Step 9 merge-readiness assessment's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 10` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 cleanup-only ≈ 0 (inline fixes, no sub-agent); Tier 2 ≈ 5 (conditional researcher + implementer/lint-fixer/test-writer fix group + reviewer); Tier 3 up to 10 (conditional researcher + full pipeline including the parallel Stage 2 final-quality specialists bounded by `max_phase4_parallel`). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 10` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 cleanup-only ≈ 0 (inline fixes, no sub-agent); Tier 2 ≈ 5 (conditional researcher + implementer/lint-fixer/hatch3r-testability fix group + reviewer); Tier 3 up to 10 (conditional researcher + full pipeline including the parallel Stage 2 final-quality specialists bounded by `max_phase4_parallel`). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

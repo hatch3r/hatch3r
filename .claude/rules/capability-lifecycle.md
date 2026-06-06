@@ -35,7 +35,10 @@ When in doubt, run `/h4tcher-capability-discover` first — it is the only read-
 Source of truth: `governance/audit/domains/D16-compound-system.md` §16.3 "Removal candidate threshold" (SA 16.3 Artifact Inventory & Redundancy). An artifact qualifies for removal only when ALL three hold:
 
 1. Zero unique value beyond an existing artifact
-2. ≤1 cross-reference from other artifacts
+2. Class-aware reachability fails — a flat cross-reference count mis-fires on entry-point and by-construction classes, so the test is per class:
+   - **agents** — zero `agentPipeline:` id-occurrences across `commands/hatch3r-*.md`.
+   - **skills + commands** — NOT an entry point: absent from `AGENT_COMMAND_NAMES` (`src/cli/program.ts:45`) AND not emitted by any adapter AND not on the CLAUDE.md user surface. Skills/commands are user-typed leaf nodes; zero functional consumers is their correct state and never alone implies removability.
+   - **rules** — neither `scope: always` nor a glob matching a repo path; glob/always rules are reachable by construction.
 3. No orchestrator dependency in any `commands/hatch3r-*.md` `agentPipeline:`
 
 Default recommendation when overlap is detected is merge via `/h4tcher-capability-refactor`, not removal (D16.3 add-vs-remove bias check). Removal requires the threshold above and a documented rejected merge alternative.

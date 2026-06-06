@@ -100,8 +100,15 @@ describe("adapterToolTranslator", () => {
 
     it("returns true for read-only agents (no write, no execute)", () => {
       expect(toCursorReadonlyFrontmatter("hatch3r-reviewer")).toBe(true);
-      expect(toCursorReadonlyFrontmatter("hatch3r-ci-watcher")).toBe(true);
+      // D5-2 (Cycle 11 Wave 2): hatch3r-ci-watcher gained `execute` (it runs
+      // platform-CLI `gh run list` + local lint/typecheck/test), so it is no
+      // longer Cursor-readonly. context-rules gained only web+mcp (not
+      // write/execute), so it stays readonly.
       expect(toCursorReadonlyFrontmatter("hatch3r-context-rules")).toBe(true);
+    });
+
+    it("returns false for ci-watcher (gained execute in D5-2 — runs shell commands)", () => {
+      expect(toCursorReadonlyFrontmatter("hatch3r-ci-watcher")).toBe(false);
     });
 
     it("returns true for researcher (no write, no execute in its policy)", () => {
@@ -121,9 +128,11 @@ describe("adapterToolTranslator", () => {
 
   describe("monotonic-privilege invariant (regression guard for F15.5-01)", () => {
     it("never emits Write or Edit for any reviewer/read-only agent across adapters", () => {
+      // D5-2 (Cycle 11 Wave 2): hatch3r-ci-watcher gained `execute` and is no
+      // longer read-only — it is covered by the implementer "has write+execute"
+      // path instead. The remaining ids still have read+search(+web+mcp) only.
       const readOnlyAgents = [
         "hatch3r-reviewer",
-        "hatch3r-ci-watcher",
         "hatch3r-context-rules",
         "hatch3r-learnings-loader",
       ];

@@ -55,7 +55,7 @@ Every sub-agent delegation prompt in this command MUST include the confidence ex
 
 > Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
-Downstream propagation: the Step 7 statistical-significance verdict (CV, t-test, reliability flag) and every Step 8 root-cause attribution MUST carry a high/medium/low confidence rating sourced from the perf-profiler sub-agent. A `noisy` classification (CV > 15%) maps to low confidence. Dropping the signal between stages is a gate failure.
+Downstream propagation: the Step 7 statistical-significance verdict (CV, t-test, reliability flag) and every Step 8 root-cause attribution MUST carry a high/medium/low confidence rating sourced from the hatch3r-performance sub-agent. A `noisy` classification (CV > 15%) maps to low confidence. Dropping the signal between stages is a gate failure.
 
 ---
 

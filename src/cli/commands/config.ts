@@ -5,6 +5,7 @@ import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier, readConfidenceFloor } from "../../manifest/hatchJson.js";
 import {
+  ARCHIVE_DIR,
   CONFIDENCE_FLOORS,
   DEFAULT_FEATURES,
   HATCH3R_DIR,
@@ -1212,6 +1213,13 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   const allMigrations: MigrationNotice[] = [];
   const allArchivedFiles: string[] = [];
   const totalArchiveSteps = diff.removedTools.length;
+  // D2-7 (Cycle 11 Wave 2, D2, P2): when a tool is removed, snapshot its live
+  // outputs BEFORE the archive loop deletes them, then thread the session id
+  // into `runRegenerate` (reuseSessionId) so the single config-<ts> snapshot the
+  // success summary advertises actually restores the dropped tool on rollback.
+  // `null` keeps the pre-D2-7 behavior (runRegenerate mints its own session)
+  // whenever nothing is removed.
+  let removalSnapshotSessionId: string | null = null;
 
   if (totalArchiveSteps > 0) {
     // D10-M14 (Cycle 10): preview the file list `managedFilesByAdapter`
@@ -1245,7 +1253,13 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         {
           type: "confirm",
           name: "confirmArchive",
-          message: "Archive these files? They move to `.hatch3r/archive/<tool>/` and can be recovered.",
+          // D2-6 (Cycle 11 Wave 2, D2, P1): reference ARCHIVE_DIR so the prompt
+          // path cannot drift from the real destination. The prior literal said
+          // `.hatch3r/archive/<tool>/` but archiveToolOutputs writes to
+          // `${ARCHIVE_DIR}/<tool>/<timestamp>/` (archive/index.ts; ARCHIVE_DIR
+          // = ".hatch3r-archive"), and lines below already print the correct
+          // ".hatch3r-archive/" — the prompt was the lone disagreeing string.
+          message: `Archive these files? They move to \`${ARCHIVE_DIR}/<tool>/<timestamp>/\` and can be recovered.`,
           default: true,
         },
       ]);
@@ -1254,6 +1268,26 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         return;
       }
     }
+    // D2-7 (Cycle 11 Wave 2, D2, P2): capture the removed tools' live outputs
+    // into a `config-<ts>` snapshot BEFORE the archive loop deletes them. The
+    // path set is the per-tool file list `managedFilesByAdapter` records — the
+    // same source the preview above enumerates — so the snapshot holds the
+    // original bytes. `runRegenerate` later extends this same session id (via
+    // `reuseSessionId` below), and the success summary points the operator at it,
+    // so `hatch3r rollback --session=config-<ts>` restores the dropped tool. A
+    // capture failure downgrades to a warning (Silent Failure Contract) and
+    // leaves `removalSnapshotSessionId` null, so the regenerate falls back to its
+    // own session and the summary suppresses the (now-unavailable) revert line.
+    const removalSnapshotPaths = diff.removedTools.flatMap((tool) =>
+      (manifest.managedFilesByAdapter?.[tool] ?? []).map((rel) => join(rootDir, rel)),
+    );
+    const removalSnap = await withSnapshot(
+      "config",
+      removalSnapshotPaths,
+      async (_sessionId) => undefined,
+      { projectRoot: rootDir, onWarn: warn },
+    );
+    removalSnapshotSessionId = removalSnap.sessionId;
     console.log();
     for (let i = 0; i < diff.removedTools.length; i++) {
       const tool = diff.removedTools[i];
@@ -1348,8 +1382,16 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   // Decision 27 (Bucket 2.2): pass `snapshotCommandName: "config"` so the
   // pre-mutation snapshot captured inside `runRegenerate` is namespaced
   // `config-...` rather than `update-...`.
+  // D2-7 (Cycle 11 Wave 2): when a tool was removed, reuse the `config-<ts>`
+  // session opened before the archive deletion (above) so the removed tool's
+  // pre-deletion bytes and this regenerate's writes land in ONE advertised
+  // session. Omitted (undefined) when nothing was removed → runRegenerate mints
+  // its own session, unchanged.
   console.log();
-  const updateResult = await runRegenerate(rootDir, manifest, { snapshotCommandName: "config" });
+  const updateResult = await runRegenerate(rootDir, manifest, {
+    snapshotCommandName: "config",
+    ...(removalSnapshotSessionId ? { reuseSessionId: removalSnapshotSessionId } : {}),
+  });
 
   // --- Handle .env.mcp for new MCP servers ---
   if (features.mcp && mcpServers.length > 0) {

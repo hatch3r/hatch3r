@@ -9,6 +9,11 @@ import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import { discoverUserContent } from "../../content/userContent.js";
+import {
+  readSpaceMetricsForDay,
+  summarizeSpaceMetricRecords,
+  type SpaceMetricRecord,
+} from "../../pipeline/spaceTelemetry.js";
 import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import {
@@ -109,6 +114,70 @@ async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, stri
     verbose(`status: provenance baseline unavailable (${code}); drift attribution = unknown`);
   }
   return baseline;
+}
+
+/**
+ * D10-17 (D10, P1): number of trailing calendar days of SPACE telemetry the
+ * status reporting surface reads. The per-day JSONL filename is derived from the
+ * record timestamp (`space-<YYYY-MM-DD>.jsonl`), so a `status` run the day after
+ * `hatch3r init` would miss the init's `firstRunSuccessRate` if it read only
+ * today. A 7-day window keeps the recent first-run signal visible without an
+ * unbounded directory walk.
+ */
+const SPACE_TELEMETRY_WINDOW_DAYS = 7;
+
+/**
+ * D10-17 (D10, P1): structured SPACE-telemetry rollup surfaced by `status` from
+ * the persisted JSONL (the cross-process read counterpart to the
+ * `recordFirstRunSuccess` call wired into `init.ts`). Empty `axes` + zero
+ * `recordCount` means no telemetry has been written yet.
+ */
+export interface SpaceTelemetrySummary {
+  /** Calendar days (YYYY-MM-DD) scanned, newest first. */
+  daysScanned: string[];
+  /** Total metric records read across the window. */
+  recordCount: number;
+  /** Per-axis count + mean over the window (one row per SPACE axis). */
+  axes: ReturnType<typeof summarizeSpaceMetricRecords>;
+  /**
+   * Mean of the `performance`-axis `firstRunSuccessRate` records (0..1), or
+   * `null` when none were recorded in the window. This is the primary P1 metric.
+   */
+  firstRunSuccessRate: number | null;
+}
+
+/**
+ * D10-17 (D10, P1): read the trailing {@link SPACE_TELEMETRY_WINDOW_DAYS}-day
+ * SPACE telemetry from `.hatch3r/telemetry/space-<date>.jsonl` and roll it up.
+ *
+ * Best-effort and side-effect-free: {@link readSpaceMetricsForDay} swallows
+ * missing/unreadable/corrupt files (Silent Failure Contract), so this returns a
+ * zero-record summary rather than throwing when telemetry is absent.
+ */
+function readSpaceTelemetrySummary(rootDir: string): SpaceTelemetrySummary {
+  const days: string[] = [];
+  const all: SpaceMetricRecord[] = [];
+  const now = Date.now();
+  for (let i = 0; i < SPACE_TELEMETRY_WINDOW_DAYS; i += 1) {
+    const day = new Date(now - i * 86_400_000).toISOString().slice(0, 10);
+    days.push(day);
+    for (const rec of readSpaceMetricsForDay(day, rootDir)) {
+      all.push(rec);
+    }
+  }
+  const firstRunRecords = all.filter(
+    (r) => r.metricId === "firstRunSuccessRate" && r.axis === "performance",
+  );
+  const firstRunSuccessRate =
+    firstRunRecords.length === 0
+      ? null
+      : firstRunRecords.reduce((sum, r) => sum + r.value, 0) / firstRunRecords.length;
+  return {
+    daysScanned: days,
+    recordCount: all.length,
+    axes: summarizeSpaceMetricRecords(all),
+    firstRunSuccessRate,
+  };
 }
 
 /**
@@ -398,6 +467,11 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
 
   const report = await computeAdapterDrift(rootDir, manifest);
 
+  // D10-17 (D10, P1): roll up the persisted SPACE telemetry (written by
+  // `init.ts::recordFirstRunSuccess`) so the human box and the JSON payload both
+  // surface it. Read-only, never throws.
+  const spaceTelemetry = readSpaceTelemetrySummary(rootDir);
+
   spinner?.stop();
 
   // SA12.1-F-D12-M2: emit the JSON payload before any human chrome and exit
@@ -411,6 +485,9 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
       driftKindCounts: report.driftKindCounts,
       entries: report.entries,
       tools: manifest.tools,
+      // D10-17: SPACE developer-productivity telemetry rollup. `recordCount: 0`
+      // + `firstRunSuccessRate: null` when no telemetry has been written yet.
+      spaceTelemetry,
       hatch3rVersion: HATCH3R_VERSION,
       timestamp: new Date().toISOString(),
     });
@@ -580,6 +657,32 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
       userLines.push(`${"Total:".padEnd(12)}${userTotal} item(s)`);
     }
     printBox("User content", userLines, "info");
+  }
+
+  // ── Developer productivity (SPACE telemetry, D10-17) ────────
+  // Surface the persisted SPACE metrics written by `init.ts` (primary metric
+  // `firstRunSuccessRate`). Shown only when telemetry exists so a fresh repo
+  // that has never run init keeps the status output compact. This is the
+  // reporting surface that makes the SPACE pipeline a wired runtime feature
+  // rather than a tested-but-uncalled library (the F10.8-1 integration gap).
+  if (spaceTelemetry.recordCount > 0) {
+    const spaceLines: string[] = [];
+    if (spaceTelemetry.firstRunSuccessRate !== null) {
+      const pct = Math.round(spaceTelemetry.firstRunSuccessRate * 100);
+      const perfRow = spaceTelemetry.axes.find((a) => a.axis === "performance");
+      const runs = perfRow?.count ?? 0;
+      spaceLines.push(
+        label("First-run success", `${pct}% (${runs} run${runs === 1 ? "" : "s"})`),
+      );
+    }
+    const populatedAxes = spaceTelemetry.axes.filter((a) => a.count > 0);
+    for (const a of populatedAxes) {
+      spaceLines.push(`  ${a.axis.padEnd(14)}${a.count} metric(s), mean ${a.mean.toFixed(2)}`);
+    }
+    spaceLines.push(
+      chalk.dim(`  ${spaceTelemetry.recordCount} record(s) over the last ${SPACE_TELEMETRY_WINDOW_DAYS} day(s)`),
+    );
+    printBox("Developer productivity (SPACE)", spaceLines, "info");
   }
 
   // ── Customizations (SA12.3-F03) ─────────────────────────────

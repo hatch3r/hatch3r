@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import {
   archiveCycle,
   rotateAnchorLog,
+  assertHistoryCurrent,
   ArchiveError,
   type ArchivePaths,
   type ArchiveCycleResult,
@@ -37,12 +38,19 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 
+const INSIGHTS_FILE = resolve(ROOT, "governance/audit/execution-insights.json");
+
 const PATHS: ArchivePaths = {
   registry: resolve(ROOT, "governance/audit/finding-registry.json"),
   archiveDir: resolve(ROOT, "governance/audit/archive"),
   archiveIndex: resolve(ROOT, "governance/audit/archive/index.json"),
   anchorLog: resolve(ROOT, ".audit-workspace/registry-anchor-log.jsonl"),
   anchorArchiveDir: resolve(ROOT, "governance/audit/archive"),
+  // Wiring both insights paths makes `archiveCycle` drive the ring-buffer
+  // promotion at cycle close (D16-8). Previously omitted, which is why the
+  // Cycle-10 accumulator was never promoted into history[].
+  insightsFile: INSIGHTS_FILE,
+  currentInsightsFile: resolve(ROOT, ".audit-workspace/current-insights.json"),
 };
 
 interface CliFlags {
@@ -100,14 +108,20 @@ function formatPlan(
   cycle: number,
   inPlace: boolean,
 ): string {
-  return [
+  const lines = [
     `audit:archive: ${inPlace ? "applied" : "dry-run"} for cycle ${cycle}`,
     `  archived:    ${result.archivedCount} entries`,
     `  lived:       ${result.livedCount} entries`,
     `  archive sha: ${result.archiveSha256}`,
     `  live sha:    ${result.liveSha256}`,
     `  archive →    ${result.archivePath}`,
-  ].join("\n");
+  ];
+  if (result.insightsPromoted !== undefined) {
+    lines.push(
+      `  insights:    ${result.insightsPromoted ? "promoted accumulator → history[]" : "no promotion (current-insights.json absent)"}`,
+    );
+  }
+  return lines.join("\n");
 }
 
 async function main(): Promise<void> {
@@ -149,6 +163,12 @@ async function main(): Promise<void> {
 
   emit(formatPlan(result, flags.cycle, flags.inPlace));
 
+  // Surface non-fatal diagnostics (e.g. an accumulator missing the
+  // forward-looking cl2_artifact_closure field) without failing the run.
+  for (const w of result.warnings ?? []) {
+    emit(`  warning:     ${w}`);
+  }
+
   if (flags.inPlace) {
     try {
       const rot = await rotateAnchorLog(PATHS, flags.cycle);
@@ -165,6 +185,29 @@ async function main(): Promise<void> {
       process.exit(1);
       return;
     }
+
+    // Cycle-close currency gate (D16-8 / SA16.2-F3): after promotion, the
+    // newest history entry MUST be the cycle that just closed (current-1).
+    // A stale or empty ring is a hard failure — it is the exact drift this
+    // gate exists to catch (a cycle-7-only ring after cycles 9/10 executed).
+    try {
+      const currency = await assertHistoryCurrent(INSIGHTS_FILE, flags.cycle);
+      if (!currency.current) {
+        emitError(`audit:archive: history-currency gate FAILED: ${currency.reason}`);
+        process.exit(1);
+        return;
+      }
+      emit(
+        `history gate:  PASS (newest history entry is cycle ${currency.lastCycle} = current-1)`,
+      );
+    } catch (err) {
+      emitError(
+        `audit:archive: history-currency gate error: ${(err as Error).message}`,
+      );
+      process.exit(1);
+      return;
+    }
+
     emit("");
     emit(
       "note: workspace cleanup runs in Phase 5 (audit:reset, not yet shipped); for now manually clean .audit-workspace/ if needed",

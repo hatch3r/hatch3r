@@ -86,7 +86,7 @@ Revision Session Report:
 - **Respect the original implementation's architecture.** Revision fixes issues within the existing patterns. If the architecture itself is flawed, note it as a finding but do not restructure — suggest a separate refactor instead.
 - **One sub-agent per concern.** Delegate to specialist sub-agents based on finding type. Do not ask the implementer to also fix lint issues or write tests.
 - **Git safety.** Never force-push. Never rewrite history. Always create new commits for revision changes.
-- **This command composes existing hatch3r agents** — it does not replace them. The reviewer, implementer, lint-fixer, and test-writer agents handle the actual work.
+- **This command composes existing hatch3r agents** — it does not replace them. The reviewer, implementer, lint-fixer, and hatch3r-testability agents handle the actual work.
 - **Critical findings default to FIX NOW.** If the user overrides this, execute the Critical Deferral Protocol (Step 5b): structured warning with specific risk, require written rationale, record in todo.md with `Critical-deferred` tag, and flag for elevated triage in board-fill. The user is never blocked — rationale adds accountability, not a veto.
 - **Deferred findings go to `todo.md`, not directly to GitHub/GitLab/Azure DevOps issues.** The board-fill pipeline handles triage, epic creation, dependency analysis, and readiness assessment. Revision does not shortcut this process.
 - **Always format deferred items as a single epic block** in `todo.md`, regardless of count. This groups them together during the next board-fill run.

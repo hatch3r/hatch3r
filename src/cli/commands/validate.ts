@@ -1894,6 +1894,155 @@ async function scanUserAgentPolicyCoverage(
 }
 
 /**
+ * D5-2 (Cycle 11 Wave 2, High): body-vs-policy capability-coverage gate.
+ *
+ * The F2.4-F1 gate above only checks that a policy EXISTS for each agent. It
+ * does not check that the policy GRANTS the capabilities the agent's prompt
+ * body instructs it to use. The D5-2 finding caught five agents
+ * (architect / ci-watcher / context-rules / docs-writer / lint-fixer) whose
+ * bodies told them to run web research, Context7 MCP `resolve-library-id`
+ * lookups, and (for ci-watcher/docs-writer) platform-CLI / lint shell commands,
+ * while their `AGENT_TOOL_POLICIES` allowlist omitted the matching `web`/`mcp`/
+ * `execute` category. Under the Claude PreToolUse hook those calls were denied
+ * silently (TOOL_NOT_ALLOWED) — the agent followed its own instructions and was
+ * blocked with no actionable signal, the same silent-failure class as the
+ * NO_POLICY path. The policies were corrected in the same finding; this gate
+ * regression-locks the body⊆policy property so a future prompt edit that adds a
+ * capability instruction (or a policy edit that drops a category) fails CI.
+ *
+ * Scope: the five agents named in D5-2. The gate is deliberately NOT corpus-wide
+ * — several review-only agents (the 9 CQ specialists, hatch3r-reviewer) carry
+ * prose that mentions shell commands they describe but do not themselves run
+ * (e.g. the shared VERIFY_GATE placeholder, an illustrative `gh run list` for
+ * reading CI history), and their `["read","search"]` least-privilege policy is a
+ * deliberate invariant (agentToolAllowlist.test.ts "applies review-only
+ * allowlist"). A naive "any command mention ⇒ require execute" scan would force
+ * those policies to widen against their own Boundaries. The gate therefore binds
+ * exactly the agents whose policies D5-2 corrected; generalizing it to the full
+ * corpus is a separate change that must first reconcile the review-only prose.
+ *
+ * Detection uses high-precision directive patterns (not loose keyword matching)
+ * so an incidental mention ("the agent does not need WebFetch") does not trip a
+ * false positive. Each detected capability is checked against the agent's
+ * registered policy; a miss emits on `result.errors` so CI exits non-zero.
+ */
+const D5_2_BODY_CAPABILITY_AGENTS = [
+  "hatch3r-architect",
+  "hatch3r-ci-watcher",
+  "hatch3r-context-rules",
+  "hatch3r-docs-writer",
+  "hatch3r-lint-fixer",
+] as const;
+
+/**
+ * High-precision body→capability directive detectors. Each entry maps a
+ * canonical tool category to the instruction patterns that mean "this agent is
+ * told to exercise this capability itself". Patterns are intentionally narrow:
+ * they match imperative directive forms, a populated focus section, or a
+ * `tools.allow` token — not every incidental keyword.
+ */
+const CAPABILITY_BODY_PATTERNS: Readonly<Record<string, readonly RegExp[]>> = {
+  // Web research: the imperative "Use web research", a populated
+  // "Web research focus for this agent:" section, or a WebSearch/WebFetch token.
+  web: [
+    /\bUse web research\b/i,
+    /\*\*Web research focus for this agent:\*\*/,
+    /\bWebSearch\b/,
+    /\bWebFetch\b/,
+  ],
+  // Context7 MCP: the imperative "Use Context7 MCP", the resolve-library-id /
+  // query-docs call pair, or a populated "Context7 focus for this agent:" section.
+  mcp: [
+    /\bUse Context7 MCP\b/i,
+    /\bresolve-library-id\b/,
+    /\bquery-docs\b/,
+    /\*\*Context7 focus for this agent:\*\*/,
+  ],
+  // Execute (shell): platform CI CLI verbs, the markdown-lint command, or the
+  // lint auto-fix directive these agents run to reproduce/verify locally.
+  execute: [
+    /\bgh run (?:list|view|watch)\b/,
+    /\baz pipelines run\b/,
+    /\bglab ci\b/,
+    /\bnpx markdownlint\b/,
+    /\blint:fix\b/,
+  ],
+};
+
+/**
+ * Negation guard: a line that explicitly disclaims a capability ("does not need
+ * WebFetch", "No execute") must not be read as an instruction to use it. Applied
+ * per matched line before counting a capability as instructed.
+ */
+function lineDisclaimsCapability(line: string): boolean {
+  // Tolerate markdown emphasis around "not" (e.g. "does **not** need WebFetch")
+  // so a disclaimer that uses bold/italic is still recognized as a disclaimer.
+  const notMarker = "[*_]{0,2}not[*_]{0,2}";
+  return new RegExp(`\\bdo(?:es)?\\s+${notMarker}\\s+need\\b`, "i").test(line) ||
+    /\b(?:no longer use|never use|out of scope|not (?:in scope|required))\b/i.test(line) ||
+    /^\s*[-*]\s*\*\*Never:\*\*/.test(line);
+}
+
+async function validateAgentBodyCapabilityCoverage(
+  canonicalRoot: string,
+  result: ValidationResult,
+): Promise<void> {
+  const agentsDir = join(canonicalRoot, "agents");
+  const { getAgentToolPolicy } = await import("../../pipeline/agentToolAllowlist.js");
+
+  for (const agentId of D5_2_BODY_CAPABILITY_AGENTS) {
+    const filePath = join(agentsDir, `${agentId}.md`);
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue; // partial bundle
+      throw err;
+    }
+
+    // Strip frontmatter so a `tags:`/`description:` keyword cannot be misread as
+    // a body directive; the capability instructions all live in the prose body.
+    let body = raw;
+    if (raw.startsWith("---")) {
+      const endIdx = raw.indexOf("---", 3);
+      if (endIdx !== -1) body = raw.slice(endIdx + 3);
+    }
+
+    const policy = getAgentToolPolicy(agentId);
+    if (!policy) {
+      // The F2.4-F1 coverage gate already errors on a missing policy; do not
+      // double-report. Skip the body check — there is nothing to compare against.
+      continue;
+    }
+    const granted = new Set(policy.allowedTools);
+
+    for (const [category, patterns] of Object.entries(CAPABILITY_BODY_PATTERNS)) {
+      // A capability is "instructed" when a pattern matches on a non-disclaiming
+      // line.
+      let instructed = false;
+      for (const pattern of patterns) {
+        for (const line of body.split("\n")) {
+          if (pattern.test(line) && !lineDisclaimsCapability(line)) {
+            instructed = true;
+            break;
+          }
+        }
+        if (instructed) break;
+      }
+      if (instructed && !granted.has(category)) {
+        result.errors.push(
+          `Agent "${agentId}" (agents/${agentId}.md) instructs the "${category}" capability in its body ` +
+            `but its AGENT_TOOL_POLICIES allowlist (${policy.allowedTools.join(", ")}) does not grant it — ` +
+            `the Claude PreToolUse hook will deny that tool call silently (TOOL_NOT_ALLOWED). ` +
+            `Add "${category}" to this agent's policy in src/pipeline/agentToolAllowlist.ts, or remove the ` +
+            `instruction from the body. (D5-2 body⊆policy gate.)`,
+        );
+      }
+    }
+  }
+}
+
+/**
  * D9-H-6 (Cycle 10 D9, Pillar P1): a canonical skill that declares an execute
  * capability — i.e. it wraps a shell binary via a `cli_tool.bin` frontmatter
  * field — MUST also declare a non-empty `allowed_tools` (or `allowed-tools`)
@@ -2604,6 +2753,13 @@ export async function validateCommand(opts?: {
   // silently under Cursor/Copilot (no readonly frontmatter emitted).
   verbose("Checking AGENT_TOOL_POLICIES coverage...");
   await validateAgentToolPolicyCoverage(canonicalRoot, result, rootDir);
+
+  // D5-2 (Cycle 11 Wave 2, High): the coverage gate above only checks a policy
+  // EXISTS; this gate checks each of the five D5-2 agents' policies GRANT the
+  // web/mcp/execute capabilities their prompt body instructs, so a future
+  // body↔policy drift fails CI instead of denying tool calls silently.
+  verbose("Checking agent body⊆policy capability coverage (D5-2)...");
+  await validateAgentBodyCapabilityCoverage(canonicalRoot, result);
 
   // D9-H-6 (D9, P1): execute-capable skills must pre-approve their wrapped
   // shell binary via `allowed_tools` so the Copilot Skills runtime skips the

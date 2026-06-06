@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import {
   archiveCycle,
   ArchiveError,
+  assertHistoryCurrent,
   isLiveEntry,
   enumerateAuditArchives,
   rotateAnchorLog,
@@ -543,14 +544,28 @@ describe("archiveCycle — insights ring-buffer integration (Phase 4)", () => {
     );
 
     // Pre-existing legacy snapshot (one-cycle shape) — promotion should
-    // re-parse it as history[0] and append the just-finished cycle.
+    // re-parse it as history[0] and append the just-finished cycle. The
+    // current-cycle accumulator carries the required fields validated by
+    // promoteToHistory (cycle id, cycle_date, fix_success_rate).
     await writeFile(
       insightsFile,
-      JSON.stringify({ cycle_number: 7, cycle_date: "2026-04-19" }, null, 2),
+      JSON.stringify(
+        {
+          cycle_number: 7,
+          cycle_date: "2026-04-19",
+          fix_success_rate: { overall: { rate: 1.0 } },
+        },
+        null,
+        2,
+      ),
     );
     await writeFile(
       currentInsightsFile,
-      JSON.stringify({ cycle_number: 8, cycle_date: FIXED_DATE }),
+      JSON.stringify({
+        cycle_number: 8,
+        cycle_date: FIXED_DATE,
+        fix_success_rate: { overall: { rate: 0.9 } },
+      }),
     );
 
     const reg = v2Registry([
@@ -690,5 +705,104 @@ describe("archive + finder round-trip", () => {
     expect(
       archive.entries.find((e: Finding) => e.finding_id === "C5-D1-M3"),
     ).toBeDefined();
+  });
+});
+
+describe("assertHistoryCurrent — cycle-close currency gate", () => {
+  let fx: Fixture;
+
+  beforeEach(async () => {
+    fx = await makeFixture();
+  });
+
+  afterEach(async () => {
+    await cleanupFixture(fx);
+  });
+
+  function insightsPath(): string {
+    return join(fx.dir, "governance", "audit", "execution-insights.json");
+  }
+
+  async function writeRing(historyCycles: number[]): Promise<void> {
+    const ring = {
+      schema_version: "2.0.0",
+      current: null,
+      history: historyCycles.map((n) => ({
+        cycle_number: n,
+        cycle_date: "2026-05-29",
+        fix_success_rate: { overall: { rate: 1.0 } },
+      })),
+    };
+    await writeFile(insightsPath(), JSON.stringify(ring, null, 2) + "\n");
+  }
+
+  it("passes when the newest history entry is current-1", async () => {
+    await writeRing([7, 9, 10]);
+    const r = await assertHistoryCurrent(insightsPath(), 11);
+    expect(r.current).toBe(true);
+    expect(r.lastCycle).toBe(10);
+    expect(r.expectedCycle).toBe(10);
+    expect(r.reason).toBe("");
+  });
+
+  it("fails (stale) when the newest entry is older than current-1", async () => {
+    await writeRing([7]);
+    const r = await assertHistoryCurrent(insightsPath(), 11);
+    expect(r.current).toBe(false);
+    expect(r.lastCycle).toBe(7);
+    expect(r.expectedCycle).toBe(10);
+    expect(r.reason).toMatch(/stale/);
+    expect(r.reason).toMatch(/--cycle 11 --in-place/);
+  });
+
+  it("fails when history is empty", async () => {
+    await writeRing([]);
+    const r = await assertHistoryCurrent(insightsPath(), 11);
+    expect(r.current).toBe(false);
+    expect(r.lastCycle).toBeNull();
+    expect(r.reason).toMatch(/empty/);
+  });
+
+  it("fails when the insights file does not exist (empty ring)", async () => {
+    // readInsights returns a fresh empty ring on ENOENT → empty-history branch.
+    const r = await assertHistoryCurrent(insightsPath(), 11);
+    expect(r.current).toBe(false);
+    expect(r.lastCycle).toBeNull();
+  });
+
+  it("fails when the newest entry has no numeric cycle_number", async () => {
+    const ring = {
+      schema_version: "2.0.0",
+      current: null,
+      history: [
+        {
+          cycle_date: "2026-05-29",
+          fix_success_rate: { overall: { rate: 1.0 } },
+        },
+      ],
+    };
+    await writeFile(insightsPath(), JSON.stringify(ring, null, 2) + "\n");
+    const r = await assertHistoryCurrent(insightsPath(), 11);
+    expect(r.current).toBe(false);
+    expect(r.lastCycle).toBeNull();
+    expect(r.reason).toMatch(/no numeric cycle_number/);
+  });
+
+  it("accepts a numeric-string cycle_number (e.g. \"10\")", async () => {
+    const ring = {
+      schema_version: "2.0.0",
+      current: null,
+      history: [
+        {
+          cycle_number: "10",
+          cycle_date: "2026-05-29",
+          fix_success_rate: { overall: { rate: 1.0 } },
+        },
+      ],
+    };
+    await writeFile(insightsPath(), JSON.stringify(ring, null, 2) + "\n");
+    const r = await assertHistoryCurrent(insightsPath(), 11);
+    expect(r.current).toBe(true);
+    expect(r.lastCycle).toBe(10);
   });
 });

@@ -30,11 +30,16 @@
  * **Silent Failure Contract:** persistence I/O failures NEVER throw. They
  * route through the failureLog channel per CONSTITUTION §2 P5.
  *
- * @library_export_only — canonical helpers consumed by hatch3r-* commands at
- * run time; the CLI process itself does not invoke these directly.
+ * CLI wiring (D10-17): `recordFirstRunSuccess` is invoked from
+ * `src/cli/commands/init.ts` at the success terminus of `runInitInner`, and the
+ * persisted JSONL is read back + summarized by `src/cli/commands/status.ts`
+ * (via {@link readSpaceMetricsForDay} + {@link summarizeSpaceMetricRecords}).
+ * The in-memory ring buffer is process-local, so the status reporting surface
+ * reads the on-disk JSONL rather than {@link getSpaceSummary}, which only sees
+ * the current process's records.
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { createFailureLogEntry, FAILURE_LOG_FILE, formatLogEntry } from "./failureLog.js";
@@ -239,16 +244,22 @@ export function recordFirstRunSuccess(
 }
 
 /**
- * Aggregate the in-memory ring buffer into a per-axis summary.
+ * Aggregate an arbitrary record set into a per-axis summary.
  *
  * Returns one row per SPACE axis containing the record count and the
  * arithmetic mean of `value` over those records. An axis with zero
  * recorded metrics produces `{count: 0, mean: 0}` (not omitted) so
  * downstream callers can iterate over all five axes unconditionally.
  *
- * Pure function — reads only the ring buffer, never throws.
+ * Pure function — reads only its argument, never throws. Shared by
+ * {@link getSpaceSummary} (in-memory ring buffer) and the status reporting
+ * surface (records read from disk via {@link readSpaceMetricsForDay}) so the
+ * per-axis count/mean logic lives in one place (CONSTITUTION §2 P4 — single
+ * source of truth).
  */
-export function getSpaceSummary(): SpaceAxisSummary[] {
+export function summarizeSpaceMetricRecords(
+  records: readonly SpaceMetricRecord[],
+): SpaceAxisSummary[] {
   const totals: Record<SpaceAxis, { count: number; sum: number }> = {
     satisfaction: { count: 0, sum: 0 },
     performance: { count: 0, sum: 0 },
@@ -257,7 +268,7 @@ export function getSpaceSummary(): SpaceAxisSummary[] {
     efficiency: { count: 0, sum: 0 },
   };
 
-  for (const record of ringBuffer) {
+  for (const record of records) {
     if (totals[record.axis]) {
       totals[record.axis].count += 1;
       totals[record.axis].sum += record.value;
@@ -272,4 +283,103 @@ export function getSpaceSummary(): SpaceAxisSummary[] {
       mean: t.count === 0 ? 0 : t.sum / t.count,
     };
   });
+}
+
+/**
+ * Aggregate the in-memory ring buffer into a per-axis summary. Thin wrapper
+ * over {@link summarizeSpaceMetricRecords} bound to the live ring buffer.
+ *
+ * Pure function — reads only the ring buffer, never throws. The ring buffer is
+ * process-local, so this only reflects metrics recorded in the CURRENT process;
+ * a separate reporting process (e.g. `hatch3r status`) must read the persisted
+ * JSONL via {@link readSpaceMetricsForDay} instead.
+ */
+export function getSpaceSummary(): SpaceAxisSummary[] {
+  return summarizeSpaceMetricRecords(ringBuffer);
+}
+
+/**
+ * Internal — record a genuine read I/O fault (not a missing file) through the
+ * failureLog channel, mirroring {@link recordSpaceMetric}'s write-failure
+ * routing. Best-effort: swallows any nested failure (the failureLog file may
+ * also be unwritable) so it never re-raises into the read path.
+ */
+function routeReadFailure(projectRoot: string, err: unknown, filePath: string): void {
+  try {
+    const entry = createFailureLogEntry("space-telemetry-read", err, {
+      tool: `space:read:${filePath}`,
+    });
+    const failureLine = formatLogEntry(entry) + "\n";
+    const failurePath = join(projectRoot, ".hatch3r", FAILURE_LOG_FILE);
+    mkdirSync(dirname(failurePath), { recursive: true });
+    appendFileSync(failurePath, failureLine);
+  } catch {
+    // Nested failure — nothing more we can do without leaking errors.
+    void err;
+  }
+}
+
+/**
+ * Read the persisted SPACE metric records for a single calendar day from
+ * `<projectRoot>/.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl`.
+ *
+ * This is the cross-process read counterpart to {@link recordSpaceMetric}'s
+ * write: a fresh CLI process (e.g. `hatch3r status`) has an empty ring buffer,
+ * so it reconstructs the day's metrics from disk. Malformed JSONL lines are
+ * skipped (a partially-written final line from a crashed writer never aborts the
+ * read), and any axis value outside {@link SPACE_AXES} is dropped so a corrupted
+ * record cannot inject an unknown axis downstream.
+ *
+ * `date` defaults to today (`YYYY-MM-DD`, local-to-UTC slice matching the write
+ * path). Returns `[]` when the file is absent or unreadable — the reporting
+ * surface degrades to "no telemetry yet" rather than throwing (Silent Failure
+ * Contract, CONSTITUTION §2 P5). `projectRoot` defaults to `process.cwd()`.
+ */
+export function readSpaceMetricsForDay(
+  date: string = new Date().toISOString().slice(0, 10),
+  projectRoot: string = process.cwd(),
+): SpaceMetricRecord[] {
+  const filePath = join(projectRoot, SPACE_TELEMETRY_DIR_RELATIVE, `space-${date}.jsonl`);
+  let raw: string;
+  try {
+    raw = readFileSync(filePath, "utf-8");
+  } catch (err) {
+    // A missing telemetry file is the EXPECTED negative case (telemetry not yet
+    // written, or the dir was cleaned) — return empty silently. Any OTHER read
+    // fault (EACCES, EISDIR, …) is a genuine I/O failure, so route it through
+    // the failureLog channel per the module's Silent Failure Contract
+    // (CONSTITUTION §2 P5) before degrading to empty — never throw.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      routeReadFailure(projectRoot, err, filePath);
+    }
+    return [];
+  }
+
+  const validAxes = new Set<string>(SPACE_AXES);
+  const records: SpaceMetricRecord[] = [];
+  for (const line of raw.split("\n")) {
+    const trimmed = line.trim();
+    if (trimmed.length === 0) continue;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(trimmed);
+    } catch {
+      // Skip a malformed line (e.g. a torn final write) rather than failing the
+      // whole read.
+      continue;
+    }
+    if (parsed === null || typeof parsed !== "object") continue;
+    const candidate = parsed as Partial<SpaceMetricRecord>;
+    if (
+      typeof candidate.metricId !== "string" ||
+      typeof candidate.axis !== "string" ||
+      !validAxes.has(candidate.axis) ||
+      typeof candidate.value !== "number" ||
+      typeof candidate.timestamp !== "string"
+    ) {
+      continue;
+    }
+    records.push(candidate as SpaceMetricRecord);
+  }
+  return records;
 }

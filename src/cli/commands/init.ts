@@ -101,6 +101,7 @@ import { parseGitRemote, parseGitDefaultBranch, getGitRemoteUrl, detectPlatformF
 import { importCursorRules, type CursorImportSummary } from "../../importers/cursor.js";
 import { createSnapshot } from "../../pipeline/snapshot.js";
 import { estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
+import { recordFirstRunSuccess } from "../../pipeline/spaceTelemetry.js";
 import { readCheckpoint, writeCheckpoint, checkpointPath, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { execFileSync } from "node:child_process";
 
@@ -1140,6 +1141,28 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // env) committed. Record wave 2 passed — the resumable "done" marker for
   // init. A subsequent `init --resume` reads this and reports completion.
   await recordPhase(2, "passed");
+
+  // D10-17 (D10, P1): record the primary SPACE metric `firstRunSuccessRate` at
+  // the success terminus. Reaching this line means `runInitInner` completed
+  // without throwing AND at least one adapter wrote a first output — a total
+  // adapter failure throws the `ADAPTER_ERROR` HatchError above, before this
+  // point, so this is unambiguously a success (value=1) recording site. A
+  // PARTIAL adapter failure still reached a first adapter output, so it counts
+  // as success and is tagged so the post-run aggregator can segment it. Persists
+  // a JSONL line under `.hatch3r/telemetry/space-<date>.jsonl` (gitignored via
+  // `.hatch3r/`); `hatch3r status` reads it back. recordFirstRunSuccess honours
+  // the Silent Failure Contract (never throws) so telemetry can never break the
+  // install. This is the canonical first-run-success measurement called out in
+  // CONSTITUTION §6 P1 Measurement + §6 CQ2 Measurement.
+  recordFirstRunSuccess(true, {
+    source: "hatch3r-init",
+    projectRoot: rootDir,
+    tags: {
+      partialAdapterFailure: String(adapterFailures.length > 0),
+      tools: tools.join("+"),
+      preset: contentSelection.preset,
+    },
+  });
 
   const enabledFeatures = Object.entries(features)
     .filter(([, v]) => v)

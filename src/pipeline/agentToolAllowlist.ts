@@ -154,14 +154,27 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     writeScope: "diff-hash-review",
   },
   {
+    // D5-2 (Cycle 11 Wave 2, High): the prior `["read","search","write"]` policy
+    // omitted the `execute` (markdown-lint command, agents/hatch3r-docs-writer.md
+    // §Commands `npx markdownlint docs/`), `web` (§Web research focus), and `mcp`
+    // (§External Knowledge Context7 `resolve-library-id`/`query-docs`) categories
+    // the body instructs. Under the Claude PreToolUse hook those calls denied
+    // silently (TOOL_NOT_ALLOWED). Grant the three categories the body exercises;
+    // `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts) now
+    // regression-locks body⊆policy for this agent.
     agentId: "hatch3r-docs-writer",
-    allowedTools: ["read", "search", "write"],
-    description: "Documentation: file read/write, code search. No execute, git, board, or web.",
+    allowedTools: ["read", "search", "write", "execute", "web", "mcp"],
+    description: "Documentation: file read/write, code search, markdown-lint execution, web research, and Context7 MCP library-docs lookups. No git or board.",
   },
   {
+    // D5-2 (Cycle 11 Wave 2, High): added `web` (agents/hatch3r-lint-fixer.md
+    // §Web research focus) and `mcp` (§Workflow step 2 + §External Knowledge
+    // Context7 `resolve-library-id`/`query-docs`) — the body instructed both but
+    // the policy granted neither, so the Claude PreToolUse hook denied them
+    // silently. `execute` was already present (linter auto-fix + typecheck/test).
     agentId: "hatch3r-lint-fixer",
-    allowedTools: ["read", "search", "write", "execute"],
-    description: "Lint fixing: file read/write, code search, linter execution. No git, board, or web.",
+    allowedTools: ["read", "search", "write", "execute", "web", "mcp"],
+    description: "Lint fixing: file read/write, code search, linter execution, web research for fix patterns, and Context7 MCP lint-rule docs. No git or board.",
   },
   // F16.3-H1 (Cycle 10 Wave 1C): the 5 legacy meta-agents (hatch3r-test-writer,
   // hatch3r-security-auditor, hatch3r-a11y-auditor, hatch3r-perf-profiler,
@@ -172,9 +185,17 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
   // (read+search) by §Boundaries; fix authorship delegates to producer agents
   // (hatch3r-fixer, hatch3r-implementer) under the orchestrator's Phase 3+4.
   {
+    // D5-2 (Cycle 11 Wave 2, High): added `web` (agents/hatch3r-architect.md
+    // §Web research focus + Architecture Protocol step 2 "Use web research for
+    // architecture pattern comparisons") and `mcp` (step 2 "Use Context7 MCP
+    // (`resolve-library-id` then `query-docs`)" + §External Knowledge). The body
+    // instructed both; the policy granted neither, so the Claude PreToolUse hook
+    // denied them silently. `write` remains for ADRs; `execute` stays denied
+    // (architecture only — no shell). Regression-locked by
+    // `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts).
     agentId: "hatch3r-architect",
-    allowedTools: ["read", "search", "write"],
-    description: "Architecture: file read/write (docs/ADRs), code search. No execute, git, board, or web.",
+    allowedTools: ["read", "search", "write", "web", "mcp"],
+    description: "Architecture: file read/write (docs/ADRs), code search, web research for pattern/scalability comparison, and Context7 MCP API-surface lookups. No execute, git, or board.",
   },
   {
     agentId: "hatch3r-devops",
@@ -182,14 +203,30 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     description: "DevOps: file read/write, code search, CI/CD command execution. No git, board, or web.",
   },
   {
+    // D5-2 (Cycle 11 Wave 2, High): added `execute` (agents/hatch3r-ci-watcher.md
+    // §Commands platform-CLI `gh run list`/`az pipelines`/`glab ci` + local
+    // reproduce `lint`/`typecheck`/test runs), `web` (§Web research focus), and
+    // `mcp` (§External Knowledge Context7 `resolve-library-id`/`query-docs`).
+    // The body instructed all three; the prior `["read","search"]` policy granted
+    // none, so the Claude PreToolUse hook denied every CLI/research call silently.
+    // Granting `execute` makes this agent state-changing on Cursor (readonly:false)
+    // — that is correct: it runs shell commands. `write` stays denied (no file
+    // mutation; it suggests fixes, the fixer/lint-fixer apply them). Regression-
+    // locked by `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts).
     agentId: "hatch3r-ci-watcher",
-    allowedTools: ["read", "search"],
-    description: "CI monitoring: file reading, code search. No write, execute, git, board, or web.",
+    allowedTools: ["read", "search", "execute", "web", "mcp"],
+    description: "CI monitoring: file reading, code search, platform-CLI + local lint/typecheck/test execution, web research for CI errors, and Context7 MCP action/task docs. No write, git, or board.",
   },
   {
+    // D5-2 (Cycle 11 Wave 2, High): added `web` (agents/hatch3r-context-rules.md
+    // §Web research focus) and `mcp` (§External Knowledge Context7 focus). The
+    // body instructed both; the policy granted neither, so the Claude PreToolUse
+    // hook denied them silently. `write`/`execute` stay denied — this agent
+    // reports rule violations inline and never mutates code. Regression-locked by
+    // `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts).
     agentId: "hatch3r-context-rules",
-    allowedTools: ["read", "search"],
-    description: "Context loading: file reading and code search only. No write, execute, git, board, or web.",
+    allowedTools: ["read", "search", "web", "mcp"],
+    description: "Context loading: file reading, code search, web research for evolving coding standards, and Context7 MCP framework-convention lookups. No write, execute, git, or board.",
   },
   {
     agentId: "hatch3r-learnings-loader",

@@ -66,6 +66,95 @@ export class InsightsParseError extends Error {
   }
 }
 
+/**
+ * Raised by `promoteToHistory` when a current-cycle accumulator is missing a
+ * structurally-required field (`cycle_date`, a cycle identifier, or
+ * `fix_success_rate`). A snapshot lacking these cannot satisfy the Phase-1
+ * "Previous Cycle Insights" read or the Phase-6 two-speed calibration, so the
+ * promotion is refused rather than poisoning the ring with an un-keyable entry
+ * (D16-8 / SA16.2-F3).
+ */
+export class InsightsAccumulatorError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "InsightsAccumulatorError";
+  }
+}
+
+/**
+ * Fields a finished-cycle accumulator must carry to be promotable. Mirrors the
+ * required handles in the AUDIT-EXECUTE.md §Execution Telemetry output schema
+ * (`{cycle_date, fix_success_rate.{...}, ...}`): `cycle_date` and a cycle
+ * identifier (`cycle_number` or `cycle`) are the two keys downstream reads
+ * index by; `fix_success_rate` is the minimal payload Phase-1 concurrency
+ * calibration consumes.
+ */
+const REQUIRED_ACCUMULATOR_FIELDS = ["cycle_date", "fix_success_rate"] as const;
+
+/**
+ * Forward-looking fields that SHOULD be present but are not yet emitted by
+ * every cycle: `cl2_artifact_closure` feeds the Phase-6 two-speed calibration
+ * (AUDIT-EXECUTE.md §Phase 6 priority-signal calibration). Its absence is a
+ * warning, not a hard reject — the emission path is owned by a separate
+ * remediation (D16-9). Warning here means a stale accumulator is still
+ * promotable, but the gap is surfaced rather than silently swallowed.
+ */
+const RECOMMENDED_ACCUMULATOR_FIELDS = ["cl2_artifact_closure"] as const;
+
+export interface AccumulatorValidation {
+  /** Hard failures — promotion is refused when non-empty. */
+  errors: string[];
+  /** Soft gaps — promotion proceeds, but the caller surfaces them. */
+  warnings: string[];
+}
+
+/**
+ * Validate a current-cycle accumulator object against the promotable contract.
+ *
+ * Errors (block promotion):
+ *   - missing `cycle_date`
+ *   - missing both `cycle_number` and `cycle` (no cycle identifier)
+ *   - missing `fix_success_rate`
+ *
+ * Warnings (do not block):
+ *   - missing `cl2_artifact_closure` (Phase-6 calibration source; emission
+ *     owned by a separate remediation)
+ *
+ * Pure: does not throw and does not mutate. `promoteToHistory` runs this and
+ * throws `InsightsAccumulatorError` on any error, returning warnings to the
+ * caller.
+ */
+export function validateAccumulator(
+  accumulator: Record<string, unknown>,
+): AccumulatorValidation {
+  const errors: string[] = [];
+  const warnings: string[] = [];
+
+  for (const field of REQUIRED_ACCUMULATOR_FIELDS) {
+    if (!(field in accumulator) || accumulator[field] === undefined) {
+      errors.push(`missing required field \`${field}\``);
+    }
+  }
+  // A cycle identifier may be carried as `cycle_number` (history shape) or
+  // `cycle` (live-accumulator shape). Require at least one.
+  const hasCycleId =
+    ("cycle_number" in accumulator && accumulator.cycle_number !== undefined) ||
+    ("cycle" in accumulator && accumulator.cycle !== undefined);
+  if (!hasCycleId) {
+    errors.push("missing cycle identifier (`cycle_number` or `cycle`)");
+  }
+
+  for (const field of RECOMMENDED_ACCUMULATOR_FIELDS) {
+    if (!(field in accumulator) || accumulator[field] === undefined) {
+      warnings.push(
+        `missing recommended field \`${field}\` (Phase-6 two-speed calibration source)`,
+      );
+    }
+  }
+
+  return { errors, warnings };
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value);
 }
@@ -284,19 +373,28 @@ export async function writeInsights(
 
 /**
  * End-of-cycle promotion: read the ephemeral `paths.currentFile` (written
- * during the live cycle), parse it as a CycleInsight, push into the ring,
- * write the updated ring atomically.
+ * during the live cycle), parse it as a CycleInsight, validate it carries the
+ * promotable contract, push into the ring, write the updated ring atomically.
  *
- * Returns `{ promoted: false, ring }` (unchanged ring) when `currentFile`
- * does not exist — a no-op for cycles that never produced an in-flight
- * snapshot. Otherwise returns `{ promoted: true, ring: <new ring> }`.
+ * Returns `{ promoted: false, ring, warnings: [] }` (unchanged ring) when
+ * `currentFile` does not exist — a no-op for cycles that never produced an
+ * in-flight snapshot. Otherwise returns
+ * `{ promoted: true, ring: <new ring>, warnings: [...] }`.
+ *
+ * Validation (D16-8 / SA16.2-F3): runs `validateAccumulator` before pushing.
+ * Throws `InsightsAccumulatorError` when the snapshot is missing a required
+ * field (`cycle_date`, a cycle identifier, or `fix_success_rate`) — an
+ * un-keyable entry would silently break the Phase-1 / Phase-6 reads, so it is
+ * refused at write time rather than discovered two cycles later. Soft gaps
+ * (e.g. an absent `cl2_artifact_closure`) are returned in `warnings` and do
+ * not block promotion.
  */
 export async function promoteToHistory(
   paths: InsightsPaths,
-): Promise<{ promoted: boolean; ring: InsightsRing }> {
+): Promise<{ promoted: boolean; ring: InsightsRing; warnings: string[] }> {
   const ring = await readInsights(paths);
   if (!(await fileExists(paths.currentFile))) {
-    return { promoted: false, ring };
+    return { promoted: false, ring, warnings: [] };
   }
   const currentContent = await readFile(paths.currentFile, "utf-8");
   let currentRaw: unknown;
@@ -313,7 +411,15 @@ export async function promoteToHistory(
     );
   }
   const finishedCycle = currentRaw as CycleInsight;
+
+  const { errors, warnings } = validateAccumulator(finishedCycle);
+  if (errors.length > 0) {
+    throw new InsightsAccumulatorError(
+      `${paths.currentFile} is not a promotable cycle accumulator: ${errors.join("; ")}`,
+    );
+  }
+
   const nextRing = promote(ring, finishedCycle);
   await writeInsights(paths, nextRing);
-  return { promoted: true, ring: nextRing };
+  return { promoted: true, ring: nextRing, warnings };
 }
