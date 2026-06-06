@@ -2557,6 +2557,58 @@ describe("init multi-CTA post-init hint (C9-H29)", () => {
   });
 });
 
+// ── D14-15 (D14-SA14.1-F4): post-init stack-support pointer ───────────
+describe("init stack-support pointer (D14-15)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-stack-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("surfaces the matrix pointer for a detected partial stack (angular)", async () => {
+    // angular.json triggers the angular framework probe — a partial stack
+    // (cross-cutting rules only, no dedicated rule).
+    await writeFile(join(tempDir, "angular.json"), JSON.stringify({}));
+    await initCommand({ yes: true });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("Stack support: angular");
+    expect(stdout).toContain("docs/stack-support-matrix.md");
+  });
+
+  it("omits the pointer for a fully-supported stack (rust)", async () => {
+    // Cargo.toml -> rust language (full tier, dedicated rust-patterns rule).
+    await writeFile(join(tempDir, "Cargo.toml"), "[package]\nname = \"x\"\n");
+    await initCommand({ yes: true });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Stack support:");
+  });
+});
+
 // ── C9-H32 (D10-SA10.5-F2): TOOL_SECRET_NOTES surface at tool-selection time ─
 describe("init tool-secret-notes ordering (C9-H32)", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;

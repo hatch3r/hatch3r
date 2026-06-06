@@ -76,6 +76,15 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 - Measure pipeline duration improvement against the baseline from Step 1.
 - Document the pipeline architecture for the team.
 
+## Supply-Chain Floor
+
+A CI/CD pipeline is the supply-chain attack surface — design the floor in, do not bolt it on. The glob-scoped floor rules attach when you edit a workflow or Dockerfile; this callout surfaces them at pipeline-design time so the controls are planned, not discovered. Apply both rules as authored — this section cross-references, it does not restate:
+
+- `rules/hatch3r-dependency-management.md` — SHA-pin every GitHub Action to a 40-char commit SHA (not a tag); `npm ci` / lockfile-only installs; CVE scan gate before merge; npm Trusted Publishing via GitHub OIDC with `--provenance` (no long-lived publish token), attestations signed by Sigstore.
+- `rules/hatch3r-container-hardening.md` — pin base images by `@sha256:` digest; generate an SBOM (CycloneDX or SPDX) in the build stage; cosign-sign images and verify by digest at deploy; distroless / Wolfi runtime, non-root user.
+
+Gate releases on these the same way Step 2 gates deploys on quality checks: a release stage that publishes without provenance + SBOM, or pulls an unpinned action / untagged base image, fails the gate.
+
 ## Pipeline Performance Targets
 
 | Metric | Target |

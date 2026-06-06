@@ -339,4 +339,70 @@ describe("validate-specialist-roster", () => {
       ),
     ).toBe(false);
   });
+
+  // ── CQ trigger-table parity (D16-12 / D6-15 / D22-6) ────────────
+
+  it("ERRORs (ROSTER-CQ-TABLE-DRIFT) when fixer's CQ trigger column diverges", async () => {
+    // The CQ specialist trigger table is hand-copied into implementer, reviewer,
+    // AND fixer. Drift fixer's CQ3 trigger prose only; the parity check (which
+    // now opens fixer — the file the prior gate never read) must catch it.
+    const fixerPath = join(fx.rootDir, "agents", "hatch3r-fixer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(fixerPath, "utf-8");
+    const drifted = body.replace(
+      /(\|\s*CQ3 Security\s*\|\s*`hatch3r-security`\s*\|)([^\n]*)/,
+      "$1 DRIFTED trigger prose |",
+    );
+    expect(drifted).not.toBe(body); // ensure the replace matched
+    await writeFile(fixerPath, drifted, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const drift = r.findings.find(
+      (f) => f.code === "ROSTER-CQ-TABLE-DRIFT" && f.file === "agents/hatch3r-fixer.md",
+    );
+    expect(drift).toBeDefined();
+    expect(drift?.message).toMatch(/CQ3/);
+    expect(r.errorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ERRORs (ROSTER-CQ-TABLE-DRIFT) when fixer's CQ trigger table is removed entirely", async () => {
+    const fixerPath = join(fx.rootDir, "agents", "hatch3r-fixer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(fixerPath, "utf-8");
+    // Drop every CQ table row from fixer; the gate must report a missing table.
+    const stripped = body
+      .split("\n")
+      .filter((l) => !/^\s*\|\s*CQ\d\b/.test(l.trim()))
+      .join("\n");
+    expect(stripped).not.toBe(body);
+    await writeFile(fixerPath, stripped, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const miss = r.findings.find(
+      (f) => f.code === "ROSTER-CQ-TABLE-DRIFT" && f.file === "agents/hatch3r-fixer.md",
+    );
+    expect(miss).toBeDefined();
+    expect(miss?.message).toMatch(/no CQ specialist trigger table rows/);
+  });
+
+  it("ERRORs (ROSTER-CQ-TABLE-DRIFT) when reviewer adds a CQ row the others lack", async () => {
+    const reviewPath = join(fx.rootDir, "agents", "hatch3r-reviewer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(reviewPath, "utf-8");
+    // Inject a bogus extra CQ row after CQ9 in reviewer only.
+    const injected = body.replace(
+      /(\|\s*CQ9 Enhancability\s*\|[^\n]*\n)/,
+      "$1| CQ9 Enhancability EXTRA | `hatch3r-enhancability` | bogus duplicate row |\n",
+    );
+    expect(injected).not.toBe(body);
+    await writeFile(reviewPath, injected, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    // The injected row reuses the CQ9 label, so the reference (implementer) CQ9
+    // row differs from reviewer's CQ9 — surfaced as a drift on the reviewer file.
+    const drift = r.findings.find(
+      (f) => f.code === "ROSTER-CQ-TABLE-DRIFT" && f.file === "agents/hatch3r-reviewer.md",
+    );
+    expect(drift).toBeDefined();
+  });
 });

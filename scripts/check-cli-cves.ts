@@ -287,10 +287,15 @@ const ECOSYSTEM_OVERRIDES: Record<string, { ecosystem: string; name: string }> =
   playwright: { ecosystem: "npm", name: "@playwright/test" },
   stagehand: { ecosystem: "npm", name: "@browserbasehq/stagehand" },
 
-  // C / vendored.
-  jq: { ecosystem: "Linux", name: "jq" },
-  curl: { ecosystem: "Linux", name: "curl" },
-  zstd: { ecosystem: "Linux", name: "zstd" },
+  // C-source tools (jq, curl, zstd) are intentionally NOT mapped here — they
+  // are exempted in SCAN_EXEMPT_TOOLS (D21-SA21.3-F3). OSV.dev keys no advisory
+  // package for them under the `Linux` ecosystem (live 2026-06-06: Linux/jq@1.8.1=0,
+  // Linux/curl=0, Linux/zstd=0); their advisories live under distro ecosystems
+  // (Debian/Ubuntu) whose package-version namespace (e.g. Debian `1.5+dfsg-1.1`)
+  // cannot version-match the registry's upstream pins, so a distro query surfaces
+  // stale, namespace-mismatched records (e.g. 2015-era jq CVEs already fixed in
+  // 1.8.1) rather than the upstream risk. Upstream risk is tracked via each
+  // tool's registry securityNote + the per-cycle D21 currency review.
 };
 
 /**
@@ -309,6 +314,18 @@ const SCAN_EXEMPT_TOOLS: Record<string, string> = {
   // clean result. Re-map (name AND an existing version) only if a real OSV
   // coordinate for the extension is found.
   "az-devops": "az `azure-devops` extension ships as an az `.whl`, not a public package; PyPI `azure-devops` is the unrelated 7.x Azure DevOps REST SDK — no version-matched OSV advisory coordinate",
+  // D21-SA21.3-F3: C-source tools (jq, curl, zstd) have no OSV advisory package
+  // under the `Linux` ecosystem (live 2026-06-06: Linux/jq@1.8.1=0, Linux/curl=0,
+  // Linux/zstd=0). OSV keys their advisories under distro ecosystems (Debian/Ubuntu)
+  // whose package-version namespace (e.g. Debian `1.5+dfsg-1.1`) cannot version-match
+  // the registry's upstream pins, so a distro query returns stale, namespace-mismatched
+  // records (e.g. 2015-era jq CVEs already fixed upstream in 1.8.1) rather than the
+  // upstream risk for the pinned version. Upstream risk is tracked via each tool's
+  // registry securityNote + the per-cycle D21 currency review. Re-map (with a
+  // version-matched distro coordinate) only if OSV gains an upstream-versioned package.
+  jq: "jq (jqlang/jq) has no OSV advisory package under the `Linux` ecosystem (live Linux/jq@1.8.1=0); OSV keys its advisories under distro ecosystems (Debian/Ubuntu) whose version namespace cannot match the upstream 1.8.1 pin — upstream risk is tracked in the registry securityNote + the per-cycle D21 currency review",
+  curl: "curl (curl/curl) has no OSV advisory package under the `Linux` ecosystem (live Linux/curl=0); OSV keys its advisories under distro ecosystems (Debian/Ubuntu) whose version namespace cannot match the upstream 8.20.0 pin — upstream risk is tracked in the registry securityNote (curl.se/docs/security.html) + the per-cycle D21 currency review",
+  zstd: "zstd (facebook/zstd) has no OSV advisory package under the `Linux` ecosystem (live Linux/zstd=0) and no Debian/Ubuntu OSV record either — upstream risk is tracked via the per-cycle D21 currency review",
 };
 
 /**
@@ -360,12 +377,6 @@ const VACUOUS_ACK: Record<string, { reason: string; addedISO: string; reviewBy: 
       "CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9 (Authorization-header leak to TUF mirrors) is fixed in gh 2.93.0; the registry pins minVersion >=2.93.0, so OSV correctly returns no Critical/High advisory for the pinned (patched) version. The also-cited CVE-2026-45803 / GHSA-crc3-h8v6-qh57 is a LOW escape-injection (fixed 2.92.0) and never reaches the Critical/High path.",
     addedISO: "2026-06-06",
     reviewBy: "2026-09-06",
-  },
-  curl: {
-    reason:
-      "CVE-2026-7168/7009/6429/6253/6276/3805/3783 are all Medium-and-Low (credential-leak / connection-reuse) per the registry securityNote and are fixed in curl 8.20.0 (pinned minVersion); OSV surfaces no Critical/High row for the pinned version, which is the correct gate-clean result.",
-    addedISO: "2026-06-05",
-    reviewBy: "2026-09-05",
   },
   docker: {
     reason:

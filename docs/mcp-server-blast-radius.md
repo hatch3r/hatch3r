@@ -20,6 +20,20 @@ Two transport classes carry different security floors. The per-server blast radi
 
 Sources: [MCP 2025-06-18 transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports), [MCP 2025-06-18 authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) (accessed 2026-05-26).
 
+## Known MCP CVEs (as of Cycle 11, 2026-06-05)
+
+This is the dated CVE audit trail for the MCP attack surface, distinct from the per-server blast radius below. The per-server `securityNote`/version-pin checks (postgres, brave-search) catch a CVE bound to one npm package; the entries here are **protocol/client-connect-class** CVEs that no single per-package pin surfaces, because they live in the connect path every STDIO/HTTP server exercises.
+
+Ownership split (`governance/audit/domains/D15-agentic-security.md` §15.7 "CVE check window"): **D21 owns running the scan; D15.7 verifies this audit trail.** The dynamic per-package scan is `npm run mcp:cve-check` (`scripts/check-mcp-cves.ts`) — it queries OSV.dev for every `npx`-launched package in `mcp/*.json` and fails the gate on a Critical/High advisory public for more than 30 days against a shipped version. Re-run it and refresh the date heading every audit cycle (≤90-day window per CONSTITUTION §2 P3).
+
+| CVE | Class | CVSS | Affected | hatch3r exposure | Status / mitigation |
+|-----|-------|------|----------|-------------------|---------------------|
+| [CVE-2025-6514](https://nvd.nist.gov/vuln/detail/CVE-2025-6514) | Client-connect RCE (OS command injection via OAuth `authorization_endpoint` URL on connect to an untrusted server) | 9.6 | `mcp-remote` 0.0.5–0.1.15 (fixed 0.1.16) | Not bundled — `mcp/mcp.json` ships no `mcp-remote` launcher; users who add their own `mcp-remote` proxy to reach a remote server inherit it | Pin `mcp-remote>=0.1.16`; connect only to trusted servers over HTTPS. Surfaced by `npm run mcp:cve-check` if added to the pack |
+
+Class-level note (no single CVE id): the OWASP Q1-2026 MCP wave catalogued 30+ CVEs across Jan–Feb 2026 (43% exec/shell injection, 38% of surveyed servers shipping no auth). The structural defenses in this repo that address the class are the STDIO/HTTP transport floors above (untrusted-connect is the CVE-2025-6514 trigger) and the `_description` strip below (tool-poisoning family); neither replaces pinning a maintained server version.
+
+Sources (accessed 2026-06-05): [JFrog CVE-2025-6514 analysis](https://jfrog.com/blog/2025-6514-critical-mcp-remote-rce-vulnerability/) (Trust Tier 1, vendor security research), [Wiz CVE-2025-6514](https://www.wiz.io/vulnerability-database/cve/cve-2025-6514) (Trust Tier 1, vendor vulnerability database), [WorkOS — vetting MCP tools / OWASP MCP Top 10](https://workos.com/blog/mcp-supply-chain-security) (Trust Tier 2, named-vendor analysis).
+
 ## Tool-poisoning mitigation: `_description` strip
 
 Tool poisoning ([Invariant Labs, 2025](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks)) plants attacker-controlled instructions inside an MCP server's tool/description metadata so the editor renders them into the agent's context. hatch3r blocks this at adapter emission: `BaseAdapter.readFilteredMcp` (`src/adapters/base.ts` → `const { _disabled, _description, ...clean } = entry;`) destructures `_description` out of every entry, so the field is **never written** to any generated `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json`.

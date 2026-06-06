@@ -44,6 +44,7 @@ import {
 import { readFile } from "node:fs/promises";
 import { analyzeRepo, isGreenfield, analyzeConventionConflicts, formatConventionConflicts } from "../../detect/repoAnalyzer.js";
 import { detectProjectType } from "../../detect/projectType.js";
+import { classifyDetectedStacks } from "../../detect/stackSupport.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { planPerPackageOutputs, emitsPerPackage } from "../../content/monorepoEmission.js";
@@ -1407,6 +1408,19 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // it below the primary CTA (progressive disclosure).
   if (!(await hasCustomizeFiles(rootDir))) {
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Customize: drop a .hatch3r/{agents,skills,rules,commands}/<id>.customize.yaml to tweak generated artifacts")}`);
+  }
+
+  // D14-15 (D14-SA14.1-F4, Pillar P1): when a detected stack has no dedicated
+  // `rules/hatch3r-*-patterns.md` rule, surface a one-line pointer so the user
+  // learns the support status (cross-cutting rules apply; no stack-idiom rule)
+  // and where the full per-stack matrix lives. Full-tier stacks (a dedicated
+  // rule exists) report nothing — `classifyDetectedStacks` filters them.
+  const unsupportedStacks = classifyDetectedStacks(repoInfo.frameworks, repoInfo.languages);
+  if (unsupportedStacks.length > 0) {
+    const names = unsupportedStacks.map((s) => s.name).join(", ");
+    summaryLines.push(
+      `${chalk.dim("·")} ${chalk.dim(`Stack support: ${names} — covered by cross-cutting rules; no dedicated stack rule. See docs/stack-support-matrix.md`)}`,
+    );
   }
 
   if (envResult && envResult.newVars.length > 0) {

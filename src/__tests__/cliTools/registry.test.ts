@@ -122,11 +122,13 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(jq.securityNote).toMatch(/sandbox|isolat/i);
   });
 
-  it("sd entry is annotated releaseCadence:'stable' (D21-SA21.2-F01)", () => {
-    // C9-H86: sd 1.1.0 (released 2025-02-24) is 447 days old at the
-    // 2026-05-18 audit. Tagging the entry `stable` documents that the long
-    // gap is intentional (mature steady-state tool) — the staleness
-    // heuristic in src/cliTools/triggers.ts can suppress amber-flag noise.
+  it("sd entry is annotated releaseCadence:'stable' (D21-10, Cycle 11)", () => {
+    // Cycle 11 D21-10 (SA21.2-F2): the immutable sd v1.1.0 tag (commit
+    // 4a7b2165) is dated 2026-02-25, NOT 2025-02-24 — so 1.1.0 was ~82 days
+    // old at the 2026-05-18 audit, not 447. The true shape is a ~27-month
+    // dormancy (1.0.0 -> 1.1.0) ended by a recent release. `stable` is retained
+    // because the recent release is fresh; the registry comment carries the
+    // next-cycle re-evaluation trigger if 1.1.0 ages out with no successor.
     const sd = AVAILABLE_CLI_TOOLS.sd;
     expect(sd.releaseCadence).toBe("stable");
   });
@@ -211,6 +213,39 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(azDevops!.minVersion).toBe("1.0.4");
   });
 
+  it("yq + miller + csvkit carry tested-against documentation-pin minVersions (D21-13, Cycle 11)", () => {
+    // Cycle 11 D21-13 (SA21.3-F5): yq/miller/csvkit previously had no version
+    // floor while jq/dasel did, so skill.ts emitted no floor block for them.
+    // These are documentation pins mirroring the glab/az-devops precedent
+    // (cycle-verified baseline, NOT CVE-driven): yq 4.53.2, miller 6.18.1,
+    // csvkit 2.2.0. The bare version string (no `>=`) matches the doc-pin form.
+    const yq = AVAILABLE_CLI_TOOLS.yq;
+    const miller = AVAILABLE_CLI_TOOLS.miller;
+    const csvkit = AVAILABLE_CLI_TOOLS.csvkit;
+    expect(yq.minVersion).toBe("4.53.2");
+    expect(miller.minVersion).toBe("6.18.1");
+    expect(csvkit.minVersion).toBe("2.2.0");
+  });
+
+  it("gh linux recipe uses the upstream apt-repo one-liner; glab linux prefers snap (D21-17, Cycle 11)", () => {
+    // Cycle 11 D21-17 (SA21.5-F4): bare `sudo apt install gh`/`glab` fail on
+    // stock Debian and pull versions below the registry floor. gh's linux
+    // recipe is the cli.github.com keyring + signed-repo apt one-liner; glab's
+    // linux recipe is `snap install glab` (with the release `.deb` as fallback
+    // per the registry comment) — the upstream-recommended Linux channels.
+    const gh = AVAILABLE_CLI_TOOLS.gh;
+    const ghLinux = gh.install.linux.map((c) => c.command);
+    // No bare `apt install gh` remains; the recipe adds the signed cli.github.com repo.
+    expect(ghLinux).not.toContain("sudo apt install gh");
+    expect(ghLinux.some((c) => c.includes("cli.github.com/packages"))).toBe(true);
+    expect(ghLinux.some((c) => c.includes("githubcli-archive-keyring.gpg"))).toBe(true);
+
+    const glab = AVAILABLE_CLI_TOOLS.glab;
+    const glabLinux = glab.install.linux.map((c) => c.command);
+    expect(glabLinux).not.toContain("sudo apt install glab");
+    expect(glabLinux).toContain("sudo snap install glab");
+  });
+
   it("docker entry floors at >=29.5.2 + securityNote cites the docker cp host-root CVE cluster (D21-SA21.6-F02, Cycle 10)", () => {
     // C9-H91: Docker engine 29.5.0 patches CVE-2026-32288 (DoS via crafted
     // image manifest). Cycle 10 F21.6.F02: the 2026-05-18 announcement added
@@ -225,13 +260,21 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(docker.securityNote).toContain("CVE-2026-41567");
     expect(docker.securityNote).toContain("CVE-2026-42306");
     expect(docker.securityNote).toContain("29.5.2");
+    // Cycle 11 D21-16 (SA21.6-F4): the two HIGH 29.x AuthZ-bypass CVEs (both
+    // fixed in 29.3.1) must be in the user-facing disclosure roster too.
+    expect(docker.securityNote).toContain("CVE-2026-34040");
+    expect(docker.securityNote).toContain("CVE-2026-33997");
+    expect(docker.securityNote).toContain("29.3.1");
   });
 
-  it("curl entry registered as tier-1 with minVersion >=8.20.0 + securityNote citing the seven Mar-Apr 2026 CVEs (D21-SA21.4-F02, Cycle 10)", () => {
-    // Cycle 10 D21-SA21.4-F02 (F-21.7.1): the HTTP category was documented
-    // in the D21 audit source set but no registry entry existed. curl 8.20.0
-    // (released 2026-04-29) supersedes the seven-CVE batch enumerated below;
-    // earlier builds carry credential-leak and connection-reuse exposure.
+  it("curl entry tier-1 minVersion >=8.20.0 + securityNote cites the 8.20.0-specific CVEs with accurate severity (D21-14, Cycle 11)", () => {
+    // Cycle 11 D21-14 (SA21.4-F1): the prior note rolled seven CVEs together as
+    // "all fixed in 8.20.0" and labelled them "Medium-and-Low" — both wrong
+    // (CVE-2026-3805 fixed 8.18.0, CVE-2026-3783 fixed 8.17.0; CVE-2026-6253 is
+    // High). The corrected note cites the three advisories actually resolved by
+    // the 8.20.0 release (CVE-2026-5773/5545/4873) plus the earlier High
+    // CVE-2026-6253, and states the >=8.20.0 floor clears the cumulative
+    // backlog. The inaccurate CVE-2026-7168 roster is gone.
     const curl = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).curl;
     expect(curl).toBeDefined();
     expect(curl!.id).toBe("curl");
@@ -239,8 +282,17 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(curl!.category).toBe("http");
     expect(curl!.minVersion).toBe(">=8.20.0");
     expect(curl!.securityNote).toBeDefined();
-    expect(curl!.securityNote).toContain("CVE-2026-7168");
+    // The three advisories specific to the 8.20.0 release.
+    expect(curl!.securityNote).toContain("CVE-2026-5773");
+    expect(curl!.securityNote).toContain("CVE-2026-5545");
+    expect(curl!.securityNote).toContain("CVE-2026-4873");
+    // The earlier High advisory is named with correct severity.
+    expect(curl!.securityNote).toContain("CVE-2026-6253");
+    expect(curl!.securityNote).toMatch(/High/);
     expect(curl!.securityNote).toContain("8.20.0");
+    // The discredited "all fixed in 8.20.0 / Medium-and-Low" framing is gone.
+    expect(curl!.securityNote).not.toContain("CVE-2026-7168");
+    expect(curl!.securityNote).not.toMatch(/Medium-and-Low/);
   });
 
   it("httpie entry registered as tier-2 web-project with releaseCadence stable (D21-SA21.4-F03, Cycle 10)", () => {
@@ -391,6 +443,52 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
       expect(entry.install.mac.length).toBeGreaterThan(0);
       expect(entry.homepage).toBeTypeOf("string");
       expect(entry.homepage.startsWith("http")).toBe(true);
+    }
+  });
+
+  it("every entry declares a source-repo VCS URL + a valid SPDX license (D15-32, Cycle 11)", () => {
+    // Cycle 11 D15-32 (SA15.7-F4): the D15.7 provenance contract requires
+    // "vendor + source URL + license" as machine-checkable fields. `homepage`
+    // alone is insufficient — several homepages are docs/marketing sites
+    // (duckdb.org, learn.microsoft.com, csvkit.readthedocs.io) rather than the
+    // source repo. `sourceRepo` must be a GitHub/GitLab VCS URL and `license`
+    // a valid SPDX expression so provenance is auditable per cycle.
+
+    // Curated allowlist of the SPDX license ids actually used by the catalog.
+    // A new tool with a license outside this set fails here, forcing a
+    // deliberate allowlist update (and a real SPDX id, not a typo / "see repo").
+    const KNOWN_SPDX_IDS = new Set([
+      "MIT",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "GPL-2.0-only",
+      "Unlicense",
+      "curl", // `curl` is itself a registered SPDX license id.
+    ]);
+    // SPDX expression: one-or-more ids joined by OR / AND / WITH operators.
+    // Validates the structural shape and that every leaf id is a known SPDX id.
+    const validateSpdxExpression = (expr: string): boolean => {
+      if (!/^[A-Za-z0-9.+-]+(?: (?:OR|AND|WITH) [A-Za-z0-9.+-]+)*$/.test(expr)) {
+        return false;
+      }
+      const leaves = expr.split(/ (?:OR|AND|WITH) /);
+      return leaves.every((leaf) => KNOWN_SPDX_IDS.has(leaf));
+    };
+
+    for (const entry of allEntries) {
+      // sourceRepo: a GitHub or GitLab https VCS URL (never a docs site).
+      expect(entry.sourceRepo, `${entry.id} sourceRepo`).toBeTypeOf("string");
+      expect(
+        /^https:\/\/(?:github\.com|gitlab\.com)\/[^/]+\/[^/]+/.test(entry.sourceRepo),
+        `${entry.id} sourceRepo "${entry.sourceRepo}" must be a github.com/gitlab.com VCS URL`,
+      ).toBe(true);
+      // license: a valid SPDX expression built from known ids.
+      expect(entry.license, `${entry.id} license`).toBeTypeOf("string");
+      expect(
+        validateSpdxExpression(entry.license),
+        `${entry.id} license "${entry.license}" is not a valid SPDX expression of known ids`,
+      ).toBe(true);
     }
   });
 

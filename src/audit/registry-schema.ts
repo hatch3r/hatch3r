@@ -113,8 +113,21 @@ export interface Finding {
   false_positive?: boolean;
 
   // Phase 5/7 closed-loop.
+  // `cl1_status`  — Phase 5 PRD-evolution disposition (none|candidate then a
+  //                 terminal applied|deferred|rejected|declined|superseded).
+  // `sdr_status`  — strategic-decision-register disposition (none baseline).
+  // `cl3_status`  — Phase 7 audit-self-evolution disposition. CL-3 was tracked
+  //                 only as ad-hoc top-level cycle keys (cycle10_re_envision_*),
+  //                 so per-proposal cross-cycle disposition was not queryable
+  //                 (D16-16 / D18-15). This field makes it a sibling of
+  //                 cl1_status: none|queued_for_cycle_<N>_phase_7 then a
+  //                 terminal applied|deferred|rejected|declined|superseded,
+  //                 written by closed-loop-agents.md Phase 7 at apply-time and
+  //                 surfaced by scripts/audit-closed-loop-report.ts. Free-form
+  //                 string (no enum gate) to match cl1_status/sdr_status.
   cl1_status?: string | null;
   sdr_status?: string | null;
+  cl3_status?: string | null;
 
   // Misc / cross-cutting.
   pillar?: ReadonlyArray<string>;

@@ -169,7 +169,7 @@ Mirrors `governance/CONSTITUTION.md` §2 P5 verbatim (validator `scripts/validat
 | Template file | 80-200 lines |
 | Cross-file duplication | <5% |
 | Finding inflation | <2.0x pre-dedup/post-impact-gating/post-triage |
-| Governance total | <=3000 lines |
+| Governance total (sum of the 7 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + RE-ENVISION + EVOLVE + pack-trust-model) | <=3370 lines |
 | Generated UI a11y violations (axe-core, serious/critical) | 0 |
 | Design-token adoption in generated code (color, spacing, typography) | >=95% |
 | Four-state surface contract coverage on generated async views | 100% |

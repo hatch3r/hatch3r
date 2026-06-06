@@ -1701,6 +1701,60 @@ describe("lean-threshold doc round-trip (F20.1.E1)", () => {
       ).toBe(runtimeValue);
     }
   });
+
+  // D20-4 (SA20.2-F2): the creator agent body inlines a per-type lean
+  // threshold in each `### Branch _ — <Type>` section's Gentle gate line.
+  // Those numbers previously drifted from the runtime map (agent ≤150 vs 350,
+  // rule ≤80 vs 100, command ≤300 vs 200, hook ≤80 vs 100). The doc-vs-runtime
+  // round-trip above only covered the private D20 domain doc; this twin asserts
+  // the PUBLIC creator-agent prose against the same exported map so the drift
+  // is a CI failure. The creator agent is canonical and always present, so its
+  // absence is a hard failure (no existsSync skip).
+  it("hatch3r-creator.md per-type Gentle lean lines match the runtime LEAN_LINE_THRESHOLDS", async () => {
+    const repoRoot = resolve(__dirname, "..", "..", "..");
+    const creatorPath = join(repoRoot, "agents", "hatch3r-creator.md");
+    expect(
+      existsSync(creatorPath),
+      "agents/hatch3r-creator.md must exist (canonical agent)",
+    ).toBe(true);
+
+    const creator = await readFile(creatorPath, "utf-8");
+
+    // Each type's per-type Gentle line lives between its `### Branch _ — <Type>`
+    // heading and the next `### Branch` heading (or EOF). Anchoring on the
+    // branch heading (by type name) — not document order or the shared 100/200
+    // values — keeps the assertion precise: skill and command both state 200,
+    // rule and hook both state 100.
+    const branchHeadings = [...creator.matchAll(/^### Branch [A-Z] — (\w+)$/gm)];
+    expect(
+      branchHeadings.length,
+      "creator doc must declare one `### Branch _ — <Type>` heading per type",
+    ).toBe(Object.keys(LEAN_LINE_THRESHOLDS).length);
+
+    for (const [type, runtimeValue] of Object.entries(LEAN_LINE_THRESHOLDS)) {
+      const idx = branchHeadings.findIndex(
+        (m) => m[1].toLowerCase() === type,
+      );
+      expect(
+        idx,
+        `creator doc must have a "### Branch _ — ${type}" section`,
+      ).toBeGreaterThanOrEqual(0);
+
+      const start = branchHeadings[idx].index ?? 0;
+      const end = branchHeadings[idx + 1]?.index ?? creator.length;
+      const section = creator.slice(start, end);
+
+      const leanMatch = section.match(/lean threshold \(≤(\d+) lines/);
+      expect(
+        leanMatch,
+        `creator ${type} branch must state a "lean threshold (≤N lines" Gentle gate`,
+      ).not.toBeNull();
+      expect(
+        Number(leanMatch![1]),
+        `creator ${type} lean threshold must match runtime LEAN_LINE_THRESHOLDS`,
+      ).toBe(runtimeValue);
+    }
+  });
 });
 
 describe("saveUserContent — hook transitive-trust warning (D20-M6)", () => {

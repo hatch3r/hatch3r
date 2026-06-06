@@ -146,7 +146,7 @@ The agent runs these commands to produce `proof_trace` blocks. Each row maps a c
 | 2. OIDC validation | `rg -n "jwt\.(verify\|decode)" src/auth/ \| rg -v "audience\|issuer"` | any match (validator missing `aud` or `iss`) |
 | 3. DPoP / mTLS | `rg -n "Bearer " src/ \| rg -v "DPoP\|mTLS\|cnf\.jkt"` | any browser-issued bearer without sender constraint |
 | 4. JWT BCP | `rg -n "alg.*none\|jwt\.verify\([^,]+,[^,)]+\)$" src/` | any match (`alg: none` accepted OR no `algorithms` option pinned) |
-| 5. SHA-pinned actions | `rg -n "uses: [^@]+@v?[0-9]+(\.[0-9]+)*$" .github/workflows/` | any match (tag instead of 40-char SHA) |
+| 5. SHA-pinned actions | `rg -nP 'uses:\s+[\w.-]+/[\w.-]+@(?![0-9a-f]{40}\b)\S+' .github/workflows/` | any match — an action ref pinned to anything other than a 40-char lowercase-hex commit SHA (tag `@v6.0.2`, branch `@main` per CVE-2025-30066, or abbreviated SHA `@8f4b7f8`) |
 | 5. SBOM presence | `gh release view --json assets --jq '.assets[].name' \| rg -i "(cyclonedx\|spdx)"` | empty output on tagged release |
 | 5. npm provenance | `npm view <pkg> --json \| jq '.dist.attestations'` | `null` on published package |
 | 6. WebAuthn counter | `rg -n "signCount" src/ \| rg -v "[><]"` | any match (counter stored without strict-monotonic check) |
@@ -154,6 +154,8 @@ The agent runs these commands to produce `proof_trace` blocks. Each row maps a c
 | 8. CVE acknowledgement | `gh api repos/{owner}/{repo}/dependabot/alerts --jq '.[] \| select(.state=="open")'` | any unacknowledged alert ≤90 days old |
 
 Run lint and typecheck alongside (`npm run lint`, `npx tsc --noEmit`) when the change set is in `src/`; an unrelated type error in an auth file is a blocking finding (the agent cannot trace the flow if the file does not compile).
+
+**Item-5 SHA-pin regex — fixture-backed exemptions.** The `[\w.-]+/[\w.-]+@` coordinate matches only marketplace action refs (`org/repo@ref`), so two ref classes are exempt by construction and must NOT be reported as findings: local/composite actions (`uses: ./.github/actions/<name>`) carry no marketplace ref to pin, and `docker://<image>:<tag>` refs are digest-pinned under checklist item 5's container clause, not the action-SHA clause. Verify both exemptions before trusting the gate — run the regex against a fixture containing one good 40-hex ref (`actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd`), each false-negative class the old `@v?[0-9]+(\.[0-9]+)*$` form silently passed (`@v6.0.2`, `@main`, `@8f4b7f8`), and one `./` plus one `docker://` ref; expect the three non-SHA refs flagged and the good SHA + both exempt refs clean.
 
 ## Status discipline
 

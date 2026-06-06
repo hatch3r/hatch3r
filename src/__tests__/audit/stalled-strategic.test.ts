@@ -60,6 +60,23 @@ describe("strategicReason", () => {
     );
   });
 
+  it("matches a non-terminal cl3_status on a regular finding id (D16-16)", () => {
+    expect(
+      strategicReason(finding({ cl3_status: "queued_for_cycle_11_phase_7" })),
+    ).toBe("cl3_status=queued_for_cycle_11_phase_7");
+    expect(strategicReason(finding({ cl3_status: "deferred" }))).toBe(
+      "cl3_status=deferred",
+    );
+  });
+
+  it("ignores a terminal cl3_status and the none baseline", () => {
+    expect(strategicReason(finding({ cl3_status: "applied" }))).toBe("");
+    expect(strategicReason(finding({ cl3_status: "rejected" }))).toBe("");
+    expect(strategicReason(finding({ cl3_status: "superseded" }))).toBe("");
+    expect(strategicReason(finding({ cl3_status: "none" }))).toBe("");
+    expect(strategicReason(finding({ cl3_status: "" }))).toBe("");
+  });
+
   it("returns empty string for a non-strategic entry", () => {
     expect(strategicReason(finding({ sdr_status: "decided" }))).toBe("");
     expect(strategicReason(finding({ finding_id: "D16-6" }))).toBe("");

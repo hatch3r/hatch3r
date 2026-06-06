@@ -83,7 +83,7 @@ Compact (`-c`) one-object-per-line projection — perfect input for `xargs -L1` 
 |------|----------------|
 | `yq` (toolbox section) | YAML, TOML, XML input — yq speaks them all, jq is JSON-only. |
 | `gron` | Flatten JSON to `path = value` lines for grep-based exploration and reverse-translation. |
-| `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. Pin to >=3.11.0 (CVE-2026-46377 / -46378 / -33320 fixed there). |
+| `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. Pin to >=3.11.0 (clears CVE-2026-33320 fixed in 3.3.2, plus CVE-2026-46377 / -46378 fixed in 3.10.1). |
 | `fx` | Interactive JSON browsing in a TTY; jq is the right call in scripts. |
 
 ## Detection / Install

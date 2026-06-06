@@ -43,6 +43,27 @@
  * up (D14-6 / SA14.2-F4), so the helper drops them at the source. All callers
  * (init, sync, status drift parity) inherit the scoping because they pass the
  * producing `tool` and read back only what the helper returns.
+ *
+ * ## Documented limitation: re-target is a copy, not per-package config (D14-19)
+ *
+ * For a per-package tool the emission is a VERBATIM re-target: every package
+ * receives byte-identical content — the root `AdapterOutput.content` is reused
+ * unchanged, only `path` is rewritten to `<package>/<rel>`. hatch3r does NOT
+ * differentiate per-package or per-team configuration: it does not run
+ * `analyzeRepo` per package, does not compute a per-package content delta, and
+ * reads no `.hatch3r/packages/<name>.customize.yaml` layer. A monorepo whose
+ * packages use different stacks (e.g. a Python `apps/api` beside a React
+ * `packages/web`) gets the same rule corpus in every package's
+ * `.cursor/rules/`. This answers D14 §14.2 "can hatch3r manage per-package
+ * agent configs?" and "Multi-team configuration" with: no — emission is a
+ * mirror of the root context, scoped to the tools that read per-directory
+ * files. Per-package customization is a deliberate non-goal here (SA14.2-F6):
+ * the D14-6 decision (Cycle 11 Wave 2) found per-package copies are dead weight
+ * for two of three adapters, so manufacturing a per-package config layer for
+ * the remaining one would add precedence-stack surface for a single tool. If a
+ * future cycle decides to make emission config-bearing, the single edit point
+ * is here plus a per-package layer in `src/adapters/customization.ts`; this
+ * note records that the gap is intentional, not an oversight.
  */
 
 import type { AdapterOutput, PackageEntry, Tool } from "../types.js";
@@ -69,10 +90,13 @@ export function emitsPerPackage(tool: Tool): boolean {
 }
 
 /**
- * Per-package re-target of a single adapter output. `path` is the
- * `<package>/<originalPath>` posix-style relative path; `originalPath` is the
- * un-prefixed canonical path. `packageName` and `packagePath` mirror the
- * `PackageEntry` for downstream logging.
+ * Per-package re-target of a single adapter output. `output` is a verbatim
+ * copy of the root output with only `path` rewritten — content is NOT
+ * specialised per package (D14-19; see the "Documented limitation" section in
+ * the module header). `path` is the `<package>/<originalPath>` posix-style
+ * relative path; `originalPath` is the un-prefixed canonical path.
+ * `packageName` and `packagePath` mirror the `PackageEntry` for downstream
+ * logging.
  */
 export interface PerPackageOutput {
   packageName: string;
@@ -129,6 +153,9 @@ export function planPerPackageOutputs(
         packageName: pkg.name,
         packagePath: pkg.path,
         originalPath: out.path,
+        // D14-19: verbatim copy — spread reuses `content`/`managedContent`/
+        // `action` unchanged and rewrites only `path`. No per-package content
+        // delta is computed (documented non-goal; see module header).
         output: {
           ...out,
           path: `${prefix}/${out.path}`,

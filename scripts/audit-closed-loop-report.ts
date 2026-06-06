@@ -3,12 +3,16 @@
  * scripts/audit-closed-loop-report.ts
  *
  * Derived view over the audit finding-registry's closed-loop fields. Turns the
- * per-finding `cl1_status` (and `sdr_status`) columns — previously discoverable
- * only by reading the whole registry by hand — into a queryable per-disposition
- * summary. Adopted by AUDIT-EXECUTE.md Phase 5 (the "Cycle-N CL-1 table
- * populated" hard step) and the PRD §27 CL-1 disposition tables, which assert
- * their per-disposition counts match this report (D18-1 / SA18.1-F1; the shared
- * instrument named in D16-16 / D18-15).
+ * per-finding `cl1_status`, `cl3_status`, and `sdr_status` columns — previously
+ * discoverable only by reading the whole registry by hand — into a queryable
+ * per-disposition summary. Adopted by AUDIT-EXECUTE.md Phase 5 (the "Cycle-N
+ * CL-1 table populated" hard step) and the PRD §27 CL-1 disposition tables,
+ * which assert their per-disposition counts match this report (D18-1 /
+ * SA18.1-F1; the shared instrument named in D16-16 / D18-15). The CL-3 column
+ * (audit self-evolution) is the D16-16 addition: CL-3 was previously tracked
+ * only as ad-hoc top-level cycle keys, so per-proposal disposition was not
+ * queryable — closed-loop-agents.md Phase 7 now writes `cl3_status` at
+ * apply-time and this report surfaces it alongside CL-1.
  *
  * Pillars: P5 (Governance Self-Quality — closes the PRD-terminus closed loop),
  *          P2 (Scientific Quality — disposition is queried, not inferred),
@@ -91,7 +95,7 @@ interface DispositionTally {
 
 function tally(
   entries: ReadonlyArray<Finding>,
-  field: "cl1_status" | "sdr_status",
+  field: "cl1_status" | "sdr_status" | "cl3_status",
 ): DispositionTally {
   const counts = new Map<string, number>();
   const ids = new Map<string, string[]>();
@@ -179,6 +183,7 @@ async function main(): Promise<void> {
 
   const scoped = entries.filter((e) => cycleMatches(e, opts.cycle));
   const cl1 = tally(scoped, "cl1_status");
+  const cl3 = tally(scoped, "cl3_status");
   const sdr = tally(scoped, "sdr_status");
   const scopeLabel = opts.cycle === null ? "all cycles" : `cycle ${opts.cycle}`;
 
@@ -189,6 +194,7 @@ async function main(): Promise<void> {
           scope: scopeLabel,
           entries_scanned: scoped.length,
           cl1: { total: cl1.total, by_disposition: tallyToJson(cl1) },
+          cl3: { total: cl3.total, by_disposition: tallyToJson(cl3) },
           sdr: { total: sdr.total, by_disposition: tallyToJson(sdr) },
         },
         null,
@@ -201,6 +207,8 @@ async function main(): Promise<void> {
   emit(`Closed-loop disposition report (${scopeLabel}, ${scoped.length} entries scanned)`);
   emit("");
   for (const line of renderTally("CL-1 (PRD evolution)", cl1)) emit(line);
+  emit("");
+  for (const line of renderTally("CL-3 (audit self-evolution)", cl3)) emit(line);
   emit("");
   for (const line of renderTally("SDR (strategic decision register)", sdr)) emit(line);
 }

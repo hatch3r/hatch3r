@@ -28,6 +28,21 @@ const TERMINAL_STATUSES: ReadonlySet<string> = new Set([
   "already_resolved",
 ]);
 
+/**
+ * `cl3_status` values that close a CL-3 (audit self-evolution) proposal — a
+ * proposal at one of these is applied or rejected and is NOT stalled. Mirrors
+ * the cl1_status terminal set in closed-loop-agents.md Phase 7. Any other
+ * non-`none` cl3_status (`candidate`, `proposed`, `deferred`,
+ * `queued_for_cycle_<N>_phase_7`) marks an open proposal — strategic and, once
+ * aged past the threshold, stalled.
+ */
+const TERMINAL_CL3_STATUSES: ReadonlySet<string> = new Set([
+  "applied",
+  "rejected",
+  "declined",
+  "superseded",
+]);
+
 /** A strategic finding the report surfaces, with its computed stall age. */
 export interface StalledStrategic {
   finding_id: string;
@@ -53,7 +68,10 @@ export function toCycleNumber(value: unknown): number | null {
 /**
  * Identify the strategic predicate(s) an entry matches; "" when none.
  * Strategic = cl1_status=candidate OR sdr_status ∈ {proposed, deferred} OR a
- * CL-3 proposal id (the AUDIT-EXECUTE.md Phase 0 step 6 predicate).
+ * non-terminal cl3_status OR a CL-3 proposal id (the AUDIT-EXECUTE.md Phase 0
+ * step 6 predicate). The cl3_status leg (D16-16) catches a regular finding that
+ * carries an open audit-self-evolution disposition but whose id does not match
+ * the CL-3 naming pattern.
  */
 export function strategicReason(f: Finding): string {
   const reasons: string[] = [];
@@ -65,6 +83,14 @@ export function strategicReason(f: Finding): string {
     (f.sdr_status === "proposed" || f.sdr_status === "deferred")
   ) {
     reasons.push(`sdr_status=${f.sdr_status}`);
+  }
+  if (
+    typeof f.cl3_status === "string" &&
+    f.cl3_status.length > 0 &&
+    f.cl3_status !== "none" &&
+    !TERMINAL_CL3_STATUSES.has(f.cl3_status)
+  ) {
+    reasons.push(`cl3_status=${f.cl3_status}`);
   }
   const id = typeof f.finding_id === "string" ? f.finding_id : "";
   if (/^CL-?3/i.test(id)) {
@@ -155,8 +181,9 @@ export function renderReport(
   lines.push("");
   lines.push(
     "Scope: strategic findings (`cl1_status=candidate`, `sdr_status ∈ {proposed, deferred}`, " +
-      "or CL-3 proposals) that are not terminal and have sat unresolved for at least the " +
-      "threshold cycles. Forcing function for AUDIT-EXECUTE.md Phase 0 step 6 / F16.2-C1.",
+      "a non-terminal `cl3_status`, or CL-3 proposals) that are not terminal and have sat " +
+      "unresolved for at least the threshold cycles. Forcing function for AUDIT-EXECUTE.md " +
+      "Phase 0 step 6 / F16.2-C1.",
   );
   lines.push("");
   if (rows.length === 0) {

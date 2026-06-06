@@ -126,6 +126,16 @@ describe("mapToolToOsvTarget", () => {
     expect(mapToolToOsvTarget(meta("az-devops"))).toBeNull();
   });
 
+  it("(D21-SA21.3-F3) C-source tools (jq, curl, zstd) are not ECOSYSTEM_OVERRIDES targets (they are exempt)", () => {
+    // The `Linux` ecosystem returns no advisory package for these C-source
+    // tools (live Linux/jq@1.8.1=0, Linux/curl=0, Linux/zstd=0); OSV keys their
+    // advisories under distro ecosystems whose version namespace cannot match
+    // the upstream pins, so they map to null and are exempted instead.
+    expect(mapToolToOsvTarget(meta("jq"))).toBeNull();
+    expect(mapToolToOsvTarget(meta("curl"))).toBeNull();
+    expect(mapToolToOsvTarget(meta("zstd"))).toBeNull();
+  });
+
   it("sets citesAdvisoryId from the securityNote's advisory id (CD11 classifier)", () => {
     // CVE id present -> falsifiable advisory claim.
     expect(
@@ -296,6 +306,32 @@ describe("checkCliCves", () => {
     expect(report.targets).toHaveLength(0);
     // The exempt tool must never be queried (no version-mismatched vacuous clean).
     expect(bodies).toHaveLength(0);
+  });
+
+  it("(D21-SA21.3-F3) C-source tools (jq, curl, zstd) land in `exempted`, never `targets`/`unmapped`, and are never queried", async () => {
+    const { fetcher, bodies } = fakeFetcher([]);
+    const report = await checkCliCves({
+      registry: {
+        // jq + curl cite/document advisories; under the old `Linux` mapping their
+        // 0-row result was a vacuous (jq) or VACUOUS_ACK (curl) certification.
+        // Exempting them removes the wrong coordinate so no query runs at all.
+        jq: meta("jq", { category: "json", tier: 1, minVersion: ">=1.8.1", securityNote: "see jqlang/jq security advisories" }),
+        curl: meta("curl", { category: "http", tier: 1, minVersion: ">=8.20.0", securityNote: "CVE-2026-5773 fixed in 8.20.0" }),
+        zstd: meta("zstd", { category: "archive", tier: 1 }),
+      },
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.exempted.map((e) => e.meta.id).sort()).toEqual(["curl", "jq", "zstd"]);
+    for (const id of ["jq", "curl", "zstd"]) {
+      expect(report.exempted.find((e) => e.meta.id === id)?.reason).toMatch(/Linux/);
+    }
+    expect(report.unmapped).toHaveLength(0);
+    expect(report.targets).toHaveLength(0);
+    // None are queried -> no vacuous certification, no acknowledged-vacuous row.
+    expect(bodies).toHaveLength(0);
+    expect(report.vacuousCertifications).toHaveLength(0);
+    expect(report.acknowledgedVacuous).toHaveLength(0);
   });
 
   it("(D15-SA15.7-F1) an UNKNOWN-severity OSV record is surfaced in `unscoredAdvisories`, not silently dropped", async () => {
@@ -535,8 +571,12 @@ describe("checkCliCves", () => {
     // CVE-2025-59288 (installer MitM, fixed at the pinned 1.55.1) + CVE-2026-2441
     // (Chromium roll, not keyed under the npm @playwright/test coordinate), so a
     // 0-row Critical/High result is the documented expected-clean outcome.
+    // curl left this set at Cycle 11 (D21-12): it is now in SCAN_EXEMPT_TOOLS
+    // (no OSV advisory package under the `Linux` ecosystem; distro-namespace
+    // versions cannot match the upstream 8.20.0 pin), so it is never queried and
+    // never reaches the vacuous/acknowledged-vacuous path.
     expect(report.acknowledgedVacuous.map((t) => t.tool).sort()).toEqual(
-      ["curl", "dasel", "docker", "gh", "llm", "playwright", "podman"].sort(),
+      ["dasel", "docker", "gh", "llm", "playwright", "podman"].sort(),
     );
   });
 });

@@ -62,6 +62,8 @@ describe("buildSkillDescription", () => {
       tier: 3,
       install: { mac: [], linux: [], win: [] },
       homepage: "https://example.com",
+      sourceRepo: "https://github.com/example/synthetic-tool",
+      license: "MIT",
     };
     const desc = buildSkillDescription(synthetic);
     // Generic closer is the documented final fallback in skillDescription.ts.
@@ -77,6 +79,8 @@ describe("buildSkillDescription", () => {
       tier: 3,
       install: { mac: [], linux: [], win: [] },
       homepage: "https://example.com",
+      sourceRepo: "https://github.com/example/another-synthetic",
+      license: "MIT",
     };
     expect(TOOL_TRIGGERS["another-synthetic"]).toBeUndefined();
     const desc = buildSkillDescription(synthetic);

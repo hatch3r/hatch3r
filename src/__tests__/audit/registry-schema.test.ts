@@ -87,6 +87,21 @@ describe("validateRegistry — legacy-tolerant defaults", () => {
     expect(drifts).toEqual([]);
   });
 
+  it("round-trips the closed-loop fields including cl3_status (D16-16)", () => {
+    const entry = modernMinimal({
+      cl1_status: "applied",
+      sdr_status: "none",
+      cl3_status: "queued_for_cycle_11_phase_7",
+    });
+    const parsed = parseRegistry([entry]);
+    // cl3_status is an optional free-form sibling of cl1_status/sdr_status —
+    // present, preserved, and never a validation drift.
+    expect(validateRegistry(parsed)).toEqual([]);
+    const entries =
+      parsed.kind === "v2" ? parsed.registry.entries : parsed.entries;
+    expect(entries[0].cl3_status).toBe("queued_for_cycle_11_phase_7");
+  });
+
   it("flags legacy entries missing rigor fields when not grandfathered", () => {
     const parsed = parseRegistry([legacyMinimal()]);
     const drifts = validateRegistry(parsed);

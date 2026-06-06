@@ -57,12 +57,12 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### curl
 - **When to use:** scripted HTTP/S transfers across any platform — file upload (`--upload-file`), header injection (`-H`), cookie sessions (`-b`/`-c`), OAuth flows, custom write-out templates (`-w`). Tier-1 default-on.
 - **Recipe:** `curl -sS -H "Authorization: Bearer $TOKEN" https://api.example.com/v1/runs | jq '.runs[] | {id, status}'`
-- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.20.0 — 8.18.0–8.19.0 carry CVE-2026-7168/7009/6429/6253/6276/3805/3783 (credential-leak and connection-reuse cluster patched in 8.20.0, 2026-04-29).
+- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.20.0 (released 2026-04-29) clears the cumulative advisory backlog of every earlier release. The advisories specific to 8.20.0 are CVE-2026-5773 / CVE-2026-5545 / CVE-2026-4873; earlier builds also carry a High-severity advisory (CVE-2026-6253) plus credential-leak and connection-reuse issues fixed across 8.17.0–8.19.0. See curl.se/docs/security.html for the per-version roster.
 
 ### httpie
 - **When to use:** human-readable HTTP/S exploration — JSON-first defaults, syntax highlighting, persistent named sessions, intuitive expression DSL for query params and headers.
 - **Recipe:** `http --session=staging POST api.example.com/v1/auth username=admin password=$PW Content-Type:application/json`
-- **Wrong choice when:** large-volume scripting where the colour codes confuse downstream consumers — use plain `curl`; HTTP/2 + HTTP/3 throughput — use `xh`. **Version floor:** >=3.2.3 — earlier builds carry CVE-2023-48052 (GHSA-8r96-8889-qg2x) + CVE-2019-10751 (GHSA-xjjg-vmw6-c2p9), both fixed in httpie 3.2.3. **Note:** latest release 3.2.4 (2024-11-01) — project under maintenance but on a stable-cadence release tempo.
+- **Wrong choice when:** large-volume scripting where the colour codes confuse downstream consumers — use plain `curl`; HTTP/2 + HTTP/3 throughput — use `xh`. **Version floor:** >=3.2.3 — earlier builds carry CVE-2023-48052 (GHSA-8r96-8889-qg2x) + CVE-2019-10751 (GHSA-xjjg-vmw6-c2p9), both fixed in httpie 3.2.3. **Note:** latest release 3.2.4 (2024-11-01); the repo has had zero commits since, so it is dormant — prefer `xh` (actively maintained, HTTPie-compatible) for new web-project work.
 
 ### xh
 - **When to use:** fast Rust client with HTTPie-compatible syntax — single static binary (no Python runtime), HTTP/2 default, HTTP/3 opt-in via `--http3`, JSON output (`--json`), resume-on-416 download recovery.
@@ -128,7 +128,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### yq
 - **When to use:** editing Kubernetes manifests, Helm values, or GitHub-Actions workflows in place — preserves comments/anchors with `-P`.
 - **Recipe:** `yq -i '.version = "1.7.5"' .hatch3r/hatch.json`
-- **Wrong choice when:** JSON input — use `hatch3r-cli-jq`; TOML — use `taplo`.
+- **Wrong choice when:** JSON input — use `hatch3r-cli-jq`; TOML — use `taplo`. **Tested-against version:** 4.53.2 (cycle-verified documentation pin, not a CVE floor).
 
 ### taplo
 - **When to use:** formatting, linting, and querying TOML (`pyproject.toml`, `Cargo.toml`); bundled schemas for both.
@@ -138,7 +138,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### dasel
 - **When to use:** single binary spanning JSON / YAML / TOML / XML / CSV under one path-query DSL — handy in CI where you do not want jq+yq+taplo and the input format is not known up-front. NDJSON read support added in v3.11.0.
 - **Recipe:** `dasel -r yaml -w json -f config.yaml '.services.app.env'`
-- **Wrong choice when:** format-specific in-place edits with comment preservation — use `yq` (YAML) or `taplo` (TOML); stream-friendly JSON filtering — use `jq` with its richer filter language. **Version floor:** >=3.11.0 — earlier builds carry CVE-2026-46377 / CVE-2026-46378 / CVE-2026-33320 (selector-lexer DoS, index-out-of-range panic, YAML alias DoS — all fixed in 3.11.0, 2026-05-19).
+- **Wrong choice when:** format-specific in-place edits with comment preservation — use `yq` (YAML) or `taplo` (TOML); stream-friendly JSON filtering — use `jq` with its richer filter language. **Version floor:** >=3.11.0 (the current stable) — earlier builds carry CVE-2026-33320 (YAML alias DoS, fixed in 3.3.2), CVE-2026-46378 (selector-lexer DoS, fixed in 3.10.1), and CVE-2026-46377 (index-out-of-range panic, fixed in 3.10.1); pinning >=3.11.0 clears all three.
 
 ---
 
@@ -147,7 +147,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### csvkit
 - **When to use:** Python-powered CSV toolkit covering `csvlook`, `csvsql`, `csvjoin`, `csvstat` — best for ad-hoc EDA and SQL-over-CSV.
 - **Recipe:** `csvsql --query 'SELECT name FROM data WHERE active = 1' data.csv`
-- **Wrong choice when:** files >1M rows — use `duckdb`; single-column slice — use `qsv`.
+- **Wrong choice when:** files >1M rows — use `duckdb`; single-column slice — use `qsv`. **Tested-against version:** 2.2.0 (cycle-verified documentation pin, not a CVE floor).
 
 ### duckdb
 - **When to use:** ad-hoc analytical SQL over local Parquet, CSV, JSON; streams reads so memory stays bounded.
@@ -157,7 +157,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### miller
 - **When to use:** `awk`-like record processing across CSV/TSV/JSON-Lines streams with the `put`/`filter` DSL.
 - **Recipe:** `mlr --icsv --ojson put '$tax = $amount * 0.07' transactions.csv`
-- **Wrong choice when:** multi-GB analytical joins — use `duckdb`; trivial slicing — use `qsv`.
+- **Wrong choice when:** multi-GB analytical joins — use `duckdb`; trivial slicing — use `qsv`. **Tested-against version:** 6.18.1 (cycle-verified documentation pin, not a CVE floor).
 
 ### qsv
 - **When to use:** fast CSV toolkit (slice, search, join, stats, 80+ commands) — actively-maintained `xsv` successor (`BurntSushi/xsv` archived 2025-04-24, `jqnatividad/qsv` is the active fork).
@@ -326,7 +326,7 @@ Install commands:
 | `difftastic` | `brew install difftastic` | `cargo install difftastic` |
 | `docker` | `brew install --cask docker` | `apt install docker.io` |
 | `duckdb` | `brew install duckdb` | download from https://duckdb.org/ |
-| `glab` | `brew install glab` | `apt install glab` (or GitLab release) |
+| `glab` | `brew install glab` | `snap install glab` (only in Ubuntu universe 24.04+; or GitLab release `.deb`) |
 | `httpie` | `brew install httpie` | `snap install httpie` (or `pipx install httpie`) |
 | `lazygit` | `brew install lazygit` | `apt install lazygit` |
 | `llm` | `brew install llm` | `pipx install llm` |

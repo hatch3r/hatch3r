@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 6,
     "githubAgents": 4,
-    "testFiles": 221
+    "testFiles": 224
   },
   "files": {
     "adapters": [
@@ -426,6 +426,7 @@
       "scripts/__tests__/validate-control-reachability.test.ts",
       "scripts/__tests__/validate-efficiency-invariants.test.ts",
       "scripts/__tests__/validate-fanout-emission.test.ts",
+      "scripts/__tests__/validate-governance-total.test.ts",
       "scripts/__tests__/validate-lean-threshold-currency.test.ts",
       "scripts/__tests__/validate-modes-parity.test.ts",
       "scripts/__tests__/validate-pillar-currency.test.ts",
@@ -436,6 +437,7 @@
       "scripts/__tests__/validate-rule-pillar-currency.test.ts",
       "scripts/__tests__/validate-severity-vocabulary.test.ts",
       "scripts/__tests__/validate-specialist-roster.test.ts",
+      "scripts/__tests__/validate-trust-crosswalk-citations.test.ts",
       "scripts/__tests__/validate-verify-gate-literals.test.ts",
       "scripts/__tests__/validate-wiring.test.ts",
       "src/__tests__/adapters/base.test.ts",
@@ -550,6 +552,7 @@
       "src/__tests__/detect/installContext.test.ts",
       "src/__tests__/detect/projectType.test.ts",
       "src/__tests__/detect/repoAnalyzer.test.ts",
+      "src/__tests__/detect/stackSupport.test.ts",
       "src/__tests__/detect/verificationGates.test.ts",
       "src/__tests__/e2e/cliFlow.test.ts",
       "src/__tests__/e2e/costTelemetryWire.test.ts",

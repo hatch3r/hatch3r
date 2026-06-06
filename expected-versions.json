@@ -1,0 +1,30 @@
+{
+  "$comment": "D15-30 (Cycle 11, Medium): version source-of-truth for the External-Framework Crosswalk in governance/audit/domains/D15-trust-reference.md. The trust-model-audit.yml 'Trust reference doc currency' step asserts, per entry, that `expectedRegex` matches the doc AND no `staleRegex` predecessor string appears. Regex (not exact substring) so a wording refresh of the citation does not red the gate, while a version bump does. Bump an entry here when a cited framework publishes a new version and the crosswalk is updated to match; the gate then fails until the doc and this file agree. Sources + access dates live in the doc's footnote ([a]-[d]).",
+  "doc": "governance/audit/domains/D15-trust-reference.md",
+  "frameworks": [
+    {
+      "id": "owasp-asi",
+      "label": "OWASP Top 10 for Agentic Applications",
+      "expectedRegex": "Top 10 for Agentic Applications 2026",
+      "staleRegex": "Top 10 for (Agentic Applications|LLM Applications) 202[0-5]\\b"
+    },
+    {
+      "id": "nist-ai-rmf-agentic",
+      "label": "NIST AI RMF Agentic Profile (CSA Labs draft)",
+      "expectedRegex": "agentic-nist-ai-rmf-profile-v1|Agentic Profile[^\\n]*\\bv1\\b",
+      "staleRegex": "agentic-nist-ai-rmf-profile-v0|Agentic Profile[^\\n]*\\bv0\\b"
+    },
+    {
+      "id": "anthropic-rsp",
+      "label": "Anthropic Responsible Scaling Policy",
+      "expectedRegex": "(RSP|Responsible Scaling Policy) v3\\.3\\b",
+      "staleRegex": "(RSP|Responsible Scaling Policy) v([0-2]\\.[0-9]+|3\\.[0-2])\\b"
+    },
+    {
+      "id": "microsoft-agt",
+      "label": "Microsoft Agent Governance Toolkit",
+      "expectedRegex": "Agent Governance Toolkit",
+      "staleRegex": "Agent Governance Toolkit v0\\b"
+    }
+  ]
+}
