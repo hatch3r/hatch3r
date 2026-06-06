@@ -12,10 +12,12 @@ import {
   enforceReviewIteration,
   assertReviewIterationAllowed,
   evaluateReviewGate,
+  confidenceExplanation,
   CALIBRATION,
   DEFAULT_MAX_REVIEW_ITERATIONS,
   HARD_MAX_REVIEW_ITERATIONS,
   MIN_MAX_REVIEW_ITERATIONS,
+  type ReviewConfidenceLevel,
   type ReviewVerdict,
 } from "../../pipeline/reviewLoop.js";
 import { HatchError } from "../../types.js";
@@ -891,5 +893,133 @@ describe("evaluateReviewGate (C8-D13-M1)", () => {
       const r = evaluateReviewGate({ severityCount: clean, confidence: "high", iterationBudgetRemaining: 2 });
       expect(r.reason).toContain("verdict independence not declared");
     });
+  });
+
+  describe("D13-3: confidence floor (D13-SA13.3-F13.3.3)", () => {
+    // The four core orchestrators document a `--confidence-floor` knob that
+    // tightens the clean-verdict gate; before D13-3 `ReviewGateInput` carried
+    // no `confidenceFloor` field so the gate could not express the behaviour
+    // the command bodies describe. This matrix pins the decision for every
+    // floor × confidence cell with iteration budget remaining (so the
+    // below-floor path resolves to second_pass, not escalate).
+    type Floor = "any" | "medium" | "high";
+    type Conf = "high" | "medium" | "low" | "unknown";
+    const cell = (floor: Floor, confidence: Conf) =>
+      evaluateReviewGate({
+        severityCount: clean,
+        confidence,
+        iterationBudgetRemaining: 2,
+        confidenceFloor: floor,
+      });
+
+    // [floor, confidence, expected decision with budget remaining]
+    const MATRIX: ReadonlyArray<[Floor, Conf, "pass" | "second_pass"]> = [
+      // floor "any" — pre-D13-3 behaviour: high/medium pass, low/unknown retry
+      ["any", "high", "pass"],
+      ["any", "medium", "pass"],
+      ["any", "low", "second_pass"],
+      ["any", "unknown", "second_pass"],
+      // floor "medium" — same decision surface as "any" at the aggregate input
+      ["medium", "high", "pass"],
+      ["medium", "medium", "pass"],
+      ["medium", "low", "second_pass"],
+      ["medium", "unknown", "second_pass"],
+      // floor "high" — medium no longer passes; only high passes
+      ["high", "high", "pass"],
+      ["high", "medium", "second_pass"],
+      ["high", "low", "second_pass"],
+      ["high", "unknown", "second_pass"],
+    ];
+
+    for (const [floor, confidence, expected] of MATRIX) {
+      it(`floor "${floor}" + confidence "${confidence}" -> ${expected}`, () => {
+        const r = cell(floor, confidence);
+        expect(r.decision).toBe(expected);
+        // Every gate result echoes the floor it evaluated under.
+        expect(r.reason).toContain(`floor "${floor}"`);
+      });
+    }
+
+    it("defaults to floor 'any' when confidenceFloor is omitted (backward compatible)", () => {
+      // medium confidence passes under the default floor exactly as it did
+      // before D13-3 added the field.
+      const omitted = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "medium",
+        iterationBudgetRemaining: 2,
+      });
+      const explicitAny = cell("any", "medium");
+      expect(omitted.decision).toBe("pass");
+      expect(omitted.decision).toBe(explicitAny.decision);
+      expect(omitted.reason).toContain('floor "any"');
+    });
+
+    it("floor 'high' tightens medium to second_pass — the distinct D13-3 behaviour", () => {
+      // The single cell that differs between floor "any"/"medium" and "high":
+      // a clean verdict at medium confidence is acceptable under the looser
+      // floors but forces another reviewer pass under "high".
+      expect(cell("any", "medium").decision).toBe("pass");
+      expect(cell("medium", "medium").decision).toBe("pass");
+      expect(cell("high", "medium").decision).toBe("second_pass");
+    });
+
+    it("floor 'high' + medium confidence escalates when iteration budget is exhausted", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "medium",
+        iterationBudgetRemaining: 0,
+        confidenceFloor: "high",
+      });
+      expect(r.decision).toBe("escalate");
+      expect(r.reason).toContain('floor "high"');
+    });
+
+    it("the floor never relaxes the Critical/Warning fail gates", () => {
+      // Even at the loosest floor, a Warning still fails; the floor only adds
+      // second-pass pressure on otherwise-clean verdicts.
+      const r = evaluateReviewGate({
+        severityCount: { critical: 0, warning: 1, suggestion: 0 },
+        confidence: "high",
+        iterationBudgetRemaining: 5,
+        confidenceFloor: "any",
+      });
+      expect(r.decision).toBe("fail");
+      expect(r.reason).toContain("Warning");
+    });
+  });
+});
+
+describe("confidenceExplanation rule parity (Finding D13-2 / D13-SA13.2-F2)", () => {
+  // Before D13-2 the three confidence-to-action strings were reachable only
+  // from a unit test — referenced by zero prompt artifacts, emitted to no user.
+  // The fix moved the canonical text into the user-facing iteration-summary
+  // rule (the §5 Confidence-line guidance every orchestrator appends). This
+  // guard asserts the typed accessor stays byte-identical to the rule body, so
+  // the strings can never silently drift apart or fall back to test-only reach.
+  const repoRoot = process.cwd();
+  const levels: ReviewConfidenceLevel[] = ["high", "medium", "low"];
+
+  it.each(["rules/hatch3r-iteration-summary.md", "rules/hatch3r-iteration-summary.mdc"])(
+    "%s contains every confidenceExplanation string verbatim under the Confidence-to-Action Mapping section",
+    (rulePath) => {
+      const body = readFileSync(join(repoRoot, rulePath), "utf-8");
+      expect(
+        body,
+        `${rulePath} must carry the canonical confidence-to-action mapping (D13-2)`,
+      ).toContain("Confidence-to-Action Mapping (D13)");
+      for (const level of levels) {
+        const text = confidenceExplanation(level);
+        expect(
+          body,
+          `${rulePath} is missing the ${level} confidence-to-action string "${text}" — the rule and confidenceExplanation() have drifted (D13-2).`,
+        ).toContain(text);
+      }
+    },
+  );
+
+  it("confidenceExplanation returns a distinct non-empty string per level", () => {
+    const seen = new Set(levels.map((l) => confidenceExplanation(l)));
+    expect(seen.size).toBe(levels.length);
+    for (const text of seen) expect(text.length).toBeGreaterThan(0);
   });
 });

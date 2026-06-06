@@ -570,7 +570,7 @@ export const AVAILABLE_CLI_TOOLS = {
     // patched and regression-free per docs.docker.com/engine/release-notes/29.
     minVersion: ">=29.5.2",
     securityNote:
-      "CVE-2026-32288: Docker engine before 29.5.0 is vulnerable to a denial-of-service via a crafted image manifest. CVE-2026-41567 / CVE-2026-41568 / CVE-2026-42306 (Docker Engine <=29.5.0): docker cp can be coerced to execute container binaries as host root or write to arbitrary host paths via TOCTOU on bind mounts (fixed in 29.5.1; 29.5.2 fixes the 29.5.1 docker cp regression). Upgrade to 29.5.2 or later before pulling images from untrusted registries or invoking docker cp on untrusted container filesystems. Unsigned install channel (runs as root): the linux `curl -fsSL https://get.docker.com | sudo sh` recipe has no signature or checksum gate — prefer Docker's signed apt repository per https://docs.docker.com/engine/install/ubuntu/ (adds download.docker.com with a signed-by GPG key) or the signed brew (mac) / winget (win) channels.",
+      "CVE-2026-32288: Docker engine before 29.5.0 is vulnerable to a denial-of-service via a crafted image manifest. CVE-2026-34040 (GHSA-x744-4wpc-v9h2, HIGH/8.8 authorization-bypass; OSV serves this as Go record GO-2026-4887 without a numeric severity, so the CLI CVE gate surfaces it under 'unscored advisories — manual review' rather than as a scored HIGH). CVE-2026-41567 / CVE-2026-41568 / CVE-2026-42306 (Docker Engine <=29.5.0): docker cp can be coerced to execute container binaries as host root or write to arbitrary host paths via TOCTOU on bind mounts (fixed in 29.5.1; 29.5.2 fixes the 29.5.1 docker cp regression). Upgrade to 29.5.2 or later before pulling images from untrusted registries or invoking docker cp on untrusted container filesystems. Unsigned install channel (runs as root): the linux `curl -fsSL https://get.docker.com | sudo sh` recipe has no signature or checksum gate — prefer Docker's signed apt repository per https://docs.docker.com/engine/install/ubuntu/ (adds download.docker.com with a signed-by GPG key) or the signed brew (mac) / winget (win) channels.",
     homepage: "https://docs.docker.com/get-docker/",
   },
   llm: {
@@ -585,6 +585,16 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "pipx", command: "pipx install llm" }],
       win: [{ manager: "pipx", command: "pipx install llm" }],
     },
+    // Cycle 11 D15-SA15.7-F3: `llm --functions` executes arbitrary Python by
+    // design (GHSA-g76p-4vg5-f4qh, CRITICAL code-injection with no upstream
+    // fix). An autonomous agent will not independently know the flag runs
+    // arbitrary code, so the caution is surfaced here (the standalone-skill
+    // renderer + installer emit `securityNote`) instead of living only in a
+    // maintainer-only CI script. OSV lists no upstream fix; the CLI CVE gate
+    // acknowledges this advisory (ACKNOWLEDGED_ADVISORIES + VACUOUS_ACK) so it
+    // is reported, never gating.
+    securityNote:
+      "GHSA-g76p-4vg5-f4qh (CRITICAL, by-design): `llm --functions` executes arbitrary Python supplied on the command line — never pass untrusted or agent-fetched content (file contents, web responses, tool output) to `llm --functions`. There is no upstream fix; the flag is intended for trusted, user-authored code only. Plain prompting (`llm -t <template>`, `llm < file`) does not execute code and is unaffected.",
     homepage: "https://llm.datasette.io/",
   },
   fzf: {
@@ -763,7 +773,7 @@ export const AVAILABLE_CLI_TOOLS = {
     // single securityNote with the explicit `Windows only` prefix.
     minVersion: "5.8.2",
     securityNote:
-      "CVE-2026-33414 (Windows only): Podman before 5.8.2 is vulnerable to PowerShell command injection in `podman machine init --image` on the Hyper-V backend, allowing Hyper-V VM escape. Upgrade to 5.8.2 or later on Windows; mac and linux builds are unaffected.",
+      "CVE-2026-33414 (Windows only): Podman before 5.8.2 is vulnerable to PowerShell command injection in `podman machine init --image` on the Hyper-V backend, allowing Hyper-V VM escape. Upgrade to 5.8.2 or later on Windows; mac and linux builds are unaffected. CVE-2024-3056 (GHSA-rpcc-p8xm-rc6p, Pasta DNS resolver) and CVE-2025-4953 (GHSA-m68q-4hqr-mc6f, memory corruption in netavark) are served by OSV as Go records without a numeric severity, so the CLI CVE gate surfaces them under 'unscored advisories — manual review' rather than as scored findings — both are fixed at or below the pinned 5.8.2 floor.",
     homepage: "https://podman.io/",
   },
   dasel: {

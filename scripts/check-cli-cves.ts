@@ -105,6 +105,22 @@ export interface VulnerabilityFinding {
   acknowledged: boolean;
 }
 
+/**
+ * An OSV record whose severity could not be scored — `normalizeSeverity`
+ * returned UNKNOWN because the record carried neither `database_specific.severity`
+ * nor a parseable numeric CVSS base. Common for Go-ecosystem `GO-####` records
+ * (the docker/podman/dasel blind spot, SA15.7-F1). Surfaced for manual review
+ * so an unscored HIGH is never silently dropped, but non-gating (an UNKNOWN
+ * severity is not a Critical/High signal).
+ */
+export interface UnscoredAdvisory {
+  target: CliToolTarget;
+  id: string;
+  summary: string;
+  publishedISO?: string;
+  ageDays?: number;
+}
+
 /** A tool exempted from OSV scanning, paired with its documented reason. */
 export interface ExemptedTool {
   meta: CliToolMeta;
@@ -124,6 +140,15 @@ export interface CheckReport {
   unmapped: CliToolMeta[];
   /** Tools intentionally not OSV-scanned (documented in SCAN_EXEMPT_TOOLS). */
   exempted: ExemptedTool[];
+  /**
+   * OSV records that returned but could not be severity-scored (UNKNOWN) —
+   * the GO-record blind spot (SA15.7-F1). Surfaced for manual review so an
+   * unscored HIGH is never silently dropped; non-gating (UNKNOWN is not a
+   * Critical/High signal). A non-empty list for an advisory-citing tool is the
+   * "queried but coordinate/severity unconfirmed" signal that distinguishes a
+   * wrong-coordinate or unscored result from a genuinely clean one (SA21.7-F3).
+   */
+  unscoredAdvisories: UnscoredAdvisory[];
   /**
    * CD11 fail-closed guard. Targets whose `securityNote` cites a concrete
    * advisory id (CVE/GHSA) yet whose OSV query returned zero Critical/High
@@ -215,21 +240,32 @@ const ECOSYSTEM_OVERRIDES: Record<string, { ecosystem: string; name: string }> =
   aichat: { ecosystem: "crates.io", name: "aichat" },
 
   // Go-source tools.
+  // Go-module OSV coordinates MUST carry the upstream module's major-version
+  // suffix (`/vN`) once the module is on v2+ — OSV.dev keys post-v1 Go modules
+  // by the import path including `/vN` (semantic-import-versioning), so a base
+  // path silently matches only the v0/v1 record set and drops the vN advisory
+  // cluster (D21-SA21.3-F1 / SA21.7-F3, dasel + yq). Every entry below was
+  // re-checked against pkg.go.dev for its current major: gh (cli/cli is still
+  // v2 but publishes under the bare module path), glab, fzf, mods, lazygit,
+  // duckdb, moby/moby (v1 path) carry no `/vN`; dasel (v3), yq (v4),
+  // podman (v5), miller (v6) do.
   fzf: { ecosystem: "Go", name: "github.com/junegunn/fzf" },
   gh: { ecosystem: "Go", name: "github.com/cli/cli" },
   glab: { ecosystem: "Go", name: "gitlab.com/gitlab-org/cli" },
-  yq: { ecosystem: "Go", name: "github.com/mikefarah/yq" },
-  dasel: { ecosystem: "Go", name: "github.com/tomwright/dasel" },
+  yq: { ecosystem: "Go", name: "github.com/mikefarah/yq/v4" },
+  dasel: { ecosystem: "Go", name: "github.com/tomwright/dasel/v3" },
   duckdb: { ecosystem: "Go", name: "github.com/duckdb/duckdb" },
   lazygit: { ecosystem: "Go", name: "github.com/jesseduffield/lazygit" },
-  // docker + podman: their real HIGH advisories — docker CVE-2026-34040
-  // (GHSA-x744-4wpc-v9h2); podman CVE-2024-3056 (GHSA-rpcc-p8xm-rc6p) and
-  // CVE-2025-4953 (GHSA-m68q-4hqr-mc6f) — are returned by OSV as Go-ecosystem
-  // (GO-####) records WITHOUT a numeric severity, so `normalizeSeverity`
-  // classifies them UNKNOWN and they are filtered out below. This is a known
-  // blind spot: these advisories have no upstream fix and are tracked instead
-  // in each tool's registry `securityNote`. Fixing `normalizeSeverity` to read
-  // GO-record severity is a separate follow-up, not handled here.
+  // docker + podman: several of their advisories arrive from OSV as
+  // Go-ecosystem `GO-####` records WITHOUT a numeric CVSS or
+  // `database_specific.severity`, so `normalizeSeverity` classifies them
+  // UNKNOWN. They never reach the Critical/High finding path. Rather than be
+  // dropped silently (the SA15.7-F1 blind spot), every UNKNOWN-severity record
+  // is now surfaced in `CheckReport.unscoredAdvisories` ("unscored — manual
+  // review required") so a GO-record HIGH (e.g. docker CVE-2026-34040 =
+  // GO-2026-4887, GHSA-x744-4wpc-v9h2) is visible for manual triage instead of
+  // vanishing. The fixed-at-the-pin status is tracked in VACUOUS_ACK and the
+  // CVE ids are cited in each tool's registry `securityNote`.
   docker: { ecosystem: "Go", name: "github.com/moby/moby" },
   podman: { ecosystem: "Go", name: "github.com/containers/podman/v5" },
   mods: { ecosystem: "Go", name: "github.com/charmbracelet/mods" },
@@ -240,11 +276,12 @@ const ECOSYSTEM_OVERRIDES: Record<string, { ecosystem: string; name: string }> =
   csvkit: { ecosystem: "PyPI", name: "csvkit" },
   llm: { ecosystem: "PyPI", name: "llm" },
   httpie: { ecosystem: "PyPI", name: "httpie" },
-  // az-devops maps to the `azure-devops` PyPI extension package, NOT
-  // `azure-cli`: azure-cli carries a stale HIGH advisory and the registry pins
-  // the extension version (1.0.4), which does not exist on the azure-cli
-  // package, so querying azure-cli would version-mismatch and mis-report.
-  "az-devops": { ecosystem: "PyPI", name: "azure-devops" },
+  // az-devops is intentionally NOT mapped here — it is exempted in
+  // SCAN_EXEMPT_TOOLS (D21-SA21.5-F3). The az CLI azure-devops extension ships
+  // as an az `.whl`, not a public package; the unrelated PyPI `azure-devops`
+  // project is the 7.x Azure DevOps REST SDK (5.0.0b1..7.1.0b4, no 1.0.x), so
+  // querying it at the pinned extension version (1.0.4) version-mismatches and
+  // returns a vacuous clean result.
 
   // npm-distributed tools.
   playwright: { ecosystem: "npm", name: "@playwright/test" },
@@ -265,6 +302,13 @@ const ECOSYSTEM_OVERRIDES: Record<string, { ecosystem: string; name: string }> =
 const SCAN_EXEMPT_TOOLS: Record<string, string> = {
   rtk: "crates.io 'rtk' is an unrelated project; rtk-ai/rtk ships only via git/Homebrew/scoop install scripts — no OSV advisory package",
   comby: "comby-tools/comby ships only as a GitHub-release binary / opam — no npm/Go/PyPI/crates OSV advisory package",
+  // D21-SA21.5-F3: the az `azure-devops` CLI extension ships as an az `.whl`,
+  // not a public package. The PyPI `azure-devops` project is the unrelated 7.x
+  // Azure DevOps REST SDK (5.0.0b1..7.1.0b4, no 1.0.x), so a query pinned to
+  // the extension version (1.0.4) version-mismatches and returns a vacuous
+  // clean result. Re-map (name AND an existing version) only if a real OSV
+  // coordinate for the extension is found.
+  "az-devops": "az `azure-devops` extension ships as an az `.whl`, not a public package; PyPI `azure-devops` is the unrelated 7.x Azure DevOps REST SDK — no version-matched OSV advisory coordinate",
 };
 
 /**
@@ -337,9 +381,15 @@ const VACUOUS_ACK: Record<string, { reason: string; addedISO: string; reviewBy: 
   },
   dasel: {
     reason:
-      "CVE-2026-46377/46378/33320 are all fixed in dasel 3.11.0; the registry pins minVersion >=3.11.0, so OSV correctly returns no Critical/High advisory for the pinned (patched) version.",
+      "CVE-2026-46377/46378/33320 are all fixed in dasel 3.11.0; the registry pins minVersion >=3.11.0 and the OSV coordinate carries the `/v3` major suffix, so OSV correctly returns no Critical/High advisory for the pinned (patched) version.",
     addedISO: "2026-06-05",
     reviewBy: "2026-09-05",
+  },
+  llm: {
+    reason:
+      "GHSA-g76p-4vg5-f4qh (`llm --functions` arbitrary-Python code-injection) is by-design with no upstream fix — also in ACKNOWLEDGED_ADVISORIES. OSV returns no scored Critical/High row for the PyPI `llm` package at any version, so a 0-row Critical/High result is the correct gate-clean outcome; the risk is surfaced verbatim in the registry securityNote and the cli-toolbox skill.",
+    addedISO: "2026-06-06",
+    reviewBy: "2026-09-01",
   },
 };
 
@@ -467,6 +517,7 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
   }
 
   const findings: VulnerabilityFinding[] = [];
+  const unscoredAdvisories: UnscoredAdvisory[] = [];
   const queryErrors: Array<{ target: CliToolTarget; reason: string }> = [];
   // CD11: track which advisory-citing targets actually produced a Critical/High
   // hit or a query error. An advisory-citing target that did neither returned a
@@ -489,6 +540,24 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
     const vulns = response.vulns ?? [];
     for (const v of vulns) {
       const severity = normalizeSeverity(v);
+      if (severity === "UNKNOWN") {
+        // SA15.7-F1: a returned record OSV could not score (no
+        // database_specific.severity, no parseable CVSS). Surface it for
+        // manual review instead of dropping it silently — a GO-record HIGH
+        // would otherwise vanish. Non-gating, but it is a real signal that the
+        // query hit something, so the target is not treated as a vacuous
+        // 0-row certification.
+        producedSignal.add(target.tool);
+        const unscoredPublishedISO = v.published ?? v.modified;
+        unscoredAdvisories.push({
+          target,
+          id: v.id,
+          summary: v.summary ?? "",
+          publishedISO: unscoredPublishedISO,
+          ageDays: daysSince(unscoredPublishedISO, now),
+        });
+        continue;
+      }
       if (!isCriticalOrHigh(severity)) continue;
       producedSignal.add(target.tool);
       const publishedISO = v.published ?? v.modified;
@@ -532,6 +601,7 @@ export async function checkCliCves(opts: RunOptions = {}): Promise<CheckReport> 
     queryErrors,
     unmapped,
     exempted,
+    unscoredAdvisories,
     vacuousCertifications,
     acknowledgedVacuous,
   };
@@ -546,6 +616,7 @@ export function formatTextReport(report: CheckReport, now: Date = new Date()): s
   lines.push(`  Critical/High findings: ${report.findings.length}`);
   lines.push(`  stale (>${report.maxAgeDays} days): ${report.staleFindings.length}`);
   lines.push(`  acknowledged (reported, not gating): ${report.acknowledgedFindings.length}`);
+  lines.push(`  unscored advisories (UNKNOWN severity, manual review, not gating): ${report.unscoredAdvisories.length}`);
   lines.push(`  vacuous certifications (advisory-citing tool, 0 OSV hits, gating): ${report.vacuousCertifications.length}`);
   lines.push(`  acknowledged vacuous (advisory-citing, expected 0 OSV hits, not gating): ${report.acknowledgedVacuous.length}`);
   lines.push(`  unmapped registry entries: ${report.unmapped.length}`);
@@ -581,6 +652,19 @@ export function formatTextReport(report: CheckReport, now: Date = new Date()): s
     lines.push("  OSV.dev query errors (treated as warnings, not gate failures):");
     for (const qe of report.queryErrors) {
       lines.push(`    - ${qe.target.tool}: ${qe.reason}`);
+    }
+  }
+  if (report.unscoredAdvisories.length > 0) {
+    lines.push("");
+    lines.push(
+      "  Unscored advisories (OSV returned a record with no severity — manual review required; not gating; common for Go GO-#### records, the docker/podman/dasel blind spot):",
+    );
+    for (const u of report.unscoredAdvisories) {
+      const age = u.ageDays !== undefined ? `${u.ageDays}d` : "age unknown";
+      lines.push(
+        `    [review] ${u.id}  ${u.target.tool} (${u.target.ecosystem}/${u.target.name}@${u.target.version ?? "unpinned"}) (${age})`,
+      );
+      if (u.summary) lines.push(`             ${u.summary}`);
     }
   }
   if (report.vacuousCertifications.length > 0) {

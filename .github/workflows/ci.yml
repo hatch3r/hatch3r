@@ -281,19 +281,22 @@ jobs:
         run: npm run inventory:check-docs
 
       # Cycle 11 D16-1 (Critical, CI enforcement keystone): package.json
-      # `validate` chains 8 content/governance gates (rule-parity, efficiency,
-      # cli-skills, wiring, anti-slop, specialist-roster, severity-vocabulary,
-      # canonical), but only 3 of them (rule-parity, wiring, specialist-roster)
-      # previously ran in this workflow — the other 5 (efficiency, cli-skills,
-      # anti-slop, severity-vocabulary, canonical) ran in no CI step, so content
-      # and governance enforcement was honor-system on PRs. This single umbrella
-      # step runs the full 8-gate `npm run validate` and supersedes the three
-      # former standalone validator steps (no double-running). Each gate runs via
-      # `tsx` against source, so no built dist/ is required; the step is gated to
-      # the canonical Linux/Node-22 matrix entry like the other single-run
-      # content gates. Branch-protection note: making this a required PR status
-      # check on main is the human-only follow-up (settings -> branches ->
-      # require-status-check on the build job for the canonical matrix entry).
+      # `validate` chains 10 content/governance gates (rule-parity, efficiency,
+      # cli-skills, wiring, control-reachability, anti-slop, specialist-roster,
+      # severity-vocabulary, canonical, adapter-parity), but only 3 of them
+      # (rule-parity, wiring, specialist-roster) previously ran in this workflow —
+      # the rest ran in no CI step, so content and governance enforcement was
+      # honor-system on PRs. This single umbrella step runs the full `npm run
+      # validate` chain and supersedes the former standalone validator steps (no
+      # double-running). control-reachability (Cycle 11 D16-3) parses each
+      # control-status doc's Enforcement column and fails CI when a module
+      # labelled runtime-CLI is not reachable from the CLI entry point — the
+      # doc-honesty gate for the "documented-but-unwired control" pattern. Each
+      # gate runs via `tsx` against source, so no built dist/ is required; the
+      # step is gated to the canonical Linux/Node-22 matrix entry like the other
+      # single-run content gates. Branch-protection note: making this a required
+      # PR status check on main is the human-only follow-up (settings -> branches
+      # -> require-status-check on the build job for the canonical matrix entry).
       - name: Content + governance validation gates
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         run: npm run validate

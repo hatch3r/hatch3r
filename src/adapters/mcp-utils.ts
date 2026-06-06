@@ -220,6 +220,13 @@ const ALLOWED_COMMANDS = new Set([
   "bunx",
   "pnpm",
   "yarn",
+  // D11-8 (Cycle 11, P3/P6): the GitLab CLI launched as a local system
+  // binary for the canonical `gitlab` MCP server (`glab mcp serve`). It is
+  // not an on-demand fetch launcher (it runs an installed binary, like
+  // `docker`/`go`/`cargo` above), so it carries no version-pin gate — it is
+  // allowlisted so the bundled config does not self-emit a false
+  // "unrecognized command" warning.
+  "glab",
 ]);
 
 const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
@@ -445,7 +452,7 @@ export function validateMcpEntry(
           launcher,
         );
         if (launcherPkg) {
-          const pinWarning = checkVersionPin(name, launcherPkg);
+          const pinWarning = checkVersionPin(name, launcherPkg, launcher);
           if (pinWarning) warnings.push(pinWarning);
         }
       }
@@ -487,7 +494,8 @@ export function validateMcpEntry(
 }
 
 /**
- * Check whether an `npx`-launched package argument carries an immutable version pin.
+ * Check whether an on-demand-fetch-launched package argument carries an
+ * immutable version pin.
  *
  * Returns a warning string when the package is unpinned (no `@version` suffix) or
  * pinned to a mutable tag (`@latest`); returns `null` for any other case (a
@@ -497,11 +505,26 @@ export function validateMcpEntry(
  * Handles both unscoped (`pkg-name`) and scoped (`@scope/pkg`) package arguments
  * by detecting the package version separator after the optional scope prefix.
  *
- * Origin: C7-H6 (D15 / Pillar P6). See call site in `validateMcpEntry`.
+ * `launcher` names the on-demand fetch launcher that triggered the check (one of
+ * {@link ON_DEMAND_FETCH_LAUNCHERS}); it defaults to `"npx"` for backward
+ * compatibility with the original npm-only gate. D11-8 (Cycle 11, P3/P6): the
+ * advice is launcher-aware and does not assert that the package is
+ * npm-registry-resolvable. The bundled `gitlab` entry exposed the failure mode —
+ * its old `npx -y glab` form pointed at a bare name (`glab`) that is the GitLab
+ * CLI Go binary, not an npm package, so the prior hardcoded "pin glab@<version>"
+ * advice was unsatisfiable (pinning `glab@1.0.2` would have installed the
+ * unrelated, since-unpublished 2017 npm package). The message now offers two
+ * exits — pin a published version of THIS launcher's registry, or switch to the
+ * correct package/launcher — so it stays actionable for uvx/pipx/bunx/pnpm dlx/
+ * yarn dlx packages and for entries whose package is not on npm at all.
+ *
+ * Origin: C7-H6 (D15 / Pillar P6); advice corrected under D11-8 (Cycle 11). See
+ * call site in `validateMcpEntry`.
  */
 export function checkVersionPin(
   serverName: string,
   pkgArg: string,
+  launcher: (typeof ON_DEMAND_FETCH_LAUNCHERS)[number] = "npx",
 ): string | null {
   // Skip non-package args: tarballs, git URLs, file paths.
   if (
@@ -527,11 +550,17 @@ export function checkVersionPin(
   // Unpinned: no `@version` suffix. `@latest` is also unpinned because it is
   // a mutable tag that resolves to the newest published version on each launch.
   if (versionSpec === "" || versionSpec === "latest") {
+    const baseName = pkgArg.slice(
+      0,
+      versionAt > 0 ? versionAt : pkgArg.length,
+    );
     return (
-      `MCP server "${serverName}" uses npx -y with unpinned package "${pkgArg}". ` +
+      `MCP server "${serverName}" uses ${launcher} with unpinned package "${pkgArg}". ` +
       `Unpinned packages download the latest version on every invocation, exposing ` +
       `the agent to supply chain compromise (e.g., 2025 npm maintainer-account incidents). ` +
-      `Add an immutable version pin: "${pkgArg.slice(0, versionAt > 0 ? versionAt : pkgArg.length)}@<version>".`
+      `Pin a published version ("${baseName}@<version>"), or — if "${baseName}" is not a ` +
+      `package on ${launcher}'s registry — switch to the correct package or a system-CLI ` +
+      `command instead of the ${launcher} launcher.`
     );
   }
 

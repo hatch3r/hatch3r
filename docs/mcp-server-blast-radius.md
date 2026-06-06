@@ -156,12 +156,13 @@ The canonical entry targets the live remote endpoint `https://api.githubcopilot.
 - **Blast Radius**: Critical
 - **Capabilities**: Database queries, schema inspection
 - **Required Env**: `POSTGRES_URL`
+- **Server choice**: The archived `@modelcontextprotocol/server-postgres` (deprecated on npm; Anthropic archived it 2025-05-29) is NOT used — Datadog documented a SQL-injection in it that bypasses the server's own read-only restriction, so a database-side read-only user is not sufficient protection on that server. The canonical pack pins the maintained `@henkey/postgres-mcp-server` instead. If you supply your own PostgreSQL MCP server, confirm it is currently maintained and not on the deprecated/archived list.
 - **Risk Surface**:
   - Direct database access — can read, modify, or delete data
   - Connection string contains credentials
-  - SQL injection risk if queries are constructed from agent input
+  - SQL injection risk if queries are constructed from agent input — and a server-level read-only flag can be bypassed by an injection bug in the server itself (the archived `server-postgres` CVE), so do not treat any single server-side restriction as the only line of defense
 - **Mitigation**:
-  - Use a read-only database user for the MCP connection
+  - Scope access at the database, not just the server: connect with a role granted only `SELECT` on the specific schemas the agent needs (defense in depth that survives a server-side read-only bypass)
   - Never connect to production databases
   - Use connection pooling with query timeouts
   - Log all queries executed through the MCP server

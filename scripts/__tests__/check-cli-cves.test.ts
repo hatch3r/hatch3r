@@ -78,7 +78,7 @@ function fakeFetcher(
 // ── mapToolToOsvTarget (Part 2 mappings) ──────────────────────────
 
 describe("mapToolToOsvTarget", () => {
-  it("maps the 6 newly-added tools to their OSV ecosystems", () => {
+  it("maps the newly-added Go tools to their OSV ecosystems", () => {
     expect(mapToolToOsvTarget(meta("docker"))).toMatchObject({
       ecosystem: "Go",
       name: "github.com/moby/moby",
@@ -99,14 +99,31 @@ describe("mapToolToOsvTarget", () => {
       ecosystem: "Go",
       name: "github.com/dagger/container-use",
     });
-    expect(mapToolToOsvTarget(meta("az-devops"))).toMatchObject({
-      ecosystem: "PyPI",
-      name: "azure-devops",
-    });
+    // az-devops is intentionally NOT mapped — see the SCAN_EXEMPT_TOOLS test
+    // below (D21-SA21.5-F3); the PyPI `azure-devops` package is the unrelated
+    // 7.x SDK, not the az `.whl` extension.
   });
 
   it("returns null for an unknown tool with no override", () => {
     expect(mapToolToOsvTarget(meta("totally-unknown-tool"))).toBeNull();
+  });
+
+  it("(D21-SA21.3-F1) maps Go modules on v2+ to a `/vN` major-version-suffixed coordinate", () => {
+    // A base Go-module path silently matches only the v0/v1 record set on
+    // OSV.dev, dropping the post-v1 advisory cluster. dasel (v3) + yq (v4)
+    // MUST carry the major suffix.
+    expect(mapToolToOsvTarget(meta("dasel"))?.name).toBe("github.com/tomwright/dasel/v3");
+    expect(mapToolToOsvTarget(meta("dasel"))?.name.endsWith("/v3")).toBe(true);
+    expect(mapToolToOsvTarget(meta("yq"))?.name).toBe("github.com/mikefarah/yq/v4");
+    // podman (v5) + miller (v6) were already suffixed — re-assert to lock it.
+    expect(mapToolToOsvTarget(meta("podman"))?.name.endsWith("/v5")).toBe(true);
+    expect(mapToolToOsvTarget(meta("miller"))?.name.endsWith("/v6")).toBe(true);
+  });
+
+  it("(D21-SA21.5-F3) az-devops is no longer an ECOSYSTEM_OVERRIDES target (it is exempt)", () => {
+    // az-devops must NOT map to a queryable OSV target — the PyPI azure-devops
+    // package is the unrelated 7.x SDK, not the az `.whl` extension.
+    expect(mapToolToOsvTarget(meta("az-devops"))).toBeNull();
   });
 
   it("sets citesAdvisoryId from the securityNote's advisory id (CD11 classifier)", () => {
@@ -262,6 +279,58 @@ describe("checkCliCves", () => {
     expect(report.targets).toHaveLength(0);
     expect(report.exempted).toHaveLength(0);
     expect(bodies).toHaveLength(0);
+  });
+
+  it("(D21-SA21.5-F3) az-devops lands in `exempted`, never in `targets`/`unmapped`, and is never queried", async () => {
+    const { fetcher, bodies } = fakeFetcher([]);
+    const report = await checkCliCves({
+      registry: { "az-devops": meta("az-devops", { category: "forge", minVersion: "1.0.4" }) },
+      fetcher,
+      now: () => NOW,
+    });
+    expect(report.exempted.map((e) => e.meta.id)).toContain("az-devops");
+    expect(report.exempted.find((e) => e.meta.id === "az-devops")?.reason).toMatch(
+      /azure-devops|\.whl|REST SDK/i,
+    );
+    expect(report.unmapped).toHaveLength(0);
+    expect(report.targets).toHaveLength(0);
+    // The exempt tool must never be queried (no version-mismatched vacuous clean).
+    expect(bodies).toHaveLength(0);
+  });
+
+  it("(D15-SA15.7-F1) an UNKNOWN-severity OSV record is surfaced in `unscoredAdvisories`, not silently dropped", async () => {
+    // A Go GO-#### record arrives with no database_specific.severity and no
+    // parseable CVSS -> normalizeSeverity returns UNKNOWN. It must surface for
+    // manual review rather than vanish (the docker/podman/dasel blind spot).
+    const { fetcher } = fakeFetcher([
+      {
+        body: {
+          vulns: [
+            {
+              id: "GO-2026-4887",
+              summary: "docker authorization-bypass (CVE-2026-34040)",
+              published: "2026-05-01T00:00:00Z",
+              database_specific: {},
+            },
+          ],
+        },
+      },
+    ]);
+    const report = await checkCliCves({
+      registry: { docker: meta("docker", { securityNote: "CVE-2026-34040 / GO-2026-4887" }) },
+      maxAgeDays: 30,
+      fetcher,
+      now: () => NOW,
+    });
+    // Not a Critical/High finding, but not lost either.
+    expect(report.findings).toHaveLength(0);
+    expect(report.unscoredAdvisories).toHaveLength(1);
+    expect(report.unscoredAdvisories[0].id).toBe("GO-2026-4887");
+    expect(report.unscoredAdvisories[0].target.tool).toBe("docker");
+    expect(report.unscoredAdvisories[0].ageDays).toBe(33);
+    // An UNKNOWN record IS a signal (the query hit something) -> the
+    // advisory-citing target is NOT a vacuous 0-row certification.
+    expect(report.vacuousCertifications).toHaveLength(0);
   });
 
   it("does not flag a Moderate advisory (only Critical/High are findings)", async () => {
@@ -463,7 +532,7 @@ describe("checkCliCves", () => {
     ).toEqual([]);
     // The acknowledged set is exactly the documented CVE-citing tools.
     expect(report.acknowledgedVacuous.map((t) => t.tool).sort()).toEqual(
-      ["curl", "dasel", "docker", "gh", "podman"].sort(),
+      ["curl", "dasel", "docker", "gh", "llm", "podman"].sort(),
     );
   });
 });
@@ -513,6 +582,7 @@ function report(overrides: Partial<CheckReport> = {}): CheckReport {
     queryErrors: [],
     unmapped: [],
     exempted: [],
+    unscoredAdvisories: [],
     vacuousCertifications: [],
     acknowledgedVacuous: [],
     ...overrides,
@@ -602,6 +672,33 @@ describe("formatTextReport", () => {
     );
     expect(out).toMatch(/\[FAIL\] CRITICAL/);
     expect(out).toMatch(/older than 30 days/);
+  });
+
+  it("(D15-SA15.7-F1) renders the unscored-advisories review section with a [review] tag and no FAIL", () => {
+    const unscored = {
+      target: {
+        tool: "docker",
+        category: "container",
+        ecosystem: "Go",
+        name: "github.com/moby/moby",
+        version: "29.5.2",
+        citesAdvisoryId: true,
+      },
+      id: "GO-2026-4887",
+      summary: "docker authorization-bypass (CVE-2026-34040)",
+      publishedISO: "2026-05-01T00:00:00Z",
+      ageDays: 33,
+    };
+    const out = formatTextReport(
+      report({ targets: [unscored.target], unscoredAdvisories: [unscored] }),
+      NOW,
+    );
+    expect(out).toMatch(/unscored advisories \(UNKNOWN severity, manual review, not gating\): 1/);
+    expect(out).toMatch(/Unscored advisories \(OSV returned a record with no severity/);
+    expect(out).toMatch(/\[review\] GO-2026-4887  docker \(Go\/github\.com\/moby\/moby@29\.5\.2\) \(33d\)/);
+    // Manual-review surfacing is not a gate failure.
+    expect(out).not.toMatch(/\[FAIL\]/);
+    expect(out).not.toMatch(/gate FAILS closed/);
   });
 
   it("(CD11) renders the vacuous-certification FAIL section and a fail-closed gate line", () => {

@@ -8,8 +8,15 @@
 // every user and (b) opens a dependency-confusion window: `-y` auto-installs
 // and executes whatever an attacker re-registers under `glab`, an npx-time RCE
 // with editor privileges. The fix moves `gitlab` to the local-CLI launcher
-// form `{ "command": "glab", "args": ["mcp"] }` (matches docs/mcp-setup.md
-// "GitLab token scopes" -> `glab mcp`), so npx never resolves the bare name.
+// form `{ "command": "glab", "args": ["mcp", "serve"] }`, so npx never resolves
+// the bare name.
+//
+// D11-8 (Cycle 11 Wave 2, High, P3/P6) advanced the subcommand from the bare
+// `["mcp"]` to `["mcp", "serve"]`: `glab mcp` is the parent command GROUP and
+// prints help without starting a server, whereas `glab mcp serve` is the stdio
+// MCP server entrypoint (https://docs.gitlab.com/cli/mcp/serve/, accessed
+// 2026-06-06). The Wave-1 npx-drop is unchanged; only the exact-args
+// expectation advances from the help-only form to the runnable server form.
 //
 // This loads the REAL bundled `mcp/mcp.json` (no fixtures, no mocks) per
 // CONSTITUTION §2 P2 Decision 20 (real-deal-first): a fixtures-only test would
@@ -65,9 +72,11 @@ describe("bundled mcp.json — dependency-confusion guard (D15-1)", () => {
     expect(gitlab, "gitlab server entry must exist in the bundled pack").toBeTruthy();
 
     // Root-cause assertion: gitlab must not use npx at all (the npx path is the
-    // dependency-confusion vector). It must use the local-CLI launcher form.
+    // dependency-confusion vector). It must use the local-CLI launcher form with
+    // the runnable `mcp serve` subcommand (bare `mcp` only prints help). See
+    // https://docs.gitlab.com/cli/mcp/serve/ (accessed 2026-06-06).
     expect(gitlab.command).toBe("glab");
-    expect(gitlab.args).toEqual(["mcp"]);
+    expect(gitlab.args).toEqual(["mcp", "serve"]);
 
     // Negative guard: there is no `npx ... glab` launcher anywhere in the entry.
     expect(gitlab.command).not.toBe("npx");
@@ -109,5 +118,31 @@ describe("bundled mcp.json — dependency-confusion guard (D15-1)", () => {
         .map((o) => `${o.name} -> npx ${o.target}`)
         .join(", ")}`,
     ).toEqual([]);
+  });
+
+  // D15-8 (Cycle 11 Wave 2, High, P3 MCP supply-chain currency): the `postgres`
+  // server previously pinned `@modelcontextprotocol/server-postgres@0.6.2`,
+  // which npm marks deprecated ("Package no longer supported"), Anthropic
+  // archived 2025-05-29, and Datadog documented a SQL-injection bypassing the
+  // read-only restriction. Even shipped `_disabled: true`, it is a first-class
+  // enable-on-demand default. Replaced with the maintained, non-deprecated
+  // `@henkey/postgres-mcp-server`. This static guard locks the root cause so a
+  // future edit cannot reintroduce the archived package name.
+  it("the postgres server does not pin the archived @modelcontextprotocol/server-postgres package", () => {
+    const servers = loadBundledMcpServers();
+    const postgres = servers.postgres;
+    expect(postgres, "postgres server entry must exist in the bundled pack").toBeTruthy();
+
+    const argStrings = Array.isArray(postgres.args)
+      ? (postgres.args as unknown[]).filter((a): a is string => typeof a === "string")
+      : [];
+    for (const arg of argStrings) {
+      const at = arg.startsWith("@") ? arg.indexOf("@", 1) : arg.indexOf("@");
+      const pkgName = at > 0 ? arg.slice(0, at) : arg;
+      expect(
+        pkgName,
+        `postgres launches \`${arg}\` — @modelcontextprotocol/server-postgres is deprecated/archived with a documented SQL-injection (Datadog); pin a maintained PostgreSQL MCP server instead`,
+      ).not.toBe("@modelcontextprotocol/server-postgres");
+    }
   });
 });

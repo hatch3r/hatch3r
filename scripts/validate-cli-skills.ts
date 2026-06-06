@@ -226,8 +226,75 @@ async function checkSkillsHaveRegistry(): Promise<Failure[]> {
 }
 
 /**
+ * Strip the leading semver range operators from a `minVersion` string so the
+ * bare version number can be matched against free-form toolbox prose. The
+ * toolbox writes floors in varied forms (`pin >=8.20.0`, `verify >=8.20.0`,
+ * `>=3.11.0`), so the gate asserts on the bare number (`8.20.0`), not the
+ * exact operator string.
+ */
+function bareVersion(minVersion: string): string {
+  return minVersion.replace(/^[><=~^\s]+/, "").trim();
+}
+
+/**
+ * Extract the CVE / GHSA advisory identifiers embedded in a registry
+ * `securityNote`. Returns an uppercased, de-duplicated list. An empty list
+ * means the note is an install-channel / peer-dep advisory that carries no
+ * advisory id (e.g. the unsigned-`curl | sh` notes), in which case the gate
+ * falls back to the keyword markers in `SECURITY_MARKER_KEYWORDS`.
+ */
+function securityNoteIdentifiers(note: string): string[] {
+  const matches = note.match(/\b(?:CVE-\d{4}-\d+|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})\b/gi) ?? [];
+  return [...new Set(matches.map((s) => s.toUpperCase()))];
+}
+
+/**
+ * Keyword markers that satisfy the security-surface assertion when a
+ * `securityNote` carries no CVE/GHSA id (install-channel + peer-dep notes).
+ * Lower-cased; matched against the lower-cased section body.
+ */
+const SECURITY_MARKER_KEYWORDS = [
+  "unsigned",
+  "signed channel",
+  "signed brew",
+  "signed winget",
+  "signed apt",
+  "caveat",
+  "peer-dep",
+  "peer dep",
+] as const;
+
+/**
+ * Return the body lines of the `### {id}` toolbox section, from the heading up
+ * to the next level-2 (`## `) or level-3 (`### `) heading. Level-4 (`#### `)
+ * sub-headings (the per-tool Sandbox-callout blocks) are part of the tool's
+ * section and are NOT treated as a boundary. Returns `null` when no `### {id}`
+ * heading is present.
+ */
+function toolboxSectionBody(toolboxBody: string, id: string): string | null {
+  const lines = toolboxBody.split("\n");
+  const esc = id.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&");
+  const startRe = new RegExp(`^###\\s+${esc}\\b`);
+  const startIdx = lines.findIndex((line) => startRe.test(line));
+  if (startIdx === -1) return null;
+  const collected: string[] = [];
+  for (let j = startIdx + 1; j < lines.length; j++) {
+    if (/^###\s+/.test(lines[j]) || /^##\s+/.test(lines[j])) break;
+    collected.push(lines[j]);
+  }
+  return collected.join("\n");
+}
+
+/**
  * Check 3: toolbox skill exists and contains a `### {id}` section for every
- * non-standalone registry tool.
+ * non-standalone registry tool. The section must also surface the registry's
+ * security posture (D15-10, SA15.7-F2): when a tool carries a `minVersion`
+ * floor the section must print the bare version number, and when it carries a
+ * `securityNote` the section must surface a security marker (a CVE/GHSA id
+ * from the note, or an unsigned-channel / peer-dep keyword). This is the
+ * single-source-of-truth parity gate that stops the registry's CVE floors and
+ * unsigned-channel warnings from silently dropping out of the agent-facing
+ * toolbox reference.
  */
 async function checkToolbox(): Promise<Failure[]> {
   const failures: Failure[] = [];
@@ -242,13 +309,43 @@ async function checkToolbox(): Promise<Failure[]> {
   }
   for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
     if (STANDALONE_TOOLS.has(meta.id)) continue;
-    const headingPattern = new RegExp(`^###\\s+${meta.id.replace(/[.*+?^${}()|[\\]\\\\]/g, "\\$&")}\\b`, "m");
-    if (!headingPattern.test(toolbox.body)) {
+    const section = toolboxSectionBody(toolbox.body, meta.id);
+    if (section === null) {
       failures.push({
         file: toolbox.path,
         reason: "toolbox missing tool section",
         detail: `toolbox must contain a "### ${meta.id}" section`,
       });
+      continue;
+    }
+    const sectionLower = section.toLowerCase();
+
+    if (meta.minVersion) {
+      const floor = bareVersion(meta.minVersion);
+      if (floor.length > 0 && !sectionLower.includes(floor.toLowerCase())) {
+        failures.push({
+          file: toolbox.path,
+          reason: "toolbox section missing version floor",
+          detail: `registry pins ${meta.id} minVersion=${JSON.stringify(meta.minVersion)} but the "### ${meta.id}" section does not surface the floor "${floor}" — add a version-floor line (e.g. "Version floor: >=${floor}") so the CVE floor reaches the agent-facing reference`,
+        });
+      }
+    }
+
+    if (meta.securityNote) {
+      const ids = securityNoteIdentifiers(meta.securityNote);
+      const hasId = ids.some((id) => sectionLower.includes(id.toLowerCase()));
+      const hasKeyword = SECURITY_MARKER_KEYWORDS.some((kw) => sectionLower.includes(kw));
+      if (!hasId && !hasKeyword) {
+        const expectation =
+          ids.length > 0
+            ? `surface one of its advisory ids (${ids.join(", ")})`
+            : `surface a security marker (one of: ${SECURITY_MARKER_KEYWORDS.join(", ")})`;
+        failures.push({
+          file: toolbox.path,
+          reason: "toolbox section missing security marker",
+          detail: `registry attaches a securityNote to ${meta.id} but the "### ${meta.id}" section does not ${expectation} — add a Security line summarising the registry note so the warning reaches the agent-facing reference`,
+        });
+      }
     }
   }
   return failures;

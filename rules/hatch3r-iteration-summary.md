@@ -49,6 +49,16 @@ Calibrate the fields to the triage tier (see `rules/hatch3r-deep-context`); sour
 - **Confidence + basis:** one of direct measurement | sampled observation | inference from analogue
 - **Consulted Learnings:** IDs of `.hatch3r/learnings/` entries the bound agents (implementer / reviewer / researcher / fixer) read this run per the `rules/hatch3r-learning-system.md` Mandatory Consultation Gate; `none` when INDEX.md is absent or zero `applies-to` rows matched. Distinct from §9 Learnings Captured (entries written this run). Citing zero when `applies-to` matched is a gate failure.
 
+## Confidence-to-Action Mapping (D13)
+
+When a review loop ran this turn, the §5 Confidence line MUST append the action guidance for the loop's terminal confidence level (`reviewLoopConfidence` in `src/pipeline/reviewLoop.ts`). This is the canonical confidence-to-action text — `confidenceExplanation` in `src/pipeline/reviewLoop.ts` returns these exact three strings, so the typed helper and this user-facing rule stay byte-identical (the strings are no longer reachable only from a unit test, closing D13-SA13.2-F2):
+
+- **high** — The fix was correct on the first attempt. Human review is optional but recommended for critical code paths.
+- **medium** — The fix required one round of corrections, which is normal for moderately complex changes. A brief human review is recommended.
+- **low** — The fix required multiple attempts or was interrupted. A thorough human review is strongly recommended before merging.
+
+Omit the mapping when no review loop ran (e.g. a Tier 1 typo edit with no reviewer pass) — no confidence level is derived, so no action line applies.
+
 ## Optional Pattern Rationale (D13 in-flow teaching)
 
 Orchestrators MAY emit a `## Pattern Rationale` block before the Iteration Summary to teach the user the framework pattern applied — closing the knowledge-transfer gap surfaced by D13 SA13.4 F5. One line per pattern with rule citation + pillar served + plain-language reason:

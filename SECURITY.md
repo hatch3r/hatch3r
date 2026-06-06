@@ -65,7 +65,7 @@ Each security control is either **code-enforced** (validated at runtime by TypeS
 | Phase output size compaction (summary bounding) | Code | `src/pipeline/phaseOutputSchema.ts` | Active |
 | Phase/pipeline/adapter timeouts | Code | `src/pipeline/phaseTimeout.ts`, `pipelineTimeout.ts`, `adapterTimeout.ts` | Active |
 | Compliance verification | Code | `src/pipeline/complianceVerification.ts` | Active |
-| Agent identity validation | Code | `src/pipeline/agentIdentity.ts` | Active |
+| Agent identity validation | Library | `src/pipeline/agentIdentity.ts` (`@library_export_only`) | Library-only — ASI03 provenance metadata contract exported for downstream agent-runtime integrators (packs, orchestrators); not invoked on any hatch3r CLI codepath, so it is not a runtime-enforced control of the CLI. Tracked in `docs/decisions/ADR-001` (Enforcement `library-contract-for-downstream`) and gated by `scripts/validate-control-reachability.ts`. |
 | Observability (telemetry, tracing) | Code | `src/pipeline/observability.ts` | Active |
 | Atomic file writes (temp+rename) | Code | `src/merge/safeWrite.ts` | Active |
 | Managed block boundary markers | Code | `src/merge/managedBlocks.ts` | Active |

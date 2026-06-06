@@ -204,7 +204,7 @@ For least-privilege automation, see Microsoft's guidance on [reducing PAT usage]
 
 ### GitLab token scopes
 
-For the GitLab MCP server (`glab mcp`):
+For the GitLab MCP server (`glab mcp serve`):
 
 1. Go to Settings → Access Tokens → [Personal Access Tokens](https://gitlab.com/-/user_settings/personal_access_tokens)
 2. Create a token with the `api` scope (grants full API access including issues, merge requests, and boards)
@@ -238,7 +238,7 @@ GITLAB_HOST=https://gitlab.example.com
 
 - **GitHub** — Remote server at `https://api.githubcopilot.com/mcp/`. Uses `X-MCP-Toolsets` for repos, issues, pull_requests, projects.
 - **Azure DevOps** — STDIO server via `@tiberriver256/mcp-server-azure-devops`. Requires `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_ORG`.
-- **GitLab** — STDIO server via `glab mcp`. Requires `GITLAB_TOKEN`. Supports self-hosted instances via `GITLAB_HOST`.
+- **GitLab** — STDIO server via `glab mcp serve` (requires the GitLab CLI; `glab mcp` alone prints help). Requires `GITLAB_TOKEN`. Supports self-hosted instances via `GITLAB_HOST`.
 - **Context7** — No secrets. Fetches up-to-date library docs.
 - **Filesystem** — No secrets. Uses `.` (project root) as the allowed directory.
 - **Playwright** — No secrets. Browser automation.

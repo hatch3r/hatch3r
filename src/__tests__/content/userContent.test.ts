@@ -626,6 +626,99 @@ describe("saveUserContent — §0 ambiguity gate for orchestrator commands (F20.
   });
 });
 
+describe("saveUserContent — §0 ambiguity gate for user agents/skills (D13-10)", () => {
+  // CONSTITUTION §2 P5 "Ambiguity-detection gate coverage (agents/skills/commands)"
+  // at 100% — the §0 gate must reach agents and skills, not only orchestrator
+  // commands. Tier-aware per F20.2.A1: gentle at solo, strict at team+.
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-section0-agent-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // A canonical-empty index so the §0 gate is the only behaviour under test
+  // (no collision noise). Mirrors the tier-aware block's emptyIndex helper.
+  async function emptyIndex() {
+    const fakeRoot = await mkdtemp(join(tmpdir(), "hatch3r-uc-section0-canon-"));
+    const index = await buildContentIndex(fakeRoot);
+    return { index, cleanup: () => rm(fakeRoot, { recursive: true, force: true }) };
+  }
+
+  const NO_SECTION_ZERO_BODY =
+    "**Pillars:** P8\n\nquality-charter applies. This body jumps to work with no clarification gate.\n";
+  const WITH_SECTION_ZERO_BODY =
+    "**Pillars:** P8\n\nquality-charter applies.\n\n## §0 Detect Ambiguity\n\nResolve ambiguity via `agents/shared/user-question-protocol.md` first.\n";
+
+  for (const type of ["agent", "skill"] as const) {
+    it(`solo WARNS (gentle, non-blocking) on a ${type} with no §0 block`, async () => {
+      const result = await saveUserContent(
+        tempDir,
+        makeArtifact({ type, name: `solo-${type}-no-s0`, body: NO_SECTION_ZERO_BODY }),
+      );
+      // Gentle at solo: the save still lands on disk.
+      expect(result.strictFailures.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(false);
+      expect(result.gentleWarnings.some((g) => /§0 ambiguity-detection block/.test(g))).toBe(true);
+      expect(result.written.length).toBeGreaterThan(0);
+    });
+
+    it(`team REJECTS (strict) a ${type} with no §0 block`, async () => {
+      const { index, cleanup } = await emptyIndex();
+      try {
+        const result = await validateUserArtifact(
+          makeArtifact({ type, name: `team-${type}-no-s0`, body: NO_SECTION_ZERO_BODY }),
+          index,
+          "team",
+        );
+        expect(result.strict.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(true);
+        expect(result.gentle.some((g) => /§0 ambiguity-detection block/.test(g))).toBe(false);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it(`team ACCEPTS a ${type} that carries a §0 block`, async () => {
+      const { index, cleanup } = await emptyIndex();
+      try {
+        // team also mandates a References section, so add one alongside the §0
+        // block to isolate the §0 gate as cleared.
+        const body = `${WITH_SECTION_ZERO_BODY}\n## References\n- https://example.com (accessed 2026-05-27, primary)\n`;
+        const result = await validateUserArtifact(
+          makeArtifact({ type, name: `team-${type}-with-s0`, body }),
+          index,
+          "team",
+        );
+        expect(result.strict.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(false);
+      } finally {
+        await cleanup();
+      }
+    });
+  }
+
+  it("does NOT apply the agent/skill §0 gate to hooks", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const result = await validateUserArtifact(
+        makeArtifact({
+          type: "hook",
+          name: "hook-no-s0",
+          hookEvent: "pre-commit",
+          body: NO_SECTION_ZERO_BODY,
+        }),
+        index,
+        "team",
+      );
+      expect(result.strict.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(false);
+      expect(result.gentle.some((g) => /§0 ambiguity-detection block/.test(g))).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
 describe("saveUserContent — pillar-enum parity (F20.1.A2 / F20.2.A2, two-axis)", () => {
   let tempDir: string;
 
@@ -1174,11 +1267,14 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
     }
   });
 
-  it("team accepts an agent that carries a References section", async () => {
+  it("team accepts an agent that carries References + §0 ambiguity gate", async () => {
     const { index, cleanup } = await emptyIndex();
     try {
+      // At team+ an agent must also clear the §0 ambiguity gate (D13-10), so the
+      // body references agents/shared/user-question-protocol.md alongside its
+      // References section.
       const body =
-        "**Pillars:** P4\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+        "**Pillars:** P4\n\nquality-charter applies. Resolve ambiguity via agents/shared/user-question-protocol.md.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
       const result = await validateUserArtifact(minimalArtifact({ body }), index, "team");
       expect(result.strict).toEqual([]);
     } finally {
@@ -1189,8 +1285,10 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
   it("scaleup additionally requires an impact_horizon declaration", async () => {
     const { index, cleanup } = await emptyIndex();
     try {
+      // References + §0 satisfied so the impact_horizon gap is the only strict
+      // failure left to assert on.
       const body =
-        "**Pillars:** P4\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+        "**Pillars:** P4\n\nquality-charter applies. Resolve ambiguity via agents/shared/user-question-protocol.md.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
       const result = await validateUserArtifact(minimalArtifact({ body }), index, "scaleup");
       expect(result.strict.some((s) => /impact_horizon/i.test(s))).toBe(true);
     } finally {
@@ -1198,11 +1296,11 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
     }
   });
 
-  it("enterprise accepts an artifact with References + impact_horizon", async () => {
+  it("enterprise accepts an artifact with References + §0 + impact_horizon", async () => {
     const { index, cleanup } = await emptyIndex();
     try {
       const body =
-        "**Pillars:** P4\n\nquality-charter applies. impact_horizon: short\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+        "**Pillars:** P4\n\nquality-charter applies. impact_horizon: short. Resolve ambiguity via agents/shared/user-question-protocol.md.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
       const result = await validateUserArtifact(minimalArtifact({ body }), index, "enterprise");
       expect(result.strict).toEqual([]);
     } finally {
@@ -1276,8 +1374,12 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
   it("team promotes the wide-grant baseline check to a strict failure", async () => {
     const { index, cleanup } = await emptyIndex();
     try {
+      // §0 (user-question-protocol) + References cleared so the only strict
+      // failure under assertion is the missing security baseline. The body must
+      // NOT cite hatch3r-security-patterns or **Security baseline:** or the
+      // wide-grant gate would not fire.
       const body =
-        "**Pillars:** P6\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+        "**Pillars:** P6\n\nquality-charter applies. Resolve ambiguity via agents/shared/user-question-protocol.md.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
       const result = await validateUserArtifact(
         minimalArtifact({ body, tools: { allowed: ["read", "write", "execute", "git"] } }),
         index,

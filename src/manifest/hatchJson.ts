@@ -6,6 +6,7 @@ import {
   HATCH3R_DIR,
   HatchError,
   MANIFEST_FILE,
+  MATURITY_TIER_RANK,
   VALID_CONFIDENCE_FLOORS,
   VALID_MATURITY_TIERS,
   VALID_TOOLS,
@@ -885,17 +886,38 @@ export function readMaturityTier(m: HatchManifest | null | undefined): MaturityT
 }
 
 /**
- * D13-SA13.3-F13.3.3 (Pillar P1): read the persisted agent-assertiveness floor.
- * Absence collapses to `DEFAULT_CONFIDENCE_FLOOR` ("any" — current behavior) so
- * pre-2.0 manifests stay valid without a schema version bump. An out-of-enum
- * persisted value is already rejected at the persistence boundary by
- * `validateManifest`; the membership re-check here is defense-in-depth for the
- * `null`/`undefined` and absent-field callers, mirroring `readMaturityTier`.
+ * Lowest maturity rank that defaults the agent-assertiveness floor to `"high"`
+ * when the manifest carries no explicit `confidenceFloor` (D13-SA13.3-F2). Ranks
+ * come from {@link MATURITY_TIER_RANK}: solo=0, team=1, scaleup=2, enterprise=3.
+ * `scaleup`+`enterprise` (rank >= 2) default `high`; `solo`+`team` default
+ * `DEFAULT_CONFIDENCE_FLOOR` ("any"). This wires the calibration the orchestrator
+ * docs already promised ("solo defaults any, enterprise defaults high").
+ */
+const HIGH_FLOOR_MATURITY_RANK = MATURITY_TIER_RANK.scaleup;
+
+/**
+ * D13-SA13.3-F13.3.3 / -F2 (Pillar P1): resolve the agent-assertiveness floor.
+ *
+ * Precedence:
+ * 1. An explicit, in-enum `confidenceFloor` on the manifest wins unconditionally
+ *    — the per-repo override the user set via `hatch3r config confidence_floor`.
+ * 2. On absence, the default is maturity-aware (D13-SA13.3-F2): `scaleup` and
+ *    `enterprise` (rank >= {@link HIGH_FLOOR_MATURITY_RANK}) default `"high"`;
+ *    `solo` and `team` default `DEFAULT_CONFIDENCE_FLOOR` ("any"). A `null` /
+ *    `undefined` manifest resolves to `"solo"` via {@link readMaturityTier} and
+ *    so keeps the "any" default — preserving pre-2.0 behavior on unread
+ *    manifests.
+ *
+ * An out-of-enum persisted floor is already rejected at the persistence boundary
+ * by `validateManifest`; the membership re-check here is defense-in-depth for the
+ * `null`/`undefined` and corrupt-manifest callers, mirroring `readMaturityTier`.
  */
 export function readConfidenceFloor(m: HatchManifest | null | undefined): ConfidenceFloor {
   const value = m?.confidenceFloor;
   if (value && VALID_CONFIDENCE_FLOORS.has(value)) {
     return value;
   }
-  return DEFAULT_CONFIDENCE_FLOOR;
+  return MATURITY_TIER_RANK[readMaturityTier(m)] >= HIGH_FLOOR_MATURITY_RANK
+    ? "high"
+    : DEFAULT_CONFIDENCE_FLOOR;
 }

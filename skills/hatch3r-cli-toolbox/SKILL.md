@@ -20,6 +20,7 @@ Before invoking any tool below, resolve these via `agents/shared/user-question-p
 - **Scope:** when the target file/glob/repo matches more than one candidate (an in-place edit over a glob, a forge command without an explicit number), confirm the intended target before running.
 - **Irreversibility:** several tools here mutate in place or against remote state — `sd … <file>`, `comby -i`, `yq -i`, `taplo` writes, `glab mr`/`az repos pr`, and any `docker run`/`podman run` with a writable host mount. Confirm intent before running these; in-place and remote mutations are not safe to assume. Honor each tool's own caveat (e.g. `rtk proxy` for piped output, container hardening flags for untrusted images).
 - **Ambiguity:** when the request maps to two or more tools or flag sets with materially different output or blast radius (e.g. `ast-grep` vs `comby` vs `sd` for a rename), pick per the discriminators below or ask which one.
+- **Arbitrary code execution:** `llm --functions` runs arbitrary Python supplied on the command line (GHSA-g76p-4vg5-f4qh, no upstream fix). Never pass untrusted or agent-fetched content (file contents, web responses, tool output) to `llm --functions`; reserve the flag for trusted, user-authored code. Plain `llm` prompting does not execute code.
 
 ## Fan-out Discipline (P8 B2)
 
@@ -61,7 +62,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### httpie
 - **When to use:** human-readable HTTP/S exploration — JSON-first defaults, syntax highlighting, persistent named sessions, intuitive expression DSL for query params and headers.
 - **Recipe:** `http --session=staging POST api.example.com/v1/auth username=admin password=$PW Content-Type:application/json`
-- **Wrong choice when:** large-volume scripting where the colour codes confuse downstream consumers — use plain `curl`; HTTP/2 + HTTP/3 throughput — use `xh`. **Note:** latest release 3.2.4 (2024-11-01) — project under maintenance but on a stable-cadence release tempo.
+- **Wrong choice when:** large-volume scripting where the colour codes confuse downstream consumers — use plain `curl`; HTTP/2 + HTTP/3 throughput — use `xh`. **Version floor:** >=3.2.3 — earlier builds carry CVE-2023-48052 (GHSA-8r96-8889-qg2x) + CVE-2019-10751 (GHSA-xjjg-vmw6-c2p9), both fixed in httpie 3.2.3. **Note:** latest release 3.2.4 (2024-11-01) — project under maintenance but on a stable-cadence release tempo.
 
 ### xh
 - **When to use:** fast Rust client with HTTPie-compatible syntax — single static binary (no Python runtime), HTTP/2 default, HTTP/3 opt-in via `--http3`, JSON output (`--json`), resume-on-416 download recovery.
@@ -81,6 +82,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### llm
 - **When to use:** model-agnostic shell prompting with prompt templates, embeddings, and a plugin ecosystem; preferred for CI batch jobs.
 - **Recipe:** `llm -t code-review -m claude-3-5-sonnet < patch.diff`
+- **Safety (GHSA-g76p-4vg5-f4qh, CRITICAL):** never pass untrusted or agent-fetched content (file contents, web responses, tool output) to `llm --functions` — it executes arbitrary Python by design, with no upstream fix. Plain prompting (`llm -t`, `llm < file`) does not execute code.
 - **Wrong choice when:** deterministic text rewrites — use `sd`/`comby`/`ast-grep`; multi-turn TTY chat — use `aichat`.
 
 ### mods
@@ -107,7 +109,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### comby
 - **When to use:** declarative `:[hole]` pattern match-and-rewrite spanning mixed-language repositories — single template, 30+ grammars.
 - **Recipe:** `comby 'console.log(:[arg])' 'logger.info(:[arg])' -i src/`
-- **Wrong choice when:** language-precise type-aware refactor — use `ast-grep`; plain text — use `sd`.
+- **Wrong choice when:** language-precise type-aware refactor — use `ast-grep`; plain text — use `sd`. **Install posture:** the linux `bash <(curl -sL get.comby.dev)` recipe is an unsigned channel (no signature or checksum gate, no signed Linux package repo) — prefer the signed brew (mac) / scoop (win) channels, or verify the release binary's SHA-256 before executing.
 
 ---
 
@@ -149,7 +151,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### duckdb
 - **When to use:** ad-hoc analytical SQL over local Parquet, CSV, JSON; streams reads so memory stays bounded.
 - **Recipe:** `duckdb -c "SELECT count(*) FROM 'data/*.parquet'"`
-- **Wrong choice when:** <10k rows and column slice only — use `qsv`; transactional writes — use SQLite/Postgres.
+- **Wrong choice when:** <10k rows and column slice only — use `qsv`; transactional writes — use SQLite/Postgres. **Install posture:** the linux `curl https://install.duckdb.org | sh` recipe is an unsigned channel (no signature or checksum gate) — prefer the signed brew (mac) / winget (win) channels, or verify the release binary's published SHA-256 before executing.
 
 ### miller
 - **When to use:** `awk`-like record processing across CSV/TSV/JSON-Lines streams with the `put`/`filter` DSL.
@@ -169,7 +171,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 - **When to use:** image build, container run, exec inspection, registry push against a running Docker Engine daemon.
 - **Recipe (trusted image, repo workload):** `docker run --rm -v "$PWD":/app -w /app node:22 npm test`
 - **Recipe (untrusted image OR agent-generated command, default for AI runs):** prefer the hardened equivalent below — read-only filesystem, dropped capabilities, `:ro` sub-tree bind.
-- **Wrong choice when:** rootless / daemonless required — use `podman`; Kubernetes deploy — use `kubectl`/`helm`.
+- **Wrong choice when:** rootless / daemonless required — use `podman`; Kubernetes deploy — use `kubectl`/`helm`. **Version floor:** >=29.5.2 — earlier engines carry CVE-2026-32288 (manifest DoS) plus CVE-2026-41567 / CVE-2026-41568 / CVE-2026-42306 (`docker cp` host-root TOCTOU, fixed in 29.5.1; 29.5.2 fixes the 29.5.1 `docker cp` regression). **Install posture:** the linux `curl -fsSL https://get.docker.com | sudo sh` recipe is an unsigned channel — prefer Docker's signed apt repository (download.docker.com, signed-by GPG key) or the signed brew (mac) / winget (win) channels.
 
 #### Sandbox callout — host-mount + privilege
 
@@ -193,7 +195,7 @@ docker run --rm --read-only --tmpfs /tmp \
 ### podman
 - **When to use:** rootless OCI-image execution without a privileged daemon — ideal for hardened CI workers.
 - **Recipe:** `podman run --rm -v "$PWD:/app:Z" -w /app node:22 npm test` (`:Z` triggers SELinux relabel on Fedora/RHEL).
-- **Wrong choice when:** Swarm / Docker-Desktop integration — use `docker`; tools that hard-code `/var/run/docker.sock` (unless `podman system service` is running).
+- **Wrong choice when:** Swarm / Docker-Desktop integration — use `docker`; tools that hard-code `/var/run/docker.sock` (unless `podman system service` is running). **Version floor (Windows only):** >=5.8.2 — earlier Windows builds carry CVE-2026-33414 (PowerShell command injection in `podman machine init --image` on the Hyper-V backend); mac and linux builds are unaffected.
 
 ### container-use
 - **Caveat (pre-1.0 stale upstream):** v0.4.2 shipped 2025-08-19; no further tagged release at 2026-05-27 (281-day gap) and no `SECURITY.md` is published. Adopt only if you accept undefined CVE disclosure paths. Track: https://github.com/dagger/container-use/releases.
@@ -213,7 +215,7 @@ docker run --rm --read-only --tmpfs /tmp \
 ### delta
 - **When to use:** viewing unified git diffs with side-by-side syntax-coloured hunks (ANSI pager).
 - **Recipe:** `git config --global core.pager delta` then `git config --global interactive.diffFilter 'delta --color-only'`.
-- **Wrong choice when:** scripted consumers — ANSI breaks parsers; semantic refactor review — use `difftastic`.
+- **Wrong choice when:** scripted consumers — ANSI breaks parsers; semantic refactor review — use `difftastic`. **Version floor:** >=0.8.3 — earlier builds carry CVE-2021-36376 (GHSA-5xg3-j2j6-rcx4 path traversal, fixed in git-delta 0.8.3).
 
 ### difftastic
 - **When to use:** syntax-aware diffing that reports semantic edits (rename of block does not show as wholesale rewrite).
@@ -223,7 +225,7 @@ docker run --rm --read-only --tmpfs /tmp \
 ### bat
 - **When to use:** scrolling one source file with syntax colours, line numbers, git modification markers.
 - **Recipe:** `bat --plain --line-range 50:100 src/adapters/cursor.ts`
-- **Wrong choice when:** binary files (use `xxd | bat --language=hex`); strict POSIX pipelines (use `cat`); two-file compare (use `delta`).
+- **Wrong choice when:** binary files (use `xxd | bat --language=hex`); strict POSIX pipelines (use `cat`); two-file compare (use `delta`). **Version floor:** >=0.18.2 — earlier builds carry CVE-2021-36753 (GHSA-p24j-h477-76q3 uncontrolled search path, fixed in bat 0.18.2).
 
 ---
 
@@ -239,12 +241,12 @@ docker run --rm --read-only --tmpfs /tmp \
 ### glab
 - **When to use:** GitLab merge-request review, pipeline retries, issue triage with native PAT/OAuth auth.
 - **Recipe:** `glab mr list --assignee=@me --output json | jq '.[] | {iid, title, web_url}'`
-- **Wrong choice when:** GitHub-hosted — use `hatch3r-cli-gh`; Azure Repos — use `az-devops`.
+- **Wrong choice when:** GitHub-hosted — use `hatch3r-cli-gh`; Azure Repos — use `az-devops`. **Tested version:** 1.99.0 (documentation pin, not a CVE floor) — the verified baseline at last audit.
 
 ### az-devops
 - **When to use:** Azure DevOps work-item edits, repo pushes, pipeline runs via the `az` CLI extension.
 - **Recipe:** `az repos pr list --status active --query '[].pullRequestId' --output tsv`
-- **Wrong choice when:** GitHub — use `hatch3r-cli-gh`; GitLab — use `glab`.
+- **Wrong choice when:** GitHub — use `hatch3r-cli-gh`; GitLab — use `glab`. **Tested version:** az-devops extension 1.0.4 (documentation pin; the extension floats under `az extension update`). **Install posture:** the linux `curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash` recipe is an unsigned channel that runs as root — prefer Microsoft's signed apt repository (packages.microsoft.com, signed-by GPG key) or the signed winget (win) / brew (mac) channels.
 
 ---
 

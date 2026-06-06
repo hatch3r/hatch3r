@@ -1,9 +1,9 @@
 ---
 id: hatch3r-dependency-management
 type: rule
-description: Lockfile discipline, CVE scanning, transitive dependency audits, major version upgrade protocol, and bundle-size impact gates for package manifests
+description: Lockfile discipline, CVE scanning, transitive dependency audits, major version upgrade protocol, bundle-size impact gates, and SHA-pinned GitHub Action enforcement for package manifests and workflow files
 scope: conditional
-globs: "**/package.json,**/package-lock.json,**/yarn.lock,**/pnpm-lock.yaml,**/Cargo.toml,**/Cargo.lock,**/requirements*.txt,**/pyproject.toml,**/go.mod,**/go.sum,**/Gemfile*"
+globs: "**/package.json,**/package-lock.json,**/yarn.lock,**/pnpm-lock.yaml,**/Cargo.toml,**/Cargo.lock,**/requirements*.txt,**/pyproject.toml,**/go.mod,**/go.sum,**/Gemfile*,**/.github/workflows/**,**/*.yml,**/*.yaml"
 tags: [maintenance, floor:security]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

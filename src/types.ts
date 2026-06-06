@@ -39,8 +39,8 @@ export const MATURITY_TIER_RANK = Object.fromEntries(
  * `rules/hatch3r-clarification-default.md` — the floor only adds ASK pressure on
  * uncertain results, it never relaxes those triggers.
  *
- * - `any`    — current behavior: forced second-pass only on a top-level
- *              `confidence == low` reviewer finding. Default.
+ * - `any`    — forced second-pass only on a top-level `confidence == low`
+ *              reviewer finding. Default for the `solo` + `team` maturity tiers.
  * - `medium` — force second-pass on any `confidence == low` finding even with
  *              0 Critical + 0 Warning.
  * - `high`   — force second-pass on `confidence != high` AND ASK on every
@@ -49,7 +49,10 @@ export const MATURITY_TIER_RANK = Object.fromEntries(
  * Persisted in `.hatch3r/hatch.json` under the `confidenceFloor` field.
  * Set via `hatch3r config confidence_floor=<floor>`; an explicit
  * `--confidence-floor=<floor>` run flag overrides the persisted default.
- * Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise `high`.
+ * Per P1 maturity tier (Decision 16) the *absent-field* default is tier-aware:
+ * `solo` + `team` default `any`, `scaleup` + `enterprise` default `high`.
+ * Resolved by `readConfidenceFloor` in `src/manifest/hatchJson.ts`; an explicit
+ * persisted floor always wins over the tier default.
  */
 export const CONFIDENCE_FLOORS = ["any", "medium", "high"] as const;
 export type ConfidenceFloor = (typeof CONFIDENCE_FLOORS)[number];

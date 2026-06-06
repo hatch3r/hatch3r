@@ -60,6 +60,19 @@ describe("validateMcpEntry", () => {
     expect(validateMcpEntry("py-mcp", entry)).toEqual([]);
   });
 
+  // D11-8 (Cycle 11, P3/P6): the canonical `gitlab` MCP server launches the
+  // GitLab CLI as a local binary (`glab mcp serve`). `glab` is allowlisted as
+  // a system command, so the bundled config must not self-emit an
+  // "unrecognized command" warning.
+  it("returns no warnings for the canonical gitlab entry (glab mcp serve)", () => {
+    const entry: McpServerEntry = {
+      command: "glab",
+      args: ["mcp", "serve"],
+      env: { GITLAB_TOKEN: "${env:GITLAB_TOKEN}" },
+    };
+    expect(validateMcpEntry("gitlab", entry)).toEqual([]);
+  });
+
   it("warns on unrecognized command", () => {
     const entry: McpServerEntry = {
       command: "bash",
@@ -511,6 +524,40 @@ describe("checkVersionPin (C7-H6)", () => {
     expect(checkVersionPin("srv", "git+https://github.com/o/r.git")).toBeNull();
     expect(checkVersionPin("srv", "https://example.com/p-1.0.0.tgz")).toBeNull();
     expect(checkVersionPin("srv", "./local-pkg.tgz")).toBeNull();
+  });
+});
+
+// D11-8 (Cycle 11 Wave 2, High, P3/P6): launcher-aware advice. The bundled
+// `gitlab` entry exposed the failure mode — the prior message hardcoded
+// "uses npx -y" and advised "pin glab@<version>", but `glab` is the GitLab CLI
+// Go binary, not an npm package, so that advice was unsatisfiable. The advice
+// now names the actual launcher and offers a second exit (switch package/
+// launcher) for packages that are not on the launcher's registry.
+describe("checkVersionPin launcher-aware advice (D11-8)", () => {
+  it("defaults the launcher token to npx (back-compat with the 2-arg call)", () => {
+    const result = checkVersionPin("srv", "some-pkg");
+    expect(result).not.toBeNull();
+    expect(result).toContain("uses npx with");
+    // The advice must NOT hardcode the old "uses npx -y" phrasing.
+    expect(result).not.toContain("uses npx -y with");
+  });
+
+  it("names the supplied launcher instead of npx for non-npx launchers", () => {
+    const result = checkVersionPin("srv", "mcp-server-fetch", "uvx");
+    expect(result).not.toBeNull();
+    expect(result).toContain("uses uvx with");
+    expect(result).not.toContain("uses npx");
+  });
+
+  it("offers a switch-package/launcher exit, not an npm-only pin instruction", () => {
+    const result = checkVersionPin("srv", "glab", "npx");
+    expect(result).not.toBeNull();
+    // Still advises pinning a published version...
+    expect(result).toContain("glab@<version>");
+    // ...but also tells the operator to switch off the launcher if `glab`
+    // is not a package on npx's registry (the unsatisfiable-advice fix).
+    expect(result).toContain("not a");
+    expect(result).toContain("switch to the correct package");
   });
 });
 

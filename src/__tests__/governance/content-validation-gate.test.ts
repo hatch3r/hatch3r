@@ -5,11 +5,12 @@ import { resolve } from "node:path";
 /**
  * Cycle 11 D16-1 (Critical, CI enforcement keystone) corpus gate.
  *
- * package.json `validate` chains 8 content/governance validators, but only 3
- * (rule-parity, wiring, specialist-roster) ran as CI steps — the other 5
- * (efficiency, cli-skills, anti-slop, severity-vocabulary, canonical) ran in
- * no workflow, so the invariant "the published corpus passes its content and
- * governance gates" was honor-system on PRs. The CI fix adds a single
+ * package.json `validate` chains 10 content/governance validators, but only 3
+ * (rule-parity, wiring, specialist-roster) ran as CI steps — the rest
+ * (efficiency, cli-skills, control-reachability, anti-slop, severity-vocabulary,
+ * canonical, adapter-parity) ran in no workflow, so the invariant "the published
+ * corpus passes its content and governance gates" was honor-system on PRs. The
+ * Cycle 11 D16-1 CI fix adds a single
  * `npm run validate` umbrella step; this in-suite test gives the same
  * invariant a vitest assertion that fails locally and in `npm test` the moment
  * the real `commands/`, `rules/`, `agents/`, `skills/`, `hooks/`, `checks/`

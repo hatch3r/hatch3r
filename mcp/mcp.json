@@ -45,7 +45,7 @@
       "_disabled": true,
       "_description": "PostgreSQL database queries and schema inspection (enable and configure with your connection string)",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres@0.6.2"],
+      "args": ["-y", "@henkey/postgres-mcp-server@1.0.5"],
       "env": {
         "POSTGRES_URL": "${env:POSTGRES_URL}"
       }
@@ -73,7 +73,7 @@
       "_disabled": true,
       "_description": "GitLab issues, merge requests, pipelines, and project management",
       "command": "glab",
-      "args": ["mcp"],
+      "args": ["mcp", "serve"],
       "env": {
         "GITLAB_TOKEN": "${env:GITLAB_TOKEN}"
       }

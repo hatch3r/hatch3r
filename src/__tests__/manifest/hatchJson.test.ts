@@ -1718,20 +1718,50 @@ describe("hatchJson", () => {
     });
   });
 
-  // D13-SA13.3-F13.3.3 (Cycle 10 Wave 4): readConfidenceFloor mirrors
-  // readMaturityTier — absence / null / undefined / out-of-enum all collapse to
-  // DEFAULT_CONFIDENCE_FLOOR ("any") so the orchestrator assertiveness gate keeps
-  // its current default behavior on pre-2.0 and corrupt manifests.
+  // D13-SA13.3-F13.3.3 / -F2: readConfidenceFloor resolves an explicit persisted
+  // floor first (override wins), then a maturity-aware default — scaleup +
+  // enterprise default "high", solo + team (and null/undefined manifests, which
+  // resolve to "solo") default DEFAULT_CONFIDENCE_FLOOR ("any"). This implements
+  // the calibration the orchestrator docs already promised; an out-of-enum
+  // persisted value collapses to the tier default (defense-in-depth).
   describe("readConfidenceFloor", () => {
-    it("returns DEFAULT_CONFIDENCE_FLOOR when manifest is null or undefined", () => {
+    function withMaturity(tier: string): HatchManifest {
+      const manifest = createManifest({ tools: ["cursor"] });
+      (manifest as unknown as { maturity: string }).maturity = tier;
+      return manifest;
+    }
+
+    it("defaults null / undefined manifests to DEFAULT_CONFIDENCE_FLOOR (solo tier)", () => {
       expect(readConfidenceFloor(null)).toBe(DEFAULT_CONFIDENCE_FLOOR);
       expect(readConfidenceFloor(undefined)).toBe(DEFAULT_CONFIDENCE_FLOOR);
     });
 
-    it("returns DEFAULT_CONFIDENCE_FLOOR when the field is absent", () => {
-      const manifest = createManifest({ tools: ["cursor"] });
-      expect(manifest.confidenceFloor).toBeUndefined();
-      expect(readConfidenceFloor(manifest)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+    it("defaults solo + team tiers to DEFAULT_CONFIDENCE_FLOOR when the field is absent", () => {
+      const solo = createManifest({ tools: ["cursor"] });
+      expect(solo.confidenceFloor).toBeUndefined();
+      expect(solo.maturity).toBeUndefined(); // absent → readMaturityTier → "solo"
+      expect(readConfidenceFloor(solo)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+      expect(readConfidenceFloor(withMaturity("solo"))).toBe("any");
+      expect(readConfidenceFloor(withMaturity("team"))).toBe("any");
+    });
+
+    it("defaults scaleup + enterprise tiers to 'high' when the field is absent", () => {
+      const scaleup = withMaturity("scaleup");
+      const enterprise = withMaturity("enterprise");
+      expect(scaleup.confidenceFloor).toBeUndefined();
+      expect(enterprise.confidenceFloor).toBeUndefined();
+      expect(readConfidenceFloor(scaleup)).toBe("high");
+      expect(readConfidenceFloor(enterprise)).toBe("high");
+    });
+
+    it("honors an explicit persisted floor over the maturity-aware default", () => {
+      const floors: ConfidenceFloor[] = ["any", "medium", "high"];
+      for (const floor of floors) {
+        // An enterprise tier would default to "high"; an explicit floor wins.
+        const manifest = withMaturity("enterprise");
+        manifest.confidenceFloor = floor;
+        expect(readConfidenceFloor(manifest)).toBe(floor);
+      }
     });
 
     it("returns the manifest floor when set to a valid value", () => {
@@ -1743,10 +1773,14 @@ describe("hatchJson", () => {
       }
     });
 
-    it("falls back to the default when a corrupt manifest carries an out-of-enum floor", () => {
-      const manifest = createManifest({ tools: ["cursor"] });
-      (manifest as unknown as { confidenceFloor: string }).confidenceFloor = "paranoid";
-      expect(readConfidenceFloor(manifest)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+    it("falls back to the tier default when a corrupt manifest carries an out-of-enum floor", () => {
+      const solo = createManifest({ tools: ["cursor"] });
+      (solo as unknown as { confidenceFloor: string }).confidenceFloor = "paranoid";
+      expect(readConfidenceFloor(solo)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+
+      const enterprise = withMaturity("enterprise");
+      (enterprise as unknown as { confidenceFloor: string }).confidenceFloor = "paranoid";
+      expect(readConfidenceFloor(enterprise)).toBe("high");
     });
   });
 

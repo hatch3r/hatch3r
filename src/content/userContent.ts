@@ -177,17 +177,28 @@ const LEAN_LINE_THRESHOLD_DEFAULT = 120;
 const SLUG_REGEX = /^[a-z][a-z0-9-]*$/;
 
 /**
- * §0 ambiguity-gate detection for orchestrator commands (F20.1.B1, CONSTITUTION
- * §2 P8 B1). An `orchestrator: true` user command delegates to sub-agents, so it
- * must open with the clarification-first gate the canonical
- * `agents/shared/user-content-templates.md` §0 skeleton models: a `## §0` /
- * `## 0` / `## Step 0` heading OR a verbatim reference to
- * `agents/shared/user-question-protocol.md`. The audit (D20-F20.1.B1) flagged
- * that `agents/shared/user-content-templates.md:242` claimed this was a strict
- * gate while `runUserContentGates` never enforced it — a hand-written
- * orchestrator command missing the §0 block rode to disk unchallenged. This
- * pattern closes that gap; the matching strict push lives in the command branch
- * of {@link runUserContentGates}.
+ * §0 ambiguity-gate detection (F20.1.B1, D13-10, CONSTITUTION §2 P8 B1). A user
+ * artifact that drives an agentic workflow must open with the clarification-first
+ * gate the canonical `agents/shared/user-content-templates.md` §0 skeleton
+ * models: a `## §0` / `## 0` / `## Step 0` heading OR a verbatim reference to
+ * `agents/shared/user-question-protocol.md`.
+ *
+ * Scope (CONSTITUTION §2 P5 row "Ambiguity-detection gate coverage
+ * (agents/skills/commands)" at 100%): the gate is evaluated for THREE user
+ * artifact classes, not just orchestrator commands —
+ *   - `type==="command"` with `isOrchestrator===true`: strict at every tier
+ *     (an orchestrator command delegating to sub-agents always needs the gate).
+ *   - `type==="agent"` and `type==="skill"`: gentle warning at `solo`, promoted
+ *     to a strict failure at `team`+ (D13-10 — the gate previously covered ~1
+ *     class while the §2 P5 invariant names all three, leaving user agents and
+ *     skills able to ship without a clarification block).
+ *
+ * The audit (D20-F20.1.B1) first flagged that `user-content-templates.md`
+ * claimed a strict gate the runtime never enforced for commands; D13-10 then
+ * found the residual scope gap for agents and skills. The matching pushes live
+ * in the command/agent/skill branches of {@link runUserContentGates}. The
+ * `ORCHESTRATOR_` name predates the scope extension and is retained for blame
+ * stability — the pattern itself is type-agnostic.
  */
 const ORCHESTRATOR_SECTION_ZERO_PATTERN =
   /^\s*##\s*(?:§\s*0|0\b|step\s*0)|user-question-protocol/im;
@@ -705,6 +716,27 @@ async function runUserContentGates(
         strict.push(
           "Orchestrator commands must contain a §0 ambiguity-detection block — add a `## §0 Detect Ambiguity` section that references `agents/shared/user-question-protocol.md` (CONSTITUTION §2 P8 B1)",
         );
+      }
+    }
+  }
+  // §0 ambiguity gate for user agents and skills (D13-10, CONSTITUTION §2 P5
+  // "Ambiguity-detection gate coverage (agents/skills/commands)" at 100%, P8
+  // B1). The orchestrator-command branch above covered only ~1 of the three
+  // classes the invariant names; agents and skills drive agentic workflows too,
+  // so they must open with the same clarification-first §0 block. Tier-aware
+  // per F20.2.A1 / Decision 4: a gentle nudge at `solo` (the Cycle-9 baseline
+  // stays permissive), promoted to a strict failure at `team`+ where the
+  // closed-loop floor mandates are enforced.
+  if (artifact.type === "agent" || artifact.type === "skill") {
+    if (!ORCHESTRATOR_SECTION_ZERO_PATTERN.test(artifact.body)) {
+      const message =
+        `User ${artifact.type} is missing a §0 ambiguity-detection block — add a ` +
+        "`## §0 Detect Ambiguity` section that references " +
+        "`agents/shared/user-question-protocol.md` (CONSTITUTION §2 P5 ambiguity-gate coverage, P8 B1)";
+      if (isTeamPlus) {
+        strict.push(`${message} (required at maturity tier '${maturityTier}')`);
+      } else {
+        gentle.push(message);
       }
     }
   }

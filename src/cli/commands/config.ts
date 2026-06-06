@@ -370,8 +370,10 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
     return readMaturityTier(manifest);
   }
   if (key === "confidence_floor") {
-    // D13-SA13.3-F13.3.3: absent field reads back as the documented default
-    // ("any") rather than empty, so `config get confidence_floor` is actionable.
+    // D13-SA13.3-F13.3.3 / -F2: absent field reads back as the resolved
+    // maturity-aware default (scaleup/enterprise → "high", else "any") rather
+    // than empty, so `config get confidence_floor` is actionable and reflects
+    // the floor the orchestrators will actually apply.
     return readConfidenceFloor(manifest);
   }
   throw new HatchError(

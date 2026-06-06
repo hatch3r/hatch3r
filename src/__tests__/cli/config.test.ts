@@ -54,11 +54,15 @@ vi.mock("../../manifest/hatchJson.js", () => ({
       ? value
       : "solo";
   }),
-  // D13-SA13.3-F13.3.3: scalar config `get confidence_floor` consults
-  // `readConfidenceFloor`; mirror the real helper (valid pass-through, else "any").
-  readConfidenceFloor: vi.fn((m: { confidenceFloor?: string } | null | undefined) => {
+  // D13-SA13.3-F13.3.3 / -F2: scalar config `get confidence_floor` consults
+  // `readConfidenceFloor`; mirror the real helper — explicit valid floor wins,
+  // else the maturity-aware default (scaleup/enterprise → "high", else "any").
+  readConfidenceFloor: vi.fn((m: { confidenceFloor?: string; maturity?: string } | null | undefined) => {
     const value = m?.confidenceFloor;
-    return value && ["any", "medium", "high"].includes(value) ? value : "any";
+    if (value && ["any", "medium", "high"].includes(value)) return value;
+    const tier =
+      m?.maturity && ["solo", "team", "scaleup", "enterprise"].includes(m.maturity) ? m.maturity : "solo";
+    return tier === "scaleup" || tier === "enterprise" ? "high" : "any";
   }),
   isValidGitBranchName: vi.fn(() => true),
 }));

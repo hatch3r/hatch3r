@@ -37,7 +37,7 @@
  *   against — superseded by the library-only disposition above (D7-M6).
  */
 
-import { HatchError } from "../types.js";
+import { HatchError, DEFAULT_CONFIDENCE_FLOOR, type ConfidenceFloor } from "../types.js";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -792,6 +792,16 @@ export function reviewLoopSummary(state: ReviewLoopState): string {
  *
  * D13 Medium (#331-#343): Help users understand what the confidence
  * level means and what action they should take based on it.
+ *
+ * D13-2 (D13-SA13.2-F2): these three strings are the typed accessor for the
+ * canonical confidence-to-action mapping authored in
+ * `rules/hatch3r-iteration-summary.md` -> "Confidence-to-Action Mapping (D13)"
+ * (and its `.mdc` twin). That rule is the user-facing surface every orchestrator
+ * appends to its §5 Confidence line when a review loop ran, so this guidance is
+ * no longer reachable only from a unit test. Keep the returned strings
+ * byte-identical to the rule's three bullet bodies when either side changes —
+ * the rule-parity scan holds the `.md`/`.mdc` pair in lockstep, and this JSDoc
+ * is the cross-link the maintainer follows to keep code and rule aligned.
  */
 export function confidenceExplanation(confidence: ReviewConfidenceLevel): string {
   switch (confidence) {
@@ -870,6 +880,29 @@ export interface ReviewGateInput {
    * Optional for backward compatibility; defaults to `"unknown"`.
    */
   verdictIndependence?: VerdictIndependence;
+  /**
+   * D13-SA13.3-F13.3.3 / D13-3: the user's pre-flight assertiveness floor,
+   * resolved from the `--confidence-floor` run flag or the persisted
+   * `hatch3r config confidence_floor=<floor>` default (`ConfidenceFloor` in
+   * `src/types.ts`). Tightens the clean-verdict threshold the four core
+   * orchestrators document at `commands/hatch3r-{workflow,board-pickup,
+   * quick-change,revision}.md` (and `commands/board/pickup-delegation.md`):
+   *
+   * - `"any"`    (default): pass on `high`/`medium`; second_pass/escalate on
+   *               `low`/`unknown`. The pre-D13-3 behaviour, unchanged.
+   * - `"medium"`: same decision surface as `"any"` at the aggregate
+   *               `confidence` input — `medium` still passes, `low` forces a
+   *               second pass — but declared explicitly so the gate records
+   *               which floor it evaluated under.
+   * - `"high"`:  `medium` no longer passes — second_pass when
+   *               `confidence != "high"` (medium/low/unknown), escalating when
+   *               the iteration budget is exhausted.
+   *
+   * Optional for backward compatibility; defaults to {@link DEFAULT_CONFIDENCE_FLOOR}
+   * (`"any"`). The floor only ADDS second-pass pressure on uncertain verdicts;
+   * it never relaxes the Critical/Warning fail gates above it.
+   */
+  confidenceFloor?: ConfidenceFloor;
 }
 
 export interface ReviewGateResult {
@@ -882,6 +915,7 @@ export interface ReviewGateResult {
 export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {
   const independence: VerdictIndependence =
     input.verdictIndependence ?? "unknown";
+  const floor: ConfidenceFloor = input.confidenceFloor ?? DEFAULT_CONFIDENCE_FLOOR;
   const independenceNote =
     independence === "same_family"
       ? " (reviewer and fixer share a model family per VerdictIndependence — clean verdict is not provider-independent)"
@@ -916,23 +950,33 @@ export function evaluateReviewGate(input: ReviewGateInput): ReviewGateResult {
       verdictIndependence: independence,
     };
   }
-  if (input.confidence === "high" || input.confidence === "medium") {
+  // Pass threshold tightens with the confidence floor (D13-3 / D13-SA13.3-F13.3.3):
+  //   - floor "any"/"medium": a `high` OR `medium` aggregate confidence passes.
+  //   - floor "high":         only a `high` aggregate confidence passes; `medium`
+  //                           falls through to the second_pass/escalate path.
+  // The floor never relaxes the Critical/Warning fail gates above; it only adds
+  // second-pass pressure on otherwise-clean-but-uncertain verdicts.
+  const passesFloor =
+    input.confidence === "high" ||
+    (input.confidence === "medium" && floor !== "high");
+  if (passesFloor) {
     return {
       decision: "pass",
-      reason: `Clean verdict with ${input.confidence} confidence${independenceNote}`,
+      reason: `Clean verdict with ${input.confidence} confidence at floor "${floor}"${independenceNote}`,
       verdictIndependence: independence,
     };
   }
+  // Below the floor (floor "any"/"medium": low/unknown; floor "high": also medium).
   if (input.iterationBudgetRemaining > 0) {
     return {
       decision: "second_pass",
-      reason: `Low confidence clean verdict; retry review at higher rigor (${input.iterationBudgetRemaining} iterations remain)${independenceNote}`,
+      reason: `${input.confidence} confidence clean verdict below floor "${floor}"; retry review at higher rigor (${input.iterationBudgetRemaining} iterations remain)${independenceNote}`,
       verdictIndependence: independence,
     };
   }
   return {
     decision: "escalate",
-    reason: `Low confidence clean verdict with no iteration budget; escalate to human operator${independenceNote}`,
+    reason: `${input.confidence} confidence clean verdict below floor "${floor}" with no iteration budget; escalate to human operator${independenceNote}`,
     verdictIndependence: independence,
   };
 }
