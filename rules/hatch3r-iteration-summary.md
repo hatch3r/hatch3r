@@ -90,9 +90,13 @@ Schema: `ts` ISO-8601 UTC timestamp; `command` the orchestrator command id; `ver
 
 A skill or command that omits the 9-section block fails the lifecycle gate (`.claude/rules/capability-lifecycle.md`). Prose substitution is rejected. The orchestrator catches the omission before declaring SUCCESS.
 
-## Emission-Rate Telemetry
+## Emission-Rate Telemetry (current status: per-run gate only; cross-run rate not yet wired)
 
-The validation gate above asserts the block is present per run; it does not measure the emission rate across runs. The SPACE-class telemetry pipeline (`src/pipeline/spaceTelemetry.ts`, Decision 24 sibling of cost-visibility) records that rate: each orchestrator/meaningful-skill run emits one `activity`-axis metric `iterationSummaryEmitted` (value `1` when the 9-section block was produced, `0` when skipped) via `recordSpaceMetric`, persisted to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl` and aggregated by `getSpaceSummary`. The audit cycle reads the aggregate to verify the CONSTITUTION §2 P5 "Sub-agent count emission on delegating artifacts: 100%" target is met in practice rather than only mandated (D10-SA10.8-F-6). Persistence honours the Silent Failure Contract — telemetry I/O never throws.
+The validation gate above asserts the 9-section block is present per run. It does NOT measure the emission rate across runs, and no automated cross-run measurement exists today.
+
+The SPACE-class telemetry pipeline (`src/pipeline/spaceTelemetry.ts`, Decision 24 sibling of cost-visibility) provides the recording primitive `recordSpaceMetric` and the aggregator `getSpaceSummary`, but they are not invoked on the iteration-summary path: orchestrator commands and skills are LLM-interpreted markdown with no binding to compiled `src/`, and no command, skill, hook, or `src/` code emits an `iterationSummaryEmitted` metric. The cross-run emission-rate loop is therefore unwired — a future capability, not a live measurement (origin: D10-SA10.8-F-6; gap corrected D10-18).
+
+To wire it, a host-runtime bridge (a Claude Code / Cursor / Copilot post-turn hook or an MCP shim) would need to call `recordSpaceMetric({ metricId: "iterationSummaryEmitted", axis: "activity", value: <1 if the 9-section block was produced else 0> })` after each orchestrator/meaningful-skill turn, persisting one JSONL line per run to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl`; the audit cycle could then read `getSpaceSummary` to check the CONSTITUTION §2 P5 "Sub-agent count emission on delegating artifacts: 100%" target against observed runs instead of only mandating it. `recordSpaceMetric` already honours the Silent Failure Contract (telemetry I/O routes through `src/pipeline/failureLog.ts` and never throws), so building the bridge adds no failure surface. Until that bridge ships, P5 emission compliance is enforced by the per-run validation gate above plus audit-cycle spot checks, not by an aggregate metric.
 
 ## Pillar Service
 - P5 — standardised reporting prevents drift across orchestrators

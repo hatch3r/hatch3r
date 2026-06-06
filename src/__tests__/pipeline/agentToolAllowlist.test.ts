@@ -10,6 +10,7 @@ import {
   toFailureLogEntry,
   validateToolPolicies,
   buildClaudePreToolUseHookScript,
+  buildCursorSubagentGuardHookScript,
   type AgentToolPolicy,
   type AllowlistDenialEvent,
 } from "../../pipeline/agentToolAllowlist.js";
@@ -644,6 +645,51 @@ describe("agentToolAllowlist", () => {
       const result = checkToolAccess("general-purpose", "write");
       expect(result.allowed).toBe(false);
       expect(result.denial?.reasonCode).toBe("NO_POLICY");
+    });
+  });
+
+  // D9-4 (Cycle 11 D9, P6): the Cursor `subagentStart` deny hook is the hard
+  // runtime ASI02 block for Cursor, at parity with the Claude PreToolUse
+  // NO_POLICY deny. cursor.com/docs/agent/hooks (accessed 2026-06-06) confirms
+  // `subagentStart` exposes `subagent_type` + `subagent_id` and denies with
+  // `{permission: "deny"}` — the prior "Cursor has no PreToolUse hook
+  // primitive" prose was false against current docs.
+  describe("D9-4 Cursor subagentStart guard hook script", () => {
+    it("scope-gates on a hatch3r- subagent_type prefix (non-hatch3r passes through)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      // The documented scope filter: a non-hatch3r subagent_type exits 0 (pass-through).
+      expect(script).toContain('if (!subagentType.startsWith("hatch3r-"))');
+      const scopeIdx = script.indexOf('if (!subagentType.startsWith("hatch3r-"))');
+      expect(script.slice(scopeIdx, scopeIdx + 120)).toContain("process.exit(0)");
+    });
+
+    it("reads the sibling policy doc one level up at ../agents-policy.json", () => {
+      // Script lives at .cursor/hooks/subagent-guard.mjs; policy doc at
+      // .cursor/agents-policy.json — so the relative resolution must climb one dir.
+      const script = buildCursorSubagentGuardHookScript();
+      expect(script).toContain('join(__dirname, "..", "agents-policy.json")');
+    });
+
+    it("denies a hatch3r- subagent with no policy row via {permission: deny} (NO_POLICY)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      // Cursor's documented deny shape is a stdout JSON {permission:"deny",...}.
+      expect(script).toContain('permission: "deny"');
+      // The NO_POLICY deny path mirrors the Claude hook's deny-by-default.
+      expect(script).toContain('reasonCode: "NO_POLICY"');
+      expect(script).toContain("No policy registered for agent");
+    });
+
+    it("denies when the policy file is unreadable (fail-closed at script level)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      expect(script).toContain('reasonCode: "POLICY_FILE_MISSING"');
+    });
+
+    it("matches the subagent against the canonical agentId field (parity with the registry)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      // The lookup keys on subagent_type === policy.agentId, the same join the
+      // Claude hook uses on agent_type, so the two adapters enforce one registry.
+      expect(script).toContain("policiesDoc.policies.find((p) => p.agentId === subagentType)");
+      expect(script).toContain("payload.subagent_type");
     });
   });
 });

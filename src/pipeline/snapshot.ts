@@ -930,7 +930,11 @@ export async function applyRollback(
           // Already absent — consistent with the snapshot's pre-state.
         }
       } else {
-        await atomicWriteFile(e.target, (e.sourceContent as Buffer).toString("utf-8"));
+        // D8-3 (Cycle 11 Wave 2, CQ4): write the captured Buffer verbatim.
+        // The prior `.toString("utf-8")` round-tripped non-UTF-8 user bytes
+        // through U+FFFD, corrupting any binary or non-UTF-8 file on restore;
+        // atomicWriteFile now accepts a Buffer and preserves bytes exactly.
+        await atomicWriteFile(e.target, e.sourceContent as Buffer);
       }
       dispositions[i].state = "original-restored";
       applied.push(i);
@@ -962,7 +966,10 @@ export async function applyRollback(
             if (code !== "ENOENT") throw err;
           });
         } else {
-          await atomicWriteFile(e.target, snap.bytes.toString("utf-8"));
+          // D8-3 (Cycle 11 Wave 2, CQ4): roll the pre-rollback bytes forward
+          // verbatim. As with the commit-phase restore above, a UTF-8
+          // re-encode here would corrupt non-UTF-8 content; pass the Buffer.
+          await atomicWriteFile(e.target, snap.bytes);
         }
         dispositions[idx].state = "rolled-forward";
         restored--;

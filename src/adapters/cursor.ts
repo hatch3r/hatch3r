@@ -1,8 +1,12 @@
-// Last updated: 2026-05-28 (P3 platform-currency anchor; cursor.com/docs/hooks
+// Last updated: 2026-06-06 (P3 platform-currency anchor; cursor.com/docs/agent/hooks
 // + cursor.com/docs/agent/subagents access dates inside this file remain
 // authoritative for individual claims. D9-M1 Cycle 10 Wave-3 re-verified the
 // `readonly: true` subagent frontmatter primitive against the current
-// /docs/agent/subagents URL.).
+// /docs/agent/subagents URL. D9-4 Cycle 11 Wave-2 re-verified the full hook
+// lifecycle against cursor.com/docs/agent/hooks accessed 2026-06-06: the
+// `subagentStart` event carries `subagent_type` and returns
+// `{permission: "deny"}` to block an over-privileged agent at spawn — wired
+// to `.cursor/hooks/subagent-guard.mjs` as the hard runtime ASI02 block.).
 import type {
   AdapterOutput,
   CanonicalFile,
@@ -20,6 +24,7 @@ import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import {
   buildAgentToolPoliciesJson,
   buildCursorAllowlistRule,
+  buildCursorSubagentGuardHookScript,
 } from "../pipeline/agentToolAllowlist.js";
 
 /**
@@ -51,7 +56,7 @@ function cursorMaturityHeader(ctx: AdapterContext): string {
 /**
  * D9-H-4 (Cycle 10 D9, Pillar P3): canonical hook event → Cursor 1.7+
  * `hooks.json` lifecycle event (camelCase taxonomy per
- * https://cursor.com/docs/hooks accessed 2026-05-27).
+ * https://cursor.com/docs/agent/hooks accessed 2026-06-06).
  *
  * Cursor's hook surface runs a shell `command` and reads a permission
  * decision (`{permission: allow|deny|ask}`) — it does NOT spawn an agent.
@@ -247,8 +252,8 @@ export class CursorAdapter extends BaseAdapter {
 
     // D9-H-4 (D9, P3): Cursor 1.7+ exposes a native hook surface at
     // `.cursor/hooks.json` (version 1, camelCase lifecycle events,
-    // `{permission: allow|deny|ask}` outputs — cursor.com/docs/hooks
-    // accessed 2026-05-27). Cursor hooks run a shell `command` and read a
+    // `{permission: allow|deny|ask}` outputs — cursor.com/docs/agent/hooks
+    // accessed 2026-06-06). Cursor hooks run a shell `command` and read a
     // permission decision; they do NOT spawn agents, and hatch3r hooks
     // carry an `agent:` to activate rather than a script. So we emit BOTH:
     //   1. `.cursor/hooks.json` — wires each mappable canonical event
@@ -276,24 +281,31 @@ export class CursorAdapter extends BaseAdapter {
         (hooksJsonEvents[mapping.event] ??= []).push(entry);
       }
     }
-    if (Object.keys(hooksJsonEvents).length > 0) {
-      const hooksJson = { version: 1, hooks: hooksJsonEvents };
-      results.push(output(".cursor/hooks.json", JSON.stringify(hooksJson, null, 2) + "\n"));
-    }
+    // D9-4 (Cycle 11 D9, P6): the `.cursor/hooks.json` write is deferred to
+    // after the ASI02 `subagentStart` guard entry is injected below, so the
+    // hard runtime block always ships alongside any lifecycle-event wiring.
 
-    // C9-H49 (D15-SA15.2, P6): emit the per-adapter MCP / tool gating
-    // artifacts. Cursor 1.7+ exposes a `preToolUse` hook in
-    // `.cursor/hooks.json` (cursor.com/docs/hooks accessed 2026-05-27),
-    // but it gates tool calls by running a shell command per event rather
-    // than by per-agent allowlist — there is no native primitive that maps
-    // a hatch3r agent id to its permitted tool categories. So per-agent
-    // ASI02 enforcement stays rule-delegated: an alwaysApply rule plus a
-    // machine-readable `agents-policy.json` document. Pairs with the
-    // `readonly: true` frontmatter primitive already emitted by
-    // `toCursorReadonlyFrontmatter` for agents whose policy lacks both
-    // `write` and `execute`. (Lifecycle-event wiring — pre-commit, file-save,
-    // session-start — IS emitted natively to `.cursor/hooks.json` above
-    // per D9-H-4.)
+    // D9-4 (Cycle 11 D9, P6/P3): emit the per-adapter MCP / tool gating
+    // artifacts. Cursor's `preToolUse` hook payload (cursor.com/docs/agent/hooks
+    // accessed 2026-06-06) carries `tool_name`/`tool_input`/`tool_use_id`/
+    // `cwd`/`model`/`agent_message` but NO agent-identity field, so a
+    // per-tool-CATEGORY deny cannot bind to the active hatch3r agent there —
+    // category granularity stays rule-delegated (alwaysApply rule +
+    // machine-readable `agents-policy.json`) and the `readonly: true`
+    // frontmatter primitive (emitted by `toCursorReadonlyFrontmatter` for
+    // agents whose policy lacks both `write` and `execute`) is the hard
+    // write/execute guard.
+    //
+    // The agent-IDENTITY gate that `preToolUse` cannot serve is bound at the
+    // `subagentStart` event, which DOES expose `subagent_type` + `subagent_id`
+    // and returns `{permission: "deny"}` to block a subagent at spawn. That
+    // closes the prior gap (a Cursor over-privileged agent had no hard runtime
+    // block at parity with the Claude PreToolUse deny gate): the
+    // `.cursor/hooks/subagent-guard.mjs` script (built below, mirrors
+    // `buildClaudePreToolUseHookScript`) reads `agents-policy.json` and denies
+    // any `hatch3r-*` subagent with no policy row (NO_POLICY), the Cursor
+    // analog of the Claude NO_POLICY deny. It is wired into the `subagentStart`
+    // event of `.cursor/hooks.json` below.
     const allowlistFm = `---\ndescription: Per-agent tool allowlist (ASI02). Enforced by the Cursor agent runtime — out-of-policy tool calls must be refused.\nalwaysApply: true\n---`;
     results.push(mdcOutput(
       ".cursor/rules/hatch3r-tool-allowlist.mdc",
@@ -304,6 +316,26 @@ export class CursorAdapter extends BaseAdapter {
       ".cursor/agents-policy.json",
       buildAgentToolPoliciesJson(),
     ));
+
+    // D9-4 (Cycle 11 D9, P6): emit the `subagentStart` deny hook — the hard
+    // runtime ASI02 block for Cursor, at parity with the Claude PreToolUse
+    // NO_POLICY deny. The script lives under `.cursor/hooks/` and resolves the
+    // sibling policy doc at `../agents-policy.json`; it is wired into the
+    // `subagentStart` event with `failClosed: true` so a crash/timeout blocks
+    // the spawn rather than failing open (cursor.com/docs/agent/hooks accessed
+    // 2026-06-06). Emitted regardless of `features.rules` — the guard is a
+    // trust artifact, identical posture to the allowlist rule above.
+    results.push(output(
+      ".cursor/hooks/subagent-guard.mjs",
+      buildCursorSubagentGuardHookScript(),
+    ));
+    (hooksJsonEvents.subagentStart ??= []).push({
+      type: "command",
+      command: "node ./.cursor/hooks/subagent-guard.mjs",
+      failClosed: true,
+    });
+    const hooksJson = { version: 1, hooks: hooksJsonEvents };
+    results.push(output(".cursor/hooks.json", JSON.stringify(hooksJson, null, 2) + "\n"));
 
     const bridgeFm = `---
 description: Bridge to canonical agent instructions and mandatory orchestration directives

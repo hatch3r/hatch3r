@@ -319,6 +319,33 @@ describe("pipeline/snapshot", () => {
       expect(after).toBe("original A");
     });
 
+    it("restores non-UTF-8 content byte-for-byte (no U+FFFD corruption)", async () => {
+      // D8-3 (Cycle 11 Wave 2, CQ4): the commit-phase restore previously did
+      // `(sourceContent).toString("utf-8")`, which round-trips bytes >= 0x80
+      // through the replacement char. 0xe9 is a lone, non-UTF-8 byte (é in
+      // Latin-1); a lossy re-encode would replace it with the 3-byte U+FFFD
+      // sequence (ef bf bd) and change the file length. The fix passes the
+      // captured Buffer to atomicWriteFile verbatim, so the bytes survive.
+      const binFile = join(projectRoot, "data.bin");
+      const original = Buffer.from([0x68, 0x69, 0x20, 0xe9, 0x21]); // "hi " + 0xe9 + "!"
+      await writeFile(binFile, original);
+      await createSnapshot("sess-binary", [binFile], { projectRoot });
+
+      // Mutate with different bytes.
+      await writeFile(binFile, Buffer.from([0x00, 0x01, 0x02]));
+
+      const result = await applyRollback("sess-binary", { projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+
+      const after = await readFile(binFile); // Buffer, not utf-8 decode
+      expect(after.equals(original)).toBe(true);
+      // Guard against the specific corruption mode: a lossy utf-8 round-trip
+      // would have grown the 5-byte file to 7 bytes (0xe9 -> ef bf bd).
+      expect(after.length).toBe(5);
+      expect(after.includes(Buffer.from([0xef, 0xbf, 0xbd]))).toBe(false);
+    });
+
     it("deletes a file that was created during the run via tombstone restore", async () => {
       const newFile = join(projectRoot, "created.txt");
       // Snapshot before file exists -> tombstone.

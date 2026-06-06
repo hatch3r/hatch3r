@@ -233,6 +233,14 @@ export function substituteVerificationGateTokens(
 /**
  * Public list of token literals — exposed for validators and tests that
  * need to assert the wire format without re-declaring the constants.
+ *
+ * Adoption gate (D14-12, High): every member MUST be referenced by at
+ * least one canonical content file under `agents/`, `commands/`, `rules/`,
+ * `skills/`, or `hooks/`. A token with zero canonical adopters is dead
+ * wiring (the detect + substitute path runs but no generated artifact ever
+ * carries the resolved value) and fails `scripts/validate-repo-token-adoption.ts`
+ * (CI gate `npm run validate:efficiency`). When adding a token here, adopt
+ * it in content that names the project's toolchain in the same change.
  */
 export const REPO_SUBSTITUTION_TOKENS = [
   LINTER_TOKEN,

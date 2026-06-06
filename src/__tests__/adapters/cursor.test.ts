@@ -633,6 +633,56 @@ Low priority rule body.
     });
   });
 
+  // D9-4 (Cycle 11 D9, P6): the `subagentStart` deny hook is the hard runtime
+  // ASI02 block for Cursor, at parity with the Claude PreToolUse NO_POLICY
+  // deny. cursor.com/docs/agent/hooks (accessed 2026-06-06) confirms
+  // `subagentStart` exposes `subagent_type` and denies with
+  // `{permission: "deny"}`; the prior "Cursor has no PreToolUse hook
+  // primitive" premise was false against current docs.
+  describe("D9-4 subagentStart guard hook + hooks.json wiring", () => {
+    it("emits .cursor/hooks/subagent-guard.mjs that reads ../agents-policy.json and denies NO_POLICY", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const guard = outputs.find((o) => o.path === ".cursor/hooks/subagent-guard.mjs");
+      expect(guard).toBeDefined();
+      expect(guard!.content).toContain("subagentStart");
+      expect(guard!.content).toContain('join(__dirname, "..", "agents-policy.json")');
+      expect(guard!.content).toContain('permission: "deny"');
+      expect(guard!.content).toContain('reasonCode: "NO_POLICY"');
+      expect(guard!.content).toContain('if (!subagentType.startsWith("hatch3r-"))');
+    });
+
+    it("wires the guard into .cursor/hooks.json under the subagentStart event with failClosed", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      expect(hooksFile).toBeDefined();
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(parsed.version).toBe(1);
+      expect(Array.isArray(parsed.hooks.subagentStart)).toBe(true);
+      const entry = parsed.hooks.subagentStart[0];
+      expect(entry.type).toBe("command");
+      expect(entry.command).toBe("node ./.cursor/hooks/subagent-guard.mjs");
+      // failClosed: a crash/timeout blocks the spawn rather than failing open.
+      expect(entry.failClosed).toBe(true);
+    });
+
+    it("emits the guard + hooks.json even when no canonical lifecycle hooks map (features.hooks off)", async () => {
+      // The guard is a trust artifact: it must ship even when no
+      // pre-commit/file-save/session-start hook produced a hooks.json entry,
+      // otherwise the Cursor ASI02 runtime block silently disappears.
+      const manifest = makeManifest({ features: { hooks: false } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      expect(hooksFile).toBeDefined();
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(parsed.hooks.subagentStart[0].command).toBe(
+        "node ./.cursor/hooks/subagent-guard.mjs",
+      );
+      expect(
+        outputs.find((o) => o.path === ".cursor/hooks/subagent-guard.mjs"),
+      ).toBeDefined();
+    });
+  });
+
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
   // Cursor's skills surface is filtered by `manifest.cliTools.selected` via

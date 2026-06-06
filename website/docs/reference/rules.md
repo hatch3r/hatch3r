@@ -9,37 +9,127 @@ Persistent instructions (coding standards, conventions, patterns) that are alway
 
 ## Rule Reference
 
+Rules are grouped below by area. The `precedence` column on each canonical rule (critical / high / normal / low) drives load order; see [Rule Precedence](#rule-precedence-and-description-quality).
+
+### Security and secrets
+
 | Rule | Description |
 |------|-------------|
-| **accessibility-standards** | Accessibility standards covering WCAG 2.2 AA compliance, keyboard navigation, screen readers, and ARIA patterns. |
-| **agent-orchestration** | Agent delegation patterns, sub-agent spawning conventions, result aggregation, and multi-agent coordination protocols. |
-| **agent-orchestration-detail** | Extended orchestration reference -- PipelineContext schemas, resilience protocols, observability integration, and auto-mode guardrails. |
-| **api-design** | Endpoint versioning, request validation, idempotency keys, structured error responses, auth, CORS, CSP, pagination, and webhook security. |
-| **browser-verification** | When and how to verify UI changes in the browser via automation MCP -- dev server lifecycle, navigation, interaction, visual regression, screenshot evidence. |
-| **ci-cd** | CI/CD pipeline standards covering stage gates, deployment strategies, and rollback procedures. |
-| **code-standards** | TypeScript strict mode, naming conventions (`camelCase`/`PascalCase`/`SCREAMING_SNAKE`), and function/file length limits. |
-| **component-conventions** | Component structure, typed props/emits, design tokens, WCAG AA accessibility, loading/error/empty states, form UX, and 60fps render targets. |
-| **data-classification** | Data classification standards covering PII handling, encryption, retention policies, and regulatory compliance. |
-| **deep-context** | Adaptive pre-implementation analysis -- complexity scoring, requirements elicitation, similar implementation discovery, and transitive dependency tracing before coding. |
-| **dependency-management** | Lockfile hygiene, new-dependency justification, CVE patching timelines (48h for critical), and bundle size budgets. |
-| **feature-flags** | Flag naming (`FF_AREA_FEATURE`), storage, evaluation, gradual rollout, dependencies, kill switches, 30-day cleanup deadlines, and audit. |
-| **git-conventions** | Git workflow, branch naming, commit message conventions, and merge strategy. |
-| **i18n** | Internationalization, RTL support, locale management, and ICU message format. |
-| **iteration-summary** | Every user-facing iteration ends with the canonical Iteration Summary block -- a 5-field contract exposing status, gaps, and confidence at a glance. |
-| **learning-consult** | When and how to consult project learnings during development. |
-| **migrations** | Backward-compatible schema changes, idempotent scripts, rollback plans, and deploy-then-migrate ordering. |
-| **observability** | Structured JSON logging, OpenTelemetry, SLO/SLI, distributed tracing, alerting, dashboards, and no PII in logs. |
-| **observability-logging** | Structured logging and error reporting conventions for the project. |
-| **observability-metrics** | Metrics, SLO/SLI definitions, alerting, and dashboard conventions for the project. |
-| **observability-tracing** | Distributed tracing, OpenTelemetry semantic conventions, AI agent instrumentation, and correlation ID conventions. |
-| **observability-tracing-detail** | Extended tracing reference -- AI agent instrumentation, tool call audit trails, LLM request tracing, and correlation ID patterns. |
-| **performance-budgets** | Core Web Vitals, API latency, database query budgets, bundle size, and enforcement mechanisms. |
-| **right-sizing** | Always-on maturity-calibration rule -- directs agents to invest only as deep as the project's tier (solo/team/scaleup/enterprise) needs, anchored by a universal floor (security, correctness, accessibility basics, baseline tests) that binds at every tier. |
-| **secrets-management** | Secret management, rotation, and secure handling patterns for the project. |
-| **security-patterns** | Input validation, output encoding, auth enforcement, AI/agentic security, and OWASP alignment. |
-| **testing** | Deterministic, isolated, fast tests with clear naming, regression coverage, no network in unit tests, no `any`. |
+| **secrets-management** | Secret management, rotation, and secure-handling patterns. |
+| **security-patterns** | Input validation, auth enforcement, AI/agentic security, and OWASP alignment. |
+| **security-rule** | CQ3 Security Quality measurement rule -- supply-chain integrity, auth depth, secret hygiene, OWASP ASI controls; specialist routing to `hatch3r-security`. |
+| **auth-patterns** | Authentication and authorization for end-user apps -- OAuth 2.1, OIDC, DPoP, JWT rotation, cookie security, and an RBAC vs ABAC vs ReBAC rubric. |
+| **passkey-server** | Server-side WebAuthn / passkey ceremony -- registration, authentication, attestation, counter, RP-ID, recovery, FIDO CXP/CXF awareness. |
+| **data-classification** | PII handling, encryption, retention policies, and regulatory compliance. |
+
+### Supply chain and dependencies
+
+| Rule | Description |
+|------|-------------|
+| **dependency-management** | Lockfile discipline, CVE scanning, transitive audits, major-version upgrade protocol, bundle-size gates, and SHA-pinned GitHub Actions. |
+| **container-hardening** | Container image hardening -- digest pinning, distroless / Wolfi base, non-root user, SBOM-in-image, cosign signing + verification, CVE scanning. |
+| **tool-currency** | CLI-tool version pinning, vendor-release research cadence (≤90 days), CVE-feed acknowledgement (≤90 days), and a release-readiness gate. |
+
+### Observability and reliability
+
+| Rule | Description |
+|------|-------------|
+| **observability-logging** | Structured logging and error-reporting conventions. |
+| **observability-metrics** | Metrics, SLO/SLI definitions, alerting, and dashboard conventions. |
+| **observability-tracing** | Distributed tracing, OpenTelemetry conventions, and AI agent instrumentation. |
+| **resilience-patterns** | Circuit breakers, retry with decorrelated jitter, timeouts with deadline propagation, idempotency keys, bulkheads, and hedged requests. |
+| **operability** | Liveness / readiness / startup probes, graceful shutdown, feature flags, runbook-URL annotations, and health endpoints. |
+| **progressive-delivery** | Canary, blue-green, and feature-flag rollout with auto-rollback on SLO burn; staged rollout to prevent CrowdStrike-class incidents. |
+
+### API, data, and migrations
+
+| Rule | Description |
+|------|-------------|
+| **api-design** | REST, GraphQL, and gRPC contract patterns -- versioning, auth, CORS, pagination, webhooks, rate limiting, and security headers. |
+| **api-versioning** | API versioning, deprecation lifecycle, and idempotency -- RFC 9457 errors, RFC 9745 Deprecation, RFC 8594 Sunset, OAuth 2.1, Idempotency-Key. |
+| **migrations** | Expand-contract schema changes, online DDL, backfills, compatibility windows, reversibility, and multi-region tooling. |
+| **event-schema-evolution** | Event/message schema evolution for Kafka / Kinesis / Pub-Sub / event store -- backward + forward + full compatibility, schema registry, consumer defaults. |
+| **contract-testing** | Consumer-driven and spec-driven contract testing between services -- Pact, Schemathesis, Dredd, pact-broker can-i-deploy gate. |
+
+### UI, UX, and accessibility
+
+| Rule | Description |
+|------|-------------|
+| **accessibility-standards** | WCAG 2.2 AA compliance, keyboard navigation, screen readers, and ARIA patterns. |
+| **component-conventions** | Component structure, typed props/emits, design tokens, four-state coverage, form UX, and 60fps render targets for Vue, React, and JSX. |
+| **ux-states-and-flows** | Four-state surface contract (loading/empty/error/partial), user-flow decomposition before implementation, and microcopy + tone discipline. |
+| **design-system-detection** | Mandatory detection of existing design tokens, theme primitives, and component library before AI agents author new UI components. |
+| **ai-ux-patterns** | 2026 AI/agentic UX -- streaming, tool-call UI, human-approval gates, cancel/abort/undo, citations. |
 | **theming** | Dark mode, `prefers-color-scheme`, CSS custom properties, and semantic color tokens. |
-| **tooling-hierarchy** | Priority order for knowledge: project specs > codebase > library docs (Context7 MCP) > web research; GitHub CLI-first. |
+| **i18n** | Internationalization, localization, and RTL support conventions. |
+
+### Performance and testing
+
+| Rule | Description |
+|------|-------------|
+| **performance-budgets** | Core Web Vitals targets, API response-time tables, database query caps, bundle-size limits, and Lighthouse CI enforcement gates. |
+| **testing** | Coverage thresholds, mocking strategy, property-based testing, mutation-score targets, flaky-test quarantine, and snapshot discipline. |
+| **testability-rule** | CQ5 Testability Quality measurement rule -- per-feature test-class mandate map, real-deal ratio floor, AI eval coverage, mutation kill rate. |
+| **ai-evals** | AI feature evaluation, prompt versioning, cost telemetry, prompt caching, model fallback, and hallucination-as-SLI for projects shipping LLM features. |
+
+### Content-quality measurement rules
+
+| Rule | Description |
+|------|-------------|
+| **scalability-rule** | CQ6 -- stateless-handler ratio, back-pressure adoption, idempotency-key adoption on POST/PUT/PATCH, queue offloading for >1s ops, pool sizing. |
+| **maintainability-rule** | CQ8 -- jscpd duplication index, pattern-reuse ratio, cyclomatic complexity, expand-contract migrations, API breaking-change discipline, ADR presence. |
+| **enhancability-rule** | CQ9 -- feature-flag adoption on user-visible behavior, config externalization, API versioning + deprecation policy, forward-compat, extension points. |
+| **edge-case-discipline** | Build-time enumeration of domain/data-correctness edge cases (cardinality, null/boundary, cross-entity consistency, illegal transitions, concurrency, partial failure). |
+
+### Orchestration and process
+
+| Rule | Description |
+|------|-------------|
+| **agent-orchestration** | Mandatory agent delegation, skill loading, and sub-agent directives for all tasks in all contexts. |
+| **clarification-default** | P8 B1 floor -- detect and resolve ambiguity via the platform question tool before executing, with a §0 ambiguity gate on every mutating agent, command, and skill. |
+| **fan-out-discipline** | P8 B2 floor -- sub-agent fan-out scales with task size; token cost never justifies serializing independent work; delegating artifacts emit count + rationale. |
+| **iteration-summary** | 9-section iteration summary emitted by every orchestrator command and meaningful skill run -- status, outcome, fan-out + cost, gates, pillar impact. |
+| **cost-visibility** | Pre-execution cost estimate + post-execution actuals + delta surfaced in the iteration summary by every orchestrator command. |
+| **capability-matrix** | Per-cycle adapter capability-matrix audit -- twin-metric currency + utilization; surfaces unutilized platform-native features per adapter each cycle. |
+| **right-sizing** | Maturity-calibration rule -- invest only as deep as the project's tier (solo/team/scaleup/enterprise) needs, anchored by a universal floor that binds at every tier. |
+| **anti-duplication** | Pre-implementation discovery gate + post-write jscpd duplication scan per maturity tier. Silent duplication is a P4 violation. |
+| **proof-model** | Mandatory citation per factual claim + pre-execution verification gates + `proof_trace` schema. Hallucination prevention via verifiable proof. |
+| **reviewer-calibration** | Every Nth consecutive clean PASS triggers an out-of-band second-pass review before loop exit; divergence reverts to REQUEST CHANGES. |
+
+### Pre-implementation, learning, and tooling
+
+| Rule | Description |
+|------|-------------|
+| **deep-context** | Adaptive pre-implementation analysis -- complexity scoring, requirements elicitation, similar-implementation discovery, transitive dependency tracing. |
+| **learning-consult** | Consult `.hatch3r/learnings/` for pitfalls, patterns, and past decisions before implementation, with a frontmatter-first scan and priority ordering. |
+| **learning-system** | Project-level learning system -- structured frontmatter, auto-consolidation triggers, and a mandatory consultation gate for Implementer, Reviewer, and Researcher. |
+| **handoff-readiness** | Handoff readiness checklist -- pre-write validation before persisting a canonical handoff document. |
+| **browser-verification** | Playwright browser verification for UI changes -- visual regression, screenshot capture, console checks, and accessibility spot-checks. |
+| **tooling-hierarchy** | Platform MCP-first priority, documentation MCP for library APIs, web research for CVEs, and browser MCP for UI verification. |
+
+### Code standards, CI/CD, and flags
+
+| Rule | Description |
+|------|-------------|
+| **code-standards** | TypeScript typing discipline, naming, file-size caps, Result types, barrel exports, import ordering, monorepo boundaries, untrusted-content hygiene. |
+| **git-conventions** | Conventional Commits type list, subject-line rules, breaking-change footer, and the `type/short-description` branch template. |
+| **ci-cd** | CI/CD pipeline standards -- stage gates, deployment strategies, and rollback procedures. |
+| **feature-flags** | OpenFeature provider interface, percentage rollout, kill switches, stale-flag detection, audit logging, and evaluation-context rules. |
+
+### Language and framework packs
+
+| Rule | Description |
+|------|-------------|
+| **python-patterns** | Python 3.12+ -- uv project management, Ruff lint+format, mypy strict, pytest parametrize, and the FastAPI/Django request-path + ORM N+1 floor. |
+| **go-patterns** | Go 1.23+ -- modules, error wrapping, context propagation, generics, table-driven tests, and `net/http` + `log/slog`. |
+| **rust-patterns** | Rust -- 2024 edition idioms, thiserror/anyhow error handling, ownership patterns, async with Tokio, testing, and Cargo workspaces. |
+| **dotnet-patterns** | .NET 9 + C# 13 -- minimal APIs, nullable reference types, async/await, EF Core, dependency injection, structured logging, and xUnit. |
+| **php-laravel-patterns** | PHP 8.3+ and Laravel 11.x -- typed properties, attributes, Eloquent ORM, Service Container DI, Pest testing, queue workers, Laravel Pint. |
+| **ruby-rails-patterns** | Ruby 3.3+ and Rails 8.x -- Hotwire (Turbo + Stimulus), ActiveRecord patterns, Sidekiq jobs, RSpec, RuboCop / Standard, YJIT. |
+| **swiftui-patterns** | SwiftUI and Swift -- Swift 6 concurrency, `@Observable` + `@Bindable`, navigation stacks, Swift Package Manager, modular architecture, XCTest. |
+| **android-patterns** | Android Kotlin -- Jetpack Compose, coroutines + Flow, Hilt DI, Room, modular Gradle, AGP 8.x, target SDK 35, and Compose testing. |
+| **flutter-patterns** | Flutter and Dart -- null safety, state management (Riverpod/Bloc), Material 3, FFI, performance, platform channels, and integration testing. |
+| **react-native-patterns** | React Native -- New Architecture (Fabric + TurboModules), Hermes, Expo Router/SDK, native module bridging, performance, platform-specific UI. |
 
 ## Rule Types
 

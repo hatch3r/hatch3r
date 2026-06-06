@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { mkdtemp } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import {
+  atomicWriteFile,
   isManagedPath,
   safeWriteFile,
   sweepOrphanTmpFiles,
@@ -40,6 +41,44 @@ describe("safeWrite", () => {
     it("returns true when filename starts with hatch3r- regardless of path", () => {
       expect(isManagedPath("hatch3r-bridge.mdc")).toBe(true);
       expect(isManagedPath("/absolute/path/hatch3r-rule.md")).toBe(true);
+    });
+  });
+
+  // D8-3 (Cycle 11 Wave 2, CQ4): atomicWriteFile accepts string | Buffer. A
+  // string is UTF-8 encoded (unchanged); a Buffer is written verbatim so
+  // arbitrary bytes >= 0x80 survive instead of corrupting to U+FFFD. The
+  // snapshot rollback path relies on this to restore non-UTF-8 user files.
+  describe("atomicWriteFile (binary content)", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("writes a Buffer verbatim, preserving non-UTF-8 bytes", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-binwrite-"));
+      const target = join(tempDir, "data.bin");
+      // 0xe9 is a lone, non-UTF-8 byte; a string re-encode would turn it into
+      // the 3-byte U+FFFD sequence (ef bf bd) and grow the file.
+      const bytes = Buffer.from([0x68, 0x69, 0x20, 0xe9, 0x21]);
+
+      await atomicWriteFile(target, bytes);
+
+      const onDisk = await readFile(target);
+      expect(onDisk.equals(bytes)).toBe(true);
+      expect(onDisk.length).toBe(5);
+      expect(onDisk.includes(Buffer.from([0xef, 0xbf, 0xbd]))).toBe(false);
+    });
+
+    it("still writes a string as UTF-8 (unchanged behavior)", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-strwrite-"));
+      const target = join(tempDir, "text.txt");
+
+      await atomicWriteFile(target, "héllo");
+
+      expect(await readFile(target, "utf-8")).toBe("héllo");
     });
   });
 

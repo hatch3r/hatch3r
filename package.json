@@ -19,7 +19,7 @@
     "inventory": "tsx scripts/inventory.ts",
     "inventory:check-docs": "tsx scripts/inventory.ts --check-docs",
     "validate:rule-parity": "tsx scripts/validate-rule-parity.ts && tsx scripts/validate-rule-pillar-currency.ts",
-    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts && tsx scripts/validate-tag-order.ts && tsx scripts/validate-governance-currency.ts && tsx scripts/validate-traceability-matrix.ts && tsx scripts/validate-decision-id-consistency.ts",
+    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts && tsx scripts/validate-tag-order.ts && tsx scripts/validate-governance-currency.ts && tsx scripts/validate-traceability-matrix.ts && tsx scripts/validate-decision-id-consistency.ts && tsx scripts/validate-repo-token-adoption.ts",
     "validate:cli-skills": "tsx scripts/validate-cli-skills.ts",
     "validate:wiring": "tsx scripts/validate-wiring.ts",
     "validate:control-reachability": "tsx scripts/validate-control-reachability.ts",

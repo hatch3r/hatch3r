@@ -121,9 +121,13 @@ A change to a `commands/hatch3r-*.md` orchestrator or to a meaningful state-muta
 4. Telemetry persists to `.hatch3r/telemetry/<session-id>.json` even under `--quiet`.
 5. Delta thresholds beyond 25% absolute value carry an explicit `flagged_for_review: true` annotation in the iteration summary.
 
-## Emission-Rate Telemetry
+## Emission-Rate Telemetry (current status: per-run gate only; cross-run rate not yet wired)
 
-The acceptance criteria above are checked per run; they do not measure the cost-block emission rate across runs. The SPACE-class telemetry pipeline (`src/pipeline/spaceTelemetry.ts`) records that rate: each orchestrator/meaningful-skill run emits one `activity`-axis metric `costVisibilityEmitted` (value `1` when both `cost_estimate` and `cost_actuals` blocks were produced, `0` otherwise) via `recordSpaceMetric`, persisted to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl` and aggregated by `getSpaceSummary`. The audit cycle reads the aggregate to confirm the 100% cost-visibility emission target holds in practice rather than only being mandated (D10-SA10.8-F-6). Persistence honours the Silent Failure Contract — telemetry I/O routes through `src/pipeline/failureLog.ts` and never throws.
+The acceptance criteria above are checked per run. They do NOT measure the cost-block emission rate across runs, and no automated cross-run measurement exists today.
+
+The SPACE-class telemetry pipeline (`src/pipeline/spaceTelemetry.ts`) provides the recording primitive `recordSpaceMetric` and the aggregator `getSpaceSummary`, but they are not invoked on the cost-visibility path: orchestrator commands and skills are LLM-interpreted markdown with no binding to compiled `src/`, and no command, skill, hook, or `src/` code emits a `costVisibilityEmitted` metric. The cross-run emission-rate loop is therefore unwired — a future capability, not a live measurement (origin: D10-SA10.8-F-6; gap corrected D10-18).
+
+To wire it, a host-runtime bridge (a Claude Code / Cursor / Copilot post-turn hook or an MCP shim) would need to call `recordSpaceMetric({ metricId: "costVisibilityEmitted", axis: "activity", value: <1 if both cost_estimate and cost_actuals were produced else 0> })` after each orchestrator/meaningful-skill turn, persisting one JSONL line per run to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl`; the audit cycle could then read `getSpaceSummary` to check the 100% cost-visibility emission target against observed runs instead of only mandating it. `recordSpaceMetric` already routes I/O failures through `src/pipeline/failureLog.ts` and never throws (Silent Failure Contract), so building the bridge adds no failure surface. Until that bridge ships, cost-visibility compliance is enforced by the per-run acceptance criteria above plus audit-cycle spot checks, not by an aggregate metric.
 
 ## Pillar Service
 

@@ -405,6 +405,13 @@ describe("reviewLoop", () => {
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule PipelineContext reviewResult.iterations comment (canonical)",
+        loopClass: "code",
+        regex: /1 to code-class cap \(DEFAULT_MAX_REVIEW_ITERATIONS - 1 = (\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
         label: "detail rule failure-mode table (canonical)",
         loopClass: "code",
         regex: /Max iterations \((\d+)\)/g,
@@ -415,6 +422,13 @@ describe("reviewLoop", () => {
         label: "detail rule retry-policy (canonical)",
         loopClass: "code",
         regex: /review loop retries up to\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule PipelineContext reviewResult.iterations comment (Cursor parity)",
+        loopClass: "code",
+        regex: /1 to code-class cap \(DEFAULT_MAX_REVIEW_ITERATIONS - 1 = (\d+)\)/g,
         occurrences: 1,
       },
       {
@@ -443,8 +457,10 @@ describe("reviewLoop", () => {
       // Self-check: the registry must enumerate every file that states a cap.
       // 11 distinct files carry cap statements (rule, rule.mdc, reviewer,
       // fixer, bug-pipeline, board-fill, quick-change, revision, board-pickup,
-      // workflow, detail.md, detail.mdc => 12). Guard against a future edit
-      // that silently empties the registry.
+      // workflow, detail.md, detail.mdc). detail.md/.mdc each state the
+      // code-class cap three times (Finding D7-2: reviewResult.iterations
+      // comment, failure-mode table, retry-policy) => 18 entries. Guard
+      // against a future edit that silently empties the registry.
       expect(
         CAP_SURFACE_REGISTRY.length,
         "CAP_SURFACE_REGISTRY must remain populated — it is the single enumerated source of review-loop cap surfaces",
@@ -477,6 +493,30 @@ describe("reviewLoop", () => {
             ).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
           }
         }
+      }
+    });
+
+    // Finding D7-2 (Cycle 11, High): the detail rule's cross-command Pipeline
+    // Pattern table states the default-class Phase-3 cap symbolically
+    // (`max \`DEFAULT_MAX_REVIEW_ITERATIONS\``), NOT as a bare integer. That is
+    // the correct full-default cap (4), distinct from the code-class cap (3)
+    // the three code-class surfaces above carry. Pin it to stay symbolic so a
+    // future edit cannot re-introduce a third drifting integer answer for the
+    // cap (the "three answers for one cap" the finding flagged).
+    it("detail rule default-class Phase-3 row references DEFAULT_MAX_REVIEW_ITERATIONS symbolically, not a bare integer (Finding D7-2)", () => {
+      const repoRoot = process.cwd();
+      for (const path of [
+        "rules/hatch3r-agent-orchestration-detail.md",
+        "rules/hatch3r-agent-orchestration-detail.mdc",
+      ]) {
+        const body = readFileSync(join(repoRoot, path), "utf-8");
+        const symbolicRow =
+          /Phase 3 Review Loop \| `hatch3r-reviewer` ↔ `hatch3r-fixer` \(max `DEFAULT_MAX_REVIEW_ITERATIONS`\)/g;
+        const matches = [...body.matchAll(symbolicRow)];
+        expect(
+          matches.length,
+          `${path} — the cross-command Pipeline Pattern Phase-3 row must reference DEFAULT_MAX_REVIEW_ITERATIONS symbolically (default-class cap). A bare integer here re-opens the cap-drift gap (Finding D7-2).`,
+        ).toBe(1);
       }
     });
   });

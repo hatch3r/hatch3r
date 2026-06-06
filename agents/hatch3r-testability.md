@@ -65,6 +65,7 @@ Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the p
 
 ## Key Files / Key Specs
 
+- The project's detected test framework is `${HATCH3R:TEST_FRAMEWORK}` (resolves to `unknown` when none was detected at setup — read the runner config below to confirm). Use it to select the right runner invocation and report-path conventions for every command in this section.
 - Test directories per project (`src/__tests__/`, `tests/`, `__tests__/`, `e2e/`, `test/`, `spec/`).
 - Mock declarations: `grep -rn "// MOCK:" <test-dir>` enumerates justified mocks; mocks without the marker fail Audit checklist item 2. Framework-level mock helpers (`vi.mock`, `jest.mock`, `unittest.mock.patch`, `mockito.when`) are detected by import-statement grep against the per-language pattern map.
 - Coverage reports: `coverage/coverage-summary.json` (Istanbul / v8), `coverage/lcov.info`, `coverage.xml` (Cobertura), or platform-equivalent. Coverage thresholds live in `vitest.config.ts`, `jest.config.js`, `pyproject.toml`, `pom.xml`, or `.coveragerc`.

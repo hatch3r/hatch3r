@@ -704,6 +704,19 @@ describe("filterByLanguages", () => {
     expect(result.map((i) => i.id)).toEqual(["ts-only", "agnostic"]);
   });
 
+  it("treats an all-unmapped projectLanguages list as a no-op (D14-3: empty relevant set)", () => {
+    // 'php' is detectable but absent from LANGUAGE_TO_TAG, so resolveLanguageTags
+    // returns ∅. With no resolvable language signal the filter declines to
+    // narrow rather than dropping every lang:*-tagged item (the silent-strip bug).
+    const items: Item[] = [
+      item("ts-only", ["lang:typescript"]),
+      item("go-only", ["lang:go"]),
+      item("agnostic", [TAG_ORCHESTRATION]),
+    ];
+    const result = filterByLanguages(items, ["php"]);
+    expect(result.map((i) => i.id)).toEqual(["ts-only", "go-only", "agnostic"]);
+  });
+
   it("always includes protected items even when their lang tag does not match", () => {
     const items: Item[] = [
       item("ts-protected", ["lang:typescript"], { protected: true }),

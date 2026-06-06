@@ -23,17 +23,37 @@
  * here as standalone JS so it runs at session start without requiring a
  * prior `npm run build`.
  *
+ * Usage: `node session-start-registry.mjs <registry-path>`. The path is a
+ * required argument — this public/tracked script ships no default literal,
+ * because the registry lives in the private gitignored governance corpus and a
+ * hard-coded default would point at an absent file on every public clone (and
+ * for any third party who copies this helper). See the `REGISTRY_PATH` guard.
+ *
  * Output: a single line on stdout, e.g.
  *   Audit registry v2.0.0: 415 entries, 82 pending (Cycle 9: 80 pending, 0 critical)
  *
- * On any error (missing file, bad JSON), prints a friendly fallback and
- * exits 0 — the hook must never fail the session.
+ * On a missing path argument, missing file, or bad JSON, prints a neutral
+ * fallback line and exits 0 — the hook must never fail the session.
  */
 
 import { readFile } from "node:fs/promises";
 
-const REGISTRY_PATH =
-  process.argv[2] ?? "governance/audit/finding-registry.json";
+// Registry path is supplied explicitly by the caller (the SessionStart hook in
+// `.claude/settings.json` passes it as argv[2], gated on file presence). There
+// is intentionally NO default literal: the registry lives in the private,
+// gitignored governance corpus (`.gitignore` -> `governance/*`; source of truth
+// is the hatch3r-governance repo), so a tracked/public script that defaulted to
+// `governance/audit/finding-registry.json` would (a) point at a non-existent
+// file on every public clone and (b) hand any third party who copies this
+// helper a default aimed at a path that is absent in their tree. Requiring the
+// path mirrors the unit-tested twin `src/hooks/sessionStartRegistry.ts`
+// (`readAndSummarize(path)` takes a required argument). When no path is given we
+// print a neutral line and exit 0 — the hook must never fail the session.
+const REGISTRY_PATH = process.argv[2];
+if (!REGISTRY_PATH) {
+  process.stdout.write("Audit registry not provided (no path argument)\n");
+  process.exit(0);
+}
 
 /** Extract cycle from explicit field or finding_id prefix. */
 function extractCycle(entry) {

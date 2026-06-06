@@ -29,12 +29,16 @@ The two are complements, not substitutes — neither replaces the other.
 
 `N = 5` consecutive clean PASS verdicts. This is the single source of truth for the default; `agents/hatch3r-reviewer.md` and the across-cycle calibration protocol cite this value rather than redeclaring it.
 
-- **Counter scope:** count consecutive clean PASS verdicts across the loop, not per-iteration. A REQUEST CHANGES or DESIGN_OBJECTION verdict resets the counter to 0.
+- **Counter owner — the orchestrator, NOT the reviewer.** The reviewer sub-agent is spawned stateless per iteration and the review loop exits on the first clean verdict, so a reviewer-owned counter can never exceed 1 and the second pass would never fire. The orchestrator owns `consecutive_clean_pass_count` and reads/writes it; the reviewer only reports its per-verdict outcome.
+- **Counter scope — across top-level runs, persisted.** Count consecutive clean PASS verdicts across top-level pipeline runs, not within one loop and not per-iteration (the loop exits on the first clean verdict, so within a single loop the count advances by at most 1). The orchestrator persists the running count to project-local `.hatch3r/calibration-state.json` (`{ "consecutive_clean_pass_count": <int>, "updated_at": "<ISO-8601>" }`), written atomically via `src/merge/safeWrite.ts`. On each top-level run the orchestrator reads the prior count, increments on a would-be-clean exit, and resets to 0 on any REQUEST CHANGES or DESIGN_OBJECTION verdict. A missing/unparseable file is treated as count 0.
 - **Project override:** a project may set a different cadence via its own config; the override widens or narrows the cadence but never disables the second pass while a second pass remains available (see Unavailability below).
 
 ## Trigger
 
-On a review-loop exit where the verdict would be a clean PASS (0 Critical + 0 Warning) AND the consecutive-clean-PASS counter has reached a multiple of `N`.
+The orchestrator evaluates the trigger at the would-be-clean loop exit (the point where the loop would return a clean PASS — 0 Critical + 0 Warning — to Phase 4), using the cross-run counter it persisted per N-default above. Either branch fires the second pass:
+
+- **Cadence branch (default):** the post-increment `consecutive_clean_pass_count` (prior persisted count + 1 for this run) is a multiple of `N`.
+- **High-risk fast path:** the reviewed diff touches any high-risk surface — a file tagged `floor:security`, auth/authn code (the `hatch3r-security` (CQ3) dispatch set in `agents/hatch3r-reviewer.md`: `src/auth/**`, OAuth/OIDC config, WebAuthn/passkey server, release-pipeline files, dependency manifest/lockfile), or any change that triggers the CQ3 security specialist. For a high-risk diff, fire the second pass on the **first** clean PASS, independent of the cadence counter (do not wait for the Nth). The high-risk branch still increments and persists the cross-run counter; it only lowers the firing threshold to 1 for that run.
 
 ## Action
 
@@ -54,13 +58,13 @@ A divergent second pass is the failure mode of interest — it is the runtime si
 
 ## Logging
 
-Append exactly one record per second pass to `.hatch3r/calibration-log.jsonl` (project-local, JSON Lines). One JSON object per line:
+Append exactly one record per second pass to `.hatch3r/calibration-log.jsonl` (project-local, JSON Lines) via the atomic append path in `src/merge/safeWrite.ts`. One JSON object per line:
 
 ```json
-{"timestamp":"<ISO-8601>","first_pass_verdict":"PASS","second_pass_verdict":"PASS|REQUEST CHANGES","divergent":false,"second_pass_model_class":"different|re-roll","consecutive_clean_count":5}
+{"timestamp":"<ISO-8601>","first_pass_verdict":"PASS","second_pass_verdict":"PASS|REQUEST CHANGES","divergent":false,"second_pass_model_class":"different|re-roll","consecutive_clean_count":5,"trigger":"cadence|high-risk"}
 ```
 
-The project-local over-claim rate derived from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`.
+`consecutive_clean_count` is the post-increment cross-run count at firing time; `trigger` records which Trigger branch fired (`high-risk` when the diff touched a high-risk surface and the second pass fired on the first clean PASS). The project-local over-claim rate derived from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`.
 
 ## Unavailability (visible skip, never silent)
 

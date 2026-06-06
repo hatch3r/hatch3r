@@ -279,12 +279,29 @@ const FS_ERRNO_MESSAGE: Record<string, (filePath: string) => string> = {
  * ENFILE, EIO) are mapped to actionable `FS_ERROR` HatchErrors via
  * {@link FS_ERRNO_MESSAGE}; unrecognised errnos re-throw unchanged
  * (D8-SA8.2-F8.2.7, P1).
+ *
+ * **Binary content (D8-3, Cycle 11 Wave 2, CQ4):** `content` accepts a `Buffer`
+ * as well as a `string`. A string is encoded UTF-8 (unchanged prior behavior);
+ * a Buffer is written verbatim, byte-for-byte. This makes the writer lossless
+ * for arbitrary bytes ≥ 0x80, which a `string` re-encode would corrupt into
+ * U+FFFD. Callers restoring captured user content — `snapshot.ts` rollback —
+ * pass the original Buffer so non-UTF-8 files survive a round-trip intact.
  */
-export async function atomicWriteFile(filePath: string, content: string): Promise<void> {
+export async function atomicWriteFile(
+  filePath: string,
+  content: string | Buffer,
+): Promise<void> {
   const release = await acquireWriteLock(filePath);
   const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
   try {
-    await writeFile(tmpPath, content, "utf-8");
+    // A Buffer is written verbatim (the "utf-8" encoding arg is ignored for
+    // Buffer input by node:fs, but branching keeps the lossless intent
+    // explicit); a string is encoded UTF-8 as before.
+    if (Buffer.isBuffer(content)) {
+      await writeFile(tmpPath, content);
+    } else {
+      await writeFile(tmpPath, content, "utf-8");
+    }
     // #239 (D8-8.6): Open with "r+" instead of "r" so fdatasync operates on a
     // writable file descriptor. Read-only descriptors cause EPERM/EBADF on some
     // platforms (Windows, certain Linux configurations).

@@ -79,32 +79,55 @@ export function isGreenfield(repoInfo: Pick<RepoInfo, "languages" | "existingToo
   );
 }
 
+/**
+ * Config-file indicators per detectable language (D14 Medium #344-#357).
+ *
+ * Single source of truth for which language names `detectLanguages` can emit
+ * via filename probing. `csharp` is detected separately by file-extension scan
+ * (`.csproj` / `.sln`) and so is appended to {@link DETECTABLE_LANGUAGES}
+ * below rather than carrying a fixed-filename indicator list here.
+ */
+export const LANGUAGE_INDICATORS: Record<string, string[]> = {
+  typescript: ["tsconfig.json", "tsconfig.base.json", "tsconfig.app.json"],
+  javascript: ["jsconfig.json", ".babelrc", "babel.config.js", "babel.config.json"],
+  python: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile", "setup.cfg", "tox.ini"],
+  rust: ["Cargo.toml", "Cargo.lock"],
+  go: ["go.mod", "go.sum"],
+  java: ["pom.xml", "build.gradle"],
+  kotlin: ["build.gradle.kts"],
+  ruby: ["Gemfile", ".ruby-version"],
+  php: ["composer.json", "artisan"],
+  swift: ["Package.swift"],
+  dart: ["pubspec.yaml"],
+  elixir: ["mix.exs"],
+  scala: ["build.sbt"],
+  zig: ["build.zig"],
+  ocaml: ["dune-project"],
+  haskell: ["stack.yaml", "cabal.project"],
+  clojure: ["deps.edn", "project.clj"],
+  lua: [".luacheckrc", "rockspec"],
+};
+
+/**
+ * D14-3 (Cycle 11): The complete set of non-`unknown` language names
+ * `detectLanguages` can return — every {@link LANGUAGE_INDICATORS} key plus
+ * `csharp` (the extension-scanned outlier). Exported so the language ↔ tag
+ * skew invariant test (`src/__tests__/content/languageTagSkew.test.ts`) can
+ * assert that every detectable language is either mapped in
+ * `content/tags.ts::LANGUAGE_TO_TAG` or named in that test's documented
+ * unmapped allowlist — closing the silent-drift gap where a newly detected
+ * language mapped to ∅ and stripped `lang:*` content.
+ */
+export const DETECTABLE_LANGUAGES: readonly string[] = [
+  ...Object.keys(LANGUAGE_INDICATORS),
+  "csharp",
+];
+
 /** Detect programming languages by probing for language-specific config files. */
 async function detectLanguages(rootDir: string): Promise<string[]> {
   const languages: string[] = [];
-  // D14 Medium (#344-#357): Improved language detection with broader indicators
-  const indicators: Record<string, string[]> = {
-    typescript: ["tsconfig.json", "tsconfig.base.json", "tsconfig.app.json"],
-    javascript: ["jsconfig.json", ".babelrc", "babel.config.js", "babel.config.json"],
-    python: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile", "setup.cfg", "tox.ini"],
-    rust: ["Cargo.toml", "Cargo.lock"],
-    go: ["go.mod", "go.sum"],
-    java: ["pom.xml", "build.gradle"],
-    kotlin: ["build.gradle.kts"],
-    ruby: ["Gemfile", ".ruby-version"],
-    php: ["composer.json", "artisan"],
-    swift: ["Package.swift"],
-    dart: ["pubspec.yaml"],
-    elixir: ["mix.exs"],
-    scala: ["build.sbt"],
-    zig: ["build.zig"],
-    ocaml: ["dune-project"],
-    haskell: ["stack.yaml", "cabal.project"],
-    clojure: ["deps.edn", "project.clj"],
-    lua: [".luacheckrc", "rockspec"],
-  };
 
-  for (const [lang, files] of Object.entries(indicators)) {
+  for (const [lang, files] of Object.entries(LANGUAGE_INDICATORS)) {
     for (const file of files) {
       if (await pathExists(join(rootDir, file))) {
         languages.push(lang);

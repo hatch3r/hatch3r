@@ -414,7 +414,14 @@ export function resolveLanguageTags(projectLanguages: readonly string[]): Set<st
  * 3. Items with `lang:*` tags pass only when at least one of their language tags
  *    is in the relevant set derived from `projectLanguages`.
  *
- * Returns `items` unchanged when `projectLanguages` is empty (filter is a no-op).
+ * Returns `items` unchanged when `projectLanguages` is empty (filter is a
+ * no-op) OR when none of the detected languages resolve to a known `lang:*`
+ * tag (the relevant set is empty). The empty-relevant-set guard (D14-3, Cycle
+ * 11) prevents a repo whose only detected languages are unmapped — e.g. a pure
+ * PHP, Swift, or Elixir project, none of which appear in `LANGUAGE_TO_TAG` —
+ * from silently stripping EVERY `lang:*`-tagged item: with no resolvable
+ * project-language signal there is nothing to filter against, so the filter
+ * declines to narrow rather than dropping all language-specific content.
  *
  * @param items - The items to filter. Each must expose `tags: string[]` and
  *                an optional `protected: boolean`.
@@ -426,6 +433,10 @@ export function filterByLanguages<T extends { tags: string[]; protected?: boolea
 ): T[] {
   if (projectLanguages.length === 0) return [...items];
   const relevant = resolveLanguageTags(projectLanguages);
+  // D14-3: no detected language mapped to a known lang:* tag → no signal to
+  // filter on. Pass everything through instead of dropping all lang-tagged
+  // items (the silent-strip bug for unmapped-language repos).
+  if (relevant.size === 0) return [...items];
   return items.filter((item) => {
     if (admitsUnconditionally(item)) return true;
     const itemLangTags = item.tags.filter(isLanguageTag);
