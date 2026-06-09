@@ -53,8 +53,10 @@ import {
   MODEL_RATES,
 } from "../../pipeline/costEstimator.js";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
+import { HATCH3R_VERSION } from "../../version.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { printBanner, printBox, label, info, error as logError, setVerbose, verbose } from "../shared/ui.js";
+import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import {
   buildCustomizationSummary,
   type CustomizationStatus,
@@ -459,6 +461,15 @@ interface ExplainOptions {
    * to 0 (no caching) — the conservative upper-bound cost.
    */
   cacheHit?: string;
+  /**
+   * D12-11 (Cycle 11 Wave 3, D12, P1): output format for the `--source` mode —
+   * `human` (default, boxen-rendered) or `json` (one machine-readable document
+   * for CI consumers, reusing `emitJson`). Mirrors the `--format json` surface
+   * the sibling `provenance` / `verify` commands already ship. JSON is honored
+   * only by `--source`; pairing it with `--cost` / `--customizations` /
+   * `--efficiency` is a usage error so the contract stays unambiguous.
+   */
+  format?: string;
 }
 
 /**
@@ -472,10 +483,14 @@ interface ExplainOptions {
  * The four modes are mutually exclusive; passing more than one or none is
  * a usage error (exit code 2). The mode selector is checked before any I/O
  * so a missing flag returns immediately with an actionable message.
+ *
+ * D12-11 (Cycle 11 Wave 3): `--format json` emits a machine-readable document
+ * for the `--source` mode (reusing `emitJson`), matching the JSON surface the
+ * sibling `provenance` / `verify` commands ship. JSON is source-only; pairing
+ * it with `--cost` / `--customizations` / `--efficiency` is a usage error.
  */
 export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   setVerbose(!!opts?.verbose);
-  printBanner(true);
 
   const costRequested = typeof opts?.cost === "string" && opts.cost.trim().length > 0;
   const customizationsRequested = !!opts?.customizations;
@@ -486,6 +501,27 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   const efficiencyRequested = !!opts?.efficiency;
   const modesRequested =
     [costRequested, customizationsRequested, sourceRequested, efficiencyRequested].filter(Boolean).length;
+
+  // D12-11: resolve the output format before any banner/box render. parse
+  // throws exit-2 on a bad value (e.g. `--format jsom`); JSON suppresses the
+  // banner so stdout stays a single parseable document.
+  const format: CliOutputFormat = parseFormatOption(opts?.format);
+  const jsonMode = format === "json";
+
+  // JSON output is wired for `--source` only. Pairing it with another mode is a
+  // usage error rather than a silent human-format degrade, so a CI consumer
+  // that asked for JSON of a non-source mode fails loudly (D10-22 contract).
+  if (jsonMode && !sourceRequested && modesRequested >= 1) {
+    logError("--format json is supported only with --source.");
+    throw new HatchError(
+      "--format json is supported only with --source",
+      2,
+      "VALIDATION_ERROR",
+      "Re-run `hatch3r explain --source <output-path> --format json`, or drop --format json for the human cost/customizations/efficiency views.",
+    );
+  }
+
+  if (!jsonMode) printBanner(true);
 
   if (modesRequested > 1) {
     logError("Conflicting flags: --cost, --customizations, --source, and --efficiency are mutually exclusive.");
@@ -520,7 +556,7 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   }
 
   if (sourceRequested) {
-    await explainSourceMode(opts!.source, !!opts?.verbose);
+    await explainSourceMode(opts!.source, !!opts?.verbose, format);
     return;
   }
 
@@ -1011,11 +1047,19 @@ interface ProvenanceManifest {
  * @param detail when true (driven by `--verbose`), the `all` form prints the
  *   full per-path source list instead of the count summary. Ignored for the
  *   single-path form, which always prints the full list for the one output.
+ * @param format D12-11: `human` (default boxen render) or `json`. JSON emits a
+ *   single `emitJson` document — `{output, adapter, sourceFiles, hatch3rVersion,
+ *   generatedAt}` for a single path, or an `{outputs: [...], ...}` envelope for
+ *   the `all` form — so CI consumers parse one stable shape instead of scraping
+ *   box chrome. The stored `sourceFiles` are already repo-root-relative (D12-3 /
+ *   H3), so the JSON form surfaces those relative paths verbatim.
  */
 async function explainSourceMode(
   subject: string | undefined,
   detail = false,
+  format: CliOutputFormat = "human",
 ): Promise<void> {
+  const jsonMode = format === "json";
   const rootDir = process.cwd();
   const provenancePath = join(rootDir, HATCH3R_DIR, "provenance.json");
 
@@ -1026,9 +1070,19 @@ async function explainSourceMode(
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
-      logError(`No provenance manifest found at ${HATCH3R_DIR}/provenance.json.`);
-      console.log(chalk.dim("  Run `hatch3r sync` to generate adapter outputs and record their canonical sources."));
-      console.log();
+      if (jsonMode) {
+        emitJson({
+          status: "absent",
+          error: `No ${HATCH3R_DIR}/provenance.json found`,
+          recoveryHint: "Run `hatch3r sync` to generate adapter outputs and record their canonical sources.",
+          hatch3rVersion: HATCH3R_VERSION,
+          timestamp: new Date().toISOString(),
+        });
+      } else {
+        logError(`No provenance manifest found at ${HATCH3R_DIR}/provenance.json.`);
+        console.log(chalk.dim("  Run `hatch3r sync` to generate adapter outputs and record their canonical sources."));
+        console.log();
+      }
       throw new HatchError(
         `No ${HATCH3R_DIR}/provenance.json found`,
         undefined,
@@ -1037,7 +1091,7 @@ async function explainSourceMode(
       );
     }
     logError(`Could not read ${HATCH3R_DIR}/provenance.json: ${err instanceof Error ? err.message : String(err)}`);
-    console.log();
+    if (!jsonMode) console.log();
     throw new HatchError(
       `Unreadable ${HATCH3R_DIR}/provenance.json`,
       undefined,
@@ -1048,6 +1102,15 @@ async function explainSourceMode(
 
   const outputs = Array.isArray(manifest.outputs) ? manifest.outputs : [];
   if (outputs.length === 0) {
+    if (jsonMode) {
+      emitJson({
+        status: "empty",
+        outputs: [],
+        hatch3rVersion: manifest.hatch3rVersion ?? HATCH3R_VERSION,
+        generatedAt: manifest.generatedAt ?? null,
+      });
+      return;
+    }
     printBox(
       "Source provenance",
       [chalk.dim(`No outputs recorded in ${HATCH3R_DIR}/provenance.json. Run \`hatch3r sync\` first.`)],
@@ -1058,6 +1121,59 @@ async function explainSourceMode(
 
   const normalized = (subject ?? "").trim();
   const wantAll = normalized === "" || normalized.toLowerCase() === "all";
+
+  // D12-11: stable order shared by both render paths — by adapter then path,
+  // matching the writer's sort so the JSON document is deterministic for CI.
+  const sortedAll = [...outputs].sort((a, b) => {
+    const byAdapter = a.adapter.localeCompare(b.adapter);
+    return byAdapter !== 0 ? byAdapter : a.path.localeCompare(b.path);
+  });
+
+  if (jsonMode) {
+    if (wantAll) {
+      // The `all` form is not capped in JSON: a CI consumer that asked for the
+      // machine document wants every output's full (relative) source list. The
+      // `--verbose` summary cap is a human-terminal affordance (D12-2) only.
+      emitJson({
+        status: "present",
+        hatch3rVersion: manifest.hatch3rVersion ?? HATCH3R_VERSION,
+        generatedAt: manifest.generatedAt ?? null,
+        lastCommand: manifest.lastCommand ?? null,
+        lastRunId: manifest.lastRunId ?? null,
+        outputs: sortedAll.map((o) => ({
+          output: o.path,
+          adapter: o.adapter,
+          sourceFiles: o.sourceFiles,
+        })),
+      });
+      return;
+    }
+    const match = outputs.find((o) => o.path === normalized);
+    if (!match) {
+      emitJson({
+        status: "not-found",
+        output: normalized,
+        error: `Output path not recorded: ${normalized}`,
+        recoveryHint: "Pass an output path exactly as recorded (run `hatch3r explain --source all` to list them), or re-run `hatch3r sync`.",
+        hatch3rVersion: manifest.hatch3rVersion ?? HATCH3R_VERSION,
+      });
+      throw new HatchError(
+        `Output path not recorded: ${normalized}`,
+        undefined,
+        "CONFIG_ERROR",
+        "Pass an output path exactly as recorded (run `hatch3r explain --source all` to list them), or re-run `hatch3r sync`.",
+      );
+    }
+    emitJson({
+      status: "present",
+      output: match.path,
+      adapter: match.adapter,
+      sourceFiles: match.sourceFiles,
+      hatch3rVersion: manifest.hatch3rVersion ?? HATCH3R_VERSION,
+      generatedAt: manifest.generatedAt ?? null,
+    });
+    return;
+  }
 
   if (wantAll) {
     const totalSources = outputs.reduce((sum, o) => sum + o.sourceFiles.length, 0);
@@ -1074,11 +1190,9 @@ async function explainSourceMode(
     ];
     printBox("Source provenance — all outputs", headerLines, "info");
 
-    // Stable order: by adapter then path (matches the writer's sort).
-    const sorted = [...outputs].sort((a, b) => {
-      const byAdapter = a.adapter.localeCompare(b.adapter);
-      return byAdapter !== 0 ? byAdapter : a.path.localeCompare(b.path);
-    });
+    // Stable order by adapter then path (matches the writer's sort); shared
+    // with the JSON-mode `all` form above via `sortedAll`.
+    const sorted = sortedAll;
 
     // D12-2 (Cycle 11 Wave 2, D12, P4/P1): the `all` form defaults to a
     // bounded `path → N source(s)` summary — one line per output — instead of

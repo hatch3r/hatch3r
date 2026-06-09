@@ -34,6 +34,11 @@ import {
   recordTokenCost,
   type SubAgentSpawnEvent,
   type PhaseDurationEvent,
+
+  // D7-SA7.4-F-6 / D7-25 — Phase handoff metrics
+  createPhaseHandoffMetrics,
+  formatPhaseHandoffWarning,
+  PHASE_HANDOFF_LOSS_WARN_THRESHOLD,
 } from "../../pipeline/observability.js";
 
 // ── Reasoning Block Persistence (Finding #63) ────────────────────
@@ -681,5 +686,89 @@ describe("recordTokenCost", () => {
     const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim()) as EfficiencyEvent;
     expect(parsed.tokensIn).toBe(0);
     expect(parsed.tokensOut).toBe(0);
+  });
+});
+
+// ── Phase Handoff Metrics (D7-SA7.4-F-6 / D7-25) ─────────────────
+
+describe("createPhaseHandoffMetrics", () => {
+  it("computes the byte-size loss fraction over droppable bytes", () => {
+    // 1000 → 600 with no protected bytes: 400 dropped of 1000 droppable = 0.4.
+    const m = createPhaseHandoffMetrics("research", "review", 1000, 600, true);
+    expect(m.fromPhase).toBe("research");
+    expect(m.toPhase).toBe("review");
+    expect(m.inputBytes).toBe(1000);
+    expect(m.outputBytes).toBe(600);
+    expect(m.protectedByteCount).toBe(0);
+    expect(m.summarisationApplied).toBe(true);
+    expect(m.informationLossEstimate).toBeCloseTo(0.4, 5);
+  });
+
+  it("reports 0 loss when the output is not smaller than the input", () => {
+    const m = createPhaseHandoffMetrics("research", "review", 500, 800, false);
+    expect(m.informationLossEstimate).toBe(0);
+  });
+
+  it("reports 0 loss and clamps for zero / negative inputs", () => {
+    expect(createPhaseHandoffMetrics("research", "review", 0, 0, false).informationLossEstimate).toBe(0);
+    const neg = createPhaseHandoffMetrics("research", "review", -10, -5, false);
+    expect(neg.inputBytes).toBe(0);
+    expect(neg.outputBytes).toBe(0);
+    expect(neg.informationLossEstimate).toBe(0);
+  });
+
+  it("clamps the loss fraction to a maximum of 1", () => {
+    const m = createPhaseHandoffMetrics("research", "review", 1000, 0, true);
+    expect(m.informationLossEstimate).toBe(1);
+  });
+
+  // D7-25: protected bytes (compression strategy #4 — security findings) are
+  // excluded from both the dropped numerator and the droppable denominator, so
+  // dropping whitespace and retaining a security finding no longer score the same.
+  it("excludes protected bytes from both numerator and denominator", () => {
+    // input 1000 with 200 protected-and-retained; output 600 (= 200 protected
+    // + 400 of the 800 droppable). Loss over droppable = (800-400)/800 = 0.5,
+    // NOT the naive (1000-600)/1000 = 0.4.
+    const m = createPhaseHandoffMetrics("research", "review", 1000, 600, true, 200);
+    expect(m.protectedByteCount).toBe(200);
+    expect(m.informationLossEstimate).toBeCloseTo(0.5, 5);
+  });
+
+  it("reports 0 loss when only protected bytes would otherwise count as dropped", () => {
+    // All droppable bytes survive; the size delta is entirely protected bytes
+    // that were retained. droppableInput == droppableOutput → 0 loss.
+    const m = createPhaseHandoffMetrics("research", "review", 1000, 1000, false, 300);
+    expect(m.informationLossEstimate).toBe(0);
+  });
+
+  it("clamps protectedByteCount to the input size", () => {
+    const m = createPhaseHandoffMetrics("research", "review", 500, 500, false, 9999);
+    expect(m.protectedByteCount).toBe(500);
+    expect(m.informationLossEstimate).toBe(0);
+  });
+});
+
+describe("formatPhaseHandoffWarning", () => {
+  it("returns null when loss is within the warn threshold", () => {
+    const m = createPhaseHandoffMetrics("research", "review", 1000, 800, true); // 0.2
+    expect(m.informationLossEstimate).toBeLessThanOrEqual(PHASE_HANDOFF_LOSS_WARN_THRESHOLD);
+    expect(formatPhaseHandoffWarning(m)).toBeNull();
+  });
+
+  it("returns a one-line warning when loss exceeds the threshold", () => {
+    const m = createPhaseHandoffMetrics("research", "review", 1000, 300, true); // 0.7
+    const warning = formatPhaseHandoffWarning(m);
+    expect(warning).not.toBeNull();
+    expect(warning).toContain("research→review");
+    expect(warning).toContain("70%");
+    expect(warning).toContain("validate critical context survived");
+  });
+
+  it("protected-byte exclusion can push loss past the threshold", () => {
+    // Same raw bytes as the within-threshold case, but flagging 200 protected
+    // bytes raises the droppable-only loss above 0.3 → warning now fires.
+    const m = createPhaseHandoffMetrics("research", "review", 1000, 650, true, 200);
+    expect(m.informationLossEstimate).toBeGreaterThan(PHASE_HANDOFF_LOSS_WARN_THRESHOLD);
+    expect(formatPhaseHandoffWarning(m)).not.toBeNull();
   });
 });

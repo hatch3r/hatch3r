@@ -9,6 +9,7 @@ import {
   toAskUserPlatformNote,
   toClaudeToolsFrontmatter,
   toCopilotToolsFrontmatter,
+  toCopilotToolsFrontmatterFromCategories,
   toCursorReadonlyFrontmatter,
 } from "../../pipeline/adapterToolTranslator.js";
 
@@ -90,6 +91,20 @@ describe("adapterToolTranslator", () => {
     it("maps implementer to read+search+edit+execute", () => {
       const tools = toCopilotToolsFrontmatter("hatch3r-implementer");
       expect(tools).toEqual(expect.arrayContaining(["read", "search", "edit", "execute"]));
+    });
+
+    // D15-22 (SA15.3-F7, Cycle 11 Wave 3, P6): Copilot's `tools:` array is a
+    // tool-level allowlist with no `Bash:<subcommand>` deny primitive, so the
+    // `git` category collapses to the coarse `execute` alias — a git-restricted
+    // agent receives unrestricted execute on Copilot. This collapse is disclosed
+    // in SECURITY.md -> Allowlist Hybrid Contract (Copilot runtime row). Pin it
+    // so a future map change that widens `git` to a finer token trips here and
+    // forces the SECURITY.md disclosure to be re-reviewed.
+    it("collapses the reserved git category to the coarse execute alias (no subcommand grain)", () => {
+      const tools = toCopilotToolsFrontmatterFromCategories(["git"]);
+      expect(tools).toEqual(["execute"]);
+      // No finer-grained git/commit/push token exists on the Copilot surface.
+      expect(tools).not.toContain("git");
     });
   });
 

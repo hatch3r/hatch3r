@@ -614,6 +614,25 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     return;
   }
 
+  // D1-18 (Cycle 11 Wave 3, D1, P1): non-TTY preflight. The interactive flow
+  // below issues ~15 inquirer.prompt calls (platform, identity, branch, tools,
+  // features, worktree, preset, custom items, archive/sync confirms). Under a
+  // pipe, redirect, or CI runner stdin is not a TTY, so inquirer cannot read a
+  // response — it would hang or throw an opaque isTtyError mid-flow after the
+  // first prompt. Fail fast with a usage-code (exit 2) error that names the
+  // headless escape: the scalar `config <key>=<value>` form (handled above by
+  // handleScalarConfig) is the only non-interactive config surface. Scalar
+  // calls short-circuit before this gate, so `config maturity=team` still works
+  // headlessly; only the promptful interactive entry is rejected.
+  if (!process.stdin.isTTY) {
+    throw new HatchError(
+      "`hatch3r config` (interactive) requires a TTY — stdin is not interactive (piped, redirected, or CI).",
+      2,
+      "VALIDATION_ERROR",
+      "Use the scalar form for headless config, e.g. `hatch3r config maturity=team` or `hatch3r config confidence_floor=high`. Run the interactive flow from a terminal.",
+    );
+  }
+
   // F10.4-2 (Cycle 10): Surface the selection-vs-customization distinction
   // up front — promoted from a dim one-liner buried mid-flow (which only
   // printed when `manifest.content` was set) to a top-level info box on
@@ -1051,6 +1070,11 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
 
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
+  // D10-35 (Cycle 11 Wave 3, D10, P1): repo-relative paths of `.customize.*`
+  // overrides that content removal rescued into `.hatch3r/archive/customize/`
+  // instead of hard-deleting. Surfaced in the success summary so a preset
+  // downgrade no longer silently destroys hand-authored overrides.
+  const archivedCustomizeFiles: string[] = [];
   let contentMetadataChanged = false;
   if (manifest.content) {
     // The step-machine prelude initialised these inside the same
@@ -1175,7 +1199,8 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         const item = index.byId.get(id);
         if (item) {
           contentChanges.removed.push({ type: item.type, id: item.id });
-          await removeContentItem(agentsDirLocal, item, { rootDir });
+          const { archivedCustomizeFiles: rescued } = await removeContentItem(agentsDirLocal, item, { rootDir });
+          archivedCustomizeFiles.push(...rescued);
         }
       }
     }
@@ -1474,6 +1499,23 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   if (allArchivedFiles.length > 0) {
     summaryLines.push("");
     summaryLines.push(label("Archived", `${allArchivedFiles.length} files to .hatch3r-archive/`));
+  }
+
+  // D10-35 (Cycle 11 Wave 3, D10, P1): name the `.customize.*` overrides that
+  // content removal rescued. Pre-fix these were hard-deleted with no preview;
+  // now they are listed here AND the bytes survive under
+  // `.hatch3r/archive/customize/` for manual restore. Cap the enumeration the
+  // same way the tool-removal preview does so the box stays readable.
+  if (archivedCustomizeFiles.length > 0) {
+    summaryLines.push("");
+    summaryLines.push(
+      label("Overrides archived", `${archivedCustomizeFiles.length} .customize file(s) → ${ARCHIVE_DIR}/customize/ (restore by moving back to .hatch3r/)`),
+    );
+    const shown = archivedCustomizeFiles.slice(0, 10);
+    for (const p of shown) summaryLines.push(`    ${chalk.dim(p)}`);
+    if (archivedCustomizeFiles.length > 10) {
+      summaryLines.push(`    ${chalk.dim(`… and ${archivedCustomizeFiles.length - 10} more`)}`);
+    }
   }
 
   // D1-3 (Cycle 11 Wave 2, D1, P1): honour the partial-adapter-failure contract

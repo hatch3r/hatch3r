@@ -5,7 +5,10 @@ import {
   formatBudgetWarning,
   isAlwaysLoaded,
   CONTEXT_BUDGET_TOKENS,
+  CLAUDE_CHARS_PER_TOKEN,
+  charsPerTokenFor,
 } from "../../adapters/contextBudget.js";
+import { CHARS_PER_TOKEN } from "../../pipeline/observability.js";
 import type { AdapterOutput, Tool } from "../../types.js";
 import { TOOLS } from "../../types.js";
 
@@ -40,6 +43,46 @@ describe("estimateTokens", () => {
 
   it("returns 0 for empty input", () => {
     expect(estimateTokens(0)).toBe(0);
+  });
+
+  // D6-13: the divisor is parameterised; the default is the generic
+  // CHARS_PER_TOKEN imported from observability (no longer a local literal 4).
+  it("defaults to the generic CHARS_PER_TOKEN imported from observability", () => {
+    expect(CHARS_PER_TOKEN).toBe(4);
+    expect(estimateTokens(100)).toBe(Math.ceil(100 / CHARS_PER_TOKEN));
+  });
+
+  it("accepts a Claude-tuned divisor that yields more tokens per char", () => {
+    // 3.6 < 4, so the same char count estimates MORE tokens (denser tokenisation).
+    expect(estimateTokens(360, CLAUDE_CHARS_PER_TOKEN)).toBe(100);
+    expect(estimateTokens(1000, CLAUDE_CHARS_PER_TOKEN)).toBeGreaterThan(
+      estimateTokens(1000, CHARS_PER_TOKEN),
+    );
+  });
+});
+
+describe("charsPerTokenFor (D6-13)", () => {
+  it("returns the Claude-tuned divisor for claude", () => {
+    expect(charsPerTokenFor("claude")).toBe(CLAUDE_CHARS_PER_TOKEN);
+    expect(CLAUDE_CHARS_PER_TOKEN).toBeLessThan(CHARS_PER_TOKEN);
+  });
+
+  it("returns the generic divisor for cursor and copilot", () => {
+    expect(charsPerTokenFor("cursor")).toBe(CHARS_PER_TOKEN);
+    expect(charsPerTokenFor("copilot")).toBe(CHARS_PER_TOKEN);
+  });
+
+  it("makes claude estimate more tokens than copilot for the same chars", () => {
+    // Same always-loaded byte count, different divisor → claude reports more
+    // tokens (closer to true Claude tokenisation, which the generic ~4 under-counts).
+    const body = "x".repeat(360_000);
+    const claude = checkContextBudget("claude", [out("CLAUDE.md", body)]);
+    const copilot = checkContextBudget("copilot", [
+      out(".github/copilot-instructions.md", body),
+    ]);
+    expect(claude.estimatedTokens).toBeGreaterThan(copilot.estimatedTokens);
+    expect(claude.estimatedTokens).toBe(estimateTokens(360_000, CLAUDE_CHARS_PER_TOKEN));
+    expect(copilot.estimatedTokens).toBe(estimateTokens(360_000, CHARS_PER_TOKEN));
   });
 });
 
@@ -149,13 +192,14 @@ describe("checkContextBudget", () => {
   });
 
   it("sums the always-loaded slice across multiple outputs", () => {
-    // 2 always-loaded claude rule files of 400K chars each = 800K chars = 200K
-    // tokens, exactly claude's 200K budget (not exceeding).
+    // 2 always-loaded claude rule files of 400K chars each = 800K chars.
+    // D6-13: claude sizes with the Claude-tuned 3.6 divisor (800_001 / 3.6 ≈
+    // 222K tokens), exceeding claude's 200K budget.
     const ruleBody = "a".repeat(400_000);
     const r1 = out(".claude/rules/30-hatch3r-a.md", ruleBody);
     const r2 = out(".claude/rules/30-hatch3r-b.md", "b".repeat(400_001));
     const result = checkContextBudget("claude", [r1, r2]);
-    expect(result.estimatedTokens).toBe(estimateTokens(800_001));
+    expect(result.estimatedTokens).toBe(estimateTokens(800_001, charsPerTokenFor("claude")));
     expect(result.exceedsBudget).toBe(true);
   });
 
@@ -271,6 +315,10 @@ describe("formatBudgetWarning", () => {
     expect(warning).toContain("~80K tokens");
     expect(warning).toContain("64K token context budget");
     expect(warning).toContain("125% utilization");
+    // D6-13: the warning discloses that the token figure is a rough char-ratio
+    // estimate and points at count_tokens for an exact count.
+    expect(warning).toContain("rough estimate");
+    expect(warning).toContain("count_tokens");
     // C7.5-W2B2-H22: warning carries actionable next-step guidance.
     // D6-3: the remedy points at levers that actually shrink the always-loaded
     // slice (disable the largest rules / deselect content), not `--minimal`,

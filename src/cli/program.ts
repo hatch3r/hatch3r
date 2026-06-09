@@ -524,6 +524,9 @@ export function createProgram(): Command {
     .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens; takes precedence over --model (--cost only)")
     .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens; takes precedence over --model (--cost only)")
     .option("--cache-hit <ratio>", "Fraction 0-1 of input served from the prompt cache; cached input billed at 0.1x (--cost only)")
+    // D12-11: machine-readable trace for --source. Mirrors provenance/verify's
+    // --format json; supported only with --source (other modes stay human).
+    .option("--format <format>", "Output format for --source: human (default) or json", "human")
     .option("--verbose", "Show detailed output")
     .action(explainCommand);
 

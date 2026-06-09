@@ -301,10 +301,17 @@ async function importConfigCommand(): Promise<typeof import("../../cli/commands/
 
 describe("config command", () => {
   let tempDir: string;
+  let originalStdinIsTTY: boolean | undefined;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-config-"));
     vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    // D1-18 (Cycle 11 Wave 3): the interactive flow now refuses to run under a
+    // non-TTY stdin (CI/pipe). Under vitest stdin is not a TTY, so mark it
+    // interactive for the prompt-driven cases; the dedicated non-TTY test below
+    // sets it false explicitly. Restored in afterEach.
+    originalStdinIsTTY = process.stdin.isTTY;
+    (process.stdin as { isTTY?: boolean }).isTTY = true;
     // Silence console noise from configCommand UI; restored by restoreAllMocks.
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -334,10 +341,20 @@ describe("config command", () => {
       step,
       label,
     });
+    // D10-35 (Cycle 11 Wave 3): removeContentItem now returns the customize
+    // files it rescued into the archive. The config flow destructures that
+    // result, so the default mock must resolve to the empty-rescue shape (the
+    // assertion test below sets its own resolved value where it matters).
+    vi.mocked(removeContentItem).mockResolvedValue({ archivedCustomizeFiles: [] });
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    if (originalStdinIsTTY === undefined) {
+      delete (process.stdin as { isTTY?: boolean }).isTTY;
+    } else {
+      (process.stdin as { isTTY?: boolean }).isTTY = originalStdinIsTTY;
+    }
     await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
@@ -2000,6 +2017,46 @@ describe("config command", () => {
       const writtenManifest = getWrittenManifest(writeManifest);
       // No servers were picked because the gate defaulted to No.
       expect(writtenManifest.mcp.servers).toEqual([]);
+    });
+  });
+
+  // ── Non-TTY preflight (D1-18) ─────────────────────────────────
+  //
+  // The interactive flow issues ~15 inquirer prompts; under a pipe/CI stdin is
+  // not a TTY and inquirer cannot read a response. config now fails fast with a
+  // usage-code (exit 2) error naming the scalar escape hatch. Scalar forms
+  // short-circuit before the gate, so they keep working headlessly.
+  describe("non-TTY preflight (D1-18)", () => {
+    it("throws a usage-code (exit 2) HatchError when stdin is not a TTY", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = false;
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      try {
+        await configCommand();
+        throw new Error("expected configCommand to throw under non-TTY stdin");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).exitCode).toBe(2);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        expect((e as HatchError).recoveryHint).toMatch(/config maturity=/);
+      }
+      // No interactive prompt should have been reached.
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+    });
+
+    it("still accepts the scalar form under non-TTY stdin (short-circuits before the gate)", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = false;
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=team");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("team");
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
     });
   });
 

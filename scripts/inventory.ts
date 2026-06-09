@@ -157,12 +157,51 @@ async function listMdcFiles(relDir: string, prefix: string): Promise<string[]> {
 }
 
 /**
- * List every `*.md` file directly inside a companion-content directory
- * (F16.3-L2 / F16.3-M3). Unlike `listTopLevelMd`, companion files carry no
- * `hatch3r-` prefix requirement (they are reference material under named
- * support subdirectories per `.claude/rules/content-authoring.md`), so this
- * lists all top-level markdown, including any `README.md`. Returns `[]` for a
- * missing directory so the inventory stays stable if a directory is removed.
+ * Read the `type:` field from a markdown file's YAML frontmatter, or `null`
+ * when the file has no frontmatter block or no `type:` line. Minimal by design:
+ * the inventory script imports only `node:` builtins (no adapter module graph),
+ * so this reuses the same field-extraction semantics as
+ * `src/adapters/canonical.ts::parseFrontmatter` without the dependency weight.
+ * Scans only the leading `---` … `---` block so a `type:` mention in prose
+ * never registers.
+ */
+async function readFrontmatterType(absPath: string): Promise<string | null> {
+  let raw: string;
+  try {
+    raw = await readFile(absPath, "utf-8");
+  } catch (err) {
+    // Unreadable companion file: treat as type-less so the caller decides via
+    // the README-by-name fallback. The inventory must not crash on one bad
+    // companion file, but the read fault is surfaced on the warning channel
+    // (CONSTITUTION §2 P5 Silent Failure Contract) rather than swallowed.
+    console.warn(
+      `inventory: could not read companion frontmatter from ${absPath} ` +
+        `(${(err as Error).message}); treating as type-less.`,
+    );
+    return null;
+  }
+  const fm = raw.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fm) return null;
+  const typeLine = fm[1].match(/^type:\s*(\S+)\s*$/m);
+  return typeLine ? typeLine[1] : null;
+}
+
+/**
+ * List every published `*.md` file directly inside a companion-content
+ * directory (F16.3-L2 / F16.3-M3). Companion files carry no `hatch3r-` prefix
+ * requirement (they are reference material under named support subdirectories
+ * per `.claude/rules/content-authoring.md`).
+ *
+ * D5-50 (Cycle 11 Wave 3): a self-excluded authoring guide such as
+ * `checks/README.md` (frontmatter `type: documentation`) is NOT a published
+ * artifact and is NOT emitted by any adapter — `BaseAdapter.processCompanionSubdir`
+ * (`src/adapters/base.ts`) skips `type: documentation` and any `README.md` by
+ * name (D2-8). The inventory previously counted every `.md` here, so `checks`
+ * read 6 against a real `type: check` count of 5, drifting CLAUDE.md and the D05
+ * domain header. Mirror the adapter exclusion exactly (documentation type OR
+ * `README.md` by name) so `inventory.json` counts the same set the adapters
+ * ship. Returns `[]` for a missing directory so the inventory stays stable if a
+ * directory is removed.
  */
 async function listCompanionMd(relDir: string): Promise<string[]> {
   const dir = join(ROOT, relDir);
@@ -172,7 +211,11 @@ async function listCompanionMd(relDir: string): Promise<string[]> {
     if (!name.endsWith(".md")) continue;
     const full = join(dir, name);
     const s = await stat(full);
-    if (s.isFile()) results.push(name);
+    if (!s.isFile()) continue;
+    if (name.toLowerCase() === "readme.md") continue;
+    const fmType = await readFrontmatterType(full);
+    if (fmType === "documentation") continue;
+    results.push(name);
   }
   return results;
 }
@@ -570,6 +613,57 @@ const DRIFT_PROBES: DriftProbe[] = [
     label: "user-question-protocol supported-tools count",
     expected: "adapters",
     regex: /(\d+)\s+supported AI coding tools/,
+  },
+  // Cycle 11 D5-50: the D05 audit-domain file hard-coded a per-class artifact
+  // census ("42 .md + 42 .mdc", "38 commands", "63 skills", "6 checks + 6 hooks
+  // + 3 prompts") that drifted against live inventory (66/66, 30, 53, 5/7/0).
+  // `--check-docs` previously probed README/CLAUDE.md/plugin.json but NOT the
+  // domain files, so D05's census re-staled every time the corpus grew. These
+  // probes extend the gate to the D05 SA-table so its counts self-maintain.
+  // Each targets a count that maps to a single inventory counter; the aggregate
+  // "content artifacts" total is rephrased to cite inventory.json (no single
+  // counter backs a cross-class sum) rather than freeze a re-staling number.
+  {
+    file: "governance/audit/domains/D05-prompt-engineering.md",
+    label: "D05 SA5.4 rules (.md) count",
+    expected: "rules",
+    regex: /Rules\s*\((\d+)\s*\.md/,
+  },
+  {
+    file: "governance/audit/domains/D05-prompt-engineering.md",
+    label: "D05 SA5.4 rules (.mdc) count",
+    expected: "rulesMdc",
+    regex: /Rules\s*\(\d+\s*\.md\s*\+\s*(\d+)\s*\.mdc\)/,
+  },
+  {
+    file: "governance/audit/domains/D05-prompt-engineering.md",
+    label: "D05 SA5.5 commands count",
+    expected: "commands",
+    regex: /Commands\s*\((\d+)\)/,
+  },
+  {
+    file: "governance/audit/domains/D05-prompt-engineering.md",
+    label: "D05 SA5.6 skills count",
+    expected: "skills",
+    regex: /Skills\s*\((\d+)\)/,
+  },
+  {
+    file: "governance/audit/domains/D05-prompt-engineering.md",
+    label: "D05 SA5.7 checks count",
+    expected: "checks",
+    regex: /\((\d+)\s+checks\s*\+/,
+  },
+  {
+    file: "governance/audit/domains/D05-prompt-engineering.md",
+    label: "D05 SA5.7 hooks count",
+    expected: "hooks",
+    regex: /\+\s*(\d+)\s+hooks\s*\+/,
+  },
+  {
+    file: "governance/audit/domains/D05-prompt-engineering.md",
+    label: "D05 SA5.7 github-agents count",
+    expected: "githubAgents",
+    regex: /\+\s*(\d+)\s+github-agents\)/,
   },
 ];
 

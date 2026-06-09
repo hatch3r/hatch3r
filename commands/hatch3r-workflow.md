@@ -37,7 +37,7 @@ Optional guided development lifecycle command that walks through structured phas
 | 3b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes) |
 | 3c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes) |
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
-| 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-ui`, `hatch3r-performance` | Yes | When triggered |
+| 3e. Final Quality — Conditional | `hatch3r-lint-fixer` + all conditional CQ specialists (CQ1-CQ9: `hatch3r-ui`, `hatch3r-ux`, `hatch3r-reliability`, `hatch3r-scalability`, `hatch3r-performance`, `hatch3r-maintainability`, `hatch3r-enhancability`) per `SPECIALIST_TRIGGER_TABLE` | Yes | Spawn each whose trigger matches the diff |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (multi-module implementers in Phase 3, the Phase-4b final-quality batch) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
@@ -72,6 +72,8 @@ Every sub-agent delegation prompt in this command MUST include the confidence ex
 > Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 
 Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
+
+Absent-confidence clause (D13-SA13.2-F3): a clean verdict (0 Critical + 0 Warning) whose reviewer `confidence` field is absent or unparseable is treated as `confidence: low` at every gate — trigger the second pass / ASK, never proceed. This matches the code gate in `src/pipeline/reviewLoop.ts` (`evaluateReviewGate`), where an `unknown`/absent confidence ranks below `low` (`CONFIDENCE_RANK.unknown = 0`) and so does not pass. A prose gate that reads `confidence != low` would otherwise let absence pass silently — inverting the code gate. Resolve absence to `low` before applying the Step 0.7 floor.
 
 ---
 
@@ -339,9 +341,9 @@ Fix any issues before proceeding. If quality checks fail, loop back and resolve 
 Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Include the diff and acceptance criteria in the prompt.
 
 1. **Review:** Await the reviewer result. Extract Critical and Warning findings AND the reviewer's top-level `confidence` field (high/medium/low).
-2. **Confidence-aware gate** (the second-pass trigger tightens with the `--confidence-floor` set in Step 0.7 — `any` = default below, `medium`/`high` raise the bar):
-   - **0 Critical + 0 Warning AND reviewer confidence != low:** Review loop is clean. Proceed to 4b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
-   - **0 Critical + 0 Warning AND reviewer confidence == low:** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
+2. **Confidence-aware gate** (the second-pass trigger tightens with the `--confidence-floor` set in Step 0.7 — `any` = default below, `medium`/`high` raise the bar). First resolve the reviewer `confidence` field per the Confidence Propagation Contract absent-confidence clause: an absent or unparseable value is treated as `low` (it does NOT satisfy `!= low`), matching the code gate where `unknown` ranks below `low`.
+   - **0 Critical + 0 Warning AND reviewer confidence == high or medium:** Review loop is clean. Proceed to 4b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
+   - **0 Critical + 0 Warning AND reviewer confidence == low (including absent/unparseable, resolved to `low` above):** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns high/medium confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
 3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings.
 4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.
 5. **Repeat** steps 2-4 for a maximum of **3 iterations** (code-class cap). If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort).
@@ -371,11 +373,20 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 3. **`hatch3r-docs-writer`** — spawn when changes affect public APIs, architectural patterns, user-facing behavior, or when specs/ADRs need updating. Skip silently if no documentation impact.
 
-**Conditional specialists (spawn when triggered):**
+**Conditional specialists (spawn each whose trigger matches the diff):**
 
-4. **`hatch3r-lint-fixer`** — when lint or type errors are present after implementation.
-5. **`hatch3r-ui`** (CQ1) — when UI or accessibility changes are made.
-6. **`hatch3r-performance`** (CQ7) — when performance-sensitive changes are made.
+Spawn **all conditional CQ specialists (CQ1-CQ9) per `SPECIALIST_TRIGGER_TABLE`** plus `hatch3r-lint-fixer` — not the lint/ui/performance subset alone. Evaluate each via `shouldTriggerSpecialist(specialist, changedFiles, projectType)` (D6-M11); spawn the ones that return `{ triggered: true }`:
+
+4. **`hatch3r-lint-fixer`** — lint or type errors present after implementation.
+5. **`hatch3r-ui`** (CQ1) — UI component / design-token / theme files modified.
+6. **`hatch3r-ux`** (CQ2) — flow / route-transition / modal / error-state files or microcopy/i18n strings modified.
+7. **`hatch3r-reliability`** (CQ4) — service/request handler, OTel/SLO, retry/circuit-breaker, or Kubernetes-probe code modified.
+8. **`hatch3r-scalability`** (CQ6) — request handler, queue client, connection-pool, cache, or background-job code modified.
+9. **`hatch3r-performance`** (CQ7) — ORM/data-access, UI-rendering, or bundle/hot-path code modified.
+10. **`hatch3r-maintainability`** (CQ8) — any code mutation (duplication + complexity scan); schema / migration / API spec modified.
+11. **`hatch3r-enhancability`** (CQ9) — user-visible behavior, public API surface, config schema, or extension-point interface modified.
+
+(`hatch3r-architect` and `hatch3r-devops` are also conditional in `SPECIALIST_TRIGGER_TABLE` but are not CQ-vector specialists; spawn them too when their architectural / CI-CD triggers match.)
 
 > **Single source of truth for triggers (D6-M11):** the canonical trigger map lives in `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` and the predicate `shouldTriggerSpecialist(specialist, changedFiles, projectType)` returns `{ triggered, reasons }` for any specialist. The brief prose list above is a quick reference only; for the authoritative trigger evaluation at runtime, call `shouldTriggerSpecialist` from the orchestrator harness (or the equivalent mirror in `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). Adding a specialist to the prose without updating the TS table is rejected by `npm run validate:specialist-roster`.
 
@@ -457,18 +468,28 @@ Same two-stage pipeline as Full Mode, with lighter prompts:
 
 **Stage 1 — Review Loop:**
 
-1. Spawn **`hatch3r-reviewer`** with a focused prompt covering correctness and quality.
+1. Spawn **`hatch3r-reviewer`** with a focused prompt covering correctness and quality. Extract Critical/Warning findings AND the reviewer's top-level `confidence` field.
 2. If Critical or Warning findings exist, spawn **`hatch3r-fixer`**, then re-review. Max 3 iterations.
+3. **Confidence-aware gate (parity with Full Mode 4a step 2 — the `--confidence-floor` from Step 0.7 is NOT inert in Quick Mode):** resolve an absent/unparseable reviewer `confidence` to `low` per the Confidence Propagation Contract, then apply the same floor branch as Full Mode 4a:
+   - **0 Critical + 0 Warning AND confidence == high or medium:** clean — proceed to Stage 2. (Floor `medium`: also force a second pass on any finding `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
+   - **0 Critical + 0 Warning AND confidence == low (including absent/unparseable):** trigger a second reviewer pass before exiting; do not proceed to Stage 2 until it returns high/medium confidence OR the user accepts the low-confidence PASS at the finalize ASK.
 
 **Stage 2 — Final Quality (after review loop is clean):**
 
-3. **`hatch3r-testability`** (CQ5) — ALWAYS for code changes.
-4. **`hatch3r-security`** (CQ3) — ALWAYS for code changes.
-5. **`hatch3r-docs-writer`** — evaluate; spawn when documentation impact exists.
-6. Verify acceptance criteria are met.
-7. Confirm lint/typecheck/test pass.
+4. **`hatch3r-testability`** (CQ5) — ALWAYS for code changes.
+5. **`hatch3r-security`** (CQ3) — ALWAYS for code changes.
+6. **`hatch3r-docs-writer`** — evaluate; spawn when documentation impact exists.
+7. Verify acceptance criteria are met (rate each criterion high/medium/low per Full Mode 4c).
+8. Confirm lint/typecheck/test pass.
 
-**ASK:** "Changes complete. Quality checks pass. Finalize? (yes / deeper review needed → switch to Full Mode Phase 4)"
+Before the finalize ASK, emit an `Overall Confidence` line (parity with Full Mode 4d) sourced from the lowest upstream confidence across reviewer, testability, security, and the acceptance-criteria checks:
+
+```
+Overall Confidence: {high/medium/low}
+  Lowest-confidence area: {description or "none"}
+```
+
+**ASK:** "Changes complete. Quality checks pass. Overall confidence: {high/medium/low}. Finalize? (yes / deeper review needed → switch to Full Mode Phase 4)"
 
 ---
 
@@ -623,6 +644,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Acceptance criteria not met in Phase 4:** Loop back to Phase 3 with specific items to address.
 - **Sub-agent failure:** Per the shared sub-agent-failure clause in `rules/hatch3r-agent-orchestration.md` -> Cross-Phase Error Propagation: retry once, then re-spawn `hatch3r-fixer` with the failure context, then `BLOCKED_OTHER` + ASK. Never fall back to inline implementation (issue #73 bypass mode).
 - **Context degradation (>25 turns):** Suggest starting a fresh chat with a progress summary capturing completed work and remaining items.
+- **Handoff information loss (>0.3):** When a lossy phase transition crosses the `informationLossEstimate > 0.3` threshold, emit the `formatPhaseHandoffWarning` line in the iteration summary per `rules/hatch3r-agent-orchestration.md` -> Phase Handoff Contract (Handoff-loss trigger) so the next phase verifies critical context survived — distinct from the turn-count degradation rule above.
 - **Mode switch:** User can switch from Quick to Full (or vice versa) at any ASK checkpoint. State carries forward — no work is lost.
 
 ## Guardrails

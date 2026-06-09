@@ -51,6 +51,7 @@ Canonical content (agents, skills, rules, commands, hooks) lives inside the bund
 
 ## Next Steps
 
+- [Core Concepts](./core-concepts) -- the six load-bearing terms, in one screen, before you install
 - [Quick Start](./quick-start) -- install hatch3r in under a minute
 - [What You Get](./what-you-get) -- explore the agents, skills, rules, and commands included
 - [Supported Tools](./supported-tools) -- see which coding tools are supported

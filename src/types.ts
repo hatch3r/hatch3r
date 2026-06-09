@@ -70,20 +70,29 @@ export interface ModelConfig {
   agents?: Record<string, string>;
 }
 
+/**
+ * Claude Code Agent Teams teammate display modes.
+ *
+ * GA values: "auto" (default), "in-process", "tmux".
+ * Deprecated values (pre-GA): "tool-using", "full-trust", "manual-approval".
+ * #264 (D9-9.35): Legacy values are still accepted for backward compatibility
+ * but map to "auto" at runtime. Use GA values in new configurations.
+ *
+ * Single source of truth for {@link ClaudeConfig.teammateMode} and the
+ * persistence-boundary membership check in
+ * `src/manifest/hatchJson.ts::collectManifestErrors` (D1-23).
+ */
+export const TEAMMATE_MODES = ["auto", "in-process", "tmux", "tool-using", "full-trust", "manual-approval"] as const;
+export type TeammateMode = (typeof TEAMMATE_MODES)[number];
+export const VALID_TEAMMATE_MODES = new Set<string>(TEAMMATE_MODES);
+
 export interface ClaudeConfig {
   permissions?: {
     allow?: string[];
     deny?: string[];
   };
-  /**
-   * Claude Code Agent Teams teammate display mode.
-   *
-   * GA values: "auto" (default), "in-process", "tmux".
-   * Deprecated values (pre-GA): "tool-using", "full-trust", "manual-approval".
-   * #264 (D9-9.35): Legacy values are still accepted for backward compatibility
-   * but map to "auto" at runtime. Use GA values in new configurations.
-   */
-  teammateMode?: "auto" | "in-process" | "tmux" | "tool-using" | "full-trust" | "manual-approval";
+  /** Claude Code Agent Teams teammate display mode. See {@link TEAMMATE_MODES}. */
+  teammateMode?: TeammateMode;
   agentTeams?: boolean | "ga";
 }
 

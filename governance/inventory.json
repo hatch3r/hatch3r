@@ -15,9 +15,9 @@
     "agentsShared": 14,
     "commandsBoard": 11,
     "commandsRevision": 4,
-    "checks": 6,
+    "checks": 5,
     "githubAgents": 4,
-    "testFiles": 225
+    "testFiles": 227
   },
   "files": {
     "adapters": [
@@ -403,7 +403,6 @@
       "accessibility.md",
       "code-quality.md",
       "performance.md",
-      "README.md",
       "security.md",
       "testing.md"
     ],
@@ -561,6 +560,7 @@
       "src/__tests__/e2e/createFlow.test.ts",
       "src/__tests__/env/mcpEnv.test.ts",
       "src/__tests__/env/secretDetection.test.ts",
+      "src/__tests__/governance/archive-path-currency-gate.test.ts",
       "src/__tests__/governance/audit-execute-skill-npm-separator.test.ts",
       "src/__tests__/governance/content-validation-gate.test.ts",
       "src/__tests__/governance/customize-doc-examples-gate.test.ts",
@@ -594,6 +594,7 @@
       "src/__tests__/merge/safeWrite.lockBranches.test.ts",
       "src/__tests__/merge/safeWrite.sweepBranches.test.ts",
       "src/__tests__/merge/safeWrite.test.ts",
+      "src/__tests__/migration/agentsToHatch3r.crossDevice.test.ts",
       "src/__tests__/migration/agentsToHatch3r.test.ts",
       "src/__tests__/models/customize.test.ts",
       "src/__tests__/models/resolve.test.ts",

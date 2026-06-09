@@ -1,3 +1,4 @@
+import { CHARS_PER_TOKEN } from "../pipeline/observability.js";
 import type { AdapterOutput, Tool } from "../types.js";
 
 /**
@@ -45,11 +46,48 @@ export const CONTEXT_BUDGET_TOKENS: Record<Tool, number> = {
 };
 
 /**
- * Estimate token count from a character count.
- * Uses the standard rough approximation: 1 token ~ 4 characters.
+ * Claude-tuned chars/token divisor for the context-budget gate.
+ *
+ * D6-13 (Cycle 11 Wave 3, D6, P2): the generic ~4 chars/token approximation
+ * (`CHARS_PER_TOKEN`, imported from `pipeline/observability.ts` — single source
+ * of truth, no longer a duplicated literal here) UNDER-counts Claude tokens by
+ * ~10-25% on prose and more on code. Anthropic's own guidance is that a
+ * char-ratio heuristic always under-counts Claude tokens and the only exact
+ * count is the `count_tokens` API (`POST /v1/messages/count_tokens`,
+ * https://platform.claude.com/docs/en/build-with-claude/token-counting,
+ * accessed 2026-06-09). 3.6 is the conservative Claude-tuned divisor: it biases
+ * the always-loaded-slice estimate UP so the budget gate triggers slightly
+ * early rather than silently under-reporting an over-budget slice. cursor and
+ * copilot keep the generic ~4 divisor — their windows are not Claude-tokenized,
+ * and the budget gate is a soft warning, not a billing figure.
  */
-export function estimateTokens(charCount: number): number {
-  return Math.ceil(charCount / 4);
+export const CLAUDE_CHARS_PER_TOKEN = 3.6;
+
+/**
+ * Resolve the chars/token divisor for a tool's context-budget estimate.
+ * Claude uses the Claude-tuned {@link CLAUDE_CHARS_PER_TOKEN}; cursor/copilot
+ * use the generic {@link CHARS_PER_TOKEN}. Both remain estimates — see
+ * {@link CLAUDE_CHARS_PER_TOKEN} for the exact-count path (`count_tokens`).
+ */
+export function charsPerTokenFor(tool: Tool): number {
+  return tool === "claude" ? CLAUDE_CHARS_PER_TOKEN : CHARS_PER_TOKEN;
+}
+
+/**
+ * Estimate token count from a character count.
+ *
+ * Rough char-ratio heuristic, NOT exact BPE tokenisation: tokens ≈
+ * charCount / charsPerToken. The divisor defaults to the generic
+ * {@link CHARS_PER_TOKEN} (~4) and is overridden per tool by
+ * {@link charsPerTokenFor} (Claude tokenises denser, so it passes the smaller
+ * {@link CLAUDE_CHARS_PER_TOKEN}). For an exact count use Anthropic's
+ * `count_tokens` API — see {@link CLAUDE_CHARS_PER_TOKEN}.
+ */
+export function estimateTokens(
+  charCount: number,
+  charsPerToken: number = CHARS_PER_TOKEN,
+): number {
+  return Math.ceil(charCount / charsPerToken);
 }
 
 /**
@@ -159,6 +197,7 @@ export function checkContextBudget(
   outputs: AdapterOutput[],
 ): ContextBudgetResult {
   const budgetTokens = CONTEXT_BUDGET_TOKENS[tool];
+  const charsPerToken = charsPerTokenFor(tool);
   let alwaysLoadedChars = 0;
   let totalChars = 0;
   for (const out of outputs) {
@@ -167,8 +206,10 @@ export function checkContextBudget(
       alwaysLoadedChars += out.content.length;
     }
   }
-  const estimatedTokens = estimateTokens(alwaysLoadedChars);
-  const totalCorpusTokens = estimateTokens(totalChars);
+  // D6-13: use the per-tool divisor (Claude tokenises denser than the generic
+  // ~4 chars/token) so the gate doesn't under-report Claude's always-loaded slice.
+  const estimatedTokens = estimateTokens(alwaysLoadedChars, charsPerToken);
+  const totalCorpusTokens = estimateTokens(totalChars, charsPerToken);
   const utilizationPercent = Math.round((estimatedTokens / budgetTokens) * 100);
 
   return {
@@ -202,7 +243,8 @@ export function formatBudgetWarning(result: ContextBudgetResult): string | null 
   const overK = Math.max(1, Math.round((result.estimatedTokens - result.budgetTokens) / 1000));
 
   return (
-    `${result.tool}: always-loaded output is ~${estK}K tokens, ` +
+    `${result.tool}: always-loaded output is ~${estK}K tokens (rough estimate — ` +
+    `char-ratio heuristic, not exact tokenisation; run Anthropic's count_tokens API for an exact count), ` +
     `exceeding the estimated ${budgetK}K token context budget (${result.utilizationPercent}% utilization, ~${overK}K over). ` +
     `To get under budget, drop always-on rules from the slice: disable the largest ones via ` +
     `\`.hatch3r/rules/<id>.customize.yaml\` with \`enabled: false\` (protected/floor:* rules cannot be disabled), ` +

@@ -9,6 +9,7 @@ const sidebars: SidebarsConfig = {
       collapsed: false,
       items: [
         'getting-started/introduction',
+        'getting-started/core-concepts',
         'getting-started/quick-start',
         'getting-started/what-you-get',
         'getting-started/supported-tools',

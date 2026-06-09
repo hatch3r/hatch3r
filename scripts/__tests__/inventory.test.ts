@@ -205,6 +205,43 @@ describe("inventory: buildInventory (injectable date)", () => {
   });
 });
 
+describe("inventory: checks companion exclusion (D5-50)", () => {
+  // Cycle 11 D5-50: `checks/README.md` carries `type: documentation` and is a
+  // self-excluded authoring guide — no adapter emits it
+  // (BaseAdapter.processCompanionSubdir skips `type: documentation` + README.md,
+  // D2-8). The inventory previously counted every `.md` under checks/, so it
+  // read 6 against a real `type: check` count of 5. These assert the live build
+  // now mirrors the adapter exclusion: README is gone, only the 5 typed checks
+  // remain, and the count equals the file-list length.
+  it("excludes checks/README.md (type: documentation) and counts the 5 real checks", async () => {
+    const doc = await buildInventory("2099-01-01");
+    const { checks } = doc.files;
+
+    expect(checks).not.toContain("README.md");
+    expect(doc.counts.checks).toBe(checks.length);
+    expect(doc.counts.checks).toBe(5);
+    // The five canonical type:check files, sorted — the exact emission set.
+    expect(checks).toEqual([
+      "accessibility.md",
+      "code-quality.md",
+      "performance.md",
+      "security.md",
+      "testing.md",
+    ]);
+  });
+
+  it("keeps every non-documentation companion class intact (exclusion is type-gated, not blanket)", async () => {
+    // The README exclusion must not strip real companion files: the other
+    // companion dirs carry no `type: documentation` member, so their counts are
+    // unchanged by the D5-50 filter. A non-zero count here proves the gate did
+    // not over-prune.
+    const doc = await buildInventory("2099-01-01");
+    expect(doc.counts.agentsShared).toBeGreaterThan(0);
+    expect(doc.counts.commandsBoard).toBeGreaterThan(0);
+    expect(doc.files.checks.every((f) => f.endsWith(".md"))).toBe(true);
+  });
+});
+
 describe("inventory: testFiles collector (D3-5)", () => {
   // Cycle 11 D3-5: D03 cited a then-absent `inventory.json.testFiles` array and a
   // stale hand-maintained count. These assert the collector now produces a real,

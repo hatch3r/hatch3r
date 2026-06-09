@@ -78,7 +78,17 @@ const COPILOT_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
   mcp: [], // MCP exposure is controlled via `mcp-servers`, not `tools`.
   // Reserved categories (RESERVED_TOOL_CATEGORIES in agentToolAllowlist.ts):
   // no current policy grants these; they collapse onto execute/mcp here.
-  git: ["execute"], // Reserved. Collapses to execute semantics.
+  // D15-22 (SA15.3-F7, Cycle 11 Wave 3, P6): `git` collapses to `execute`
+  // because Copilot's `tools:` array is a tool-level allowlist only — it has no
+  // `Bash:<subcommand>` deny primitive (verified 2026-06-09 @
+  // https://docs.github.com/en/copilot/reference/custom-agents-configuration),
+  // so a source `tools.deny: ["Bash:git commit", ...]` cannot be re-emitted into
+  // a finer Copilot grant the way Claude's `Bash:git*` deny list survives. A
+  // git-restricted agent therefore receives unrestricted `execute` on Copilot,
+  // and the emitted surface installs no PreToolUse runtime gate (Copilot is the
+  // only adapter with `hooks: false` in ADAPTER_CAPABILITIES). This gap is
+  // disclosed in SECURITY.md -> Allowlist Hybrid Contract (Copilot runtime row).
+  git: ["execute"], // Reserved. Collapses to execute semantics (see SECURITY.md Copilot row).
   board: [], // Reserved. Project-board tooling is MCP-driven; no distinct token.
 };
 

@@ -33,6 +33,10 @@ State machines drive these transitions — model the view as `idle | loading | s
 
 Transitions between states have their own rules. Loading -> success swaps the skeleton for content without layout shift (the skeleton was already the final dimensions). Loading -> error replaces the skeleton with the error surface and announces it via `role="alert"`. Loading -> empty replaces the skeleton with the sub-typed empty surface (cold / filter / permission). Success -> partial overlays the banner without re-rendering the succeeded subset. Every transition has a measurable duration and an announcement strategy — never silent.
 
+### Partial-state fixture recipe
+
+Loading, empty, and error each fixture from one mocked response (delay it, return `[]`, return a 5xx). Partial is the hard case the snapshot blocker most often strands on: it requires two concurrent requests resolving to opposite outcomes in a single render. Build it one of two ways. (1) **MSW per-endpoint**: register two handlers in the same worker — `http.get('/api/widgets', () => HttpResponse.json(widgets))` and `http.get('/api/sidebar', () => HttpResponse.json(null, { status: 500 }))` — so the view mounts its 200 subset and its 500 subset together and the partial banner renders against real degraded data. (2) **`Promise.allSettled` with a forced rejection**: have the fixture's data layer resolve the succeeded fetch and reject the failed one (`Promise.allSettled([ok(widgets), Promise.reject(new Error('sidebar 500'))])`), then assert the component reads `status === 'rejected'` on the failed entry and renders the banner + retry for that subset only. Either path produces the snapshot Gate 4 (`skills/hatch3r-ui-ux-verify/SKILL.md` -> Gate 4) requires; do not stub the partial state by hand-editing the success snapshot, which never exercises the failed-subset render path.
+
 ## First-Run vs Filter vs Network — Content Structure
 
 | State type | Heading level | Visual cue | CTA | Example |

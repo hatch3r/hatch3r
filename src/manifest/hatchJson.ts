@@ -9,6 +9,7 @@ import {
   MATURITY_TIER_RANK,
   VALID_CONFIDENCE_FLOORS,
   VALID_MATURITY_TIERS,
+  VALID_TEAMMATE_MODES,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
   DEFAULT_FEATURES,
@@ -631,6 +632,174 @@ function collectManifestErrors(data: unknown): string[] {
             errors.push("`userContent.types` has a non-string key");
           } else if (typeof v !== "number") {
             errors.push(`\`userContent.types.${k}\` is not a number`);
+          }
+        }
+      }
+    }
+  }
+
+  // D1-23 (Cycle 11 Wave 3, D1, P2/P6): the eight remaining optional
+  // HatchManifest fields below were unchecked, so a hand-edited
+  // `models.agents.<id>=42` survived the persistence boundary and reached
+  // `resolveAgentModel` (src/models/resolve.ts), which passes the raw value to
+  // `resolveModelAlias` and stamps it into adapter output (cursor.ts:235). Each
+  // check mirrors the field's `src/types.ts` shape so a malformed value fails
+  // closed with a named-field diagnostic rather than corrupting generated
+  // config. `models` mirrors `validateModels` (src/cli/commands/validate.ts).
+
+  // versionConstraint (optional string — npm semver expression).
+  if (obj.versionConstraint !== undefined && typeof obj.versionConstraint !== "string") {
+    errors.push("`versionConstraint` is not a string");
+  }
+
+  // languages (optional string[]).
+  if (obj.languages !== undefined) {
+    if (!Array.isArray(obj.languages)) {
+      errors.push("`languages` is not an array");
+    } else if (!(obj.languages as unknown[]).every((v) => typeof v === "string")) {
+      errors.push("`languages` contains non-string entries");
+    }
+  }
+
+  // repos (optional RepoEntry[]: { owner: string; repo: string; name?: string }).
+  if (obj.repos !== undefined) {
+    if (!Array.isArray(obj.repos)) {
+      errors.push("`repos` is not an array");
+    } else {
+      (obj.repos as unknown[]).forEach((r, i) => {
+        if (typeof r !== "object" || r === null || Array.isArray(r)) {
+          errors.push(`\`repos[${i}]\` is not an object`);
+          return;
+        }
+        const repo = r as Record<string, unknown>;
+        if (typeof repo.owner !== "string") errors.push(`\`repos[${i}].owner\` is not a string`);
+        if (typeof repo.repo !== "string") errors.push(`\`repos[${i}].repo\` is not a string`);
+        if (repo.name !== undefined && typeof repo.name !== "string") {
+          errors.push(`\`repos[${i}].name\` is not a string`);
+        }
+      });
+    }
+  }
+
+  // packages (optional PackageEntry[]: { name: string; path: string }).
+  if (obj.packages !== undefined) {
+    if (!Array.isArray(obj.packages)) {
+      errors.push("`packages` is not an array");
+    } else {
+      (obj.packages as unknown[]).forEach((p, i) => {
+        if (typeof p !== "object" || p === null || Array.isArray(p)) {
+          errors.push(`\`packages[${i}]\` is not an object`);
+          return;
+        }
+        const pkg = p as Record<string, unknown>;
+        if (typeof pkg.name !== "string") errors.push(`\`packages[${i}].name\` is not a string`);
+        if (typeof pkg.path !== "string") errors.push(`\`packages[${i}].path\` is not a string`);
+      });
+    }
+  }
+
+  // hooks (optional HooksConfig: { enabled: boolean }).
+  if (obj.hooks !== undefined) {
+    if (typeof obj.hooks !== "object" || obj.hooks === null || Array.isArray(obj.hooks)) {
+      errors.push("`hooks` is not an object");
+    } else if (typeof (obj.hooks as Record<string, unknown>).enabled !== "boolean") {
+      errors.push("`hooks.enabled` is not a boolean");
+    }
+  }
+
+  // models (optional ModelConfig: { default?: string; agents?: Record<string,string> }).
+  // Mirrors `validateModels` in src/cli/commands/validate.ts so the value
+  // resolved by `resolveAgentModel` is a string at every adapter call site.
+  if (obj.models !== undefined) {
+    if (typeof obj.models !== "object" || obj.models === null || Array.isArray(obj.models)) {
+      errors.push("`models` is not an object");
+    } else {
+      const models = obj.models as Record<string, unknown>;
+      if (models.default !== undefined && typeof models.default !== "string") {
+        errors.push("`models.default` is not a string");
+      }
+      if (models.agents !== undefined) {
+        if (typeof models.agents !== "object" || models.agents === null || Array.isArray(models.agents)) {
+          errors.push("`models.agents` is not an object");
+        } else {
+          for (const [agentId, model] of Object.entries(models.agents as Record<string, unknown>)) {
+            if (typeof model !== "string") {
+              errors.push(`\`models.agents.${agentId}\` is not a string`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // claude (optional ClaudeConfig). Validate the scalar/enum fields adapters
+  // read; `permissions.{allow,deny}` must be string[] when present.
+  if (obj.claude !== undefined) {
+    if (typeof obj.claude !== "object" || obj.claude === null || Array.isArray(obj.claude)) {
+      errors.push("`claude` is not an object");
+    } else {
+      const claude = obj.claude as Record<string, unknown>;
+      if (claude.permissions !== undefined) {
+        if (typeof claude.permissions !== "object" || claude.permissions === null || Array.isArray(claude.permissions)) {
+          errors.push("`claude.permissions` is not an object");
+        } else {
+          const perms = claude.permissions as Record<string, unknown>;
+          for (const key of ["allow", "deny"] as const) {
+            const v = perms[key];
+            if (v === undefined) continue;
+            if (!Array.isArray(v)) {
+              errors.push(`\`claude.permissions.${key}\` is not an array`);
+            } else if (!(v as unknown[]).every((s) => typeof s === "string")) {
+              errors.push(`\`claude.permissions.${key}\` contains non-string entries`);
+            }
+          }
+        }
+      }
+      validateStringUnion(
+        claude.teammateMode,
+        VALID_TEAMMATE_MODES,
+        "claude.teammateMode",
+        errors,
+      );
+      if (
+        claude.agentTeams !== undefined &&
+        typeof claude.agentTeams !== "boolean" &&
+        claude.agentTeams !== "ga"
+      ) {
+        errors.push("`claude.agentTeams` is not a boolean or \"ga\"");
+      }
+    }
+  }
+
+  // cliTools (optional CliToolsConfig: { enabled: boolean; selected: string[];
+  // overrides?: Record<string, { disabled?: boolean; note?: string }> }).
+  if (obj.cliTools !== undefined) {
+    if (typeof obj.cliTools !== "object" || obj.cliTools === null || Array.isArray(obj.cliTools)) {
+      errors.push("`cliTools` is not an object");
+    } else {
+      const ct = obj.cliTools as Record<string, unknown>;
+      if (typeof ct.enabled !== "boolean") errors.push("`cliTools.enabled` is not a boolean");
+      if (!Array.isArray(ct.selected)) {
+        errors.push("`cliTools.selected` is not an array");
+      } else if (!(ct.selected as unknown[]).every((s) => typeof s === "string")) {
+        errors.push("`cliTools.selected` contains non-string entries");
+      }
+      if (ct.overrides !== undefined) {
+        if (typeof ct.overrides !== "object" || ct.overrides === null || Array.isArray(ct.overrides)) {
+          errors.push("`cliTools.overrides` is not an object");
+        } else {
+          for (const [id, ov] of Object.entries(ct.overrides as Record<string, unknown>)) {
+            if (typeof ov !== "object" || ov === null || Array.isArray(ov)) {
+              errors.push(`\`cliTools.overrides.${id}\` is not an object`);
+              continue;
+            }
+            const override = ov as Record<string, unknown>;
+            if (override.disabled !== undefined && typeof override.disabled !== "boolean") {
+              errors.push(`\`cliTools.overrides.${id}.disabled\` is not a boolean`);
+            }
+            if (override.note !== undefined && typeof override.note !== "string") {
+              errors.push(`\`cliTools.overrides.${id}.note\` is not a string`);
+            }
           }
         }
       }

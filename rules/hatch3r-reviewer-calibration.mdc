@@ -12,7 +12,7 @@ cache_friendly: true
 
 **Pillars:** P2 (Scientific & Practical Quality), P5 (Governance Self-Quality)
 
-A reviewer's `confidence` rating is self-assigned by the same model that produced the verdict. Without an out-of-band check it is structurally over-trusted, and over-confident models systematically under-emit `confidence: low` (arxiv:2508.06225). This rule is the canonical, always-on source for the **runtime** (within-loop) bound that closes that gap before the review loop exits on a clean PASS. It owns the N-default and the directive that `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration and the across-cycle calibration protocol cite.
+A reviewer's `confidence` rating is self-assigned by the same model that produced the verdict. Without an out-of-band check it is structurally over-trusted: LLM judges systematically overstate confidence — predicted confidence significantly exceeds realized correctness (Tian et al. 2025, arxiv:2508.06225) — so a self-reported clean PASS carries a non-zero, unmeasured miscalibration probability at runtime. This rule is the canonical, always-on source for the **runtime** (within-loop) bound that closes that gap before the review loop exits on a clean PASS. It owns the N-default and the directive that `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration and the across-cycle calibration protocol cite.
 
 Scope split (do not duplicate across the two artifacts):
 
@@ -80,5 +80,5 @@ Skip the second pass ONLY when no second model class is available AND the orches
 - `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration — the consuming agent body that invokes this contract (accessed 2026-05-28, trust tier: canonical).
 - The across-cycle calibration protocol §Runtime complement (F13.2-F1) — the across-cycle measurement loop this runtime bound complements (accessed 2026-05-28, trust tier: canonical).
 - `rules/hatch3r-iteration-summary.md` — consumes the project-local over-claim rate for the `Confidence` field (accessed 2026-05-28, trust tier: canonical).
-- Anthropic / arXiv. "Confidence calibration in large language models" (arxiv:2508.06225). `https://arxiv.org/abs/2508.06225` (accessed 2026-05-28, peer-reviewed-methodology). Evidence that self-reported model confidence under-emits low-confidence signals, motivating the out-of-band second pass.
+- Tian, Z. et al. "Overconfidence in LLM-as-a-Judge: Diagnosis and Confidence-Driven Solution" (arxiv:2508.06225). `https://arxiv.org/abs/2508.06225` (accessed 2026-06-09, peer-reviewed-methodology). Evidence that an LLM judge's predicted confidence significantly overstates realized correctness (the Overconfidence Phenomenon), so a self-reported clean PASS is structurally over-trusted — motivating the out-of-band second pass.
 - Huang, J. et al. "Large Language Models Cannot Self-Correct Reasoning Yet." ICLR 2024 (arxiv:2310.01798). `https://arxiv.org/abs/2310.01798` (accessed 2026-06-06, peer-reviewed-methodology). Evidence that same-model self-critique shares the generator's blind spot, motivating the different-model-class setup recommendation in Action and the lowered safety-class `N=1` second-pass cadence (D23-2).

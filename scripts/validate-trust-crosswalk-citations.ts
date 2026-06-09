@@ -1,29 +1,40 @@
 #!/usr/bin/env node
 /**
- * scripts/validate-trust-crosswalk-citations.ts — Cycle 11 D15-15
- * ("Crosswalk citation integrity: the D15 trust-reference crosswalk cited
- * non-existent files (`secretDetect.ts`, `diffHashVerify.ts`) and unwired
+ * scripts/validate-trust-crosswalk-citations.ts — Cycle 11 D15-15 + D15-23
+ * D15-15 ("Crosswalk citation integrity: the D15 trust-reference crosswalk
+ * cited non-existent files (`secretDetect.ts`, `diffHashVerify.ts`) and unwired
  * validate-IDs (`secrets`/`integrity`/`timeouts`) with no CI backstop").
+ * D15-23 ("Dangling + stale code citations in `pack-trust-model.md`: cites
+ * `add.ts::preflightIntegrityCheck` (0 hits) + drifted `file:LINE` citations
+ * (`scanForDeniedPatterns` cited `:340`, actually moved); fix: cite by symbol
+ * not line; add a CI probe asserting cited `file::symbol` references resolve").
  *
  * Pillars: P2 (Scientific & Practical Quality — every claim is re-verifiable),
  *          P5 (Governance Self-Quality — governance passes its own tests),
- *          P6 (Security & Trust Governance — the trust crosswalk is the
+ *          P6 (Security & Trust Governance — the trust docs are the
  *          machine-checkable alignment claim behind CONSTITUTION §2 P6).
  *
- * Standard enforced: every source-file path and every `hatch3r validate`
- * check-ID cited in `governance/audit/domains/D15-trust-reference.md` must
- * resolve against the live codebase. A path that names a file which does not
- * exist, or a validate-ID that no compliance check registers, is a hard error
- * — the exact drift class that shipped `secretDetect.ts` (real:
- * `src/env/secretDetection.ts`) and validate-ID `secrets` (real:
- * `content-safety-patterns`).
+ * Standard enforced: every source-file path, every `hatch3r validate`
+ * check-ID, and every `file::symbol` reference cited in the two trust-model
+ * documents (`governance/audit/domains/D15-trust-reference.md` and
+ * `governance/pack-trust-model.md`) must resolve against the live codebase. A
+ * path that names a file which does not exist, a validate-ID that no compliance
+ * check registers, or a `file::symbol` whose symbol is not defined in that file
+ * is a hard error — the exact drift class that shipped `secretDetect.ts` (real:
+ * `src/env/secretDetection.ts`), validate-ID `secrets` (real:
+ * `content-safety-patterns`), and `add.ts::preflightIntegrityCheck` (the symbol
+ * was deleted with the integrity subsystem but the citation rotted in place).
+ *
+ * Citing by symbol instead of by line number (D15-23 fix) makes a citation
+ * survive any line-shifting edit to the cited file while staying CI-verifiable:
+ * Check C resolves the symbol against its definition, not a brittle line range.
  *
  * ERROR-LEVEL by design: the fix column asks for a probe "asserting every
- * cited `file::symbol` and validate-id resolves". The corrected doc resolves
+ * cited `file::symbol` and validate-id resolves". The corrected docs resolve
  * every citation, so an error-level gate keeps the green baseline while making
  * any future broken citation fail CI rather than rot silently.
  *
- * Two checks:
+ * Three checks:
  *
  *   Check A — cited-path resolution (TRUST-CITE-PATH-MISSING):
  *     Every backtick-wrapped or table-cell source token that looks like a code
@@ -43,6 +54,16 @@
  *     verbatim. Prose verbs after `` `validate` `` (asserts, self-tests) are
  *     skipped via an explicit non-id wordlist.
  *
+ *   Check C — file::symbol resolution (TRUST-CITE-SYMBOL-MISSING):
+ *     Every `` `<path>.ts::<symbol>` `` citation must (1) resolve its file like
+ *     Check A — a rooted `src/...` path literally, or a bare `<name>.ts`
+ *     basename uniquely under `src/` — and (2) define `<symbol>` in that file
+ *     as a top-level `function`/`const`/`let`/`class`/`interface`/`type`/`enum`
+ *     declaration OR an exported-object property key (`<symbol>:`). A path that
+ *     resolves but whose symbol is absent, or a path that does not resolve, is
+ *     an error. This is the D15-23 backstop: it catches a deleted symbol
+ *     (`preflightIntegrityCheck`) that a line-number citation could never flag.
+ *
  * Usage:
  *   tsx scripts/validate-trust-crosswalk-citations.ts
  *   tsx scripts/validate-trust-crosswalk-citations.ts --json
@@ -55,12 +76,26 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 
-const DOC_REL = "governance/audit/domains/D15-trust-reference.md";
+/**
+ * Documents whose citations this probe verifies. D15-trust-reference.md is
+ * checked for all three checks; pack-trust-model.md is checked for Check A
+ * (paths) and Check C (file::symbol). Check B (validate-IDs) is specific to the
+ * trust-reference crosswalk and does not appear in pack-trust-model.md.
+ */
+const CROSSWALK_DOC_REL = "governance/audit/domains/D15-trust-reference.md";
+const PACK_TRUST_DOC_REL = "governance/pack-trust-model.md";
+const DOC_RELS: readonly string[] = [CROSSWALK_DOC_REL, PACK_TRUST_DOC_REL];
+
 const COMPLIANCE_REL = "src/pipeline/complianceVerification.ts";
 
 export interface CitationFinding {
   level: "error";
-  code: "TRUST-CITE-PATH-MISSING" | "TRUST-CITE-VALIDATE-ID-MISSING";
+  code:
+    | "TRUST-CITE-PATH-MISSING"
+    | "TRUST-CITE-VALIDATE-ID-MISSING"
+    | "TRUST-CITE-SYMBOL-MISSING";
+  /** Repo-relative path of the document carrying the offending citation. */
+  doc: string;
   line: number;
   token: string;
   message: string;
@@ -146,6 +181,94 @@ function extractValidateIds(line: string): string[] {
   return ids;
 }
 
+/** A `file::symbol` citation split into its parts. */
+interface SymbolCitation {
+  /** The cited `.ts` path or bare module filename. */
+  filePath: string;
+  /** The referenced symbol name. */
+  symbol: string;
+  /** The full backticked token, for diagnostics. */
+  token: string;
+}
+
+/**
+ * Extract `` `<path>.ts::<symbol>` `` citations from a line. Only matches inside
+ * backticks (so it never fires on prose like "the `preflightIntegrityCheck`
+ * symbol"). The path may be rooted (`src/.../foo.ts`) or a bare basename
+ * (`selfUpdate.ts`). Returns de-duplicated citations in first-seen order.
+ */
+function extractSymbolCitations(line: string): SymbolCitation[] {
+  const seen = new Set<string>();
+  const out: SymbolCitation[] = [];
+  const re = /`([A-Za-z0-9_./-]+\.tsx?)::([A-Za-z_$][A-Za-z0-9_$]*)`/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(line)) !== null) {
+    const token = m[0];
+    if (seen.has(token)) continue;
+    seen.add(token);
+    out.push({ filePath: m[1], symbol: m[2], token });
+  }
+  return out;
+}
+
+/**
+ * Read a cited file (rooted path or unique bare basename under `src/`) and
+ * return its text, or `null` when the path does not resolve to exactly one
+ * file. Mirrors Check A's resolution rules so a `file::symbol` whose file is
+ * missing is reported as a symbol-citation failure (single, actionable code).
+ */
+async function readCitedFile(
+  filePath: string,
+  rootDir: string,
+  srcFiles: string[],
+): Promise<string | null> {
+  let abs: string | null = null;
+  if (filePath.includes("/")) {
+    abs = join(rootDir, filePath);
+    if (!(await pathExists(abs))) return null;
+  } else {
+    const isTest = filePath.endsWith(".test.ts");
+    const matches = srcFiles.filter((f) => {
+      const base = f.slice(f.lastIndexOf("/") + 1);
+      if (base !== filePath) return false;
+      const inTests = f.includes("/__tests__/");
+      return isTest ? inTests : !inTests;
+    });
+    if (matches.length !== 1) return null;
+    abs = join(rootDir, matches[0]);
+  }
+  try {
+    return await readFile(abs, "utf-8");
+  } catch { // eslint-disable-line silent-failure/no-silent-catch
+    // A file that indexed but failed to read is treated as unresolvable; the
+    // null return surfaces as TRUST-CITE-SYMBOL-MISSING, the intended signal.
+    return null;
+  }
+}
+
+/**
+ * Whether `symbol` is defined in `fileText` as a top-level declaration
+ * (`function`/`const`/`let`/`var`/`class`/`interface`/`type`/`enum`, optionally
+ * `export`/`export default`/`async`) OR as an object-literal property key
+ * (`symbol:` or `symbol(` method shorthand). The property-key form covers
+ * exported maps and `ADAPTER_CAPABILITIES`-style records whose members the docs
+ * cite as `file::member`.
+ */
+function definesSymbol(fileText: string, symbol: string): boolean {
+  const esc = symbol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const declRe = new RegExp(
+    `^\\s*(?:export\\s+)?(?:default\\s+)?(?:async\\s+)?` +
+      `(?:function\\*?|const|let|var|class|interface|type|enum)\\s+${esc}\\b`,
+    "m",
+  );
+  if (declRe.test(fileText)) return true;
+  // Object-literal property key or method shorthand: `  symbol: ...` /
+  // `  symbol(...)` / `  "symbol": ...`. Anchored to a line start + indentation
+  // so it does not match the symbol appearing mid-expression as a call.
+  const propRe = new RegExp(`^\\s*["'\`]?${esc}["'\`]?\\s*[:(]`, "m");
+  return propRe.test(fileText);
+}
+
 /**
  * Resolve a path token against the source tree.
  * @returns true when the cited file exists.
@@ -191,11 +314,9 @@ function resolveValidateId(
 }
 
 export async function runValidator(rootDir: string): Promise<CitationFinding[]> {
-  const docPath = join(rootDir, DOC_REL);
   const compliancePath = join(rootDir, COMPLIANCE_REL);
   const findings: CitationFinding[] = [];
 
-  const doc = await readFile(docPath, "utf-8");
   const compliance = await readFile(compliancePath, "utf-8");
   const srcFiles = await listFiles(join(rootDir, "src"), rootDir);
 
@@ -208,34 +329,80 @@ export async function runValidator(rootDir: string): Promise<CitationFinding[]> 
     controlRefs.add(m[1]);
   }
 
-  const lines = doc.split("\n");
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const lineNo = i + 1;
+  // Cache cited-file contents across docs — multiple `file::symbol` citations
+  // commonly point at the same module (e.g. customization.ts).
+  const fileCache = new Map<string, string | null>();
+  const resolveFileText = async (filePath: string): Promise<string | null> => {
+    if (fileCache.has(filePath)) return fileCache.get(filePath) ?? null;
+    const text = await readCitedFile(filePath, rootDir, srcFiles);
+    fileCache.set(filePath, text);
+    return text;
+  };
 
-    for (const token of extractPathTokens(line)) {
-      const ok = await resolvePathToken(token, rootDir, srcFiles);
-      if (!ok) {
-        findings.push({
-          level: "error",
-          code: "TRUST-CITE-PATH-MISSING",
-          line: lineNo,
-          token,
-          message: `cited source path \`${token}\` does not resolve on disk`,
-        });
+  for (const docRel of DOC_RELS) {
+    const doc = await readFile(join(rootDir, docRel), "utf-8");
+    const lines = doc.split("\n");
+    for (let i = 0; i < lines.length; i++) {
+      const line = lines[i];
+      const lineNo = i + 1;
+
+      // Check A — cited source paths (both docs).
+      for (const token of extractPathTokens(line)) {
+        const ok = await resolvePathToken(token, rootDir, srcFiles);
+        if (!ok) {
+          findings.push({
+            level: "error",
+            code: "TRUST-CITE-PATH-MISSING",
+            doc: docRel,
+            line: lineNo,
+            token,
+            message: `cited source path \`${token}\` does not resolve on disk`,
+          });
+        }
       }
-    }
 
-    for (const id of extractValidateIds(line)) {
-      const ok = resolveValidateId(id, checkIds, controlRefs);
-      if (!ok) {
-        findings.push({
-          level: "error",
-          code: "TRUST-CITE-VALIDATE-ID-MISSING",
-          line: lineNo,
-          token: id,
-          message: `cited validate check-ID \`${id}\` is not registered in ${COMPLIANCE_REL}`,
-        });
+      // Check B — validate check-IDs (crosswalk doc only; pack-trust-model.md
+      // carries no `` `validate` <id> `` citations).
+      if (docRel === CROSSWALK_DOC_REL) {
+        for (const id of extractValidateIds(line)) {
+          const ok = resolveValidateId(id, checkIds, controlRefs);
+          if (!ok) {
+            findings.push({
+              level: "error",
+              code: "TRUST-CITE-VALIDATE-ID-MISSING",
+              doc: docRel,
+              line: lineNo,
+              token: id,
+              message: `cited validate check-ID \`${id}\` is not registered in ${COMPLIANCE_REL}`,
+            });
+          }
+        }
+      }
+
+      // Check C — file::symbol citations (both docs).
+      for (const cite of extractSymbolCitations(line)) {
+        const fileText = await resolveFileText(cite.filePath);
+        if (fileText === null) {
+          findings.push({
+            level: "error",
+            code: "TRUST-CITE-SYMBOL-MISSING",
+            doc: docRel,
+            line: lineNo,
+            token: cite.token,
+            message: `cited \`${cite.token}\` — file \`${cite.filePath}\` does not resolve on disk`,
+          });
+          continue;
+        }
+        if (!definesSymbol(fileText, cite.symbol)) {
+          findings.push({
+            level: "error",
+            code: "TRUST-CITE-SYMBOL-MISSING",
+            doc: docRel,
+            line: lineNo,
+            token: cite.token,
+            message: `cited \`${cite.token}\` — symbol \`${cite.symbol}\` is not defined in \`${cite.filePath}\``,
+          });
+        }
       }
     }
   }
@@ -244,7 +411,7 @@ export async function runValidator(rootDir: string): Promise<CitationFinding[]> 
 }
 
 export function formatFinding(f: CitationFinding): string {
-  return `${DOC_REL}:${f.line} [${f.code}] ${f.message}`;
+  return `${f.doc}:${f.line} [${f.code}] ${f.message}`;
 }
 
 async function main(): Promise<void> {
@@ -256,12 +423,12 @@ async function main(): Promise<void> {
     process.stdout.write(JSON.stringify({ findings }, null, 2) + "\n");
   } else if (findings.length === 0) {
     process.stdout.write(
-      `trust-crosswalk-citations: OK — every cited path and validate-ID in ${DOC_REL} resolves\n`,
+      `trust-crosswalk-citations: OK — every cited path, validate-ID, and file::symbol in ${DOC_RELS.join(" + ")} resolves\n`,
     );
   } else {
     for (const f of findings) process.stderr.write(formatFinding(f) + "\n");
     process.stderr.write(
-      `\ntrust-crosswalk-citations: ${findings.length} broken citation(s) in ${DOC_REL}\n`,
+      `\ntrust-crosswalk-citations: ${findings.length} broken citation(s) across ${DOC_RELS.length} doc(s)\n`,
     );
   }
 

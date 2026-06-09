@@ -1201,6 +1201,314 @@ describe("hatchJson", () => {
       expect(result).not.toBeNull();
       expect(result!.worktree?.extraPatterns).toEqual([".custom-dir/"]);
     });
+
+    // D3-15 (Cycle 11 Wave 3, D1, Medium): the `board.defaultBranch` guard at
+    // hatchJson.ts (isValidGitBranchName) was only exercised through the unit
+    // `isValidGitBranchName` tests; the board negative manifest test only fed
+    // `board.owner:123`, so the guard's integration through readManifest was
+    // unexercised and a validator refactor could drop it silently. These pin
+    // the readManifest -> HatchError(CONFIG_ERROR) path for an invalid branch.
+    it("rejects an invalid board.defaultBranch (`foo..bar`) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        board: { owner: "a", repo: "b", defaultBranch: "foo..bar" },
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on invalid board.defaultBranch");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/board\.defaultBranch/);
+      }
+    });
+
+    it.each(["@", "x.lock", "/x", "x/"])(
+      "rejects board.defaultBranch %j as an invalid git branch name with CONFIG_ERROR",
+      async (badBranch) => {
+        const rootDir = await setup();
+        await writeManifestJson(rootDir, {
+          version: "3.0.0",
+          hatch3rVersion: "2.0.0",
+          owner: "acme",
+          repo: "app",
+          namespace: "acme",
+          project: "app",
+          tools: ["cursor"],
+          features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+          mcp: { servers: [] },
+          managedFiles: [],
+          board: { owner: "a", repo: "b", defaultBranch: badBranch },
+        });
+        try {
+          await readManifest(rootDir);
+          throw new Error(`expected readManifest to throw on board.defaultBranch=${badBranch}`);
+        } catch (e) {
+          expect(e).toBeInstanceOf(HatchError);
+          expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+          expect((e as Error).message).toMatch(/board\.defaultBranch/);
+        }
+      },
+    );
+
+    it("accepts a valid board.defaultBranch through readManifest", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        board: { owner: "a", repo: "b", defaultBranch: "feature/x" },
+      });
+      const result = await readManifest(rootDir);
+      expect(result?.board?.defaultBranch).toBe("feature/x");
+    });
+
+    // D1-23 (Cycle 11 Wave 3, D1, Medium): collectManifestErrors previously
+    // skipped 8 optional fields (models/cliTools/claude/repos/packages/hooks/
+    // languages/versionConstraint), so a hand-edited `models.agents.<id>=42`
+    // reached resolveAgentModel and stamped a non-string model into adapter
+    // output. These pin the persistence-boundary rejection per field.
+    it("rejects a non-string models.agents.<id> (42) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        models: { agents: { "hatch3r-researcher": 42 } },
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on non-string models.agents entry");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/models\.agents\.hatch3r-researcher/);
+      }
+    });
+
+    it("rejects a non-string models.default with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        models: { default: 7 },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/models\.default/);
+    });
+
+    it("rejects an unknown claude.teammateMode with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        claude: { teammateMode: "bogus-mode" },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/claude\.teammateMode/);
+    });
+
+    it("rejects non-string claude.permissions.allow entries with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        claude: { permissions: { allow: ["Read", 1] } },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/claude\.permissions\.allow/);
+    });
+
+    it("rejects a non-boolean hooks.enabled with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        hooks: { enabled: "yes" },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/hooks\.enabled/);
+    });
+
+    it("rejects a non-string languages entry with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        languages: ["typescript", 99],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/languages/);
+    });
+
+    it("rejects a malformed repos entry (missing repo) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        repos: [{ owner: "acme" }],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/repos\[0\]\.repo/);
+    });
+
+    it("rejects a malformed packages entry (non-string path) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        packages: [{ name: "web", path: 3 }],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/packages\[0\]\.path/);
+    });
+
+    it("rejects a non-string versionConstraint with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        versionConstraint: 2,
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/versionConstraint/);
+    });
+
+    it("rejects a non-object cliTools with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        cliTools: { enabled: true, selected: ["ripgrep", 5] },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/cliTools\.selected/);
+    });
+
+    it("round-trips all 8 newly-validated optional fields through write + read (D1-23)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor", "claude"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        versionConstraint: "^2.0.0",
+        languages: ["typescript", "python"],
+        repos: [{ owner: "acme", repo: "app", name: "app" }],
+        packages: [{ name: "web", path: "packages/web" }],
+        hooks: { enabled: true },
+        models: { default: "opus", agents: { "hatch3r-researcher": "sonnet" } },
+        claude: {
+          permissions: { allow: ["Read", "Edit"], deny: ["Bash"] },
+          teammateMode: "in-process",
+          agentTeams: "ga",
+        },
+        cliTools: { enabled: true, selected: ["ripgrep", "jq"], overrides: { jq: { disabled: true, note: "duplicate" } } },
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.models?.agents?.["hatch3r-researcher"]).toBe("sonnet");
+      expect(result!.claude?.teammateMode).toBe("in-process");
+      expect(result!.cliTools?.selected).toEqual(["ripgrep", "jq"]);
+      expect(result!.repos).toEqual([{ owner: "acme", repo: "app", name: "app" }]);
+      expect(result!.packages).toEqual([{ name: "web", path: "packages/web" }]);
+      expect(result!.hooks?.enabled).toBe(true);
+      expect(result!.languages).toEqual(["typescript", "python"]);
+      expect(result!.versionConstraint).toBe("^2.0.0");
+    });
   });
 
   // F3.3-C1 (Cycle 10 Wave 1 Critical): validateManifest previously accepted

@@ -64,6 +64,10 @@ import {
  * still auto-repair.
  *
  * Returns `null` when no complete, ordered, line-anchored variant matches.
+ * The start-before-end half of "ordered" is now also asserted explicitly at the
+ * return site (D1-34, `startIdx < endIdx`), not left implicit in the END-search
+ * offset, so a reversed `(startIdx, endIdx)` pair can never reach the read-side
+ * extractors and trigger a {@link String.prototype.substring} bound-swap.
  */
 function detectMarkers(
   content: string,
@@ -89,6 +93,22 @@ function detectMarkers(
     // mistaken for the block boundary.
     const endIdx = lineAnchoredIndexOf(content, variant.end, startIdx + variant.start.length);
     if (endIdx === -1) continue;
+    // D1-34 (Cycle 11 Wave 3, D1, P6+CQ8) — explicit start-before-end guard at
+    // the return site. The `fromIdx = startIdx + variant.start.length` argument
+    // above already makes a returned `endIdx` strictly greater than `startIdx`
+    // (lineAnchoredIndexOf's `tokenIdx >= fromIdx` clause), so today this branch
+    // is unreachable. It is kept as a structural invariant so the read-side
+    // extractors can never receive a reversed pair regardless of how the
+    // index-search internals evolve: a future refactor of lineAnchoredIndexOf's
+    // fromIdx handling, or a marker variant whose `end` token overlaps `start`,
+    // could otherwise yield `startIdx >= endIdx`. Both extractManagedBlock and
+    // extractCustomContent feed (startIdx, endIdx) to String.prototype.substring,
+    // which SWAPS its bounds when the first exceeds the second — silently
+    // emitting polluted/duplicated content (a sibling of D1-7's cross-variant
+    // misdetection, distinct reversed-order root cause). Failing closed to null
+    // routes such content down the "no managed block" branch, which
+    // safeWriteFile skips non-destructively.
+    if (startIdx >= endIdx) continue;
     return { variant, startIdx, endIdx };
   }
   return null;
@@ -204,11 +224,12 @@ export function insertManagedBlock(
   // D1-7 / D11-6 (Cycle 11 Wave 2): the start-before-end ordering check that
   // previously lived here is now an upstream invariant — detectMarkers only
   // returns a pair when the END line is found AFTER the START line
-  // (lineAnchoredIndexOf(end, startIdx + start.length)), so endIdx > startIdx
-  // always holds here. A reversed `END … BEGIN` file no longer detects as a
-  // block at all; it falls into the "must contain managed block markers" path
-  // above, and safeWriteFile then SKIPS it non-destructively rather than
-  // .bak-overwriting it.
+  // (lineAnchoredIndexOf(end, startIdx + start.length)) AND, since D1-34
+  // (Cycle 11 Wave 3), the explicit `startIdx < endIdx` guard at its return
+  // site, so endIdx > startIdx always holds here. A reversed `END … BEGIN` file
+  // no longer detects as a block at all; it falls into the "must contain managed
+  // block markers" path above, and safeWriteFile then SKIPS it non-destructively
+  // rather than .bak-overwriting it.
 
   // G1: Trim at insert time so the round-trip with extractManagedBlock
   // (which also trims) is symmetric. Without this, asymmetric whitespace

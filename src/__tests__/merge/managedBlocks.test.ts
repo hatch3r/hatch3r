@@ -531,4 +531,53 @@ describe("managedBlocks", () => {
       expect(extractCustomContent(content)).toBe(content);
     });
   });
+
+  // D1-34 (Cycle 11 Wave 3, D1, P6+CQ8): start-before-end is asserted explicitly
+  // at the detectMarkers return site (`startIdx < endIdx`), so a reversed or
+  // overlapping marker layout can never reach the read-side extractors, where a
+  // swapped (startIdx > endIdx) pair would make String.prototype.substring SWAP
+  // its bounds and emit polluted/duplicated content. These cases drive the
+  // public read-side helpers and assert the no-block disposition + that the
+  // extractors never produce swapped output.
+  describe("reversed / overlapping markers fail closed (D1-34)", () => {
+    const YAML_START = "# HATCH3R:BEGIN";
+    const YAML_END = "# HATCH3R:END";
+
+    it("reads a reversed END…BEGIN layout as no block (HTML variant)", () => {
+      const reversed = `${END}\nbody\n${START}`;
+      expect(hasManagedBlock(reversed)).toBe(false);
+      expect(extractManagedBlock(reversed)).toBeNull();
+      // No managed block → extractCustomContent returns the whole content
+      // untouched; it never returns a substring(startIdx, endIdx) bound-swap.
+      expect(extractCustomContent(reversed)).toBe(reversed);
+    });
+
+    it("reads a reversed END…BEGIN layout as no block (YAML variant)", () => {
+      const reversed = `${YAML_END}\nk: v\n${YAML_START}`;
+      expect(hasManagedBlock(reversed, "x.yml")).toBe(false);
+      expect(extractManagedBlock(reversed, "x.yml")).toBeNull();
+      expect(extractCustomContent(reversed, "x.yml")).toBe(reversed);
+    });
+
+    it("reads END…BEGIN…END…BEGIN as the inner ordered pair, never a swapped slice", () => {
+      // Two BEGINs and two ENDs; detection must lock onto the first ordered
+      // START→END pair (idx of the first real BEGIN, then the END that follows
+      // it). The extracted block is exactly that inner content, with no
+      // bound-swap garbage from the leading END or trailing BEGIN.
+      const content = `${END}\nA\n${START}\nINNER\n${END}\nB\n${START}`;
+      const block = extractManagedBlock(content);
+      expect(block).toBe("INNER");
+      expect(block).not.toContain("\n"); // a swapped substring would fold in A/B
+    });
+
+    it("reads both markers collapsed onto one line as no block", () => {
+      // Line-anchoring already rejects this (each marker must be alone on its
+      // trimmed line); the D1-34 guard is the second line of defense if a future
+      // index search ever returned the same index for both.
+      const oneLine = `${START} ${END}`;
+      expect(hasManagedBlock(oneLine)).toBe(false);
+      expect(extractManagedBlock(oneLine)).toBeNull();
+      expect(extractCustomContent(oneLine)).toBe(oneLine);
+    });
+  });
 });

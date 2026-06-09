@@ -8,7 +8,7 @@ import {
   PLATFORM_TOOL_MARKER,
   substituteCanonicalPlatformMarker,
 } from "../pipeline/adapterToolTranslator.js";
-import { HatchError } from "../types.js";
+import { ARCHIVE_DIR, HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
 import {
   getPreset,
@@ -1510,13 +1510,19 @@ export async function addContentItem(
 }
 
 /**
- * Remove a single content item from .agents/ and optionally clean up customization files.
+ * Remove a single content item from .agents/. When `rootDir` is provided, the
+ * item's hand-authored `.customize.yaml` / `.customize.md` overrides are NOT
+ * hard-deleted — they are moved into `<rootDir>/.hatch3r/archive/customize/<dir>/`
+ * so the user-authored bytes survive a preset downgrade and can be restored by
+ * moving them back. The returned `archivedCustomizeFiles` lists each rescued
+ * file as a `.hatch3r/archive/customize/...` repo-relative path so the caller
+ * can surface it in the removal summary (D10-35, Cycle 11 Wave 3, D10, P1).
  */
 export async function removeContentItem(
   agentsDir: string,
   item: CatalogItem,
   options?: { rootDir?: string },
-): Promise<void> {
+): Promise<{ archivedCustomizeFiles: string[] }> {
   assertSafePath(item.relativePath, "removeContentItem");
   if (item.companionPath) {
     assertSafePath(item.companionPath, "removeContentItem companion");
@@ -1534,7 +1540,9 @@ export async function removeContentItem(
     }
   }
 
-  // Clean up customize files if rootDir provided
+  const archivedCustomizeFiles: string[] = [];
+
+  // Archive (not delete) customize files when rootDir provided.
   if (options?.rootDir) {
     const typeToDir: Record<string, string> = {
       agent: "agents",
@@ -1545,12 +1553,50 @@ export async function removeContentItem(
     const customDir = typeToDir[item.type];
     if (customDir) {
       const cleanId = item.id.replace(/^cmd-/, "").replace(/^hatch3r-/, "");
-      const yamlPath = join(options.rootDir, ".hatch3r", customDir, `${cleanId}.customize.yaml`);
-      const mdPath = join(options.rootDir, ".hatch3r", customDir, `${cleanId}.customize.md`);
-      await rm(yamlPath, { force: true });
-      await rm(mdPath, { force: true });
+      const archiveDir = join(options.rootDir, ARCHIVE_DIR, "customize", customDir);
+      for (const fileName of [`${cleanId}.customize.yaml`, `${cleanId}.customize.md`]) {
+        const srcPath = join(options.rootDir, ".hatch3r", customDir, fileName);
+        // D10-35: a hard `rm` here silently destroyed user-authored overrides on
+        // every preset downgrade (the removal preview only covered archived tool
+        // output, never these files). Move each existing override into the
+        // customize archive instead, then remove the original. Probe existence
+        // first so a missing override never creates an empty archive directory.
+        let exists = false;
+        try {
+          await stat(srcPath);
+          exists = true;
+        } catch (err) {
+          // ENOENT: no override to rescue — leave `exists` false and skip the
+          // move. Any other stat error (e.g. permission) also degrades to "skip
+          // the archive"; the original `rm` below still runs so the on-disk
+          // selection stays consistent.
+          const code = (err as NodeJS.ErrnoException)?.code;
+          if (code !== "ENOENT") {
+            const message = err instanceof Error ? err.message : String(err);
+            verbose(`removeContentItem: stat ${srcPath} skipped — ${message}`);
+          }
+        }
+        if (exists) {
+          try {
+            // `cp` overwrites a same-named prior archive copy — acceptable since
+            // the archive is an inspection/restore convenience, not a versioned
+            // store.
+            await mkdir(archiveDir, { recursive: true });
+            await cp(srcPath, join(archiveDir, fileName));
+            archivedCustomizeFiles.push(posix.join(ARCHIVE_DIR, "customize", customDir, fileName));
+          } catch (err) {
+            // Archive write failed (permission, disk) — downgrade to a verbose
+            // line and still remove the original so the selection is consistent.
+            const message = err instanceof Error ? err.message : String(err);
+            verbose(`removeContentItem: archive ${srcPath} skipped — ${message}`);
+          }
+        }
+        await rm(srcPath, { force: true });
+      }
     }
   }
+
+  return { archivedCustomizeFiles };
 }
 
 /**

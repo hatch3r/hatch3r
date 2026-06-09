@@ -501,6 +501,116 @@ describe("explainCommand", () => {
     });
   });
 
+  // D12-11 (Cycle 11 Wave 3, D12, P1): `explain --source --format json` emits a
+  // single machine-readable document (via emitJson → process.stdout.write), not
+  // boxen chrome — matching the JSON surface `provenance`/`verify` already ship.
+  // JSON is source-only; the stored sourceFiles are already repo-root-relative
+  // (D12-3 / H3), so the JSON form surfaces those relative paths verbatim.
+  describe("--source --format json (D12-11)", () => {
+    let stdoutSpy: MockInstance;
+
+    beforeEach(() => {
+      // emitJson writes via process.stdout.write, not console.log — spy that.
+      stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    });
+    afterEach(() => {
+      stdoutSpy.mockRestore();
+    });
+
+    function jsonPayload(): unknown {
+      // The first stdout.write is the emitted JSON document (one-shot).
+      const raw = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+      return JSON.parse(raw.trim());
+    }
+
+    async function writeJsonFixture(): Promise<void> {
+      const dir = join(tempDir, ".hatch3r");
+      await mkdir(dir, { recursive: true });
+      const manifest = {
+        schemaVersion: 1,
+        hatch3rVersion: "2.0.0",
+        generatedAt: "2026-06-07T00:00:00.000Z",
+        lastCommand: "sync",
+        lastRunId: "hr-d1211-test",
+        outputs: [
+          { path: "CLAUDE.md", adapter: "claude", sourceFiles: ["agents/hatch3r-architect.md", "rules/hatch3r-security-patterns.md"] },
+          { path: ".cursor/rules/10-secrets.mdc", adapter: "cursor", sourceFiles: ["rules/hatch3r-secrets-management.md"] },
+        ],
+      };
+      await writeFile(join(dir, "provenance.json"), JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+    }
+
+    it("single-path form emits {output, adapter, sourceFiles, hatch3rVersion, generatedAt} with relative paths", async () => {
+      await writeJsonFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "CLAUDE.md", format: "json" });
+
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.status).toBe("present");
+      expect(payload.output).toBe("CLAUDE.md");
+      expect(payload.adapter).toBe("claude");
+      expect(payload.sourceFiles).toEqual([
+        "agents/hatch3r-architect.md",
+        "rules/hatch3r-security-patterns.md",
+      ]);
+      // H3: sourceFiles are repo-root-relative, not absolute home paths.
+      for (const src of payload.sourceFiles as string[]) {
+        expect(src.startsWith("/")).toBe(false);
+      }
+      expect(payload.hatch3rVersion).toBe("2.0.0");
+      expect(payload.generatedAt).toBe("2026-06-07T00:00:00.000Z");
+    });
+
+    it("`--source all --format json` emits an uncapped outputs[] envelope", async () => {
+      await writeJsonFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "all", format: "json" });
+
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.status).toBe("present");
+      const outputs = payload.outputs as Array<Record<string, unknown>>;
+      expect(outputs).toHaveLength(2);
+      // Full (uncapped) source lists in JSON, regardless of the human --verbose cap.
+      const claudeRow = outputs.find((o) => o.output === "CLAUDE.md")!;
+      expect(claudeRow.sourceFiles).toEqual([
+        "agents/hatch3r-architect.md",
+        "rules/hatch3r-security-patterns.md",
+      ]);
+      expect(payload.hatch3rVersion).toBe("2.0.0");
+    });
+
+    it("an unrecorded path emits status:not-found JSON and still throws exit-config", async () => {
+      await writeJsonFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await expect(
+        explainCommand({ source: "does/not/exist.md", format: "json" }),
+      ).rejects.toThrow(HatchError);
+
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.status).toBe("not-found");
+      expect(payload.output).toBe("does/not/exist.md");
+    });
+
+    it("a missing manifest emits status:absent JSON (no boxen chrome) and throws", async () => {
+      // No provenance.json written.
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await expect(
+        explainCommand({ source: "all", format: "json" }),
+      ).rejects.toThrow(HatchError);
+
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.status).toBe("absent");
+      expect(payload.hatch3rVersion).toBeTruthy();
+    });
+
+    it("rejects --format json paired with a non-source mode (usage error, exit 2)", async () => {
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      const err = await explainCommand({ customizations: true, format: "json" }).catch((e) => e);
+      expect(err).toBeInstanceOf(HatchError);
+      expect((err as HatchError).exitCode).toBe(2);
+    });
+  });
+
   // D6-23 (Cycle 11 Wave 3): `--cost` input basis is per-actor, not
   // body×subAgents. The orchestrator reads its body once; each spawned
   // sub-agent loads its own agent def + a task-context allowance. The pre-fix
