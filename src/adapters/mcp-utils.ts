@@ -101,6 +101,29 @@ export const MAX_MCP_TIMEOUT_MS = 300_000;
  * stable string lets hatch3r-generated `.mcp.json` declare an explicit,
  * forward-pinnable protocol version instead of leaving the field absent and
  * inheriting whatever the client/server negotiate by default.
+ *
+ * D15-27 (Cycle 11 Wave 3, D15, P3/P6, SA15.5-F6): the forward-pin is
+ * **Claude-only by schema constraint**, not by omission. Only the Claude Code
+ * `.mcp.json` top-level object documents a sibling field next to `mcpServers`
+ * (claude.ts emits `{ protocolVersion, mcpServers }`); the field is tolerated as
+ * a forward/advisory marker there. The other two adapters cannot carry it
+ * because their top-level schemas are closed to it:
+ *   - Cursor `.cursor/mcp.json`: top-level is `mcpServers` only; per-server keys
+ *     are `type|command|args|env|url|headers` (+ OAuth), and variable
+ *     interpolation resolves only in `command|args|env|url|headers`
+ *     (cursor.com/docs/mcp, accessed 2026-06-09). A top-level `protocolVersion`
+ *     is an unknown key.
+ *   - VS Code `.vscode/mcp.json` (Copilot): top-level fields are exactly
+ *     `servers`, `inputs`, `sandbox`
+ *     (code.visualstudio.com/docs/agents/reference/mcp-configuration, accessed
+ *     2026-06-09). An unknown top-level key is rejected by the schema-aware
+ *     tooling the copilot adapter already targets (D9-C-2: mcp-inspector / VS
+ *     Code strict mode / awesome-copilot lint).
+ * Emitting the pin on Cursor/Copilot would ship a schema-invalid file, so the
+ * cursor.ts / copilot.ts MCP emission sites carry a back-reference to this
+ * rationale instead. The protocol version travels with each generated server
+ * entry's negotiated handshake regardless; the explicit top-level pin is a
+ * Claude-surface convenience, not a cross-adapter contract.
  */
 export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-11-25";
 

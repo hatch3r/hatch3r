@@ -69,5 +69,5 @@ Required for new agents, skills, and rules. Skip only for trivial edits (typo, f
     - Are instructions unambiguous and sequenced logically?
     - Is expected output format explicitly defined?
     - Are scope boundaries clear?
-    - Is the artifact optimally sized (<150 lines)?
+    - Is the artifact sized to the limit for its type? There is no universal `<150` cap. Pipeline agents (research/implement/review/final) target ≲150 lines per D05 §5.1; every other class follows its CONSTITUTION §2 P5 file-class limit (e.g., `rules/*.md` critical/high ≤250, normal/low ≤120). Orchestrators, board, and spec artifacts legitimately run longer — measure against the class limit, not 150.
 12. **Anti-slop scan:** Verify zero banned phrases per wordlist in CLAUDE.md

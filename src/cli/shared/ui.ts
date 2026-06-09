@@ -319,15 +319,36 @@ export function verbose(msg: string): void {
 }
 
 /**
+ * D10-23 (Cycle 11 Wave 3, D10, P1 — WCAG 1.4.3 AA): emphasize the
+ * action-critical command token (the backtick-delimited `` `cmd` `` segment) of
+ * a next-step line at normal weight in bold cyan, rather than rendering the
+ * whole line in `chalk.dim` (SGR 2). SGR 2 drops effective contrast below the
+ * 4.5:1 AA floor on light/low-contrast terminal themes, so the most important
+ * part of the guidance — the command the user must type — was the least legible.
+ * The prose around the token stays at the terminal's default foreground weight
+ * (no SGR 2); only the leading bullet decoration is dimmed as tertiary chrome.
+ * Backticks are consumed (display markers, not literal output).
+ */
+function emphasizeNextStep(step: string): string {
+  // Split on `` `...` `` spans; odd indices are the command tokens.
+  return step
+    .split(/`([^`]+)`/)
+    .map((seg, i) => (i % 2 === 1 ? CYAN.bold(seg) : seg))
+    .join("");
+}
+
+/**
  * D19 Medium (#415-#431): Display a success message with next-steps guidance.
- * Used after init/update to reduce first-run friction.
+ * Used after init/update to reduce first-run friction. Each step renders at the
+ * terminal's default foreground weight with its command token bolded (see
+ * {@link emphasizeNextStep} for the D10-23 WCAG 1.4.3 rationale).
  */
 export function printNextSteps(steps: string[]): void {
   if (quietEnabled) return;
   if (steps.length === 0) return;
   console.log(chalk.dim("\n  Next steps:"));
   for (const s of steps) {
-    console.log(chalk.dim(`    ${s}`));
+    console.log(`    ${chalk.dim("·")} ${emphasizeNextStep(s)}`);
   }
   console.log();
 }

@@ -115,10 +115,12 @@
     "vitest": "^4.1.2"
   },
   "overrides": {
-    "flatted": "^3.4.2"
+    "flatted": "^3.4.2",
+    "brace-expansion": "^5.0.6"
   },
   "comments": {
     "overrides/flatted": "Pinned to >=3.4.2 to resolve security advisory in transitive eslint > flat-cache > flatted dependency",
+    "overrides/brace-expansion": "Pinned to >=5.0.6 to resolve GHSA-jxxr-4gwj-5jf2 (CWE-400, CVSS 6.5, patched 5.0.6) in transitive dev dependency minimatch@10.2.4 > brace-expansion (was 5.0.5). Surgical override preferred over `npm audit fix`, which pulls 78 new platform-binary packages.",
     "dependencies/p-limit": "Cycle 10 L D4-SA4.2-F4.2.5 (D4): p-limit held at 3.1.0 is 4 majors behind 7.3.0 (no CVE — pure P3 currency hygiene). The bump is API-compatible: the only behavioral delta across majors 4-7 is the CommonJS drop, non-applicable here (hatch3r is pure ESM, engines node >=22), and all three call sites use the stable default-export `pLimit(concurrency)` signature — src/workspace/sync.ts, src/workspace/manifest.ts, src/pipeline/complianceVerification.ts. BLOCKED for a no-network audit SA, not deferrable by hand: bumping the spec alone desyncs package-lock.json (currently pins p-limit 3.1.0 + yocto-queue ^0.1.0 at lines ~4705-4727, AND a second transitive `p-limit ^3.0.2` requirer), and `release.yml` 'Verify lockfile sync' (git diff --exit-code package-lock.json) plus every `npm ci` integrity check fail closed on a spec-only or hand-edited lockfile. p-limit 7.x drops yocto-queue for a different internal queue, so the new resolved tree + SHA-512 integrity hashes can only come from the npm resolver. Follow-up (one commit): run `npm install` to land package.json (^7.3.0) + the regenerated lockfile together, then `npm test` to confirm the three pLimit call sites still pass."
   }
 }

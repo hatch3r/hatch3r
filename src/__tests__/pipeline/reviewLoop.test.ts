@@ -356,6 +356,17 @@ describe("reviewLoop", () => {
         regex: /max\s+(\d+)\s+iterations,\s+matching\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
         occurrences: 1,
       },
+      {
+        // Finding D5-20: the implementer agent's Review Loop Awareness section
+        // states the orchestrator's default-class Phase-3 cap but was absent
+        // from the registry, so its prior "max 3" drifted from the code
+        // constant (4) and the reviewer/fixer surfaces. Pin it as default-class.
+        path: "agents/hatch3r-implementer.md",
+        label: "implementer agent Review Loop Awareness (default-class cap)",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
       // ── spec class (== DEFAULT_MAX_REVIEW_ITERATIONS) ─────────────────
       {
         path: "commands/hatch3r-board-fill.md",
@@ -491,13 +502,14 @@ describe("reviewLoop", () => {
       // when a new cap-stating surface is authored.
       const repoRoot = process.cwd();
       // Self-check: the registry must enumerate every file that states a cap.
-      // 15 distinct files carry cap statements (rule, rule.mdc, reviewer,
-      // fixer, bug-pipeline, board-fill, quick-change, revision, board-pickup,
-      // workflow, detail.md, detail.mdc, release, debug, pickup-delegation,
-      // pickup-delegation-multi). detail.md/.mdc each state the code-class cap
-      // three times (Finding D7-2: reviewResult.iterations comment,
-      // failure-mode table, retry-policy); release/debug/delegation×2 add one
-      // code-class directive each (Finding D7-1) => 22 entries. Guard against a
+      // 16 distinct files carry cap statements (rule, rule.mdc, reviewer,
+      // fixer, implementer, bug-pipeline, board-fill, quick-change, revision,
+      // board-pickup, workflow, detail.md, detail.mdc, release, debug,
+      // pickup-delegation, pickup-delegation-multi). detail.md/.mdc each state
+      // the code-class cap three times (Finding D7-2: reviewResult.iterations
+      // comment, failure-mode table, retry-policy); release/debug/delegation×2
+      // add one code-class directive each (Finding D7-1); the implementer adds
+      // one default-class surface (Finding D5-20) => 23 entries. Guard against a
       // future edit that silently empties the registry.
       expect(
         CAP_SURFACE_REGISTRY.length,

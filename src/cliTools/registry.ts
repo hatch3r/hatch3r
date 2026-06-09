@@ -40,20 +40,6 @@ export type Tier2Trigger =
   | "azure-remote";
 
 /**
- * Release cadence classification for a CLI tool. Drives the staleness
- * heuristic in `src/cliTools/triggers.ts` (Cycle 9 D21-SA21.2): a long gap
- * since the last release is not automatically a stale-tool finding when the
- * cadence is `stable` (mature tool with a steady-state design) — e.g.
- * ripgrep 15.1.0 (208 days at 2026-05-26) is intentional, not abandoned.
- *
- * - `rapid`: monthly or faster release cadence (e.g. gh CLI).
- * - `monthly`: roughly monthly point releases.
- * - `quarterly`: ~quarterly minor releases.
- * - `stable`: mature steady-state — long gaps between releases are normal.
- */
-export type ReleaseCadence = "rapid" | "monthly" | "quarterly" | "stable";
-
-/**
  * Cycle-tagged CVE-scan record for a CLI tool — populated by the audit cycle
  * (Cycle 9 D15-SA15.7) when an advisory feed is consulted. Schema only at
  * Wave 2; population happens in the per-cycle `check-cli-cves.ts` workflow
@@ -139,13 +125,6 @@ export interface CliToolMeta {
    */
   minVersion?: string;
   /**
-   * Upstream release cadence classification — drives the staleness heuristic
-   * in `src/cliTools/triggers.ts` so a long gap on a stable-cadence tool is
-   * not flagged as abandoned. Omit to fall back to the default heuristic
-   * (treat any tool >180 days since last release as candidate-stale).
-   */
-  releaseCadence?: ReleaseCadence;
-  /**
    * Cycle-tagged CVE-scan record — populated by the per-cycle
    * `check-cli-cves.ts` workflow (Cycle 9 D15-SA15.7-F01). Schema only at
    * Wave 2; population happens in a follow-on cycle once the advisory-feed
@@ -194,11 +173,9 @@ export const AVAILABLE_CLI_TOOLS = {
     // Cycle 10 D21-M1: ripgrep 15.1.0 (released 2025-10-31) is 208 days old at
     // the 2026-05-26 audit. BurntSushi/ripgrep is mature steady-state — the
     // 14.x → 15.x cadence shows multi-month gaps as normal (14.0 Aug 2023,
-    // 14.1 Sep 2023, 14.1.1 Apr 2024, 15.0 Oct 2024, 15.1 Oct 2025). Tagged
-    // `stable` so src/cliTools/triggers.ts staleness heuristic suppresses
-    // amber-flag noise for the long gap; the tool is the canonical search
-    // primitive across hatch3r-cli-* skills and not at risk of abandonment.
-    releaseCadence: "stable",
+    // 14.1 Sep 2023, 14.1.1 Apr 2024, 15.0 Oct 2024, 15.1 Oct 2025), so the
+    // long gap reflects maturity, not abandonment; the tool is the canonical
+    // search primitive across hatch3r-cli-* skills.
     // CVE-2021-3013 (GHSA-g4xg-fxmg-vcg5) OS command injection — fixed in ripgrep 13.0.0
     minVersion: ">=13.0.0",
     homepage: "https://github.com/BurntSushi/ripgrep",
@@ -303,10 +280,8 @@ export const AVAILABLE_CLI_TOOLS = {
     // (2026-…). Floor raised to >=2.93.0 so installs clear the header leak.
     minVersion: ">=2.93.0",
     // Cycle 10 D21-SA21.5-F-21.5.2: gh ships at rapid cadence (~30-day mean,
-    // 7 releases across 2025-06 → 2026-04). Tagged `rapid` so a cadence-aware
-    // staleness heuristic treats a 45-day pause as an anomaly rather than
-    // waiting for the default 90/180-day window.
-    releaseCadence: "rapid",
+    // 7 releases across 2025-06 → 2026-04), so a multi-week pause is itself a
+    // currency signal worth re-checking each D21 cycle.
     securityNote:
       "CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh CLI 2.92.0 and earlier attach the Authorization header (github.com token, or GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN) to TUF repository-mirror requests made by `gh attestation`, `gh release verify`, and `gh release verify-asset` — leaking the token to hosts such as tuf-repo.github.com / tuf-repo-cdn.sigstore.dev. Fixed in 2.93.0; upgrade before running attestation or release-verify commands. (Separately, CVE-2026-45803 / GHSA-crc3-h8v6-qh57 is a LOW terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0.)",
     homepage: "https://cli.github.com/",
@@ -344,11 +319,9 @@ export const AVAILABLE_CLI_TOOLS = {
     // Cycle 10 D21-M3: bat 0.26.1 (released 2025-12-12) is 167 days old at the
     // 2026-05-26 audit. sharkdp/bat shares the same author + cadence pattern
     // as fd — mature steady-state tooling with multi-month gaps between
-    // minor releases (0.24 Mar 2024, 0.25 Mar 2025, 0.26 Dec 2025). Tag
-    // `stable` so the staleness heuristic stops auto-flagging the long gap
-    // as abandonment; bat is the canonical syntax-aware view tool in
-    // hatch3r-cli-toolbox and remains under active maintenance.
-    releaseCadence: "stable",
+    // minor releases (0.24 Mar 2024, 0.25 Mar 2025, 0.26 Dec 2025), so the
+    // long gap reflects maturity, not abandonment; bat is the canonical
+    // syntax-aware view tool in hatch3r-cli-toolbox and remains maintained.
     // CVE-2021-36753 (GHSA-p24j-h477-76q3) uncontrolled search path — fixed in bat 0.18.2
     minVersion: ">=0.18.2",
     homepage: "https://github.com/sharkdp/bat",
@@ -377,13 +350,10 @@ export const AVAILABLE_CLI_TOOLS = {
     // 2025-02-24 / "447 days old" — wrong by one year. The immutable v1.1.0
     // tag points at commit 4a7b2165, dated 2026-02-25, so at the 2026-05-18
     // audit 1.1.0 was ~82 days old, not 447. The true cadence shape is a
-    // ~27-month dormancy (1.0.0 → 1.1.0) ENDED by a recent release, which
-    // inverts the original "long quiet gap is normal" rationale: the project
-    // was dormant and has just resumed. `stable` is retained because the
-    // recent release is fresh (an active tool with a single long historical
-    // gap is not abandoned) — but the staleness heuristic should re-evaluate
-    // next cycle if 1.1.0 ages past the default window with no successor.
-    releaseCadence: "stable",
+    // ~27-month dormancy (1.0.0 → 1.1.0) ENDED by a recent release: the project
+    // was dormant and has just resumed, so the fresh release means it is not
+    // abandoned — but D21 should re-check next cycle if 1.1.0 ages past ~180
+    // days with no successor.
     // Cycle 11 D21-6 (SA21.2-F1): floored at >=1.1.0 now that all three OS
     // channels (brew, scoop, cargo binstall from the v1.1.0 GitHub release)
     // can satisfy it — the documented line-by-line default + `-A`/`--across`
@@ -406,10 +376,9 @@ export const AVAILABLE_CLI_TOOLS = {
     },
     // Cycle 10 D21-SA21.1-F-21.1.2: ast-grep ships at rapid cadence — five
     // tags in 71 days at audit (0.42.0 2026-03-16, 0.42.1 2026-04-04,
-    // 0.42.2 2026-05-10, 0.42.3 2026-05-19, 0.43.0 2026-05-25; ~14-day mean).
-    // Tagged `rapid` so a cadence-aware staleness heuristic can treat a short
-    // pause (e.g. 45 days) as a stronger anomaly than the default 180-day gate.
-    releaseCadence: "rapid",
+    // 0.42.2 2026-05-10, 0.42.3 2026-05-19, 0.43.0 2026-05-25; ~14-day mean),
+    // so a multi-week pause is itself a currency signal worth re-checking each
+    // D21 cycle rather than waiting for the default 180-day window.
     homepage: "https://ast-grep.github.io/",
     sourceRepo: "https://github.com/ast-grep/ast-grep",
     license: "MIT",
@@ -482,9 +451,8 @@ export const AVAILABLE_CLI_TOOLS = {
     // install current — not just at the floor — matters for the browser engine.
     minVersion: ">=1.55.1",
     // playwright ships ~monthly point releases pinned to a Chromium roll, so a
-    // long gap is itself a staleness signal (an un-rolled Chromium accrues
-    // browser-engine CVEs). Tagged `monthly` rather than `stable`.
-    releaseCadence: "monthly",
+    // long gap is itself a currency signal (an un-rolled Chromium accrues
+    // browser-engine CVEs) — keep the install current, not just at the floor.
     securityNote:
       "CVE-2025-59288 (CVSS 8.7): `npx playwright install` in versions before 1.55.1 fetched browser binaries without integrity verification, allowing an installer man-in-the-middle to substitute a malicious browser build. Upgrade to >=1.55.1. The bundled Chromium also carries CVE-2026-2441 (CSS use-after-free RCE); each monthly playwright release rolls a patched Chromium, so track a current release and pin the sandbox container image to a current `*-noble` tag (not an 18-month-stale tag) when navigating untrusted URLs.",
     homepage: "https://playwright.dev/",
@@ -506,15 +474,12 @@ export const AVAILABLE_CLI_TOOLS = {
     // Cycle 11 D21-15 (SA21.4-F3) — TRACKING (zero-commit watch): httpie/cli
     // last published 3.2.4 on 2024-11-01 (581 days at the 2026-06 audit) and
     // the GitHub commit API returned ZERO commits across 2025-01..2026-06 — the
-    // repo is dormant, not merely slow-cadence. `stable` is retained for now (a
-    // dormant-but-not-archived tool is not yet abandoned) but this is no longer
-    // a clean steady-state classification. RE-CHECK TRIGGER for the next D21
-    // cycle: if the commit API is still empty (>2 years dormant) OR the repo is
-    // archived, demote this entry from `stable` so the amber flag fires and a
-    // maintainer re-evaluates whether xh (the actively-maintained Rust HTTPie-
-    // compatible client, already registered) should become the primary
+    // repo is dormant, not merely slow-cadence. A dormant-but-not-archived tool
+    // is not yet abandoned, so it stays registered. RE-CHECK TRIGGER for the
+    // next D21 cycle: if the commit API is still empty (>2 years dormant) OR the
+    // repo is archived, re-evaluate whether xh (the actively-maintained Rust
+    // HTTPie-compatible client, already registered) should become the primary
     // web-project HTTP recommendation over httpie.
-    releaseCadence: "stable",
     // CVE-2023-48052 (GHSA-8r96-8889-qg2x) + CVE-2019-10751 (GHSA-xjjg-vmw6-c2p9) — both fixed by httpie 3.2.3
     minVersion: ">=3.2.3",
     homepage: "https://httpie.io/",
@@ -546,7 +511,6 @@ export const AVAILABLE_CLI_TOOLS = {
     // v0.25.0 Sep 2025, v0.25.3 Dec 2025). minVersion floors at the latest
     // stable so Windows / Linux installs upgrade past any earlier 0.24.x build.
     minVersion: ">=0.25.3",
-    releaseCadence: "quarterly",
     homepage: "https://github.com/ducaale/xh",
     sourceRepo: "https://github.com/ducaale/xh",
     license: "MIT",
@@ -629,9 +593,9 @@ export const AVAILABLE_CLI_TOOLS = {
     // glab 1.99.0 (2026-05-20). The installer surfaces this as advisory text.
     minVersion: "1.99.0",
     // Cycle 10 D21-SA21.5-F-21.5.2: glab ships at rapid cadence (~6-day mean,
-    // 11 releases across 2026-03-23 → 2026-05-20). Tagged `rapid` so a
-    // cadence-aware staleness heuristic treats a short pause as an anomaly.
-    releaseCadence: "rapid",
+    // 11 releases across 2026-03-23 → 2026-05-20), so a multi-week pause is
+    // itself a currency signal worth re-checking each D21 cycle, and the
+    // documentation pin above drifts quickly by construction.
     homepage: "https://gitlab.com/gitlab-org/cli",
     sourceRepo: "https://gitlab.com/gitlab-org/cli",
     license: "MIT",
@@ -989,15 +953,14 @@ export const AVAILABLE_CLI_TOOLS = {
     // "in early development and actively evolving"; no SECURITY.md is
     // published. D15 sandbox-escape control references container-use
     // alongside playwright and docker, so the catalog needs an entry
-    // even though the tool is pre-1.0. releaseCadence intentionally NOT
-    // "stable" so the staleness heuristic keeps emitting amber flags
-    // until upstream resumes tagging.
+    // even though the tool is pre-1.0; the `pre-1.0-stale-no-security-policy`
+    // caveat keeps the unresolved-staleness state visible to consumers, and
+    // D21 should re-check upstream tagging each cycle.
     // Cycle 10 D15-SA15.7-F (F15.7-H7): both the linux and win recipes pipe
     // the raw.githubusercontent.com install script to bash with no signature
     // or checksum gate; upstream publishes no signed package channel and no
     // SECURITY.md (see caveat), so brew (mac) is the only signed path.
     minVersion: ">=0.4.2",
-    releaseCadence: "quarterly",
     securityNote:
       "Unsigned install channel: the linux and win recipes pipe `raw.githubusercontent.com/dagger/container-use/main/install.sh` to bash with no signature or checksum verification, and the pre-1.0 project publishes no signed package channel. Prefer the signed brew (mac) channel, or pin the install script to a tagged commit SHA and verify the downloaded binary's SHA-256 against the asset checksum at https://github.com/dagger/container-use/releases before executing.",
     homepage: "https://github.com/dagger/container-use",

@@ -12,7 +12,7 @@
     "pipeline": 22,
     "cliCommands": 19,
     "agentsModes": 21,
-    "agentsShared": 14,
+    "agentsShared": 15,
     "commandsBoard": 11,
     "commandsRevision": 4,
     "checks": 5,
@@ -366,6 +366,7 @@
     ],
     "agentsShared": [
       "clarification-default-block.md",
+      "confidence-gate.md",
       "cq-specialist-roster.md",
       "efficiency-patterns.md",
       "external-knowledge.md",

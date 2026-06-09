@@ -563,6 +563,9 @@ export abstract class BaseAdapter implements Adapter {
       ctx.canonicalRoot,
       ctx.manifest.content?.preset,
       this.name,
+      // D1-30: thread the manifest handoffs flag so `false` drops the
+      // `.hatch3r/handoffs/` segment from the Canonical Structure line.
+      ctx.features.handoffs,
     );
     return this.isMinimal(ctx) ? this.stripMinimal(orchestration) : orchestration;
   }

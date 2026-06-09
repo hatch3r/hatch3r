@@ -71,7 +71,7 @@ Revision Session Report:
 - **Sub-agent failure**: Per the shared sub-agent-failure clause in `rules/hatch3r-agent-orchestration.md` -> Cross-Phase Error Propagation: retry once, then re-spawn `hatch3r-fixer` with the failure context for that finding, then `BLOCKED_OTHER` + ASK. Never fall back to inline implementation (issue #73 bypass mode).
 - **Quality check failure after 2 retries**: Present the specific failures and **ASK** the user whether to proceed with a partial fix commit or continue debugging.
 - **Push failure**: Present the error. Common fixes: `git push -u origin {branch}` for new branches, `git pull --rebase` for diverged branches.
-- **Context degradation (>25 turns)**: Suggest starting a fresh chat with a progress summary. The revision command is designed for fresh contexts — it can be re-run.
+- **Context degradation**: per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%` (the coarse turn-count fallback is ~25 turns). The revision command is designed for fresh contexts — at the restart threshold, suggest a fresh chat with a progress summary; it can be re-run.
 - **Board sync failure** (when board context exists): Warn and continue. Board sync is advisory in revision — it does not block the fix pipeline.
 
 ---

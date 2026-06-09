@@ -320,13 +320,22 @@ export function createProgram(): Command {
 
   program
     .command("clean")
-    .description("Remove all hatch3r artifacts from the current repo (optionally reinitialize after)")
-    .option("--yes", "Skip confirmation prompts (cleans without reinit)")
+    .description("Remove hatch3r adapter outputs + manifest from the current repo (preserves .hatch3r/ state and .env.mcp; --purge removes those too; optionally reinitialize after)")
+    .option("--yes", "Skip confirmation prompts (cleans without reinit; with --purge, also skips the purge confirmation)")
     .option("--dry-run", "Show what would be removed without modifying files")
     // --learnings provenance: D6-M7.
     .option(
       "--learnings",
       "Also remove .hatch3r/learnings/ and .hatch3r/handoffs/ — use for session-corruption recovery when prior context is poisoning fresh runs",
+    )
+    // --purge provenance: D1-21 (Cycle 11 Wave 3). The default clean is
+    // partial-removal by design (keeps .hatch3r/ state + .env.mcp secrets);
+    // --purge is the full-uninstall surface that also deletes .hatch3r/ and
+    // .env.mcp. Irreversible — it removes .hatch3r/snapshots/, so there is no
+    // rollback session to revert it.
+    .option(
+      "--purge",
+      "Full uninstall: after the standard clean, also remove the entire .hatch3r/ directory (state, snapshots, overrides) and .env.mcp. Irreversible — no rollback snapshot survives. Prompts for a separate confirmation unless --yes",
     )
     .action(cleanCommand);
 

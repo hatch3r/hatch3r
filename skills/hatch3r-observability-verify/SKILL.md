@@ -36,7 +36,7 @@ No duplication: the agent decides WHEN, this skill defines HOW. The agent body c
 - Discovery: enumerate route declarations via `grep -E 'app\.(get|post|put|patch|delete)|router\.|@Get|@Post|fastify\.route' src/` and outbound calls via `grep -E 'fetch\(|axios|prisma|redis|pg\.query'`. Each match must have a tracer call on the same path: `grep -E 'tracer|startSpan|@WithSpan'` against the file.
 - Auto-instrumentation packages (`@opentelemetry/auto-instrumentations-node`, `opentelemetry-instrumentation` Python) satisfy the spec when loaded before app imports — verify via process arg `--require @opentelemetry/auto-instrumentations-node/register` or equivalent loader.
 - Pass criteria: >=1 root span per route + >=1 child span per outbound call. 0 routes without instrumentation. Coverage threshold: >=95% of declared routes emit at least one root span under fixture traffic.
-- HTTP semconv attributes on every server span: `http.request.method`, `http.route`, `http.response.status_code`, `url.scheme`. DB spans carry `db.system` + `db.operation.name`. Span status `ERROR` set on every 5xx + every caught exception. Sources: `rules/hatch3r-observability-tracing.md`, OpenTelemetry semconv v1.29.
+- HTTP semconv attributes on every server span: `http.request.method`, `http.route`, `http.response.status_code`, `url.scheme`. DB spans carry `db.system` + `db.operation.name`. Span status `ERROR` set on every 5xx + every caught exception. Sources: `rules/hatch3r-observability-tracing.md`, OpenTelemetry semconv v1.41.1 (the HTTP/DB attributes named here are stable from the `>=1.29` floor onward).
 
 ## Gate 2: Structured logs with trace_id injection
 
@@ -84,6 +84,7 @@ No duplication: the agent decides WHEN, this skill defines HOW. The agent body c
 
 Applies only when the feature calls an LLM or runs an agent:
 
+- The GenAI `gen_ai.*` conventions are Development-status as of SemConv v1.41.1 — names may change; pin the SemConv version you emit and re-verify these attribute keys each P3 currency cycle.
 - GenAI semconv span on every LLM call carrying `gen_ai.operation.name`, `gen_ai.provider.name` (renamed from the deprecated `gen_ai.system` in SemConv v1.37.0), `gen_ai.request.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.response.finish_reasons`. Cache-hit flag emitted as a span attribute when the provider returns one.
 - Tools invoked by the agent emit `execute_tool {gen_ai.tool.name}` spans per `rules/hatch3r-observability-tracing.md` § "AI Agent Instrumentation". Each tool span carries `gen_ai.operation.name`, `gen_ai.tool.name`, plus the `app.tool.input_hash`/`app.tool.output_status`/`app.tool.duration_ms` extras.
 - Cost telemetry per request: the registered GenAI metrics `gen_ai.client.token.usage` (Histogram, attribute `gen_ai.token.type`) and `gen_ai.client.operation.duration` (Histogram).
@@ -128,8 +129,8 @@ The orchestrator running this skill emits a single-line verdict per gate (`GATE_
 
 ## References
 
-- OpenTelemetry Semantic Conventions v1.29 — `opentelemetry.io/docs/specs/semconv/`
-- OpenTelemetry GenAI Semantic Conventions — `opentelemetry.io/docs/specs/semconv/gen-ai/`
+- OpenTelemetry Semantic Conventions v1.41.1 — `opentelemetry.io/docs/specs/semconv/`
+- OpenTelemetry GenAI Semantic Conventions (Development status as of v1.41.1) — `opentelemetry.io/docs/specs/semconv/gen-ai/`
 - W3C Trace Context Level 1 — `www.w3.org/TR/trace-context/`
 - Google SRE Workbook ch. 5 (SLO + multi-burn-rate alerts) — `sre.google/workbook/alerting-on-slos/`
 - Grafana SLO and alerts-as-code — `grafana.com/docs/grafana/latest/alerting/`

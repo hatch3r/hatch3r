@@ -302,6 +302,13 @@ export class CursorAdapter extends BaseAdapter {
         cleaned[name] = stripPrivateMcpFields(entry);
       }
       const transformed = transformEnvVarSyntax(cleaned, "passthrough") as Record<string, Record<string, unknown>>;
+      // D15-27 (Cycle 11 Wave 3, D15, P3/P6, SA15.5-F6): no top-level
+      // `protocolVersion` here. The MCP forward-pin is Claude-only by SCHEMA
+      // CONSTRAINT, not omission — Cursor's `.cursor/mcp.json` top level is
+      // `mcpServers` only (cursor.com/docs/mcp, accessed 2026-06-09), so a
+      // sibling `protocolVersion` would be an unknown key. The shared rationale
+      // and the Claude-side emission contrast live at
+      // `MCP_DEFAULT_PROTOCOL_VERSION` in mcp-utils.ts.
       results.push(output(".cursor/mcp.json", JSON.stringify({ mcpServers: transformed }, null, 2)));
     }
 

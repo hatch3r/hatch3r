@@ -57,8 +57,10 @@ import { HATCH3R_VERSION } from "../../version.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { printBanner, printBox, label, info, error as logError, setVerbose, verbose } from "../shared/ui.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { readManifest } from "../../manifest/hatchJson.js";
 import {
   buildCustomizationSummary,
+  selectionSetFromManifest,
   type CustomizationStatus,
 } from "../../adapters/customizationSummary.js";
 
@@ -724,7 +726,17 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
  */
 async function explainCustomizationsMode(): Promise<void> {
   const rootDir = process.cwd();
-  const summary = await buildCustomizationSummary(rootDir);
+  // D10-29: pass the manifest's content selection so an override on a deselected
+  // artifact is reported `inert` ("will not be emitted") rather than `active`.
+  // A missing/unreadable manifest collapses to the unfiltered prior behavior.
+  let selection: ReadonlySet<string> | undefined;
+  try {
+    const manifest = await readManifest(rootDir);
+    selection = selectionSetFromManifest(manifest?.content);
+  } catch {
+    selection = undefined;
+  }
+  const summary = await buildCustomizationSummary(rootDir, selection);
 
   if (summary.entries.length === 0) {
     printBox(
@@ -735,12 +747,15 @@ async function explainCustomizationsMode(): Promise<void> {
     return;
   }
 
-  // Sort: failed > skipped > active, then by type, then by id.
+  // Sort: failed > skipped > inert > active, then by type, then by id.
+  // D10-29: inert (override on a deselected artifact) ranks above active so a
+  // no-op override surfaces before the honored ones.
   const outcomeRank: Record<CustomizationStatus["outcome"], number> = {
     failed: 0,
     skipped: 1,
-    active: 2,
-    none: 3,
+    inert: 2,
+    active: 3,
+    none: 4,
   };
   const sorted = [...summary.entries].sort((a, b) => {
     if (outcomeRank[a.outcome] !== outcomeRank[b.outcome]) {
@@ -798,6 +813,8 @@ async function explainCustomizationsMode(): Promise<void> {
           return chalk.red("failed");
         case "skipped":
           return chalk.yellow("skipped");
+        case "inert":
+          return chalk.yellow("inert");
         case "active":
           return chalk.green("active");
         default:
@@ -830,7 +847,10 @@ async function explainCustomizationsMode(): Promise<void> {
   printBox("Customizations", tableLines, summary.counts.failed > 0 ? "warning" : "info");
 
   const summaryLine =
-    `${summary.counts.active} active, ${summary.counts.skipped} skipped, ${summary.counts.failed} failed`;
+    `${summary.counts.active} active, ${summary.counts.skipped} skipped, ${summary.counts.failed} failed` +
+    // D10-29: only report inert when present so the established 3-part summary
+    // string stays byte-identical for repos with no deselected overrides.
+    (summary.counts.inert > 0 ? `, ${summary.counts.inert} inert` : "");
   info(
     `${chalk.bold("Customizations:")} ${summaryLine}. ` +
       chalk.dim(`Run \`hatch3r status\` for a one-line summary.`),

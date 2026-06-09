@@ -632,6 +632,21 @@ const READER_CONFIGS: Record<CanonicalType, ReaderConfig> = {
   learnings: { type: "learning", dir: "learnings", strategy: "glob" },
 };
 
+/**
+ * D11-11 (Cycle 11 Wave 3): the on-disk directory names every canonical reader
+ * enumerates, derived from {@link READER_CONFIGS} so there is one source of
+ * truth for "which `${root}/<dir>/` does the reader pipeline look at". The
+ * packaging copy list in `scripts/copy-content.ts` asserts its `SOURCE_DIRS`
+ * covers this set (minus a documented allowlist) and fails the build on drift,
+ * so a future reader type cannot be added without also wiring it into the
+ * published tarball — which previously read ENOENT→empty and silently shipped
+ * an empty content type with no warning. Sorted + de-duplicated for a stable,
+ * comparable list.
+ */
+export const READER_CONFIG_DIRS: readonly string[] = [
+  ...new Set(Object.values(READER_CONFIGS).map((c) => c.dir)),
+].sort();
+
 /** Read a single markdown file and parse its frontmatter into a CanonicalReadResult. */
 async function readSingleMd(
   fullPath: string,

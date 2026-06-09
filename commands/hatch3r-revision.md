@@ -125,13 +125,13 @@ Auto-tiering can misclassify — a cleanup-only revision scored as Deep, or a re
 
 ### Confidence Floor (Decision 16 / D13-SA13.3-F13.3.3)
 
-`--effort` calibrates work-effort depth; `--confidence-floor` calibrates the confidence threshold at which the Step 7 review gate (`commands/revision/revision-quality.md` Stage 1 confidence-aware gate) blocks. They are orthogonal. This is the user's pre-flight assertiveness knob — the forced-second-pass on low confidence is post-hoc; the floor sets the bar before the run:
+`--effort` calibrates work-effort depth; `--confidence-floor` calibrates the confidence threshold at which the Step 7 review gate (the canonical **Confidence-Aware Review Gate** in `agents/shared/confidence-gate.md`, run by `commands/revision/revision-quality.md` Stage 1) blocks. They are orthogonal. This is the user's pre-flight assertiveness knob — the forced-second-pass on low confidence is post-hoc; the floor sets the bar before the run:
 
 - `--confidence-floor=any|medium|high` (default `any`). Resolution order: explicit flag wins over the persisted `hatch3r config confidence_floor=...` default, which wins over the built-in `any`.
 - **`any`** (current behavior): force a second reviewer pass only when reviewer confidence `== low` with 0 Critical + 0 Warning.
 - **`medium`**: force a second pass on ANY finding rated `confidence == low`, even with 0 Critical + 0 Warning.
 - **`high`**: force a second pass on any finding rated `confidence != high`, AND ASK the user on every low-confidence finding regardless of severity.
-- Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`. Pass the resolved floor verbatim into the Step 7 Stage 1 review-gate evaluation alongside the confidence value sourced from the upstream reviewer (Confidence Propagation Contract). Tier 1 cleanup-only revisions that skip the review loop are unaffected; the floor never relaxes the merge-readiness gate.
+- Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`. Pass the resolved floor verbatim into the Step 7 Stage 1 review-gate evaluation (`agents/shared/confidence-gate.md`, which `revision-quality.md` runs) alongside the confidence value sourced from the upstream reviewer (Confidence Propagation Contract). Tier 1 cleanup-only revisions that skip the review loop are unaffected; the floor never relaxes the merge-readiness gate.
 
 ---
 

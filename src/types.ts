@@ -319,8 +319,39 @@ export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
 
-/** Tools that support git worktree file isolation. Shared across init, update, and config. */
-export const WORKTREE_CAPABLE_TOOLS = new Set<string>(["claude", "cursor", "copilot"]);
+/**
+ * D2-17 (Cycle 11 Wave 3, D2, P4): per-`Tool` worktree-isolation support, the
+ * single typed source of truth from which {@link WORKTREE_CAPABLE_TOOLS} is
+ * derived. Declared as `Record<Tool, boolean>` so adding a tool to
+ * {@link TOOLS} forces a compile error here until its worktree support is
+ * stated — the prior `WORKTREE_CAPABLE_TOOLS` hand-listed string literal had
+ * no `Tool` exhaustiveness, so a future 4th adapter could be forgotten in the
+ * Set and drift silently (the finding's failure mode). All three retained
+ * adapters (claude/cursor/copilot) materialise content under a single repo
+ * subtree that survives a `git worktree`, so each is `true` today.
+ *
+ * `ADAPTER_CAPABILITIES.worktree` (src/adapters/index.ts) is in turn derived
+ * from {@link WORKTREE_CAPABLE_TOOLS}, and the `capabilityMatrixDrift` test
+ * pins that column to the Set — so this one map flows to the matrix column in
+ * lockstep. The derive direction stays types.ts → adapters (not the reverse)
+ * because `WORKTREE_CAPABLE_TOOLS` is read by init/config/update/manifest and
+ * cannot import from `src/adapters/index.ts` without a module cycle.
+ */
+export const TOOL_WORKTREE_SUPPORT: Record<Tool, boolean> = {
+  cursor: true,
+  copilot: true,
+  claude: true,
+};
+
+/**
+ * Tools that support git worktree file isolation. Shared across init, update,
+ * and config. Derived from {@link TOOL_WORKTREE_SUPPORT} so the membership set
+ * stays `Tool`-exhaustive (no hand-listed string literal to drift). Retains the
+ * `Set<string>` runtime shape every reader already calls `.has()` on.
+ */
+export const WORKTREE_CAPABLE_TOOLS = new Set<string>(
+  TOOLS.filter((tool) => TOOL_WORKTREE_SUPPORT[tool]),
+);
 
 export interface BoardConfig {
   owner: string;
@@ -381,19 +412,21 @@ export interface Features {
   githubAgents: boolean;
   hooks: boolean;
   /**
-   * Intended to control whether adapter outputs surface active handoff
-   * documents from `.hatch3r/handoffs/active/` in their primary tool-context
-   * file. Default `true`. Absent on pre-1.8.0 manifests; consumers treat
-   * absence as `true`.
+   * Controls whether each adapter's bridge-orchestration file references the
+   * shared `.hatch3r/handoffs/` directory in its "Canonical Structure" section.
+   * Default `true`. Absent on pre-1.8.0 manifests; consumers treat absence as
+   * `true`.
    *
-   * Cycle 10 D11-SA11.1-05 (Pillar P4): no adapter (`claude.ts`/`cursor.ts`/
-   * `copilot.ts`) reads this flag — the actual handoff-directory listing is
-   * emitted unconditionally by the bridge-orchestration prep in
-   * `src/cli/shared/agentsContent.ts`, not gated here. Setting `false` has no
-   * effect today. Wiring the flag into the bridge prep (or relocating it to a
-   * `Manifest.handoffs.enabled` field matching the real control surface) is a
-   * tracked follow-up; the field is retained for manifest back-compat until
-   * then.
+   * D1-30 (Cycle 11 Wave 3, D1 / CQ8 Maintainability): this flag is now a live
+   * control surface. `BaseAdapter.bridgeOrchestration` threads
+   * `ctx.features.handoffs` into `generateBridgeOrchestration` →
+   * `buildBridgeOrchestration` (`src/cli/shared/bridgeOrchestration.ts`); when
+   * `false`, the `Handoffs: .hatch3r/handoffs/` segment is dropped from the
+   * Canonical Structure line so a project that does not use the handoff
+   * subsystem stops advertising the directory. Before this wave no adapter read
+   * the flag and the segment emitted unconditionally, so setting `false` had no
+   * effect (a dead control surface). The static `BRIDGE_ORCHESTRATION` export
+   * still defaults to `true` (segment shown) for back-compatible output.
    */
   handoffs: boolean;
 }
@@ -906,6 +939,22 @@ export type HatchErrorCode =
  * on the legacy behavior can grep stderr for the `errorCode` string (still
  * surfaced via `HatchError.errorCode`) or branch on the structured JSON
  * mode emitted by `validate --format json`.
+ *
+ * D8-7 (Cycle 11 Wave 3, D8, P1): this map is the single source of truth for
+ * the exit-code contract — `.claude/rules/cli-ux-standards.md` item 6 and the
+ * published `docs/troubleshooting.md` "Exit Codes" table both cite it by name
+ * and mirror it row-for-row. The Commander parse-usage exit code `2` is a
+ * DELIBERATELY distinct code from `64 EX_USAGE` (VALIDATION_ERROR), not an
+ * unreconciled drift: `2` means "Commander rejected the flags/arguments before
+ * a command ran" (emitted by the `CommanderError` branch of the top-level catch
+ * in `src/cli/index.ts` and the `usage`-classified path in
+ * `src/cli/shared/errors.ts`), whereas `64 EX_USAGE` means "the command ran and
+ * found the project content/config structurally invalid" (e.g. `validate`
+ * exits via `exitCodeForErrorCode("VALIDATION_ERROR")`). The two input-error
+ * sub-classes carry different operator next-steps (fix your command line vs fix
+ * your repo content), so they stay separate codes under this one SSOT. Changing
+ * either code is a paired source + governance-rule edit (cli-ux-standards.md is
+ * framework-dev-only via the capability-lifecycle / re-envision presets).
  */
 export const ERROR_CODE_TO_EXIT_CODE: Record<HatchErrorCode, number> = {
   VALIDATION_ERROR: 64,

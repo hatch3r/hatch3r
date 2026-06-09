@@ -115,8 +115,41 @@ function printInventory(inventory: CleanInventory): void {
   }
 }
 
+/**
+ * D1-21 (Cycle 11 Wave 3): full-uninstall surface. The standard clean is
+ * partial-removal by design — it preserves `.hatch3r/` state (learnings,
+ * handoffs, overrides, mcp, snapshots, customizations) and `.env.mcp`
+ * (secrets). `--purge` removes those two surfaces after the standard clean
+ * has run, leaving the repo with no hatch3r footprint.
+ *
+ * Irreversible by construction: deleting `.hatch3r/` removes
+ * `.hatch3r/snapshots/`, so the pre-clean rollback session captured earlier in
+ * the flow is destroyed alongside everything else. There is no recovery path,
+ * which is why the caller gates this behind a second explicit confirmation.
+ *
+ * Returns the list of removed top-level paths (relative to `rootDir`) for the
+ * summary box.
+ */
+async function purgeUserState(rootDir: string, envMcpPresent: boolean): Promise<string[]> {
+  const purged: string[] = [];
+  const targets: Array<{ rel: string; abs: string; present: boolean }> = [
+    { rel: `${HATCH3R_DIR}/`, abs: join(rootDir, HATCH3R_DIR), present: true },
+    { rel: ".env.mcp", abs: join(rootDir, ".env.mcp"), present: envMcpPresent },
+  ];
+  for (const t of targets) {
+    if (!t.present) continue;
+    try {
+      await rm(t.abs, { recursive: true, force: true });
+      purged.push(t.rel);
+    } catch (err) {
+      warn(`Could not purge ${t.rel}: ${(err as Error).message}`);
+    }
+  }
+  return purged;
+}
+
 export async function cleanCommand(
-  opts: { yes?: boolean; dryRun?: boolean; learnings?: boolean } = {},
+  opts: { yes?: boolean; dryRun?: boolean; learnings?: boolean; purge?: boolean } = {},
 ): Promise<void> {
   printBanner(true);
 
@@ -174,9 +207,22 @@ export async function cleanCommand(
     for (const f of result.removed) {
       console.log(`    ${chalk.red("×")} ${f}`);
     }
-    if (result.kept.length > 0) {
+    // D1-21: with --purge, .hatch3r/ and .env.mcp move from "would keep" to
+    // "would remove" so the preview matches what a live --purge run does.
+    if (opts.purge) {
+      if (inventory.hatch3rDir) {
+        console.log(`    ${chalk.red("×")} ${HATCH3R_DIR}/ ${chalk.dim("(purge — state, snapshots, overrides)")}`);
+      }
+      if (inventory.envMcp) {
+        console.log(`    ${chalk.red("×")} .env.mcp ${chalk.dim("(purge — secrets)")}`);
+      }
+    }
+    const wouldKeep = opts.purge
+      ? result.kept.filter((k) => !k.startsWith(HATCH3R_DIR) && !k.startsWith(".env.mcp"))
+      : result.kept;
+    if (wouldKeep.length > 0) {
       console.log(chalk.bold("\n  Would keep:"));
-      for (const f of result.kept) {
+      for (const f of wouldKeep) {
         console.log(`    ${chalk.green("✓")} ${f}`);
       }
     }
@@ -194,7 +240,12 @@ export async function cleanCommand(
       {
         type: "confirm",
         name: "proceed",
-        message: "Remove all hatch3r artifacts from this repo?",
+        // D1-21: the standard clean removes adapter outputs + manifest and
+        // preserves .hatch3r/ state + .env.mcp, so the prompt must not claim
+        // "all" (that overstatement is what --purge actually delivers).
+        message: opts.purge
+          ? "Remove hatch3r adapter outputs + manifest from this repo? (--purge will then also delete .hatch3r/ and .env.mcp)"
+          : "Remove hatch3r adapter outputs + manifest from this repo? (.hatch3r/ state and .env.mcp are preserved)",
         default: false,
       },
     ]);
@@ -270,6 +321,57 @@ export async function cleanCommand(
   // Report kept items
   for (const k of result.kept) {
     info(k);
+  }
+
+  // 7b. Full uninstall (--purge): D1-21. Remove the two surfaces the standard
+  // clean deliberately preserves — `.hatch3r/` state and `.env.mcp` secrets.
+  // This supersedes reinit (reinitializing immediately after a full uninstall
+  // is contradictory), so the function returns after purging. Irreversible:
+  // it deletes `.hatch3r/snapshots/`, so the pre-clean rollback session no
+  // longer exists.
+  if (opts.purge) {
+    if (!opts.yes) {
+      warn("--purge will delete .hatch3r/ (including snapshots — the pre-clean rollback session) and .env.mcp.");
+      console.log(chalk.dim("  This is irreversible: no rollback snapshot survives a purge.\n"));
+      const { confirmPurge } = await inquirer.prompt<{ confirmPurge: boolean }>([
+        {
+          type: "confirm",
+          name: "confirmPurge",
+          message: "Permanently delete .hatch3r/ and .env.mcp?",
+          default: false,
+        },
+      ]);
+      if (isBack(confirmPurge)) {
+        info("Purge cancelled (Shift+Tab); standard clean already applied.");
+        if (learningsBackup) {
+          await rm(learningsBackup, { recursive: true, force: true });
+        }
+        return;
+      }
+      if (!confirmPurge) {
+        info("Purge declined; standard clean already applied, .hatch3r/ and .env.mcp kept.");
+        if (learningsBackup) {
+          await rm(learningsBackup, { recursive: true, force: true });
+        }
+        return;
+      }
+    }
+
+    const purged = await purgeUserState(rootDir, inventory.envMcp);
+    if (learningsBackup) {
+      await rm(learningsBackup, { recursive: true, force: true });
+    }
+
+    const purgeLines = [
+      `${chalk.red("×")} ${result.removed.length} artifact(s) removed`,
+    ];
+    for (const p of purged) {
+      purgeLines.push(`${chalk.red("×")} ${p} purged`);
+    }
+    purgeLines.push("");
+    purgeLines.push(`${chalk.cyan("→")} Run ${chalk.bold("hatch3r init")} for a fresh setup.`);
+    printBox("Purge complete", purgeLines, "success");
+    return;
   }
 
   // 8. Ask about reinit (skipped with --yes)

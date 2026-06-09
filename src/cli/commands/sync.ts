@@ -87,7 +87,7 @@ import {
 } from "../shared/ui.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import { getRunId } from "../shared/runId.js";
-import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
+import { buildCustomizationSummary, selectionSetFromManifest } from "../../adapters/customizationSummary.js";
 
 /**
  * Check if docs/specs/ exists and whether spec files are older than
@@ -1592,7 +1592,13 @@ export async function syncCommand(
     // the operator can see "yes, my overrides were applied". Skipped when no
     // customization files exist so the chrome stays compact for fresh installs.
     try {
-      const customizationSummary = await buildCustomizationSummary(rootDir);
+      // D10-29: pass the manifest selection so an override on a deselected
+      // artifact is reported `inert` (no adapter emitted it on this run) rather
+      // than counted as applied.
+      const customizationSummary = await buildCustomizationSummary(
+        rootDir,
+        selectionSetFromManifest(m.content),
+      );
       if (customizationSummary.entries.length > 0) {
         const c = customizationSummary.counts;
         const activeIds = customizationSummary.entries
@@ -1604,13 +1610,15 @@ export async function syncCommand(
           info(
             `Customizations applied: ${chalk.bold(String(c.active))} active (${head}${tail})` +
               (c.skipped > 0 ? `, ${c.skipped} skipped` : "") +
-              (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : ""),
+              (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "") +
+              (c.inert > 0 ? `, ${chalk.yellow(String(c.inert))} inert` : ""),
           );
-        } else if (c.skipped > 0 || c.failed > 0) {
+        } else if (c.skipped > 0 || c.failed > 0 || c.inert > 0) {
           info(
             `Customizations: 0 active` +
               (c.skipped > 0 ? `, ${c.skipped} skipped` : "") +
               (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "") +
+              (c.inert > 0 ? `, ${chalk.yellow(String(c.inert))} inert` : "") +
               ` (run \`hatch3r explain --customizations\` for detail).`,
           );
         }

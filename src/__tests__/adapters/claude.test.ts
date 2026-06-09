@@ -1284,6 +1284,40 @@ Low priority rule body.
       expect(fm).not.toContain("tools:");
       expect(fm).toContain("description:");
     });
+
+    // D9-11 (Cycle 11 Wave 3, D9, P3): a read-only-role agent (policy lacks
+    // write+execute) emits `permissionMode: plan` — the Claude analog of the
+    // Cursor `readonly: true` primitive. Producer agents (write/execute) and
+    // user agents (no policy) omit the field and inherit the parent mode.
+    it("emits permissionMode: plan for the read-only hatch3r-reviewer", async () => {
+      const outputs = await runWithAgent("reviewer", "# Reviewer");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-reviewer.md",
+      );
+      expect(file).toBeDefined();
+      const fm = file!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).toContain("permissionMode: plan");
+    });
+
+    it("omits permissionMode for the writer hatch3r-implementer", async () => {
+      const outputs = await runWithAgent("implementer", "# Implementer");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-implementer.md",
+      );
+      expect(file).toBeDefined();
+      const fm = file!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).not.toContain("permissionMode");
+    });
+
+    it("omits permissionMode for a custom agent without a registered policy", async () => {
+      const outputs = await runWithAgent("custom-agent", "# Custom");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-custom-agent.md",
+      );
+      expect(file).toBeDefined();
+      const fm = file!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).not.toContain("permissionMode");
+    });
   });
 
   // D15-3 (Cycle 11, P6 / ASI02-03): a canonical agent's short-form

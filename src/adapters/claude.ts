@@ -18,6 +18,7 @@ import { transformEnvVarSyntax, stripPrivateMcpFields, MCP_DEFAULT_PROTOCOL_VERS
 import {
   toClaudeToolsFrontmatter,
   toClaudeToolsFrontmatterFromCategories,
+  toCursorReadonlyFrontmatter,
 } from "../pipeline/adapterToolTranslator.js";
 import {
   buildAgentToolPoliciesJson,
@@ -315,6 +316,17 @@ Each quality teammate owns distinct files to avoid conflicts.
 // (code.claude.com/docs/en/hooks → "What the matcher filters", accessed
 // 2026-06-05).
 //
+// D9-10 (Cycle 11 Wave 3, D9, P3): every entry in the two maps below
+// (mapToClaudeEvent, getClaudeToolMatcher) was re-verified 2026-06-09 against
+// code.claude.com/docs/en/hooks. The live ~30-event catalogue
+// (PreToolUse/PostToolUse/PostToolUseFailure/SessionStart/SubagentStart/
+// SubagentStop/Stop/StopFailure/TaskCreated/InstructionsLoaded/WorktreeCreate/
+// WorktreeRemove/…) confirms each mapped target still exists with the same
+// trigger semantics; the Stop-vs-StopFailure choice for review-loop-cap is
+// recorded inline at its mapping line. The capability-seed detail string in
+// capabilityMatrix.ts (PLATFORM_CAPABILITY_SEED.claude hooks row) mirrors the
+// same re-verification date.
+//
 // Events with no native Claude hook surface (ADVISORY_ONLY_EVENTS below) are
 // NOT emitted into settings.json — they would either never fire or fire on
 // every occurrence of an unrelated trigger. They are surfaced as advisory
@@ -363,6 +375,15 @@ function mapToClaudeEvent(event: NativeHookEvent): string {
     "pre-push": "PreToolUse",
     "worktree-create": "WorktreeCreate",
     "worktree-remove": "WorktreeRemove",
+    // D9-10 (Cycle 11 Wave 3, D9, P3): Stop-vs-StopFailure re-evaluation.
+    // `Stop` = "When Claude finishes responding"; `StopFailure` = "When the
+    // turn ends due to an API error" (code.claude.com/docs/en/hooks, re-verified
+    // 2026-06-09). The review-loop cap must fire when a normal turn completes so
+    // the `.review-loop.json` counter advances on every reviewer/fixer round —
+    // NOT on a transport-layer API error. `Stop` is therefore correct;
+    // re-mapping to `StopFailure` would only fire the cap on API failures and
+    // never on a clean review round. `Stop` ignores its matcher (same source),
+    // so the loop scope stays in the hook command, not the matcher.
     "review-loop-cap": "Stop",
   };
   // D9-L-3 (Cycle 10, P5): no `|| event` fallback. `mapping` is typed
@@ -497,6 +518,51 @@ function isClaudeRecognizableModel(model: string): boolean {
     model === "inherit" ||
     /^claude-/.test(model)
   );
+}
+
+/**
+ * D9-11 (Cycle 11 Wave 3, D9, P3): map the existing read-only-role policy
+ * semantic to Claude Code's native subagent `permissionMode:` frontmatter,
+ * closing one leg of the Decision-21 native-field gap (the Claude subagent
+ * frontmatter previously emitted only `description`/`tools`/`disallowedTools`/
+ * `model`, leaving `permissionMode`/`mcpServers`/`maxTurns`/`skills`/`memory`
+ * documented-but-unused).
+ *
+ * Source semantic (NOT a new judgment call): an agent whose AGENT_TOOL_POLICIES
+ * grant lacks both `write` and `execute` is already a read-only role — the same
+ * condition the Cursor adapter uses to emit `readonly: true`
+ * (`adapterToolTranslator.ts::toCursorReadonlyFrontmatter`, consumed at
+ * cursor.ts). Claude Code's analog is `permissionMode: plan` — "Plan mode
+ * (read-only exploration)" (code.claude.com/docs/en/sub-agents#permission-modes,
+ * accessed 2026-06-09) — so a readonly policy on Cursor and a plan-mode subagent
+ * on Claude express the same restriction. This covers `hatch3r-researcher`,
+ * `hatch3r-reviewer`, the 9 CQ specialists + `hatch3r-edge-case-analyst`,
+ * `hatch3r-context-rules`, `hatch3r-learnings-loader`, and `hatch3r-handoff-loader`
+ * (all `read`+`search` only).
+ *
+ * Returns `"plan"` for a readonly canonical policy, else `undefined` (field
+ * omitted → the subagent inherits the parent permission mode). `undefined` is
+ * also returned for a user agent (no canonical policy row) and for any agent the
+ * policy grants `write` or `execute` (`hatch3r-implementer`, `hatch3r-fixer`,
+ * `hatch3r-architect`, the spec/devops/pack/incident/dependency agents): forcing
+ * `plan` on a writer would block the file edits its policy authorizes, a
+ * regression — so this stays gated on the readonly signal only.
+ *
+ * The field is honored because hatch3r ships subagents into the project
+ * `.claude/agents/` directory; `permissionMode` is ignored ONLY for plugin
+ * subagents (same source), which is not the emission path here.
+ *
+ * Deferred to a CL-2 content-gap candidate (per the D9-11 fix's "spawn as a
+ * CL-2 candidate" directive): the remaining native fields need per-agent design
+ * rather than a one-line policy derivation — `mcpServers:` scoping for
+ * `hatch3r-researcher` (which servers, and whether to inline vs reference),
+ * `memory: project` for `hatch3r-learnings-loader` (which also auto-enables
+ * Write/Edit, in tension with that agent's readonly policy + the plan mode set
+ * here — the conflict is the design question), `maxTurns` ceilings, and `skills:`
+ * preload lists. Those are intentionally NOT emitted in this wave.
+ */
+function claudePermissionMode(agentId: string): "plan" | undefined {
+  return toCursorReadonlyFrontmatter(agentId) === true ? "plan" : undefined;
 }
 
 /**
@@ -736,6 +802,14 @@ export class ClaudeAdapter extends BaseAdapter {
         if (disallowedTools.length > 0) {
           fmLines.push(`disallowedTools: ${disallowedTools.join(", ")}`);
         }
+        // D9-11 (Cycle 11 Wave 3, D9, P3): emit `permissionMode: plan` for a
+        // read-only-role agent (policy lacks write+execute) — the Claude analog
+        // of the Cursor `readonly: true` primitive. Producer agents (write/
+        // execute grant) and user agents (no canonical policy) get no field and
+        // inherit the parent mode. See {@link claudePermissionMode} for the
+        // CL-2-deferred remaining native fields (mcpServers/memory/maxTurns/skills).
+        const permissionMode = claudePermissionMode(agentId);
+        if (permissionMode) fmLines.push(`permissionMode: ${permissionMode}`);
         // D9-H-1 (D9, P3): emit Claude Code's native `model:` subagent
         // frontmatter when a model resolves, so per-agent model preferences
         // are authoritative rather than advisory prose. Claude Code resolves

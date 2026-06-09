@@ -122,37 +122,6 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(jq.securityNote).toMatch(/sandbox|isolat/i);
   });
 
-  it("sd entry is annotated releaseCadence:'stable' (D21-10, Cycle 11)", () => {
-    // Cycle 11 D21-10 (SA21.2-F2): the immutable sd v1.1.0 tag (commit
-    // 4a7b2165) is dated 2026-02-25, NOT 2025-02-24 — so 1.1.0 was ~82 days
-    // old at the 2026-05-18 audit, not 447. The true shape is a ~27-month
-    // dormancy (1.0.0 -> 1.1.0) ended by a recent release. `stable` is retained
-    // because the recent release is fresh; the registry comment carries the
-    // next-cycle re-evaluation trigger if 1.1.0 ages out with no successor.
-    const sd = AVAILABLE_CLI_TOOLS.sd;
-    expect(sd.releaseCadence).toBe("stable");
-  });
-
-  it("ripgrep entry is annotated releaseCadence:'stable' (D21-M1, Cycle 10)", () => {
-    // D21-M1: ripgrep 15.1.0 (released 2025-10-31) is 208 days old at the
-    // 2026-05-26 audit. BurntSushi/ripgrep is mature steady-state — multi-
-    // month gaps between minor releases are the norm, not abandonment.
-    // releaseCadence: 'stable' suppresses staleness-heuristic amber flags
-    // without claiming the canonical search primitive is at risk.
-    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep;
-    expect(ripgrep.releaseCadence).toBe("stable");
-  });
-
-  it("bat entry is annotated releaseCadence:'stable' (D21-M3, Cycle 10)", () => {
-    // D21-M3: bat 0.26.1 (released 2025-12-12) is 167 days old at the
-    // 2026-05-26 audit. sharkdp/bat matches the fd cadence pattern — mature
-    // steady-state tooling with multi-month gaps between minor releases.
-    // releaseCadence: 'stable' dampens the staleness heuristic without
-    // claiming the canonical syntax-aware view tool is abandoned.
-    const bat = AVAILABLE_CLI_TOOLS.bat;
-    expect(bat.releaseCadence).toBe("stable");
-  });
-
   it("az-devops entry declares an extensionProbe for the azure-devops extension (D21-M6, Cycle 10)", () => {
     // D21-M6: the base `command -v az` probe is a false positive for users
     // who install Azure CLI standalone without the azure-devops extension.
@@ -187,18 +156,6 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     // escape-injection (CVE-2026-45803) — never as a token leak.
     expect(gh.securityNote).toContain("CVE-2026-45803");
     expect(gh.securityNote).not.toMatch(/GHSA-crc3-h8v6-qh57[^.]*token/i);
-  });
-
-  it("gh + glab entries are annotated releaseCadence:'rapid' (D21-SA21.5-F-21.5.2, Cycle 10)", () => {
-    // Cycle 10 D21-SA21.5-F-21.5.2: gh (~30-day mean) and glab (~6-day mean)
-    // both ship at rapid cadence per the registry's own ReleaseCadence
-    // definition ("monthly or faster"). Tagging both `rapid` lets a
-    // cadence-aware staleness heuristic treat a short pause as an anomaly
-    // instead of falling back to the default 90/180-day window.
-    const gh = AVAILABLE_CLI_TOOLS.gh;
-    const glab = AVAILABLE_CLI_TOOLS.glab;
-    expect(gh.releaseCadence).toBe("rapid");
-    expect(glab.releaseCadence).toBe("rapid");
   });
 
   it("glab + az-devops carry tested-against minVersion documentation pins (D21-SA21.5-F-21.5.3, Cycle 10)", () => {
@@ -295,11 +252,10 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(curl!.securityNote).not.toMatch(/Medium-and-Low/);
   });
 
-  it("httpie entry registered as tier-2 web-project with releaseCadence stable (D21-SA21.4-F03, Cycle 10)", () => {
+  it("httpie entry registered as tier-2 web-project (D21-SA21.4-F03, Cycle 10)", () => {
     // Cycle 10 D21-SA21.4-F03 (F-21.7.1): httpie/cli 3.2.4 (2024-11-01) is
-    // 572 days old at audit but the project remains under maintenance.
-    // releaseCadence: "stable" dampens the staleness heuristic for the
-    // long gap without claiming the tool is abandoned.
+    // 572 days old at audit but the project remains under maintenance, so it
+    // stays registered as the tier-2 web-project HTTP tool.
     const httpie = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).httpie;
     expect(httpie).toBeDefined();
     expect(httpie!.id).toBe("httpie");
@@ -307,13 +263,12 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(httpie!.tier).toBe(2);
     expect(httpie!.category).toBe("http");
     expect(httpie!.trigger).toBe("web-project");
-    expect(httpie!.releaseCadence).toBe("stable");
   });
 
-  it("xh entry registered as tier-2 web-project with minVersion >=0.25.3 + releaseCadence quarterly (D21-SA21.4-F04, Cycle 10)", () => {
+  it("xh entry registered as tier-2 web-project with minVersion >=0.25.3 (D21-SA21.4-F04, Cycle 10)", () => {
     // Cycle 10 D21-SA21.4-F04 (F-21.7.1): xh v0.25.3 (2025-12-16) is the
-    // latest stable; cadence ~quarterly per release history; entry pins to
-    // the latest stable so 0.24.x builds get an upgrade hint at install.
+    // latest stable; entry pins to the latest stable so 0.24.x builds get an
+    // upgrade hint at install.
     const xh = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).xh;
     expect(xh).toBeDefined();
     expect(xh!.id).toBe("xh");
@@ -321,20 +276,17 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(xh!.category).toBe("http");
     expect(xh!.trigger).toBe("web-project");
     expect(xh!.minVersion).toBe(">=0.25.3");
-    expect(xh!.releaseCadence).toBe("quarterly");
   });
 
-  it("playwright entry floors at >=1.55.1 + securityNote cites the installer-MitM + Chromium-roll CVEs + releaseCadence monthly (D21-4, Cycle 11)", () => {
+  it("playwright entry floors at >=1.55.1 + securityNote cites the installer-MitM + Chromium-roll CVEs (D21-4, Cycle 11)", () => {
     // Cycle 11 D21-4 (SA21.6-F1): playwright was the only tier-2 browser tool
     // with no version floor while its sandbox image is recommended for
     // navigating untrusted URLs. CVE-2025-59288 (installer MitM in
     // `npx playwright install`, CVSS 8.7) is fixed in 1.55.1; the bundled
     // Chromium carries CVE-2026-2441 (rolled per monthly release). The entry
-    // pins >=1.55.1 and tags releaseCadence monthly so an un-rolled Chromium
-    // is a staleness signal rather than suppressed.
+    // pins >=1.55.1 and the securityNote carries the Chromium-currency caution.
     const playwright = AVAILABLE_CLI_TOOLS.playwright;
     expect(playwright.minVersion).toBe(">=1.55.1");
-    expect(playwright.releaseCadence).toBe("monthly");
     expect(playwright.securityNote).toBeDefined();
     expect(playwright.securityNote).toContain("CVE-2025-59288");
     expect(playwright.securityNote).toContain("CVE-2026-2441");
@@ -386,7 +338,6 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(containerUse!.category).toBe("container");
     expect(containerUse!.caveat).toBe("pre-1.0-stale-no-security-policy");
     expect(containerUse!.minVersion).toBe(">=0.4.2");
-    expect(containerUse!.releaseCadence).toBe("quarterly");
   });
 
   it("podman entry carries minVersion + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-F03)", () => {
@@ -402,19 +353,14 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
   });
 
   it("optional schema fields are correctly typed on every entry (D15-SA15.7-F01 / D21-SA21.7-F02)", () => {
-    // C9-H55 + C9-H89: minVersion / releaseCadence / cve_scan are optional
-    // schema extensions. Verify that each entry that declares them uses the
-    // documented shape — strings for minVersion, the literal union for
-    // releaseCadence, and { last_checked, advisory_count, report_url } for
-    // cve_scan. Entries that omit the fields are not iterated.
-    const validCadences = new Set(["rapid", "monthly", "quarterly", "stable"]);
+    // C9-H55 + C9-H89: minVersion / cve_scan are optional schema extensions.
+    // Verify that each entry that declares them uses the documented shape —
+    // strings for minVersion, and { last_checked, advisory_count, report_url }
+    // for cve_scan. Entries that omit the fields are not iterated.
     for (const entry of allEntries) {
       if (entry.minVersion !== undefined) {
         expect(entry.minVersion).toBeTypeOf("string");
         expect(entry.minVersion.length).toBeGreaterThan(0);
-      }
-      if (entry.releaseCadence !== undefined) {
-        expect(validCadences.has(entry.releaseCadence)).toBe(true);
       }
       if (entry.cve_scan !== undefined) {
         expect(entry.cve_scan.last_checked).toBeTypeOf("string");

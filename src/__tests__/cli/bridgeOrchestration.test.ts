@@ -159,3 +159,40 @@ describe("generateBridgeOrchestration — Task Type routing", () => {
     expect(output).not.toContain("## Skill Dispatch Table");
   });
 });
+
+// D1-30 (Cycle 11 Wave 3): the manifest `Features.handoffs` flag is now a live
+// control surface — when false, the Canonical Structure line drops the
+// `Handoffs: .hatch3r/handoffs/` segment. Before this wave the segment emitted
+// unconditionally and the flag was dead.
+describe("generateBridgeOrchestration — handoffs control surface (D1-30)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-bridge-handoffs-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("includes the Handoffs segment by default (handoffs flag omitted)", async () => {
+    const output = await generateBridgeOrchestration(tempDir);
+    expect(output).toContain("Handoffs: `.hatch3r/handoffs/`");
+    // The neighbouring segments stay intact so only the Handoffs entry is gated.
+    expect(output).toContain("Learnings: `.hatch3r/learnings/`");
+    expect(output).toContain("Overrides: `.hatch3r/overrides/`");
+  });
+
+  it("includes the Handoffs segment when handoffs is explicitly true", async () => {
+    const output = await generateBridgeOrchestration(tempDir, undefined, "claude", true);
+    expect(output).toContain("Handoffs: `.hatch3r/handoffs/`");
+  });
+
+  it("drops the Handoffs segment when handoffs is false", async () => {
+    const output = await generateBridgeOrchestration(tempDir, undefined, "claude", false);
+    expect(output).not.toContain("Handoffs: `.hatch3r/handoffs/`");
+    // Adjacent segments survive — the Canonical Structure line stays well-formed.
+    expect(output).toContain("Learnings: `.hatch3r/learnings/`");
+    expect(output).toContain("Overrides: `.hatch3r/overrides/`");
+  });
+});

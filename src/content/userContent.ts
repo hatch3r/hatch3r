@@ -41,7 +41,7 @@ import { atomicWriteFile } from "../merge/safeWrite.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 import { parseFrontmatter } from "../adapters/canonical.js";
 import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
-import { isValidHookEvent } from "../hooks/types.js";
+import { isValidHookEvent, VALID_HOOK_EVENTS } from "../hooks/types.js";
 import { ALL_TOOL_CATEGORIES } from "../pipeline/agentToolAllowlist.js";
 import {
   buildContentIndex,
@@ -812,8 +812,10 @@ async function runUserContentGates(
   }
   if (artifact.type === "hook") {
     if (!artifact.hookEvent || !isValidHookEvent(artifact.hookEvent)) {
+      // Build the enumerated list from the single source of truth so a future
+      // shrink/expand of VALID_HOOK_EVENTS can never drift the error text (D20-6).
       strict.push(
-        `Hook event missing or invalid: expected one of pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, worktree-create, worktree-remove (got ${JSON.stringify(artifact.hookEvent)})`,
+        `Hook event missing or invalid: expected one of ${[...VALID_HOOK_EVENTS].join(", ")} (got ${JSON.stringify(artifact.hookEvent)})`,
       );
     }
   }

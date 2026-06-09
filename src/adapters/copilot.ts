@@ -629,6 +629,15 @@ jobs:
         "${workspaceFolder}/.env.mcp",
       );
       const inputs = collectMcpHeaderInputs(vscodeServers);
+      // D15-27 (Cycle 11 Wave 3, D15, P3/P6, SA15.5-F6): no top-level
+      // `protocolVersion` here. The MCP forward-pin is Claude-only by SCHEMA
+      // CONSTRAINT, not omission — VS Code's `.vscode/mcp.json` top level is
+      // exactly `servers`, `inputs`, `sandbox`
+      // (code.visualstudio.com/docs/agents/reference/mcp-configuration, accessed
+      // 2026-06-09), and an unknown top-level key trips the same schema-aware
+      // tooling D9-C-2 targets (mcp-inspector / VS Code strict mode /
+      // awesome-copilot lint). The shared rationale and the Claude-side emission
+      // contrast live at `MCP_DEFAULT_PROTOCOL_VERSION` in mcp-utils.ts.
       const doc: Record<string, unknown> = {};
       if (inputs.length > 0) doc.inputs = inputs;
       doc.servers = vscodeServers;

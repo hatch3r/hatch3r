@@ -5,6 +5,9 @@ import {
   exitCodeForErrorCode,
   MATURITY_TIERS,
   MATURITY_TIER_RANK,
+  TOOLS,
+  TOOL_WORKTREE_SUPPORT,
+  WORKTREE_CAPABLE_TOOLS,
   type HatchErrorCode,
 } from "../types.js";
 
@@ -184,5 +187,35 @@ describe("MATURITY_TIER_RANK (D1-SA1.8-F-1.8-7)", () => {
     const sorted = [...ranks].sort((a, b) => a - b);
     expect(ranks).toEqual(sorted);
     expect(new Set(ranks).size).toBe(ranks.length); // no duplicate ranks
+  });
+});
+
+describe("WORKTREE_CAPABLE_TOOLS / TOOL_WORKTREE_SUPPORT (D2-17)", () => {
+  // D2-17 (Cycle 11 Wave 3): the worktree-capable membership set is derived
+  // from the `Record<Tool, boolean>` TOOL_WORKTREE_SUPPORT (single typed
+  // source) rather than a hand-listed string literal, so a future 4th adapter
+  // added to TOOLS forces a compile error here until its support is declared —
+  // the Set can no longer silently omit a tool. The derive direction stays
+  // types.ts -> adapters (ADAPTER_CAPABILITIES.worktree reads this Set), pinned
+  // by the capabilityMatrixDrift test.
+  it("keys TOOL_WORKTREE_SUPPORT to exactly the TOOLS enum (no extra/missing)", () => {
+    expect(new Set(Object.keys(TOOL_WORKTREE_SUPPORT))).toEqual(new Set(TOOLS));
+  });
+
+  it("derives the Set membership from TOOL_WORKTREE_SUPPORT", () => {
+    for (const tool of TOOLS) {
+      expect(WORKTREE_CAPABLE_TOOLS.has(tool)).toBe(TOOL_WORKTREE_SUPPORT[tool]);
+    }
+  });
+
+  it("contains only declared-supported tools and never a non-Tool string", () => {
+    const expected = TOOLS.filter((t) => TOOL_WORKTREE_SUPPORT[t]);
+    expect([...WORKTREE_CAPABLE_TOOLS].sort()).toEqual([...expected].sort());
+  });
+
+  it("marks all three retained adapters worktree-capable today", () => {
+    expect(WORKTREE_CAPABLE_TOOLS.has("cursor")).toBe(true);
+    expect(WORKTREE_CAPABLE_TOOLS.has("claude")).toBe(true);
+    expect(WORKTREE_CAPABLE_TOOLS.has("copilot")).toBe(true);
   });
 });

@@ -30,7 +30,7 @@ import {
   type CanonicalType,
 } from "./canonical.js";
 import { applyCustomization } from "./customization.js";
-import type { CanonicalFile } from "../types.js";
+import type { CanonicalFile, ContentSelection } from "../types.js";
 
 /**
  * Customization classes that have a directory mapping in TYPE_TO_DIR
@@ -56,9 +56,14 @@ export interface CustomizationStatus {
    *   - `failed`  — at least one rejection warning surfaced (protected lock,
    *                 floor-tag lock, fail-closed deny-pattern drop, byte-cap
    *                 truncation, promptGuard block).
+   *   - `inert`   — an override exists but the artifact is NOT in the current
+   *                 content selection (`manifest.content.items`), so no adapter
+   *                 ever emits it. The override is real but has no effect on
+   *                 output. Dominates `active`/`skipped`/`failed` when a
+   *                 selection set is supplied (D10-29).
    *   - `none`    — no customize.yaml/.customize.md files for this id (default).
    */
-  outcome: "active" | "skipped" | "failed" | "none";
+  outcome: "active" | "skipped" | "failed" | "inert" | "none";
   /** True iff this artifact has a `.hatch3r/{type}/{id}.customize.yaml` file. */
   hasYaml: boolean;
   /** True iff this artifact has a `.hatch3r/{type}/{id}.customize.md` file. */
@@ -89,6 +94,12 @@ export interface CustomizationSummary {
     skipped: number;
     /** Artifacts where one or more rejections surfaced via warnings. */
     failed: number;
+    /**
+     * Artifacts whose override is real but inert because the artifact is not in
+     * the current content selection (`manifest.content.items`) — counted only
+     * when a selection set is passed to `buildCustomizationSummary` (D10-29).
+     */
+    inert: number;
   };
 }
 
@@ -110,6 +121,20 @@ function singularType(canonicalType: CanonicalType): string {
     default:
       return canonicalType;
   }
+}
+
+/**
+ * Selection-set membership test for a canonical artifact (D10-29).
+ *
+ * `CanonicalFile.id` always carries the `hatch3r-` prefix. Current manifests
+ * store the same prefixed id in `content.items`, but legacy manifests may carry
+ * the bare form, so both are accepted — mirroring the prefix-tolerant orphan
+ * scan in `src/cli/commands/sync.ts` (it probes `itemId` and `hatch3r-${itemId}`).
+ */
+function isSelected(canonicalId: string, selectedIds: ReadonlySet<string>): boolean {
+  if (selectedIds.has(canonicalId)) return true;
+  const bare = canonicalId.replace(/^hatch3r-/, "");
+  return selectedIds.has(bare);
 }
 
 /**
@@ -165,9 +190,26 @@ function classifyOutcome(args: {
  * Read-only: never writes adapter output, never touches `.hatch3r/hatch.json`.
  * Side effects limited to `.hatch3r/{type}/*.customize.{yaml,md}` reads (the
  * same paths `applyCustomization` reads during sync).
+ *
+ * D10-29: `buildCustomizationSummary` dry-calls against the FULL bundled
+ * corpus, but a user's repo emits only the artifacts in `manifest.content.items`
+ * (the selection set). An override on a deselected artifact therefore reaches
+ * no adapter output — reporting it as `active` mislabels a no-op as honored.
+ * When the caller passes `selectedIds` (the union of `content.items` across all
+ * types), an override on an id absent from that set is reclassified `inert`
+ * with the reason "not in current selection; will not be emitted". Omitting
+ * `selectedIds` (legacy "full" manifests with no `content` block) preserves the
+ * prior unfiltered behavior — every override is classified on its own merit.
+ *
+ * Selection-set membership is prefix-tolerant: `CanonicalFile.id` always carries
+ * the `hatch3r-` prefix (e.g. `hatch3r-architect`), and `content.items` stores
+ * the same prefixed ids in current manifests, but legacy manifests may carry the
+ * bare form. Both forms are accepted, mirroring the orphan-customize scan in
+ * `src/cli/commands/sync.ts`.
  */
 export async function buildCustomizationSummary(
   projectRoot: string,
+  selectedIds?: ReadonlySet<string>,
 ): Promise<CustomizationSummary> {
   const bundledRoot = resolveBundledContentRoot();
   const entries: CustomizationStatus[] = [];
@@ -199,12 +241,29 @@ export async function buildCustomizationSummary(
         continue;
       }
 
-      const classification = classifyOutcome({
+      let classification = classifyOutcome({
         skip: result.skip,
         overrideKeys,
         warnings: result.warnings,
         mdContentApplied: hasMdContent,
       });
+
+      // D10-29: a real override on an artifact the manifest never selects has
+      // no effect on adapter output. Reclassify it `inert` so the report does
+      // not advertise a deselected override as `active`/`skipped`/`failed`.
+      // `failed` is preserved — a rejection warning (protected/floor/deny) is a
+      // user-actionable authoring error regardless of selection, so it stays
+      // visible rather than being masked as inert.
+      if (
+        selectedIds !== undefined &&
+        classification.outcome !== "failed" &&
+        !isSelected(file.id, selectedIds)
+      ) {
+        classification = {
+          outcome: "inert",
+          reason: "not in current selection; will not be emitted",
+        };
+      }
 
       // Heuristic for the per-row `hasYaml` / `hasMd` flags exposed to
       // renderers. We do not re-read the snapshot to determine presence
@@ -240,10 +299,34 @@ export async function buildCustomizationSummary(
     active: entries.filter((e) => e.outcome === "active").length,
     skipped: entries.filter((e) => e.outcome === "skipped").length,
     failed: entries.filter((e) => e.outcome === "failed").length,
+    inert: entries.filter((e) => e.outcome === "inert").length,
   };
 
   // Stable sort by type then id so the report is deterministic across runs.
   entries.sort((a, b) => (a.type === b.type ? a.id.localeCompare(b.id) : a.type.localeCompare(b.type)));
 
   return { entries, counts };
+}
+
+/**
+ * Derive the `selectedIds` argument for `buildCustomizationSummary` from a
+ * manifest's `content` selection (D10-29). Returns the union of every id across
+ * `content.items.{agents,skills,rules,commands,...}`.
+ *
+ * Returns `undefined` when `content` is absent (legacy "full" manifests with no
+ * selection block) so the caller passes nothing and `buildCustomizationSummary`
+ * keeps its prior unfiltered behavior — never down-grading a real override to
+ * `inert` on a manifest that does not record a selection. Callers pass the
+ * result straight through:
+ *   `buildCustomizationSummary(rootDir, selectionSetFromManifest(manifest.content))`.
+ */
+export function selectionSetFromManifest(
+  content: ContentSelection | undefined,
+): ReadonlySet<string> | undefined {
+  if (!content) return undefined;
+  const ids = new Set<string>();
+  for (const list of Object.values(content.items)) {
+    for (const id of list) ids.add(id);
+  }
+  return ids;
 }

@@ -78,9 +78,15 @@ function bridgeAdapterPaths(adapter?: string): BridgeAdapterPaths {
  * Build the bridge orchestration body with adapter-native paths. Templated
  * over the four canonical content directories so each adapter's bridge file
  * cites the on-disk paths the user actually has after sync.
+ *
+ * @param handoffs - D1-30: when `false`, the `Handoffs: .hatch3r/handoffs/`
+ *   segment is dropped from the Canonical Structure line (the manifest's
+ *   `Features.handoffs` flag). Defaults to `true` so standalone callers and the
+ *   static {@link BRIDGE_ORCHESTRATION} export keep their pre-D1-30 output.
  */
-function buildBridgeOrchestration(adapter?: string): string {
+function buildBridgeOrchestration(adapter?: string, handoffs = true): string {
   const p = bridgeAdapterPaths(adapter);
+  const handoffsSegment = handoffs ? " — Handoffs: `.hatch3r/handoffs/`" : "";
   return `## Sub-Agent Pipeline (mandatory, no exceptions)
 
 All tasks use this four-phase pipeline. Never implement inline; always delegate.
@@ -121,7 +127,7 @@ Full protocol: \`hatch3r-agent-orchestration\` rule in \`${p.rulesDir}\`.
 ## Canonical Structure
 
 - Rules: \`${p.rulesDir}\` — Agents: \`${p.agentsDir}\` — Skills: \`${p.skillsDir}\`
-- Commands: \`${p.commandsDir}\` — MCP: \`.hatch3r/mcp/mcp.json\` — Learnings: \`.hatch3r/learnings/\` — Handoffs: \`.hatch3r/handoffs/\` — Overrides: \`.hatch3r/overrides/\`
+- Commands: \`${p.commandsDir}\` — MCP: \`.hatch3r/mcp/mcp.json\` — Learnings: \`.hatch3r/learnings/\`${handoffsSegment} — Overrides: \`.hatch3r/overrides/\`
 
 Do not edit \`hatch3r-\` prefixed files — managed by hatch3r, overwritten on update.
 
@@ -202,13 +208,18 @@ function renderIdList(ids: string[], max = 3): string {
  *   adapter-native path templating in the orchestration body. Defaults to
  *   `claude` to preserve backwards-compatible output when the caller does
  *   not name an adapter.
+ * @param handoffs - D1-30: manifest `Features.handoffs` flag. When `false`,
+ *   the `Handoffs: .hatch3r/handoffs/` segment is omitted from the Canonical
+ *   Structure line. Defaults to `true` (segment shown) for back-compatible
+ *   output when the caller does not thread the flag.
  */
 export async function generateBridgeOrchestration(
   canonicalRoot: string,
   preset?: string,
   adapter?: string,
+  handoffs = true,
 ): Promise<string> {
-  let base = buildBridgeOrchestration(adapter);
+  let base = buildBridgeOrchestration(adapter, handoffs);
 
   // Swap Getting Started section for minimal preset users (#99 D19)
   if (preset === "minimal") {

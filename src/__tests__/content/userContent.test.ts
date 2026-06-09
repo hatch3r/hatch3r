@@ -1647,6 +1647,27 @@ describe("hook-event enum parity (F20.1.A1)", () => {
       expect(result.strictFailures, `event ${event} should be accepted`).toEqual([]);
     }
   });
+
+  // D20-6: the invalid-event strict-gate message must enumerate every member of
+  // VALID_HOOK_EVENTS, not a hand-maintained literal that previously omitted
+  // `review-loop-cap` (8 of 9). The message is built from
+  // `[...VALID_HOOK_EVENTS].join(", ")`, so this guards against the list drifting
+  // out of sync with the enforced set on any future event add/remove.
+  it("the invalid-event strict message enumerates every VALID_HOOK_EVENTS member", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "hook",
+        name: "drift-guard-hook",
+        hookEvent: "made-up-event",
+      }),
+    );
+    const message = result.strictFailures.find((s) => /Hook event/.test(s));
+    expect(message, "expected a Hook event strict failure").toBeDefined();
+    for (const event of VALID_HOOK_EVENTS) {
+      expect(message, `message should list "${event}"`).toContain(event);
+    }
+  });
 });
 
 describe("lean-threshold doc round-trip (F20.1.E1)", () => {

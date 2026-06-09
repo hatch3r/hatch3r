@@ -110,13 +110,12 @@ The TypeScript implementation of this schema with runtime validation is in `src/
 1. **Timeout:** Forward partial output. Mark status `TIMEOUT`. Continue pipeline ONLY for conditional specialists. A mandatory always-mode CQ3/CQ5 specialist on TIMEOUT fails closed — surface `BLOCKED`, never treat the missing gate as a pass.
 2. **Crash/no output:** Mark status `FAILED`. Log reason. Continue if non-blocking. A mandatory always-mode CQ3/CQ5 specialist is blocking — a crash or no-output return fails closed (surface `BLOCKED`, explicit operator decision before merge/release), it is never "non-blocking".
 3. **Conflicting outputs:** When two specialists disagree (e.g., security vs performance), escalate to user with both positions.
-4. **Resource exhaustion:** If context window is exhausted, summarize prior context and continue with summary.
+4. **Resource exhaustion:** Apply the Context-Degradation Policy (this file) — compress at `>50%` window, restart at `>75%`.
 
 ### Retry Policies
 
-- Subagent retries: 0 (spawn a new agent with adjusted prompt instead).
+- Subagent retries: 0 — never retry the same failed operation identically; spawn a new agent with an adjusted prompt/approach instead.
 - Phase retries: Phase 3 review loop retries up to 3 iterations (code-class cap = `DEFAULT_MAX_REVIEW_ITERATIONS` - 1). All other phases: 0 retries (escalate to user).
-- Never retry the same failed operation identically — adjust the prompt or approach.
 
 ## Observability Integration
 
@@ -208,7 +207,7 @@ After pipeline completion, the orchestrator captures lessons for future runs:
 
 ## Multi-Task and Concurrent Pipeline Support
 
-Finding D7-M13 / D7-SA7.5-3: the orchestration rule's `Task Context Protocols` paragraph documents multi-task / epic / batch handling in a single sentence; the protocol benefits from an expanded canonical schema so downstream pack integrators have a deterministic specification.
+Canonical schema for the one-sentence multi-task / epic / batch handling in the orchestration rule's `Task Context Protocols`, so pack integrators have a deterministic specification (Finding D7-M13 / D7-SA7.5-3).
 
 **Dependency-graph construction.** Multi-task input (epic, plain-chat multi-request, or board batch) is parsed into discrete units. Each unit carries its own `correlationId` (epic sub-issues get individual IDs sharing a parent epic ID; batch tasks share one ID with a sub-task index). The orchestrator builds a directed acyclic dependency graph from declared inter-unit constraints (e.g., "issue B depends on issue A's API changes"); units with no declared dependency form the root level.
 
@@ -218,9 +217,7 @@ Finding D7-M13 / D7-SA7.5-3: the orchestration rule's `Task Context Protocols` p
 
 **File-overlap reconciliation.** When two parallel implementers in the same level touch the same file: accept disjoint-region edits without conflict; merge overlapping regions using the larger-scope change as base (the smaller change replays onto the larger); halt on semantic conflicts for user resolution. Per Parallel Safety condition 3, NO mid-pipeline writes to shared mutable state (`.hatch3r/hatch.json`, `.hatch3r/learnings/INDEX.md`) — learnings consolidation happens at pipeline completion only.
 
-**Review loop coordination.** After all level-N implementers complete, the orchestrator runs ONE consolidated Phase 3 review loop covering the union diff produced by the level. Per-unit Phase 4 specialist dispatch then runs in parallel bounded by `max_phase4_parallel`. Level-N+1 begins only after Level-N reaches Phase 4 completion (validated by `evaluatePhase4Completion`).
-
-**Concurrent-invocation handling.** Cross-pipeline (two `hatch3r` commands in two shells against the same repo) is deferred to a future cycle pending the Decision 27 resumability work, tracked in the audit closed-loop CL-2 spec.
+**Review loop coordination.** After all level-N implementers complete, the orchestrator runs ONE consolidated Phase 3 review loop covering the union diff produced by the level. Per-unit Phase 4 specialist dispatch then runs in parallel bounded by `max_phase4_parallel`. Level-N+1 begins only after Level-N reaches Phase 4 completion (validated by `evaluatePhase4Completion`). Cross-pipeline concurrent invocation (two `hatch3r` commands in two shells against the same repo) is deferred per the cross-command note below + the audit CL-2 spec.
 
 ## Pipeline Pattern (Cross-Command Consistency)
 
@@ -234,17 +231,20 @@ Finding D7-M12 / D7-SA7.5-2: implementation-flavored orchestrators (`workflow`, 
 | Phase 4 Final Quality | CQ + SSOT specialists, batched by severity, bounded by `max_phase4_parallel` | T2/T3 | T1 — only always-mode floor (`security` + `testability`) |
 | Phase 4 Validation Pass | re-run tests/typecheck vs Phase-3 baseline; re-review on specialist code mutations | T2/T3 | — |
 
-Cross-command error-handling defaults: sub-agent failure → retry once then fall back to direct/inline implementation per command's carve-out; quality-check failure → max 2 retry loops then ASK; context-degradation threshold → 25 turns (quick-change tightens to 15 per its documented rationale). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work.
+Cross-command error-handling defaults: sub-agent failure → retry once then fall back to direct/inline implementation per command's carve-out; quality-check failure → max 2 retry loops then ASK; context degradation → the single Context-Degradation Policy below (window-fraction primary: compress `>50%`, restart `>75%`; turn counts a coarse fallback). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work.
 
-## Context Token Optimization
+## Context-Degradation Policy
 
-When pipeline context exceeds 50% of the available context window, apply these compression strategies in order:
+Single canonical policy for every pipeline command (reconciles the per-command turn bullets, Finding D7-24). **Window-fraction is the authoritative axis**; the per-command turn count is a coarse fallback for the same threshold at that command's pace, used only when the host surfaces no context-window percentage. Commands cite this policy, not restated numbers.
+
+| Window fraction (primary) | Action | Turn-count fallback (coarse) |
+|---------------------------|--------|------------------------------|
+| `> 50%` | Compress: apply the numbered strategies below in order. | implementation/review ≈ 25 turns; quick-change ≈ 15 (fast-completion scope); debug ≈ 20 |
+| `> 75%` | Restart: suggest a fresh chat / batch split carrying a progress summary of completed + remaining work; a fresh-context command (`hatch3r-revision`) just re-runs. | ≈ 1.5× the compress turn count |
 
 1. **Summarize Phase 1 output.** Replace full research findings with a structured summary: affected files (list), blast radius (count + top 3), key conventions (bullet points). Keep raw data only for the fields the current phase needs.
 2. **Prune resolved findings.** After Phase 3 review loop, remove findings that were fixed and confirmed. Only carry forward unresolved findings.
 3. **Collapse specialist results.** In the final output, summarize specialist results as a single status table rather than including full specialist reports. Full reports are available on request.
 4. **Never truncate security findings.** Security auditor output is always included in full regardless of context pressure.
 
-These strategies preserve decision-critical information while reducing token overhead for long pipelines.
-
-**Handoff loss measurement.** Compression is lossy by design, so measure it. At each phase transition the orchestrator records a `PhaseHandoffMetrics` record (`src/pipeline/observability.ts::createPhaseHandoffMetrics`) capturing input bytes, output bytes, whether summarisation was applied, and an `informationLossEstimate` (0-1 fraction of input bytes dropped). When `informationLossEstimate` exceeds `0.3`, surface the single-line warning from `formatPhaseHandoffWarning` in the iteration summary so downstream phases validate that critical context survived. This closes the gap where a downstream phase silently receives a summary when it needed the full upstream output.
+**Handoff loss measurement.** Compression is lossy, so measure it. At each phase transition the orchestrator records a `PhaseHandoffMetrics` record (`src/pipeline/observability.ts::createPhaseHandoffMetrics`) capturing input bytes, output bytes, whether summarisation was applied, and an `informationLossEstimate` (0-1 fraction of input bytes dropped). When `informationLossEstimate` exceeds `0.3`, surface the `formatPhaseHandoffWarning` line in the iteration summary so downstream phases validate that critical context survived — closing the gap where a phase silently receives a summary when it needed the full upstream output.

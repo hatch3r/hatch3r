@@ -13,7 +13,7 @@ import {
   loadSpaceMetricsFromDisk,
   summarizeSpaceMetricRecords,
 } from "../../pipeline/spaceTelemetry.js";
-import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
+import { buildCustomizationSummary, selectionSetFromManifest } from "../../adapters/customizationSummary.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import {
   assertManifest,
@@ -705,13 +705,20 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
   // needing `--verbose` or `hatch3r explain --customizations`. The prior
   // one-line "N active" summary hid the per-artifact id list.
   try {
-    const customizationSummary = await buildCustomizationSummary(rootDir);
+    const customizationSummary = await buildCustomizationSummary(
+      rootDir,
+      selectionSetFromManifest(manifest.content),
+    );
     if (customizationSummary.entries.length > 0) {
       const c = customizationSummary.counts;
       const oneLine =
         `${chalk.bold(String(c.active))} active` +
         (c.skipped > 0 ? `, ${chalk.yellow(String(c.skipped))} skipped` : "") +
-        (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "");
+        (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "") +
+        // D10-29: inert overrides (deselected artifact, no adapter emits them)
+        // surface in the one-liner so an override that silently does nothing is
+        // not hidden behind the active count.
+        (c.inert > 0 ? `, ${chalk.yellow(String(c.inert))} inert` : "");
       const customLines: string[] = [oneLine];
       if (opts?.verbose) {
         customLines.push("");
@@ -721,28 +728,35 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
               ? chalk.red("✗")
               : entry.outcome === "skipped"
                 ? chalk.yellow("○")
-                : entry.outcome === "active"
-                  ? chalk.green("✓")
-                  : chalk.dim("·");
+                : entry.outcome === "inert"
+                  ? chalk.yellow("⊘")
+                  : entry.outcome === "active"
+                    ? chalk.green("✓")
+                    : chalk.dim("·");
           const reason = entry.reason ? chalk.dim(` — ${entry.reason}`) : "";
           customLines.push(`  ${icon} ${entry.type}/${entry.id}${reason}`);
         }
       } else {
         // SA12.1-F-D12-M7: list non-active entries first (failed > skipped >
-        // active) so problems are immediately visible. Cap the active rows at
-        // 8 to keep the box readable on a fresh install with many overrides;
-        // the operator runs `--verbose` or `hatch3r explain --customizations`
-        // for the full list.
+        // inert > active) so problems are immediately visible. Cap the active
+        // rows at 8 to keep the box readable on a fresh install with many
+        // overrides; the operator runs `--verbose` or
+        // `hatch3r explain --customizations` for the full list.
         const FAILED_FIRST = customizationSummary.entries
           .filter((e) => e.outcome === "failed")
           .sort((a, b) => a.id.localeCompare(b.id));
         const SKIPPED_NEXT = customizationSummary.entries
           .filter((e) => e.outcome === "skipped")
           .sort((a, b) => a.id.localeCompare(b.id));
+        // D10-29: inert overrides are user-actionable (the artifact is
+        // deselected) — show every one, never capped, ranked above active.
+        const INERT_NEXT = customizationSummary.entries
+          .filter((e) => e.outcome === "inert")
+          .sort((a, b) => a.id.localeCompare(b.id));
         const ACTIVE_LAST = customizationSummary.entries
           .filter((e) => e.outcome === "active")
           .sort((a, b) => a.id.localeCompare(b.id));
-        const visible = [...FAILED_FIRST, ...SKIPPED_NEXT, ...ACTIVE_LAST.slice(0, 8)];
+        const visible = [...FAILED_FIRST, ...SKIPPED_NEXT, ...INERT_NEXT, ...ACTIVE_LAST.slice(0, 8)];
         const hiddenActive = Math.max(0, ACTIVE_LAST.length - 8);
         if (visible.length > 0) {
           customLines.push("");
@@ -752,7 +766,9 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
                 ? chalk.red("✗")
                 : entry.outcome === "skipped"
                   ? chalk.yellow("○")
-                  : chalk.green("✓");
+                  : entry.outcome === "inert"
+                    ? chalk.yellow("⊘")
+                    : chalk.green("✓");
             const reason = entry.reason ? chalk.dim(` — ${entry.reason}`) : "";
             customLines.push(`  ${icon} ${entry.type}/${entry.id}${reason}`);
           }
@@ -762,14 +778,14 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
             );
           }
         }
-        if (c.failed > 0 || c.skipped > 0) {
+        if (c.failed > 0 || c.skipped > 0 || c.inert > 0) {
           customLines.push(chalk.dim(`  Run \`hatch3r explain --customizations\` for the per-artifact table.`));
         }
       }
       printBox(
         "Customizations",
         customLines,
-        c.failed > 0 ? "warning" : c.skipped > 0 ? "info" : "success",
+        c.failed > 0 ? "warning" : c.skipped > 0 || c.inert > 0 ? "info" : "success",
       );
     }
   } catch (err) {

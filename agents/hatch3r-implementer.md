@@ -180,7 +180,7 @@ Skip this step if the issue has no user-facing UI changes.
 
 ### 5c. UI/UX Verification Gate (if UI)
 
-**Trigger:** any file in `filesChanged` matching `**/*.{tsx,jsx,vue,svelte}` or any path under `**/components/**`. Skip when no path in the change set matches. Measurement criteria are defined in `agents/shared/quality-charter.md` lines 137-148 (Charter section "UI/UX quality (for agent-produced output in end-user projects)") — that section is binding via this agent's `quality_charter` frontmatter field.
+**Trigger:** any file in `filesChanged` matching `**/*.{tsx,jsx,vue,svelte}` or any path under `**/components/**`. Skip when no path in the change set matches. Measurement criteria are defined in `agents/shared/quality-charter.md` §UI/UX quality (Charter section "UI/UX quality (for agent-produced output in end-user projects)") — that section is binding via this agent's `quality_charter` frontmatter field.
 
 This gate is mandatory when triggered; passing Step 5b screenshot verification does not substitute for it. Step 5b confirms visual presence; Step 5c confirms the 2026 UI/UX floor (WCAG 2.2 AA conformance, design-token reuse, four-state surface contract, microcopy and tone, AI-UX patterns when applicable, Core Web Vitals).
 
@@ -308,7 +308,7 @@ Apply this format whenever the implementation involves choosing between approach
 
 ## Review Loop Awareness
 
-After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 3 iterations). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
+After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 4 iterations (matches `DEFAULT_MAX_REVIEW_ITERATIONS`)). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
 After the review loop, Phase 4 specialists run bounded by the orchestrator-honored `max_phase4_parallel` width (default `8` — LLM-honored guidance, not a code-enforced cap). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ9) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
 

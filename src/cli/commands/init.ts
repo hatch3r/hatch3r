@@ -1457,7 +1457,12 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     const shellSourceTools = tools.filter((t) => MCP_SHELL_SOURCE_TOOLS.has(t));
     const autoLoadTools = tools.filter((t) => MCP_AUTO_LOAD_TOOLS.has(t));
     if (shellSourceTools.length > 0) {
-      summaryLines.push(`  Then run: ${chalk.dim(getSourceEnvMcpCommand())} ${chalk.dim(`(for ${shellSourceTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")})`)}`);
+      // D10-23 (D10, P1 — WCAG 1.4.3 AA): the source command is an action the
+      // user must type, so render the imperative verb + command token at normal
+      // weight (`chalk.bold`, parity with the "Verify with:" CTA above) instead
+      // of `chalk.dim` (SGR 2 drops below the 4.5:1 AA contrast floor on light
+      // themes). Only the parenthetical tool-scope annotation stays dim.
+      summaryLines.push(`  Then run: ${chalk.bold(getSourceEnvMcpCommand())} ${chalk.dim(`(for ${shellSourceTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")})`)}`);
     }
     if (autoLoadTools.length > 0) {
       summaryLines.push(`  ${chalk.dim(`${autoLoadTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} auto-load .env.mcp on a terminal launch; for a macOS Dock/Finder launch run \`launchctl setenv <VAR> <value>\` per secret.`)}`);

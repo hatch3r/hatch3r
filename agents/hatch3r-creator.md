@@ -52,7 +52,7 @@ The orchestrator (`/hatch3r-create`) provides:
   rulePrecedence: "critical" | "high" | "normal" | "low", // rule only
   isOrchestrator: true | false,                       // command only
   agentPipeline:  ["hatch3r-researcher", ...],        // command only (orchestrator)
-  hookEvent:      "pre-commit" | "post-merge" | "ci-failure" | "file-save" | "session-start" | "pre-push" | "worktree-create" | "worktree-remove"  // hook only
+  hookEvent:      "pre-commit" | "post-merge" | "ci-failure" | "file-save" | "session-start" | "pre-push" | "worktree-create" | "worktree-remove" | "review-loop-cap"  // hook only
 }
 ```
 
@@ -233,7 +233,7 @@ Pull from `user-content-templates.md` §4. Two variants:
 |------|---|-------|
 | `id` | yes | matches `name` |
 | `type` | yes | literal `hook` |
-| `event` | yes | one of `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove` |
+| `event` | yes | one of `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove | review-loop-cap` |
 | `agent` | yes | the agent invoked when the hook fires |
 | `description` | yes | ≥60 chars |
 | `globs` | optional | CSV string for file-save event filtering |

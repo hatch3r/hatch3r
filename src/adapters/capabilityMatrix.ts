@@ -268,7 +268,7 @@ export function enumerateAdapterCapabilities(
  */
 const PLATFORM_CAPABILITY_SEED: Record<AuditedAdapter, PlatformCapability[]> = {
   claude: [
-    { id: "hooks", name: "Hooks (PreToolUse/PostToolUse/Session/Worktree)", status: "supported", detail: "~30-event catalogue incl. PreToolUse/PostToolUse/PostToolUseFailure/SessionStart/SubagentStart/SubagentStop/Stop/StopFailure/TaskCreated/InstructionsLoaded (re-verified 2026-06-06; see mapToClaudeEvent in claude.ts)" },
+    { id: "hooks", name: "Hooks (PreToolUse/PostToolUse/Session/Worktree)", status: "supported", detail: "~30-event catalogue incl. PreToolUse/PostToolUse/PostToolUseFailure/SessionStart/SubagentStart/SubagentStop/Stop/StopFailure/TaskCreated/InstructionsLoaded (re-verified 2026-06-09 against code.claude.com/docs/en/hooks; see mapToClaudeEvent in claude.ts, D9-10)" },
     { id: "settings-json", name: "settings.json (permissions, teammateMode, env)", status: "supported" },
     { id: "mcp-servers", name: "MCP servers (.mcp.json)", status: "supported", detail: "stdio + http transports" },
     { id: "slash-commands", name: "Slash commands (.claude/commands/)", status: "supported" },
