@@ -113,7 +113,10 @@ describe("CursorAdapter hooks integration", () => {
       o.path.includes("hatch3r-hook-pre-commit-lint-fixer"),
     );
     expect(lintHook).toBeDefined();
-    expect(lintHook!.content).toContain('globs: ["src/**/*.ts", "src/**/*.tsx"]');
+    // D9-13: cursor emits `globs:` as an unquoted comma-separated string with no
+    // space after the comma (cursor.com/docs/context/rules), not a bracketed array.
+    expect(lintHook!.content).toContain("globs: src/**/*.ts,src/**/*.tsx");
+    expect(lintHook!.content).not.toContain("globs: [");
     expect(lintHook!.content).toContain("lint-fixer");
     expect(lintHook!.content).toContain("pre-commit");
   });

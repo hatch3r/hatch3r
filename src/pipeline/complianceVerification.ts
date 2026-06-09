@@ -21,6 +21,10 @@ import { AGENT_TOOL_POLICIES, ALL_TOOL_CATEGORIES, validateToolPolicies, type Ag
 import { HARD_MAX_REVIEW_ITERATIONS, DEFAULT_MAX_REVIEW_ITERATIONS } from "./reviewLoop.js";
 import { MAX_PHASE_INPUT_LENGTH, MAX_AGENT_OUTPUT_LENGTH } from "./promptGuard.js";
 import { DEFAULT_PIPELINE_TIMEOUT_MS, MAX_PIPELINE_TIMEOUT_MS } from "./pipelineTimeout.js";
+import { executeWithPhaseTimeout } from "./phaseTimeout.js";
+import { generateWithTimeout } from "./adapterTimeout.js";
+import type { Adapter } from "../adapters/base.js";
+import type { AdapterOutput, HatchManifest } from "../types.js";
 import {
   computeDiffHash,
   createHandoffPayload,
@@ -196,6 +200,122 @@ export function verifyMonotonicPrivilege(
     }
   }
   return { ok: violations.length === 0, violations };
+}
+
+// ── D8-10: deadman→phase→adapter signal-propagation verification ────
+
+/**
+ * D8-10 (Cycle 11 Wave 3, D8): verify the abort signal actually reaches the
+ * adapter through the SAME `executeWithPhaseTimeout` → `generateWithTimeout`
+ * chain the `sync`/`update` commands use, rather than merely confirming the
+ * timeout modules are imported (the prior `detectResilienceInvocations` grep).
+ *
+ * The C9-H20 chain is deadman → phase controller → adapter. The phase fn must
+ * thread the phase `AbortSignal` into `generateWithTimeout`'s `parentSignal`
+ * slot or the abort dies at the phase→adapter hop and `BaseAdapter`'s
+ * `throwIfSignalAborted` can never fire (the exact regression D8-10 found at
+ * both call sites, which passed `undefined` in that slot). This self-test runs
+ * a probe adapter that (a) records whether the `signal` argument it received is
+ * defined and (b) hangs until that signal aborts. Driven with a sub-second
+ * phase timeout, it PASSES only when the adapter saw a non-undefined signal AND
+ * that signal aborted — proving end-to-end propagation. If the threading
+ * regresses to `undefined`, the probe never sees an abort, the phase timeout
+ * still fires, but `signalDefined` is false and this FAILS.
+ */
+export async function verifyAdapterSignalPropagation(): Promise<{
+  ok: boolean;
+  detail: string;
+}> {
+  let signalDefined = false;
+  let signalAborted = false;
+
+  const probe: Adapter = {
+    name: "compliance-probe",
+    warnings: [],
+    async generate(
+      _canonicalRoot: string,
+      _manifest: HatchManifest,
+      _userRepoRoot?: string,
+      _generationMode?: "standard" | "minimal",
+      signal?: AbortSignal,
+    ): Promise<AdapterOutput[]> {
+      signalDefined = signal !== undefined;
+      // Hang until the threaded signal aborts. If the signal never arrives
+      // (regression), only the outer phase timeout ends the race and this
+      // promise is abandoned — signalAborted stays false.
+      await new Promise<void>((resolve) => {
+        if (signal?.aborted) {
+          signalAborted = true;
+          resolve();
+          return;
+        }
+        signal?.addEventListener(
+          "abort",
+          () => {
+            signalAborted = true;
+            resolve();
+          },
+          { once: true },
+        );
+      });
+      return [];
+    },
+    async getOutputPaths(): Promise<string[]> {
+      return [];
+    },
+  };
+
+  // Drive the probe through the production chain. A PRE-ABORTED parent stands
+  // in for "the deadman already fired": `executeWithPhaseTimeout` aborts its
+  // phase controller on entry, the phase fn threads that signal into
+  // `generateWithTimeout`'s parentSignal slot — the line under test — and the
+  // probe sees an aborted signal and returns immediately. Pre-aborting (rather
+  // than waiting on a timer) keeps this self-test sub-millisecond so it does not
+  // add the clamped MIN_ADAPTER_TIMEOUT_MS (5s) to every `validate` run, while
+  // still failing if the parentSignal slot regresses to `undefined`.
+  const manifest = { tools: [] } as unknown as HatchManifest;
+  const preAborted = new AbortController();
+  preAborted.abort();
+  await executeWithPhaseTimeout(
+    "adapter",
+    (phaseSignal) =>
+      generateWithTimeout(
+        "compliance-probe" as unknown as Parameters<typeof generateWithTimeout>[0],
+        probe,
+        "",
+        manifest,
+        "standard",
+        { timeoutMs: 5_000 },
+        phaseSignal,
+      ),
+    { timeoutMs: 10_000 },
+    preAborted.signal,
+  );
+
+  if (!signalDefined) {
+    return {
+      ok: false,
+      detail:
+        "deadman/phase signal not threaded to adapter: generate() received an undefined signal " +
+        "(the deadman→phase→adapter chain is severed — check the parentSignal slot at the " +
+        "sync.ts/update.ts generateWithTimeout call sites).",
+    };
+  }
+  if (!signalAborted) {
+    return {
+      ok: false,
+      detail:
+        "deadman/phase abort did not propagate: the adapter received a signal but a pre-aborted " +
+        "parent did not surface as an aborted signal at generate() (chaining regressed in " +
+        "executeWithPhaseTimeout/generateWithTimeout).",
+    };
+  }
+  return {
+    ok: true,
+    detail:
+      "Abort propagation verified end-to-end: the phase signal reaches generate() and an " +
+      "adapter/phase-timeout breach aborts it (deadman → phase controller → adapter, C9-H20/D8-10).",
+  };
 }
 
 // ── Types ────────────────────────────────────────────────────────
@@ -445,6 +565,22 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     status: DEFAULT_PIPELINE_TIMEOUT_MS > 0 && pipelineTimeoutInvoked ? "pass" : "fail",
     detail: `Default: ${Math.round(DEFAULT_PIPELINE_TIMEOUT_MS / 1000)}s, max: ${Math.round(MAX_PIPELINE_TIMEOUT_MS / 1000)}s; ` +
       `pipelineTimeout invoked from CLI: ${pipelineTimeoutInvoked ? "yes" : "no"}`,
+  });
+
+  // ── D8-10: deadman→phase→adapter signal propagation ──
+  // The prior coverage for this chain was import-presence only — it could not
+  // detect a severed `parentSignal` slot (the D8-10 regression where the phase
+  // fn passed `undefined`). This check runs the real chain against a probe
+  // adapter and EARNS its verdict: PASS only when the adapter receives a
+  // non-undefined signal that actually aborts on a timeout breach.
+  const signalProp = await verifyAdapterSignalPropagation();
+  checks.push({
+    id: "adapter-signal-propagation",
+    description: "Phase/deadman abort signal propagates into adapter generation (self-test)",
+    controlRef: "ASI-TIMEOUT",
+    enforcement: "runtime-CLI",
+    status: signalProp.ok ? "pass" : "fail",
+    detail: signalProp.detail,
   });
 
   // ── Resilience module wiring (Finding C7-C1) ──

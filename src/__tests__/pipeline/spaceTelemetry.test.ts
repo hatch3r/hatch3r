@@ -6,10 +6,12 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import {
   DEFAULT_RING_BUFFER_SIZE,
+  DEFAULT_SPACE_LOAD_WINDOW_DAYS,
   SPACE_AXES,
   SPACE_TELEMETRY_DIR_RELATIVE,
   getSpaceMetricsSnapshot,
   getSpaceSummary,
+  loadSpaceMetricsFromDisk,
   readSpaceMetricsForDay,
   recordFirstRunSuccess,
   recordSpaceMetric,
@@ -380,6 +382,91 @@ describe("readSpaceMetricsForDay", () => {
     recordFirstRunSuccess(false, { projectRoot: tmpRoot, tags: { run: "3" } });
     resetSpaceMetricsBuffer(); // wipe in-memory state to prove the read is disk-sourced
     const records = readSpaceMetricsForDay(undefined, tmpRoot);
+    const perf = summarizeSpaceMetricRecords(records).find((r) => r.axis === "performance");
+    expect(perf?.count).toBe(3);
+    expect(perf?.mean).toBeCloseTo(2 / 3, 5);
+  });
+});
+
+// ── loadSpaceMetricsFromDisk (across-runs multi-day reader, D10-38) ──
+
+describe("loadSpaceMetricsFromDisk", () => {
+  function writeDay(date: string, metricIds: string[]): void {
+    const dir = join(tmpRoot, SPACE_TELEMETRY_DIR_RELATIVE);
+    mkdirSync(dir, { recursive: true });
+    const lines = metricIds.map((metricId) =>
+      JSON.stringify({
+        metricId,
+        axis: "performance",
+        value: 1,
+        timestamp: `${date}T00:00:00.000Z`,
+      }),
+    );
+    writeFileSync(join(dir, `space-${date}.jsonl`), lines.map((l) => l + "\n").join(""));
+  }
+
+  it("concatenates records across multiple days within an explicit inclusive range", () => {
+    writeDay("2026-06-01", ["d1.a", "d1.b"]);
+    writeDay("2026-06-02", ["d2.a"]);
+    writeDay("2026-06-03", ["d3.a"]);
+    const records = loadSpaceMetricsFromDisk(tmpRoot, { from: "2026-06-01", to: "2026-06-03" });
+    expect(records.map((r) => r.metricId).sort()).toEqual(["d1.a", "d1.b", "d2.a", "d3.a"]);
+  });
+
+  it("excludes day-files outside the requested range", () => {
+    writeDay("2026-06-01", ["inside"]);
+    writeDay("2026-06-05", ["outside"]);
+    const records = loadSpaceMetricsFromDisk(tmpRoot, { from: "2026-06-01", to: "2026-06-02" });
+    expect(records.map((r) => r.metricId)).toEqual(["inside"]);
+  });
+
+  it("returns [] for an inverted range (from after to) without iterating any day", () => {
+    writeDay("2026-06-01", ["a"]);
+    expect(loadSpaceMetricsFromDisk(tmpRoot, { from: "2026-06-03", to: "2026-06-01" })).toEqual([]);
+  });
+
+  it("reads the trailing-window of days (default) ending today", () => {
+    // recordFirstRunSuccess stamps today's date; a record written today must be
+    // visible to a default-window load that has no ring-buffer state.
+    recordFirstRunSuccess(true, { projectRoot: tmpRoot, tags: { run: "today" } });
+    resetSpaceMetricsBuffer();
+    const records = loadSpaceMetricsFromDisk(tmpRoot);
+    expect(records.some((r) => r.metricId === "firstRunSuccessRate")).toBe(true);
+  });
+
+  it("honours an explicit windowDays count", () => {
+    const today = new Date().toISOString().slice(0, 10);
+    const eightDaysAgo = new Date(Date.now() - 8 * 86_400_000).toISOString().slice(0, 10);
+    writeDay(today, ["recent"]);
+    writeDay(eightDaysAgo, ["stale"]);
+    // Default 7-day window excludes the 8-days-ago file; a 9-day window includes it.
+    const narrow = loadSpaceMetricsFromDisk(tmpRoot, { windowDays: DEFAULT_SPACE_LOAD_WINDOW_DAYS });
+    expect(narrow.map((r) => r.metricId)).toEqual(["recent"]);
+    const wide = loadSpaceMetricsFromDisk(tmpRoot, { windowDays: 9 });
+    expect(wide.map((r) => r.metricId).sort()).toEqual(["recent", "stale"]);
+  });
+
+  it("returns [] when the telemetry directory is absent (Silent Failure Contract)", () => {
+    expect(loadSpaceMetricsFromDisk(tmpRoot, { from: "2026-06-01", to: "2026-06-03" })).toEqual([]);
+  });
+
+  it("feeds summarizeSpaceMetricRecords to recover firstRunSuccessRate across runs", () => {
+    // Two init runs on day 1 (1 success, 1 failure) + one success on day 2 ->
+    // aggregate performance mean 2/3 read back across both days from disk.
+    const dir = join(tmpRoot, SPACE_TELEMETRY_DIR_RELATIVE);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, "space-2026-06-01.jsonl"),
+      [
+        JSON.stringify({ metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: "2026-06-01T00:00:00.000Z" }),
+        JSON.stringify({ metricId: "firstRunSuccessRate", axis: "performance", value: 0, timestamp: "2026-06-01T00:00:01.000Z" }),
+      ].map((l) => l + "\n").join(""),
+    );
+    writeFileSync(
+      join(dir, "space-2026-06-02.jsonl"),
+      JSON.stringify({ metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: "2026-06-02T00:00:00.000Z" }) + "\n",
+    );
+    const records = loadSpaceMetricsFromDisk(tmpRoot, { from: "2026-06-01", to: "2026-06-02" });
     const perf = summarizeSpaceMetricRecords(records).find((r) => r.axis === "performance");
     expect(perf?.count).toBe(3);
     expect(perf?.mean).toBeCloseTo(2 / 3, 5);

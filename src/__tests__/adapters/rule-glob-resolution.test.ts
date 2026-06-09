@@ -145,21 +145,20 @@ This rule scopes to TypeScript sources and markdown files.`,
     expect(resolveRuleGlobs(cond!)).toEqual(EXPECTED_GLOBS);
   });
 
-  it("cursor emits the real glob set, never globs: [\"conditional\"]", async () => {
+  it("cursor emits the real glob set as a CSV string, never globs: conditional", async () => {
     const outputs = await new CursorAdapter().generate(canonicalRoot, makeManifest("cursor"));
     const ruleOut = outputs.find((o) => o.path.includes("cond-rule.mdc"));
     expect(ruleOut).toBeDefined();
     const content = ruleOut!.content;
-    // Value-assert: exact frontmatter line with the resolved patterns.
-    expect(content).toContain(`globs: [${EXPECTED_GLOBS.map((g) => `"${g}"`).join(", ")}]`);
-    expect(content).toContain('"src/**/*.ts"');
-    expect(content).toContain('"*.md"');
-    // Regression: the literal token must never appear as a glob, and an
+    // D9-13 (Cycle 11 Wave 3): cursor emits `globs:` as an unquoted comma-
+    // separated string with no space after the comma (cursor.com/docs/context/rules),
+    // not a bracketed array. Value-assert the exact frontmatter line.
+    expect(content).toContain(`globs: ${EXPECTED_GLOBS.join(",")}`);
+    expect(content).not.toContain("globs: [");
+    // Regression: the literal token must never appear as the glob value, and an
     // unconditional fallback must not be emitted for a genuinely scoped rule.
-    expect(content).not.toContain('globs: ["conditional"]');
+    expect(content).not.toContain("globs: conditional");
     expect(content).not.toContain("alwaysApply: true");
-    // No adapter output for this scoped rule should carry the bare token.
-    expect(content).not.toMatch(/globs:\s*\[[^\]]*"conditional"/);
   });
 
   it("copilot emits applyTo with the real glob set, never applyTo: \"conditional\"", async () => {

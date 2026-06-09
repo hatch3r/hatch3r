@@ -486,16 +486,25 @@ export async function syncCommand(
   }
 
   // F6.4-H1 (D6, OWASP ASI06 Memory & Context Poisoning): materialization-time
-  // learnings + handoffs gate. Adapters pour `.hatch3r/learnings/` into the
-  // per-tool context file (CLAUDE.md / `.cursor/rules/*` / copilot-instructions),
-  // and `.hatch3r/handoffs/` are user-tier state consumed by resuming agents.
-  // The loader agent's "invoke sanitizeUserContent" prose is unenforceable —
-  // the LLM is the very actor being hijacked and has no JS runtime. We run the
-  // deterministic `validateLearningsDirectory` / `validateHandoffsDirectory`
-  // passes HERE, in the CLI write path, BEFORE any adapter materializes the
-  // context file. `validate.ts` runs these at `validate` time; this is the
-  // auto-run that closes the runtime-write gap (D6-7 — the deterministic gate
-  // was opt-in, never on the materialization path).
+  // learnings + handoffs gate.
+  //
+  // D15-13 (Cycle 11 Wave 3, D15, ASI06): accuracy correction. No CLI adapter
+  // (claude/cursor/copilot) reads the `learning` type into a context file —
+  // `src/adapters/canonical.ts` registers `learnings` in `canonicalReadMap` but
+  // no `doGenerate` consumes it. `.hatch3r/learnings/` is materialized into a
+  // session by the RUNTIME `hatch3r-learnings-loader` agent (Claude SessionStart
+  // hook, see `src/adapters/claude.ts`), not by a deterministic adapter sink. So
+  // the ASI06 attack surface for learnings is the loader LLM — which has no JS
+  // runtime, making its "invoke sanitizeUserContent" prose unenforceable at run
+  // time. The two deterministic passes below are therefore a DEFENSE-IN-DEPTH
+  // pre-flight (CLI-write boundary), NOT the primary enforcement of a non-
+  // existent adapter materialization sink: they hard-fail the run before a
+  // poisoned learning can be loaded by that runtime agent on the next session.
+  // `.hatch3r/handoffs/` ARE user-tier state consumed by resuming agents; the
+  // same deterministic pass refuses a poisoned handoff before the next agent
+  // reads it. `validate.ts` runs these at `validate` time; this is the auto-run
+  // that closes the runtime-load gap (D6-7 — the deterministic gate was opt-in,
+  // never on the write path).
   //
   // D6-7 (Cycle 11 Wave 2, D6, ASI06): a learnings injection-pattern hit now
   // BLOCKS the sync (override with `--force`), matching the handoffs validator
@@ -573,17 +582,23 @@ export async function syncCommand(
     verbose(`Learnings/handoffs pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // F6.4-H1 (D6, OWASP ASI06): runtime materialization-time per-file loader
-  // hook. The directory-level scan above is the hard pre-flight that refuses
-  // the run; this is the defense-in-depth per-file gate that runs even
-  // under `--force` — invalid individual files are silently skipped from
-  // adapter materialization, with the skip routed through the
-  // `.failure-log.jsonl` channel (Silent Failure Contract — CONSTITUTION
-  // §2 P5). The loader is a read-only enumeration; adapters consuming the
-  // canonical learnings type still go through their existing reader, so
-  // this hook acts as an audit-visible counter that mirrors the same gates
-  // and surfaces them via observability. Skipping a single bad file does
-  // not poison the rest of the sync.
+  // F6.4-H1 (D6, OWASP ASI06): per-file learnings loader gate. The directory-
+  // level scan above is the hard pre-flight that refuses the run; this is the
+  // defense-in-depth per-file gate that runs even under `--force` — invalid
+  // individual files are skipped from the loadable set, with the skip routed
+  // through the `.failure-log.jsonl` channel (Silent Failure Contract —
+  // CONSTITUTION §2 P5).
+  //
+  // D15-13 (Cycle 11 Wave 3, D15, ASI06): the loader is a read-only enumeration
+  // that mirrors the same gates the runtime `hatch3r-learnings-loader` agent is
+  // instructed to apply when it loads `.hatch3r/learnings/` into a session (no
+  // CLI adapter reads the `learning` type — see the directory-gate comment
+  // above). It acts as an audit-visible counter over BOTH dispositions:
+  // `skipped` (fail-closed) AND `loaded` (the files that survive every gate and
+  // will be available to that runtime agent). The prior code discarded
+  // `loaded`, so the count of learnings actually cleared for runtime load was
+  // never observable — surface it under --verbose. Skipping a single bad file
+  // does not poison the rest of the sync.
   try {
     const loaderResult = await loadValidatedLearnings(rootDir, {
       onWarn: (msg) => warn(msg),
@@ -591,8 +606,16 @@ export async function syncCommand(
     });
     if (loaderResult.skipped.length > 0) {
       warn(
-        `Learnings loader skipped ${loaderResult.skipped.length} file(s) at materialization — ` +
-          `audit detail in ${HATCH3R_DIR}/${FAILURE_LOG_FILE}`,
+        `Learnings loader skipped ${loaderResult.skipped.length} file(s) — ` +
+          `fail-closed, not available for runtime load; audit detail in ` +
+          `${HATCH3R_DIR}/${FAILURE_LOG_FILE}`,
+      );
+    }
+    if (loaderResult.loaded.length > 0) {
+      verbose(
+        `Learnings loader: ${loaderResult.loaded.length} file(s) passed every gate and ` +
+          `are available to the runtime hatch3r-learnings-loader agent ` +
+          `(${loaderResult.loaded.reduce((n, l) => n + l.byteLength, 0)} bytes total).`,
       );
     }
   } catch (err) {
@@ -766,7 +789,18 @@ export async function syncCommand(
       // wall-clock breach aborts the phase controller too.
       executeWithPhaseTimeout(
         "adapter",
-        async () => {
+        // D8-10 (Cycle 11 Wave 3, D8, P-CQ4): the phase fn receives the phase
+        // AbortSignal — `executeWithPhaseTimeout` aborts it on either the
+        // phase-timeout timer OR the chained `deadmanSignal` (parentSignal,
+        // below). Threading it into `generateWithTimeout`'s parentSignal slot
+        // is what makes the abort reach the in-flight adapter:
+        // `BaseAdapter.throwIfSignalAborted(signal)` then fires on the next
+        // await. Before this fix the fn took no argument and passed `undefined`
+        // in that slot, so the C9-H20 deadman→phase→adapter chain was severed
+        // at the phase→adapter hop — a hang inside `adapter.generate` never saw
+        // the abort and `runWithPipelineDeadman` could only reject AFTER the
+        // adapter eventually returned (defeating the wall-clock budget).
+        async (phaseSignal) => {
           for (const tool of m.tools) {
     const s = createSpinner(step(++currentStep, totalSteps, `Generating ${tool} output...`));
     s.start();
@@ -803,7 +837,11 @@ export async function syncCommand(
             m,
             generationMode,
             undefined,
-            undefined,
+            // D8-10: parentSignal — the phase signal carries the deadman abort
+            // (deadman → phase controller → adapter). `generateWithTimeout`
+            // chains it into its own per-adapter controller, so a wall-clock
+            // breach surfaces as an AbortError on the adapter's next await.
+            phaseSignal,
             rootDir,
           ),
         // D8-SA8.4-F8.4.6 (Cycle 10 Wave 4, D8, P-CQ4): the call-site walks

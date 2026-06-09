@@ -13,13 +13,21 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
-import { readMaturityTier, maturityDirective } from "../manifest/hatchJson.js";
+import {
+  readMaturityTier,
+  maturityDirective,
+  readConfidenceFloor,
+  confidenceFloorDirective,
+} from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
-import { toCopilotToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
+import {
+  toCopilotToolsFrontmatter,
+  toCopilotToolsFrontmatterFromCategories,
+} from "../pipeline/adapterToolTranslator.js";
 
 // Issue #73 — Copilot has `hooks: false` in ADAPTER_CAPABILITIES (no
 // PreToolUse hook, no transcript access for external processes, no
@@ -91,27 +99,84 @@ const COPILOT_ORCHESTRATOR_ONLY_AGENTS = new Set<string>([
 ]);
 
 /**
- * D9-5 (Cycle 11 D9, P3): split a leading `---\n...\n---` YAML frontmatter
- * fence from the body of an authored content file, returning the verbatim
- * fence (no trailing newline) and the remaining body. Used by the
- * github-agents emission path so the authored frontmatter is preserved at
- * byte 0 of the output file while only the body is wrapped in a managed
- * block — Copilot's `.github/agents/*.agent.md` loader parses frontmatter
- * only at byte 0.
+ * D9-16 (Cycle 11 Wave 3, D9, P3 model resolution + P5 silent-failure): the
+ * GitHub Copilot `.agent.md` `model:` frontmatter field expects a model the
+ * Copilot model picker resolves — a provider-dated model ID
+ * (`claude-sonnet-4.5`, `gpt-5.2-codex`, `gemini-3-flash`) or a documented
+ * display name carrying a `(copilot)` qualifier (`GPT-5.2 (copilot)`). Source:
+ * https://docs.github.com/en/copilot/reference/custom-agents-configuration +
+ * the agent-frontmatter `model:` examples on
+ * https://code.visualstudio.com/docs/agent-customization/custom-agents
+ * (accessed 2026-06-06).
  *
- * The fence is returned verbatim (not re-serialized) so github-agent fields
- * outside the canonical `CanonicalMetadata` model (e.g. `quality_charter`,
- * `efficiency_patterns`, `cache_friendly`) survive untouched. Mirrors the
- * anchored shape of `FRONTMATTER_REGEX` in `src/adapters/canonical.ts`.
- *
- * Returns `frontmatter: ""` when the input has no leading fence (e.g. a
- * frontmatter-less github-agent), in which case the caller wraps the whole
- * body as before.
+ * The hatch3r-internal capacity tiers `standard` and `fast` (authored on 29 of
+ * the canonical agents' `model:` frontmatter) are NOT in `MODEL_ALIASES`, so
+ * `resolveAgentModel` → `resolveModelAlias` passes them through verbatim. Copilot
+ * cannot resolve either word, so it silently falls back to the picker default —
+ * the per-agent cost tier becomes a no-op AND the emitted file carries an
+ * unrecognized value (a silent-failure surface, CONSTITUTION §2 P5). Gate native
+ * emission to a recognizable value; an unmappable tier word is omitted (Copilot
+ * then uses its default, which is the same effective behaviour but without
+ * shipping a dead field). This mirrors `isClaudeRecognizableModel`
+ * (src/adapters/claude.ts) for the Copilot surface.
  */
-function splitFrontmatter(raw: string): { frontmatter: string; body: string } {
-  const match = raw.match(/^(---\r?\n[\s\S]*?\r?\n---)(?:\r?\n([\s\S]*))?$/);
-  if (!match) return { frontmatter: "", body: raw };
-  return { frontmatter: match[1], body: match[2] ?? "" };
+function isCopilotRecognizableModel(model: string): boolean {
+  return (
+    /^claude-/.test(model) ||
+    /^gpt-/.test(model) ||
+    /^codex-/.test(model) ||
+    /^gemini-/.test(model) ||
+    // Documented display-name form: a `(copilot)`-qualified picker label.
+    /\(copilot\)\s*$/.test(model)
+  );
+}
+
+/**
+ * D5-39 (Cycle 11 Wave 3, D5, P6): default tool-category grant per github-agent
+ * role, keyed by emitted (prefixed) id. github-agents (`type: github-agent`)
+ * are simplified cloud-agent definitions whose ids are outside the canonical
+ * `AGENT_TOOL_POLICIES` registry, so `toCopilotToolsFrontmatter` returns `null`
+ * for them and — pre-fix — they shipped with NO `tools:` restriction (a
+ * security/lint cloud agent inherited every tool). These grants give each role
+ * a least-privilege baseline the adapter renders via
+ * `toCopilotToolsFrontmatterFromCategories`:
+ *   - docs  → read/search/write  (writes specs + ADRs; no shell)
+ *   - test  → read/search/write/execute  (writes + runs tests)
+ *   - lint  → read/search/write/execute  (applies fixes + runs linters)
+ *   - security → read/search  (audits; reports findings, never mutates)
+ * An unlisted github-agent falls back to {@link GITHUB_AGENT_DEFAULT_CATEGORIES}
+ * (read/search) — the most restrictive functional baseline — so a future
+ * github-agent is never emitted unrestricted. Categories resolve through the
+ * shared `COPILOT_CATEGORY_MAP`, so the category→alias mapping stays
+ * single-source with the registry path.
+ */
+const GITHUB_AGENT_TOOL_CATEGORIES: Readonly<Record<string, readonly string[]>> = {
+  "hatch3r-docs-agent": ["read", "search", "write"],
+  "hatch3r-test-agent": ["read", "search", "write", "execute"],
+  "hatch3r-lint-agent": ["read", "search", "write", "execute"],
+  "hatch3r-security-agent": ["read", "search"],
+};
+
+/** D5-39: read-only baseline for any github-agent without an explicit grant. */
+const GITHUB_AGENT_DEFAULT_CATEGORIES: readonly string[] = ["read", "search"];
+
+/**
+ * D9-5 (Cycle 11 D9, P3) / D5-39 (Cycle 11 Wave 3, D5): strip a leading
+ * `---\n...\n---` YAML frontmatter fence and return the remaining body. Used by
+ * the github-agents emission path: the authored fence is discarded (the adapter
+ * re-serializes a Copilot-recognized frontmatter under D5-39) and only the body
+ * is wrapped in a managed block — Copilot's `.github/agents/*.agent.md` loader
+ * parses frontmatter only at byte 0, so the normalized fence must sit there.
+ * Mirrors the anchored shape of `FRONTMATTER_REGEX` in
+ * `src/adapters/canonical.ts`.
+ *
+ * Returns the whole input as `body` when there is no leading fence (e.g. a
+ * frontmatter-less github-agent).
+ */
+function splitFrontmatter(raw: string): { body: string } {
+  const match = raw.match(/^---\r?\n[\s\S]*?\r?\n---(?:\r?\n([\s\S]*))?$/);
+  if (!match) return { body: raw };
+  return { body: match[1] ?? "" };
 }
 
 /**
@@ -251,12 +316,19 @@ export class CopilotAdapter extends BaseAdapter {
     // first managed-block line so the tier travels with the artifact. Paired
     // with F14.3-C1's admission tagging so the marker is meaningful.
     const maturityTier = readMaturityTier(ctx.manifest);
+    // D1-17 (Cycle 11 Wave 3, D1, P1): resolved confidence floor (explicit
+    // `confidenceFloor` else the maturity-aware default) so the configured
+    // agent-assertiveness floor reaches copilot-instructions.md — pre-fix the
+    // persisted floor reached no adapter output.
+    const confidenceFloor = readConfidenceFloor(ctx.manifest);
     // D6-29 (Cycle 11 Wave 3): emit the shared directive payload (single source
     // in hatchJson.ts::maturityDirective) as a blockquote line — copilot's
     // native marker form, in contrast to the claude/cursor HTML-comment wrapper.
+    // D1-17: the confidence-floor marker rides the same blockquote surface.
     const innerContent = [
       "",
       `> ${maturityDirective(maturityTier)}`,
+      `> ${confidenceFloorDirective(confidenceFloor)}`,
       "",
       "# Hatch3r Project Instructions",
       "",
@@ -322,7 +394,20 @@ jobs:
       // https://code.visualstudio.com/docs/copilot/copilot-customization
       // (custom instructions `applyTo` frontmatter).
       const applyTo = globs.join(", ");
-      const fm = `---\napplyTo: "${applyTo}"\n---`;
+      const fmLines = [`applyTo: "${applyTo}"`];
+      // D5-29 (Cycle 11 Wave 3, P6): render the optional Copilot agent-scope
+      // opt-out. A rule that declares `copilot_exclude_agent: "code-review"`
+      // (or `"coding-agent"` / `"cloud-agent"`) emits an `excludeAgent:` line
+      // so the named agent skips this path-scoped instruction file — the only
+      // Copilot-native opt-out for a path-specific instructions file
+      // (https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot,
+      // accessed 2026-06-06: works alongside `applyTo`; omission = every agent
+      // uses the file). Absent on every canonical rule today, so no line is
+      // emitted by default and current output is byte-identical.
+      if (rule.copilotExcludeAgent) {
+        fmLines.push(`excludeAgent: "${rule.copilotExcludeAgent}"`);
+      }
+      const fm = `---\n${fmLines.join("\n")}\n---`;
       const body = `# ${rule.id}\n\n${rule.description}\n\n${content}`;
       // Wave B3: NN- filename prefix on scoped per-file rule outputs.
       const nn = precedenceRank(rule.precedence) / 10;
@@ -353,7 +438,13 @@ jobs:
         const desc = overrides.description ?? agent.description;
         const prefixedId = toPrefixedId(agent.id);
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
-        if (model) lines.push(`model: ${model}`);
+        // D9-16 (Cycle 11 Wave 3, P3 + P5): emit `model:` only when it resolves
+        // to a Copilot-recognizable value. The hatch3r-internal tier words
+        // `standard`/`fast` (on 29 canonical agents) are not Copilot picker
+        // names; emitting them ships a dead field Copilot silently ignores
+        // while falling back to its default. Omitting them yields the same
+        // effective model with no silent-failure surface.
+        if (model && isCopilotRecognizableModel(model)) lines.push(`model: ${model}`);
         // C7.5-W2B2-H41/H45 (D15, P6): emit Copilot `tools:` allowlist
         // translated from AGENT_TOOL_POLICIES so the downstream Copilot
         // agent runtime enforces the hatch3r monotonic-privilege
@@ -399,21 +490,40 @@ jobs:
       // C9-H39 (D11-SA11.1-01): tracked read wrapper for github-agents provenance.
       const ghAgents = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "github-agents", ctx.userRepoRoot);
       for (const agent of ghAgents) {
-        // D9-5 (Cycle 11 D9, P3): split the authored YAML frontmatter from the
-        // body and emit `${frontmatter}\n\n${wrapManagedFor(path, body)}` —
-        // identical layout to the regular-agent path above. Previously
-        // `wrapManagedFor` wrapped the entire `agent.rawContent` (which starts
-        // `---\nname:...`), so `<!-- HATCH3R:BEGIN -->` landed on byte 0 and the
-        // `---` fence on line 2; GitHub Copilot's `.github/agents/*.agent.md`
-        // loader only parses frontmatter at byte 0, so every github-agent's
-        // `tools: [...]` + `description` was demoted into the managed-block body
-        // and ignored. The verbatim fence is preserved (not re-serialized) so
-        // github-agent-only fields (`quality_charter`, `efficiency_patterns`,
-        // `cache_friendly`) survive untouched.
-        const { frontmatter, body } = splitFrontmatter(agent.rawContent);
-        const ghAgentPath = `.github/agents/${toPrefixedId(agent.id)}.agent.md`;
+        // D5-39 (Cycle 11 Wave 3, D5, P6): NORMALIZE the github-agent
+        // frontmatter instead of shipping the authored fence verbatim. The
+        // authored frontmatter carries fields Copilot's `.github/agents/*.agent.md`
+        // loader does not recognize (`type`, `tags`, `quality_charter`,
+        // `efficiency_patterns`, `cache_friendly`) and — critically — NO
+        // `tools:` line, so every github-agent (including the security and lint
+        // cloud agents) shipped with no tool restriction. Re-serialize a
+        // Copilot-recognized frontmatter (`name` + `description` + a `tools:`
+        // allowlist + an optional gated `model:`) from the parsed metadata.
+        //
+        // D9-5 layout is preserved: the frontmatter still opens at byte 0 and
+        // only the body is wrapped in the managed block (Copilot parses
+        // frontmatter only at byte 0). `splitFrontmatter` is retained solely to
+        // recover the prose body; the authored fence is discarded in favour of
+        // the normalized one.
+        const { body } = splitFrontmatter(agent.rawContent);
+        const prefixedId = toPrefixedId(agent.id);
+        const ghAgentPath = `.github/agents/${prefixedId}.agent.md`;
+        const lines = [`name: ${agent.id}`, `description: ${agent.description}`];
+        // D9-16 (Cycle 11 Wave 3, P3 + P5): same model gate as the regular-agent
+        // path — emit `model:` only for a Copilot-recognizable value, never the
+        // hatch3r tier words `standard`/`fast`.
+        const model = agent.model ? resolveAgentModel(agent.id, agent, ctx.manifest, {}) : undefined;
+        if (model && isCopilotRecognizableModel(model)) lines.push(`model: ${model}`);
+        // D5-39: per-role least-privilege `tools:` allowlist (read-only baseline
+        // for an unlisted github-agent), rendered through the shared category map.
+        const categories = GITHUB_AGENT_TOOL_CATEGORIES[prefixedId] ?? GITHUB_AGENT_DEFAULT_CATEGORIES;
+        const tools = toCopilotToolsFrontmatterFromCategories(categories);
+        if (tools) {
+          lines.push(`tools: [${tools.map((t) => `"${t}"`).join(", ")}]`);
+        }
+        const fm = `---\n${lines.join("\n")}\n---`;
         const wrappedBody = wrapManagedFor(ghAgentPath, body);
-        const content = frontmatter ? `${frontmatter}\n\n${wrappedBody}` : wrappedBody;
+        const content = `${fm}\n\n${wrappedBody}`;
         results.push(output(ghAgentPath, content, body, copilotSingleSource(agent)));
       }
     }
@@ -501,6 +611,25 @@ jobs:
       if (inputs.length > 0) doc.inputs = inputs;
       doc.servers = vscodeServers;
       results.push(output(".vscode/mcp.json", JSON.stringify(doc, null, 2) + "\n"));
+      // D15-28 (Cycle 11 Wave 3, D15, P6, SA15.5-F7): Silent Failure Contract.
+      // A non-empty `inputs[]` means at least one HTTP MCP server carried a
+      // secret-bearing header (`${env:NAME}`) that was rewritten to the VS Code
+      // `${input:NAME}` prompt form — the ONLY header-secret mechanism VS Code
+      // substitutes. Unlike STDIO `envFile` secrets (loaded transparently from
+      // `.env.mcp`), an `${input:NAME}` header is resolved by an interactive VS
+      // Code prompt at first server use, NOT from `.env.mcp`. Surface this so an
+      // operator who set the secret in `.env.mcp` understands why VS Code still
+      // prompts and does not assume the header authenticates silently.
+      if (inputs.length > 0) {
+        const ids = inputs.map((i) => i.id).join(", ");
+        this.warnings.push(
+          `Copilot MCP: HTTP header secret(s) ${ids} emitted to .vscode/mcp.json ` +
+            `as \`\${input:...}\` prompt variable(s) — VS Code does NOT expand ` +
+            `\`.env.mcp\` in header values, so VS Code will prompt for these at ` +
+            `first MCP use (the value is not read from .env.mcp). Enter the secret ` +
+            `when prompted; it is stored in VS Code's secret storage thereafter.`,
+        );
+      }
     }
 
     return results;

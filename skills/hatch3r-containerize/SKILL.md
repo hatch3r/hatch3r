@@ -2,7 +2,7 @@
 id: hatch3r-containerize
 name: hatch3r-containerize
 type: skill
-description: Containerize an application through a repeatable workflow — multi-stage Dockerfile, non-root hardening, minimal base image, .dockerignore, healthcheck, local docker-compose, Kubernetes manifest basics, and an image-scan gate. Use when adding or hardening container artifacts.
+description: Containerizes an application through a repeatable workflow — multi-stage Dockerfile, non-root hardening, minimal base image, .dockerignore, healthcheck, local docker-compose, Kubernetes manifest basics, and an image-scan gate. Use when adding or hardening container artifacts.
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -35,12 +35,12 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (one service, Dockerfile only): inline execution acceptable.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Tier boundaries for THIS skill:
+- Tier 1 (one service, Dockerfile only): inline.
 - Tier 2 (Dockerfile + compose + one K8s manifest for one service): spawn one sub-agent per artifact via the Task tool.
 - Tier 3 (multi-service repo, one image set per service): one fresh sub-agent per service; orchestrator integrates the compose/manifest set only.
 
-Token cost never justifies under-fan-out. Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Pick a Minimal Base Image and Plan the Build/Runtime Split
 

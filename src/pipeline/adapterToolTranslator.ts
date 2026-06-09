@@ -153,6 +153,32 @@ export function toCopilotToolsFrontmatter(agentId: string): readonly string[] | 
 }
 
 /**
+ * D5-39 (Cycle 11 Wave 3, D5, P6): translate an explicit hatch3r category list
+ * to the GitHub Copilot `tools: [...]` YAML-array value, bypassing the
+ * `AGENT_TOOL_POLICIES` registry lookup.
+ *
+ * The Copilot twin of {@link toClaudeToolsFrontmatterFromCategories}. Used by
+ * the github-agent emission path in `src/adapters/copilot.ts`: github-agents
+ * (`type: github-agent`) are simplified cloud-agent definitions with ids
+ * outside the canonical `AGENT_TOOL_POLICIES` registry, so the registry-keyed
+ * {@link toCopilotToolsFrontmatter} returns `null` for them and they would
+ * otherwise ship with NO `tools:` restriction. This helper renders a default
+ * category grant the adapter supplies per github-agent role through the same
+ * {@link COPILOT_CATEGORY_MAP} so the monotonic-privilege invariant and the
+ * category→alias mapping stay single-source.
+ *
+ * Returns `null` when the resolved set is empty (no categories, or only
+ * categories that map to no Copilot alias — e.g. `mcp`/`board`), so the caller
+ * omits the frontmatter field.
+ */
+export function toCopilotToolsFrontmatterFromCategories(
+  categories: readonly string[],
+): readonly string[] | null {
+  const tools = resolveNativeTools(categories, COPILOT_CATEGORY_MAP);
+  return tools.length === 0 ? null : tools;
+}
+
+/**
  * Cursor subagent frontmatter does not expose an explicit tool
  * allowlist — the closest analogue is `readonly: true`, which blocks
  * file edits and state-changing shell commands (per Cursor subagents

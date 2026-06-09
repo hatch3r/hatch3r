@@ -87,16 +87,28 @@ describe.skipIf(!HAS_DIST)("CLI entry point (src/cli/index.ts)", () => {
   });
 
   describe("unknown command handling", () => {
-    it("exits with code 1 for unknown commands", () => {
+    // D12-8 (Cycle 11 Wave 3, P1): unknown commands are a USAGE error, so they
+    // exit 2 (not 1) to honor the cli-ux-standards contract (0 ok / 1 unexpected
+    // / 2 usage) and match the unknown-option path (commander → exitOverride →
+    // CommanderError → index.ts exit 2).
+    it("exits with code 2 for unknown commands", () => {
       const { exitCode, stderr } = runCli(["nonexistent-command"]);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(2);
       expect(stderr).toContain("Unknown command");
       expect(stderr).toContain("--help");
     });
 
-    it("redirects agent commands with helpful message", () => {
+    it("exits with code 2 for an unknown option (same usage class as unknown command)", () => {
+      // `status` is a real command; the bogus flag is the usage error. This
+      // proves the unknown-OPTION and unknown-COMMAND paths share exit 2.
+      const { exitCode, stderr } = runCli(["status", "--definitely-not-a-flag"]);
+      expect(exitCode).toBe(2);
+      expect(stderr).toContain("--definitely-not-a-flag");
+    });
+
+    it("redirects agent commands with helpful message and exit code 2", () => {
       const { exitCode, stderr } = runCli(["workflow"]);
-      expect(exitCode).toBe(1);
+      expect(exitCode).toBe(2);
       expect(stderr).toContain("agent command");
       expect(stderr).toContain("AI editor");
     });

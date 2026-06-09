@@ -361,10 +361,17 @@ export async function runRegenerate(
   };
 
   // F6.4-H1 (D6, OWASP ASI06): materialization-time learnings + handoffs gate.
-  // Like `hatch3r sync`, the regenerate write path pours `.hatch3r/learnings/`
-  // into each tool's context file, and `.hatch3r/handoffs/` are user-tier state
-  // consumed by resuming agents. Run the deterministic validators before any
-  // adapter materializes output. D6-7 (Cycle 11 Wave 2, D6, ASI06): a learnings
+  // D15-13 (Cycle 11 Wave 3, D15, ASI06): accuracy correction (parity with
+  // `hatch3r sync`). No CLI adapter reads the `learning` type; `.hatch3r/
+  // learnings/` is loaded into a session by the runtime `hatch3r-learnings-
+  // loader` agent, not a deterministic adapter sink. The passes below are a
+  // defense-in-depth pre-flight at the CLI-write boundary that hard-fails the
+  // run before a poisoned learning can be loaded by that runtime agent, NOT the
+  // primary guard of a non-existent materialization sink. `.hatch3r/handoffs/`
+  // ARE user-tier state consumed by resuming agents; the same pass refuses a
+  // poisoned handoff before the next agent reads it. Run the deterministic
+  // validators before any adapter writes output. D6-7 (Cycle 11 Wave 2, D6,
+  // ASI06): a learnings
   // injection-pattern hit BLOCKS the regenerate (override with `--force`),
   // matching the handoffs validator which already treats P-LEARN matches as
   // hard errors; structural errors still block; benign advisories stay
@@ -495,7 +502,14 @@ export async function runRegenerate(
     (deadmanSignal) =>
       executeWithPhaseTimeout(
         "adapter",
-        async () => {
+        // D8-10 (Cycle 11 Wave 3, D8, P-CQ4): parity with `hatch3r sync` — the
+        // phase fn receives the phase AbortSignal (aborted on the phase-timeout
+        // timer OR the chained `deadmanSignal` parentSignal below) and threads
+        // it into `generateWithTimeout`'s parentSignal slot so a wall-clock
+        // breach reaches the in-flight adapter via
+        // `BaseAdapter.throwIfSignalAborted`. The prior no-argument fn passed
+        // `undefined` there, severing the C9-H20 deadman→phase→adapter chain.
+        async (phaseSignal) => {
           for (const tool of manifest.tools) {
       let breaker = breakers.get(tool) ?? createCircuitBreaker({ serviceId: `adapter:${tool}` });
       const allowResult = shouldAllowRequest(breaker);
@@ -525,7 +539,10 @@ export async function runRegenerate(
               manifest,
               "standard",
               undefined,
-              undefined,
+              // D8-10: parentSignal — phase signal carries the deadman abort so
+              // a wall-clock breach surfaces as an AbortError on the adapter's
+              // next await (deadman → phase controller → adapter).
+              phaseSignal,
               rootDir,
             ),
           // D8-SA8.4-F8.4.6 (Cycle 10 Wave 4, D8, P-CQ4): deliberate fast-fail

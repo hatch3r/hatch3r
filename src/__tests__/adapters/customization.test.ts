@@ -792,7 +792,8 @@ describe("CursorAdapter with customization", () => {
     // (rank 500, rendered as `50-`).
     const ruleFile = outputs.find((o) => o.path === ".cursor/rules/50-hatch3r-test-rule.mdc");
     expect(ruleFile).toBeDefined();
-    expect(ruleFile!.content).toContain('globs: ["src/**/*.ts"]');
+    // D9-13: cursor emits `globs:` as an unquoted comma-separated string.
+    expect(ruleFile!.content).toContain("globs: src/**/*.ts");
     expect(ruleFile!.content).not.toContain("alwaysApply: true");
   });
 

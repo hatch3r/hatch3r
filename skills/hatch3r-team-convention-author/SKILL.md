@@ -11,7 +11,7 @@ cache_friendly: true
 
 # Team Convention Author — Elicit, Draft, Align, Persist
 
-Captures a team's tacit coding conventions and working agreements into a single versioned artifact the whole team can read and an agent can enforce. Two output shapes: a **convention doc** (`docs/process/` markdown — for human-facing working agreements: ownership, review norms, communication) and a **project rule** (`.cursor/rules/` or the repo's rule surface — for machine-enforceable code conventions: naming, structure, lint deltas). The load-bearing step is Step 1: a convention written FOR a team by one person decays; a convention written BY the team through elicitation holds (team-charter methodology — see References).
+Captures a team's tacit coding conventions and working agreements into a single versioned artifact the whole team can read and an agent can enforce. Two output shapes: a **convention doc** (`docs/process/` markdown — for human-facing working agreements: ownership, review norms, communication) and a **project rule** (`.hatch3r/overrides/rules/` — for machine-enforceable code conventions: naming, structure, lint deltas — so the rule is tracked by `hatch3r status`/`verify` and regenerated into the adapter surfaces on `sync`, not written drift-invisibly into a generated file). The load-bearing step is Step 1: a convention written FOR a team by one person decays; a convention written BY the team through elicitation holds (team-charter methodology — see References).
 
 ## Quick Start
 
@@ -31,12 +31,12 @@ Before any write, scan the invocation for unresolved questions in scope, intent,
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (single convention class, one stack): inline execution acceptable.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Tier boundaries for THIS skill:
+- Tier 1 (single convention class, one stack): inline.
 - Tier 2 (both a code-rule set AND a working-agreement doc, or conventions spanning ≥2 stacks): spawn one sub-agent per disjoint artifact via the Task tool; each drafts its own file.
 - Tier 3 (full team-handbook codification across many domains — frontend, backend, infra, review process): one fresh sub-agent per domain; orchestrator integrates the index only.
 
-Token cost never justifies under-fan-out. Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Elicit the Team's Conventions and Working Agreements
 
@@ -54,11 +54,13 @@ Route each elicited item to its output shape. The distinction drives where the a
 
 | Item type | Output shape | Lands in | Enforcement |
 |-----------|--------------|----------|-------------|
-| Machine-checkable code rule (naming, structure, import order, lint delta) | Project rule | The repo's rule surface (e.g., `.cursor/rules/*.mdc`, or a linter config) | Agent reads the rule each session; linter where expressible |
+| Machine-checkable code rule (naming, structure, import order, lint delta) | Project rule | `.hatch3r/overrides/rules/<id>.md` (+ `.mdc` companion) so `hatch3r status`/`verify` track it and `sync` regenerates it into the adapter surfaces; OR a linter config | Agent reads the rule each session; linter where expressible |
 | Human working agreement (review norms, merge policy, communication, decision-recording) | Convention doc | `docs/process/<topic>.md` | Read by humans; cited in PR templates and onboarding |
 | Pure-style point already owned by an adopted style guide | Neither — link to the style guide | The convention doc's "Authority" section | The style guide is the source of truth; do not restate it |
 
 Do not duplicate a rule the adopted style guide or an existing linter config already enforces — link to it instead (single-source-of-truth; restating drifts). A code convention that a linter can check belongs in the linter config with a one-line pointer from the rule, not as prose the agent must interpret.
+
+Write a machine rule into `.hatch3r/overrides/rules/`, not directly into a generated adapter surface such as `.cursor/rules/*.mdc` or `docs/process/`. A rule authored straight into the adapter output is invisible to `hatch3r status`/`verify` drift detection and is overwritten on the next `sync` regeneration (SA14.3-F6). The overrides subtree is the user-content surface `hatch3r` re-emits with overrides on every sync; `docs/process/` stays the home for human working agreements only.
 
 ## Step 3: Cross-Check Against Existing Project Rules and Style Guides
 
@@ -73,6 +75,7 @@ Output of this step: a reconciliation list — `{ candidate, status: new | amend
 ## Step 4: Draft to the Matching Template
 
 **Project rule** (machine-enforceable code convention):
+- Target path: `.hatch3r/overrides/rules/<id>.md` plus the `.mdc` companion (same body bytes; `scope: always` → `alwaysApply: true`, `scope: conditional` + `globs` → `globs: [...]` + `alwaysApply: false`). This is the user-content override surface `hatch3r` tracks for drift and regenerates on sync — the same path the `cursor` rule importer writes to.
 - Frontmatter: `id`, `description` (one line, what the rule enforces), scope (`always` for repo-wide, or a glob for path-scoped).
 - Body: each convention as `Convention → one concrete example → rationale`. State the passing condition concretely ("test files live next to source as `*.test.ts`", not "tests organized well").
 - Link, do not restate, anything a linter or the adopted style guide already enforces.
@@ -92,7 +95,10 @@ A convention written for a team is weaker than one written by a team; ownership 
 
 1. **Present the draft to the team for ratification** — every flagged item (no-rationale preferences, internal contradictions, style-guide overrides) is resolved by the team, not assumed. Surface them as explicit decisions.
 2. **Confirm scope** — repo-wide rule vs path-scoped; project doc vs shared-across-repos.
-3. **Persist** — write the rule to the rule surface or the doc to `docs/process/`. Set the ownership footer (owner, ratifying team, last-updated). Link the doc from the contributing guide or PR template so it is discoverable; an unlinked convention doc is not adopted.
+3. **Persist each output to its tracked surface:**
+   - **Machine rule** → write `.hatch3r/overrides/rules/<id>.md` + its `.mdc` companion. This registers the rule in the user-content override surface, so `hatch3r status`/`verify` report drift on it and `hatch3r sync` regenerates it into the adapter outputs (`.cursor/rules/`, `CLAUDE.md`, Copilot instructions). A convention written straight into a generated adapter file instead is drift-invisible and is clobbered on the next sync (SA14.3-F6) — never persist there. If the team is instead amending an existing canonical rule rather than adding a new one, register the delta in `.hatch3r/hatch.json` `customization` (or the `.customize.md` layer) for that rule id, not a fresh override file.
+   - **Working agreement** → write the doc to `docs/process/<topic>.md` (human-facing; not a drift-tracked machine artifact).
+   Set the ownership footer (owner, ratifying team, last-updated) on each. Link the doc from the contributing guide or PR template so it is discoverable; an unlinked convention doc is not adopted.
 4. **Record the decision trail** — note which conventions were team-ratified and which are documented codebase-defaults, so a later reader knows what is negotiable.
 
 ## Error Handling
@@ -110,7 +116,8 @@ A convention written for a team is weaker than one written by a team; ownership 
 - [ ] Reconciled against existing rules and the adopted style guide; conflicts and overrides resolved by the team, not assumed
 - [ ] Drafted to the matching template with measurable passing conditions and per-agreement rationale
 - [ ] Team-ratified (or marked `proposed — pending ratification`); ownership + last-updated footer present
-- [ ] Persisted, linked from contributing guide / PR template, and the negotiable-vs-default decision trail recorded
+- [ ] Machine rules written to `.hatch3r/overrides/rules/<id>.md` (+ `.mdc`) — or registered via `.hatch3r/hatch.json` `customization` when amending a canonical rule — so `hatch3r status`/`verify` track them and `sync` regenerates them; not authored straight into a generated adapter file
+- [ ] Working agreements persisted to `docs/process/`, linked from contributing guide / PR template, and the negotiable-vs-default decision trail recorded
 - [ ] No duplication of a rule an adopted style guide or linter already enforces
 
 ## References

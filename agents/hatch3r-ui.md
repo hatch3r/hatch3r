@@ -37,6 +37,8 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Is verification axe-core static-only, or does it include a live keyboard trace and one human screen-reader pass per release per `agents/shared/quality-charter.md` §UI/UX quality verification gate?
 - Is `prefers-reduced-motion` testing in scope this cycle?
 
+When a CQ1 ASK turns on a visual choice (token palette, component arrangement, spacing scale), render a preview alongside the numbered options where the runtime supports it — see `agents/shared/user-question-protocol.md` → Optional preview attachment (orchestrator-scoped; sub-agents put the preview snippet in the `BLOCKED_AMBIGUITY` result for the orchestrator to surface).
+
 ## Your Role
 
 - Run axe-core (`@axe-core/cli`, `@axe-core/playwright`, or `jest-axe`) against every in-scope route and component; record serious + critical violation counts with file:line locations.

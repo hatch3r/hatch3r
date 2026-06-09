@@ -38,6 +38,7 @@
  */
 
 import { HatchError, DEFAULT_CONFIDENCE_FLOOR, type ConfidenceFloor } from "../types.js";
+import type { ReviewVerdict } from "./pipelineContext.js";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -205,7 +206,7 @@ export const CALIBRATION: Readonly<ReviewLoopCalibration> = Object.freeze({
     oscillationRateAbove: 0.1,
   }),
   // CL-2 spec for iteration-count telemetry (Finding D7-M4 / D7-SA7.2-1):
-  // (1) Add `iteration_count: number` + `reviewVerdictByIteration: ReviewVerdict[]`
+  // (1) Add `iteration_count: number` + `reviewVerdictByIteration: ReviewIterationVerdict[]`
   //     columns to per-finding records in `governance/audit/finding-registry.json`.
   // (2) Add `scripts/calibrate-review-loop.ts` that reads the registry, emits
   //     the measured iteration split, and writes a candidate CALIBRATION
@@ -219,7 +220,42 @@ export const CALIBRATION: Readonly<ReviewLoopCalibration> = Object.freeze({
 
 // ── Types ────────────────────────────────────────────────────────
 
-export type ReviewVerdict = "clean" | "warning" | "critical";
+/**
+ * Per-iteration reviewer verdict (lowercase three-level scale).
+ *
+ * Finding D7-12: this type was named `ReviewVerdict`, colliding with the
+ * handoff-level `ReviewVerdict` (`"CLEAN" | "UNRESOLVED"`) exported from
+ * `pipelineContext.ts` — two `src/pipeline/` exports under one name with
+ * incompatible value sets and casing, and no mapper between them. Renamed to
+ * `ReviewIterationVerdict` so the two scales are distinct at the type level;
+ * `iterationVerdictToHandoffVerdict` below collapses an iteration verdict to the
+ * handoff verdict the `ReviewResult.finalVerdict` slice carries.
+ *
+ * The handoff-level `ReviewVerdict` is now the only `src/pipeline/` export under
+ * that name; map between the two scales with {@link iterationVerdictToHandoffVerdict}.
+ */
+export type ReviewIterationVerdict = "clean" | "warning" | "critical";
+
+/**
+ * Collapse a per-iteration reviewer verdict ({@link ReviewIterationVerdict},
+ * lowercase three-level) to the handoff verdict the `ReviewResult.finalVerdict`
+ * slice carries (`ReviewVerdict` from `pipelineContext.ts`, `"CLEAN" |
+ * "UNRESOLVED"`).
+ *
+ * Finding D7-12: the two scales previously shared the name `ReviewVerdict` with
+ * incompatible value sets and no conversion, so the review loop's terminal
+ * iteration verdict could not be written into the handoff context without an
+ * ad-hoc inline cast. This mapper is the single typed bridge: only a `"clean"`
+ * iteration verdict (0 critical + 0 warning findings) maps to `"CLEAN"`; both
+ * `"warning"` and `"critical"` map to `"UNRESOLVED"` — fail-closed toward
+ * "unresolved" so an unhandled future variant could never silently report a
+ * clean handoff. Pure function with no I/O.
+ */
+export function iterationVerdictToHandoffVerdict(
+  verdict: ReviewIterationVerdict,
+): ReviewVerdict {
+  return verdict === "clean" ? "CLEAN" : "UNRESOLVED";
+}
 
 /**
  * Confidence signal derived from review loop iteration count.
@@ -232,7 +268,7 @@ export type ReviewConfidenceLevel = "high" | "medium" | "low";
 
 export interface ReviewIterationEntry {
   iteration: number;
-  verdict: ReviewVerdict;
+  verdict: ReviewIterationVerdict;
   findingsCount: number;
   timestamp: string;
 }
@@ -463,7 +499,7 @@ function isMonotonicDivergence(history: ReviewIterationEntry[]): boolean {
  */
 export function recordReviewIteration(
   state: ReviewLoopState,
-  verdict: ReviewVerdict,
+  verdict: ReviewIterationVerdict,
   findingsCount: number,
   tokensUsedThisIteration: number = 0,
 ): ReviewLoopState {
@@ -609,7 +645,7 @@ export interface EnforceReviewResult {
  */
 export function enforceReviewIteration(
   state: ReviewLoopState,
-  verdict: ReviewVerdict,
+  verdict: ReviewIterationVerdict,
   findingsCount: number,
   tokensUsedThisIteration: number = 0,
 ): EnforceReviewResult {

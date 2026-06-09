@@ -2,7 +2,7 @@
 id: hatch3r-docs-writing
 name: hatch3r-docs-writing
 type: skill
-description: Author technical documentation through a repeatable workflow — audience analysis, Diátaxis-mode selection, structure, draft, review, publish. Covers READMEs, ADRs, API docs, and runbooks. Use when writing or restructuring any project documentation.
+description: Authors technical documentation through a repeatable workflow — audience analysis, Diátaxis-mode selection, structure, draft, review, publish. Covers READMEs, ADRs, API docs, and runbooks. Use when writing or restructuring any project documentation.
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -33,12 +33,12 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (single doc, single mode): inline execution acceptable.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Tier boundaries for THIS skill:
+- Tier 1 (single doc, single mode): inline.
 - Tier 2 (multi-doc set, e.g. README + API reference + runbook for one feature): spawn one sub-agent per document via the Task tool; each authors to its own Diátaxis mode.
 - Tier 3 (full docs-site restructure across many modes): one fresh sub-agent per top-level section; orchestrator integrates the index only.
 
-Token cost never justifies under-fan-out. Emit `sub_agents_spawned: { count, rationale }` in your output.
+Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Classify by Diátaxis Mode and Name the Audience
 

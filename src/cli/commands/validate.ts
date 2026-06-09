@@ -1399,10 +1399,80 @@ function validateDescriptionCollisions(artifacts: CatalogItem[]): string[] {
 }
 
 /**
- * Hook point: run both description-quality checks against the canonical
+ * Cycle 11 D5-35: imperative (base-form) verbs that, when they LEAD a skill
+ * `description:`, read as a command rather than the third-person capability
+ * statement Anthropic's SKILL.md spec recommends (so the model reads the
+ * description as "what this skill does", e.g. "Generates ..." not
+ * "Generate ..."). Matched only as a standalone first word (followed by
+ * whitespace, not a hyphen) so compound-adjective leads like "Opt-in" or
+ * "Eval-driven" — and noun-phrase leads like "Verification" / "Workflow" /
+ * "Shared" — never trip the check. Curated from the canonical skill corpus
+ * rather than morphologically derived, so it has no false positives on
+ * non-verb leads.
+ */
+const IMPERATIVE_LEAD_VERBS = new Set<string>([
+  "add", "audit", "author", "build", "capture", "configure", "containerize",
+  "create", "cut", "define", "design", "detect", "diagnose", "draft", "elicit",
+  "evaluate", "execute", "generate", "handle", "implement", "initialize",
+  "load", "manage", "migrate", "monitor", "optimize", "persist", "plan",
+  "profile", "refactor", "regenerate", "remove", "review", "run", "scaffold",
+  "set", "track", "update", "validate", "verify", "write",
+]);
+
+/**
+ * The third-person singular form the author should switch a flagged leading
+ * verb to. Irregular/spelling cases are mapped explicitly; the rest take the
+ * regular `+s` rule applied by {@link toThirdPersonSingular}.
+ */
+const THIRD_PERSON_OVERRIDES: Readonly<Record<string, string>> = {
+  audit: "Audits",
+  author: "Authors",
+};
+
+/** Capitalized third-person singular suggestion for an imperative verb. */
+export function toThirdPersonSingular(verbLower: string): string {
+  const override = THIRD_PERSON_OVERRIDES[verbLower];
+  if (override) return override;
+  const cap = verbLower.charAt(0).toUpperCase() + verbLower.slice(1);
+  // Regular `+es` after a sibilant ending, else `+s`.
+  if (/(?:s|x|z|ch|sh)$/.test(verbLower)) return `${cap}es`;
+  return `${cap}s`;
+}
+
+/**
+ * Cycle 11 D5-35: flag skill descriptions that LEAD with an imperative verb,
+ * which degrades skill discovery under Anthropic's SKILL.md spec (third-person
+ * capability statements read as "what the skill does"). Advisory WARNING — the
+ * "Use when ..." clause and the rest of the description are left untouched;
+ * only the leading verb is reported with a third-person suggestion. Scoped to
+ * `type === "skill"` because the agent/rule/command classes carry different
+ * description conventions (role nouns, scope clauses, orchestration verbs).
+ */
+export function validateSkillDescriptionVoice(artifacts: CatalogItem[]): string[] {
+  const findings: string[] = [];
+  for (const item of artifacts) {
+    if (item.type !== "skill") continue;
+    const desc = (item.description ?? "").trim();
+    if (desc.length === 0) continue;
+    // First word = leading run of letters; require a whitespace boundary after
+    // it so hyphenated compounds ("Opt-in", "Eval-driven") are not first words.
+    const m = /^([A-Za-z]+)\s/.exec(desc);
+    if (!m) continue;
+    const firstLower = m[1].toLowerCase();
+    if (!IMPERATIVE_LEAD_VERBS.has(firstLower)) continue;
+    findings.push(
+      `skill ${item.relativePath}: description leads with imperative "${m[1]}" — use third-person "${toThirdPersonSingular(firstLower)}" for SKILL.md discovery (keep the "Use when ..." clause)`,
+    );
+  }
+  return findings;
+}
+
+/**
+ * Hook point: run the description-quality checks against the canonical
  * content index and fold the findings into the shared ValidationResult.
- * Wave C1: emits on the errors channel (previously warnings) — same
- * pattern as validateCommandOrchestratorFrontmatter's error emissions.
+ * Length + collision findings emit on the errors channel (Wave C1 — same
+ * pattern as validateCommandOrchestratorFrontmatter); the D5-35 third-person
+ * voice check emits on the warnings channel (advisory, skill-scoped).
  */
 function runDescriptionQualityChecks(
   index: ContentIndex,
@@ -1419,6 +1489,9 @@ function runDescriptionQualityChecks(
   }
   for (const e of validateDescriptionCollisions(scoped)) {
     result.errors.push(e);
+  }
+  for (const w of validateSkillDescriptionVoice(scoped)) {
+    result.warnings.push(w);
   }
 }
 

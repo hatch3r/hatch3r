@@ -554,6 +554,23 @@ export interface CanonicalFile {
   toolsAllowRaw?: string[];
   /** D15-3: see {@link toolsAllowRaw} — the literal deny counterpart. */
   toolsDenyRaw?: string[];
+  /**
+   * D5-29 (Cycle 11 Wave 3, D5, P6): optional Copilot agent-scope opt-out
+   * parsed from the canonical rule frontmatter `copilot_exclude_agent:`
+   * field. When present on a glob-scoped rule, the Copilot adapter renders an
+   * `excludeAgent: "<value>"` line in the generated
+   * `.github/instructions/*.instructions.md` frontmatter so the named Copilot
+   * agent skips that instruction file — the only Copilot-native mechanism for
+   * a path-scoped instruction file to opt out of an agent's scope
+   * (https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot,
+   * accessed 2026-06-06: accepted values `"code-review"` and `"coding-agent"`
+   * / `"cloud-agent"`; omission means every agent uses the file). Absent on
+   * every canonical rule today (default off → no `excludeAgent` line, current
+   * behaviour preserved); the field exists so a rule CAN opt a path-scope out
+   * of code-review or coding-agent scope without an adapter code change. Other
+   * adapters (cursor/claude) ignore it.
+   */
+  copilotExcludeAgent?: string;
 }
 
 export interface CanonicalMetadata {
@@ -607,6 +624,13 @@ export interface CanonicalMetadata {
    */
   toolsAllowRaw?: string[];
   toolsDenyRaw?: string[];
+  /**
+   * D5-29: optional Copilot agent-scope opt-out parsed from the rule
+   * frontmatter `copilot_exclude_agent:` field. Mirrors
+   * {@link CanonicalFile.copilotExcludeAgent}; see that field for emission
+   * semantics.
+   */
+  copilotExcludeAgent?: string;
 }
 
 export interface ContentSelection {

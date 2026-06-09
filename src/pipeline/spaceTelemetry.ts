@@ -1,13 +1,19 @@
 /**
- * SPACE-class developer-productivity telemetry pipeline (Cycle 10 / F10.8-1).
+ * SPACE-shaped activity/performance instrumentation (Cycle 10 / F10.8-1).
  *
  * SPACE = **S**atisfaction, **P**erformance, **A**ctivity, **C**ommunication,
  * **E**fficiency — the five-axis developer-productivity framework introduced
  * by Forsgren, Storey, Maddila, Zimmermann, Houck, and Butler (Microsoft
- * Research / GitHub Next, ACM Queue 19(1):20-48, 2021). This module records
- * 5-axis SPACE metrics with the **primary metric `firstRunSuccessRate`** —
- * true if `npx hatch3r init` completes without error AND the user reaches a
- * first adapter output — and persists them as JSONL under
+ * Research / GitHub Next, ACM Queue 19(1):20-48, 2021). The {@link SpaceAxis}
+ * type carries all five axes so a record can name any of them, but only the
+ * **activity** and **performance** axes have live feeders today: the primary
+ * metric `firstRunSuccessRate` (performance) recorded from `init.ts`, and the
+ * activity counts a future host-runtime bridge would emit. The
+ * **satisfaction** and **communication** axes are reserved — no caller writes
+ * them yet — so the "SPACE" label describes the data shape, not coverage of
+ * all five axes (D10-40). `firstRunSuccessRate` is true if `npx hatch3r init`
+ * completes without error AND the user reaches a first adapter output. Records
+ * persist as JSONL under
  * `<projectRoot>/.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl` (gitignored).
  *
  * Pillar service:
@@ -30,13 +36,16 @@
  * **Silent Failure Contract:** persistence I/O failures NEVER throw. They
  * route through the failureLog channel per CONSTITUTION §2 P5.
  *
- * CLI wiring (D10-17): `recordFirstRunSuccess` is invoked from
- * `src/cli/commands/init.ts` at the success terminus of `runInitInner`, and the
- * persisted JSONL is read back + summarized by `src/cli/commands/status.ts`
- * (via {@link readSpaceMetricsForDay} + {@link summarizeSpaceMetricRecords}).
- * The in-memory ring buffer is process-local, so the status reporting surface
- * reads the on-disk JSONL rather than {@link getSpaceSummary}, which only sees
- * the current process's records.
+ * CLI wiring (D10-17, D10-39): `recordFirstRunSuccess` is invoked from
+ * `src/cli/commands/init.ts` on BOTH terminal outcomes of `runInitInner` —
+ * `value=1` at the success terminus, and `value=0` at the all-adapters-failed
+ * site immediately before the `ADAPTER_ERROR` throw (a total adapter failure
+ * is the canonical first-run failure). The persisted JSONL is read back +
+ * summarized by `src/cli/commands/status.ts` via {@link loadSpaceMetricsFromDisk}
+ * + {@link summarizeSpaceMetricRecords}. The in-memory ring buffer is
+ * process-local, so the status reporting surface reads the on-disk JSONL via
+ * {@link loadSpaceMetricsFromDisk} (the across-runs reader) rather than
+ * {@link getSpaceSummary}, which only sees the current process's records.
  */
 
 import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
@@ -47,13 +56,16 @@ import { createFailureLogEntry, FAILURE_LOG_FILE, formatLogEntry } from "./failu
 // ── SPACE axes ───────────────────────────────────────────────────
 
 /**
- * The five SPACE axes per Forsgren et al. (ACM Queue, 2021).
+ * The five SPACE axes per Forsgren et al. (ACM Queue, 2021). The "(reserved)"
+ * marker flags an axis the type admits but no caller feeds yet (D10-40).
  *
- * - `satisfaction`  developer satisfaction / wellbeing signal (0-1 or 0-10).
+ * - `satisfaction`  developer satisfaction / wellbeing signal (0-1 or 0-10) —
+ *                   reserved; no feeder yet.
  * - `performance`   outcome quality — e.g. first-run success rate (boolean as
- *                   1.0/0.0), task completion %.
+ *                   1.0/0.0), task completion %. Fed by `recordFirstRunSuccess`.
  * - `activity`      action counts — commands invoked, adapters generated.
- * - `communication` collaboration signal — handoff success, review turnaround.
+ * - `communication` collaboration signal — handoff success, review turnaround —
+ *                   reserved; no feeder yet.
  * - `efficiency`    flow signal — wall-clock minutes, token cost, latency.
  */
 export type SpaceAxis =
@@ -216,7 +228,9 @@ export function recordSpaceMetric(
  * `performance` axis. This is the canonical first-run-success recording
  * site referenced by `governance/CONSTITUTION.md` §6 P1 Measurement
  * ("first-run success rate") and §6 CQ2 Measurement ("first-run success
- * rate per user task ≥80%").
+ * rate per user task ≥80%"). `init.ts` calls it on both terminal outcomes —
+ * `true` at the success terminus and `false` at the all-adapters-failed site
+ * (D10-39) — so the recorded rate is not survivorship-biased to 1.
  *
  * Defining a typed helper (rather than asking callers to assemble the
  * generic `SpaceMetric` shape inline) means the metric id and axis cannot
@@ -291,8 +305,9 @@ export function summarizeSpaceMetricRecords(
  *
  * Pure function — reads only the ring buffer, never throws. The ring buffer is
  * process-local, so this only reflects metrics recorded in the CURRENT process;
- * a separate reporting process (e.g. `hatch3r status`) must read the persisted
- * JSONL via {@link readSpaceMetricsForDay} instead.
+ * a separate reporting process (e.g. `hatch3r status`) or the audit cycle that
+ * wants the AGGREGATE across runs must read the persisted JSONL via
+ * {@link loadSpaceMetricsFromDisk} instead.
  */
 export function getSpaceSummary(): SpaceAxisSummary[] {
   return summarizeSpaceMetricRecords(ringBuffer);
@@ -382,4 +397,75 @@ export function readSpaceMetricsForDay(
     records.push(candidate as SpaceMetricRecord);
   }
   return records;
+}
+
+/** Default trailing-day window for {@link loadSpaceMetricsFromDisk}. */
+export const DEFAULT_SPACE_LOAD_WINDOW_DAYS = 7;
+
+/**
+ * Load persisted SPACE metric records ACROSS RUNS from disk (D10-38).
+ *
+ * `getSpaceSummary` reads only the process-local ring buffer, which is empty in
+ * any fresh process, so it can never report the aggregate "across runs". This
+ * is the cross-process, multi-day reader the across-runs claim depends on: it
+ * walks one `space-<YYYY-MM-DD>.jsonl` file per calendar day over a trailing
+ * window (or an explicit `[from, to]` date range) and concatenates every valid
+ * record via {@link readSpaceMetricsForDay}. A reporting process (`hatch3r
+ * status`) or the audit cycle feeds the result into
+ * {@link summarizeSpaceMetricRecords} to recover the firstRunSuccessRate and
+ * per-axis counts observed across all those runs.
+ *
+ * Day selection:
+ * - default: the trailing {@link DEFAULT_SPACE_LOAD_WINDOW_DAYS} days ending
+ *   today (`windowDays` overrides the count);
+ * - explicit range: `from`/`to` (inclusive, `YYYY-MM-DD`) takes precedence over
+ *   `windowDays`. A `from` later than `to` yields `[]` (no days iterated).
+ *
+ * Best-effort and side-effect-free: {@link readSpaceMetricsForDay} swallows
+ * missing/unreadable/corrupt files (Silent Failure Contract, CONSTITUTION §2
+ * P5), so this returns the records it could read rather than throwing when some
+ * or all day-files are absent. `projectRoot` defaults to `process.cwd()`.
+ */
+export function loadSpaceMetricsFromDisk(
+  projectRoot: string = process.cwd(),
+  options: { windowDays?: number; from?: string; to?: string } = {},
+): SpaceMetricRecord[] {
+  const days = resolveLoadDays(options);
+  const records: SpaceMetricRecord[] = [];
+  for (const day of days) {
+    for (const rec of readSpaceMetricsForDay(day, projectRoot)) {
+      records.push(rec);
+    }
+  }
+  return records;
+}
+
+/**
+ * Internal — resolve the ordered (newest-first) list of `YYYY-MM-DD` day keys
+ * {@link loadSpaceMetricsFromDisk} will read, from either an explicit inclusive
+ * `[from, to]` range or a trailing-day window ending today. Pure; never throws.
+ */
+function resolveLoadDays(options: {
+  windowDays?: number;
+  from?: string;
+  to?: string;
+}): string[] {
+  const MS_PER_DAY = 86_400_000;
+  if (options.from !== undefined || options.to !== undefined) {
+    const fromMs = Date.parse(`${options.from ?? options.to}T00:00:00.000Z`);
+    const toMs = Date.parse(`${options.to ?? options.from}T00:00:00.000Z`);
+    if (Number.isNaN(fromMs) || Number.isNaN(toMs) || fromMs > toMs) return [];
+    const days: string[] = [];
+    for (let t = toMs; t >= fromMs; t -= MS_PER_DAY) {
+      days.push(new Date(t).toISOString().slice(0, 10));
+    }
+    return days;
+  }
+  const windowDays = Math.max(1, options.windowDays ?? DEFAULT_SPACE_LOAD_WINDOW_DAYS);
+  const now = Date.now();
+  const days: string[] = [];
+  for (let i = 0; i < windowDays; i += 1) {
+    days.push(new Date(now - i * MS_PER_DAY).toISOString().slice(0, 10));
+  }
+  return days;
 }

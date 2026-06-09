@@ -11,6 +11,10 @@ import type { HatchManifest, Tool } from "../../types.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
+import {
+  MCP_ENV_VAR_FORMAT_PARITY,
+  transformEnvVarSyntax,
+} from "../../adapters/mcp-utils.js";
 
 /**
  * MCP Data Flow Integration Tests (Findings #21 and #22)
@@ -282,4 +286,152 @@ describe("${env:VAR} syntax transformation (#22)", () => {
     // No broken shell `$VAR` header literal survives either.
     expect(mcp!.content).not.toMatch(/"Bearer \$[A-Z_]+"/);
   });
+});
+
+/**
+ * D2-14 (Cycle 11 Wave 3, D2, P2): the REAL env-var-format parity gate.
+ *
+ * The in-file table check in `mcp-utils.test.ts` ("MCP_ENV_VAR_FORMAT_PARITY
+ * (table-internal consistency)") only verifies the table is shaped correctly —
+ * looping each row through `transformEnvVarSyntax(canonical, row.format)` is a
+ * tautology that re-derives the row's output from the row's own `format` field
+ * and never reads an adapter call site. So a call site emitting the WRONG
+ * format (the D11-C-2 class of bug: `$VAR` to a consumer that does not shell-
+ * expand) tripped no gate.
+ *
+ * This suite closes that gap: for every {@link MCP_ENV_VAR_FORMAT_PARITY} row
+ * it runs the OWNING adapter's `generate()` against the `${env:VAR}` fixture and
+ * asserts the substitution the row declares actually lands in the emitted client
+ * config — honoring `viaEnvFile` (copilot STDIO env routed to `.env.mcp`, so the
+ * `env` object is dropped rather than substituted) and `viaInputs` (copilot
+ * header secrets rewritten to VS Code `${input:NAME}` + a top-level `inputs[]`
+ * entry). A call site that drifts from its row, or a row that drifts from its
+ * call site, breaks this test rather than shipping unsubstituted placeholders.
+ *
+ * Surface → fixture field driven:
+ *   - mcp-env     → `cmd-server.env.SECRET_KEY` (canonical `${env:SECRET_KEY}`)
+ *   - mcp-headers → `auth-server.headers.Authorization`
+ *                   (canonical `Bearer ${env:API_TOKEN}`)
+ */
+describe("MCP_ENV_VAR_FORMAT_PARITY adapter cross-check (D2-14)", () => {
+  let tempDir: string;
+  let agentsDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mcp-parity-"));
+    agentsDir = join(tempDir, "agents");
+    await mkdir(join(agentsDir, "mcp"), { recursive: true });
+    await writeFile(
+      join(agentsDir, "mcp", "mcp.json"),
+      JSON.stringify(MCP_CONFIG_WITH_HEADERS),
+      "utf-8",
+    );
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  const adapterByName: Record<
+    "claude" | "cursor" | "copilot",
+    AdapterTestCase
+  > = {
+    claude: JSON_ADAPTERS.find((a) => a.tool === "claude")!,
+    cursor: JSON_ADAPTERS.find((a) => a.tool === "cursor")!,
+    copilot: JSON_ADAPTERS.find((a) => a.tool === "copilot")!,
+  };
+
+  // Read the server map for an adapter's emitted MCP file. Copilot keys servers
+  // under `servers` (VS Code format); claude + cursor under `mcpServers`.
+  async function emitServers(
+    tc: AdapterTestCase,
+  ): Promise<{ doc: Record<string, unknown>; servers: Record<string, Record<string, unknown>> }> {
+    const manifest = makeManifest(tc.tool);
+    const outputs = await tc.adapter.generate(agentsDir, manifest);
+    const mcpOutput =
+      typeof tc.mcpOutputPath === "function"
+        ? tc.mcpOutputPath(outputs)
+        : outputs.find((o) => o.path === tc.mcpOutputPath);
+    expect(mcpOutput, `${tc.name}: no MCP output emitted`).toBeDefined();
+    const doc = JSON.parse(mcpOutput!.content) as Record<string, unknown>;
+    const servers = (tc.name === "Copilot" ? doc.servers : doc.mcpServers) as Record<
+      string,
+      Record<string, unknown>
+    >;
+    expect(servers, `${tc.name}: no server map in emitted MCP doc`).toBeDefined();
+    return { doc, servers };
+  }
+
+  for (const row of MCP_ENV_VAR_FORMAT_PARITY) {
+    const label = `${row.adapter}:${row.surface} (format=${row.format})`;
+
+    it(`${label} — emitted output matches the declared substitution`, async () => {
+      const tc = adapterByName[row.adapter];
+      const { doc, servers } = await emitServers(tc);
+
+      if (row.surface === "mcp-env") {
+        const env = servers["cmd-server"]?.env as
+          | Record<string, string>
+          | undefined;
+        if (row.viaEnvFile) {
+          // viaEnvFile contract: the `env` object is NOT substituted in-line —
+          // it is dropped and the secret is loaded from `.env.mcp`. The row's
+          // `format` (shell) deliberately never reaches the VS Code consumer.
+          expect(
+            env,
+            `${label}: viaEnvFile row must drop the inline env object`,
+          ).toBeUndefined();
+          expect(
+            servers["cmd-server"].envFile,
+            `${label}: viaEnvFile row must emit an envFile pointer`,
+          ).toBe("${workspaceFolder}/.env.mcp");
+        } else {
+          // Inline-substitution surface: the emitted value MUST equal the
+          // canonical `${env:SECRET_KEY}` transformed by the row's declared
+          // format. This is what binds the table to the adapter call site —
+          // if the adapter passed a different format, the strings differ.
+          const expected = transformEnvVarSyntax(
+            "${env:SECRET_KEY}",
+            row.format,
+          );
+          expect(env, `${label}: missing cmd-server.env`).toBeDefined();
+          expect(env!.SECRET_KEY, `${label}: env substitution mismatch`).toBe(
+            expected,
+          );
+        }
+      } else {
+        // mcp-headers surface: drive auth-server's Authorization header.
+        const headers = servers["auth-server"]?.headers as
+          | Record<string, string>
+          | undefined;
+        expect(headers, `${label}: missing auth-server.headers`).toBeDefined();
+        if (row.viaInputs) {
+          // viaInputs contract: header secret rewritten to a VS Code
+          // ${input:NAME} reference with a matching top-level inputs[] entry —
+          // the row's `format` (passthrough) carries the value to the rewrite
+          // step untouched, then the adapter swaps env: → input:.
+          expect(
+            headers!.Authorization,
+            `${label}: header secret must become a VS Code input reference`,
+          ).toBe("Bearer ${input:API_TOKEN}");
+          const inputIds = (
+            (doc.inputs as Array<{ id: string }> | undefined) ?? []
+          ).map((i) => i.id);
+          expect(
+            inputIds,
+            `${label}: missing inputs[] entry for the header secret`,
+          ).toContain("API_TOKEN");
+        } else {
+          const expected = transformEnvVarSyntax(
+            "Bearer ${env:API_TOKEN}",
+            row.format,
+          );
+          expect(
+            headers!.Authorization,
+            `${label}: header substitution mismatch`,
+          ).toBe(expected);
+        }
+      }
+    });
+  }
 });

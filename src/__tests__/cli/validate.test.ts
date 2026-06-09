@@ -29,8 +29,11 @@ import {
   checkAmbiguityGate,
   requiresAmbiguityGate,
   scanCanonicalReadDiagnostics,
+  validateSkillDescriptionVoice,
+  toThirdPersonSingular,
   type ValidationResult,
 } from "../../cli/commands/validate.js";
+import type { CatalogItem } from "../../content/index.js";
 
 function makeResult(): ValidationResult {
   return { errors: [], warnings: [] };
@@ -64,6 +67,84 @@ async function createMinimalManifest(root: string, extra: Record<string, unknown
   };
   await writeFile(join(dir, "hatch.json"), JSON.stringify(manifest, null, 2));
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: validateSkillDescriptionVoice + toThirdPersonSingular (Cycle 11 D5-35)
+// ═════════════════════════════════════════════════════════════════════
+
+function makeSkill(relativePath: string, description: string, type = "skill"): CatalogItem {
+  return { type, relativePath, description } as unknown as CatalogItem;
+}
+
+describe("toThirdPersonSingular", () => {
+  it("applies the regular +s rule", () => {
+    expect(toThirdPersonSingular("run")).toBe("Runs");
+    expect(toThirdPersonSingular("generate")).toBe("Generates");
+    expect(toThirdPersonSingular("plan")).toBe("Plans");
+  });
+
+  it("applies +es after a sibilant ending", () => {
+    expect(toThirdPersonSingular("watch")).toBe("Watches");
+    expect(toThirdPersonSingular("fix")).toBe("Fixes");
+    expect(toThirdPersonSingular("push")).toBe("Pushes");
+  });
+
+  it("honors explicit overrides", () => {
+    expect(toThirdPersonSingular("audit")).toBe("Audits");
+    expect(toThirdPersonSingular("author")).toBe("Authors");
+  });
+});
+
+describe("validateSkillDescriptionVoice", () => {
+  it("flags a skill description that leads with an imperative verb", () => {
+    const findings = validateSkillDescriptionVoice([
+      makeSkill("skills/hatch3r-x/SKILL.md", "Run a WCAG audit. Use when auditing accessibility."),
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('leads with imperative "Run"');
+    expect(findings[0]).toContain('third-person "Runs"');
+  });
+
+  it("does not flag a third-person leading verb", () => {
+    expect(
+      validateSkillDescriptionVoice([
+        makeSkill("skills/hatch3r-x/SKILL.md", "Generates and validates OpenAPI specs. Use when ..."),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("does not flag a noun-phrase lead", () => {
+    expect(
+      validateSkillDescriptionVoice([
+        makeSkill("skills/hatch3r-x/SKILL.md", "Verification gate before declaring a feature done."),
+        makeSkill("skills/hatch3r-y/SKILL.md", "End-to-end feature implementation workflow."),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("does not treat a hyphenated compound lead as an imperative verb", () => {
+    // "Opt-in" / "Eval-driven": first word is followed by a hyphen, not a space.
+    expect(
+      validateSkillDescriptionVoice([
+        makeSkill("skills/hatch3r-x/SKILL.md", "Opt-in browser verification skill — Playwright checks."),
+        makeSkill("skills/hatch3r-y/SKILL.md", "Eval-driven development workflow for AI features."),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("only inspects skills, ignoring agents/rules/commands", () => {
+    expect(
+      validateSkillDescriptionVoice([
+        makeSkill("agents/hatch3r-x.md", "Run the pipeline.", "agent"),
+        makeSkill("commands/hatch3r-y.md", "Generate a report.", "command"),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("tolerates an empty or missing description", () => {
+    expect(validateSkillDescriptionVoice([makeSkill("skills/hatch3r-x/SKILL.md", "")])).toHaveLength(0);
+  });
+});
 
 // ═════════════════════════════════════════════════════════════════════
 // Unit: validateCommandOrchestratorFrontmatter (Decision #13 + C8-D5-M1)

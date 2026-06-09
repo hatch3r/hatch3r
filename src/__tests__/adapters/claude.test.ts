@@ -507,6 +507,95 @@ Applies to API code and protobufs.`,
       expect(postMergeEntry).toBeDefined();
       expect(postMergeEntry.hooks[0].command).toContain('grep -q "git merge"');
     });
+
+    // D5-40 (Cycle 11 Wave 3, D5, P3): the `file-save` hook's `globs` scope must
+    // reach Claude. The matcher field is tool-name-only, so the scope is carried
+    // by the per-handler `if` predicate (Claude Code v2.1.85+, permission-rule
+    // syntax `Write(<glob>)` / `Edit(<glob>)`). Pre-fix the activation fired on
+    // every Write regardless of file type. Isolated temp dir with a file-save
+    // hook so the shared FIXTURES_DIR (no file-save hook) is untouched.
+    it("scopes the file-save hook to its globs via per-handler `if` predicates", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-filesave-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "hooks"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "hooks", "file-save-ctx.md"),
+          `---
+id: file-save-ctx
+type: hook
+event: file-save
+agent: context-rules
+description: Activate context rules on save
+globs: "**/*.ts, **/*.tsx"
+---
+# Hook: file-save
+
+Body.`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        const settings = outputs.find((o) => o.path === ".claude/settings.json");
+        expect(settings).toBeDefined();
+        const parsed = JSON.parse(settings!.content);
+        expect(parsed.hooks.PostToolUse).toBeDefined();
+        // The file-save entry widens the matcher to both file-modifying tools and
+        // carries one `if`-scoped handler per (tool × glob). Find it by agent.
+        const fileSaveEntry = parsed.hooks.PostToolUse.find(
+          (e: { matcher: string; hooks: Array<{ command: string; if?: string }> }) =>
+            e.matcher === "Write|Edit" &&
+            e.hooks.some((h) => h.command.includes("context-rules")),
+        );
+        expect(fileSaveEntry).toBeDefined();
+        const predicates = fileSaveEntry.hooks.map((h: { if?: string }) => h.if);
+        // Both tools × both globs, scoped — never an unscoped (if-less) handler.
+        expect(predicates).toContain("Write(**/*.ts)");
+        expect(predicates).toContain("Edit(**/*.ts)");
+        expect(predicates).toContain("Write(**/*.tsx)");
+        expect(predicates).toContain("Edit(**/*.tsx)");
+        expect(predicates).not.toContain(undefined);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    // D5-40 regression sentinel: a file-save hook with NO globs keeps the
+    // single unscoped Write handler (no `if`, no matcher widening) — the
+    // `if`-translation only triggers when a glob scope is declared.
+    it("file-save hook without globs emits a single unscoped Write handler", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-filesave-noglob-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "hooks"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "hooks", "file-save-bare.md"),
+          `---
+id: file-save-bare
+type: hook
+event: file-save
+agent: context-rules
+description: Activate context rules on save
+---
+# Hook: file-save
+
+Body.`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        const settings = outputs.find((o) => o.path === ".claude/settings.json");
+        const parsed = JSON.parse(settings!.content);
+        const bareEntry = parsed.hooks.PostToolUse.find(
+          (e: { matcher: string; hooks: Array<{ command: string; if?: string }> }) =>
+            e.matcher === "Write" &&
+            e.hooks.some((h) => h.command.includes("context-rules")),
+        );
+        expect(bareEntry).toBeDefined();
+        expect(bareEntry.hooks).toHaveLength(1);
+        expect(bareEntry.hooks[0].if).toBeUndefined();
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 
   it("generates skill files in .claude/skills/", async () => {
@@ -1808,6 +1897,61 @@ Low priority rule body.
       const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
       expect(claudeMd!.content).toContain("right-size to maturity=enterprise");
       expect(claudeMd!.content).toContain("rules/hatch3r-right-sizing.md");
+    });
+  });
+
+  // D1-17 (Cycle 11 Wave 3, D1, P1): `claudeConfidenceFloorHeader` stamps the
+  // resolved confidence floor atop CLAUDE.md alongside the maturity marker.
+  // Pre-fix the persisted `confidenceFloor` config key reached no adapter output
+  // (write-only key). An explicit floor wins; an absent floor resolves to the
+  // maturity-aware default (solo/team → any, scaleup/enterprise → high).
+  describe("confidence-floor header (D1-17)", () => {
+    for (const floor of ["any", "medium", "high"] as const) {
+      it(`stamps an explicit confidence floor=${floor} inside the managed block`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: floor };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+        expect(claudeMd).toBeDefined();
+        expect(claudeMd!.content).toContain(`confidence floor=${floor}`);
+        const startIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_START);
+        const stampIdx = claudeMd!.content.indexOf(`confidence floor=${floor}`);
+        const endIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_END);
+        expect(startIdx).toBeLessThan(stampIdx);
+        expect(stampIdx).toBeLessThan(endIdx);
+      });
+    }
+
+    it("an explicit floor overrides the maturity-derived default", async () => {
+      // enterprise would default to "high"; explicit "any" must win.
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise", confidenceFloor: "any" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("confidence floor=any");
+      expect(claudeMd!.content).not.toContain("confidence floor=high");
+    });
+
+    it("resolves an absent floor to the maturity-aware default (enterprise → high)", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+      expect(manifest.confidenceFloor).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("confidence floor=high");
+    });
+
+    it("resolves an absent floor to any on solo (the default tier)", async () => {
+      const manifest = makeManifest();
+      expect(manifest.confidenceFloor).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("confidence floor=any");
+    });
+
+    it("stamps the floor in minimal mode too", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: "high" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "minimal");
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("confidence floor=high");
     });
   });
 

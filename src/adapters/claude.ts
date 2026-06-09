@@ -7,7 +7,12 @@ import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
-import { readMaturityTier, maturityDirective } from "../manifest/hatchJson.js";
+import {
+  readMaturityTier,
+  maturityDirective,
+  readConfidenceFloor,
+  confidenceFloorDirective,
+} from "../manifest/hatchJson.js";
 import { applyCustomization } from "./customization.js";
 import { transformEnvVarSyntax, stripPrivateMcpFields, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
 import {
@@ -532,6 +537,18 @@ function claudeMaturityHeader(ctx: AdapterContext): string {
   return `<!-- ${maturityDirective(readMaturityTier(ctx.manifest))} -->`;
 }
 
+/**
+ * D1-17 (Cycle 11 Wave 3, D1, P1): confidence-floor marker for CLAUDE.md, the
+ * agent-assertiveness analog of {@link claudeMaturityHeader}. Wraps the shared
+ * `confidenceFloorDirective` payload (single source in hatchJson.ts) in an HTML
+ * comment so the resolved floor ({@link readConfidenceFloor}) renders invisibly
+ * in Claude Code's memory view while staying greppable. Pre-fix the persisted
+ * `confidenceFloor` config key reached no adapter output.
+ */
+function claudeConfidenceFloorHeader(ctx: AdapterContext): string {
+  return `<!-- ${confidenceFloorDirective(readConfidenceFloor(ctx.manifest))} -->`;
+}
+
 export class ClaudeAdapter extends BaseAdapter {
   readonly name = "claude";
 
@@ -546,10 +563,15 @@ export class ClaudeAdapter extends BaseAdapter {
     // tier travels with the artifact — pre-fix CLAUDE.md was byte-identical
     // across tiers. Parity with cursor.ts/copilot.ts maturity headers.
     const maturityHeader = claudeMaturityHeader(ctx);
+    // D1-17 (D1, P1): stamp the resolved confidence floor next to the maturity
+    // marker so the configured agent-assertiveness floor travels with CLAUDE.md
+    // (was a write-only config key that reached no adapter output).
+    const confidenceFloorHeader = claudeConfidenceFloorHeader(ctx);
     const innerParts = minimal
       ? [
           "",
           maturityHeader,
+          confidenceFloorHeader,
           "",
           "# Hatch3r Project Instructions",
           "",
@@ -563,6 +585,7 @@ export class ClaudeAdapter extends BaseAdapter {
       : [
           "",
           maturityHeader,
+          confidenceFloorHeader,
           "",
           "# Hatch3r Project Instructions",
           "",
@@ -791,7 +814,7 @@ export class ClaudeAdapter extends BaseAdapter {
     // (code.claude.com/docs/en/hooks, accessed 2026-05-26).
     const hooksConfig: Record<
       string,
-      Array<{ matcher: string; hooks: Array<{ type: string; command: string; args?: string[] }> }>
+      Array<{ matcher: string; hooks: Array<{ type: string; command: string; args?: string[]; if?: string }> }>
     > = {};
     const hooks = await this.readHooks(ctx);
     // D9-2 (Cycle 11, P3 + P5): advisory-only hooks (events with no native
@@ -820,10 +843,41 @@ export class ClaudeAdapter extends BaseAdapter {
         nativeHook.event === "post-merge"
           ? `bash -c 'CMD="\${TOOL_INPUT:-}"; if echo "$CMD" | grep -q "git merge"; then echo "${activation}"; fi'`
           : `echo "${activation}"`;
-      hooksConfig[claudeEvent].push({
-        matcher: getClaudeToolMatcher(nativeHook),
-        hooks: [{ type: "command", command }],
-      });
+
+      // D5-40 (Cycle 11 Wave 3, D5, P3): honor the `file-save` hook's
+      // `condition.globs` scope on Claude Code. The matcher field is tool-name-
+      // only (code.claude.com/docs/en/hooks → "What the matcher filters",
+      // accessed 2026-06-06), so the prior PostToolUse+"Write" entry fired the
+      // context-rules activation on EVERY file write — the canonical hook's
+      // `**/*.ts,**/*.tsx,...` glob scope (parity with Cursor's `afterFileEdit`
+      // glob narrowing) was dropped. Claude Code v2.1.85+ adds an `if` field on
+      // individual hook handlers that uses permission-rule syntax to match the
+      // tool name AND its arguments together, e.g. `Edit(*.ts)` /
+      // `Write(*.ts)` (code.claude.com/docs/en/hooks → common fields). Translate
+      // each glob into one `if`-scoped handler per write tool so the activation
+      // fires only when the saved file matches the scope. `file-save` is the only
+      // path-scoped native event (pre-commit/pre-push/post-merge gate on a Bash
+      // subcommand, not a file path); other events keep the single unscoped
+      // handler. Empty/absent globs fall through to the unscoped handler too.
+      const fileSaveGlobs =
+        nativeHook.event === "file-save" ? nativeHook.condition?.globs ?? [] : [];
+      if (fileSaveGlobs.length > 0) {
+        // Widen the matcher to both file-modifying tools (the doc example pairs
+        // `Edit|Write`); the per-handler `if` then restricts to the tool+path.
+        const ifHandlers = fileSaveGlobs.flatMap((glob) =>
+          (["Write", "Edit"] as const).map((tool) => ({
+            type: "command",
+            command,
+            if: `${tool}(${glob})`,
+          })),
+        );
+        hooksConfig[claudeEvent].push({ matcher: "Write|Edit", hooks: ifHandlers });
+      } else {
+        hooksConfig[claudeEvent].push({
+          matcher: getClaudeToolMatcher(nativeHook),
+          hooks: [{ type: "command", command }],
+        });
+      }
     }
 
     // D9-2 (Cycle 11, P3 + P5): render advisory-only hooks (no native Claude

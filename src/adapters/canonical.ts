@@ -1,4 +1,5 @@
 import { readFile, readdir, lstat } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import { join, relative } from "node:path";
 import { parse as parseYaml } from "yaml";
 import type { CanonicalFile, CanonicalMetadata, RulePrecedence } from "../types.js";
@@ -435,6 +436,14 @@ export function parseFrontmatter(
     if (typeof parsed.agent === "string") metadata.agent = parsed.agent;
     if (typeof parsed.event === "string") metadata.event = parsed.event;
     if (typeof parsed.globs === "string") metadata.globs = parsed.globs;
+    // D5-29 (Cycle 11 Wave 3, P6): optional Copilot agent-scope opt-out. Parsed
+    // unconditionally — canonical content omits the field today, so this is a
+    // harmless no-op for every current read; storing it on `CanonicalMetadata`
+    // lets the Copilot adapter render `excludeAgent:` on the per-rule
+    // instruction file without an adapter code change when a rule opts in.
+    if (typeof parsed.copilot_exclude_agent === "string") {
+      metadata.copilotExcludeAgent = parsed.copilot_exclude_agent;
+    }
     if (typeof parsed.protected === "boolean") metadata.protected = parsed.protected;
     if (typeof parsed.alwaysApply === "boolean") metadata.alwaysApply = parsed.alwaysApply;
     if (typeof parsed.readonly === "boolean") metadata.readonly = parsed.readonly;
@@ -609,10 +618,14 @@ const READER_CONFIGS: Record<CanonicalType, ReaderConfig> = {
   prompts: { type: "prompt", dir: "prompts", strategy: "glob" },
   "github-agents": { type: "github-agent", dir: "github-agents", strategy: "glob" },
   // C8-D2-M3: hooks/checks/policy/learnings use the same glob strategy as
-  // agents/rules — flat `.md` files with frontmatter. The existing
-  // readGlobMd() path already lstat-guards each entry and skips symlinks,
-  // so recursive symlinks in any of these directories cannot trigger
-  // infinite readdir loops even though readdir({recursive:true}) is used.
+  // agents/rules — flat `.md` files with frontmatter. D2-9: readGlobMd()
+  // enumerates with `{ withFileTypes: true, recursive: true }`, which does not
+  // descend into symlinked directories (and drops symlinked files), so a
+  // symlink in any of these directories cannot cause id duplication or an
+  // infinite readdir loop. (The earlier comment claimed the per-file `lstat`
+  // gate alone covered this; it does not — files reached through a symlinked
+  // directory are regular files, not symlinks, so only the Dirent walk skips
+  // them at the directory boundary.)
   hooks: { type: "hook", dir: "hooks", strategy: "glob" },
   checks: { type: "check", dir: "checks", strategy: "glob" },
   policy: { type: "policy", dir: "policy", strategy: "glob" },
@@ -642,11 +655,35 @@ async function readSingleMd(
     };
   }
 
-  let rawContent: string;
+  // D2-10 (D2 Medium, Cycle 11 Wave 3): read raw bytes and decode with a
+  // *fatal* UTF-8 decoder rather than `readFile(..., "utf-8")`. The string
+  // form never throws on malformed input — it silently substitutes U+FFFD
+  // (the replacement character) for each invalid byte, so a corrupt or
+  // wrong-encoding canonical file would load with mangled content and the
+  // entire UTF8_DECODE_ERROR branch in classifyFsError (predicated on a
+  // TypeError the lenient reader can never raise) was unreachable dead code.
+  // `TextDecoder("utf-8", { fatal: true })` throws a TypeError whose message
+  // contains "utf-8" on the first invalid byte; we map it to UTF8_DECODE_ERROR
+  // explicitly so bad encoding surfaces on the warning channel (and trips
+  // strict mode) instead of being coerced silently (CONSTITUTION §2 P5 Silent
+  // Failure Contract). `ignoreBOM: true` is required: the default decoder
+  // *consumes* a leading BOM, but the F2.2-F3 path below detects a BOM via
+  // `charCodeAt(0) === 0xfeff` to emit an ENCODING warning before stripping it.
+  // Keeping the BOM in the decoded string preserves that warning and matches
+  // the prior `readFile(..., "utf-8")` behavior, which also retained the BOM.
+  let rawBytes: Buffer;
   try {
-    rawContent = await readFile(fullPath, "utf-8");
+    rawBytes = await readFile(fullPath);
   } catch (err) {
     const errorResult = makeErrorResult(fullPath, err);
+    return errorResult;
+  }
+
+  let rawContent: string;
+  try {
+    rawContent = new TextDecoder("utf-8", { fatal: true, ignoreBOM: true }).decode(rawBytes);
+  } catch (err) {
+    const errorResult = makeErrorResult(fullPath, err, "UTF8_DECODE_ERROR");
     return errorResult;
   }
 
@@ -725,6 +762,12 @@ async function readSingleMd(
     // the generated agent file instead of being silently dropped.
     toolsAllowRaw: metadata.toolsAllowRaw,
     toolsDenyRaw: metadata.toolsDenyRaw,
+    // D5-29 (Cycle 11 Wave 3, P6): pass through the optional Copilot
+    // agent-scope opt-out. Undefined for every canonical rule today (none
+    // declare `copilot_exclude_agent:`); the Copilot adapter emits an
+    // `excludeAgent:` line only when this is set, so canonical emission is
+    // unchanged.
+    copilotExcludeAgent: metadata.copilotExcludeAgent,
     content,
     rawContent,
     sourcePath: fullPath,
@@ -816,12 +859,25 @@ function scanCanonicalInjectionTokens(body: string): string[] {
  * Per-file errors are captured into CanonicalReadResult.error so a single
  * corrupt or unreadable file does not prevent reading the rest of the
  * directory. C7-H18 — error codes are surfaced instead of being swallowed.
+ *
+ * D2-9 (D2 Medium, Cycle 11 Wave 3): enumerate with `{ withFileTypes: true,
+ * recursive: true }` instead of the string form `{ recursive: true }`. The
+ * string form follows symlinked *directories* and emits the real `.md` files
+ * twice — once under the real path and once under the symlinked-directory path
+ * (probe: a `linkdir -> real/` symlink yields both `real/a.md` and
+ * `linkdir/a.md`). Those second-copy entries are regular files, not symlinks,
+ * so the per-file `lstat` symlink gate in {@link readSingleMd} never catches
+ * them, producing silent N× id duplication that scaled to 16× under nested
+ * symlinks. The Dirent form does NOT descend into symlinked directories (it
+ * reports the symlink entry itself but stops there), so no duplicate path is
+ * generated; we additionally skip any Dirent that is itself a symlink (a
+ * symlinked file) to preserve the security boundary the per-file `lstat` gate
+ * already enforced, and we skip non-`.md` and directory entries.
  */
 async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Promise<CanonicalReadResult[]> {
-  let entries: string[];
+  let dirents: Dirent[];
   try {
-    const all = await readdir(baseDir, { recursive: true });
-    entries = all.filter((f) => f.endsWith(".md")).sort();
+    dirents = await readdir(baseDir, { withFileTypes: true, recursive: true });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
       // Directory absence is normal; not an error worth reporting.
@@ -833,10 +889,21 @@ async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Pro
     return [errorResult];
   }
 
+  // D2-9: keep only regular `.md` files. Symlinked directories are never
+  // descended into by the Dirent recursive walk, and symlinked *files* are
+  // dropped here so a `link.md -> real.md` symlink cannot yield a duplicate id
+  // (matching the per-file `lstat` skip in readSingleMd). `parentPath` is the
+  // absolute directory the entry lives in; relativise it against baseDir to
+  // rebuild the stable fallback id ("real/nested/foo.md" -> "real-nested-foo").
+  const entries = dirents
+    .filter((d) => d.isFile() && !d.isSymbolicLink() && d.name.endsWith(".md"))
+    .map((d) => relative(baseDir, join(d.parentPath, d.name)))
+    .sort();
+
   return Promise.all(
     entries.map((relPath) => {
       const fullPath = join(baseDir, relPath);
-      const fallbackId = relPath.replace(/\.md$/, "").replace(/\//g, "-");
+      const fallbackId = relPath.replace(/\.md$/, "").replace(/[/\\]/g, "-");
       return readSingleMd(fullPath, fileType, fallbackId);
     }),
   );

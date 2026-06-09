@@ -218,6 +218,77 @@ describe("validatePhaseTransition", () => {
       const errors = validatePhaseTransition(ctx, 4);
       expect(errors.some((e) => e.field === "reviewResult.iterations")).toBe(true);
     });
+
+    it("rejects an UNRESOLVED verdict at the Phase 4 advance gate by default (D7-10)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: { ...validReviewResult(), finalVerdict: "UNRESOLVED" as const },
+      };
+      const errors = validatePhaseTransition(ctx, 4);
+      const verdictErr = errors.find((e) => e.field === "reviewResult.finalVerdict");
+      expect(verdictErr).toBeDefined();
+      expect(verdictErr!.message).toContain("allowUnresolvedAdvance");
+    });
+
+    it("admits an UNRESOLVED verdict at Phase 4 when allowUnresolvedAdvance is passed (D7-10)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: { ...validReviewResult(), finalVerdict: "UNRESOLVED" as const },
+      };
+      const errors = validatePhaseTransition(ctx, 4, { allowUnresolvedAdvance: true });
+      expect(errors).toHaveLength(0);
+    });
+
+    it("does not apply the UNRESOLVED rejection at completion (D7-10 — scoped to the advance gate)", () => {
+      // The UNRESOLVED gate is the Phase 3 → 4 advance decision (targetPhase 4),
+      // not the completion check; completion only requires the field set.
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: { ...validReviewResult(), finalVerdict: "UNRESOLVED" as const },
+        qualityResults: validQualityResults(),
+      };
+      const errors = validatePhaseTransition(ctx, "completion");
+      expect(errors.some((e) => e.field === "reviewResult.finalVerdict")).toBe(false);
+    });
+
+    it("accepts an absent reviewResult at Phase 4 when phase3Skipped is set (D7-11 skip-path)", () => {
+      // Documentation-only / trivial change: Phase 3 was skipped, so no reviewer
+      // ran and there is no reviewResult.
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+      };
+      const errors = validatePhaseTransition(ctx, 4, { phase3Skipped: true });
+      expect(errors.some((e) => e.field === "reviewResult")).toBe(false);
+    });
+
+    it("still requires reviewResult at Phase 4 without the phase3Skipped signal (D7-11)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+      };
+      const errors = validatePhaseTransition(ctx, 4);
+      expect(errors.some((e) => e.field === "reviewResult")).toBe(true);
+    });
+
+    it("accepts a synthetic SKIPPED reviewResult with iterations 0 under phase3Skipped (D7-11)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: { ...validReviewResult(), iterations: 0 },
+      };
+      const errors = validatePhaseTransition(ctx, 4, { phase3Skipped: true });
+      expect(errors.some((e) => e.field === "reviewResult.iterations")).toBe(false);
+    });
   });
 
   describe("Completion", () => {
@@ -542,6 +613,53 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     const result = shouldTriggerSpecialist("hatch3r-ui", ["src/server/route.ts"]);
     expect(result.triggered).toBe(false);
   });
+
+  // ── Backend path-glob triggers (Finding D7-20) ──────────────────
+  it("triggers hatch3r-reliability on a backend service-handler .ts path (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-reliability", ["src/server/handlers/order.ts"]);
+    expect(result.triggered).toBe(true);
+    expect(result.reasons.some((r) => r.includes("Backend path-glob trigger"))).toBe(true);
+  });
+
+  it("triggers hatch3r-scalability on a backend route .ts path (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-scalability", ["src/routes/checkout.ts"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("triggers hatch3r-performance on a backend data-access .ts path (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-performance", ["src/db/queries/users.ts"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("triggers hatch3r-reliability on a Go service file under a backend segment (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-reliability", ["internal/api/server.go"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("triggers hatch3r-maintainability on a migration path (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-maintainability", ["db/migrate/0007_add_index.ts"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("does NOT trigger a backend specialist on a front-end-only component path (D7-20)", () => {
+    // hatch3r-reliability has no front-end basename patterns; a .vue under
+    // components/ has no backend directory segment, so it must not trigger.
+    const result = shouldTriggerSpecialist("hatch3r-reliability", ["src/components/Button.vue"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  it("does NOT trigger a backend specialist on a non-source file inside a backend dir (D7-20)", () => {
+    // A README living under routes/ is not a code change — the source-suffix
+    // guard prevents a spurious backend trigger.
+    const result = shouldTriggerSpecialist("hatch3r-scalability", ["src/routes/README.md"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  it("does NOT match a backend segment as a basename substring (D7-20)", () => {
+    // "routesConfig.ts" contains "routes" but not as a directory segment.
+    const result = shouldTriggerSpecialist("hatch3r-reliability", ["src/lib/routesConfig.ts"]);
+    expect(result.triggered).toBe(false);
+  });
 });
 
 describe("LANGUAGE_SPECIALIST_CONFIGS", () => {
@@ -837,6 +955,44 @@ describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
     });
     expect(result.complete).toBe(true);
     expect(result.codeMutatingSpecialists).toEqual(["hatch3r-security"]);
+  });
+
+  it("derives unresolvedCriticalFindings from SpecialistResult.criticalCount when no override is passed (D7-19)", () => {
+    // D7-19: a specialist that recorded a Critical finding must fail the gate
+    // without the caller threading the count through a separate options arg.
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.criticalCount = 2;
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.unresolvedCriticalFindings).toBe(2);
+    expect(result.incompletionReason).toBe(
+      "2 Critical finding(s) unresolved after Phase 4 fixer pass",
+    );
+  });
+
+  it("sums criticalCount across specialists for the derived default (D7-19)", () => {
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.criticalCount = 1;
+    q.specialists.find((s) => s.specialist === "hatch3r-testability")!.criticalCount = 2;
+    const result = evaluatePhase4Completion(q);
+    expect(result.unresolvedCriticalFindings).toBe(3);
+    expect(result.complete).toBe(false);
+  });
+
+  it("treats absent criticalCount as 0 — back-compatible default stays complete (D7-19)", () => {
+    // Baseline fixture omits criticalCount entirely; the derived sum is 0.
+    const result = evaluatePhase4Completion(passingQualityResults());
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.complete).toBe(true);
+  });
+
+  it("lets an explicit options.unresolvedCriticalFindings override the derived sum (D7-19)", () => {
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.criticalCount = 5;
+    // Explicit 0 override wins over the derived sum of 5.
+    const result = evaluatePhase4Completion(q, { unresolvedCriticalFindings: 0 });
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.complete).toBe(true);
   });
 });
 

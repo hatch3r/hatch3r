@@ -2,7 +2,7 @@
 id: hatch3r-api-spec
 name: hatch3r-api-spec
 type: skill
-description: Generate and validate OpenAPI specifications from codebase. Covers endpoint design, schema validation, and documentation generation.
+description: Generates and validates OpenAPI specifications from codebase. Covers endpoint design, schema validation, and documentation generation.
 tags: [planning]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -146,14 +146,12 @@ The gate stays green only because the change is recorded — not because the bre
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (single service / one spec file): inline execution acceptable.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Tier boundaries for THIS skill:
+- Tier 1 (single service / one spec file): inline.
 - Tier 2 (multiple services or spec + client-codegen + CI-gate concerns): spawn parallel sub-agents per concern via the Task tool.
 - Tier 3 (cross-service contract suite): one fresh sub-agent per service spec; orchestrator integrates only.
 
-Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
-
-Source: `rules/hatch3r-fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
+Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Error Handling
 

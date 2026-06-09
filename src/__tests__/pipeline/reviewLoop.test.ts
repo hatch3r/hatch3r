@@ -19,8 +19,9 @@ import {
   MIN_MAX_REVIEW_ITERATIONS,
   MIN_DIVERGENCE_HISTORY,
   DIVERGENCE_MESSAGE,
+  iterationVerdictToHandoffVerdict,
   type ReviewConfidenceLevel,
-  type ReviewVerdict,
+  type ReviewIterationVerdict,
 } from "../../pipeline/reviewLoop.js";
 import { HatchError } from "../../types.js";
 
@@ -930,7 +931,7 @@ describe("reviewLoop", () => {
       // function at every iteration. The loop must terminate within
       // maxIterations without any external bookkeeping.
       let state = createReviewLoop(3);
-      const verdicts: Array<{ verdict: ReviewVerdict; findings: number }> = [
+      const verdicts: Array<{ verdict: ReviewIterationVerdict; findings: number }> = [
         { verdict: "critical", findings: 8 },
         { verdict: "warning", findings: 4 },
         { verdict: "warning", findings: 3 },
@@ -1332,5 +1333,24 @@ describe("confidenceExplanation rule parity (Finding D13-2 / D13-SA13.2-F2)", ()
     const seen = new Set(levels.map((l) => confidenceExplanation(l)));
     expect(seen.size).toBe(levels.length);
     for (const text of seen) expect(text.length).toBeGreaterThan(0);
+  });
+});
+
+describe("iterationVerdictToHandoffVerdict (Finding D7-12)", () => {
+  it("maps a clean iteration verdict to the CLEAN handoff verdict", () => {
+    expect(iterationVerdictToHandoffVerdict("clean")).toBe("CLEAN");
+  });
+
+  it("maps warning and critical iteration verdicts to UNRESOLVED (fail-closed)", () => {
+    expect(iterationVerdictToHandoffVerdict("warning")).toBe("UNRESOLVED");
+    expect(iterationVerdictToHandoffVerdict("critical")).toBe("UNRESOLVED");
+  });
+
+  it("only ever returns a handoff-scale value, never an iteration-scale value", () => {
+    const handoffValues = new Set(["CLEAN", "UNRESOLVED"]);
+    const iterationVerdicts: ReviewIterationVerdict[] = ["clean", "warning", "critical"];
+    for (const v of iterationVerdicts) {
+      expect(handoffValues.has(iterationVerdictToHandoffVerdict(v))).toBe(true);
+    }
   });
 });

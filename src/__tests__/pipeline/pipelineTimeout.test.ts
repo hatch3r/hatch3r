@@ -357,4 +357,148 @@ describe("pipelineTimeout", () => {
       }
     });
   });
+
+  // D8-10 (Cycle 11 Wave 3, D8): signal propagation through the SAME chain
+  // `sync`/`update` build — runWithPipelineDeadman → executeWithPhaseTimeout
+  // (parentSignal=deadman) → generateWithTimeout (parentSignal=phase) → adapter.
+  // NONE of these functions are stubbed (the prior sync deadman test stubbed
+  // runWithPipelineDeadman wholesale and therefore could not catch a severed
+  // parentSignal slot). The regression D8-10 found is `undefined` in the
+  // parentSignal slot, which severs the chain at the phase→adapter hop. Because
+  // `generateWithTimeout` ALSO aborts the adapter on its OWN per-adapter timer
+  // (independent of the parent), and the timeout clamps force
+  // adapter(5s) < phase(10s) < deadman(30s), a wall-clock race cannot isolate
+  // "the parent — not the adapter's own timer — aborted the adapter". So this
+  // exercises each hop with a PRE-ABORTED parent: the adapter must abort
+  // IMMEDIATELY (before any timer), which can only happen if the parent signal
+  // was honoured. Sub-millisecond, no fake timers.
+  describe("deadman → phase → adapter signal propagation (D8-10)", () => {
+    // A probe adapter that hangs until its threaded signal aborts — exactly the
+    // failure mode the deadman exists to interrupt. Records what it received.
+    function makeHangingAdapter() {
+      const state = { signalReceived: undefined as AbortSignal | undefined, aborted: false };
+      const adapter = {
+        name: "hanging-probe",
+        warnings: [] as string[],
+        async generate(
+          _canonicalRoot: string,
+          _manifest: unknown,
+          _userRepoRoot?: string,
+          _generationMode?: unknown,
+          signal?: AbortSignal,
+        ): Promise<unknown[]> {
+          state.signalReceived = signal;
+          await new Promise<void>((resolve) => {
+            if (signal?.aborted) {
+              state.aborted = true;
+              resolve();
+              return;
+            }
+            signal?.addEventListener(
+              "abort",
+              () => {
+                state.aborted = true;
+                resolve();
+              },
+              { once: true },
+            );
+          });
+          return [];
+        },
+        async getOutputPaths(): Promise<string[]> {
+          return [];
+        },
+      };
+      return { adapter, state };
+    }
+
+    it("generateWithTimeout honours a pre-aborted parentSignal (phase→adapter hop)", async () => {
+      const { generateWithTimeout } = await import("../../pipeline/adapterTimeout.js");
+      const { adapter, state } = makeHangingAdapter();
+      const parent = new AbortController();
+      parent.abort(); // deadman/phase already fired before generation starts
+
+      // A long per-adapter budget proves the abort came from the PARENT, not the
+      // adapter's own timer (which would not fire for 5s).
+      const result = await generateWithTimeout(
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        "hanging-probe" as any,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        adapter as any,
+        "",
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        { tools: [] } as any,
+        "standard",
+        { timeoutMs: 5_000 },
+        parent.signal,
+      );
+
+      expect(state.signalReceived).toBeInstanceOf(AbortSignal);
+      expect(state.aborted).toBe(true);
+      // The adapter unwound on abort rather than timing out on its own 5s timer.
+      expect(result.completed).toBe(true);
+    });
+
+    it("executeWithPhaseTimeout forwards a pre-aborted deadman parent to its fn (deadman→phase hop)", async () => {
+      const { executeWithPhaseTimeout } = await import("../../pipeline/phaseTimeout.js");
+      let fnSignal: AbortSignal | undefined;
+      const parent = new AbortController();
+      parent.abort();
+
+      await executeWithPhaseTimeout(
+        "adapter",
+        async (phaseSignal) => {
+          fnSignal = phaseSignal;
+          return "ok";
+        },
+        { timeoutMs: 10_000 },
+        parent.signal,
+      );
+
+      expect(fnSignal).toBeInstanceOf(AbortSignal);
+      // The phase controller inherits the parent's aborted state synchronously.
+      expect(fnSignal?.aborted).toBe(true);
+    });
+
+    it("full unstubbed chain: a pre-aborted deadman aborts the adapter through phase + generate", async () => {
+      const { executeWithPhaseTimeout } = await import("../../pipeline/phaseTimeout.js");
+      const { generateWithTimeout } = await import("../../pipeline/adapterTimeout.js");
+      const { adapter, state } = makeHangingAdapter();
+
+      // Pre-abort the controller runWithPipelineDeadman hands the body, so the
+      // deadman signal is already aborted when the chain runs — the abort must
+      // travel deadman → phase (parentSignal) → adapter (parentSignal) with no
+      // timer involved. A severed parentSignal slot leaves the adapter hanging
+      // on its own 5s timer and `state.aborted` stays false at assertion time.
+      const controller = new AbortController();
+      controller.abort();
+
+      await runWithPipelineDeadman(
+        (deadmanSignal) =>
+          executeWithPhaseTimeout(
+            "adapter",
+            (phaseSignal) =>
+              generateWithTimeout(
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                "hanging-probe" as any,
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                adapter as any,
+                "",
+                // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                { tools: [] } as any,
+                "standard",
+                { timeoutMs: 5_000 },
+                phaseSignal,
+              ),
+            { timeoutMs: 10_000 },
+            deadmanSignal,
+          ),
+        MIN_PIPELINE_TIMEOUT_MS,
+        controller,
+      );
+
+      expect(state.signalReceived).toBeInstanceOf(AbortSignal);
+      expect(state.aborted).toBe(true);
+    });
+  });
 });

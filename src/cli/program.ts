@@ -148,10 +148,13 @@ export function createProgram(): Command {
     .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet")
     .option("--no-banner", "Skip the ASCII banner at startup")
     .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json")
-    // --maturity provenance: Decision 4 / #16. --role: D14-M6. --facets: D14-M9. --per-package: D14-SA14.2-H1.
-    // D14-8 (Cycle 11 Wave 2, P1): help text was a content-admission claim that
-    // contradicts Decision 16 — every tier installs the identical corpus; the
-    // tier only calibrates how deep the agents invest (see docs/maturity-tiers.md).
+    // --maturity provenance: Decision 16 (gate→dial reframe). --role: D14-M6. --facets: D14-M9. --per-package: D14-SA14.2-H1.
+    // D1-16 / D14-8 (Cycle 11, P1/P5): help text was a content-admission claim
+    // citing the retired "Decision 4" gate — it contradicted Decision 16, where
+    // every tier installs the identical corpus and the tier only calibrates how
+    // deep the agents invest (see docs/maturity-tiers.md + CONSTITUTION §6
+    // Decision 16). Both the help string and this provenance cite now say
+    // Decision 16.
     .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — calibrates investment depth; does not change which content is installed")
     .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role")
     .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability")
@@ -277,7 +280,13 @@ export function createProgram(): Command {
   program
     .command("verify")
     .description(VERIFY_SUMMARY)
-    .option("--fix", "Auto-fix detected drift by running hatch3r update")
+    // D1-22 (Cycle 11 Wave 3, P5 Silent-Failure): the prior help named the
+    // wrong command + wrong defect class — `--fix` does NOT run `hatch3r update`
+    // (no package fetch, no network). It calls `runRegenerate` (verify.ts), the
+    // same offline in-memory adapter regeneration `hatch3r sync` performs, up to
+    // `--max-fix-attempts` times. Wording aligned to that behavior so an
+    // operator does not expect an upstream pull.
+    .option("--fix", "Auto-repair detected drift by regenerating adapter output (offline; same regeneration as `hatch3r sync`), up to --max-fix-attempts cycles")
     .option("--max-fix-attempts <n>", "Maximum verify-fix cycles (default: 2, max: 5)", parseInt)
     // --verbose provenance: D1-SA1.4-F11. --diff: D12-SA12.2-F5. --format: SA12.1-F-D12-M2.
     .option("--verbose", "Show the per-tool / per-file drift breakdown (same detail as `hatch3r status`) before the PASS/FAIL summary")
@@ -518,7 +527,10 @@ export function createProgram(): Command {
     .option("--verbose", "Show detailed output")
     .action(explainCommand);
 
-  // Catch-all for unknown commands -- redirect agent commands to the editor
+  // Catch-all for unknown commands -- redirect agent commands to the editor.
+  // Registering a `command:*` listener makes commander hand the unknown-command
+  // case to us instead of throwing its own error, so this handler owns the exit
+  // code for that path (commander.exitOverride() never sees it).
   program.on("command:*", (operands: string[]) => {
     const cmd = operands[0];
     if (cmd && AGENT_COMMAND_NAMES.has(cmd)) {
@@ -542,7 +554,14 @@ export function createProgram(): Command {
         `\n    hatch3r clean     Remove hatch3r artifacts\n`,
       );
     }
-    process.exit(1);
+    // D12-8 (Cycle 11 Wave 3, P1): both branches are usage-class errors — the
+    // user invoked a name that is not a runnable terminal command. Exit 2 to
+    // honor the documented usage-error contract (`cli-ux-standards.md`: 0 ok,
+    // 1 unexpected, 2 usage) and match the unknown-OPTION path, which commander
+    // routes through exitOverride() → CommanderError → index.ts exit 2. The
+    // legacy exit 1 here aliased a usage mistake to the "unexpected error" class
+    // so CI could not branch on it.
+    process.exit(2);
   });
 
   return program;

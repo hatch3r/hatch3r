@@ -200,11 +200,25 @@ function transformEnvVarSyntaxInner(
  * Each row records the env-var syntax actually consumed by the target platform
  * for a given adapter output surface (verified against the cited primary
  * source) and the corresponding `transformEnvVarSyntax` format the adapter
- * MUST request. Regression test `src/__tests__/adapters/mcp-utils.test.ts`
- * loops over this table to enforce that every adapter call site stays aligned
- * with the platform contract — a future adapter that picks the wrong format
- * (e.g., emits `$VAR` to a consumer that does not perform shell expansion)
- * breaks the test rather than silently shipping unsubstituted placeholders.
+ * MUST request.
+ *
+ * Two regression suites guard this table, and the second is the one that makes
+ * it a real contract (D2-14, Cycle 11 Wave 3, D2, P2):
+ *   1. `src/__tests__/adapters/mcp-utils.test.ts` → describe
+ *      "MCP_ENV_VAR_FORMAT_PARITY": a table-INTERNAL consistency check — every
+ *      supported adapter has both surface rows, and each row's `format` maps to
+ *      the documented `transformEnvVarSyntax` output. This pins the table's
+ *      shape but, on its own, cannot catch an adapter call site that requests a
+ *      format the table does not list (it never reads a call site).
+ *   2. `src/__tests__/adapters/mcp-dataflow.test.ts` → describe
+ *      "MCP_ENV_VAR_FORMAT_PARITY adapter cross-check (D2-14)": the real gate.
+ *      For every row it runs the OWNING adapter's `generate()` against a
+ *      `${env:VAR}` fixture and asserts the emitted `.mcp.json` / `.cursor/mcp.json`
+ *      / `.vscode/mcp.json` carries the substitution the row declares (honoring
+ *      `viaEnvFile` and `viaInputs` surfaces). A call site that picks the wrong
+ *      format (e.g., emits `$VAR` to a consumer that does not perform shell
+ *      expansion), or a table row that drifts from its call site, breaks this
+ *      test rather than silently shipping unsubstituted placeholders.
  *
  * Sources accessed 2026-05-27:
  *   - Claude Code MCP: https://code.claude.com/docs/en/mcp (uses `${VAR}`).
@@ -566,6 +580,41 @@ export function validateMcpEntry(
 }
 
 /**
+ * Package base-names (scope + name, NO version suffix) shipped by the bundled
+ * canonical `mcp/mcp.json` on an on-demand fetch launcher.
+ *
+ * D15-25 (Cycle 11 Wave 3, D15, P6/SA15.5-F2): the version-pin gate used to give
+ * the SAME generic "pin a version" advice for every unpinned package, whether it
+ * was a recognized canonical MCP package that merely lacked a version or a bare
+ * name that is not a package on the launcher's registry at all. That conflation
+ * is what produced the unsatisfiable `glab@<version>` advice (D15-1): the right
+ * signal there was "this is not the package you think it is," not "you forgot a
+ * version." This allowlist lets {@link checkVersionPin} ESCALATE the message for
+ * an unpinned package whose base name is unknown — the dependency-confusion /
+ * wrong-launcher class — while keeping the plain pin advice for a known package.
+ *
+ * Source of truth is the bundled `mcp/mcp.json` (the npx-launched server
+ * `args[]` package tokens). It is a hand-mirrored list, kept in lockstep with
+ * that file; `src/__tests__/mcp/mcp-package-resolution.test.ts` (Decision 20)
+ * loads the real bundle, and the parity assertion in
+ * `src/__tests__/adapters/mcp-utils.test.ts` asserts every npx-launched bundled
+ * package base-name is present here, so a future canonical addition that forgets
+ * to update this set breaks a test rather than silently mis-escalating. The
+ * non-fetch-launcher servers (`github` HTTP transport, `gitlab` `glab` system
+ * binary) are intentionally absent — they never reach the version-pin gate.
+ */
+export const CANONICAL_MCP_PACKAGES: ReadonlySet<string> = new Set([
+  "@upstash/context7-mcp",
+  "@modelcontextprotocol/server-filesystem",
+  "@playwright/mcp",
+  "@brave/brave-search-mcp-server",
+  "@sentry/mcp-server",
+  "@henkey/postgres-mcp-server",
+  "@mkusaka/mcp-server-linear",
+  "@tiberriver256/mcp-server-azure-devops",
+]);
+
+/**
  * Check whether an on-demand-fetch-launched package argument carries an
  * immutable version pin.
  *
@@ -590,8 +639,18 @@ export function validateMcpEntry(
  * correct package/launcher — so it stays actionable for uvx/pipx/bunx/pnpm dlx/
  * yarn dlx packages and for entries whose package is not on npm at all.
  *
- * Origin: C7-H6 (D15 / Pillar P6); advice corrected under D11-8 (Cycle 11). See
- * call site in `validateMcpEntry`.
+ * D15-25 (Cycle 11 Wave 3, D15, P6/SA15.5-F2): when the unpinned package's base
+ * name is NOT in {@link CANONICAL_MCP_PACKAGES}, the message ESCALATES — it
+ * leads with an "unknown/unexpected package" line flagging the
+ * dependency-confusion / wrong-launcher class (the `glab` failure mode) before
+ * the standard pin-or-switch advice. A known canonical package that merely lacks
+ * a version keeps the plain advice. The supply-chain severity of an unpinned
+ * unknown name (an attacker can register the bare name and `-y` auto-installs +
+ * executes it) is higher than a forgotten version on a vetted package, so the
+ * operator gets the stronger signal first.
+ *
+ * Origin: C7-H6 (D15 / Pillar P6); advice corrected under D11-8 (Cycle 11),
+ * escalation added under D15-25 (Cycle 11). See call site in `validateMcpEntry`.
  */
 export function checkVersionPin(
   serverName: string,
@@ -626,8 +685,20 @@ export function checkVersionPin(
       0,
       versionAt > 0 ? versionAt : pkgArg.length,
     );
+    // D15-25 (D15, P6): escalate when the base name is not a known canonical
+    // MCP package. An unpinned UNKNOWN name is the dependency-confusion /
+    // wrong-launcher class (the `glab` failure mode) — higher severity than a
+    // vetted package that merely lacks a version, so the operator sees the
+    // unknown-package signal first.
+    const escalation = CANONICAL_MCP_PACKAGES.has(baseName)
+      ? ""
+      : `"${baseName}" is not a known/expected hatch3r canonical MCP package on ` +
+        `${launcher}'s registry — an unpinned unknown name lets an attacker ` +
+        `register it and have ${launcher} auto-install + execute it ` +
+        `(dependency-confusion / wrong-launcher risk). `;
     return (
       `MCP server "${serverName}" uses ${launcher} with unpinned package "${pkgArg}". ` +
+      escalation +
       `Unpinned packages download the latest version on every invocation, exposing ` +
       `the agent to supply chain compromise (e.g., 2025 npm maintainer-account incidents). ` +
       `Pin a published version ("${baseName}@<version>"), or — if "${baseName}" is not a ` +

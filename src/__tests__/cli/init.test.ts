@@ -736,6 +736,21 @@ describe("init command", () => {
         // C7-H8: hatch.json must NOT exist when all adapters failed
         const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
         await expect(access(manifestPath)).rejects.toThrow();
+
+        // D10-39 (D10, P1): the all-adapters-failed terminus records the primary
+        // SPACE metric `firstRunSuccessRate=0` before throwing, so the metric is
+        // not survivorship-biased to 1. Telemetry honours the Silent Failure
+        // Contract and writes independently of the (absent) manifest.
+        const today = new Date().toISOString().slice(0, 10);
+        const telemetryPath = join(tempDir, AGENTS_DIR, "telemetry", `space-${today}.jsonl`);
+        const records = (await readFile(telemetryPath, "utf-8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { metricId: string; axis: string; value: number; tags?: Record<string, string> });
+        const firstRun = records.find((r) => r.metricId === "firstRunSuccessRate");
+        expect(firstRun?.axis).toBe("performance");
+        expect(firstRun?.value).toBe(0);
+        expect(firstRun?.tags?.failure).toBe("content");
       } finally {
         getAdapterSpy.mockRestore();
       }

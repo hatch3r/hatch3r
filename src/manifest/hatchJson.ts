@@ -1016,3 +1016,37 @@ export function readConfidenceFloor(m: HatchManifest | null | undefined): Confid
     ? "high"
     : DEFAULT_CONFIDENCE_FLOOR;
 }
+
+/**
+ * D1-17 (Cycle 11 Wave 3, D1, P1): single-source confidence-floor marker
+ * directive, the agent-assertiveness analog of {@link maturityDirective}.
+ *
+ * Pre-fix the persisted `confidenceFloor` (set via `hatch3r config
+ * confidence_floor=<floor>` and resolved by {@link readConfidenceFloor}) was
+ * validated and stored but NEVER reached any adapter output: no generated
+ * `.cursor/` / `.claude/` / `.github/` artifact carried the value, so an agent
+ * reading the generated content could not know which review-gate floor the user
+ * configured (in contrast to the maturity tier, which every adapter stamps via
+ * {@link maturityDirective}). This payload carries the resolved floor and its
+ * second-pass effect into the same per-adapter marker surface, so the four core
+ * orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`,
+ * `hatch3r-quick-change`, `hatch3r-revision`) read the configured floor from the
+ * artifact they already load instead of it being a write-only config key.
+ *
+ * The effect text mirrors the per-floor semantics documented on `ConfidenceFloor`
+ * in `src/types.ts` and applied by `evaluateReviewGate` in
+ * `src/pipeline/reviewLoop.ts`: `high` forces a second pass on any verdict that
+ * is not `high` confidence; `medium` forces a second pass on `low`; `any` (the
+ * default) only forces a second pass on a top-level `low` finding. Like
+ * `maturityDirective`, each adapter keeps its native wrapper (claude/cursor wrap
+ * it in an HTML comment so it renders invisibly while staying greppable; copilot
+ * emits it as a blockquote line).
+ */
+export function confidenceFloorDirective(floor: ConfidenceFloor): string {
+  const effect: Record<ConfidenceFloor, string> = {
+    any: "force a second review pass only on a top-level low-confidence finding",
+    medium: "force a second review pass on any low-confidence finding",
+    high: "force a second review pass on any verdict below high confidence",
+  };
+  return `hatch3r: confidence floor=${floor}. Core orchestrators ${effect[floor]} before a clean verdict; the floor never relaxes the Critical/Warning fail gates. Set via \`hatch3r config confidence_floor=<any|medium|high>\`.`;
+}

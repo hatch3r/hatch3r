@@ -41,8 +41,13 @@ import { tmpdir } from "node:os";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
-import { createManifest, maturityDirective } from "../../manifest/hatchJson.js";
-import type { HatchManifest, MaturityTier } from "../../types.js";
+import {
+  createManifest,
+  maturityDirective,
+  confidenceFloorDirective,
+  readConfidenceFloor,
+} from "../../manifest/hatchJson.js";
+import type { HatchManifest, MaturityTier, ConfidenceFloor } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -225,6 +230,54 @@ describe("cross-adapter efficiency parity (D6-M14)", () => {
   });
 
   /**
+   * D1-17 (Cycle 11 Wave 3, D1, P1): confidence-floor marker parity.
+   *
+   * Pre-fix the persisted `confidenceFloor` config key was validated and stored
+   * but never reached any adapter output — no generated artifact carried it, so
+   * an agent reading the generated content could not know the configured floor
+   * (in contrast to the maturity tier, stamped by every adapter). This gate
+   * asserts all three adapters emit the identical `confidenceFloorDirective`
+   * payload for the same resolved floor, so a future adapter-local reword or a
+   * dropped header re-surfaces here. Scope mirrors the maturity-marker gate
+   * above: payload bytes only, wrapper (HTML comment vs blockquote) is adapter-
+   * native. Covers both an EXPLICIT floor and the maturity-derived default.
+   */
+  it("confidence-floor marker directive payload is identical across adapters", async () => {
+    const adapters = [
+      { name: "claude", inst: new ClaudeAdapter(), tools: ["claude"] as const },
+      { name: "cursor", inst: new CursorAdapter(), tools: ["cursor"] as const },
+      { name: "copilot", inst: new CopilotAdapter(), tools: ["copilot"] as const },
+    ];
+    // [explicit floor | undefined-with-maturity → resolved default]
+    const cases: Array<{ floor?: ConfidenceFloor; maturity: MaturityTier }> = [
+      { floor: "high", maturity: "solo" }, // explicit wins over the solo default
+      { floor: "medium", maturity: "enterprise" }, // explicit wins over the high default
+      { floor: undefined, maturity: "solo" }, // resolves to "any"
+      { floor: undefined, maturity: "enterprise" }, // resolves to "high"
+    ];
+    for (const { floor, maturity } of cases) {
+      for (const { name, inst, tools } of adapters) {
+        const manifest: HatchManifest = {
+          ...createManifest({
+            tools: tools as unknown as Parameters<typeof createManifest>[0]["tools"],
+            mcpServers: [],
+          }),
+          maturity,
+          ...(floor ? { confidenceFloor: floor } : {}),
+        };
+        const resolved = readConfidenceFloor(manifest);
+        const expectedPayload = confidenceFloorDirective(resolved);
+        const outputs = await inst.generate(fixtureRoot, manifest);
+        const corpus = outputs.map((o) => o.content ?? "").join("\n");
+        expect(
+          corpus.includes(expectedPayload),
+          `${name} adapter (floor=${floor ?? "<default>"}, maturity=${maturity}, resolved=${resolved}) did not emit the shared confidenceFloorDirective payload verbatim (D1-17)`,
+        ).toBe(true);
+      }
+    }
+  });
+
+  /**
    * D6-29 (Cycle 11 Wave 3): scoped-rule parity — the test gap that let D6-1
    * (globs dropped) and D6-28 (footprint asymmetry) ship green.
    *
@@ -254,8 +307,10 @@ describe("cross-adapter efficiency parity (D6-M14)", () => {
       (o) => o.path.startsWith(".cursor/rules/") && o.path.includes("scoped-rule"),
     );
     expect(cursorScoped, "cursor emitted no .cursor/rules/ scoped-rule output").toBeDefined();
-    expect(cursorScoped!.content).toContain('globs: ["**/*.ts"]');
-    expect(cursorScoped!.content).not.toContain('globs: ["conditional"]');
+    // D9-13 (Cycle 11 Wave 3): cursor emits `globs:` as an unquoted comma-separated
+    // string (no bracketed array), per cursor.com/docs/context/rules.
+    expect(cursorScoped!.content).toContain("globs: **/*.ts");
+    expect(cursorScoped!.content).not.toContain("globs: conditional");
 
     const copilotOut = await copilot.generate(fixtureRoot, mk("copilot"));
     const copilotScoped = copilotOut.find(

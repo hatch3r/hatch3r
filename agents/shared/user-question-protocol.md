@@ -66,6 +66,17 @@ Rules for the template:
 - The default-if-no-response line is mandatory — it removes the deadlock when the user is away or replies "you decide".
 - The default option is the safest reversible choice, not the most ambitious one.
 
+### Optional preview attachment (orchestrator-scoped, platform-conditional)
+
+For questions whose options differ along a **visual or layout dimension** — a color/spacing/typography choice, two candidate component arrangements, a copy-tone A/B, a before/after of an async-view state — a rendered preview alongside the numbered options lets the user decide from the artifact instead of from prose. This is most useful for the UI (CQ1) and UX (CQ2) ASK gates, where "which of these reads better" is the decision.
+
+Attach a preview only when BOTH hold:
+
+- **You are the orchestrator** (main-conversation `commands/hatch3r-*.md`), not a Task-tool sub-agent. Sub-agents cannot call the native question tool at all (see the Sub-agent caveat above); they render the question — and any preview snippet — in the `BLOCKED_AMBIGUITY` structured result, and the orchestrator owns the live ASK.
+- **The runtime's native question tool supports rich/rendered option content.** Capability is per-platform; look up your runtime's row in the adapter map (`src/pipeline/adapterToolTranslator.ts::ASK_USER_TOOLS`) before relying on a preview, exactly as you would for the question tool itself. When the platform's native tool is text-only (or absent), embed the preview as a fenced code block inside the Plain-Text Fallback Template instead — never assume a rendering affordance the platform row does not document.
+
+The preview is an enrichment, not a replacement: the numbered options and the mandatory `Default if no response:` line are still required. Keep the preview small (one screen of markup or a single mock) so it does not bury the decision.
+
 ## Examples
 
 **Example 1 — Ambiguous requirement.** Request: "Add caching to the user profile endpoint."
@@ -97,10 +108,10 @@ The "Default if no response" line is mandatory in every plain-text fallback ques
 
 1. **Detect non-response.** If a question goes unanswered within the host runtime's question window (Claude Code: idle session timeout; Cursor: AskUserQuestion timeout; Copilot Workspace: prompt-cycle gap), or if the user replies "you decide" / "default" / empty, treat as non-response.
 2. **Apply the safe default.** Pick the option declared on the `Default if no response: <option number>` line — the lowest-blast-radius reversible choice the question's author named.
-3. **Log the default-taken decision.** Emit in the Iteration Summary §8 (Open Questions / Blockers) a single line: `Default applied: <question summary> → option <N> (<one-line reason>)`. This is the operational counterpart to the prose mandate — every agent / command ASK output that exercises the default MUST log the decision.
+3. **Log the default-taken decision.** Emit in the Iteration Summary §8 (Open Questions / Blockers) a single line: `Default applied: <question summary> → option <N> (<one-line reason>)`. This is the operational counterpart to the prose mandate — every agent / command ASK output that exercises the default MUST log the decision. The §8 line is a required field of the canonical Iteration Summary template (`rules/hatch3r-iteration-summary.md` → The 9 Sections, item 8), and the catching-gate ownership is named in `rules/hatch3r-clarification-default.md` → How to ask — those two files are the enforcing surface for this step.
 4. **Never silent-pick.** If no `Default if no response: <option>` line was emitted with the question (an authoring bug per the rules in this file), return `BLOCKED_AMBIGUITY` in the structured result rather than guessing.
 
-The §8 log is the audit-visible evidence that the default-if-no-response contract was honored; absence of the log when a default was applied is a P8 B1 gate failure.
+The §8 log is the audit-visible evidence that the default-if-no-response contract was honored; absence of the log when a default was applied is a P8 B1 gate failure. Runtime emission of the §8 line is orchestrator-produced interpreted markdown, so no static gate can verify it fired — D05 (prompt-engineering) and D13 (human-AI collaboration) audit-cycle spot checks plus the per-run Iteration Summary validation gate are the enforcement, not a compiled check.
 
 ## Cross-Phase Aggregation
 

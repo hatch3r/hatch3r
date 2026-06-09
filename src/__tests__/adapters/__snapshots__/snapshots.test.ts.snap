@@ -173,7 +173,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "72ba41e23835fabd670dd48037184a501576745d5d654e34c41e792637c1d1b7",
+    "bodyHash": "f2ab0d4b47b5553d81b6270262e5af370ccbb82d20899618d2aeff329d32c68c",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "AGENT_TEAMS",
@@ -228,7 +228,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "bodyHash": "9353aac2b06e09ad7d4c600a3373827dfedf13bef632627933d9a0bd9630f6c8",
+    "bodyHash": "e7c1859330cd392b7e81f436d5b9c47b224c536ee4a3027798106d82f853cc33",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -256,7 +256,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "bodyHash": "b6c079ed7b24f9e6c00d081309a476b85561b505c6b4eda07982d29caaeb6266",
+    "bodyHash": "be22bc55886a888bb476320bc3ce636be8da420ae1d6d6b3c9cd6b2728b8150a",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",
@@ -454,7 +454,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "0e2c5462233d690989cdd8ddb671c088ffb08e5233a2b97b691e89ff6cc6f79b",
+    "bodyHash": "7e5cdf906b26ca27061df2113190bb65c17e501a830992a7857b5dad26569286",
     "contentMarkers": [
       "CURSOR_GLOBS",
       "FRONTMATTER",
@@ -465,7 +465,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "a399e11f586066695cff950429142df796624a3a7b01e792606ae819ed37a0f5",
+    "bodyHash": "e25c2953c18286987c258bee0a8f0d0f30efffd8803d716b755fdb373f6e3e7e",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",
@@ -513,7 +513,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "5435ab8be489c58d67eff2b8019454838c954e827e64f8e26d03bdc16122b74d",
+    "bodyHash": "395c71441315a27ea732a968c25b586102455235e517885bb94bde85eff66be4",
     "contentMarkers": [
       "CURSOR_GLOBS",
       "FRONTMATTER",

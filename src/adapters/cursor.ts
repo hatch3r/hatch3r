@@ -13,7 +13,12 @@ import type {
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
-import { readMaturityTier, maturityDirective } from "../manifest/hatchJson.js";
+import {
+  readMaturityTier,
+  maturityDirective,
+  readConfidenceFloor,
+  confidenceFloorDirective,
+} from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
@@ -53,6 +58,19 @@ function cursorMaturityHeader(ctx: AdapterContext): string {
   // hatchJson.ts::maturityDirective) in an HTML comment so it renders invisibly
   // in Cursor's rule view while staying greppable for drift checks.
   return `<!-- ${maturityDirective(readMaturityTier(ctx.manifest))} -->`;
+}
+
+/**
+ * D1-17 (Cycle 11 Wave 3, D1, P1): per-rule confidence-floor marker, the
+ * agent-assertiveness analog of {@link cursorMaturityHeader}. Wraps the shared
+ * `confidenceFloorDirective` payload (single source in hatchJson.ts) in an HTML
+ * comment — same invisible-render + greppable design as the maturity header —
+ * so the resolved floor ({@link readConfidenceFloor}: explicit `confidenceFloor`
+ * else the maturity-aware default) travels with each generated rule. Pre-fix the
+ * persisted floor reached no adapter output.
+ */
+function cursorConfidenceFloorHeader(ctx: AdapterContext): string {
+  return `<!-- ${confidenceFloorDirective(readConfidenceFloor(ctx.manifest))} -->`;
 }
 
 /**
@@ -124,7 +142,17 @@ function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): str
     // false` exactly as before.
     const globs = resolveRuleGlobs(rule, { scope: scopeOverride });
     if (globs.length > 0) {
-      lines.push(`globs: [${globs.map((g) => `"${g}"`).join(", ")}]`);
+      // D9-13 (Cycle 11 Wave 3, D9, P3): emit `globs:` as an unquoted
+      // comma-separated string, NOT a YAML/JSON array. cursor.com/docs/context/rules
+      // (accessed 2026-06-06) documents `globs` only as a comma-separated string
+      // (e.g. `docs/**/*.md, docs/**/*.mdx`); the bracketed-array form is
+      // undocumented and Cursor staff have not confirmed it auto-attaches
+      // (forum.cursor.com/t/correct-way-to-specify-rules-globs/71752, Colin reply,
+      // accessed 2026-06-06), so the prior array emission risked the rule silently
+      // never attaching. The join uses NO space after the comma: the same forum
+      // thread (KyleM reply) reports a space after the comma silently breaks glob
+      // matching, so `a,b` attaches but `a, b` does not.
+      lines.push(`globs: ${globs.join(",")}`);
     } else {
       lines.push("alwaysApply: false");
     }
@@ -181,8 +209,10 @@ export class CursorAdapter extends BaseAdapter {
         const substituted = this.substituteDetectedRepoTokens(rawContent, ctx);
         // F14.3-H2 (D14, P3): prepend the per-tier maturity header so the
         // declared tier travels with each rule body (was byte-identical
-        // across tiers before).
-        const content = `${cursorMaturityHeader(ctx)}\n\n${substituted}`;
+        // across tiers before). D1-17 (D1, P1): also prepend the resolved
+        // confidence-floor marker so the configured agent-assertiveness floor
+        // reaches the generated artifact (was a write-only config key).
+        const content = `${cursorMaturityHeader(ctx)}\n${cursorConfidenceFloorHeader(ctx)}\n\n${substituted}`;
         const desc = overrides.description ?? rule.description;
         const ruleWithDesc = { ...rule, description: desc };
         const nn = precedenceRank(rule.precedence) / 10;
@@ -292,9 +322,14 @@ export class CursorAdapter extends BaseAdapter {
     const hooksJsonEvents: Record<string, Array<Record<string, unknown>>> = {};
     for (const hook of hookResults) {
       const globs = hook.condition?.globs || [];
+      // D9-13 (Cycle 11 Wave 3, D9, P3): same Cursor `globs:` contract as
+      // `cursorRuleFrontmatter` above — unquoted comma-separated string with NO
+      // space after the comma (cursor.com/docs/context/rules accessed 2026-06-06;
+      // the bracketed-array form is undocumented and the comma-space form silently
+      // fails to auto-attach), so the hook→rule shim attaches on the scoped files.
       const globLine =
         globs.length > 0
-          ? `globs: [${globs.map((g: string) => `"${g}"`).join(", ")}]`
+          ? `globs: ${globs.join(",")}`
           : "alwaysApply: false";
       const fm = `---\ndescription: "Hook: ${hook.description}"\n${globLine}\n---`;
       const body = `# Hook: ${hook.id}\n\n**Event:** ${hook.event}\n**Agent:** ${hook.agent}\n\n${hook.description}\n\nHATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.cursor/agents/${toPrefixedId(hook.agent)}.md\`.`;

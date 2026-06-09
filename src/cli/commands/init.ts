@@ -886,6 +886,21 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       const recoveryHint = ioFailure
         ? `Filesystem error writing adapter output. Check write permissions on \`${rootDir}\` and free disk space (\`df -h\`), then re-run \`hatch3r init\`.`
         : "Re-run with `--verbose` to see per-adapter detail, then check `npx hatch3r validate` for upstream content errors.";
+      // D10-39 (D10, P1): this all-adapters-failed terminus is the canonical
+      // first-run FAILURE site — the user reached no adapter output. Record the
+      // primary SPACE metric `firstRunSuccessRate` as value=0 here (the success
+      // terminus records value=1) so `firstRunSuccessRate` reflects BOTH outcomes
+      // and is not survivorship-biased to 1. recordFirstRunSuccess honours the
+      // Silent Failure Contract (never throws), so it runs before — and does not
+      // mask — the ADAPTER_ERROR throw below.
+      recordFirstRunSuccess(false, {
+        source: "hatch3r-init",
+        projectRoot: rootDir,
+        tags: {
+          failure: ioFailure ? "io" : "content",
+          tools: tools.join("+"),
+        },
+      });
       throw new HatchError(
         "All adapters failed",
         undefined,

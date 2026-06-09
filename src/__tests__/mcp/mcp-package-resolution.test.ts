@@ -28,7 +28,10 @@ import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { findPackageRoot } from "../../cli/shared/paths.js";
-import { readMcpConfig } from "../../adapters/mcp-utils.js";
+import {
+  readMcpConfig,
+  CANONICAL_MCP_PACKAGES,
+} from "../../adapters/mcp-utils.js";
 
 interface McpServerEntry {
   command?: unknown;
@@ -171,6 +174,62 @@ describe("bundled mcp.json — dependency-confusion guard (D15-1)", () => {
         `brave-search launches \`${arg}\` — @modelcontextprotocol/server-brave-search is deprecated on npm ("Package no longer supported"); pin Brave's maintained @brave/brave-search-mcp-server instead`,
       ).not.toBe("@modelcontextprotocol/server-brave-search");
     }
+  });
+});
+
+// D15-25 (Cycle 11 Wave 3, Medium, P6/SA15.5-F2): CANONICAL_MCP_PACKAGES is the
+// allowlist `checkVersionPin` uses to ESCALATE an unpinned UNKNOWN package to
+// the dependency-confusion / wrong-launcher class (vs a vetted package that
+// merely lacks a version). The set is a hand-mirrored copy of the npx-launched
+// package base-names in the bundled `mcp/mcp.json`; if it drifts from the real
+// bundle, the gate either under-warns (a real canonical package wrongly flagged
+// "unknown") or mis-escalates. This loads the REAL bundle (Decision 20) and
+// asserts lockstep in both directions so a canonical add/remove that forgets the
+// allowlist breaks here rather than shipping a wrong supply-chain signal.
+describe("CANONICAL_MCP_PACKAGES — lockstep with bundled mcp.json (D15-25)", () => {
+  // Base name (scope + name, no version) of an npx fetch-launcher's package
+  // positional arg — the unit CANONICAL_MCP_PACKAGES is keyed by. Returns null
+  // for non-npx or argless entries (HTTP transports, the `glab` system binary).
+  function npxPackageBaseName(entry: McpServerEntry): string | null {
+    const target = firstNpxPositionalArg(entry);
+    if (target === null) return null;
+    // Scoped (`@scope/pkg[@version]`): version `@` is the SECOND `@`.
+    // Unscoped (`pkg[@version]`): the first `@`.
+    const at = target.startsWith("@")
+      ? target.indexOf("@", 1)
+      : target.indexOf("@");
+    return at > 0 ? target.slice(0, at) : target;
+  }
+
+  function bundledNpxPackageBaseNames(): Set<string> {
+    const servers = loadBundledMcpServers();
+    const names = new Set<string>();
+    for (const entry of Object.values(servers)) {
+      const base = npxPackageBaseName(entry);
+      if (base !== null) names.add(base);
+    }
+    return names;
+  }
+
+  it("every npx-launched bundled package base-name is in the allowlist", () => {
+    const bundled = bundledNpxPackageBaseNames();
+    expect(bundled.size, "expected at least one npx-launched bundled server").toBeGreaterThan(0);
+    const missing = [...bundled].filter((n) => !CANONICAL_MCP_PACKAGES.has(n));
+    expect(
+      missing,
+      `bundled npx package(s) absent from CANONICAL_MCP_PACKAGES (mcp-utils.ts) — ` +
+        `add them or the version-pin gate will mis-flag them as "unknown": ${missing.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("the allowlist has no stale entries missing from the bundled pack", () => {
+    const bundled = bundledNpxPackageBaseNames();
+    const stale = [...CANONICAL_MCP_PACKAGES].filter((n) => !bundled.has(n));
+    expect(
+      stale,
+      `CANONICAL_MCP_PACKAGES entr(ies) no longer present as an npx server in ` +
+        `mcp/mcp.json — remove them to keep the allowlist a true mirror: ${stale.join(", ")}`,
+    ).toEqual([]);
   });
 });
 

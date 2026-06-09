@@ -16,6 +16,7 @@ import {
   ON_DEMAND_FETCH_LAUNCHERS,
   DEFAULT_TRANSFORM_MAX_DEPTH,
   MCP_ENV_VAR_FORMAT_PARITY,
+  CANONICAL_MCP_PACKAGES,
 } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
@@ -558,6 +559,59 @@ describe("checkVersionPin launcher-aware advice (D11-8)", () => {
     // is not a package on npx's registry (the unsatisfiable-advice fix).
     expect(result).toContain("not a");
     expect(result).toContain("switch to the correct package");
+    // D15-25: `glab` is not a known canonical MCP package, so the message
+    // escalates to the unknown/dependency-confusion class up front.
+    expect(result).toContain("not a known/expected hatch3r canonical MCP package");
+  });
+});
+
+// D15-25 (Cycle 11 Wave 3, Medium, P6/SA15.5-F2): the version-pin gate
+// escalates an unpinned UNKNOWN package (not in CANONICAL_MCP_PACKAGES) to the
+// dependency-confusion / wrong-launcher class — the `glab` failure mode where
+// the operator picked a name that is not a package on the launcher's registry
+// at all. A known canonical package that merely lacks a version keeps the plain
+// pin advice. CANONICAL_MCP_PACKAGES is verified to mirror the real bundled
+// mcp.json in src/__tests__/mcp/mcp-package-resolution.test.ts.
+describe("checkVersionPin unknown-package escalation (D15-25)", () => {
+  it("escalates an unpinned UNKNOWN package name to the dependency-confusion class", () => {
+    const result = checkVersionPin("srv", "totally-made-up-pkg", "npx");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+    expect(result).toContain("not a known/expected hatch3r canonical MCP package");
+    expect(result).toContain("dependency-confusion");
+    // The original pin-or-switch advice is preserved alongside the escalation.
+    expect(result).toContain("switch to the correct package");
+  });
+
+  it("escalates @latest on an unknown scoped package too", () => {
+    const result = checkVersionPin("srv", "@unknown-org/mystery-mcp@latest", "uvx");
+    expect(result).not.toBeNull();
+    expect(result).toContain("not a known/expected hatch3r canonical MCP package");
+    // Launcher name is threaded through the escalation, not hardcoded to npx.
+    expect(result).toContain("uvx");
+    expect(result).not.toContain("npx");
+  });
+
+  it("does NOT escalate a KNOWN canonical package that merely lacks a version", () => {
+    // @upstash/context7-mcp is a bundled canonical MCP package — an unpinned
+    // form is a forgotten-version warning, not an unknown-package one.
+    const canonical = [...CANONICAL_MCP_PACKAGES][0];
+    const result = checkVersionPin("srv", canonical, "npx");
+    expect(result).not.toBeNull();
+    // Still warns that it is unpinned (the version-pin contract is unchanged)...
+    expect(result).toContain("unpinned");
+    expect(result).toContain(canonical);
+    // ...but does NOT carry the unknown/dependency-confusion escalation.
+    expect(result).not.toContain("not a known/expected hatch3r canonical MCP package");
+    expect(result).not.toContain("dependency-confusion");
+  });
+
+  it("does NOT escalate a KNOWN canonical package pinned to @latest", () => {
+    const canonical = [...CANONICAL_MCP_PACKAGES][0];
+    const result = checkVersionPin("srv", `${canonical}@latest`, "npx");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+    expect(result).not.toContain("not a known/expected hatch3r canonical MCP package");
   });
 });
 
@@ -1671,14 +1725,23 @@ describe("readMcpConfig drop-path (F15.5-C1)", () => {
 });
 
 /**
- * D11-M5 (Cycle 10 Wave-3 Medium, P2): adapter env-var-format parity audit.
- * Enforces that {@link MCP_ENV_VAR_FORMAT_PARITY} covers every supported
- * adapter and that each row's `format` actually produces the expected
- * platform-side syntax via {@link transformEnvVarSyntax}. A future adapter
- * that picks the wrong format trips this gate at test time rather than at
- * runtime when secrets fail to substitute.
+ * D11-M5 (Cycle 10 Wave-3 Medium, P2): adapter env-var-format parity table —
+ * INTERNAL consistency only. Enforces that {@link MCP_ENV_VAR_FORMAT_PARITY}
+ * covers every supported adapter on both surfaces and that each row's `format`
+ * maps to the documented {@link transformEnvVarSyntax} output.
+ *
+ * D2-14 (Cycle 11 Wave 3, D2, P2): this suite alone does NOT verify the table
+ * against the adapters' real call sites — looping the table through
+ * `transformEnvVarSyntax(canonical, row.format)` is tautological (it re-derives
+ * each row's output from that same row's `format` field; the adapters'
+ * hard-coded format arguments are never read). The real call-site cross-check
+ * that drives each owning adapter's `generate()` and asserts the row's declared
+ * substitution lands in the emitted client config lives in
+ * `src/__tests__/adapters/mcp-dataflow.test.ts` →
+ * "MCP_ENV_VAR_FORMAT_PARITY adapter cross-check (D2-14)". Keep both: this one
+ * pins the table's shape, that one binds the shape to the adapter behavior.
  */
-describe("MCP_ENV_VAR_FORMAT_PARITY", () => {
+describe("MCP_ENV_VAR_FORMAT_PARITY (table-internal consistency)", () => {
   it("covers every supported adapter on both mcp-env and mcp-headers surfaces", () => {
     const supported: ReadonlyArray<"claude" | "cursor" | "copilot"> = [
       "claude",

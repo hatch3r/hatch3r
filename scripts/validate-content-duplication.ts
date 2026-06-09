@@ -94,7 +94,12 @@ export const CORPUS_CEILINGS: Readonly<Record<string, number>> = {
   // point. Lower toward DEFAULT_MAX as repeated frontmatter/role boilerplate
   // is consolidated; delete the row once the corpus reaches 5%.
   agents: 6, // measured 5.76%
-  skills: 6, // measured 5.74%
+  // skills row removed at Cycle 11 D22-5: the duplicated `## Fan-out
+  // Discipline` scaffold was reduced to a one-line canonical-rule pointer +
+  // skill-specific tier lines + the emit directive across the 43 hand-authored
+  // skills, dropping the corpus from 5.86% to 2.91% (this gate's metric) —
+  // back under DEFAULT_MAX (5), so the relaxation row is deleted per the
+  // ratchet policy above.
 };
 
 /** Corpora scanned, in report order. */

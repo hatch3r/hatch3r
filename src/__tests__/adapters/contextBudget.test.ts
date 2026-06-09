@@ -98,8 +98,9 @@ describe("isAlwaysLoaded", () => {
     ).toBe(true);
   });
   it("excludes a globs:-scoped .cursor/rules/*.mdc from always-loaded", () => {
+    // D9-13: cursor emits `globs:` as an unquoted comma-separated string.
     expect(
-      isAlwaysLoaded("cursor", out(".cursor/rules/50-hatch3r-foo.mdc", '---\ndescription: x\nglobs: ["**/*.ts"]\nalwaysApply: false\n---\n\nbody')),
+      isAlwaysLoaded("cursor", out(".cursor/rules/50-hatch3r-foo.mdc", "---\ndescription: x\nglobs: **/*.ts\nalwaysApply: false\n---\n\nbody")),
     ).toBe(false);
   });
   it("does not misclassify a cursor rule whose BODY quotes alwaysApply: true", () => {
@@ -219,8 +220,9 @@ describe("checkContextBudget", () => {
     it("cursor is under its 120K budget for a realistic always-loaded slice", () => {
       const result = checkContextBudget("cursor", [
         cursorAlways(instructions),
-        // lazy-loaded scoped rule + agent — excluded from the gate
-        out(".cursor/rules/50-hatch3r-x.mdc", '---\ndescription: x\nglobs: ["**/*.ts"]\nalwaysApply: false\n---\n\n' + "x".repeat(500_000)),
+        // lazy-loaded scoped rule + agent — excluded from the gate (D9-13:
+        // cursor emits `globs:` as an unquoted comma-separated string)
+        out(".cursor/rules/50-hatch3r-x.mdc", "---\ndescription: x\nglobs: **/*.ts\nalwaysApply: false\n---\n\n" + "x".repeat(500_000)),
         out(".cursor/agents/hatch3r-impl.md", "x".repeat(500_000)),
       ]);
       expect(result.exceedsBudget).toBe(false);

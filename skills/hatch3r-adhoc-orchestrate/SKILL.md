@@ -2,7 +2,7 @@
 id: hatch3r-adhoc-orchestrate
 name: hatch3r-adhoc-orchestrate
 type: skill
-description: Scaffold the ad-hoc Tier >= 2 orchestration protocol -- Per-Turn Pipeline-State Header, implementer delegation plan, End-of-Turn Delegation Attestation. Use for a maintainer multi-phase task with no registered command to avoid bypass mode.
+description: Scaffolds the ad-hoc Tier >= 2 orchestration protocol -- Per-Turn Pipeline-State Header, implementer delegation plan, End-of-Turn Delegation Attestation. Use for a maintainer multi-phase task with no registered command to avoid bypass mode.
 tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

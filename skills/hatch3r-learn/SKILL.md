@@ -2,7 +2,7 @@
 id: hatch3r-learn
 name: hatch3r-learn
 type: skill
-description: Capture learnings from completed development sessions into reusable knowledge files for future consultation. Invoke manually, from board-pickup after PR merge, or with a specific issue number for targeted reflection.
+description: Captures learnings from completed development sessions into reusable knowledge files for future consultation. Invoke manually, from board-pickup after PR merge, or with a specific issue number for targeted reflection.
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

@@ -10,9 +10,8 @@ import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import { discoverUserContent } from "../../content/userContent.js";
 import {
-  readSpaceMetricsForDay,
+  loadSpaceMetricsFromDisk,
   summarizeSpaceMetricRecords,
-  type SpaceMetricRecord,
 } from "../../pipeline/spaceTelemetry.js";
 import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
@@ -150,20 +149,25 @@ export interface SpaceTelemetrySummary {
  * D10-17 (D10, P1): read the trailing {@link SPACE_TELEMETRY_WINDOW_DAYS}-day
  * SPACE telemetry from `.hatch3r/telemetry/space-<date>.jsonl` and roll it up.
  *
- * Best-effort and side-effect-free: {@link readSpaceMetricsForDay} swallows
+ * Delegates the across-runs day-walk to {@link loadSpaceMetricsFromDisk} (the
+ * canonical multi-day reader, D10-38) so the trailing-window logic lives in one
+ * place. Best-effort and side-effect-free: the loader swallows
  * missing/unreadable/corrupt files (Silent Failure Contract), so this returns a
  * zero-record summary rather than throwing when telemetry is absent.
  */
 function readSpaceTelemetrySummary(rootDir: string): SpaceTelemetrySummary {
-  const days: string[] = [];
-  const all: SpaceMetricRecord[] = [];
   const now = Date.now();
+  const newestDay = new Date(now).toISOString().slice(0, 10);
+  const oldestDay = new Date(now - (SPACE_TELEMETRY_WINDOW_DAYS - 1) * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  // Pass an explicit [oldestDay, newestDay] range so the day list `daysScanned`
+  // reports is exactly the set the loader read (one `Date.now()` reference, no
+  // midnight-crossing skew between the two).
+  const all = loadSpaceMetricsFromDisk(rootDir, { from: oldestDay, to: newestDay });
+  const days: string[] = [];
   for (let i = 0; i < SPACE_TELEMETRY_WINDOW_DAYS; i += 1) {
-    const day = new Date(now - i * 86_400_000).toISOString().slice(0, 10);
-    days.push(day);
-    for (const rec of readSpaceMetricsForDay(day, rootDir)) {
-      all.push(rec);
-    }
+    days.push(new Date(now - i * 86_400_000).toISOString().slice(0, 10));
   }
   const firstRunRecords = all.filter(
     (r) => r.metricId === "firstRunSuccessRate" && r.axis === "performance",

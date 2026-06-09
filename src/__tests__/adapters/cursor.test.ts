@@ -69,14 +69,18 @@ describe("CursorAdapter", () => {
     const scopedRule = outputs.find((o) => o.path.includes("hatch3r-scoped-rule.mdc"));
     expect(scopedRule).toBeDefined();
     // D9-6 (P2): exact-value frontmatter, not a value-blind `.toContain("globs:")`.
-    // The legacy inline-CSV fixture `scope: "**/*.ts"` resolves to a single-glob
-    // array. A value-blind substring assertion passed even when the X4/CD4
-    // GLOBS-DROP bug emitted `globs: ["conditional"]`; pinning the rendered line
-    // closes that false-negative.
-    expect(scopedRule!.content).toContain('globs: ["**/*.ts"]');
+    // The legacy inline-CSV fixture `scope: "**/*.ts"` resolves to a single glob.
+    // A value-blind substring assertion passed even when the X4/CD4 GLOBS-DROP
+    // bug emitted `globs: conditional`; pinning the rendered line closes that
+    // false-negative.
+    // D9-13 (Cycle 11 Wave 3): the rendered form is an unquoted comma-separated
+    // string (NOT a bracketed array), per cursor.com/docs/context/rules.
+    expect(scopedRule!.content).toContain("globs: **/*.ts");
+    expect(scopedRule!.content).not.toContain("globs: [");
     // Regression sentinel: the literal scope keyword must never leak into the
-    // emitted glob set (the D9-1 cross-adapter failure mode).
-    expect(scopedRule!.content).not.toContain('"conditional"');
+    // emitted glob value (the D9-1 cross-adapter failure mode). Scoped to the
+    // `globs:` line so the test survives a description that mentions the word.
+    expect(scopedRule!.content).not.toContain("globs: conditional");
     expect(scopedRule!.content).not.toContain("alwaysApply: true");
   });
 
@@ -84,10 +88,11 @@ describe("CursorAdapter", () => {
   // `globs:` two-line form (distinct from the legacy inline-CSV `scoped-rule.md`
   // fixture). This exercises the `resolveRuleGlobs` `scope === "conditional"`
   // branch — the one the X4/CD4 GLOBS-DROP regression broke, emitting
-  // `globs: ["conditional"]` and silently never auto-attaching the rule. Pins
-  // the exact rendered multi-glob array per https://cursor.com/docs/context/rules
-  // and asserts no glob value is the literal scope keyword. Isolated temp dir so
-  // the shared `FIXTURES_DIR` rule-count assertions are untouched.
+  // `globs: conditional` and silently never auto-attaching the rule. Pins the
+  // exact rendered multi-glob string (D9-13: unquoted comma-separated, no space
+  // after the comma) per https://cursor.com/docs/context/rules and asserts no
+  // glob value is the literal scope keyword. Isolated temp dir so the shared
+  // `FIXTURES_DIR` rule-count assertions are untouched.
   it("emits the real conditional glob set, never the literal scope keyword", async () => {
     const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-conditional-"));
     try {
@@ -111,9 +116,12 @@ Applies to API code and protobufs.`,
 
       const rule = outputs.find((o) => o.path.includes("conditional-rule.mdc"));
       expect(rule).toBeDefined();
-      expect(rule!.content).toContain('globs: ["src/api/**", "**/*.proto"]');
-      // The scope keyword must not survive into the glob array.
-      expect(rule!.content).not.toContain('"conditional"');
+      // D9-13: unquoted comma-separated string, no space after the comma.
+      expect(rule!.content).toContain("globs: src/api/**,**/*.proto");
+      expect(rule!.content).not.toContain("globs: [");
+      // The scope keyword must not survive into the glob value. Scoped to the
+      // `globs:` line — the fixture description contains the word "conditional".
+      expect(rule!.content).not.toContain("globs: conditional");
       expect(rule!.content).not.toContain("alwaysApply: true");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -843,5 +851,39 @@ Low priority rule body.
         expect(rule!.content).toContain("rules/hatch3r-right-sizing.md");
       });
     }
+  });
+
+  // D1-17 (Cycle 11 Wave 3, D1, P1): `cursorConfidenceFloorHeader` stamps the
+  // resolved confidence floor on every per-rule body alongside the maturity
+  // marker. Pre-fix the persisted `confidenceFloor` config key reached no
+  // adapter output. Explicit floor wins; absence resolves to the maturity-aware
+  // default.
+  describe("confidence-floor header (D1-17)", () => {
+    for (const floor of ["any", "medium", "high"] as const) {
+      it(`emits confidence floor=${floor} on rule bodies when set explicitly`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: floor };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const rule = outputs.find((o) => o.path.includes("hatch3r-test-rule.mdc"));
+        expect(rule).toBeDefined();
+        expect(rule!.content).toContain(`confidence floor=${floor}`);
+      });
+    }
+
+    it("resolves an absent floor to the maturity-aware default (enterprise → high)", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+      expect(manifest.confidenceFloor).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rule = outputs.find((o) => o.path.includes("hatch3r-test-rule.mdc"));
+      expect(rule!.content).toContain("confidence floor=high");
+    });
+
+    it("an explicit floor overrides the maturity-derived default", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise", confidenceFloor: "any" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rule = outputs.find((o) => o.path.includes("hatch3r-test-rule.mdc"));
+      expect(rule!.content).toContain("confidence floor=any");
+      expect(rule!.content).not.toContain("confidence floor=high");
+    });
   });
 });

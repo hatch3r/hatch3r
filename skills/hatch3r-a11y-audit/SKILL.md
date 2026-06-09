@@ -2,7 +2,7 @@
 id: hatch3r-a11y-audit
 name: hatch3r-a11y-audit
 type: skill
-description: Run a WCAG AA accessibility audit with findings and fixes across 7 scan categories (keyboard, contrast, ARIA, reduced motion, screen reader, high contrast, automated axe). Use when auditing accessibility or verifying WCAG compliance.
+description: Runs a WCAG AA accessibility audit with findings and fixes across 7 scan categories (keyboard, contrast, ARIA, reduced motion, screen reader, high contrast, automated axe). Use when auditing accessibility or verifying WCAG compliance.
 tags: [review, floor:ui-ux, a11y]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -29,12 +29,7 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (trivial single-file): inline execution acceptable.
-- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
-- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
-
-Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Progressive Disclosure
 
