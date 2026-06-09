@@ -153,7 +153,7 @@ Mode definitions live in `agents/modes/{mode-name}.md`. Read the mode file for t
 | Debugging & Investigation | `symptom-trace`, `root-cause`, `impact-analysis`, `regression` |
 | Refactoring | `current-state`, `refactoring-strategy`, `migration-path` |
 | Test Planning | `coverage-analysis`, `complexity-risk`, `test-pattern`, `boundary-analysis`, `risk-prioritization` |
-| UX & Flow Analysis | `user-flows` (Happy Path + Alternative Paths + Error-Recovery Path decomposition; gates `hatch3r-feature-plan` and `hatch3r-implementer`) |
+| UX & Flow Analysis | `user-flows` (Happy Path + Alternative Paths + Error-Recovery Path decomposition; canonical flow template — enforcement of flow-completeness lives in `rules/hatch3r-ux-states-and-flows.md`, not this mode) |
 | External Research | `library-docs` (Context7 MCP), `prior-art` (web search) |
 
 ---

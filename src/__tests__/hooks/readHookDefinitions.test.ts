@@ -163,6 +163,65 @@ describe("readHookDefinitions with inline fixtures", () => {
     expect(hook.condition!.branches).toEqual(["main", "release/*", "hotfix/*"]);
   });
 
+  // D1-29 (Cycle 11 Wave 3, CQ3): a pack-supplied hook `description`
+  // containing a double-quote or newline previously flowed raw into the
+  // Cursor `description: "Hook: ${...}"` quoted YAML scalar, where the `"`
+  // injects a stray frontmatter key. The reader now strips those characters
+  // at parse time (the single point where the field enters HookDefinition),
+  // protecting every downstream adapter template.
+  describe("D1-29 description sanitization", () => {
+    it("strips YAML/shell metacharacters from a hostile description", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "hostile-desc.md"),
+        '---\nid: hostile-hook\nevent: session-start\nagent: loader\ndescription: "Break\\" then $(touch pwned); `id`"\n---\n# Hostile\n',
+        "utf-8",
+      );
+
+      const hooks = await readHookDefinitions(agentsDir);
+      expect(hooks.length).toBe(1);
+      const desc = hooks[0].description;
+      // None of the YAML-scalar-breaking or shell-injection characters survive.
+      expect(desc).not.toMatch(/["`$;|&\n\r\\]/);
+      // The benign words remain so the description is still meaningful.
+      expect(desc).toContain("Break");
+      expect(desc).toContain("then");
+      expect(desc).toContain("touch pwned");
+    });
+
+    it("strips a literal newline injected via a folded YAML scalar", async () => {
+      const agentsDir = await setupHooksDir();
+      // A YAML double-quoted scalar with an escaped newline (\n) decodes to a
+      // real newline in the parsed string — which would split the Cursor
+      // frontmatter / inject an extra markdown line if left raw.
+      await writeFile(
+        join(agentsDir, "hooks", "newline-desc.md"),
+        '---\nid: newline-hook\nevent: session-start\nagent: loader\ndescription: "line one\\nalwaysApply: true"\n---\n# Newline\n',
+        "utf-8",
+      );
+
+      const hooks = await readHookDefinitions(agentsDir);
+      expect(hooks.length).toBe(1);
+      expect(hooks[0].description).not.toMatch(/[\n\r]/);
+      // The stray key text is flattened into the single-line description
+      // rather than becoming a real second frontmatter line.
+      expect(hooks[0].description).toBe("line onealwaysApply: true");
+    });
+
+    it("leaves a clean description unchanged", async () => {
+      const agentsDir = await setupHooksDir();
+      await writeFile(
+        join(agentsDir, "hooks", "clean-desc.md"),
+        "---\nid: clean-hook\nevent: session-start\nagent: loader\ndescription: Run lint fixes before committing\n---\n# Clean\n",
+        "utf-8",
+      );
+
+      const hooks = await readHookDefinitions(agentsDir);
+      expect(hooks.length).toBe(1);
+      expect(hooks[0].description).toBe("Run lint fixes before committing");
+    });
+  });
+
   it("skips hook files without valid frontmatter", async () => {
     const agentsDir = await setupHooksDir();
     await writeFile(

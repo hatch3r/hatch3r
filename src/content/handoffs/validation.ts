@@ -354,6 +354,16 @@ export interface HandoffsDirectoryResult {
   warnings: string[];
   activeCount: number;
   archivedCount: number;
+  /**
+   * Ids of active handoffs whose `expires_after` is at-or-before now
+   * (per {@link isHandoffExpired}). First-class detection output so a caller
+   * can deterministically quarantine them (move active → archived) at the
+   * resume-flow boundary instead of only reading the advisory drift warning.
+   * D6-26 (Cycle 11 Wave 3, D6, ASI06): expiry was advisory-only; surfacing
+   * the ids lets `hatch3r sync` auto-quarantine past-expiry handoffs before a
+   * resuming agent reads stale state.
+   */
+  expiredActiveIds: string[];
 }
 
 /**
@@ -435,10 +445,13 @@ async function loadHandoffFile(
  */
 export async function validateHandoffsDirectory(
   activeDir: string,
-  options: { archivedDir?: string; currentGitRef?: string } = {},
+  options: { archivedDir?: string; currentGitRef?: string; now?: Date } = {},
 ): Promise<HandoffsDirectoryResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const expiredActiveIds: string[] = [];
+  // Clock for expiry detection: default `new Date()`, overridable for tests.
+  const now = options.now ?? new Date();
 
   async function listMdFiles(dir: string): Promise<string[] | null> {
     try {
@@ -468,11 +481,22 @@ export async function validateHandoffsDirectory(
       errors.push(error ?? `Failed to load handoff "${file}".`);
       continue;
     }
-    const r = validateHandoffContent(handoff, { currentGitRef: options.currentGitRef });
+    const r = validateHandoffContent(handoff, { currentGitRef: options.currentGitRef, now });
     for (const e of r.errors) errors.push(`[${file}] ${e}`);
     for (const w of r.warnings) warnings.push(`[${file}] ${w}`);
     if (r.driftWarnings) {
       for (const dw of r.driftWarnings) warnings.push(`[${file}] ${dw}`);
+    }
+    // D6-26: record past-expiry active handoffs by id for deterministic
+    // quarantine by the caller (sync). Only valid-id entries are recorded —
+    // a malformed id is already a hard error above and there is nothing
+    // stable to quarantine by.
+    if (
+      isHandoffExpired(handoff, now) &&
+      typeof handoff.frontmatter.id === "string" &&
+      handoff.frontmatter.id.length > 0
+    ) {
+      expiredActiveIds.push(handoff.frontmatter.id);
     }
   }
 
@@ -499,5 +523,6 @@ export async function validateHandoffsDirectory(
     warnings,
     activeCount: activeFiles.length,
     archivedCount,
+    expiredActiveIds,
   };
 }

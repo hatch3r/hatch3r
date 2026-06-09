@@ -123,9 +123,21 @@ function formatHookWarning(file: string, err: { code: HookParseErrorCode; messag
 }
 
 /**
- * Sanitize a hook field value that may be interpolated into shell commands
- * or TOML strings. Strips characters that could enable shell injection
- * (backticks, $, semicolons, pipes, newlines, null bytes).
+ * Sanitize a hook field value that gets interpolated into adapter output —
+ * shell commands, TOML strings, quoted YAML scalars, and markdown bodies.
+ * Strips characters that could enable shell injection (backticks, $,
+ * semicolons, pipes, ampersands, null bytes, backslashes), break out of a
+ * double-quoted YAML scalar (the `"` character), or inject a stray
+ * frontmatter key / markdown line (newlines, carriage returns). Applied to
+ * `id`, `agent`, AND `description`: every field that reaches an adapter
+ * template must pass through here so a pack-supplied hook cannot inject.
+ *
+ * D1-29 (Cycle 11 Wave 3, CQ3): `description` was previously assigned raw
+ * and flowed unescaped into `cursor.ts` `description: "Hook: ${...}"` (a
+ * double-quoted YAML scalar — a `"`/newline injected a stray key) plus the
+ * Cursor/Claude markdown hook bodies. Routing it through this same strip
+ * closes the injection at the single point where the field enters the
+ * `HookDefinition`, protecting all downstream consumers.
  */
 function sanitizeHookField(value: string): string {
   return value.replace(/[`$;|&\n\r\0\\'"]/g, "");
@@ -195,13 +207,17 @@ function parseHookFrontmatter(
     };
   }
 
-  // #1.18: Sanitize id and agent fields that get interpolated into
-  // shell echo commands (e.g. Codex adapter hook output)
+  // #1.18 / D1-29: Sanitize id, agent, AND description. All three get
+  // interpolated into adapter output — id/agent into shell echo commands
+  // (e.g. Codex adapter hook output) and description into the Cursor
+  // `description: "Hook: ${...}"` quoted YAML scalar plus the Cursor/Claude
+  // markdown hook bodies. A raw `"`/newline in description injected a stray
+  // frontmatter key (verified), so it passes through the same strip.
   const hook: HookDefinition = {
     id: sanitizeHookField(String(parsed.id)),
     event: eventStr,
     agent: sanitizeHookField(String(parsed.agent)),
-    description: parsed.description ? String(parsed.description) : "",
+    description: parsed.description ? sanitizeHookField(String(parsed.description)) : "",
   };
 
   const condition: HookDefinition["condition"] = {};

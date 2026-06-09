@@ -356,4 +356,57 @@ describe("validateHandoffsDirectory", () => {
     expect(r.archivedCount).toBe(1);
     expect(r.activeCount).toBe(0);
   });
+
+  // ── expiredActiveIds (D6-26) ──
+  // Serialize a valid handoff file (optionally with expires_after) into `dir`.
+  async function writeActiveHandoff(
+    dir: string,
+    over: Partial<Handoff["frontmatter"]> = {},
+  ): Promise<string> {
+    const h = buildHandoff(over);
+    const fm = h.frontmatter;
+    const expiresLine =
+      typeof fm.expires_after === "string" ? `expires_after: ${fm.expires_after}\n` : "";
+    const yaml =
+      `---\nid: ${fm.id}\ntype: handoff\n` +
+      `created: ${fm.created}\nupdated: ${fm.updated}\n` +
+      `status: ${fm.status}\nsource_agent: ${fm.source_agent}\n` +
+      `target_agent: ${fm.target_agent}\ngit_ref: ${fm.git_ref}\n` +
+      `branch: ${fm.branch}\nconfidence: ${fm.confidence}\n` +
+      `completeness: ${fm.completeness}\nintegrity: ${fm.integrity}\n` +
+      expiresLine +
+      `---\n${h.body}`;
+    await writeFile(join(dir, `${fm.id}.md`), yaml, "utf-8");
+    return fm.id as string;
+  }
+
+  it("reports past-expiry active handoff ids in expiredActiveIds", async () => {
+    const activeDir = join(tmpDir, "active");
+    await mkdir(activeDir, { recursive: true });
+    const expiredId = await writeActiveHandoff(activeDir, {
+      id: "2026-05-17_T1430_aaaaa_expired",
+      expires_after: "2020-01-01T00:00:00.000Z",
+    });
+    const r = await validateHandoffsDirectory(activeDir, {
+      now: new Date("2026-05-17T00:00:00Z"),
+    });
+    expect(r.expiredActiveIds).toEqual([expiredId]);
+    // Expiry is a drift advisory, not a hard error — the directory stays valid.
+    expect(r.valid).toBe(true);
+  });
+
+  it("leaves expiredActiveIds empty when no active handoff is past expiry", async () => {
+    const activeDir = join(tmpDir, "active");
+    await mkdir(activeDir, { recursive: true });
+    await writeActiveHandoff(activeDir, {
+      id: "2026-05-17_T1430_bbbbb_fresh",
+      expires_after: "2099-01-01T00:00:00.000Z",
+    });
+    await writeActiveHandoff(activeDir, { id: "2026-05-17_T1431_ccccc_noexpiry" });
+    const r = await validateHandoffsDirectory(activeDir, {
+      now: new Date("2026-05-17T00:00:00Z"),
+    });
+    expect(r.expiredActiveIds).toEqual([]);
+    expect(r.activeCount).toBe(2);
+  });
 });

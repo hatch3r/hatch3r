@@ -70,7 +70,7 @@ import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import { discoverUserContent, validateContentBody } from "../../content/userContent.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
-import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
+import { validateHandoffsDirectory, pruneHandoffs } from "../../content/handoffs/index.js";
 import { loadValidatedLearnings } from "../../content/learningsLoader.js";
 import {
   printBanner,
@@ -548,6 +548,25 @@ export async function syncCommand(
       warn("Continuing with --force: invalid/poisoned learnings will be materialized into tool context.");
       console.log();
     }
+
+    // D6-26 (Cycle 11 Wave 3, D6, ASI06): auto-quarantine past-expiry handoffs
+    // BEFORE the validation gate. Expiry was advisory-only — an expired handoff
+    // stayed in `active/` and a resuming agent read stale, possibly long-
+    // superseded state. `pruneHandoffs` atomically moves each past-expiry active
+    // handoff to `archived/` (write-new + rename, tagged `archived:expired`), so
+    // the active read path holds only unexpired entries. This runs on every sync
+    // including `--force` (quarantine is non-destructive — the file survives in
+    // `archived/`, it is just off the resume path). Failures stay warnings; a
+    // handoff that cannot be moved is still caught by the validator below.
+    const pruned = await pruneHandoffs(join(rootDir, HATCH3R_DIR));
+    if (pruned.archived.length > 0) {
+      warn(
+        `Handoffs: quarantined ${pruned.archived.length} past-expiry handoff(s) to ` +
+          `${HATCH3R_DIR}/handoffs/archived/ (off the resume read path): ` +
+          `${pruned.archived.join(", ")}`,
+      );
+    }
+    for (const w of pruned.warnings) warn(`  ${w}`);
 
     // D6-7: auto-run the handoffs validator on the materialization path. The
     // handoffs validator already classifies injection-pattern hits + integrity

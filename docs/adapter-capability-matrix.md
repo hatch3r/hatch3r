@@ -41,8 +41,10 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 | Adapter | rules | agents | skills | prompts | commands | mcp | guardrails | githubAgents | hooks | model | agentTeams |
 |---------|:-----:|:------:|:------:|:-------:|:--------:|:---:|:----------:|:------------:|:-----:|:-----:|:----------:|
 | **cursor** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | -- |
-| **copilot** | Y | Y | Y | Y | Y | Y | -- | Y | -- | Y | -- |
+| **copilot** | Y | Y | Y | --[^prompts] | Y | Y | -- | Y | -- | Y | -- |
 | **claude** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | Y |
+
+[^prompts]: copilot `prompts: --` matches `ADAPTER_CAPABILITIES.copilot.prompts = false` (`src/adapters/index.ts:125`): hatch3r ships no canonical `prompts/` content, so no adapter emits a `.github/prompts/*.prompt.md` from a *prompts* source (D9-H-5, Cycle 10). The platform's native `.github/prompts/` picker stays an unutilized enhancement surface (`PLATFORM_CAPABILITY_SEED.copilot.prompts = supported`). Copilot's *commands* still route to `.github/prompts/hatch3r-{id}.prompt.md` under the separate `commands` flag (see [File Path Mapping → Copilot](#copilot)). The cell-vs-`ADAPTER_CAPABILITIES` agreement of every boolean-backed Implementation Matrix column is pinned by `src/__tests__/adapters/capability-matrix-doc.test.ts`.
 
 #### Hook-surface notes
 
@@ -54,9 +56,9 @@ All 3 adapters emit model preferences when configured via `hatch.json`, agent fr
 
 | Adapter | Emission | Notes |
 |---------|----------|-------|
-| **cursor** | Native | `model:` in agent YAML frontmatter. Also emits `readonly:` and `background:` for v2.5+ subagent control. |
+| **cursor** | Native | `model:` in agent YAML frontmatter. Also emits `readonly:` and `background:` for v2.5+ sub-agent control. |
 | **copilot** | Native (VS Code) | `model:` in agent YAML; ignored on github.com |
-| **claude** | Native (frontmatter `model:`) | Emits `model:` in subagent YAML frontmatter (authoritative per [sub-agents docs](https://code.claude.com/docs/en/sub-agents#choose-a-model), accessed 2026-05-27); also retains `## Recommended Model` prose (`/model` + `CLAUDE_CODE_SUBAGENT_MODEL`) in non-minimal mode for per-session override. |
+| **claude** | Native (frontmatter `model:`) | Emits `model:` in sub-agent YAML frontmatter (authoritative per [sub-agents docs](https://code.claude.com/docs/en/sub-agents#choose-a-model), accessed 2026-05-27); also retains `## Recommended Model` prose (`/model` + `CLAUDE_CODE_SUBAGENT_MODEL`) in non-minimal mode for per-session override. |
 
 ### Native User-Question / Triage Tool
 
@@ -106,7 +108,7 @@ Inlining ensures every platform receives orchestration guidance directly in cont
 | commands | `.cursor/commands/hatch3r-{id}.md` | Raw content |
 | mcp | `.cursor/mcp.json` | Direct copy of resolved MCP config |
 | hooks | `.cursor/rules/hatch3r-hook-{id}.mdc` | MDC rule with hook event metadata |
-| bridge | `.cursor/rules/hatch3r-bridge.mdc` | Always-apply rule with inline orchestration + canonical reference + Cursor v2.5+ subagent configuration guidance |
+| bridge | `.cursor/rules/hatch3r-bridge.mdc` | Always-apply rule with inline orchestration + canonical reference + Cursor v2.5+ sub-agent configuration guidance |
 | environment | `.cursor/environment.json` | JSON with `instructions` array; emitted when `cursor` is in manifest tools |
 
 ### Copilot
@@ -193,7 +195,7 @@ set -a && source .env.mcp && set +a && <editor-command> .
 |---------|------------|--------|
 | **copilot** | hooks | No adapter hook file is emitted yet. A VS Code Preview `PreToolUse` deny-hook now exists (not GA, absent on github.com); emitting it is a CL-2 candidate, not a permanent omission (see Hook-surface notes above). |
 | **all** | guardrails | No adapter emits policy files. Canonical location `policy/` exists in bundled content for future use. |
-| **all** | prompts (except copilot) | Only Copilot has a dedicated prompts format (`.github/prompts/`). Cursor and Claude map prompts to commands or skills. |
+| **all** | prompts | No adapter emits a prompts file from a canonical `prompts/` source — hatch3r ships none (`ADAPTER_CAPABILITIES.{cursor,claude,copilot}.prompts = false`). Only Copilot's platform exposes a dedicated `.github/prompts/` picker, which stays an unutilized enhancement surface; Copilot's *commands* reuse that path under the separate `commands` flag (see Implementation Matrix `prompts` footnote). Cursor and Claude map commands to their own native command surface. |
 | **all** | githubAgents (except copilot) | Copilot-specific capability; only the Copilot adapter emits. |
 | **gemini → antigravity** | (retired adapter migration) | Gemini CLI (removed in the 1.9.0 hard cut) sunsets for AI Pro/Ultra/free tiers on 2026-06-18; Google's sanctioned migration target is Antigravity CLI ([Google Developers Blog](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), accessed 2026-06-06). Antigravity is tracked but not re-introduced — Tier 3 keep-retired: it fails the SA9.5 re-introduction trigger T2. The current question is no longer days-since-launch but schema stability: Antigravity's config surface is now documented (the migration moves skills from `.gemini/skills/` to `.agents/skills/`, reads `GEMINI.md`/`AGENTS.md` context files unchanged, and relocates MCP config to `mcp_config.json` with the `url`→`serverUrl` rename — [Antigravity Gemini-CLI migration docs](https://antigravity.google/docs/gcli-migration), accessed 2026-06-06), yet T2 requires that schema be stable ≥6 months and no schema-stability dates are published for the post-migration surface. **`.agents/` collision note:** Antigravity's documented config directory `.agents/` is the same root-level path hatch3r removed in the 1.9.0 hard cut (the `/.agents/` materialization mirror was dropped in favor of bundled content per CONSTITUTION §6 Decision 12); re-introducing this adapter would re-collide an end-user repo path the framework deliberately deleted, so any future re-grade must resolve that path conflict before T2 can clear. Surveillance for the Gemini market position transfers from `gemini` to `antigravity`. Re-evaluation cadence: D09 SA9.5, each audit cycle. |
 

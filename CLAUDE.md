@@ -84,6 +84,8 @@ Ad-hoc multi-phase workflows do not exempt these requirements. If you are runnin
 
 The three numbered steps above ARE the ad-hoc orchestrator scaffold — apply them in order from any session, no registered command required. The `hatch3r-adhoc-orchestrate` skill (`skills/hatch3r-adhoc-orchestrate/SKILL.md`, D24-SA24.2-F11) pre-fills the Per-Turn Pipeline-State Header, the no-inline delegation plan, and the End-of-Turn Delegation Attestation templates as a turnkey starting point; this numbered list remains the authoritative contract.
 
+**Carve-out — capability-lifecycle authoring lane (D20-9).** The `/h4tcher-capability-{add,refactor,remove}` presets and the author skills they delegate to (`h4tcher-content-author`, `h4tcher-adapter-author`, `h4tcher-domain-author`) are a separate framework-authoring lane and are exempt from steps 2-3 above (the `hatch3r-implementer` mandate + `delegation_proof_id` attestation): the author skills are this lane's no-inline-authoring delegation target, and the preset's Step 6 gate table (`validate`, `test`, `tsc`, `lint`, `inventory`, anti-slop, Pillar Compliance) is its verification surface. Rationale + exact scope: `.claude/skills/h4tcher-capability-add/SKILL.md` → "Orchestrator-Self-Discipline boundary". The exemption never licenses inline authoring of any artifact type that has a matching author skill.
+
 ---
 
 ## Governance References

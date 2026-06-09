@@ -86,6 +86,8 @@ The orchestrator sets up context only. Body authoring delegates to the matching 
 
 Delegation prompts pass: target path, frontmatter shape, pillar(s) served, Step 2 overlap report, Step 3 sources.
 
+**Author-skill delegation is the implementer-mandate equivalent for this lane** — see the "Orchestrator-Self-Discipline boundary" section below. The author skills above (`h4tcher-content-author`, `h4tcher-adapter-author`, `h4tcher-domain-author`) are the delegated authoring agents that write `src/` and canonical content; the pipeline-module row's `Inline` path is a carve-out scoped there, not a license for the orchestrator to author other artifact types inline.
+
 ## Step 6: Governance Gates
 
 Run after authoring completes. Block commit on any failure.
@@ -148,6 +150,16 @@ Next action (run manually):
   git add <files>
   git commit -s -m "<suggested message>"
 ```
+
+## Orchestrator-Self-Discipline boundary (implementer-mandate carve-out)
+
+CLAUDE.md → "Orchestrator Self-Discipline (Bypass Protection)" requires every mutating orchestrator-style turn to spawn `hatch3r-implementer` for code mutation and emit an End-of-Turn Delegation Attestation citing each file's `delegation_proof_id`. That contract governs the **product pipeline** (research → implement → review → final-quality on end-user-facing code and `src/` features). The capability-lifecycle presets are a **separate framework-authoring lane** and carry an explicit carve-out from the `hatch3r-implementer` + attestation requirement, on these grounds:
+
+1. **Author skills are the delegated authoring agents for this lane.** Step 5 already delegates body authoring away from the orchestrator to `h4tcher-content-author` (canonical artifacts), `h4tcher-adapter-author` (`src/adapters/*.ts`), and `h4tcher-domain-author` (audit domains). These author skills occupy the same no-inline-authoring role `hatch3r-implementer` occupies in the product pipeline. Routing `src/` writes through `hatch3r-implementer` *underneath* an author skill would add a redundant second delegation hop without new verification.
+2. **The Step 6 gate table is this lane's verification surface**, not `delegation_proof_id` attestation: `npm run validate`, `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm run inventory[:check-docs]`, anti-slop, and the Pillar Compliance Test all run before the stop-before-commit summary.
+3. **`hatch3r-implementer` targets product code under a board/issue pipeline** (browser-verification gates, UI/UX gate vocabulary per `agents/hatch3r-implementer.md` → Return Structured Result) — its gate model does not map onto governance-doc or adapter-class authoring.
+
+Scope of the carve-out: it covers the three author-skill delegations in Step 5 plus the pipeline-module `Inline` row (`src/merge/`, `src/content/`, `src/pipeline/` — flagged in Step 7 for future author-skill coverage). It does **not** authorize the orchestrator to author agents/skills/rules/commands/hooks/adapters/domains inline — those MUST go through the matching author skill per Step 5. This carve-out is named in CLAUDE.md → "Orchestrator Self-Discipline" by the same heading; keep the two in sync if either changes.
 
 ## Constraints
 

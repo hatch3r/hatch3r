@@ -97,17 +97,26 @@ export const MAX_MCP_TIMEOUT_MS = 300_000;
  * code from -32002 to the standard -32602; it is tentatively GA in Q3 2026
  * (blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate, accessed
  * 2026-05-27). Until that GA lands, the most-recent *stable* revision is
- * `2025-11-25` (same source, "Most Recent Stable Version"). Emitting the
- * stable string lets hatch3r-generated `.mcp.json` declare an explicit,
- * forward-pinnable protocol version instead of leaving the field absent and
- * inheriting whatever the client/server negotiate by default.
+ * `2025-11-25` (same source, "Most Recent Stable Version").
  *
- * D15-27 (Cycle 11 Wave 3, D15, P3/P6, SA15.5-F6): the forward-pin is
+ * D9-9 (Cycle 11 Wave 3, D9, P3): this string is emitted as an ADVISORY marker,
+ * NOT a field the Claude Code MCP loader consumes. The documented `.mcp.json`
+ * top-level schema is `mcpServers` only — protocol-version negotiation happens
+ * per-server at `initialize` time, and no top-level `protocolVersion` key is
+ * listed (code.claude.com/docs/en/mcp, accessed 2026-06-09). So emitting it does
+ * not change the client/server handshake; it is a human-/tooling-readable record
+ * of the revision the operator targets and the override seam
+ * (`.hatch3r/hatch.json::mcp.protocolVersion`) for staging the RC ahead of GA.
+ * It is retained rather than dropped because the Claude emission path also does
+ * the per-server `_timeout`→`timeout` translation (a documented, loader-consumed
+ * field per the same source) and the override seam is the forward-pin staging
+ * surface documented in docs/MIGRATION-mcp-2026-07-28.md.
+ *
+ * D15-27 (Cycle 11 Wave 3, D15, P3/P6, SA15.5-F6): the advisory marker is
  * **Claude-only by schema constraint**, not by omission. Only the Claude Code
- * `.mcp.json` top-level object documents a sibling field next to `mcpServers`
- * (claude.ts emits `{ protocolVersion, mcpServers }`); the field is tolerated as
- * a forward/advisory marker there. The other two adapters cannot carry it
- * because their top-level schemas are closed to it:
+ * `.mcp.json` top-level object tolerates an unknown sibling field next to
+ * `mcpServers` (claude.ts emits `{ protocolVersion, mcpServers }`). The other two
+ * adapters cannot carry it because their top-level schemas are closed to it:
  *   - Cursor `.cursor/mcp.json`: top-level is `mcpServers` only; per-server keys
  *     are `type|command|args|env|url|headers` (+ OAuth), and variable
  *     interpolation resolves only in `command|args|env|url|headers`
@@ -119,11 +128,11 @@ export const MAX_MCP_TIMEOUT_MS = 300_000;
  *     2026-06-09). An unknown top-level key is rejected by the schema-aware
  *     tooling the copilot adapter already targets (D9-C-2: mcp-inspector / VS
  *     Code strict mode / awesome-copilot lint).
- * Emitting the pin on Cursor/Copilot would ship a schema-invalid file, so the
+ * Emitting it on Cursor/Copilot would ship a schema-invalid file, so the
  * cursor.ts / copilot.ts MCP emission sites carry a back-reference to this
- * rationale instead. The protocol version travels with each generated server
- * entry's negotiated handshake regardless; the explicit top-level pin is a
- * Claude-surface convenience, not a cross-adapter contract.
+ * rationale instead. The protocol version is negotiated per-server at
+ * `initialize` time regardless; the top-level advisory marker is a Claude-surface
+ * convenience, not a cross-adapter contract and not a loader-consumed field.
  */
 export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-11-25";
 

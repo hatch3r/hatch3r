@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 5,
     "githubAgents": 4,
-    "testFiles": 226
+    "testFiles": 227
   },
   "files": {
     "adapters": [
@@ -444,6 +444,7 @@
       "scripts/__tests__/validate-wiring.test.ts",
       "src/__tests__/adapters/base.test.ts",
       "src/__tests__/adapters/canonical.test.ts",
+      "src/__tests__/adapters/capability-matrix-doc.test.ts",
       "src/__tests__/adapters/capabilityMatrix.test.ts",
       "src/__tests__/adapters/capabilityMatrixDrift.test.ts",
       "src/__tests__/adapters/claude.test.ts",

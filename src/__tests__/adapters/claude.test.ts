@@ -623,10 +623,12 @@ Body.`,
     expect(parsed.mcpServers.github).toBeDefined();
   });
 
-  // F17.2.3 (D17, P3): generated .mcp.json declares an explicit MCP protocol
-  // version (most-recent stable revision by default) so the config pins to a
-  // known revision ahead of the 2026-07-28 RC GA, instead of leaving the
-  // field absent.
+  // F17.2.3 (D17, P3) / D9-9 (Cycle 11, D9, P3): generated .mcp.json carries a
+  // top-level `protocolVersion` ADVISORY marker (most-recent stable revision by
+  // default) recording the revision the operator targets. It is not consumed by
+  // the Claude MCP loader (top-level schema is `mcpServers` only,
+  // code.claude.com/docs/en/mcp accessed 2026-06-09) — these tests pin that the
+  // marker is emitted and honors the manifest override, not a handshake effect.
   it("emits protocolVersion (default stable revision) in .mcp.json", async () => {
     const manifest = makeManifest({ mcpServers: ["github"] });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

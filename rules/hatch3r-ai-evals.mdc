@@ -143,7 +143,7 @@ Write eval before prompt, measure baseline, write prompt, measure delta, iterate
 
 ## References
 
-- promptfoo — `promptfoo.dev`
+- promptfoo — `promptfoo.dev` (acquired by OpenAI 2026-03-09; remains OSS MIT)
 - DeepEval — `github.com/confident-ai/deepeval`
 - RAGAS — `docs.ragas.io`
 - Inspect (UK AISI) — `github.com/UKGovernmentBEIS/inspect_ai`

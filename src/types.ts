@@ -434,14 +434,18 @@ export interface Features {
 export interface McpConfig {
   servers: string[];
   /**
-   * Optional MCP protocol version emitted into generated client config
-   * (`.mcp.json` `protocolVersion` field for Claude Code; cursor/copilot
-   * mirror it). Defaults to the most-recent stable spec revision
-   * (`MCP_DEFAULT_PROTOCOL_VERSION` in `src/adapters/mcp-utils.ts`) when
-   * absent. Operators override via `.hatch3r/hatch.json` to pin a server
-   * fleet to a specific revision ahead of the 2026-07-28 RC GA
-   * (blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate,
-   * accessed 2026-05-27). F17.2.3 (Cycle 10, D17, P3).
+   * Optional MCP protocol-revision string emitted as an ADVISORY top-level
+   * `protocolVersion` marker in the Claude Code `.mcp.json` only. It is NOT a
+   * loader-consumed field — the documented `.mcp.json` top-level schema is
+   * `mcpServers` only, and revision negotiation happens per-server at
+   * `initialize` time (code.claude.com/docs/en/mcp, accessed 2026-06-09). The
+   * Cursor and Copilot adapters omit it because their top-level schemas reject
+   * unknown keys (D15-27; see `MCP_DEFAULT_PROTOCOL_VERSION` in
+   * `src/adapters/mcp-utils.ts`). Defaults to the most-recent stable spec
+   * revision when absent. Operators override via `.hatch3r/hatch.json` to record
+   * the revision a server fleet targets while staging the 2026-07-28 RC ahead of
+   * GA (blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate, accessed
+   * 2026-05-27). F17.2.3 (Cycle 10, D17, P3); D9-9 (Cycle 11, D9, P3).
    */
   protocolVersion?: string;
 }

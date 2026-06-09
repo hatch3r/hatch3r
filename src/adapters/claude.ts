@@ -1233,13 +1233,21 @@ export class ClaudeAdapter extends BaseAdapter {
         };
         claudeMcp[name] = transformEnvVarSyntax(withType, "claude");
       }
-      // F17.2.3 (D17, P3): declare an explicit MCP protocol version so
-      // hatch3r-generated `.mcp.json` pins to a known revision rather than
-      // inheriting whatever the client/server negotiate by default. Defaults
-      // to the most-recent stable spec revision; operators override via
-      // `.hatch3r/hatch.json::mcp.protocolVersion` to track the 2026-07-28 RC
-      // ahead of its Q3 2026 GA (see MCP_DEFAULT_PROTOCOL_VERSION and
-      // docs/MIGRATION-mcp-2026-07-28.md).
+      // F17.2.3 (D17, P3) / D9-9 (Cycle 11 Wave 3, D9, P3): emit a top-level
+      // `protocolVersion` as an ADVISORY forward-pin marker, NOT a field the
+      // Claude Code MCP loader consumes. The documented `.mcp.json` top-level
+      // schema is `mcpServers` only (per-server `type`/`command`/`args`/`env`/
+      // `url`/`headers`/`timeout`/`oauth`; code.claude.com/docs/en/mcp accessed
+      // 2026-06-09 lists no top-level `protocolVersion`), so this key does not
+      // change the client/server handshake — that negotiation is per-server at
+      // `initialize` time. It is a human-/tooling-readable record of the revision
+      // the operator targets and the override seam (`.hatch3r/hatch.json::
+      // mcp.protocolVersion`) for staging the 2026-07-28 RC ahead of its Q3 2026
+      // GA (see MCP_DEFAULT_PROTOCOL_VERSION and docs/MIGRATION-mcp-2026-07-28.md).
+      // Retained rather than dropped because the per-server `_timeout`→`timeout`
+      // translation above (a documented, loader-consumed field per the same
+      // source) rides the same emission path, and the override seam is the
+      // documented forward-pin staging surface.
       const protocolVersion =
         ctx.manifest.mcp.protocolVersion ?? MCP_DEFAULT_PROTOCOL_VERSION;
       results.push(
