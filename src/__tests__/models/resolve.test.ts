@@ -43,7 +43,7 @@ describe("resolveAgentModel", () => {
     const agent = makeAgent();
     const manifest = makeManifest({ models: { default: "opus" } });
     const result = resolveAgentModel("hatch3r-implementer", agent, manifest);
-    expect(result).toBe("claude-opus-4-6");
+    expect(result).toBe("claude-opus-4-8");
   });
 
   it("uses agent model when set in canonical frontmatter", () => {
@@ -82,6 +82,30 @@ describe("resolveAgentModel", () => {
     const manifest = makeManifest();
     const result = resolveAgentModel("hatch3r-implementer", agent, manifest);
     expect(result).toBe("gemini-3.1-pro");
+  });
+
+  it("resolves opus to the current GA opus model (D1-25 currency)", () => {
+    // The `opus` row was two GA generations stale (`claude-opus-4-6`) until the
+    // D1-25 bump; lock the current target so a future stale value fails here.
+    const agent = makeAgent({ model: "opus" });
+    const manifest = makeManifest();
+    expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe("claude-opus-4-8");
+  });
+
+  it("passes the capacity-tier words standard/fast through verbatim (D5-21)", () => {
+    // `standard`/`fast` are hatch3r-internal triage/cost tiers, NOT MODEL_ALIASES
+    // keys: resolveModelAlias has no entry, so they must pass through unchanged.
+    // The Claude/Copilot adapters then gate native `model:` emission to
+    // recognizable values (isClaudeRecognizableModel / isCopilotRecognizableModel),
+    // omitting the tier word from frontmatter rather than shipping a value Claude
+    // would reject (sonnet/opus/haiku/id/inherit only). This test locks the
+    // passthrough contract so a regression that aliases the tier words — which
+    // would re-introduce the dead native field D9-16 removed — fails here.
+    const manifest = makeManifest();
+    for (const tier of ["standard", "fast"]) {
+      const agent = makeAgent({ model: tier });
+      expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe(tier);
+    }
   });
 
   it("falls back through priority chain: customize > per-agent > frontmatter > default", () => {

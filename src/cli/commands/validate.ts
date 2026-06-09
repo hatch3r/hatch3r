@@ -2330,7 +2330,7 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
 
   const actual: Record<string, number> = {};
   const dirs: [string, string, (e: string) => boolean][] = [
-    ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "toml-utils.ts", "contextBudget.ts"].includes(e)],
+    ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "contextBudget.ts"].includes(e)],
     ["commands", join(rootDir, "src/cli/commands"), (e) => e.endsWith(".ts")],
     ["agents", join(rootDir, "agents"), (e) => e.endsWith(".md")],
     ["skills", join(rootDir, "skills"), (_e) => true],

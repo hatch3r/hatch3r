@@ -55,7 +55,8 @@ Practical consequence: when Claude Code, Cursor, or the remaining supported plat
 Critical modules carry stricter test-coverage thresholds in `vitest.config.ts`:
 
 - `src/merge/`: 90% statements, 80% branches, 90% functions, 90% lines
-- `src/content/` and `src/adapters/customization.ts`: 85/75/85/85
+- `src/content/`: 85/70/85/85
+- `src/adapters/customization.ts`: 85/75/85/85
 - Global floor: 78/65/80/80
 
 Combined with the managed-block contract (`HATCH3R:BEGIN` / `HATCH3R:END` markers preserve user content across regenerations, per `src/merge/managedBlocks.ts`) and the regenerate-and-diff drift model (`hatch3r status` / `hatch3r verify` regenerate adapter outputs from bundled content and compare against the on-disk copy — no `.integrity.json` checksum file), these contracts mean a refactor of one subsystem cannot silently corrupt downstream behavior. The test suite catches it before merge.

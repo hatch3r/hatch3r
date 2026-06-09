@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
   buildInventory,
+  checkDanglingDomainAgentRefs,
   checkEnumerationDrift,
   checkMarketplaceDescriptionDrift,
   checkOrphanAgents,
@@ -379,5 +380,46 @@ describe("inventory: checkOrphanAgents (D16-11 orphaned-agent probe)", () => {
     };
     const orphans = await checkOrphanAgents(tampered);
     expect(orphans).toEqual([{ id: "hatch3r-zzz-orphan-agent" }]);
+  });
+});
+
+describe("inventory: checkDanglingDomainAgentRefs (D23-8 + SA23.1-F5 dangling agent-ref probe)", () => {
+  it("reports 0 dangling refs for the REAL committed domain files (every cited agents/hatch3r-*.md exists)", async () => {
+    // Cycle 11 D23-8 + SA23.1-F5: audit-domain files cite agents as tabulation
+    // targets; a citation to a non-existent agent mis-routes the audit SA. The
+    // D23 fix repointed the dangling `hatch3r-verifier`/`hatch3r-planner` refs to
+    // real eval/planning surfaces, so the live corpus must scan clean — a green
+    // CI `--check-docs`. Reintroducing either dangling ref flips this to >0.
+    const hits = await checkDanglingDomainAgentRefs();
+    expect(hits).toEqual([]);
+  });
+
+  it("flags a citation whose target agent file is absent, ignoring existing ones", async () => {
+    // Hermetic: a tmpdir with one agent file present and one domain file citing
+    // both that agent (valid) and a non-existent one (dangling). The probe must
+    // report only the dangling ref, deduped, with the domain-file repo-relative
+    // path the CI message uses.
+    const tmp = await mkdtemp(join(tmpdir(), "hatch3r-dangling-"));
+    try {
+      const agentsDir = join(tmp, "agents");
+      const domainsDir = join(tmp, "domains");
+      await mkdir(agentsDir, { recursive: true });
+      await mkdir(domainsDir, { recursive: true });
+      await writeFile(join(agentsDir, "hatch3r-reviewer.md"), "# reviewer\n");
+      await writeFile(
+        join(domainsDir, "D99-fixture.md"),
+        "Tabulate against `agents/hatch3r-reviewer.md` and " +
+          "`agents/hatch3r-verifier.md`; also `agents/hatch3r-verifier.md` again.\n",
+      );
+      const hits = await checkDanglingDomainAgentRefs({ agentsDir, domainsDir });
+      expect(hits).toEqual([
+        {
+          file: join("governance", "audit", "domains", "D99-fixture.md"),
+          ref: "hatch3r-verifier.md",
+        },
+      ]);
+    } finally {
+      await rm(tmp, { recursive: true, force: true });
+    }
   });
 });

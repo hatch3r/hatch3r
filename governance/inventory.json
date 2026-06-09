@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 5,
     "githubAgents": 4,
-    "testFiles": 227
+    "testFiles": 226
   },
   "files": {
     "adapters": [
@@ -460,7 +460,6 @@
       "src/__tests__/adapters/rule-glob-resolution.test.ts",
       "src/__tests__/adapters/skillAllowedToolsGuard.test.ts",
       "src/__tests__/adapters/snapshots.test.ts",
-      "src/__tests__/adapters/toml-utils.test.ts",
       "src/__tests__/adapters/userContentParity.test.ts",
       "src/__tests__/archive/archive.integrityBranches.test.ts",
       "src/__tests__/archive/archive.retentionBranches.test.ts",

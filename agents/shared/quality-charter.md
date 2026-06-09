@@ -8,7 +8,7 @@ cache_friendly: true
 
 ## Agent Quality Charter
 
-> Last updated: 2026-05-26
+> Last updated: 2026-06-09
 
 All agents operating under hatch3r should embody these behavioral standards. This charter is the single source of truth for agent conduct — referenced by content artifacts and verified by the weekly audit cycle.
 
@@ -175,8 +175,8 @@ Cross-reference: `rules/hatch3r-agent-orchestration.md` Deep Context Integration
 When an agent produces UI for an end-user project, the charter binds it to these criteria. Each is measurable; each is a regression if missed.
 
 - **Accessibility:** WCAG 2.2 AA conformance verified by axe-core (0 serious/critical violations), with explicit checks for SC 2.5.8 (target size 24x24 + 24px spacing), SC 2.4.11 (focus not obscured), and SC 2.5.7 (drag operations have a single-tap alternative). Reference `rules/hatch3r-accessibility-standards.md`.
-- **Design-token reuse:** detect existing tokens before authoring via `skills/hatch3r-design-system-detect`; apply the precedence reuse > extend > create; achieve >=95% design-token adoption on color and spacing in generated code. Reference `rules/hatch3r-design-system-detection.md`.
-- **Four-state surface contract:** every async view ships loading, empty, error, and partial states with documented content structure that distinguishes cold-start from active-filter from network failure. Reference `rules/hatch3r-ux-states-and-flows.md`.
+- **Design-token reuse:** detect existing tokens before authoring via `skills/hatch3r-design-system-detect` (library-detection step, shipped); apply the precedence reuse > extend > create. The >=95% color/spacing/typography adoption number is a **project-supplied measurement**: hatch3r ships the threshold + the scan pattern (`agents/hatch3r-ui.md` item 2 token-scan — project-local scan script or `npx style-dictionary` build + grep against the project's token registry), not a turnkey adoption scanner — the framework does not own the project's token taxonomy. Reference `rules/hatch3r-design-system-detection.md`.
+- **Four-state surface contract:** every async view ships loading, empty, error, and partial states with documented content structure that distinguishes cold-start from active-filter from network failure; the loading skeleton carries explicit `width`/`height`/`aspect-ratio` so it does not shift layout. `skills/hatch3r-ui-ux-verify` Gate 4 statically asserts the four state snapshots exist (`src/__tests__/states/<feature>.<state>.spec.ts`); the CLS <=0.1 target those dimensions serve is a **project-supplied browser measurement** under the deferrable Gate 7 (Core Web Vitals via Lighthouse CI / `web-vitals`), not the static snapshot gate. Reference `rules/hatch3r-ux-states-and-flows.md`.
 - **Microcopy and tone:** plain language, second person, corrective verb on errors, no jargon visible to end users (`null`, `500`, `FIDO2`); ICU MessageFormat for plurals and gender. Reference `rules/hatch3r-i18n.md` Microcopy subsection and `rules/hatch3r-ux-states-and-flows.md`.
 - **AI-UX patterns (when applicable):** streaming responses via AI SDK UI hooks plus AI Elements; tool-call UI cards; human-approval gates for side-effectful tools; cancel, abort, and undo affordances; span-grounded citations. Reference `rules/hatch3r-ai-ux-patterns.md`.
 - **Verification gate:** a feature is not done until `skills/hatch3r-ui-ux-verify` passes all 9 gates — axe-core, keyboard trace, a11y-tree snapshot, four-state coverage, visual regression, microcopy lint, Core Web Vitals, AI-UX checks (when applicable), and one human screen-reader pass per release.

@@ -63,7 +63,7 @@ No duplication: the agent decides WHEN, this skill defines HOW.
 ## Gate 3: Coverage thresholds met per file class
 
 - Global floor 78% statements / 65% branches / 80% functions / 80% lines from `vitest.config.ts` (or equivalent).
-- Critical modules in this repo: `src/merge/` 90/80/90/90; `src/content/` and `src/adapters/customization.ts` 85/75/85/85.
+- Critical modules in this repo: `src/merge/` 90/80/90/90; `src/content/` 85/70/85/85; `src/adapters/customization.ts` 85/75/85/85.
 - Read coverage from `coverage/coverage-summary.json` (Istanbul/v8) or `coverage.xml` (Cobertura).
 - Below floor → FINDINGS with the specific module + metric named.
 

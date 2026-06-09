@@ -143,7 +143,10 @@ describe("workspace detect", () => {
 
     it("detects workspace member by walking up", async () => {
       const dir = await setup();
-      // Create workspace root
+      // Create workspace root. D1-31: membership is registration-based, so the
+      // sub-repo must be listed in `repos[]` to classify as a member — an empty
+      // `repos[]` no longer admits an arbitrary sub-directory (which would be a
+      // false "managed / overwritten on sync" positive).
       await mkdir(join(dir, AGENTS_DIR), { recursive: true });
       await writeFile(
         join(dir, AGENTS_DIR, "workspace.json"),
@@ -151,12 +154,12 @@ describe("workspace detect", () => {
           version: "1.0.0",
           hatch3rVersion: "1.4.0",
           name: "test",
-          repos: [],
+          repos: [{ path: "api", sync: true }],
           defaults: { tools: [], features: DEFAULT_FEATURES, mcp: { servers: [] }, content: { preset: "standard", projectType: "brownfield", teamSize: "solo", items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] } } },
           syncStrategy: "manual",
         }),
       );
-      // Create sub-repo dir
+      // Create sub-repo dir registered above
       const subDir = join(dir, "api");
       await createGitRepo(subDir);
 

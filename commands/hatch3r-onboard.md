@@ -4,7 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Generate a comprehensive onboarding guide for a new developer joining the project -- spawn parallel researchers to analyze codebase structure, architecture, and conventions, then produce a tailored onboarding document with setup instructions, architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet.
-tags: [planning, ctx:brownfield-only, ctx:team-only]
+tags: [planning, ctx:brownfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -28,7 +28,7 @@ Before any action, scan the user's request and provided context for unresolved q
 - Output format ambiguous — markdown vs GitHub issue vs Notion changes write path.
 - Team context dimensions in Step 1b unanswered — guide either includes the section or omits it; do not invent team norms.
 
-Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol. If a question goes unanswered, return BLOCKED_AMBIGUITY in the structured result with the rendered question rather than silent-picking.
+Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol. If a question goes unanswered, the gate never deadlocks: as the orchestrator, apply the declared `Default if no response:` option and log it in Iteration Summary §8; if a spawned sub-agent hits the trigger or no default line was emitted, return Status `BLOCKED_AMBIGUITY` with the rendered question rather than silent-picking — per `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response.
 
 ## Agent Pipeline
 

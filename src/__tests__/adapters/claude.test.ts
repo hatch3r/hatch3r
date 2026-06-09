@@ -1008,13 +1008,13 @@ You are a test agent.`,
         `---\nid: test-agent\ntype: agent\ndescription: A test agent\n---\n# Test Agent\n\nYou are a test agent.`,
         "utf-8",
       );
-      // `opus` is a Claude alias → expands to `claude-opus-4-6` (a `claude-*` ID).
+      // `opus` is a Claude alias → expands to `claude-opus-4-8` (a `claude-*` ID).
       const manifest = makeManifest({ models: { agents: { "test-agent": "opus" } } });
       const outputs = await adapter.generate(agentsDir, manifest);
       const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
       expect(agentFile).toBeDefined();
-      expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-opus-4-6\n[\s\S]*?---/);
-      expect(agentFile!.content).toContain("Preferred: `claude-opus-4-6`");
+      expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-opus-4-8\n[\s\S]*?---/);
+      expect(agentFile!.content).toContain("Preferred: `claude-opus-4-8`");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

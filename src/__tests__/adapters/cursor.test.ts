@@ -751,6 +751,66 @@ Low priority rule body.
     });
   });
 
+  // D9-14 (Cycle 11 Wave 3, D9, P3): behavioral coverage for the
+  // CURSOR_HOOK_EVENT_MAP -> buildCursorHookEntry -> hooks.json path
+  // (cursor.ts CURSOR_HOOK_EVENT_MAP + buildCursorHookEntry). The prior
+  // hooks.json coverage was path-level only (D9-4 asserted the subagentStart
+  // guard entry); no test pinned the canonical-event -> lifecycle-event keys,
+  // the printf-prefixed command, or the `git commit` matcher. The shared
+  // FIXTURES_DIR already carries pre-commit-lint-fixer.md (event pre-commit ->
+  // beforeShellExecution + matcher "git commit", agent lint-fixer) and
+  // session-start-ci-watcher.md (event session-start -> sessionStart), so this
+  // exercises both a matcher-bearing and a matcher-less mapping.
+  describe("D9-14 hooks.json lifecycle-event wiring (CURSOR_HOOK_EVENT_MAP)", () => {
+    it("maps pre-commit to beforeShellExecution with a git-commit matcher and printf-prefixed command", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      expect(hooksFile).toBeDefined();
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(Array.isArray(parsed.hooks.beforeShellExecution)).toBe(true);
+      const entry = parsed.hooks.beforeShellExecution[0];
+      expect(entry.type).toBe("command");
+      expect(entry.matcher).toBe("git commit");
+      // The command is a printf that surfaces the activation directive to the
+      // agent transcript (Cursor runs the command, it does not spawn an agent).
+      expect(entry.command).toMatch(/^printf '%s\\n' '/);
+      expect(entry.command).toContain("spawn the lint-fixer agent");
+    });
+
+    it("maps session-start to sessionStart with a printf-prefixed command and no matcher", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(Array.isArray(parsed.hooks.sessionStart)).toBe(true);
+      const entry = parsed.hooks.sessionStart[0];
+      expect(entry.type).toBe("command");
+      // session-start has no command-text matcher (afterFileEdit/sessionStart
+      // carry none in CURSOR_HOOK_EVENT_MAP).
+      expect(entry.matcher).toBeUndefined();
+      expect(entry.command).toMatch(/^printf '%s\\n' '/);
+      expect(entry.command).toContain("spawn the ci-watcher agent");
+    });
+
+    it("does not emit a hooks.json lifecycle entry for the advisory-only review-loop-cap event (D9-15)", async () => {
+      // review-loop-cap is intentionally absent from CURSOR_HOOK_EVENT_MAP: it
+      // is advisory-only on Cursor (no per-issue counter context at any Cursor
+      // hook payload), so the only Cursor surface is the `.mdc` rule, never a
+      // hooks.json runtime entry. Pin the decision so a future re-wire is a
+      // deliberate test change, not a silent regression.
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      const parsed = JSON.parse(hooksFile!.content);
+      // No lifecycle key carries a review-loop-cap directive; the subagentStart
+      // key holds only the NO_POLICY guard command (asserted in the D9-4 block).
+      const allCommands = Object.values(
+        parsed.hooks as Record<string, Array<{ command: string }>>,
+      )
+        .flat()
+        .map((e) => e.command);
+      expect(allCommands.some((c) => c.includes("review-loop-cap"))).toBe(false);
+    });
+  });
+
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
   // Cursor's skills surface is filtered by `manifest.cliTools.selected` via

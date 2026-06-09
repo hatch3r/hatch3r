@@ -85,8 +85,19 @@ function cursorConfidenceFloorHeader(ctx: AdapterContext): string {
  * directive on stdout and the `.cursor/rules/hook-*.mdc` rule (still
  * emitted below) carries the actual agent-spawn instruction. Events with
  * no Cursor lifecycle equivalent (`post-merge`, `ci-failure`,
- * `worktree-create`, `worktree-remove`) are absent from this map and fall
- * through to the `.mdc` fallback only.
+ * `worktree-create`, `worktree-remove`, `review-loop-cap`) are absent from
+ * this map and fall through to the `.mdc` fallback only.
+ *
+ * D9-15 (Cycle 11 Wave 3, D9, P6): `review-loop-cap` is advisory-only on
+ * Cursor by decision, not omission. The fixer-spawn iteration gate needs the
+ * orchestrator's per-issue `.review-loop.json` counter context, which no
+ * Cursor hook payload carries; the closest pre-tool event is `preToolUse`
+ * (its payload exposes no agent-identity field — cursor.com/docs/agent/hooks
+ * accessed 2026-06-09 — so it cannot bind to a fixer-spawn), and `subagentStart`
+ * is already the ASI02 NO_POLICY hard-deny boundary that fires at every spawn
+ * without the loop counter. Cursor therefore matches the Copilot downgrade:
+ * the `.mdc` advisory rule, not a `hooks.json` runtime gate. The canonical
+ * `hooks/hatch3r-review-loop-cap.md` Event Mapping records the same decision.
  */
 interface CursorHookMapping {
   /** Cursor lifecycle event name. */

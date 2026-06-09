@@ -25,7 +25,7 @@ npx hatch3r init            # interactive: customize tools, profile, and MCP (6 
 
 | Category | Count | Highlights |
 |----------|-------|-----------|
-| **Agents** | 29 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 9 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability), and more |
+| **Agents** | 29 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 9 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability), and more |
 | **Skills** | 53 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
 | **Rules** | 66 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
 | **Commands** | 30 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, bug-pipeline, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
@@ -73,7 +73,7 @@ hatch3r provides a full project lifecycle, from setup to release:
 4. **Fill the board** -- `hatch3r-board-fill` parses `todo.md`, classifies items, groups into epics, builds a dependency DAG, and marks issues `status:ready`.
 5. **Groom the backlog** -- `hatch3r-board-groom` surfaces stale items, priority imbalances, and decomposition candidates.
 6. **Pick up work** -- `hatch3r-board-pickup` auto-selects the next issue by dependency order and priority, creates a branch, delegates implementation, and opens a PR.
-7. **Review cycle** -- Reviewer + fixer agents loop (max 3 iterations) until clean, then test-writer and security-auditor run final checks.
+7. **Review cycle** -- Reviewer + fixer agents loop (max 3 iterations) until clean, then testability and security specialists run final checks.
 8. **Release** -- `hatch3r-release` determines the semver bump, generates a changelog, tags, and publishes.
 
 > **After init:** For greenfield, run `hatch3r-project-spec` then `hatch3r-roadmap`. For brownfield, run `hatch3r-codebase-map`. For a single feature, run `hatch3r-feature-plan`. For small changes, run `hatch3r-quick-change`.

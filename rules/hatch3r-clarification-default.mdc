@@ -37,7 +37,8 @@ Every artifact under `agents/`, `commands/`, and `skills/` that can mutate files
 
 - scans the request against the four-trigger set above before any write;
 - on a live trigger, asks via the platform-native question tool per `agents/shared/user-question-protocol.md` and awaits the answer before proceeding;
-- declares the default-if-no-response option so the workflow never deadlocks.
+- declares the default-if-no-response option so the workflow never deadlocks;
+- on a non-response, wires the central deadlock-break: apply the declared default AND log it in Iteration Summary §8 (orchestrator path), OR return Status `BLOCKED_AMBIGUITY` when no default line was emitted (sub-agent / authoring-bug path) — never silent-pick, per `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response.
 
 A mutating artifact with no §0 ambiguity gate, or one whose gate does not reference `agents/shared/user-question-protocol.md`, is a P8 B1 finding (D05 prompt-engineering audit, D13 human-AI collaboration audit).
 

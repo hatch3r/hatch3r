@@ -903,6 +903,73 @@ describe("detectLinters", () => {
     const linters = await detectLinters(root);
     expect(linters).toEqual([]);
   });
+
+  // ── D14-21: package.json embedded config + script fallback ────────
+  it("detects ESLint from the package.json eslintConfig key (no rc file)", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ eslintConfig: { extends: "eslint:recommended" } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("eslint");
+  });
+
+  it("detects Prettier from the package.json prettier key (no rc file)", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ prettier: { singleQuote: true } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("prettier");
+  });
+
+  it("does not double-report a linter present as both an rc file and an embedded key", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "eslint.config.js"), "export default {};");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ eslintConfig: { extends: "eslint:recommended" } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters.filter((l) => l === "eslint")).toHaveLength(1);
+  });
+
+  it("reports the generic lint-script only when no concrete linter is detected", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { lint: "eslint ." } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("lint-script");
+  });
+
+  it("suppresses the lint-script fallback when a concrete linter is already detected", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, ".prettierrc"), "{}");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { lint: "eslint . && prettier --check ." } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("prettier");
+    expect(linters).not.toContain("lint-script");
+  });
+
+  it("ignores a malformed package.json (treats it as no signal)", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "package.json"), "{ not json");
+
+    const linters = await detectLinters(root);
+    expect(linters).toEqual([]);
+  });
 });
 
 // ── D14 Medium (#14.6): Test framework detection ──────────────────
@@ -971,6 +1038,65 @@ describe("detectTestFrameworks", () => {
 
   it("returns empty array when no test frameworks found", async () => {
     const root = await createTempRepo();
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toEqual([]);
+  });
+
+  // ── D14-21: package.json embedded config + script fallback ────────
+  it("detects Jest from the package.json jest key (no config file)", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ jest: { testEnvironment: "node" } }),
+    );
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("jest");
+  });
+
+  it("does not double-report Jest present as both a config file and an embedded key", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "jest.config.js"), "module.exports = {};");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ jest: { testEnvironment: "node" } }),
+    );
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks.filter((f) => f === "jest")).toHaveLength(1);
+  });
+
+  it("reports the generic test-script only when no concrete runner is detected", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { test: "node --test" } }),
+    );
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("test-script");
+  });
+
+  it("suppresses the test-script fallback when a concrete runner is already detected", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "vitest.config.ts"), "export default {};");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { test: "vitest run" } }),
+    );
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("vitest");
+    expect(frameworks).not.toContain("test-script");
+  });
+
+  it("ignores the npm-init default placeholder test script", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }),
+    );
 
     const frameworks = await detectTestFrameworks(root);
     expect(frameworks).toEqual([]);

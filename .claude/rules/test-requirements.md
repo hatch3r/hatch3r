@@ -1,7 +1,7 @@
 ---
 id: test-requirements
 type: rule
-description: Testing standards from vitest.config.ts — 78/65/80/80 global coverage, 90/80/90/90 for src/merge, 85/75/85/85 for src/content and adapters/customization, 85/75/85/85 for src/install and src/audit.
+description: Testing standards from vitest.config.ts — 78/65/80/80 global coverage, 90/80/90/90 for src/merge, 85/70/85/85 for src/content, 85/75/85/85 for adapters/customization, 85/75/85/85 for src/install and src/audit.
 tags: [maintainer, testing, p2, p5]
 scope: always
 precedence: high
@@ -17,7 +17,8 @@ Testing standards from `vitest.config.ts`:
 
 **Critical module thresholds:**
 - `src/merge/`: 90/80/90/90 (stmt/branch/func/line)
-- `src/content/` and `src/adapters/customization.ts`: 85/75/85/85
+- `src/content/`: 85/70/85/85 (stmt/branch/func/line)
+- `src/adapters/customization.ts`: 85/75/85/85
 - `src/install/` and `src/audit/`: 85/75/85/85
 
 **Rules:**

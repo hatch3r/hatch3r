@@ -73,7 +73,7 @@ Run after Step 2 fixes complete. Block commit on any failure.
    ```bash
    npm test -- --coverage
    ```
-   Critical-module thresholds: 90/80/90/90 for `src/merge/`; 85/75/85/85 for `src/content/` + `src/adapters/customization.ts`.
+   Critical-module thresholds: 90/80/90/90 for `src/merge/`; 85/70/85/85 for `src/content/`; 85/75/85/85 for `src/adapters/customization.ts`.
 
 ## Step 4: Pillar + Governance Compliance
 

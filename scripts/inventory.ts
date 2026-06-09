@@ -33,7 +33,6 @@ const ADAPTER_UTILITIES = new Set<string>([
   "capabilityMatrix.ts",
   "mcp-utils.ts",
   "contextBudget.ts",
-  "toml-utils.ts",
   "agentsmd.ts", // shared AGENTS.md helper, not a platform adapter
 ]);
 
@@ -1008,6 +1007,90 @@ export async function checkOrphanAgents(
 }
 
 /**
+ * Dangling domain-file agent-reference probe (Cycle 11 D23-8 + SA23.1-F5,
+ * P5 governance self-quality + P2 scientific quality).
+ *
+ * Audit-domain files (`governance/audit/domains/D*.md`) cite canonical agents as
+ * tabulation targets ("flag any step absent from `agents/hatch3r-X.md`"). When
+ * the cited agent does not exist, an audit sub-agent binding to it reaches a
+ * false conclusion against a non-existent surface — exactly the D23 file's
+ * dangling `agents/hatch3r-verifier.md` (line 57, D23-8) and
+ * `agents/hatch3r-planner.md` (line 43, SA23.1-F5), where the real eval and
+ * planning surfaces are rule/command/architect files. This probe greps every
+ * domain file for `agents/hatch3r-<name>.md` citations and fails when the cited
+ * file is absent from `agents/`, so a future dangling agent reference in any
+ * domain file is caught at CI time rather than at the next manual audit.
+ *
+ * Scope is the agent class only (`agents/hatch3r-*.md`): agents are the surface
+ * whose dangling citations silently mis-route audit sub-agents. Other path
+ * classes (rules/skills/commands) are held by the cross-reference validator in
+ * `src/cli/commands/validate.ts`; this probe closes the domain-file → agent gap
+ * that validator does not scan.
+ */
+const DOMAIN_DIR = join("governance", "audit", "domains");
+
+/** Matches `agents/hatch3r-<name>.md` path citations in domain-file prose. */
+const DOMAIN_AGENT_REF_RE = /agents\/(hatch3r-[a-z0-9-]+\.md)/g;
+
+interface DanglingAgentRefResult {
+  /** Repo-relative domain file that carries the dangling citation. */
+  file: string;
+  /** The cited agent filename that does not exist (e.g. `hatch3r-verifier.md`). */
+  ref: string;
+}
+
+/**
+ * Scan every `governance/audit/domains/D*.md` for `agents/hatch3r-*.md`
+ * citations and report each one whose target file is absent from `agents/`.
+ * Reads the live `agents/` listing once, then greps each domain file. Returns
+ * `[]` when either directory is absent (ENOENT) so the probe is a no-op in a
+ * partial checkout. Exported for unit coverage; `opts` lets a hermetic test
+ * point both directories at a tmpdir instead of the repo root.
+ */
+export async function checkDanglingDomainAgentRefs(opts?: {
+  /** Absolute path to the agents directory. Defaults to `<ROOT>/agents`. */
+  agentsDir?: string;
+  /** Absolute path to the audit-domains directory. Defaults to the repo path. */
+  domainsDir?: string;
+}): Promise<DanglingAgentRefResult[]> {
+  const agentsDir = opts?.agentsDir ?? join(ROOT, "agents");
+  const domainsDir = opts?.domainsDir ?? join(ROOT, DOMAIN_DIR);
+  // Live set of existing agent filenames (e.g. `hatch3r-reviewer.md`).
+  let agentFiles: Set<string>;
+  try {
+    agentFiles = new Set(
+      (await readdir(agentsDir)).filter((n) => n.endsWith(".md")),
+    );
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  let domainEntries: string[];
+  try {
+    domainEntries = await readdir(domainsDir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  const hits: DanglingAgentRefResult[] = [];
+  for (const name of domainEntries) {
+    if (!name.endsWith(".md")) continue;
+    const contents = await readFile(join(domainsDir, name), "utf-8");
+    const seen = new Set<string>();
+    for (const match of contents.matchAll(DOMAIN_AGENT_REF_RE)) {
+      const ref = match[1];
+      if (seen.has(ref)) continue;
+      seen.add(ref);
+      if (!agentFiles.has(ref)) {
+        // Report the domain file by its repo-relative path for the CI message.
+        hits.push({ file: join(DOMAIN_DIR, name), ref });
+      }
+    }
+  }
+  return hits;
+}
+
+/**
  * Scan each probe's files for its forbidden token. A hit means a consumer doc
  * still cites a decommissioned identifier. Exported for unit coverage.
  */
@@ -1157,20 +1240,22 @@ async function main(): Promise<void> {
     inventory.counts,
   );
   const orphanAgents = await checkOrphanAgents(inventory.files);
+  const danglingAgentRefs = await checkDanglingDomainAgentRefs();
   if (
     drifts.length === 0 &&
     versionDrifts.length === 0 &&
     staleTokens.length === 0 &&
     enumerationMisses.length === 0 &&
     marketplaceDrifts.length === 0 &&
-    orphanAgents.length === 0
+    orphanAgents.length === 0 &&
+    danglingAgentRefs.length === 0
   ) {
     // eslint-disable-next-line no-console
     console.log(
       `inventory: doc-drift check PASS — ${DRIFT_PROBES.length} count probes + ` +
         `${VERSION_PROBES.length} version probes + ${STALE_TOKEN_PROBES.length} stale-token probes + ` +
         `${ENUMERATION_PROBES.length} enumeration probes + ${MARKETPLACE_PROBES.length} marketplace probes + ` +
-        `1 orphaned-agent probe, 0 drifts`,
+        `1 orphaned-agent probe + 1 dangling-domain-agent-ref probe, 0 drifts`,
     );
     return;
   }
@@ -1246,6 +1331,18 @@ async function main(): Promise<void> {
       // eslint-disable-next-line no-console
       console.error(
         `  - ${o.id}: wire it into a consuming skill/command (Required Agent Delegation or agentPipeline) or decommission via /h4tcher-capability-remove per D16.3`,
+      );
+    }
+  }
+  if (danglingAgentRefs.length > 0) {
+    // eslint-disable-next-line no-console
+    console.error(
+      `inventory: dangling-domain-agent-ref FAIL — ${danglingAgentRefs.length} audit-domain citation(s) to a non-existent agents/hatch3r-*.md:`,
+    );
+    for (const d of danglingAgentRefs) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `  - ${d.file}: cites \`agents/${d.ref}\` which does not exist — repoint to the real surface or create the agent`,
       );
     }
   }

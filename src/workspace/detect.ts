@@ -27,6 +27,7 @@ async function accessHatchOrLegacy(rootDir: string, relPath: string): Promise<bo
 }
 import { verbose } from "../cli/shared/ui.js";
 import { WORKSPACE_MANIFEST_FILE } from "./types.js";
+import { readWorkspaceManifest } from "./manifest.js";
 
 /**
  * Record a filesystem-probe failure: emit a verbose() line to stderr (visible
@@ -199,12 +200,78 @@ async function hasGitDir(dir: string): Promise<boolean> {
 }
 
 /**
+ * D1-31 (Cycle 11 Wave 3, D1): outcome of confirming that `dir` is a
+ * *registered* member of the workspace rooted at `root`. Membership is
+ * registration-based, not presence-based: a directory is only a member when
+ * its rel-path from the root equals — or is nested inside — a `repos[].path`
+ * entry in the root's `workspace.json`. `"unverifiable"` is returned when the
+ * manifest cannot be read/validated (a concurrent rewrite, malformed JSON, or
+ * a race that deletes it between the existence probe and the read): the caller
+ * falls back to the legacy presence-based classification so a corrupt manifest
+ * degrades to the prior behavior instead of crashing the UI-hint path.
+ */
+type MembershipCheck = "registered" | "not-registered" | "unverifiable";
+
+/**
+ * D1-31 (Cycle 11 Wave 3, D1): confirm `dir` is registered in the workspace
+ * manifest at `root`. The bug this fixes: `detectWorkspaceContext` previously
+ * returned `workspace-member` for ANY directory under an ancestor that merely
+ * *contained* a `workspace.json` — an existence probe with no `repos[]` check.
+ * That mis-classified unregistered siblings of real members (and the
+ * workspace-suggestion scaffolding before any repo was registered), so
+ * consumers (config.ts, sync.ts, clean/index.ts) emitted false
+ * "managed / overwritten on sync" warnings.
+ *
+ * Registration is satisfied when the rel-path from `root` to `dir` equals a
+ * registered `repos[].path` OR is nested under one (a file inside a registered
+ * member is still within the managed sub-tree that workspace sync writes to via
+ * `join(workspaceRoot, repoEntry.path)`). Path separators are normalized to
+ * posix because manifest paths are always forward-slash (produced by
+ * {@link detectSubRepos}'s `childRelPath` and persisted verbatim by
+ * `init`/workspace sync), while `relative()` yields `\` on Windows.
+ */
+async function confirmRegisteredMember(root: string, dir: string): Promise<MembershipCheck> {
+  let manifest: Awaited<ReturnType<typeof readWorkspaceManifest>>;
+  try {
+    manifest = await readWorkspaceManifest(root);
+  } catch (err) {
+    // Malformed JSON or schema-invalid manifest. readWorkspaceManifest throws
+    // HatchError here; detectWorkspaceContext is a best-effort UI-hint probe
+    // that must not crash its callers, so degrade to the legacy presence-based
+    // verdict (CONSTITUTION §2 P5 Silent Failure Contract: emit a diagnostic).
+    recordProbeFailure(`readWorkspaceManifest(${root}) — manifest unreadable, membership unverifiable`, err);
+    return "unverifiable";
+  }
+  if (manifest === null) {
+    // The existence probe saw a `workspace.json` but the read found none — a
+    // race (concurrent rm) or the legacy `.agents/` layout that
+    // readWorkspaceManifest (which only reads `.hatch3r/`) does not cover. Fall
+    // back to presence-based classification rather than dropping a real member.
+    return "unverifiable";
+  }
+
+  const relFromRoot = relative(root, dir).split("\\").join("/");
+  for (const entry of manifest.repos) {
+    const repoPath = entry.path.split("\\").join("/");
+    if (relFromRoot === repoPath || relFromRoot.startsWith(`${repoPath}/`)) {
+      return "registered";
+    }
+  }
+  return "not-registered";
+}
+
+/**
  * Detect the workspace context for a given directory.
  *
  * Returns:
  * - "workspace-root" if the dir has .agents/workspace.json
- * - "workspace-member" if the dir's hatch.json has a workspace.rootPath
- *   pointing to a valid workspace root
+ * - "workspace-member" if an ancestor has a workspace.json AND `dir`'s rel-path
+ *   from that ancestor is registered in the manifest's `repos[]` (equals or is
+ *   nested under a `repos[].path`). Registration-based, not presence-based
+ *   (D1-31): an unregistered directory under a workspace root is `standalone`,
+ *   not a false member. When the manifest is unreadable the classifier degrades
+ *   to the legacy presence-based verdict so a corrupt file does not crash the
+ *   UI-hint path.
  * - "standalone" otherwise
  */
 export async function detectWorkspaceContext(dir: string): Promise<WorkspaceContext> {
@@ -223,32 +290,55 @@ export async function detectWorkspaceContext(dir: string): Promise<WorkspaceCont
   // members instead of falling through to `standalone`.
   let current = dirname(dir);
   const visited: string[] = [dir];
+  // D1-31: track workspace roots whose `repos[]` did NOT register `dir`, so the
+  // standalone diagnostic can distinguish "no workspace.json found at all" from
+  // "found a workspace root but `dir` is not a registered member of it".
+  const unregisteredRoots: string[] = [];
   for (let i = 0; i < MAX_WORKSPACE_PARENT_WALK; i++) {
     visited.push(current);
     if (await accessHatchOrLegacy(current, WORKSPACE_MANIFEST_FILE)) {
-      return {
-        type: "workspace-member",
-        workspaceRoot: current,
-        rootPath: relative(dir, current),
-      };
+      // D1-31: presence of a workspace.json up the tree is necessary but NOT
+      // sufficient — confirm `dir` is a registered member of THIS root before
+      // returning. `unverifiable` (manifest unreadable/legacy-layout) degrades
+      // to the legacy presence-based verdict so a corrupt file does not crash
+      // callers and a real member is never silently dropped.
+      const membership = await confirmRegisteredMember(current, dir);
+      if (membership === "registered" || membership === "unverifiable") {
+        return {
+          type: "workspace-member",
+          workspaceRoot: current,
+          rootPath: relative(dir, current),
+        };
+      }
+      // not-registered: `dir` lives under this workspace root but is not one of
+      // its `repos[]`. Keep walking — a higher enclosing workspace could still
+      // register `dir` (nested workspaces). Record the rejection for the
+      // standalone diagnostic.
+      unregisteredRoots.push(current);
+    } else {
+      recordProbeFailure(
+        `access(${current}/{${HATCH3R_DIR},${LEGACY_AGENTS_DIR}}/${WORKSPACE_MANIFEST_FILE}) — continuing parent walk`,
+        new Error("ENOENT on both new and legacy paths"),
+      );
     }
-    recordProbeFailure(
-      `access(${current}/{${HATCH3R_DIR},${LEGACY_AGENTS_DIR}}/${WORKSPACE_MANIFEST_FILE}) — continuing parent walk`,
-      new Error("ENOENT on both new and legacy paths"),
-    );
     const parent = dirname(current);
     if (parent === current) break;
     current = parent;
   }
 
-  // F1.9-H2: emit a single verbose() summary of the search path when the walk
-  // terminates without a workspace root, so an operator who expected a member
-  // classification can see how far the walk reached (Silent Failure Contract,
-  // CONSTITUTION §2 P5).
+  // F1.9-H2 / D1-31: emit a single verbose() summary of the search path when the
+  // walk terminates without a registering workspace root, so an operator who
+  // expected a member classification can see how far the walk reached and
+  // whether a workspace root was found but rejected for non-registration
+  // (Silent Failure Contract, CONSTITUTION §2 P5).
+  const rejectionNote =
+    unregisteredRoots.length > 0
+      ? ` (found workspace root(s) ${unregisteredRoots.join(", ")} but ${dir} is not in their repos[])`
+      : "";
   verbose(
     `workspace/detect: ${dir} classified standalone — no ${WORKSPACE_MANIFEST_FILE} ` +
-      `found walking ${visited.length} dir(s) up to ${current} ` +
-      `(cap ${MAX_WORKSPACE_PARENT_WALK})`,
+      `registering it found walking ${visited.length} dir(s) up to ${current} ` +
+      `(cap ${MAX_WORKSPACE_PARENT_WALK})${rejectionNote}`,
   );
   return { type: "standalone" };
 }

@@ -4,9 +4,48 @@ import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { detectWorkspaceContext } from "../../workspace/detect.js";
-import { HATCH3R_DIR } from "../../types.js";
+import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
+import { HATCH3R_DIR, DEFAULT_FEATURES } from "../../types.js";
 import { WORKSPACE_MANIFEST_FILE } from "../../workspace/types.js";
+import type { WorkspaceManifest } from "../../workspace/types.js";
 import { setVerbose } from "../../cli/shared/ui.js";
+
+const minimalDefaults: WorkspaceManifest["defaults"] = {
+  platform: "github",
+  tools: ["cursor"],
+  features: { ...DEFAULT_FEATURES },
+  mcp: { servers: ["github"] },
+  content: {
+    preset: "standard",
+    projectType: "brownfield",
+    teamSize: "solo",
+    items: {
+      agents: ["hatch3r-researcher"],
+      skills: [],
+      rules: [],
+      commands: [],
+      prompts: [],
+      hooks: [],
+      githubAgents: [],
+    },
+  },
+};
+
+/**
+ * Write a VALID workspace manifest under `<dir>/.hatch3r/workspace.json` that
+ * registers the given member rel-paths in `repos[]`. D1-31: membership is
+ * registration-based, so a manifest with an empty `repos[]` no longer admits
+ * arbitrary sub-directories — the registered paths drive classification.
+ */
+async function makeWorkspaceRoot(dir: string, repoPaths: string[]): Promise<void> {
+  const manifest = createWorkspaceManifest(
+    "ws",
+    minimalDefaults,
+    repoPaths.map((p) => ({ path: p, sync: true })),
+    "manual",
+  );
+  await writeWorkspaceManifest(dir, manifest);
+}
 
 /**
  * F1.9-H2 (Cycle 10 D1): detectWorkspaceContext parent-walk depth. The walk
@@ -22,20 +61,10 @@ describe("detectWorkspaceContext parent-walk depth", () => {
     if (tempDir) await rm(tempDir, { recursive: true, force: true });
   });
 
-  /** Write a workspace manifest marker under `<dir>/.hatch3r/workspace.json`. */
-  async function makeWorkspaceRoot(dir: string): Promise<void> {
-    await mkdir(join(dir, HATCH3R_DIR), { recursive: true });
-    await writeFile(
-      join(dir, HATCH3R_DIR, WORKSPACE_MANIFEST_FILE),
-      JSON.stringify({ version: "1.0.0", name: "ws", repos: [] }),
-      "utf-8",
-    );
-  }
-
   it("classifies a directory exactly 3 levels below the root as a member (legacy boundary)", async () => {
     tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-detect-3lvl-")));
-    await makeWorkspaceRoot(tempDir);
-    // root/a/b/c — c is 3 levels below root.
+    // root/a/b/c — c is 3 levels below root, registered as a member.
+    await makeWorkspaceRoot(tempDir, ["a/b/c"]);
     const member = join(tempDir, "a", "b", "c");
     await mkdir(member, { recursive: true });
 
@@ -46,9 +75,10 @@ describe("detectWorkspaceContext parent-walk depth", () => {
 
   it("classifies a directory 5 levels below the root as a member (regression: was standalone under the old cap of 3)", async () => {
     tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-detect-5lvl-")));
-    await makeWorkspaceRoot(tempDir);
     // root/apps/<area>/<name>/src/sub — sub is 5 levels below root, the kind of
-    // depth a real apps/<area>/<name>/src/ monorepo layout produces.
+    // depth a real apps/<area>/<name>/src/ monorepo layout produces. The repo
+    // is registered at apps/area/name; sub is nested inside that member.
+    await makeWorkspaceRoot(tempDir, ["apps/area/name"]);
     const member = join(tempDir, "apps", "area", "name", "src", "sub");
     await mkdir(member, { recursive: true });
 
@@ -75,5 +105,71 @@ describe("detectWorkspaceContext parent-walk depth", () => {
     ).toBe(true);
 
     spy.mockRestore();
+  });
+});
+
+/**
+ * D1-31 (Cycle 11 Wave 3, D1): workspace-member classification is
+ * registration-based, not presence-based. A directory under a workspace root is
+ * only a member when its rel-path equals — or is nested under — a registered
+ * `repos[].path`. Unregistered siblings classify as `standalone` (no false
+ * "managed / overwritten on sync" warning); an unreadable manifest degrades to
+ * the legacy presence-based verdict so callers never crash.
+ */
+describe("detectWorkspaceContext registration-based membership (D1-31)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    setVerbose(false);
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("classifies an unregistered sibling under a workspace root as standalone", async () => {
+    tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-detect-unreg-")));
+    // Workspace registers only `api`; `web` is an unregistered sibling.
+    await makeWorkspaceRoot(tempDir, ["api"]);
+    const unregistered = join(tempDir, "web");
+    await mkdir(unregistered, { recursive: true });
+
+    const ctx = await detectWorkspaceContext(unregistered);
+    expect(ctx.type).toBe("standalone");
+  });
+
+  it("classifies an exact registered repo path as a member", async () => {
+    tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-detect-exact-")));
+    await makeWorkspaceRoot(tempDir, ["api", "web"]);
+    const member = join(tempDir, "api");
+    await mkdir(member, { recursive: true });
+
+    const ctx = await detectWorkspaceContext(member);
+    expect(ctx.type).toBe("workspace-member");
+    expect(ctx.workspaceRoot).toBe(tempDir);
+  });
+
+  it("does not treat a path-prefix collision (api-internal vs api) as nested membership", async () => {
+    tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-detect-prefix-")));
+    // Registers `api`; `api-internal` shares a string prefix but is NOT nested
+    // under `api/`, so it must classify as standalone (segment-boundary match).
+    await makeWorkspaceRoot(tempDir, ["api"]);
+    const sibling = join(tempDir, "api-internal");
+    await mkdir(sibling, { recursive: true });
+
+    const ctx = await detectWorkspaceContext(sibling);
+    expect(ctx.type).toBe("standalone");
+  });
+
+  it("degrades to presence-based membership when the manifest is malformed (fail-safe)", async () => {
+    tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-detect-malformed-")));
+    // Write a syntactically broken workspace.json: readWorkspaceManifest throws,
+    // so confirmRegisteredMember returns "unverifiable" and the classifier keeps
+    // the legacy presence-based verdict rather than crashing the caller.
+    await mkdir(join(tempDir, HATCH3R_DIR), { recursive: true });
+    await writeFile(join(tempDir, HATCH3R_DIR, WORKSPACE_MANIFEST_FILE), "{ not valid json", "utf-8");
+    const member = join(tempDir, "api");
+    await mkdir(member, { recursive: true });
+
+    const ctx = await detectWorkspaceContext(member);
+    expect(ctx.type).toBe("workspace-member");
+    expect(ctx.workspaceRoot).toBe(tempDir);
   });
 });

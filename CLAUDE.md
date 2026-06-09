@@ -38,7 +38,7 @@ npx hatch3r validate        # content structure + frontmatter + cross-ref
 npm run validate:canonical  # strict canonical-read gate: 0 warnings across published content types (release integrity)
 ```
 
-Critical module thresholds: `src/merge/` (90/80/90/90), `src/content/` `src/adapters/customization.ts` (85/75/85/85).
+Critical module thresholds: `src/merge/` (90/80/90/90), `src/content/` (85/70/85/85), `src/adapters/customization.ts` (85/75/85/85).
 
 Commits: Conventional Commits (`feat|fix|refactor|test|docs|chore|audit(scope): msg`), DCO sign-off required (`git commit -s`).
 

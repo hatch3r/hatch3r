@@ -34,7 +34,7 @@ You can use short aliases instead of full model IDs. hatch3r resolves them befor
 
 | Alias | Resolves To |
 |-------|-------------|
-| `opus` | `claude-opus-4-6` |
+| `opus` | `claude-opus-4-8` |
 | `sonnet` | `claude-sonnet-4-6` |
 | `haiku` | `claude-haiku-4-5` |
 | `codex` | `gpt-5.3-codex` |

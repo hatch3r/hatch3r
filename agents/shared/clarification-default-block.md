@@ -8,13 +8,13 @@ cache_friendly: true
 
 ## §0 Detect Ambiguity (P8 B1)
 
-> Last updated: 2026-06-06
+> Last updated: 2026-06-09
 
 This is the canonical body of the §0 Detect Ambiguity block referenced by every `agents/hatch3r-*.md`. Each agent's body cites this file via a one-line pointer plus a one-line domain-specific trigger list. The shared protocol is the constant; the trigger list is the variable.
 
 ### Protocol (constant across all agents)
 
-Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, surface the question per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for residual ambiguity discovered mid-execution.
+Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, surface the question per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for residual ambiguity discovered mid-execution. When an ASK goes unanswered, the gate never deadlocks: apply the declared `Default if no response:` option and log it (orchestrator path) OR, if no default line was emitted, return Status `BLOCKED_AMBIGUITY` (sub-agent path) — never silent-pick, per `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response.
 
 How you surface the question depends on your execution context — these agents run as Task-tool sub-agents, not in the main conversation:
 

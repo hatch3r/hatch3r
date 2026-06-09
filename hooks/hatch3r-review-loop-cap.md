@@ -19,7 +19,7 @@ This hook closes the F15.2-H1 gap surfaced in cycle 10: the runtime `src/pipelin
 The neutral event name `review-loop-cap` is the canonical surface. Per-adapter mappings:
 
 - **Claude Code:** `Stop` event, OR `PostToolUse` with `matcher: "Task"` filtered to fixer-spawn invocations.
-- **Cursor:** `pre-tool-call` with Task-tool filter.
+- **Cursor:** no native runtime gate — advisory rule only (parity with GitHub Copilot below). The iteration-count gate needs the orchestrator's per-issue `.review-loop.json` counter context, which no Cursor hook payload carries; Cursor's real pre-tool event is `preToolUse` (NOT `pre-tool-call`), and its payload exposes no agent-identity field (cursor.com/docs/agent/hooks, accessed 2026-06-09), so it cannot bind to a fixer-spawn. Materialized as the `.cursor/rules/hatch3r-hook-hatch3r-review-loop-cap.mdc` advisory rule the Cursor adapter emits for every canonical hook.
 - **GitHub Copilot:** no native equivalent — emitted as an advisory rule comment instead of a runtime gate.
 
 ## Agent Behavior
@@ -47,6 +47,6 @@ When this hook fires, the assigned agent should:
 
 ## Failure-Boundary Semantics
 
-The hook itself is a circuit breaker scoped to the fixer-spawn boundary. It does not classify reviewer findings, terminate the review loop on its own authority, or invoke remediation. Its single contract: `iteration > maxIterations` MUST block fixer-spawn, no exception. Adapters that cannot emit a non-zero exit at the spawn site (e.g., GitHub Copilot — see Event Mapping) render this hook as an advisory rule instead of a runtime gate; the README surface for those adapters declares the downgrade.
+The hook itself is a circuit breaker scoped to the fixer-spawn boundary. It does not classify reviewer findings, terminate the review loop on its own authority, or invoke remediation. Its single contract: `iteration > maxIterations` MUST block fixer-spawn, no exception. Adapters that cannot emit a non-zero exit at the spawn site (Cursor and GitHub Copilot — see Event Mapping) render this hook as an advisory rule instead of a runtime gate; the README surface for those adapters declares the downgrade.
 
 Cross-reference: `src/pipeline/reviewLoop.ts` (canonical state machine), `agents/hatch3r-implementer.md` → Review Loop Awareness (Phase 3 contract), `rules/hatch3r-agent-orchestration.md` (orchestrator delegation protocol).
