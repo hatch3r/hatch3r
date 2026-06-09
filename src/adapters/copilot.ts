@@ -321,7 +321,9 @@ export class CopilotAdapter extends BaseAdapter {
         // rule whose `globs:` field is absent/empty resolves to [] and is
         // (correctly) treated as unconditional → inlined into the always-rules
         // block rather than emitted as a scoped instruction file with an empty
-        // `applyTo`.
+        // `applyTo`. D5-28: a `scope: agent-requested` rule also resolves to []
+        // here — Copilot has no agent-requested primitive, so it loads
+        // unconditionally (the honest fallback; the lazy-pull win is Cursor-only).
         const globs = resolveRuleGlobs(rule, { scope: overrides.scope });
         if (globs.length > 0) {
           scopedRules.push({ rule: ruleWithDesc, content, globs });
@@ -508,7 +510,28 @@ jobs:
       ...await this.processCommandsRaw(ctx, (id) => `.github/prompts/${toPrefixedId(id)}.prompt.md`),
     );
 
-    if (ctx.features.githubAgents) {
+    // D5-41 (Cycle 11 Wave 3, D5, P4 / D16.3 add-vs-remove bias): suppress the
+    // github-agent picker entries when the full regular-agent path is active.
+    // github-agents (`type: github-agent`, e.g. `hatch3r-security-agent`) are
+    // simplified cloud-agent twins of regular agents (`hatch3r-security`) and
+    // emit to the SAME `.github/agents/{prefixedId}.agent.md` picker the
+    // regular-agent loop above populates. With the default
+    // `features.agents = true` AND `features.githubAgents = true`, a real init
+    // shipped BOTH `hatch3r-security.agent.md` (regular: protected, an
+    // `AGENT_TOOL_POLICIES`-backed `tools:` allowlist, orchestrator-only
+    // invocation gating) AND the weaker `hatch3r-security-agent.agent.md`
+    // (github-agent: read-only baseline `tools:`, no protection, no gating) into
+    // one picker — ×4 such pairs (docs/lint/security/test). The duplicate
+    // weaker twin is a selection hazard and content bloat.
+    //
+    // D16.3 bias is consolidation/gate over removal: the github-agents content
+    // is NOT deleted — it is the SOLE agent surface when the regular-agent path
+    // is off (`features.agents === false`, the Copilot-cloud-only / pack
+    // configuration where only the simplified twins should ship). Gate emission
+    // OFF only when the regular path supersedes it; this keeps the picker free
+    // of weaker duplicates in the common case and preserves the twins for the
+    // narrow case that needs them.
+    if (ctx.features.githubAgents && !ctx.features.agents) {
       // C9-H39 (D11-SA11.1-01): tracked read wrapper for github-agents provenance.
       const ghAgents = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "github-agents", ctx.userRepoRoot);
       for (const agent of ghAgents) {

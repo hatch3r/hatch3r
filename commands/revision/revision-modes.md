@@ -61,6 +61,51 @@ Revision Session Report:
 
 ---
 
+## Review-Only Mode (D13-SA13.1-F2)
+
+When invoked with `--review-only`, revision becomes a **read-only code-review surface**: it runs the reviewer against the change set and emits the structured review report, but mutates nothing — no fix implementation, no commit, no push, no learnings write. This is the standalone "review this code, no changes" entry that fills development-workflow activity (3) Code review (`governance/audit/domains/D13-human-ai-collaboration.md` §13.1) — the only other code-facing surfaces (`hatch3r-pr-resolve`, the default `hatch3r-revision` flow) both mutate.
+
+### Behavior Changes in Review-Only Mode
+
+| Step | Normal Mode | Review-Only Mode |
+|------|-------------|------------------|
+| Step 1 Context Reconstruction | Run | Run (diff scope is the review target) |
+| Step 2 Context validation | ASK user | ASK user (confirm review target only) |
+| Step 3 User feedback interview | ASK user for feedback | Skip — the agent is the reviewer, not the interviewer |
+| Step 4 Proactive leftover scan | Run | Run (read-only; findings feed the report, not a fix queue) |
+| Step 5 Findings consolidation + routing | Suggest FIX NOW / DEFER | Consolidate into the report; no routing (nothing is fixed) |
+| Step 6 Fix implementation | Delegate to fixers | **Skipped** — no `hatch3r-implementer` / `hatch3r-fixer` / `hatch3r-lint-fixer` spawn |
+| Step 7 Quality verification | Stage 1 review loop -> Stage 2 specialists | **Single `hatch3r-reviewer` pass only** — no fixer, no re-review loop, no Stage 2 mutation specialists |
+| Step 8 Commit and push | `git add` / `commit` / `push` | **Skipped** — zero git mutation |
+| Step 9 Merge readiness | Verdict + board housekeeping | Emit the review report (see below); no PR-body write, no board mutation |
+| Step 10 Capture learnings | Write `.hatch3r/learnings/` | **Skipped** — no learnings file written |
+
+The single reviewer pass still carries the Confidence Propagation Contract: the reviewer's high/medium/low confidence is surfaced verbatim in the report. The `--confidence-floor` knob is inert in review-only mode (it gates the second-pass/fix loop, which does not run); state that in the report header rather than silently dropping it. `--review-only` and `--auto` are independent — `--auto` only relaxes ASK checkpoints, so `--review-only --auto` runs the read-only review with Step 2 auto-proceeding when a PR + linked issues are found.
+
+### Activation
+
+```
+/hatch3r revision --review-only
+```
+
+### Review Report
+
+In place of the Step 9 merge-readiness assessment, emit a read-only report:
+
+```
+Review-Only Report:
+  Branch: {branch}
+  Diff: {files_changed} files changed (+{additions} / -{deletions})
+  Reviewer confidence: {high/medium/low}
+  Confidence floor: inert (review-only — no fix loop to gate)
+  Critical ({n}): {finding} — {file:line}
+  Warning ({n}):  {finding} — {file:line}
+  Suggestion ({n}): {finding} — {file:line}
+  No changes were made. Run /hatch3r revision (without --review-only) to fix.
+```
+
+---
+
 ## Error Handling
 
 > Platform-specific CLI commands: see `commands/board/shared-{platform}.md` for fallback chains
@@ -82,7 +127,7 @@ Revision Session Report:
 - **Never skip the proactive scan (Step 4)** — even if the user reports no issues. Agents leave leftovers.
 - **Always run quality checks (Step 7)** before committing. Never commit code that fails lint, typecheck, or tests.
 - **Stay within the revision scope.** Fix what was reported and what the scan found. Do not refactor unrelated code, add new features, or expand beyond the original implementation's intent.
-- **Always commit and push** at the end of a revision cycle. The user invoked this command to get fixes merged — do not exit without committing (unless the user explicitly abandons).
+- **Always commit and push** at the end of a revision cycle. The user invoked this command to get fixes merged — do not exit without committing (unless the user explicitly abandons, or `--review-only` is active, in which case there is nothing to commit).
 - **Respect the original implementation's architecture.** Revision fixes issues within the existing patterns. If the architecture itself is flawed, note it as a finding but do not restructure — suggest a separate refactor instead.
 - **One sub-agent per concern.** Delegate to specialist sub-agents based on finding type. Do not ask the implementer to also fix lint issues or write tests.
 - **Git safety.** Never force-push. Never rewrite history. Always create new commits for revision changes.

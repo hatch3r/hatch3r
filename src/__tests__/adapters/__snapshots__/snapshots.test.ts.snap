@@ -191,7 +191,6 @@ exports[`adapter output snapshots > CopilotAdapter > file paths match snapshot 1
 [
   ".github/agents/hatch3r-readonly-agent.agent.md",
   ".github/agents/hatch3r-test-agent.agent.md",
-  ".github/agents/hatch3r-test-gh-agent.agent.md",
   ".github/agents/modes/fake-mode.md",
   ".github/agents/shared/fake-reference.md",
   ".github/copilot-instructions.md",
@@ -225,16 +224,6 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
     ],
     "hasManagedContent": true,
     "path": ".github/agents/hatch3r-test-agent.agent.md",
-  },
-  {
-    "action": "create",
-    "bodyHash": "e7c1859330cd392b7e81f436d5b9c47b224c536ee4a3027798106d82f853cc33",
-    "contentMarkers": [
-      "FRONTMATTER",
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".github/agents/hatch3r-test-gh-agent.agent.md",
   },
   {
     "action": "create",

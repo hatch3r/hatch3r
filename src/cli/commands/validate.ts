@@ -1681,21 +1681,47 @@ export function scanAntiSlopHits(body: string, fileLabel: string): string[] {
 }
 
 /**
+ * True when `v` is a governance pillar token (P1..P8) or a content-quality
+ * pillar token (CQ1..CQ9). Both axes count as a valid pillar declaration per
+ * the two-axis framework in `governance/CONSTITUTION.md` §2A (P1-P8) / §2B
+ * (CQ1-CQ9).
+ */
+function isPillarToken(v: unknown): boolean {
+  return typeof v === "string" && (/^P[1-8]$/.test(v) || /^CQ[1-9]$/.test(v));
+}
+
+/**
  * Pillar-reference detection: returns true when the file declares at least
- * one P1..P8 reference via frontmatter `pillars:` or any body mention.
+ * one pillar token via frontmatter `pillars:` or any body mention.
+ *
+ * Three frontmatter shapes are recognized (D5-34):
+ *   - array:  `pillars: [P1, P4]` or `pillars: [P2, CQ8]`
+ *   - string: `pillars: "P1 P4"`
+ *   - map:    `pillars: { governance: [P1, P2], content-quality: [CQ8] }`
+ * The map shape is the corpus-dominant two-axis form (15 specialist agents +
+ * the spec orchestrator); before D5-34 it passed only via the weaker body
+ * P-token fallback, so the frontmatter check silently ignored it.
  */
 export function hasPillarReference(parsedFm: Record<string, unknown> | null, body: string): boolean {
   if (parsedFm) {
     const fmPillars = parsedFm.pillars;
-    if (Array.isArray(fmPillars) && fmPillars.some((v) => typeof v === "string" && /^P[1-8]$/.test(v))) {
+    if (Array.isArray(fmPillars) && fmPillars.some(isPillarToken)) {
       return true;
     }
-    if (typeof fmPillars === "string" && /\bP[1-8]\b/.test(fmPillars)) {
+    if (typeof fmPillars === "string" && /\b(P[1-8]|CQ[1-9])\b/.test(fmPillars)) {
       return true;
+    }
+    // Two-axis map shape: { governance: [...], content-quality: [...] }.
+    if (fmPillars && typeof fmPillars === "object" && !Array.isArray(fmPillars)) {
+      for (const axis of Object.values(fmPillars as Record<string, unknown>)) {
+        if (Array.isArray(axis) && axis.some(isPillarToken)) return true;
+        if (isPillarToken(axis)) return true;
+      }
     }
   }
-  // Body-line forms: `**Pillars:** P1, P4`, `Pillars: P1`, or any inline P1..P8.
-  if (/\bP[1-8]\b/.test(body)) return true;
+  // Body-line forms: `**Pillars:** P1, P4`, `Pillars: P1`, or any inline
+  // P1..P8 / CQ1..CQ9 token.
+  if (/\b(P[1-8]|CQ[1-9])\b/.test(body)) return true;
   return false;
 }
 
@@ -1799,9 +1825,10 @@ async function validateContentBody(
           // Marker present but no protocol reference is weak prose: warn so the
           // author wires it to the canonical "how to ask" surface — directly or
           // via the blessed one-hop frames (clarification-default-block.md /
-          // quality-specialist-frame.md), both accepted by checkAmbiguityGate.
+          // quality-specialist-frame.md / orchestration-frame.md), all accepted
+          // by checkAmbiguityGate.
           result.warnings.push(
-            `${fileLabel}: §0 ambiguity gate present but does not reference the canonical question protocol — cite agents/shared/user-question-protocol.md directly OR via agents/shared/clarification-default-block.md / quality-specialist-frame.md (P8 B1)`,
+            `${fileLabel}: §0 ambiguity gate present but does not reference the canonical question protocol — cite agents/shared/user-question-protocol.md directly OR via agents/shared/clarification-default-block.md / quality-specialist-frame.md / commands/shared/orchestration-frame.md (P8 B1)`,
           );
         }
       }
@@ -1876,7 +1903,14 @@ export function checkAmbiguityGate(body: string): { hasMarker: boolean; referenc
   const referencesProtocol =
     /user-question-protocol/.test(body) ||
     /clarification-default-block/.test(body) ||
-    /quality-specialist-frame/.test(body);
+    /quality-specialist-frame/.test(body) ||
+    // D22-4: the command-side §0 one-hop frame. orchestration-frame.md's
+    // "§0 Detect Ambiguity" section cites agents/shared/user-question-protocol.md,
+    // so an orchestrator command that collapses its inline §0 block to a
+    // `commands/shared/orchestration-frame.md → §0 Detect Ambiguity` pointer is
+    // wired to the canonical question protocol exactly as the agent-side
+    // clarification-default-block.md one-hop is. Accept it as a blessed frame.
+    /orchestration-frame/.test(body);
   return { hasMarker, referencesProtocol };
 }
 

@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 ## Agent Pipeline
 
@@ -51,11 +51,7 @@ Take a test planning scope (feature, module, or codebase area) and produce a com
 
 ## Confidence Propagation Contract
 
-Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
-
-> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
-
-Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces plan readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Confidence Propagation Contract. Readiness kind: plan.
 
 ---
 
@@ -90,11 +86,7 @@ Post-execution actuals + delta land in the iteration summary's Fan-out + Cost se
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a single-module test plan scored as Deep, or a full-suite restructure scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
-
-- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
-- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Effort Override (Decision 17). Misclassification example: a single-module test plan scored as Deep, or a full-suite restructure scored as Light.
 
 ---
 
@@ -570,40 +562,17 @@ If `hatch3r-board-fill`: instruct the user to invoke `hatch3r-board-fill`. Note 
 
 test-plan is long-running — a Tier 3 plan fans out parallel researcher sub-agents across coverage, framework, and convention modes (Step 3), drives an ASK synthesis (Step 4), then writes a multi-file test plan spec + ADRs + todo.md (Steps 5–8). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the researcher batch.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.test-plan-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 9 progression), `wave` (researcher-batch index), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, testPlanSlug }`.
-2. **Write points:** after Step 1 scope confirmation, after Step 2 context load, after Step 3 researcher fan-out completes, after the Step 4 ASK synthesis is confirmed, and after each Step 5–8 file write (test plan spec, ADRs, todo.md) so already-generated artifacts survive a crash and are not regenerated on resume.
-3. **`--resume` invocation:** `hatch3r-test-plan --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the target module / existing test suite / `todo.md` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of `docs/specs/`, `docs/adr/`, and `todo.md` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.test-plan-workspace/`; step range the Step 0 → Step 9 progression; `wave` = researcher-batch index; snapshot/rollback paths `docs/specs/`, `docs/adr/`, and `todo.md`; `meta` adds `testPlanSlug`. Write points: after Step 1 scope confirmation, after Step 2 context load, after Step 3 researcher fan-out completes, after the Step 4 ASK synthesis is confirmed, and after each Step 5–8 file write (test plan spec, ADRs, todo.md) so already-generated artifacts survive a crash and are not regenerated on resume.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for test-plan: `1` = feature/diff intake + mandate-class detection, `2` = hatch3r-testability sub-agent dispatch (fuzz / mutation / contract / property / visual / AI-eval), `3` = plan synthesis + coverage analysis, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for test-plan: `1` = feature/diff intake + mandate-class detection, `2` = hatch3r-testability sub-agent dispatch (fuzz / mutation / contract / property / visual / AI-eval), `3` = plan synthesis + coverage analysis, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (test-plan doc, mandate matrix, coverage spec) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via hatch3r-testability (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: test-plan doc, mandate matrix, coverage spec.
 
 ## Iteration Summary (mandatory output)
 
@@ -623,18 +592,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

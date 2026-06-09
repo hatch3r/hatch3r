@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-reliability]
 description: "Generate baseline SLI/SLO scaffolding for a user-facing service — availability + latency p95/p99 objectives, 28-day error budget, and Google-SRE multi-window multi-burn-rate alert rules in OpenSLO openslo/v1. Implementer writes the files; hatch3r-reliability gates them against the CQ4 floor."
+argument-hint: "[service-name]"
 tags: [devops, reliability, floor:content-quality]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -180,18 +181,7 @@ Run the available validation commands and record exit codes: `promtool check rul
 
 ### End-of-Turn Delegation Attestation (Bypass Protection)
 
-Emit immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote each `Delegation proof ID` verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - slo/<service>.slo.yaml: via hatch3r-implementer (proof: <delegation_proof_id>)
-  - slo/<service>.alerts.yaml: via hatch3r-implementer (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: `slo/<service>.slo.yaml`, `slo/<service>.alerts.yaml` — both `via hatch3r-implementer`.
 
 ### Iteration Summary (mandatory output)
 
@@ -230,13 +220,7 @@ Status decision rules:
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit at the start of every task-touching turn, per `rules/hatch3r-agent-orchestration.md`:
-
-```
-[hatch3r-pipeline: phase {1|2|3} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping: `1` = spec parse + confirm, `2` = implementer scaffold generation, `3` = reliability gate + verify + summary. Tier 1 single-service runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping: `1` = spec parse + confirm, `2` = implementer scaffold generation, `3` = reliability gate + verify + summary. Tier 1 single-service runs are exempt per the Tier 1 exemption.
 
 ---
 
@@ -252,14 +236,7 @@ Phase mapping: `1` = spec parse + confirm, `2` = implementer scaffold generation
 
 slo-scaffold fans out one implementer per service, so checkpoint at the per-service boundary — an interrupted multi-service run re-enters at the first un-scaffolded service rather than regenerating the SLO/alert file sets it already wrote.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.slo-scaffold-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 1 → Step 5 progression), `wave` (the per-service index in Step 3/4), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, scaffoldedServices, reliabilityGateVerdicts, implementerProofIds }`.
-2. **Write points:** after the Step 1 spec parse, after the Step 2 accept gate, after each Step 3 implementer return (per service), and after each Step 4 reliability gate.
-3. **`--resume` invocation:** `hatch3r slo-scaffold --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed — re-run from scratch, because a stale target must not gate fresh SLO files. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of every `slo/<service>.slo.yaml` / `slo/<service>.alerts.yaml` a Step 3 implementer touches land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's generated scaffold. Diff preview precedes every mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.slo-scaffold-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the per-service index in Step 3/4; snapshot/rollback paths every `slo/<service>.slo.yaml` / `slo/<service>.alerts.yaml` a Step 3 implementer touches. Write points: after the Step 1 spec parse, after the Step 2 accept gate, after each Step 3 implementer return (per service), and after each Step 4 reliability gate.
 
 ## References
 

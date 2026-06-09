@@ -462,40 +462,17 @@ If the user chooses to commit:
 
 debug is long-running across a user-checkpoint boundary — Stage 2 instruments the codebase with strategic `[HATCH3R-DEBUG]` log lines, Stage 3 pauses for the user to reproduce the issue and provide runtime logs, Stage 4 root-cause-analyzes from the collected evidence, and Stage 5 implements the fix and removes all debug artifacts through the implementer → reviewer ↔ fixer review loop and the parallel testability + security final-quality gate. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed stage rather than re-instrumenting log statements that already shipped or re-implementing a fix the user has already accepted.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.debug-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Stage 1 → Stage 5 progression), `wave` (review-loop iteration index in Stage 5b), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, debugMarker, instrumentedFiles }` where `instrumentedFiles` is the list of files carrying `[HATCH3R-DEBUG]` markers requiring cleanup.
-2. **Write points:** after Stage 1 context capture, after Stage 2 debug-logging implementer returns (so instrumented files are recorded and a crash leaves the cleanup contract intact), after Stage 3 user-log collection ASK, after Stage 4 root-cause synthesis is confirmed, after each Stage 5b review-loop iteration, after the Stage 5c parallel testability + security gate completes, and after the mandatory Stage 5 debug-artifact cleanup pass (the cleanup-complete signal closes the cleanup guarantee).
-3. **`--resume` invocation:** `hatch3r-debug --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / `instrumentedFiles` content changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage. A resume mid-Stage-5 that finds the cleanup pass uncompleted ALWAYS re-runs the cleanup before declaring done — the Scope contract's "Debug artifact cleanup guarantee" overrides resumption short-circuits.
-4. **Snapshot rollback:** pre-mutation snapshots of `instrumentedFiles` (pre-instrumentation) and pre-fix working-tree state land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.debug-workspace/`; step range the Stage 1 → Stage 5 progression; `wave` = review-loop iteration index in Stage 5b; snapshot/rollback paths `instrumentedFiles` (pre-instrumentation) and pre-fix working-tree state. Write points: after Stage 1 context capture, after Stage 2 debug-logging implementer returns (so instrumented files are recorded and a crash leaves the cleanup contract intact), after Stage 3 user-log collection ASK, after Stage 4 root-cause synthesis is confirmed, after each Stage 5b review-loop iteration, after the Stage 5c parallel testability + security gate completes, and after the mandatory Stage 5 debug-artifact cleanup pass (the cleanup-complete signal closes the cleanup guarantee).
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for debug: `1` = symptom + scope intake, `2` = debugger sub-agent dispatch + hypothesis enumeration, `3` = root-cause validation, `4` = report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for debug: `1` = symptom + scope intake, `2` = debugger sub-agent dispatch + hypothesis enumeration, `3` = root-cause validation, `4` = report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (debug notes, reproduction scripts, instrumentation diff) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: debug notes, reproduction scripts, instrumentation diff.
 
 ## Iteration Summary (mandatory output)
 
@@ -515,18 +492,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

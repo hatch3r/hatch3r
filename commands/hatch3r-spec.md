@@ -128,27 +128,11 @@ If any deliverable is missing or empty, halt and surface the gap to the user —
 
 ## Phase 4 — Per-Turn Pipeline-State Header
 
-For Tier ≥ Standard runs, emit the header at the start of every assistant turn touching this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping: `1` = detection + triage, `2` = spec-agent delegation, `3` = aggregation + verification, `4` = summary. Light runs are exempt from the header per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping: `1` = detection + triage, `2` = spec-agent delegation, `3` = aggregation + verification, `4` = summary. Light runs are exempt from the header per the Tier 1 exemption.
 
 ## Phase 5 — End-of-Turn Delegation Attestation
 
-Every turn that mutated files at Tier ≥ Standard emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by the spec agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - .hatch3r/spec/<timestamp>/<deliverable>.md: via hatch3r-{greenfield|brownfield}-spec (proof: <delegation_proof_id>)
-mutating_subagent_invocations: 1
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: the artifacts this command writes.
 
 ## Phase 6 — Iteration Summary
 
@@ -187,18 +171,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

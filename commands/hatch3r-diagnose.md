@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-fixer]
 description: "Troubleshoot a hatch3r framework issue (setup, config, adapter wiring, drift). Gathers state, delegates root-cause analysis to hatch3r-researcher, proposes a fix, and applies it via hatch3r-fixer after one confirmation gate."
+argument-hint: "[symptom]"
 tags: [maintenance, devops, ctx:brownfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -175,17 +176,7 @@ Re-run the relevant Step 1 probe(s) to confirm the fix cleared the symptom: re-r
 
 ### End-of-Turn Delegation Attestation (Bypass Protection)
 
-When this run mutated files (Step 5 applied a fix), emit the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the `hatch3r-fixer` `Delegation proof ID` verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <path>: via hatch3r-fixer (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-A skip-path run (Step 4 `skip`, diagnosis-only) mutated nothing — state `inline_edits_by_orchestrator: none` and `mutating_subagent_invocations: 0`. Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: `<path>` via `hatch3r-fixer` when Step 5 applied a fix. A skip-path run (Step 4 `skip`, diagnosis-only) mutated nothing — state `inline_edits_by_orchestrator: none` and `mutating_subagent_invocations: 0`.
 
 ### Iteration Summary (mandatory output)
 
@@ -221,13 +212,7 @@ Status decision rules:
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header:
-
-```
-[hatch3r-pipeline: phase {1|2|3} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for diagnose: `1` = state capture + triage, `2` = researcher root-cause dispatch, `3` = fixer apply + verify + summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for diagnose: `1` = state capture + triage, `2` = researcher root-cause dispatch, `3` = fixer apply + verify + summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ---
 
@@ -243,14 +228,7 @@ Phase mapping for diagnose: `1` = state capture + triage, `2` = researcher root-
 
 diagnose is checkpoint-light — Step 1 state capture and Step 3 root-cause analysis are read-only, so an interrupted run re-captures cheaply; the only mutation point is Step 5 (fixer apply), so checkpoint there to avoid re-applying a fix already landed.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.diagnose-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 1 → Step 6 progression), `wave` (the per-finding fix index in Step 5), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, capturedStateHash, acceptedFindingIds, fixerProofIds }`.
-2. **Write points:** after Step 1 state capture, after the Step 3 researcher batch returns, after the Step 4 ASK decision, and after each Step 5 fixer returns. The read-only steps record their result so a resume skips re-running probes when the baseline SHA is unchanged.
-3. **`--resume` invocation:** `hatch3r diagnose --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the working tree changed since capture) — re-capture from scratch, since a stale diagnosis can mis-target the fix. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of every file a Step 5 fixer touches land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's fixes. Diff preview precedes every mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.diagnose-workspace/`; step range the Step 1 → Step 6 progression; `wave` = the per-finding fix index in Step 5; snapshot/rollback paths every file a Step 5 fixer touches. Write points: after Step 1 state capture, after the Step 3 researcher batch returns, after the Step 4 ASK decision, and after each Step 5 fixer returns. The read-only steps record their result so a resume skips re-running probes when the baseline SHA is unchanged.
 
 ## References
 

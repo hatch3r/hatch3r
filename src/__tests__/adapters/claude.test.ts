@@ -262,6 +262,87 @@ Applies to API code and protobufs.`,
     expect(claudeMd!.content).toContain("CLAUDE.local.md");
   });
 
+  // D9-12 (D9, P3): opt-in AGENTS.md interop — `@AGENTS.md` import line in the
+  // CLAUDE.md managed block when claude.agentsMdInterop is on AND a repo-root
+  // AGENTS.md exists.
+  describe("AGENTS.md interop (D9-12)", () => {
+    async function withTempRepo(
+      files: Record<string, string>,
+      run: (repoRoot: string) => Promise<void>,
+    ): Promise<void> {
+      const repoRoot = await mkdtemp(join(tmpdir(), "hatch3r-agentsmd-"));
+      try {
+        for (const [rel, body] of Object.entries(files)) {
+          const abs = join(repoRoot, rel);
+          await mkdir(dirname(abs), { recursive: true });
+          await writeFile(abs, body, "utf8");
+        }
+        await run(repoRoot);
+      } finally {
+        await rm(repoRoot, { recursive: true, force: true });
+      }
+    }
+
+    function claudeMdContent(outputs: Awaited<ReturnType<typeof adapter.generate>>): string {
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd).toBeDefined();
+      return claudeMd!.content;
+    }
+
+    it("emits @AGENTS.md import when interop is on and AGENTS.md exists", async () => {
+      await withTempRepo({ "AGENTS.md": "# Cross-vendor agent rules\n" }, async (repoRoot) => {
+        const manifest = makeManifest({ claude: { agentsMdInterop: true } });
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot);
+        const content = claudeMdContent(outputs);
+        // The bare import directive is on its own line so Claude Code parses it.
+        expect(content).toMatch(/^@AGENTS\.md$/m);
+        expect(content).toContain("AGENTS.md interop");
+        // Import sits inside the managed block (between the markers).
+        const start = content.indexOf(MANAGED_BLOCK_START);
+        const importIdx = content.indexOf("@AGENTS.md");
+        const end = content.indexOf(MANAGED_BLOCK_END);
+        expect(start).toBeGreaterThanOrEqual(0);
+        expect(importIdx).toBeGreaterThan(start);
+        expect(importIdx).toBeLessThan(end);
+      });
+    });
+
+    it("emits no import when interop is on but no AGENTS.md exists", async () => {
+      await withTempRepo({ "README.md": "no agents file here\n" }, async (repoRoot) => {
+        const manifest = makeManifest({ claude: { agentsMdInterop: true } });
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot);
+        const content = claudeMdContent(outputs);
+        expect(content).not.toContain("@AGENTS.md");
+        expect(content).not.toContain("AGENTS.md interop");
+      });
+    });
+
+    it("emits no import when interop flag is absent even if AGENTS.md exists", async () => {
+      await withTempRepo({ "AGENTS.md": "# present but interop off\n" }, async (repoRoot) => {
+        const manifest = makeManifest(); // no claude.agentsMdInterop
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot);
+        const content = claudeMdContent(outputs);
+        expect(content).not.toContain("@AGENTS.md");
+      });
+    });
+
+    it("emits no import when interop flag is explicitly false", async () => {
+      await withTempRepo({ "AGENTS.md": "# present\n" }, async (repoRoot) => {
+        const manifest = makeManifest({ claude: { agentsMdInterop: false } });
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot);
+        expect(claudeMdContent(outputs)).not.toContain("@AGENTS.md");
+      });
+    });
+
+    it("emits the import in minimal mode too", async () => {
+      await withTempRepo({ "AGENTS.md": "# minimal-mode import\n" }, async (repoRoot) => {
+        const manifest = makeManifest({ claude: { agentsMdInterop: true } });
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot, "minimal");
+        expect(claudeMdContent(outputs)).toMatch(/^@AGENTS\.md$/m);
+      });
+    });
+  });
+
   it("generates .claude/settings.json with permissions", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

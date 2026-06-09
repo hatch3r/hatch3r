@@ -20,6 +20,7 @@
  * does not invoke these.
  */
 
+import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -113,6 +114,18 @@ export interface CostEstimate {
   estimated_web_research_queries: number;
   /** Estimated wall-clock duration in minutes (tier midpoint). */
   estimated_duration_min: number;
+  /**
+   * D6-20: the repository-size band the static-frame estimate was scaled by, and
+   * the tracked-file count that resolved it. Present ONLY when the caller passed
+   * `repoFileCount` to {@link estimateCost}; absent otherwise (the estimate then
+   * carries no repo-size dependency — the documented exclusion). When present,
+   * `estimated_input_tokens_static_frame` already includes the band factor.
+   */
+  repo_size_row?: {
+    band: RepoSizeBand;
+    tracked_files: number;
+    factor: number;
+  };
 }
 
 /**
@@ -160,6 +173,78 @@ export const VARIANCE_THRESHOLD_PERCENT = 25;
 /** Telemetry directory under the project root. */
 export const TELEMETRY_DIR_RELATIVE = ".hatch3r/telemetry";
 
+// ── Repository-size scaling (D6-20) ──────────────────────────────
+// The pre-fix cost estimate returned fixed tier midpoints with ZERO dependency
+// on repository size, so "cost scaling with project size" was unaddressed. A
+// sub-agent operating in a 50k-file monorepo loads more grep/read context per
+// task than one in a 200-file starter, even at the same triage tier. This model
+// resolves a coarse size band from the tracked-file count (`git ls-files | wc -l`)
+// and multiplies the per-sub-agent static-frame token component by the band's
+// factor. The bands are wide on purpose — this is a directional scalar, not a
+// per-token measurement. When the caller supplies no file count the factor is
+// 1.0 (no `repo_size_row` field, byte-identical to the pre-D6-20 estimate),
+// which documents the exclusion rather than silently scaling.
+
+/** Repository-size band derived from the tracked-file count (D6-20). */
+export type RepoSizeBand = "tiny" | "small" | "medium" | "large" | "huge";
+
+/**
+ * One row of the {@link REPO_SIZE_ROWS} table. `maxFiles` is the inclusive upper
+ * bound of the band (the largest band uses `Number.POSITIVE_INFINITY`); `factor`
+ * multiplies the per-sub-agent static-frame token estimate.
+ */
+export interface RepoSizeRow {
+  band: RepoSizeBand;
+  /** Inclusive upper tracked-file count for this band. */
+  maxFiles: number;
+  /** Multiplier applied to the per-sub-agent static-frame token component. */
+  factor: number;
+}
+
+/**
+ * Repo-size → context-scaling factor table (D6-20). Bands are wide because this
+ * is a directional cost scalar, not a measurement: a larger working tree means a
+ * sub-agent's grep/read sweeps return more context per task, inflating the
+ * static-frame input it actually pays for. The `tiny` row anchors the factor at
+ * 1.0 so a small repo's estimate is unchanged from the pre-D6-20 midpoint, and
+ * each step up roughly tracks an order of magnitude of tracked files.
+ *
+ * Boundaries (200 / 2k / 20k / 50k tracked files) bracket the common project
+ * scales the framework targets per `governance/CONSTITUTION.md` §2 P4 lean-
+ * coverage scale targets (repos up to ~500 canonical files) and the larger
+ * brownfield monorepos `ctx:brownfield-only` artifacts address. Factors are a
+ * conservative geometric ramp (1.0 → 1.15 → 1.35 → 1.6 → 1.9): a 50k-file
+ * monorepo sub-agent is modeled as paying ~1.9× the static-frame context a
+ * sub-agent in a sub-200-file repo pays, not a raw file-count ratio (which would
+ * over-count, since a sub-agent reads a task-scoped slice, not the whole tree).
+ */
+export const REPO_SIZE_ROWS: readonly RepoSizeRow[] = [
+  { band: "tiny", maxFiles: 200, factor: 1.0 },
+  { band: "small", maxFiles: 2_000, factor: 1.15 },
+  { band: "medium", maxFiles: 20_000, factor: 1.35 },
+  { band: "large", maxFiles: 50_000, factor: 1.6 },
+  { band: "huge", maxFiles: Number.POSITIVE_INFINITY, factor: 1.9 },
+] as const;
+
+/**
+ * Resolve a tracked-file count to its {@link RepoSizeRow} (D6-20). A negative or
+ * non-finite count is treated as 0 (the `tiny` band, factor 1.0). The table is
+ * scanned low-to-high and the first row whose `maxFiles` bound is not exceeded
+ * wins; the `huge` row's infinite bound makes the scan total.
+ *
+ * Pure function — no I/O, never throws. The impure tracked-file count is
+ * supplied by {@link countTrackedFiles} at the call site.
+ */
+export function resolveRepoSizeRow(fileCount: number): RepoSizeRow {
+  const n = Number.isFinite(fileCount) && fileCount > 0 ? Math.floor(fileCount) : 0;
+  for (const row of REPO_SIZE_ROWS) {
+    if (n <= row.maxFiles) return row;
+  }
+  // Unreachable while the last row's bound is +Infinity, but keep a total return
+  // so the function never falls through to `undefined`.
+  return REPO_SIZE_ROWS[REPO_SIZE_ROWS.length - 1];
+}
+
 // ── Input options ────────────────────────────────────────────────
 
 /**
@@ -178,6 +263,15 @@ export interface EstimateCostOptions {
   inputTokensDeclared?: number;
   /** Override the tier midpoint for duration in minutes. */
   durationMinDeclared?: number;
+  /**
+   * D6-20: tracked-file count of the target repository (typically from
+   * {@link countTrackedFiles}, i.e. `git ls-files | wc -l`). When supplied, the
+   * resolved {@link RepoSizeRow} factor scales the static-frame token component
+   * and the band is surfaced on {@link CostEstimate.repo_size_row}. Omit it to
+   * keep the pre-D6-20 repo-size-independent estimate (no scaling, no band
+   * field). A negative/non-finite value resolves to the `tiny` band (factor 1.0).
+   */
+  repoFileCount?: number;
 }
 
 // ── Core helpers ─────────────────────────────────────────────────
@@ -194,8 +288,15 @@ function midpoint(minVal: number, maxVal: number): number {
  * - Uses explicit `*Declared` overrides when provided; otherwise emits the
  *   tier midpoint for each field.
  * - Negative overrides are clamped to 0 (a sub-agent count cannot be < 0).
+ * - D6-20: when `repoFileCount` is supplied, scales the static-frame token
+ *   component by the resolved {@link RepoSizeRow} factor (a larger working tree
+ *   means each sub-agent's grep/read sweeps return more context per task) and
+ *   surfaces the band on `repo_size_row`. Omitting `repoFileCount` leaves the
+ *   estimate repo-size-independent (factor 1.0, no band field) — the documented
+ *   exclusion, so the existing repo-agnostic callers are byte-identical.
  *
- * Pure function — no I/O, never throws.
+ * Pure function — no I/O, never throws. The impure tracked-file count is the
+ * caller's responsibility (see {@link countTrackedFiles}).
  */
 export function estimateCost(opts: EstimateCostOptions): CostEstimate {
   const baseline = TIER_BASELINES[opts.triageTier];
@@ -211,16 +312,30 @@ export function estimateCost(opts: EstimateCostOptions): CostEstimate {
     return Math.max(0, Math.round(n));
   };
 
-  return {
+  const baseStaticFrameTokens = clamp(
+    opts.inputTokensDeclared,
+    midpoint(baseline.staticFrameTokensMin, baseline.staticFrameTokensMax),
+  );
+
+  // D6-20: scale the per-sub-agent static-frame component by the repo-size band
+  // factor ONLY when the caller supplied a file count. `repoFileCount === undefined`
+  // (the historical call shape) leaves the factor at 1.0 and omits the band field,
+  // so the estimate stays repo-size-independent and prior outputs are unchanged.
+  const repoRow =
+    typeof opts.repoFileCount === "number"
+      ? resolveRepoSizeRow(opts.repoFileCount)
+      : null;
+  const scaledStaticFrameTokens = repoRow
+    ? Math.round(baseStaticFrameTokens * repoRow.factor)
+    : baseStaticFrameTokens;
+
+  const estimate: CostEstimate = {
     triage_tier: opts.triageTier,
     expected_sa_count: clamp(
       opts.subAgentDeclared,
       midpoint(baseline.subAgentMin, baseline.subAgentMax),
     ),
-    estimated_input_tokens_static_frame: clamp(
-      opts.inputTokensDeclared,
-      midpoint(baseline.staticFrameTokensMin, baseline.staticFrameTokensMax),
-    ),
+    estimated_input_tokens_static_frame: scaledStaticFrameTokens,
     estimated_web_research_queries: clamp(
       opts.webResearchDeclared,
       midpoint(baseline.webResearchQueriesMin, baseline.webResearchQueriesMax),
@@ -230,6 +345,63 @@ export function estimateCost(opts: EstimateCostOptions): CostEstimate {
       midpoint(baseline.durationMinMin, baseline.durationMinMax),
     ),
   };
+
+  if (repoRow) {
+    estimate.repo_size_row = {
+      band: repoRow.band,
+      tracked_files:
+        Number.isFinite(opts.repoFileCount!) && opts.repoFileCount! > 0
+          ? Math.floor(opts.repoFileCount!)
+          : 0,
+      factor: repoRow.factor,
+    };
+  }
+
+  return estimate;
+}
+
+/**
+ * Count tracked files in `projectRoot` via `git ls-files` (D6-20) — the impure
+ * companion to {@link estimateCost}'s pure `repoFileCount` input. Pass the
+ * returned count into {@link estimateCost} (or {@link EstimateCostOptions}) so
+ * the static-frame estimate scales with repository size.
+ *
+ * Silent Failure Contract (CONSTITUTION §2 P5): non-git directories, missing
+ * git, and any spawn error return `null` (caller then omits `repoFileCount`,
+ * keeping the repo-size-independent estimate) rather than throwing. The git
+ * invocation is `execFileSync` with a fixed argv (no shell, no user-interpolated
+ * string) so there is no command-injection surface; `wc -l` is computed in-process
+ * by counting NUL-delimited records to avoid a shell pipe and to count filenames
+ * containing newlines correctly.
+ *
+ * @param projectRoot  Repository working-tree root; defaults to `process.cwd()`.
+ * @returns the tracked-file count, or `null` when it cannot be determined.
+ */
+export function countTrackedFiles(projectRoot: string = process.cwd()): number | null {
+  try {
+    // `-z` NUL-delimits records so a filename containing a newline is one record;
+    // counting NULs is the in-process equivalent of the finding's `git ls-files | wc -l`.
+    const out = execFileSync("git", ["-C", projectRoot, "ls-files", "-z"], {
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (out.length === 0) return 0;
+    let count = 0;
+    for (let i = 0; i < out.length; i++) {
+      if (out.charCodeAt(i) === 0) count++;
+    }
+    // A non-empty output with no trailing NUL (defensive: should not happen with
+    // `-z`) still has one unterminated record — count it.
+    if (out.charCodeAt(out.length - 1) !== 0) count++;
+    return count;
+    // Non-git dir, missing git binary, or spawn failure: the repo-size signal is
+    // simply unavailable. Per the Silent Failure Contract the estimate falls back
+    // to repo-size-independent (caller omits repoFileCount) rather than aborting.
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -621,6 +793,18 @@ export function formatCostBlock(estimate: CostEstimate, actuals?: CostActuals): 
     `  estimated_web_research_queries: ${estimate.estimated_web_research_queries}`,
     `  estimated_duration_min: ${estimate.estimated_duration_min}`,
   ];
+
+  // D6-20: surface the repo-size band that scaled the static-frame estimate, but
+  // only when it was resolved — a repo-size-independent estimate (no file count
+  // supplied) keeps the established field set byte-identical.
+  if (estimate.repo_size_row) {
+    lines.push(
+      `  repo_size_row:`,
+      `    band: ${estimate.repo_size_row.band}`,
+      `    tracked_files: ${estimate.repo_size_row.tracked_files}`,
+      `    factor: ${estimate.repo_size_row.factor}`,
+    );
+  }
 
   if (actuals) {
     const delta = computeDelta(estimate, actuals);

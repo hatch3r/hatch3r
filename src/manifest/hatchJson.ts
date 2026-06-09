@@ -768,6 +768,10 @@ function collectManifestErrors(data: unknown): string[] {
       ) {
         errors.push("`claude.agentTeams` is not a boolean or \"ga\"");
       }
+      // D9-12 (D9, P3): opt-in AGENTS.md interop flag — boolean only.
+      if (claude.agentsMdInterop !== undefined && typeof claude.agentsMdInterop !== "boolean") {
+        errors.push("`claude.agentsMdInterop` is not a boolean");
+      }
     }
   }
 

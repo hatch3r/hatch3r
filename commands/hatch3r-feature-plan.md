@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 ## Agent Pipeline
 
@@ -513,40 +513,17 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 
 feature-plan is long-running — a Tier 3 cross-cutting feature fans out four parallel hatch3r-researcher modes (codebase-impact, feature-design, architecture, risk-pitfalls) in Step 3, then assembles the spec via docs-writer with the 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) advising pre-write on the measurable floors the spec must encode. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the four-researcher + nine-specialist fan-out.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.feature-plan-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 8 progression), `wave` (researcher-batch index, then CQ-specialist-batch index), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, featureSlug }`.
-2. **Write points:** after Step 1 feature-brief context locks, after Step 2 scope ASK, after the Step 3 four-researcher fan-out returns, after the CQ-specialist advisory batch returns, after Step 4 spec synthesis is confirmed by ASK, after each Step 5 file write (`docs/specs/`, `docs/adr/`), after Step 6 todo.md epic + sub-item generation, and after the optional Step 7 chain-to-`hatch3r-board-fill` handoff.
-3. **`--resume` invocation:** `hatch3r-feature-plan --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / `docs/specs/` / `docs/adr/` / `todo.md` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of `docs/specs/`, `docs/adr/`, and `todo.md` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.feature-plan-workspace/`; step range Step 0 → Step 8; `wave` = researcher-batch index, then CQ-specialist-batch index; doc dirs `docs/specs/`, `docs/adr/`, `todo.md`; `meta` adds `featureSlug`. Write points: after Step 1 feature-brief context locks, after Step 2 scope ASK, after the Step 3 four-researcher fan-out returns, after the CQ-specialist advisory batch returns, after Step 4 spec synthesis is confirmed by ASK, after each Step 5 file write, after Step 6 todo.md epic + sub-item generation, and after the optional Step 7 chain-to-`hatch3r-board-fill` handoff.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for feature-plan: `1` = feature intake + scope decomposition, `2` = researcher/spec sub-agent dispatch, `3` = plan synthesis + acceptance-criteria drafting + Step 7.5 deterministic plan-lint (Evaluator gate), `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for feature-plan: `1` = feature intake + scope decomposition, `2` = researcher/spec sub-agent dispatch, `3` = plan synthesis + acceptance-criteria drafting + Step 7.5 deterministic plan-lint (Evaluator gate), `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (plan document, sub-plan files, criteria spec) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: plan document, sub-plan files, criteria spec.
 
 ## Iteration Summary (mandatory output)
 
@@ -566,18 +543,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

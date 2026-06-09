@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-handoff-preparer]
 description: Prepare, resume, list, complete, and prune cross-session handoff documents.
+argument-hint: "prepare | resume [id] | list | complete <id> | prune"
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -18,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 ## Agent Pipeline
 
@@ -153,27 +154,11 @@ ID                                              STATUS         BRANCH           
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 runs (handoff declares `triage_tiers: [1, 2]`), emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for handoff: `1` = action detection (prepare / load / resume / complete / prune), `2` = handoff-preparer / handoff-loader sub-agent dispatch, `3` = validation + integrity verification, `4` = report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for handoff: `1` = action detection (prepare / load / resume / complete / prune), `2` = handoff-preparer / handoff-loader sub-agent dispatch, `3` = validation + integrity verification, `4` = report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (handoff document written under `.hatch3r/handoffs/active/`) at Tier 2 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by the spawning sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - .hatch3r/handoffs/active/<id>.md: via hatch3r-handoff-preparer (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: handoff document written under `.hatch3r/handoffs/active/`.
 
 ## Iteration Summary (mandatory output)
 
@@ -193,18 +178,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

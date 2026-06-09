@@ -176,40 +176,17 @@ Commit message format: `fix: {short root-cause-oriented description}`. For pushe
 
 bug-pipeline is multi-phase — a Tier 2/3 run dispatches a researcher (Step 1), one or more implementers authoring regression test + fix (Step 2), and a reviewer ↔ fixer loop (Step 3). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the researcher or re-implementing a fix that already landed.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.bug-pipeline-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 4 progression), `wave` (review-loop iteration index in Step 3), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, bugSlug, regressionTestPath }`.
-2. **Write points:** after Step 1 researcher returns and the root-cause ASK is confirmed, after each Step 2 implementer returns per module (so a landed fix + regression test survive a crash), after Step 2 quality gates pass, after each Step 3 review-loop iteration, and after the Step 4 git action.
-3. **`--resume` invocation:** `hatch3r-bug-pipeline --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / branch HEAD / failure-path source files changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of the working-tree state land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.bug-pipeline-workspace/`; step range the Step 0 → Step 4 progression; `wave` = review-loop iteration index in Step 3; snapshot/rollback paths the working-tree state. Write points: after Step 1 researcher returns and the root-cause ASK is confirmed, after each Step 2 implementer returns per module (so a landed fix + regression test survive a crash), after Step 2 quality gates pass, after each Step 3 review-loop iteration, and after the Step 4 git action.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for bug-pipeline: `1` = reproduce + root-cause (researcher), `2` = regression-test + fix (implementer), `3` = root-cause-depth review (reviewer ↔ fixer), `4` = summary + git + iteration-summary. Tier 1 runs route out to the `hatch3r-bug-fix` skill and are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for bug-pipeline: `1` = reproduce + root-cause (researcher), `2` = regression-test + fix (implementer), `3` = root-cause-depth review (reviewer ↔ fixer), `4` = summary + git + iteration-summary. Tier 1 runs route out to the `hatch3r-bug-fix` skill and are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (regression test, fix, fixer changes) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via <hatch3r-implementer | hatch3r-fixer> (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation. This command has no Tier-1 inline carve-out: Tier 1 bugs route to the `hatch3r-bug-fix` skill, so every mutation here flows through a sub-agent.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: regression test, fix, fixer changes. This command has no Tier-1 inline carve-out: Tier 1 bugs route to the `hatch3r-bug-fix` skill, so every mutation here flows through a sub-agent.
 
 ## Iteration Summary (mandatory output)
 
@@ -229,18 +206,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ---
 

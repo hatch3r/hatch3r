@@ -1657,9 +1657,14 @@ export function selectionSummary(selection: ContentSelection): string {
  * same `.md → .mdc` transform the Cursor adapter applies via `resolveRuleGlobs`
  * (`src/adapters/canonical.ts`):
  *   - `scope: always`                      → `alwaysApply: true` (no globs)
+ *   - `scope: agent-requested`             → `alwaysApply: false` (no globs;
+ *                                             Cursor Apply-Intelligently mode —
+ *                                             the agent pulls the rule in by its
+ *                                             `description`. D5-28)
  *   - `scope: conditional` + `globs: <csv>`→ `globs: ["g1", ...]` (auto-attached)
- *   - `scope: conditional` with no `globs`  → `alwaysApply: false` (manual-only;
- *                                             deprecated globs-less conditional)
+ *   - `scope: conditional` with no `globs`  → `alwaysApply: false` (deprecated
+ *                                             globs-less conditional — prefer the
+ *                                             explicit `agent-requested` keyword)
  *   - `scope: "<csv>"` (legacy inline form) → `globs: ["g1", ...]`
  *   - absent / empty scope                  → `alwaysApply: false`
  *
@@ -1680,6 +1685,13 @@ function cursorCompanionFrontmatter(
   const lines: string[] = [`description: ${description}`];
   if (scope === "always") {
     lines.push("alwaysApply: true");
+  } else if (scope === "agent-requested") {
+    // D5-28: Cursor Apply-Intelligently mode — description-only `.mdc` with no
+    // globs. The agent reads `description` and pulls the rule in when relevant
+    // (cursor.com/docs/context/rules, accessed 2026-06-09). Must short-circuit
+    // before the legacy-CSV branch, which would otherwise treat the literal
+    // "agent-requested" token as a glob.
+    lines.push("alwaysApply: false");
   } else if (scope === "conditional") {
     // Canonical two-line form: the real patterns live in the separate `globs`
     // CSV, never in `scope`. A conditional rule with no `globs` is a deprecated

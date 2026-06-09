@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 ## Agent Pipeline
 
@@ -117,11 +117,7 @@ The Step 3 user-feedback interview is user-driven and excluded from the duration
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a cleanup-only revision scored as Deep, or a revision with critical findings scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
-
-- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
-- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Effort Override (Decision 17). Misclassification example: a cleanup-only revision scored as Deep, or a revision with critical findings scored as Light.
 
 ### Confidence Floor (Decision 16 / D13-SA13.3-F13.3.3)
 
@@ -132,6 +128,10 @@ Auto-tiering can misclassify — a cleanup-only revision scored as Deep, or a re
 - **`medium`**: force a second pass on ANY finding rated `confidence == low`, even with 0 Critical + 0 Warning.
 - **`high`**: force a second pass on any finding rated `confidence != high`, AND ASK the user on every low-confidence finding regardless of severity.
 - Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`. Pass the resolved floor verbatim into the Step 7 Stage 1 review-gate evaluation (`agents/shared/confidence-gate.md`, which `revision-quality.md` runs) alongside the confidence value sourced from the upstream reviewer (Confidence Propagation Contract). Tier 1 cleanup-only revisions that skip the review loop are unaffected; the floor never relaxes the merge-readiness gate.
+
+### Review-Only Mode (D13-SA13.1-F2)
+
+`--review-only` turns this command into a **read-only code-review surface** — the standalone "review this code, no changes" entry for development-workflow activity (3) Code review (`governance/audit/domains/D13-human-ai-collaboration.md` §13.1). It runs Steps 1–5 + a single `hatch3r-reviewer` pass and emits a review report, then stops: Step 6 fix delegation, Step 7 fixer/re-review loop and Stage 2 specialists, Step 8 commit/push, and Step 10 learnings write are all skipped, so the run mutates nothing. Full behavior table, report format, and `--auto` interaction: `commands/revision/revision-modes.md` -> Review-Only Mode.
 
 ---
 
@@ -510,40 +510,17 @@ Capture revision-specific learnings. Focus on patterns that inform future implem
 
 revision is long-running — a Tier 2/3 run walks 10 sequential steps (context reconstruction → user feedback → proactive scan → consolidated triage → multi-agent fix loops → quality verification → commit & push → merge-readiness → learnings) and delegates to multiple sub-agents per finding. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-interviewing the user or re-running the proactive scan.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.revision-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 10 progression), `wave` (fix-loop iteration index for Step 6), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, runCacheRef }`. The full Run Cache (diff, findings with triage routing and fix status, quality agents spawned, errors) lives alongside in `.revision-workspace/run-cache.json` per `commands/revision/revision-board-integration.md`.
-2. **Write points:** after Step 1 context reconstruction completes, after Step 2 user validation is confirmed, after Step 3 user feedback closes, after Step 4 proactive scan finishes, after Step 5 triage routing locks, and after every Step 6 fixer sub-agent returns so per-finding fix results survive a crash and are not re-applied on resume. Also after Step 7 quality gate result, after Step 8 commit, and after Step 9 merge-readiness assessment.
-3. **`--resume` invocation:** `hatch3r-revision --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the working tree / branch state changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of every file touched by Step 6 fixers land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every fix-loop mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.revision-workspace/`; step range the Step 0 → Step 10 progression; `wave` = fix-loop iteration index for Step 6; snapshot/rollback paths every file touched by Step 6 fixers. Write points: after Step 1 context reconstruction completes, after Step 2 user validation is confirmed, after Step 3 user feedback closes, after Step 4 proactive scan finishes, after Step 5 triage routing locks, and after every Step 6 fixer sub-agent returns so per-finding fix results survive a crash and are not re-applied on resume. Also after Step 7 quality gate result, after Step 8 commit, and after Step 9 merge-readiness assessment.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for revision: `1` = revision target detection + scope, `2` = sub-agent dispatch (review modes, mode-specific revision tasks), `3` = revision synthesis + acceptance check, `4` = revised artifact write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for revision: `1` = revision target detection + scope, `2` = sub-agent dispatch (review modes, mode-specific revision tasks), `3` = revision synthesis + acceptance check, `4` = revised artifact write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (revised artifact, revision log, retained-version copy) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: revised artifact, revision log, retained-version copy.
 
 ## Iteration Summary (mandatory output)
 
@@ -563,18 +540,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 
@@ -591,6 +557,6 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 > Full details: see `commands/revision/revision-modes.md`
 
-The modes file contains: auto-advance mode (`--auto`), safety guardrails, error handling, and session report format for revision.
+The modes file contains: auto-advance mode (`--auto`), review-only mode (`--review-only`), safety guardrails, error handling, and session report format for revision.
 
 **Concurrent invocation guardrail:** before Step 6 fix delegation, acquire `.hatch3r/.lock` and detect-then-warn on a conflicting active pipeline (same branch / open `.hatch3r/hatch.json` board transaction) per `rules/hatch3r-agent-orchestration.md` → Parallel Safety → Concurrent Invocation Handling. Cross-task learnings consolidate at completion, never mid-pipeline.

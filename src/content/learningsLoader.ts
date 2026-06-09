@@ -22,9 +22,19 @@
  *   3. Files that fail structural validation OR carry a broad deny-pattern hit
  *      are SKIPPED from the returned set with a structured `LoaderSkip` entry
  *      (fail-closed) — never returned as content.
- *   4. Files that pass are returned for the caller to inline; a file with only
- *      a P-LEARN structural hit is returned with the `[BLOCKED]`-substituted
- *      body so the user's legitimate learning text survives.
+ *   4. Files that pass are returned as an audit-visible counter, NOT for a
+ *      deterministic adapter sink to inline. No CLI adapter (claude/cursor/
+ *      copilot) materializes the `learning` type into a context file —
+ *      `src/adapters/canonical.ts` registers `learnings` in `canonicalReadMap`
+ *      but no `doGenerate` consumes it (D15-13, Cycle 11 Wave 3). The actual
+ *      runtime inlining is performed by the `hatch3r-learnings-loader` agent
+ *      (Claude SessionStart hook, matcher `"startup"`, `src/adapters/claude.ts`),
+ *      which reads `.hatch3r/learnings/INDEX.md` and selects rows itself. This
+ *      `loaded` set therefore mirrors that agent's candidate pool so the count
+ *      of learnings cleared for runtime load is observable at CLI-write time
+ *      (sync surfaces it under `--verbose`). A file with only a P-LEARN
+ *      structural hit is returned with the `[BLOCKED]`-substituted body so the
+ *      user's legitimate learning text survives.
  *   5. Every skip is mirrored to:
  *        a. The Silent Failure Contract failure-log
  *           (`<rootDir>/.hatch3r/.failure-log.jsonl`) — never silent.
@@ -105,7 +115,10 @@ export interface LoadValidatedLearningsOptions {
  * Read every learning file under `<rootDir>/.hatch3r/learnings/`, validate
  * each one against the same gates the directory-level pre-flight uses, and
  * return:
- *   - `loaded`: valid files with content the caller can inline.
+ *   - `loaded`: valid files that cleared every gate — an audit-visible counter
+ *     of the candidate pool the runtime `hatch3r-learnings-loader` agent may
+ *     inline (no deterministic CLI/adapter sink inlines them; see contract
+ *     item 4 above). Callers report the count, not inject the content.
  *   - `skipped`: rejected files with audit-visible reasons.
  *
  * Errors are NEVER thrown; the function honours the Silent Failure Contract

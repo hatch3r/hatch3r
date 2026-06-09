@@ -78,8 +78,8 @@ For repos where a language is detected but no framework indicator fired (a bare 
 | **dart** | full | `hatch3r-flutter-patterns` | null safety, Riverpod/Bloc, Material 3, integration tests |
 | **kotlin** | full | `hatch3r-android-patterns` | Jetpack Compose, coroutines + Flow, Hilt, Room, Gradle |
 | **java** | full | `hatch3r-android-patterns` | shares the Android Kotlin rule (Gradle / Compose) |
-| **typescript** | partial | — | covered by always-on + frontend/backend cross-cutting rules; no single TS-idiom rule |
-| **javascript** | partial | — | same as TypeScript (JS repos receive the TS rule set) |
+| **typescript** | partial | — | `hatch3r-typescript-patterns` exists (TS-idiom rule, glob-scoped to `**/*.ts*`) but is not tier-mapped here; tier stays partial because `LANGUAGE_SUPPORT` promotion is framework-axis-driven, not rule-existence-driven. Also covered by always-on + frontend/backend cross-cutting rules |
+| **javascript** | partial | — | same as TypeScript (JS repos receive the `hatch3r-typescript-patterns` rule by glob) |
 | **swift** | partial | — | `hatch3r-swiftui-patterns` exists but is glob-scoped, not tier-mapped here; see [SwiftUI note](#swiftui-note) |
 | **elixir** | none | — | maps to no `lang:*` tag; language-agnostic rules only |
 | **scala** | none | — | no dedicated rule, no `lang:*` tag |

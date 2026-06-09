@@ -101,6 +101,10 @@ export interface RuleGlobOverrides {
  * Resolution (mirrors the `.md`→`.mdc` scope transform in
  * `src/adapters/canonical.ts` doc + `scripts/validate-rule-parity.ts`):
  *   - effective scope `"always"`          → [] (unconditional; emit no glob shape)
+ *   - effective scope `"agent-requested"` → [] (Cursor Apply-Intelligently mode:
+ *                                            description-only `.mdc`, no globs; the
+ *                                            agent pulls the rule in by description
+ *                                            — D5-28, see scope-mode note below)
  *   - effective scope `"conditional"`     → parse `overrides.globs ?? rule.globs`
  *                                            (the canonical two-line form; the
  *                                            real patterns live in the `globs:`
@@ -108,6 +112,22 @@ export interface RuleGlobOverrides {
  *   - effective scope contains `,`        → legacy inline-CSV; parse the scope
  *     OR is any other non-keyword string    string itself as the glob CSV
  *   - effective scope absent/empty        → [] (unconditional)
+ *
+ * D5-28 (Cycle 12 Wave 3, D5, P4): `agent-requested` is the third sanctioned
+ * scope. Cursor's "Apply Intelligently / Agent Requested" mode is a
+ * description-driven `.mdc` (`description:` present, `alwaysApply: false`, NO
+ * `globs:`) — the agent reads the description and pulls the rule in only when
+ * relevant (cursor.com/docs/context/rules, accessed 2026-06-09). Without an
+ * explicit keyword, this shape was reachable only via the deprecated
+ * globs-less-`conditional` form, so a large optional rule with no natural file
+ * glob (e.g. a 200-line workflow rule) was forced to `scope: always` and loaded
+ * on every Cursor turn (~23 KB of the 30.7 KB budget). Returning [] here routes
+ * an `agent-requested` rule to the same no-glob emission as `always` for glob
+ * purposes; the `alwaysApply` distinction (true vs false) is applied by each
+ * adapter's frontmatter builder, not here. Claude Code and Copilot have no
+ * agent-requested primitive, so on those adapters the rule loads unconditionally
+ * (the honest fallback, matching the no-globs branch already documented in
+ * `claude.ts::claudeRulePathsFrontmatter`).
  *
  * "Effective scope" is `overrides?.scope ?? rule.scope` so a customization-layer
  * scope override (already honoured by every adapter via `overrides.scope`)
@@ -124,7 +144,7 @@ export function resolveRuleGlobs(
   overrides?: RuleGlobOverrides,
 ): string[] {
   const scope = overrides?.scope ?? rule.scope;
-  if (!scope || scope === "always") return [];
+  if (!scope || scope === "always" || scope === "agent-requested") return [];
   if (scope === "conditional") {
     return csvToGlobList(overrides?.globs ?? rule.globs);
   }

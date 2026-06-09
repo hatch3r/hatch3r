@@ -207,26 +207,56 @@ Applies to API code and protobufs.`,
     expect(promptFromCommands!.managedContent).toBeDefined();
   });
 
-  it("generates agent files from agents and github-agents", async () => {
+  it("generates regular agent files from the agents path", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     // Top-level picker entries — companion subtrees (`.github/agents/modes/`,
     // `.github/agents/shared/`) are emitted but excluded from this count.
     const agentFiles = outputs.filter((o) => /^\.github\/agents\/[^/]+\.(agent\.md|md)$/.test(o.path));
-    expect(agentFiles.length).toBe(3);
 
     const regularAgent = agentFiles.find((a) => a.path.includes("test-agent"));
     expect(regularAgent).toBeDefined();
     expect(regularAgent!.content).toContain("name: test-agent");
     expect(regularAgent!.managedContent).toBeDefined();
+  });
 
-    const ghAgentFiles = agentFiles.filter((a) => a.path.includes("test-gh-agent"));
+  // D5-41 (Cycle 11 Wave 3, D5, P4 / D16.3 add-vs-remove bias): github-agents
+  // (`type: github-agent`) are simplified twins of regular agents and emit to
+  // the SAME `.github/agents/` picker. When the full regular-agent path is
+  // active (`features.agents = true`, the default) the weaker github-agent twin
+  // is suppressed so the picker carries only the stronger regular variant — no
+  // duplicate (`hatch3r-security` + `hatch3r-security-agent`) pairs.
+  it("suppresses github-agent picker entries when the regular-agent path is active (D5-41)", async () => {
+    const manifest = makeManifest(); // features.agents = true, githubAgents = true
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const ghAgent = outputs.find(
+      (o) =>
+        /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path) && o.path.includes("test-gh-agent"),
+    );
+    expect(ghAgent).toBeUndefined();
+    // The regular-agent path is unaffected — it still populates the picker.
+    const regularAgent = outputs.find((o) => o.path === ".github/agents/hatch3r-test-agent.agent.md");
+    expect(regularAgent).toBeDefined();
+  });
+
+  // D5-41: github-agents are NOT removed — they remain the sole agent surface
+  // when the regular-agent path is off (the Copilot-cloud-only / pack case).
+  it("emits github-agent picker entries when the regular-agent path is off (D5-41)", async () => {
+    const manifest = makeManifest({ features: { agents: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const ghAgentFiles = outputs.filter(
+      (o) =>
+        /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path) && o.path.includes("test-gh-agent"),
+    );
     expect(ghAgentFiles.length).toBe(1);
-    const ghAgent = ghAgentFiles[0];
-    expect(ghAgent).toBeDefined();
-    expect(ghAgent!.content).toContain("test-gh-agent");
-    expect(ghAgent!.managedContent).toBeDefined();
+    expect(ghAgentFiles[0]!.content).toContain("test-gh-agent");
+    expect(ghAgentFiles[0]!.managedContent).toBeDefined();
+    // The regular agent is gone (features.agents = false); only the twin ships.
+    const regularAgent = outputs.find((o) => o.path === ".github/agents/test-agent.agent.md");
+    expect(regularAgent).toBeUndefined();
   });
 
   // D9-5 (Cycle 11 D9, P3) + D5-39 (Cycle 11 Wave 3, D5, P6): the github-agent
@@ -238,7 +268,8 @@ Applies to API code and protobufs.`,
   // (`id`/`type`/`tags`/`quality_charter`/`efficiency_patterns`/`cache_friendly`)
   // and add the previously-missing `tools:` allowlist.
   it("emits NORMALIZED github-agent frontmatter at byte 0, body wrapped in the managed block (D9-5 + D5-39)", async () => {
-    const manifest = makeManifest();
+    // D5-41: github-agents only emit when the regular-agent path is off.
+    const manifest = makeManifest({ features: { agents: false } });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const ghAgent = outputs.find(
@@ -661,7 +692,8 @@ You are a test agent.`,
         `---\nname: hatch3r-lint-agent\ntype: github-agent\ndescription: Lint fixer\n---\nYou fix style.`,
         "utf-8",
       );
-      const outputs = await adapter.generate(agentsDir, makeManifest());
+      // D5-41: github-agents only emit when the regular-agent path is off.
+      const outputs = await adapter.generate(agentsDir, makeManifest({ features: { agents: false } }));
 
       const sec = outputs.find((o) => o.path === ".github/agents/hatch3r-security-agent.agent.md");
       expect(sec).toBeDefined();

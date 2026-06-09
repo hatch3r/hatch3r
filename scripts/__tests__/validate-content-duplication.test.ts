@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import {
   CORPUS_CEILINGS,
@@ -74,6 +75,18 @@ describe("validate-content-duplication", () => {
       // a ratchet ABOVE the target so the gate lands green pending D6-5, never
       // below it (a sub-target ceiling would be a silent relaxation).
       expect(CORPUS_CEILINGS.commands).toBeGreaterThan(DEFAULT_MAX);
+    });
+
+    it("ratcheted the commands/ ceiling DOWN to the D22-4 measurement (12%)", () => {
+      // D22-4 extracted the seven recurring orchestration scaffold blocks to
+      // commands/shared/orchestration-frame.md and replaced the inline copies
+      // with one-line pointers, dropping the corpus from 14.43% (Cycle 12) to
+      // 11.78% (this gate's metric). The ceiling is the ratchet that locks the
+      // gain: it must be at or below the prior 18% baseline (a downward ratchet,
+      // never a relaxation) and above the live 11.78% so the gate stays green
+      // while failing on any regression.
+      expect(CORPUS_CEILINGS.commands).toBe(12);
+      expect(CORPUS_CEILINGS.commands).toBeLessThan(18);
     });
 
     it("never sets a per-corpus ceiling below the 5% structural target", () => {
@@ -315,5 +328,26 @@ describe("validate-content-duplication", () => {
     });
     expect(txt).toContain("[ok]");
     expect(txt).not.toContain("FAIL");
+  });
+
+  // ── Integration: live commands/ corpus under the D22-4 ratchet ──
+  // This is the value-asserting regression guard for D22-4: the real
+  // commands/ corpus, after the orchestration-frame.md scaffold extraction,
+  // must sit at or under the ratcheted 12% ceiling. If a future inline copy of
+  // a scaffold block (or an un-pointered new command) pushes it back over 12%,
+  // this test fails, forcing the author to pointer the block per
+  // commands/shared/orchestration-frame.md.
+  it("holds the live commands/ corpus at or under the ratcheted ceiling", async () => {
+    const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+    const r = await runValidator({ rootDir: repoRoot, corpora: ["commands"] });
+    const cmd = r.results.find((x) => x.corpus === "commands");
+    expect(cmd, "commands corpus result").toBeDefined();
+    // Must not regress past the ratchet captured in CORPUS_CEILINGS.commands.
+    expect(cmd!.percent).toBeLessThanOrEqual(CORPUS_CEILINGS.commands);
+    expect(cmd!.exceeded).toBe(false);
+    // And the extraction actually happened: well under the pre-D22-4 18%
+    // baseline (a guard that someone cannot relax the ceiling back to 18 and
+    // re-inline the blocks without this test catching the duplication jump).
+    expect(cmd!.percent).toBeLessThan(13);
   });
 });

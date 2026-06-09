@@ -108,7 +108,7 @@ import {
   type FormatImportSummary,
 } from "../../importers/index.js";
 import { createSnapshot } from "../../pipeline/snapshot.js";
-import { estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
+import { countTrackedFiles, estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
 import { recordFirstRunSuccess } from "../../pipeline/spaceTelemetry.js";
 import { readCheckpoint, writeCheckpoint, checkpointPath, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { execFileSync } from "node:child_process";
@@ -667,10 +667,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // `init` is a single-pass orchestrator with no sub-agent fan-out — use the
   // "light" triage tier baseline with an explicit `subAgentDeclared: 0` so the
   // emitted block reflects in-process work (no sub-agents).
+  // D6-20: scale the static-frame token component by the target repo's size band
+  // (`git ls-files` count). `countTrackedFiles` returns null for a non-git dir;
+  // passing `?? undefined` keeps the repo-size-independent estimate in that case.
+  const trackedFiles = countTrackedFiles(rootDir);
   const costEstimate = estimateCost({
     triageTier: "light",
     subAgentDeclared: 0,
     webResearchDeclared: 0,
+    repoFileCount: trackedFiles ?? undefined,
   });
   if (!isQuiet()) {
     info(chalk.dim(`Pre-execution cost estimate:\n${formatCostBlock(costEstimate)}`));

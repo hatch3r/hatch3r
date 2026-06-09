@@ -120,6 +120,7 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 
 | Rule | Description |
 |------|-------------|
+| **typescript-patterns** | TypeScript and JavaScript -- `satisfies` over `as`, discriminated unions, branded types, strict utility types, barrel exports, and `eslint-plugin-import` ordering. Language-gated companion to the always-on `code-standards` floor. |
 | **python-patterns** | Python 3.12+ -- uv project management, Ruff lint+format, mypy strict, pytest parametrize, and the FastAPI/Django request-path + ORM N+1 floor. |
 | **go-patterns** | Go 1.23+ -- modules, error wrapping, context propagation, generics, table-driven tests, and `net/http` + `log/slog`. |
 | **rust-patterns** | Rust -- 2024 edition idioms, thiserror/anyhow error handling, ownership patterns, async with Tokio, testing, and Cargo workspaces. |

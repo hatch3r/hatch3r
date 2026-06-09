@@ -181,6 +181,25 @@ async function observedRow(tool: Tool): Promise<ObservedCapabilityRow> {
 
   const observed: Partial<ObservedCapabilityRow> = {};
   for (const feature of FEATURE_KEYS) {
+    if (feature === "githubAgents") {
+      // D5-41 (Cycle 11 Wave 3, D5, P4 / D16.3 add-vs-remove bias): the copilot
+      // adapter gates github-agent emission OFF when the regular-agent path is
+      // active (`features.agents === true`), because github-agents
+      // (`type: github-agent`) are simplified twins of regular agents and emit
+      // to the SAME `.github/agents/` picker — shipping both would duplicate
+      // `hatch3r-security` + `hatch3r-security-agent` (×4 pairs). The feature is
+      // therefore only OBSERVABLE in its active regime (`agents: false`), so the
+      // toggle here must hold `agents` off; the constant-`agents:true` probe used
+      // for every other column would see no diff (both maximal and off suppress
+      // github-agents) and falsely report drift. Diff `agents:false` ×
+      // {githubAgents on, githubAgents off} to isolate the real toggle.
+      const onBase: Features = { ...maximalFeatures(), agents: false, githubAgents: true };
+      const onOutputs = await adapter.generate(FIXTURES_DIR, buildManifest(tool, onBase));
+      const offBase: Features = { ...maximalFeatures(), agents: false, githubAgents: false };
+      const offOutputs = await adapter.generate(FIXTURES_DIR, buildManifest(tool, offBase));
+      observed[feature] = digest(onOutputs) !== digest(offOutputs);
+      continue;
+    }
     const offFeatures: Features = { ...maximalFeatures(), [feature]: false };
     const offManifest = buildManifest(tool, offFeatures);
     const offOutputs = await adapter.generate(FIXTURES_DIR, offManifest);

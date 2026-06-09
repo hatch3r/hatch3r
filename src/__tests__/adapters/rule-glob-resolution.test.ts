@@ -52,6 +52,15 @@ describe("resolveRuleGlobs (centralized glob resolver)", () => {
     expect(resolveRuleGlobs(rule({ scope: "always" }))).toEqual([]);
   });
 
+  it("returns [] for scope:agent-requested, never the literal token as a glob (D5-28)", () => {
+    // The Cursor Apply-Intelligently mode carries no globs. Without the explicit
+    // short-circuit, "agent-requested" would fall into the legacy-CSV branch and
+    // be emitted as a bogus single glob ["agent-requested"].
+    const result = resolveRuleGlobs(rule({ scope: "agent-requested" }));
+    expect(result).toEqual([]);
+    expect(result).not.toContain("agent-requested");
+  });
+
   it("returns [] for scope:conditional with no globs: field (truly unconditional)", () => {
     // A conditional rule that forgot/omitted globs must NOT leak "conditional".
     expect(resolveRuleGlobs(rule({ scope: "conditional" }))).toEqual([]);
@@ -128,6 +137,24 @@ precedence: critical
 This rule scopes to TypeScript sources and markdown files.`,
       "utf-8",
     );
+    // D5-28: agent-requested mode — description-only Cursor "Apply Intelligently"
+    // shape (no globs). A large optional non-floor rule the agent pulls in by
+    // description rather than loading on every turn.
+    await writeFile(
+      join(rulesDir, "agentreq-rule.md"),
+      `---
+id: agentreq-rule
+type: rule
+description: An agent-requested rule the model pulls in by description
+scope: agent-requested
+tags: [maintenance]
+precedence: normal
+---
+# Agent-Requested Rule
+
+This optional rule has no natural file glob; the agent decides relevance.`,
+      "utf-8",
+    );
   });
 
   afterAll(async () => {
@@ -191,6 +218,67 @@ This rule scopes to TypeScript sources and markdown files.`,
     expect(content).not.toContain('paths: ["conditional"]');
     // paths: frontmatter precedes the managed block (frontmatter is unmanaged).
     expect(content.indexOf("paths:")).toBeGreaterThanOrEqual(0);
+  });
+
+  // ── D5-28: scope: agent-requested (Cursor Apply-Intelligently mode) ──────────
+  it("cursor emits the agent-requested rule as description + alwaysApply:false, no globs", async () => {
+    const outputs = await new CursorAdapter().generate(canonicalRoot, makeManifest("cursor"));
+    const ruleOut = outputs.find((o) => o.path.includes("agentreq-rule.mdc"));
+    expect(ruleOut).toBeDefined();
+    const content = ruleOut!.content;
+    // The Apply-Intelligently shape: description present, alwaysApply false, no globs.
+    expect(content).toContain("description: An agent-requested rule the model pulls in by description");
+    expect(content).toContain("alwaysApply: false");
+    // Must NOT force the rule always-on, and must NOT leak the scope token as a glob.
+    expect(content).not.toContain("alwaysApply: true");
+    expect(content).not.toContain("globs:");
+    expect(content).not.toContain("agent-requested\n"); // no `globs: agent-requested` line
+  });
+
+  it("claude loads the agent-requested rule unconditionally (no paths: — no native primitive)", async () => {
+    const outputs = await new ClaudeAdapter().generate(canonicalRoot, makeManifest("claude"));
+    const ruleOut = outputs.find(
+      (o) => o.path.includes("agentreq-rule.md") && o.path.startsWith(".claude/rules/"),
+    );
+    expect(ruleOut).toBeDefined();
+    // No paths: frontmatter — Claude has no agent-requested mode, so the rule
+    // loads unconditionally (the honest fallback). It must NOT emit a bogus path.
+    expect(ruleOut!.content).not.toContain("paths:");
+  });
+
+  it("copilot inlines the agent-requested rule into the always-block (no applyTo)", async () => {
+    const outputs = await new CopilotAdapter().generate(canonicalRoot, makeManifest("copilot"));
+    // No native primitive → inlined into copilot-instructions.md, not a scoped file.
+    const instructions = outputs.find((o) => o.path === ".github/copilot-instructions.md");
+    expect(instructions).toBeDefined();
+    expect(instructions!.content).toContain("An agent-requested rule the model pulls in by description");
+    // It must NOT have been emitted as a scoped instruction file with an empty applyTo.
+    const scoped = outputs.find(
+      (o) => o.path.startsWith(".github/instructions/") && o.path.includes("agentreq-rule"),
+    );
+    expect(scoped).toBeUndefined();
+  });
+
+  it("no adapter emits the literal token \"agent-requested\" as a glob/applyTo/paths value (D5-28)", async () => {
+    const adapters: Array<[HatchManifest["tools"][number], { generate: (r: string, m: HatchManifest) => Promise<{ content: string }[]> }]> = [
+      ["cursor", new CursorAdapter()],
+      ["copilot", new CopilotAdapter()],
+      ["claude", new ClaudeAdapter()],
+    ];
+    for (const [tool, adapter] of adapters) {
+      const outputs = await adapter.generate(canonicalRoot, makeManifest(tool));
+      for (const out of outputs) {
+        expect(out.content, `${tool} emitted "agent-requested" inside a globs/paths array`).not.toMatch(
+          /(?:globs|paths):\s*\[[^\]]*"agent-requested"[^\]]*\]/,
+        );
+        expect(out.content, `${tool} emitted globs: agent-requested`).not.toMatch(
+          /globs:\s*agent-requested/,
+        );
+        expect(out.content, `${tool} emitted applyTo: "agent-requested"`).not.toContain(
+          'applyTo: "agent-requested"',
+        );
+      }
+    }
   });
 
   it("no adapter emits the literal token \"conditional\" as a glob anywhere", async () => {

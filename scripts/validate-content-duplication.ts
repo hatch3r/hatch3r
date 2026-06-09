@@ -84,10 +84,22 @@ export const DEFAULT_MAX = 5;
  * corpus reaches `DEFAULT_MAX`.
  */
 export const CORPUS_CEILINGS: Readonly<Record<string, number>> = {
-  // D6-5 extraction target — measured 13.82% (jscpd) / 14.43% (this gate's
-  // line-window metric) at Cycle 12; ratchet down toward DEFAULT_MAX (5) as
-  // D6-5 extracts shared command blocks.
-  commands: 18,
+  // D6-5 / D22-4 extraction target. Measured 13.82% (jscpd) / 14.43% (this
+  // gate's line-window metric) at Cycle 12; ratchet down toward DEFAULT_MAX (5)
+  // as the shared command-orchestration blocks are extracted to
+  // `commands/shared/orchestration-frame.md`. D22-4 (this cycle) lifted the
+  // seven recurring scaffold blocks (§0 Detect Ambiguity, Confidence
+  // Propagation Contract, Checkpoint Contract, Per-Turn Pipeline-State Header,
+  // End-of-Turn Delegation Attestation, Cost Estimate, Effort Override) into the
+  // frame and replaced 10–30 inline copies each with one-line pointers, dropping
+  // the corpus to 11.78%. The remaining duplication is dominated by the
+  // identical pointer lines themselves (collapsing ~30 structurally-parallel
+  // commands to identical pointers) plus genuinely command-specific recurring
+  // patterns; driving lower needs command-shape consolidation or a pointer-aware
+  // exclusion, both out of D22-4 scope. Ceiling set to 12 to lock the gain:
+  // the gate fails the moment the corpus regresses past 12%. Lower further as
+  // any remaining inline restatement is collapsed.
+  commands: 12,
   // Marginally over target at Cycle 12 introduction (within ~0.8 pt of 5%,
   // not the 2.8x commands/ overshoot). Baselined so the gate lands green and
   // ratchets: the value is the measured percent rounded UP to the next whole

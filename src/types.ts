@@ -94,6 +94,15 @@ export interface ClaudeConfig {
   /** Claude Code Agent Teams teammate display mode. See {@link TEAMMATE_MODES}. */
   teammateMode?: TeammateMode;
   agentTeams?: boolean | "ga";
+  /**
+   * D9-12 (D9, P3): opt-in AGENTS.md interop. When `true` AND a repo-root
+   * `AGENTS.md` exists, the Claude adapter prepends an `@AGENTS.md` import line
+   * inside the CLAUDE.md managed block so Claude Code pulls the cross-vendor
+   * AGENTS.md into memory (native `@path` import, code.claude.com/docs/en/memory).
+   * Default-off: absent/`false` emits no import (the 1.9.0 hard-cut removed the
+   * root AGENTS.md bridge, so most hatch3r repos have no AGENTS.md to import).
+   */
+  agentsMdInterop?: boolean;
 }
 
 /** Controls how adapter output is generated (verbosity), not what content is selected. */
@@ -503,6 +512,19 @@ export interface CanonicalFile {
    */
   frontmatterType?: string;
   description: string;
+  /**
+   * Canonical rule activation scope. Three sanctioned keyword values plus a
+   * legacy inline-CSV form:
+   *   - `"always"`          — load unconditionally (Cursor `alwaysApply: true`).
+   *   - `"agent-requested"` — Cursor Apply-Intelligently mode: a description-only
+   *     `.mdc` (`alwaysApply: false`, no `globs`) the agent pulls in by its
+   *     `description`. For large optional rules with no natural file glob, so they
+   *     are not forced always-on (D5-28). Claude/Copilot have no agent-requested
+   *     primitive → those adapters load the rule unconditionally.
+   *   - `"conditional"`     — auto-attach on matching files; the patterns live in
+   *     the separate {@link globs} field, never in `scope`.
+   *   - `"<csv>"` (legacy)  — inline comma-separated glob list carried in `scope`.
+   */
   scope?: string;
   /**
    * Raw comma-separated glob list declared in the canonical rule frontmatter

@@ -163,27 +163,11 @@ Commit message format: `docs: post-mortem for {incident-slug}` (post-mortem + ru
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for incident-response: `1` = triage + topology + mitigate + communicate (incident-response specialist), `2` = post-incident reliability reconstruction (reliability), `3` = blameless post-mortem + runbook + follow-ups (incident-response specialist), `4` = summary + git + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for incident-response: `1` = triage + topology + mitigate + communicate (incident-response specialist), `2` = post-incident reliability reconstruction (reliability), `3` = blameless post-mortem + runbook + follow-ups (incident-response specialist), `4` = summary + git + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (post-mortem document, runbook, follow-up issue drafts, config/flag diffs authored for review) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via hatch3r-incident-responder (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation. This command has no Tier-1 inline carve-out for file mutations: post-mortem and runbook authoring always flow through the `hatch3r-incident-responder` sub-agent.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: post-mortem document, runbook, follow-up issue drafts, config/flag diffs authored for review. This command has no Tier-1 inline carve-out for file mutations: post-mortem and runbook authoring always flow through the `hatch3r-incident-responder` sub-agent.
 
 ## Iteration Summary (mandatory output)
 
@@ -203,18 +187,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ---
 
@@ -231,14 +204,7 @@ Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` 
 
 A live incident is long-running and a responder hand-off mid-incident is common, so checkpoint the lifecycle — a resumed run re-enters at the last completed stage rather than re-applying a mitigation already executed or re-filing follow-up issues already filed. Applied live-infra mitigations are recorded in the incident timeline, not the checkpoint, so resumption never re-executes a flag flip or rollback.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.incident-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 4 progression), `wave` (the post-mortem drafting iteration), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, severity, mitigationTimeline, postMortemPath, filedFollowUpIds, specialistProofIds }`.
-2. **Write points:** after the Step 0 triage, after the Step 1 mitigation record (the mitigation timeline is the source of truth — the checkpoint references it, never re-executes it), after the Step 2 reliability reconstruction, and after the Step 3 post-mortem + follow-ups.
-3. **`--resume` invocation:** `hatch3r incident-response --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed — for a still-open incident, re-triage from the live telemetry rather than trusting a stale snapshot. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of every authored artifact (post-mortem document, runbook, follow-up drafts) land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts the authored documents — it does NOT and cannot revert a live-infrastructure mitigation, which is owned by the incident timeline. Diff preview precedes every mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.incident-workspace/`; step range the Step 0 → Step 4 progression; `wave` = the post-mortem drafting iteration; snapshot/rollback paths every authored artifact (post-mortem document, runbook, follow-up drafts). Write points: after the Step 0 triage, after the Step 1 mitigation record (the mitigation timeline is the source of truth — the checkpoint references it, never re-executes it), after the Step 2 reliability reconstruction, and after the Step 3 post-mortem + follow-ups.
 
 ## Guardrails
 

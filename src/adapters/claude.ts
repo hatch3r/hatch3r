@@ -28,6 +28,8 @@ import {
 } from "../pipeline/agentToolAllowlist.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 
 /**
  * C9-M47 (D6-SA6.4, P7 Speed & Token Efficiency): cache-breakpoint sentinel.
@@ -83,6 +85,10 @@ export const CACHE_BREAKPOINT_SENTINEL_END = "<!-- HATCH3R-CACHE-BREAKPOINT-END 
  * already in `cursor.ts::cursorRuleFrontmatter` and `copilot.ts`, resolved
  * through the shared `resolveRuleGlobs` helper:
  *   - `scope: always`                          -> "" (omit `paths:`; load unconditionally)
+ *   - `scope: agent-requested`                 -> "" (no Claude agent-requested
+ *                                                 primitive; loads unconditionally —
+ *                                                 the Cursor-only win lives in
+ *                                                 `cursorRuleFrontmatter`. D5-28)
  *   - `scope: conditional` + `globs: "<csv>"`  -> `paths: ["g1", "g2", ...]` (flow array)
  *   - `scope: "<csv>"` (legacy inline CSV)     -> `paths: ["g1", "g2", ...]`
  *   - `scope: conditional` with no `globs:`    -> "" (no patterns; load unconditionally)
@@ -615,6 +621,61 @@ function claudeConfidenceFloorHeader(ctx: AdapterContext): string {
   return `<!-- ${confidenceFloorDirective(readConfidenceFloor(ctx.manifest))} -->`;
 }
 
+/**
+ * D9-12 (D9, P3): AGENTS.md interop for the Claude adapter. When the operator
+ * opts in via `claude.agentsMdInterop: true` AND a repo-root `AGENTS.md` exists,
+ * emit a Claude Code `@AGENTS.md` import line inside the CLAUDE.md managed block
+ * so Claude Code pulls the cross-vendor AGENTS.md file (Linux-Foundation
+ * agents.md standard) into its memory context.
+ *
+ * Mechanism (code.claude.com/docs/en/memory, accessed 2026-06-09 →
+ * "Import additional files using @path syntax"): a line of the form `@path`
+ * inside CLAUDE.md instructs Claude Code to read that file's contents into the
+ * memory tree, recursively (the docs cap import recursion at a max depth of 5
+ * hops). Emitting `@AGENTS.md` therefore hydrates the repo-root AGENTS.md
+ * exactly as the pre-1.9.0 root bridge did, without hatch3r re-materialising or
+ * managing the AGENTS.md body — the import is a one-line pointer, the file stays
+ * the user's.
+ *
+ * Gated three ways so it is inert by default:
+ *   1. `claude.agentsMdInterop !== true` → "" (opt-in; the 1.9.0 hard-cut
+ *      removed the root AGENTS.md bridge, so most hatch3r repos have none).
+ *   2. No `ctx.userRepoRoot` (direct test/library invocation without a repo
+ *      root) → "" (cannot probe for the file).
+ *   3. No `AGENTS.md` at the repo root → "" (nothing to import; emitting a dead
+ *      `@AGENTS.md` would make Claude Code log a missing-import warning).
+ *
+ * The leading `<!-- ... -->` line is a greppable, render-invisible marker
+ * (parity with the maturity / confidence-floor headers in this file); the bare
+ * `@AGENTS.md` line below it is the load-bearing import directive.
+ *
+ * Note (CL-1, orchestrator-managed): the finding flags this interop as a CL-1
+ * PRD-evolution candidate. This adapter emission is the implementation; the
+ * registry/CL-1 bookkeeping is handled outside this file.
+ */
+async function claudeAgentsMdImport(ctx: AdapterContext): Promise<string> {
+  if (ctx.manifest.claude?.agentsMdInterop !== true) return "";
+  if (!ctx.userRepoRoot) return "";
+  const agentsMdPath = join(ctx.userRepoRoot, "AGENTS.md");
+  try {
+    const st = await stat(agentsMdPath);
+    if (!st.isFile()) return "";
+  } catch (err) {
+    // A missing AGENTS.md (ENOENT) is the expected default — the 1.9.0 hard-cut
+    // removed the root bridge, so most repos have none. Treat that as "no import"
+    // silently. Any OTHER stat error (EACCES, EIO, ...) is unexpected and is
+    // re-thrown rather than swallowed (CONSTITUTION.md §2 P5 silent-failure
+    // contract): the operator opted in, so a probe that fails for a non-absence
+    // reason must surface, not vanish.
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return "";
+    throw err;
+  }
+  return [
+    "<!-- hatch3r: AGENTS.md interop (claude.agentsMdInterop) — imports the repo-root agents.md standard file -->",
+    "@AGENTS.md",
+  ].join("\n");
+}
+
 export class ClaudeAdapter extends BaseAdapter {
   readonly name = "claude";
 
@@ -633,11 +694,18 @@ export class ClaudeAdapter extends BaseAdapter {
     // marker so the configured agent-assertiveness floor travels with CLAUDE.md
     // (was a write-only config key that reached no adapter output).
     const confidenceFloorHeader = claudeConfidenceFloorHeader(ctx);
+    // D9-12 (D9, P3): opt-in `@AGENTS.md` import line (empty unless the operator
+    // set `claude.agentsMdInterop: true` AND a repo-root AGENTS.md exists). The
+    // conditional spread keeps the default-off CLAUDE.md byte-identical to the
+    // pre-fix output — no stray blank line when interop is inert.
+    const agentsMdImport = await claudeAgentsMdImport(ctx);
+    const agentsMdImportParts = agentsMdImport ? [agentsMdImport, ""] : [];
     const innerParts = minimal
       ? [
           "",
           maturityHeader,
           confidenceFloorHeader,
+          ...agentsMdImportParts,
           "",
           "# Hatch3r Project Instructions",
           "",
@@ -652,6 +720,7 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
           maturityHeader,
           confidenceFloorHeader,
+          ...agentsMdImportParts,
           "",
           "# Hatch3r Project Instructions",
           "",

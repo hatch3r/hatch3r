@@ -28,7 +28,15 @@ Pick the preset that matches the intent before editing any artifact:
 
 When in doubt, run `/h4tcher-capability-discover` first — it is the only read-only lifecycle preset and surfaces duplication risk before any write.
 
-`/h4tcher-docusaurus-generator` is a maintainer utility (not a lifecycle add/refactor/remove preset and not delegated-to by the others): it builds or refreshes the framework's own Docusaurus site (`website/`) from `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`. Listed here so the maintainer-skill surface is enumerated in one place (D24-SA24.2-F07).
+## Maintainer utilities (non-lifecycle)
+
+These `h4tcher-` skills are framework-dev maintainer tools, NOT lifecycle add/refactor/remove presets and NOT delegated-to by the lifecycle presets. Enumerated here so the entire maintainer-skill surface is listed in one place — when a new maintainer-only skill is authored, add a row here (D24-SA24.2-F07 single-enumeration invariant; regression closed under D24-10):
+
+| Skill | Purpose |
+|-------|---------|
+| `/h4tcher-docusaurus-generator` | Build or refresh the framework's own Docusaurus site (`website/`) from `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`. |
+| `/h4tcher-pr-resolve` | Resolve PR comments on the hatch3r repo: run the canonical `hatch3r-pr-resolve` workflow, then apply hatch3r-dev quality gates (validate, rule parity, efficiency, lean thresholds, anti-slop, inventory, pillar compliance) and stop before commit. |
+| `/h4tcher-release-prep` | Prepare a hatch3r release: version bump, changelog completeness + sync, repo + website docs currency, quality gates, adapter-output verification, release-notes reconciliation with CI. |
 
 ## Removal threshold
 

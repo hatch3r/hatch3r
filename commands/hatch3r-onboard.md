@@ -60,11 +60,7 @@ Take a new developer's role, experience level, and focus areas and produce a com
 
 ## Confidence Propagation Contract
 
-Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
-
-> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
-
-Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces guide readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Confidence Propagation Contract. Readiness kind: guide.
 
 ---
 
@@ -99,11 +95,7 @@ Post-execution actuals + delta land in the iteration summary's Fan-out + Cost se
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — a small project scored as Deep, or a large monorepo scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
-
-- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
-- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Effort Override (Decision 17). Misclassification example: a small project scored as Deep, or a large monorepo scored as Light.
 
 ---
 
@@ -330,40 +322,17 @@ Recommended Follow-ups:
 
 onboard is long-running — a Tier 3 staff-level guide for a large monorepo fans out three parallel hatch3r-researcher modes (codebase-overview, architecture-mapping, conventions-extraction) in Step 3, then assembles a tailored onboarding guide via hatch3r-docs-writer covering project setup, architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the three-researcher fan-out and regenerating the guide.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.onboard-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 7 progression), `wave` (researcher-batch index across the 3 parallel modes), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, role, experienceLevel }`.
-2. **Write points:** after Step 1 developer-role + experience-level context locks, after Step 2 setup verification, after the Step 3 three-researcher fan-out returns, after Step 4 guide-section ASK is confirmed, after each Step 5 guide section is generated (so already-generated sections survive a crash and are not regenerated on resume), after Step 6 guide assembly is confirmed by ASK, and after Step 7 file write to the onboarding-guide path.
-3. **`--resume` invocation:** `hatch3r-onboard --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / existing onboarding-guide path content changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of the onboarding-guide target path land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.onboard-workspace/`; step range the Step 0 → Step 7 progression; `wave` = researcher-batch index across the 3 parallel modes; snapshot/rollback paths the onboarding-guide target path. Write points: after Step 1 developer-role + experience-level context locks, after Step 2 setup verification, after the Step 3 three-researcher fan-out returns, after Step 4 guide-section ASK is confirmed, after each Step 5 guide section is generated (so already-generated sections survive a crash and are not regenerated on resume), after Step 6 guide assembly is confirmed by ASK, and after Step 7 file write to the onboarding-guide path.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for onboard: `1` = repo discovery + maturity assessment, `2` = explore sub-agent dispatch + module survey, `3` = onboarding-guide synthesis, `4` = guide write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for onboard: `1` = repo discovery + maturity assessment, `2` = explore sub-agent dispatch + module survey, `3` = onboarding-guide synthesis, `4` = guide write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (onboarding-guide doc, area map, quick-start scripts) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: onboarding-guide doc, area map, quick-start scripts.
 
 ## Iteration Summary (mandatory output)
 
@@ -383,18 +352,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

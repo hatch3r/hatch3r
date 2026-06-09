@@ -1015,6 +1015,48 @@ describe("content/index — selection & index", () => {
       expect(getAllContentIds(selection).has("ts-rule-empty")).toBe(true);
     });
 
+    // D14-14 (SA14.1-F3): the code-standards rule was split so TypeScript-only
+    // idioms (satisfies / branded unique symbol / barrel index.ts /
+    // eslint-plugin-import) no longer ship as a binding floor on non-TS repos.
+    // The split's contract is a tag shape: the TS companion
+    // (hatch3r-typescript-patterns) carries `lang:typescript` WITHOUT a floor
+    // tag, so it is language-gated and dropped on a Go/Python repo; the base
+    // floor (hatch3r-code-standards) carries `floor:security` WITHOUT
+    // `lang:typescript`, so it stays unconditionally. This test pins both arms
+    // against the regression where a `floor:security`+`lang:typescript` rule
+    // bypassed the language gate via admitsUnconditionally and reached Go/Rust/
+    // Python as a binding floor.
+    it("split shape: lang:typescript-only companion drops on a Go/Python repo while the floor:security base stays", () => {
+      const tsCompanion = makeCatalogItem({
+        id: "ts-patterns-companion", type: "rule",
+        // post-split hatch3r-typescript-patterns shape: language tag, NO floor tag
+        tags: [TAG_ORCHESTRATION, "lang:typescript"],
+        relativePath: "rules/ts-patterns-companion.md",
+      });
+      const codeFloor = makeCatalogItem({
+        id: "code-standards-base", type: "rule",
+        // post-split hatch3r-code-standards shape: floor tag, NO language tag
+        tags: [TAG_ORCHESTRATION, TAG_FLOOR_SECURITY],
+        relativePath: "rules/code-standards-base.md",
+      });
+      const langIndex = makeIndex([tsCompanion, codeFloor]);
+      const preset = getPreset("full");
+
+      // Go + Python repo: TS idioms must not bind; the language-agnostic floor must.
+      const onGoPy = getAllContentIds(
+        resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["go", "python"]),
+      );
+      expect(onGoPy.has("ts-patterns-companion")).toBe(false);
+      expect(onGoPy.has("code-standards-base")).toBe(true);
+
+      // TS repo: both apply — the companion is language-matched, the floor is unconditional.
+      const onTs = getAllContentIds(
+        resolveSelection(preset, "brownfield", "team", langIndex, undefined, ["typescript"]),
+      );
+      expect(onTs.has("ts-patterns-companion")).toBe(true);
+      expect(onTs.has("code-standards-base")).toBe(true);
+    });
+
     // ── skipContextFilters opt-out (config.ts path) ──────────
 
     it("skipContextFilters=true bypasses project-type, team-size, and language filters", () => {

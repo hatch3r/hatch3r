@@ -149,8 +149,11 @@ function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): str
     // the canonical `globs:` field; the previous `scope.split(",")` derived
     // globs from `scope` alone and emitted `globs: ["conditional"]`, which
     // never matched any file so the rule never auto-attached. An empty set
-    // (unconditional rule, or `scope` absent) falls back to `alwaysApply:
-    // false` exactly as before.
+    // (unconditional rule, `scope` absent, or `scope: agent-requested`) falls
+    // back to `alwaysApply: false`. For `agent-requested` this IS the intended
+    // Cursor "Apply Intelligently" shape — `description:` present + no `globs:`
+    // + `alwaysApply: false` — where the agent pulls the rule in by description
+    // (cursor.com/docs/context/rules, accessed 2026-06-09; D5-28).
     const globs = resolveRuleGlobs(rule, { scope: scopeOverride });
     if (globs.length > 0) {
       // D9-13 (Cycle 11 Wave 3, D9, P3): emit `globs:` as an unquoted

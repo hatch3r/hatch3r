@@ -184,4 +184,40 @@ describe("loadValidatedLearnings", () => {
 
     expect(log).toContain("learnings-loader");
   });
+
+  // D13-22 (Cycle audit): the loader is an audit-visible counter / candidate
+  // pool for the runtime hatch3r-learnings-loader agent, NOT a deterministic
+  // adapter sink that inlines content into context files. Two contract
+  // invariants pin that down so the docstring and code cannot drift apart:
+  //   1. `loaded` carries full per-file diagnostics (name, absolute path, byte
+  //      length) so a caller can REPORT on the candidate pool by count/size.
+  //   2. The loader is read-only — it never writes back into
+  //      `.hatch3r/learnings/`; inlining is the runtime agent's job, not the
+  //      loader's. A regression that turned the loader into a write/inline sink
+  //      would mutate the on-disk bytes and fail this test.
+  it("returns a reportable candidate pool with full per-file diagnostics and never rewrites source files", async () => {
+    const bodyA = "# Tip A\n\nUse parameterized queries.\n";
+    const bodyB = "# Tip B\n\nAlways run tests.\n";
+    await writeFile(join(learningsDir, "a.md"), bodyA);
+    await writeFile(join(learningsDir, "b.md"), bodyB);
+
+    const result = await loadValidatedLearnings(rootDir);
+
+    // (1) Reportable counter: every loaded entry exposes the fields a caller
+    // needs to surface a count + total byte size (sync's --verbose line).
+    expect(result.loaded).toHaveLength(2);
+    const totalBytes = result.loaded.reduce((n, l) => n + l.byteLength, 0);
+    expect(totalBytes).toBe(
+      Buffer.byteLength(bodyA, "utf-8") + Buffer.byteLength(bodyB, "utf-8"),
+    );
+    for (const entry of result.loaded) {
+      expect(entry.absolutePath).toBe(join(learningsDir, entry.fileName));
+      expect(entry.byteLength).toBe(Buffer.byteLength(entry.content, "utf-8"));
+    }
+
+    // (2) Read-only contract: source files are byte-identical after the load —
+    // the loader is not an inlining/write sink.
+    expect(await readFile(join(learningsDir, "a.md"), "utf-8")).toBe(bodyA);
+    expect(await readFile(join(learningsDir, "b.md"), "utf-8")).toBe(bodyB);
+  });
 });

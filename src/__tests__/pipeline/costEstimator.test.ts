@@ -24,6 +24,7 @@ import {
   appendTelemetrySnapshot,
   CACHE_READ_MULTIPLIER,
   computeDelta,
+  countTrackedFiles,
   DEFAULT_INPUT_COST_PER_1M,
   DEFAULT_OUTPUT_COST_PER_1M,
   estimateCost,
@@ -31,7 +32,9 @@ import {
   formatCostBlock,
   MODEL_RATES,
   recordActuals,
+  REPO_SIZE_ROWS,
   resolveModelRate,
+  resolveRepoSizeRow,
   TELEMETRY_DIR_RELATIVE,
   TIER_BASELINES,
   VARIANCE_THRESHOLD_PERCENT,
@@ -115,6 +118,112 @@ describe("estimateCost", () => {
     // Force-pass an invalid tier; in practice TypeScript blocks this.
     const est = estimateCost({ triageTier: "bogus" as unknown as TriageTier });
     expect(est.triage_tier).toBe("standard");
+  });
+
+  // ── D6-20: repository-size scaling ─────────────────────────────
+  it("omits repo_size_row and leaves the static-frame estimate unscaled when no repoFileCount is passed", () => {
+    const est = estimateCost({ triageTier: "standard" });
+    const b = TIER_BASELINES.standard;
+    // Byte-identical to the pre-D6-20 estimate: midpoint, no band field.
+    expect(est.estimated_input_tokens_static_frame).toBe(
+      Math.round((b.staticFrameTokensMin + b.staticFrameTokensMax) / 2),
+    );
+    expect(est.repo_size_row).toBeUndefined();
+  });
+
+  it("scales the static-frame component by the resolved band factor and surfaces the row (D6-20)", () => {
+    const b = TIER_BASELINES.standard;
+    const baseMidpoint = Math.round((b.staticFrameTokensMin + b.staticFrameTokensMax) / 2);
+    // 30,000 tracked files -> "large" band (>20k, <=50k), factor 1.6.
+    const est = estimateCost({ triageTier: "standard", repoFileCount: 30_000 });
+    expect(est.repo_size_row).toEqual({ band: "large", tracked_files: 30_000, factor: 1.6 });
+    expect(est.estimated_input_tokens_static_frame).toBe(Math.round(baseMidpoint * 1.6));
+    // Repo-size scaling must be strictly larger than the unscaled midpoint here.
+    expect(est.estimated_input_tokens_static_frame).toBeGreaterThan(baseMidpoint);
+  });
+
+  it("leaves the static-frame estimate unchanged for a tiny repo (factor 1.0) but still surfaces the band", () => {
+    const b = TIER_BASELINES.light;
+    const baseMidpoint = Math.round((b.staticFrameTokensMin + b.staticFrameTokensMax) / 2);
+    const est = estimateCost({ triageTier: "light", repoFileCount: 50 });
+    expect(est.repo_size_row).toEqual({ band: "tiny", tracked_files: 50, factor: 1.0 });
+    expect(est.estimated_input_tokens_static_frame).toBe(baseMidpoint);
+  });
+
+  it("scales an explicit inputTokensDeclared override by the band factor too (D6-20)", () => {
+    // 60,000 files -> "huge" band, factor 1.9; the override is the scaling base.
+    const est = estimateCost({
+      triageTier: "deep",
+      inputTokensDeclared: 100_000,
+      repoFileCount: 60_000,
+    });
+    expect(est.repo_size_row?.band).toBe("huge");
+    expect(est.estimated_input_tokens_static_frame).toBe(Math.round(100_000 * 1.9));
+  });
+
+  it("treats a negative/non-finite repoFileCount as the tiny band, factor 1.0 (defensive)", () => {
+    const neg = estimateCost({ triageTier: "standard", repoFileCount: -10 });
+    expect(neg.repo_size_row).toEqual({ band: "tiny", tracked_files: 0, factor: 1.0 });
+    const b = TIER_BASELINES.standard;
+    expect(neg.estimated_input_tokens_static_frame).toBe(
+      Math.round((b.staticFrameTokensMin + b.staticFrameTokensMax) / 2),
+    );
+  });
+});
+
+// ── resolveRepoSizeRow (D6-20) ───────────────────────────────────
+
+describe("resolveRepoSizeRow", () => {
+  it("maps a count to the correct band across every boundary", () => {
+    expect(resolveRepoSizeRow(0).band).toBe("tiny");
+    expect(resolveRepoSizeRow(200).band).toBe("tiny"); // inclusive upper bound
+    expect(resolveRepoSizeRow(201).band).toBe("small");
+    expect(resolveRepoSizeRow(2_000).band).toBe("small");
+    expect(resolveRepoSizeRow(2_001).band).toBe("medium");
+    expect(resolveRepoSizeRow(20_000).band).toBe("medium");
+    expect(resolveRepoSizeRow(20_001).band).toBe("large");
+    expect(resolveRepoSizeRow(50_000).band).toBe("large");
+    expect(resolveRepoSizeRow(50_001).band).toBe("huge");
+    expect(resolveRepoSizeRow(5_000_000).band).toBe("huge");
+  });
+
+  it("clamps negative / NaN / Infinity inputs to the tiny band", () => {
+    expect(resolveRepoSizeRow(-5).band).toBe("tiny");
+    expect(resolveRepoSizeRow(Number.NaN).band).toBe("tiny");
+    // +Infinity is finite-false, so it clamps to 0 -> tiny (not "huge").
+    expect(resolveRepoSizeRow(Number.POSITIVE_INFINITY).band).toBe("tiny");
+  });
+
+  it("exposes a monotonically non-decreasing factor ramp anchored at 1.0", () => {
+    expect(REPO_SIZE_ROWS[0].factor).toBe(1.0);
+    for (let i = 1; i < REPO_SIZE_ROWS.length; i++) {
+      expect(REPO_SIZE_ROWS[i].factor).toBeGreaterThanOrEqual(REPO_SIZE_ROWS[i - 1].factor);
+    }
+    // The largest band's bound is open-ended.
+    expect(REPO_SIZE_ROWS[REPO_SIZE_ROWS.length - 1].maxFiles).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
+// ── countTrackedFiles (D6-20) ────────────────────────────────────
+
+describe("countTrackedFiles", () => {
+  it("returns null (Silent Failure Contract) for a non-git directory", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "hatch3r-nongit-"));
+    try {
+      // A fresh tmp dir is outside any git tree -> git ls-files exits non-zero.
+      expect(countTrackedFiles(tmp)).toBeNull();
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a positive count for this repository's own working tree", () => {
+    // The test runs inside the hatch3r git repo; ls-files must report >0 files
+    // and the result must be a finite integer (the in-process NUL counter).
+    const n = countTrackedFiles(process.cwd());
+    expect(n).not.toBeNull();
+    expect(Number.isInteger(n!)).toBe(true);
+    expect(n!).toBeGreaterThan(0);
   });
 });
 
@@ -434,6 +543,20 @@ describe("formatCostBlock", () => {
     const out = formatCostBlock(estimate, actuals);
     expect(out).toContain("over_variance: false");
     expect(out).not.toContain("flagged_fields:");
+  });
+
+  it("omits the repo_size_row block when the estimate carries no band (D6-20)", () => {
+    // The shared `estimate` fixture has no repo_size_row -> block must be absent.
+    expect(formatCostBlock(estimate)).not.toContain("repo_size_row:");
+  });
+
+  it("emits the repo_size_row block when the estimate was repo-size-scaled (D6-20)", () => {
+    const scaled = estimateCost({ triageTier: "standard", repoFileCount: 30_000 });
+    const out = formatCostBlock(scaled);
+    expect(out).toContain("repo_size_row:");
+    expect(out).toContain("band: large");
+    expect(out).toContain("tracked_files: 30000");
+    expect(out).toContain("factor: 1.6");
   });
 });
 

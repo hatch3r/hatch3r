@@ -358,40 +358,17 @@ The 9 sections:
 
 release is long-running — a Tier 3 release runs preflight, version bump, changelog sync, build + SBOM, adapter verification, the gate set, the reviewer ↔ fixer loop, the final-quality specialist batch, and release-notes reconciliation. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-bumping the version or re-emitting the SBOM.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.release-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 10 progression), `wave` (review-loop iteration index in Step 7a), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, targetVersion, sbomEmitted, implementerProofIds }`.
-2. **Write points:** after Step 1 preflight passes, after the Step 2 version-bump implementer returns, after the Step 3 changelog implementer returns, after the Step 4 build + SBOM step, after Step 5 adapter verification, after the Step 6 gate run, after each Step 7a review-loop iteration, after the Step 7b/7c specialist batch, and after Step 8 reconciliation. The Step 9 commit is recorded so a resume does not double-commit.
-3. **`--resume` invocation:** `hatch3r release --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the working tree / branch HEAD changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of every release file touched by Step 2/3/4 implementers and Step 7a fixers land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.release-workspace/`; step range the Step 0 → Step 10 progression; `wave` = review-loop iteration index in Step 7a; snapshot/rollback paths every release file touched by Step 2/3/4 implementers and Step 7a fixers. Write points: after Step 1 preflight passes, after the Step 2 version-bump implementer returns, after the Step 3 changelog implementer returns, after the Step 4 build + SBOM step, after Step 5 adapter verification, after the Step 6 gate run, after each Step 7a review-loop iteration, after the Step 7b/7c specialist batch, and after Step 8 reconciliation. The Step 9 commit is recorded so a resume does not double-commit.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for release: `1` = preflight + SemVer decision, `2` = version-bump / changelog / build-SBOM implementer dispatch, `3` = adapter verification + gates + review loop + final-quality batch, `4` = reconciliation + Step 9 human-approval handoff + iteration summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for release: `1` = preflight + SemVer decision, `2` = version-bump / changelog / build-SBOM implementer dispatch, `3` = adapter verification + gates + review loop + final-quality batch, `4` = reconciliation + Step 9 human-approval handoff + iteration summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (version files, CHANGELOG, SBOM, docs, fixes) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via hatch3r-{implementer|fixer|docs-writer} (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation. The only inline writes this command performs are the read-only inspections (Steps 1, 5, 6 gate runs) and the Step 9a release commit on the branch; every file mutation (version bump, changelog, SBOM, docs, code fixes) is delegated.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: version files, CHANGELOG, SBOM, docs, fixes. The only inline writes this command performs are the read-only inspections (Steps 1, 5, 6 gate runs) and the Step 9a release commit on the branch; every file mutation (version bump, changelog, SBOM, docs, code fixes) is delegated.
 
 ## Cost estimate (Decision 24)
 

@@ -5,8 +5,8 @@
     "agents": 29,
     "skills": 53,
     "cliSkills": 6,
-    "rules": 66,
-    "rulesMdc": 66,
+    "rules": 67,
+    "rulesMdc": 67,
     "commands": 30,
     "hooks": 7,
     "pipeline": 22,
@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 5,
     "githubAgents": 4,
-    "testFiles": 227
+    "testFiles": 232
   },
   "files": {
     "adapters": [
@@ -185,6 +185,7 @@
       "hatch3r-theming.md",
       "hatch3r-tool-currency.md",
       "hatch3r-tooling-hierarchy.md",
+      "hatch3r-typescript-patterns.md",
       "hatch3r-ux-states-and-flows.md"
     ],
     "rulesMdc": [
@@ -253,6 +254,7 @@
       "hatch3r-theming.mdc",
       "hatch3r-tool-currency.mdc",
       "hatch3r-tooling-hierarchy.mdc",
+      "hatch3r-typescript-patterns.mdc",
       "hatch3r-ux-states-and-flows.mdc"
     ],
     "commands": [
@@ -448,6 +450,7 @@
       "src/__tests__/adapters/capabilityMatrix.test.ts",
       "src/__tests__/adapters/capabilityMatrixDrift.test.ts",
       "src/__tests__/adapters/claude.test.ts",
+      "src/__tests__/adapters/commandArgumentHint.test.ts",
       "src/__tests__/adapters/concurrent.test.ts",
       "src/__tests__/adapters/contextBudget.test.ts",
       "src/__tests__/adapters/copilot.test.ts",
@@ -563,10 +566,14 @@
       "src/__tests__/env/secretDetection.test.ts",
       "src/__tests__/governance/archive-path-currency-gate.test.ts",
       "src/__tests__/governance/audit-execute-skill-npm-separator.test.ts",
+      "src/__tests__/governance/cli-count-currency-gate.test.ts",
       "src/__tests__/governance/content-validation-gate.test.ts",
       "src/__tests__/governance/customize-doc-examples-gate.test.ts",
+      "src/__tests__/governance/d09-watchlist-opencode-grade.test.ts",
+      "src/__tests__/governance/d22-hook-reachability-key.test.ts",
       "src/__tests__/governance/dogfood-isolation-gate.test.ts",
       "src/__tests__/governance/fanout-path-currency-gate.test.ts",
+      "src/__tests__/governance/maintainer-skill-enumeration-gate.test.ts",
       "src/__tests__/governance/pr-resolve-skill-pillar-currency-gate.test.ts",
       "src/__tests__/governance/security-agent-verification-coverage.test.ts",
       "src/__tests__/hooks/adapterIntegration.test.ts",

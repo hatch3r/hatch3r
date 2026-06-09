@@ -14,10 +14,12 @@
 // reader) only initialise once.
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { HatchError } from "../../types.js";
+import { findPackageRoot } from "../../cli/shared/paths.js";
 import {
   validateCommandOrchestratorFrontmatter,
   validateEfficiencyFrontmatter,
@@ -246,6 +248,36 @@ describe("validateCommandOrchestratorFrontmatter", () => {
   });
 });
 
+// D19-12 (Cycle audit, Medium): the content-authoring §9 rule MUST describe the
+// Decision #13 gate in present tense. Before the fix it ended "Validation gate
+// to be added to src/cli/commands/validate.ts" — directional misinformation,
+// because validateCommandOrchestratorFrontmatter already enforces it (proven by
+// the F1.4-H1 cases above: a canonical orchestrator:false is a hard error). This
+// block reads the CANONICAL .claude/rules source (not resolveBundledContentRoot,
+// per the D5-23 block's rationale at line ~1068) and pins the doc claim true so
+// the future-tense "to be added" framing cannot silently regress.
+describe("content-authoring §9 describes the Decision #13 gate in present tense (D19-12)", () => {
+  function readRuleBody(): Promise<string> {
+    const pkgRoot = findPackageRoot(dirname(fileURLToPath(import.meta.url)));
+    return readFile(join(pkgRoot, ".claude", "rules", "content-authoring.md"), "utf-8");
+  }
+
+  it("no longer claims the gate is unimplemented ('to be added')", async () => {
+    const body = await readRuleBody();
+    // The exact stale phrasing the finding flagged. Zero occurrences post-fix.
+    expect(body).not.toMatch(/to be added to .*validate\.ts/i);
+    expect(body.toLowerCase()).not.toContain("validation gate to be added");
+  });
+
+  it("states the gate enforces orchestrator:false as a hard error", async () => {
+    const body = await readRuleBody();
+    // §9 must now cite the real enforcer and call orchestrator:false a hard
+    // (errors-channel) failure, not a warning — matching the runtime branch.
+    expect(body).toMatch(/Enforced by .*validateCommandOrchestratorFrontmatter/);
+    expect(body).toMatch(/a hard validation error, not a warning/);
+  });
+});
+
 // ═════════════════════════════════════════════════════════════════════
 // Unit: validateEfficiencyFrontmatter (P7 frontmatter contract)
 // ═════════════════════════════════════════════════════════════════════
@@ -397,6 +429,43 @@ describe("hasPillarReference", () => {
 
   it("returns true even when frontmatter is null but body has a Pillars heading", () => {
     expect(hasPillarReference(null, "## Pillars\n\nP5")).toBe(true);
+  });
+
+  // D5-34: two-axis map shape `pillars: { governance, content-quality }` is
+  // the corpus-dominant form (15 specialist agents + the spec orchestrator).
+  // It must be recognized from FRONTMATTER with an empty body — proving the
+  // frontmatter check no longer silently defers to the body P-token fallback.
+  it("returns true for the two-axis map shape from frontmatter alone (empty body)", () => {
+    expect(
+      hasPillarReference(
+        { pillars: { governance: ["P1", "P2", "P8"], "content-quality": ["CQ8", "CQ9"] } },
+        "",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns true for a map whose governance axis is empty but content-quality has a CQ token", () => {
+    expect(
+      hasPillarReference({ pillars: { governance: [], "content-quality": ["CQ6"] } }, ""),
+    ).toBe(true);
+  });
+
+  it("returns false for a map whose axes are all empty arrays and body has no token", () => {
+    expect(
+      hasPillarReference({ pillars: { governance: [], "content-quality": [] } }, "no marker"),
+    ).toBe(false);
+  });
+
+  it("returns true for a content-quality token (CQ1..CQ9) in a flat array", () => {
+    expect(hasPillarReference({ pillars: ["CQ8"] }, "")).toBe(true);
+  });
+
+  it("returns true for a content-quality token mentioned inline in the body", () => {
+    expect(hasPillarReference(null, "This serves CQ6 (Scalability).")).toBe(true);
+  });
+
+  it("returns false for a CQ token out of range (CQ0)", () => {
+    expect(hasPillarReference({ pillars: ["CQ0"] }, "no CQ marker here")).toBe(false);
   });
 });
 
@@ -932,6 +1001,18 @@ describe("checkAmbiguityGate", () => {
     const body = "See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity.";
     expect(checkAmbiguityGate(body).referencesProtocol).toBe(true);
   });
+
+  it("accepts the orchestration-frame command-side one-hop (D22-4)", () => {
+    // A command that collapses its inline §0 block to a pointer at
+    // commands/shared/orchestration-frame.md → §0 Detect Ambiguity is wired to
+    // the canonical question protocol via that frame (which cites
+    // user-question-protocol.md), exactly like the agent-side hubs above.
+    const body =
+      "## §0 Detect Ambiguity (P8 B1)\n\n> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.";
+    const gate = checkAmbiguityGate(body);
+    expect(gate.hasMarker).toBe(true);
+    expect(gate.referencesProtocol).toBe(true);
+  });
 });
 
 describe("requiresAmbiguityGate", () => {
@@ -1010,5 +1091,54 @@ describe("scanCanonicalReadDiagnostics", () => {
     const r = makeResult();
     await scanCanonicalReadDiagnostics(dir, r);
     expect(r.warnings.some((w) => w.includes("TYPE_MISMATCH"))).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Regression: clarification-default-block.md single-source-of-truth (D5-23)
+// ═════════════════════════════════════════════════════════════════════
+//
+// D5-23 (Cycle 11 Wave 3, D5 Medium, P4 single-source-of-truth): the shared
+// §0 clarification block once carried a per-agent "Domain-specific trigger
+// phrase" table that duplicated each agent's inline trigger line. Nothing in
+// code read that table, so it drifted from 7+ agents' inline lines (context-
+// rules most wrong). The root-cause fix deletes the duplicate column: each
+// `agents/hatch3r-*.md` inline trigger line is the single source of truth.
+// This guard locks the deletion in — if a future edit reintroduces a parallel
+// per-agent table, the drift surface returns and this test fails.
+//
+// Reads the CANONICAL source under the package root (agents/shared/...),
+// deliberately NOT resolveBundledContentRoot(): that resolver prefers a stale
+// dist/content/ copy when one exists, and dist/ is gitignored + rebuilt, so
+// asserting against it would test the wrong (possibly pre-edit) bytes.
+describe("clarification-default-block.md trigger single-source-of-truth (D5-23)", () => {
+  function readCanonicalBlock(): Promise<string> {
+    const pkgRoot = findPackageRoot(dirname(fileURLToPath(import.meta.url)));
+    return readFile(
+      join(pkgRoot, "agents", "shared", "clarification-default-block.md"),
+      "utf-8",
+    );
+  }
+
+  it("carries no parallel per-agent trigger table (the drift source)", async () => {
+    const body = await readCanonicalBlock();
+    // A per-agent trigger table is a markdown row whose first cell names a
+    // specific `hatch3r-*` agent id, e.g. `| `hatch3r-implementer` | ... |`.
+    // The pre-fix file had 18 such rows; the fix leaves zero. Inline backtick
+    // mentions of agent ids in prose are fine — only table rows (line starts
+    // with `|`) are the duplication the fix removed.
+    const perAgentTableRows = body
+      .split("\n")
+      .filter((line) => /^\s*\|\s*`hatch3r-[a-z-]+`\s*\|/.test(line));
+    expect(perAgentTableRows).toHaveLength(0);
+  });
+
+  it("declares the inline trigger line the single source of truth", async () => {
+    const body = await readCanonicalBlock();
+    // The replacement framing must state that the agent's inline line is the
+    // single source of truth and that this shared file keeps no parallel
+    // table — so a reader knows where the authoritative triggers live.
+    expect(body).toContain("single source of truth");
+    expect(body).toMatch(/no parallel per-agent table/i);
   });
 });
