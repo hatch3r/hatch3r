@@ -32,14 +32,28 @@ Thank you for your interest in contributing to hatch3r. This document provides g
 
 ## Project structure
 
+The list below is the full set of `src/` subsystems (run `ls -d src/*/` to regenerate). For the higher-level architecture map — CLI command count, pipeline module count, and canonical-content directories — see the Architecture table in [`CLAUDE.md`](CLAUDE.md).
+
 - `src/cli/` - CLI entry point and commands
 - `src/adapters/` - 3 platform adapters: Cursor, GitHub Copilot, Claude Code
-- `src/merge/` - Safe merge logic for template updates
-- `src/detect/` - Tool detection utilities
-- `src/manifest/` - Manifest and pack metadata handling
+- `src/pipeline/` - Agentic-pipeline modules (circuit breaker, prompt guard, timeouts, tool allowlists, observability)
+- `src/content/` - Canonical-content indexing, frontmatter, presets, tags, learnings, handoffs
+- `src/merge/` - Safe merge logic for template updates (atomic write, managed blocks, orphan cleanup)
+- `src/detect/` - Project/tool/package-manager detection and convention-conflict analysis
+- `src/manifest/` - Manifest (`hatch.json`), MCP filtering, provenance, rehydration
 - `src/models/` - Model alias resolution and customization
-- `src/env/` - MCP environment variable handling
-- `src/hooks/` - Hook system definitions and parsing
+- `src/env/` - MCP environment variable handling and secret detection
+- `src/hooks/` - Hook system definitions, parsing, and SessionStart registry
+- `src/audit/` - Audit registry schema, archival, cleanup, insights, migration
+- `src/install/` - Self-update install logic
+- `src/cliTools/` - External CLI-tool detection, install, registry, one-liner generation
+- `src/workspace/` - Workspace detection, git integration, manifest, resolve, sync
+- `src/worktree/` - Git-worktree setup and resolution
+- `src/migration/` - Legacy `.agents/` to hatch3r content migration
+- `src/importers/` - Importers for Cursor, Copilot, Windsurf, awesome-cursorrules sources
+- `src/version/` - Version checkpoints and comparison
+- `src/archive/` - Archive operations
+- `src/clean/` - Clean operations
 - `src/__tests__/` - Test files
 
 ## Running tests

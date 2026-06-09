@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-06",
+  "lastUpdated": "2026-06-09",
   "counts": {
     "adapters": 3,
     "agents": 29,
@@ -12,12 +12,12 @@
     "pipeline": 22,
     "cliCommands": 19,
     "agentsModes": 21,
-    "agentsShared": 13,
+    "agentsShared": 14,
     "commandsBoard": 11,
     "commandsRevision": 4,
     "checks": 6,
     "githubAgents": 4,
-    "testFiles": 224
+    "testFiles": 225
   },
   "files": {
     "adapters": [
@@ -366,6 +366,7 @@
     ],
     "agentsShared": [
       "clarification-default-block.md",
+      "cq-specialist-roster.md",
       "efficiency-patterns.md",
       "external-knowledge.md",
       "injection-patterns.md",
@@ -427,6 +428,7 @@
       "scripts/__tests__/validate-efficiency-invariants.test.ts",
       "scripts/__tests__/validate-fanout-emission.test.ts",
       "scripts/__tests__/validate-governance-total.test.ts",
+      "scripts/__tests__/validate-id-uniqueness.test.ts",
       "scripts/__tests__/validate-lean-threshold-currency.test.ts",
       "scripts/__tests__/validate-modes-parity.test.ts",
       "scripts/__tests__/validate-pillar-currency.test.ts",

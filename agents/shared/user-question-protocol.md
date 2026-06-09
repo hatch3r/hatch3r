@@ -8,7 +8,7 @@ cache_friendly: true
 
 ## Purpose
 
-> Last updated: 2026-06-06
+> Last updated: 2026-06-09
 
 This protocol defines how hatch3r agents and commands surface clarifying or triage questions to the user across the 3 supported AI coding tools (Claude Code, Cursor, GitHub Copilot per `governance/CONSTITUTION.md` §6 Decision 12). It is the single source of truth for the *how* of asking; the *whether* is governed by [quality-charter §3 "Question Unclear Requirements"](./quality-charter.md) and §8 "Escalate Ambiguity Early". Coverage is a 100% floor, not a fixed file list: every framework-dev workflow that can mutate canonical artifacts routes its ASK through this protocol — the requirements-elicitation mode (`agents/modes/requirements-elicitation.md`), the shared §0 gate block (`agents/shared/clarification-default-block.md`), and every `agents/hatch3r-*.md` agent and `commands/hatch3r-*.md` command that detects ambiguity (counts: `governance/inventory.json` `counts.agents`, `counts.commands`, `counts.skills`). The "3 supported AI coding tools" figure above is drift-guarded against `inventory.json` `counts.adapters` by `scripts/inventory.ts` (`npm run inventory:check-docs`).
 
@@ -75,6 +75,8 @@ Attach a preview only when BOTH hold:
 - **You are the orchestrator** (main-conversation `commands/hatch3r-*.md`), not a Task-tool sub-agent. Sub-agents cannot call the native question tool at all (see the Sub-agent caveat above); they render the question — and any preview snippet — in the `BLOCKED_AMBIGUITY` structured result, and the orchestrator owns the live ASK.
 - **The runtime's native question tool supports rich/rendered option content.** Capability is per-platform; look up your runtime's row in the adapter map (`src/pipeline/adapterToolTranslator.ts::ASK_USER_TOOLS`) before relying on a preview, exactly as you would for the question tool itself. When the platform's native tool is text-only (or absent), embed the preview as a fenced code block inside the Plain-Text Fallback Template instead — never assume a rendering affordance the platform row does not document.
 
+**Concrete affordance (Claude Code orchestrator).** On the `claude` platform, populate the per-option `markdown` field of the `AskUserQuestion` tool: when any option carries a `markdown` value, Claude Code switches to a side-by-side preview layout (numbered options on the left, the rendered markdown on the right), so a diagram, code/diff block, or token-swatch table renders inline with the choice. The field accepts markdown only (no HTML), and long content is truncated to a scrollable panel — keep each option's preview to about one screen of markup. One documented constraint: supplying a `markdown` field suppresses the free-text "Other / Type something" option on that question, so reserve the preview layout for closed-option visual decisions. Other platforms expose no documented preview field (their `ASK_USER_TOOLS` row is `null` — `cursor`, `copilot` as of 2026-06-09); on those, fall back to the fenced-code-block-in-plain-text shape above.
+
 The preview is an enrichment, not a replacement: the numbered options and the mandatory `Default if no response:` line are still required. Keep the preview small (one screen of markup or a single mock) so it does not bury the decision.
 
 ## Examples
@@ -113,6 +115,8 @@ The "Default if no response" line is mandatory in every plain-text fallback ques
 
 The §8 log is the audit-visible evidence that the default-if-no-response contract was honored; absence of the log when a default was applied is a P8 B1 gate failure. Runtime emission of the §8 line is orchestrator-produced interpreted markdown, so no static gate can verify it fired — D05 (prompt-engineering) and D13 (human-AI collaboration) audit-cycle spot checks plus the per-run Iteration Summary validation gate are the enforcement, not a compiled check.
 
+The contract has a single named owner so it is not re-declared per command: the always-on, `precedence: high` rule `rules/hatch3r-clarification-default.md` (`scope: always`) binds every `commands/hatch3r-*.md` orchestrator and mutating skill corpus-wide, and that rule's "How to ask" section is the catching gate. An individual command body therefore need not repeat the default-handling vocabulary to be bound by it — the rule + this protocol + the Iteration Summary §8 template are the three-anchor owner set, and a command inherits the contract by being in scope. Treat a command that *does* restate it as a convenience, not the source of truth.
+
 ## Cross-Phase Aggregation
 
 This protocol defines the *shape* of a single question (numbered options, mandatory default). It does not define where pending questions accumulate when several fire across one pipeline run. That cross-phase aggregation layer is the `PipelineContext.pendingUserInputs: PendingUserInput[]` field (`src/pipeline/pipelineContext.ts`, Finding D7-SA7.1-F-10): each phase pushes a `PendingUserInput` — whose `options` + `defaultIfNoResponse` mirror the Plain-Text Fallback Template above — instead of emitting a direct prompt mid-phase. The orchestrator drains the array between phases, paginating when more than three accumulate, so a Tier 3 run's multiple ASK checkpoints are batched rather than each rendered independently. Per-question UX (this file) and cross-phase batching (the field) are complementary: author each request to this template, enqueue it on the field.
@@ -124,3 +128,12 @@ This protocol defines the *shape* of a single question (numbered options, mandat
 - **Silent assumption** — proceeding when ambiguity is real. Apply quality-charter §8: log the ambiguity in structured output even if you decide to proceed under a default.
 - **Echo-as-question** — restating the user's request back as a question ("So you want me to add caching?"). Confirm only when you have a specific decision point with options to offer.
 - **Inflated default** — choosing the most disruptive option as the no-response default. Defaults must be the reversible, lowest-blast-radius choice.
+
+## References
+
+The `markdown`-field preview affordance documented in "Optional preview attachment" above is corroborated by:
+
+- `anthropics/claude-code` issue #27348 — names the `markdown` field on `AskUserQuestion` options as the trigger for the preview layout and the "Other / Type something" suppression constraint (accessed 2026-06-09; trust tier: official-vendor issue tracker). https://github.com/anthropics/claude-code/issues/27348
+- `anthropics/claude-code` issue #33062 — documents the side-by-side preview panel and its scroll/truncation behavior for long content (accessed 2026-06-09; trust tier: official-vendor issue tracker). https://github.com/anthropics/claude-code/issues/33062
+
+Per-platform tool names and the `null`-means-no-native-tool convention are sourced in `src/pipeline/adapterToolTranslator.ts::ASK_USER_TOOLS` (each entry carries its own `// verified <date> @ <docs URL>` stamp, refreshed on the D09 per-cycle web-research pass).

@@ -11,11 +11,19 @@
 //   tier 2 (standard pipeline):       length(agentPipeline) sub-agent invocations
 //   tier 3 (research-first):          length(agentPipeline) + 1 (research mode)
 //
-// Per-invocation token estimate uses CHARS_PER_TOKEN against the command body
-// (the body is the static prompt frame that ships to each sub-agent). Output
-// tokens are estimated as one-quarter of input — a conservative ratio that
-// matches typical plan/act split ratios documented in
-// `agents/shared/efficiency-patterns.md` P5.
+// D6-23 (Cycle 11 Wave 3): input-token basis is per-actor, not body×subAgents.
+// The orchestrator reads the command body once; each sub-agent it spawns loads
+// its OWN agent definition (`agents/hatch3r-<id>.md` from `agentPipeline`) plus a
+// task-scoped prompt — it does NOT receive a copy of the whole orchestrator body.
+// Billing the full body to every sub-agent (the pre-fix basis) over-counted input
+// by `body_tokens × (subAgents − 1)` per tier. The corrected per-tier input is
+//   orchestrator_body_tokens (once)
+//     + Σ over each spawned sub-agent ( agent_def_tokens + TASK_CONTEXT_ALLOWANCE ).
+// Agent-def sizes are read from the bundled `agents/` dir; an unresolved id (e.g.
+// the tier-1 inline actor or the tier-3 researcher when its file is absent) falls
+// back to UNKNOWN_AGENT_DEF_CHARS. Output tokens are estimated as one-quarter of
+// input — a conservative ratio that matches typical plan/act split ratios
+// documented in `agents/shared/efficiency-patterns.md` P5.
 //
 // SA12.3-F03 (Cycle 10 Wave 2): `hatch3r explain --customizations` surfaces
 // the per-artifact customization-applied state (yaml + md overrides, skips,
@@ -46,7 +54,7 @@ import {
 } from "../../pipeline/costEstimator.js";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { findPackageRoot } from "../shared/paths.js";
-import { printBanner, printBox, label, info, error as logError, setVerbose } from "../shared/ui.js";
+import { printBanner, printBox, label, info, error as logError, setVerbose, verbose } from "../shared/ui.js";
 import {
   buildCustomizationSummary,
   type CustomizationStatus,
@@ -178,6 +186,36 @@ function parseCommandFrontmatter(raw: string, filePath: string): CommandFrontmat
 }
 
 /**
+ * D6-23: the canonical id for the tier-3 research mode. The +1 over the tier-2
+ * pipeline is a research-first pass; it loads this agent's definition like any
+ * other spawned sub-agent. A `null` element in a tier's id list marks an actor
+ * with no resolvable agent-def file (the tier-1 inline path, or a pipeline that
+ * declares no agents) and bills at {@link UNKNOWN_AGENT_DEF_CHARS}.
+ */
+const RESEARCH_MODE_AGENT_ID = "hatch3r-researcher";
+
+/**
+ * D6-23: per-sub-agent task-scoped prompt allowance in characters. Each spawned
+ * sub-agent receives a task-context block (the specific files/instructions the
+ * orchestrator hands it) ON TOP OF its own agent definition — it is NOT a copy of
+ * the orchestrator body. 6,000 chars (~1,500 tokens at CHARS_PER_TOKEN) is a
+ * conservative per-task allowance: larger than a one-line directive, smaller than
+ * a full re-statement of the orchestrator body. Kept a single named constant so a
+ * future calibration against `agents/shared/efficiency-patterns.md` is one edit.
+ */
+const TASK_CONTEXT_ALLOWANCE_CHARS = 6_000;
+
+/**
+ * D6-23: fallback agent-def size (characters) for a spawned actor whose
+ * `agents/<id>.md` cannot be read — the tier-1 inline path (no distinct
+ * definition file), a pipeline that declares no agents, or the tier-3 researcher
+ * when its file is absent. 12,000 chars (~3,000 tokens) approximates a mid-sized
+ * canonical agent definition so an unresolved actor is neither free nor
+ * over-weighted relative to a real agent def.
+ */
+const UNKNOWN_AGENT_DEF_CHARS = 12_000;
+
+/**
  * Triage-tier sub-agent fan-out model. The numbers come from the tier
  * definitions in `agents/shared/efficiency-patterns.md` P3 (triage-first
  * orchestration) and the audit-execute tier classifier in
@@ -186,17 +224,25 @@ function parseCommandFrontmatter(raw: string, filePath: string): CommandFrontmat
  *   Tier 1 — trivial / single-agent path (1 invocation)
  *   Tier 2 — standard pipeline (one per pipeline stage)
  *   Tier 3 — research-first (standard pipeline + 1 researcher mode)
+ *
+ * D6-23: returns the per-actor agent-id list (not just a count) so the cost model
+ * can size each spawned sub-agent by its own `agents/<id>.md`. A `null` entry is
+ * an actor with no resolvable agent-def file (tier-1 inline path; or a tier-2/3
+ * command that declares no `agentPipeline`). The sub-agent count is the list
+ * length, preserving the prior `Math.max(1, pipelineLength)[+1]` totals.
  */
-function subAgentCountForTier(tier: number, pipelineLength: number): number {
+function subAgentIdsForTier(tier: number, pipeline: string[]): (string | null)[] {
+  const nonEmptyPipeline = pipeline.length > 0 ? pipeline : [null];
   switch (tier) {
     case 1:
-      return 1;
+      // Trivial path: a single inline actor with no distinct agent-def file.
+      return [null];
     case 2:
-      return Math.max(1, pipelineLength);
+      return [...nonEmptyPipeline];
     case 3:
-      return Math.max(1, pipelineLength) + 1;
+      return [...nonEmptyPipeline, RESEARCH_MODE_AGENT_ID];
     default:
-      return Math.max(1, pipelineLength);
+      return [...nonEmptyPipeline];
   }
 }
 
@@ -215,23 +261,47 @@ function tierLabel(tier: number): string {
 
 /**
  * Compute per-tier cost rows for the command. Each row models one full
- * invocation of the command at that tier. Token estimates use the body
- * char-count as the static input frame (same context fans out to every
- * sub-agent) and a 0.25 input-to-output ratio for the response.
+ * invocation of the command at that tier.
+ *
+ * D6-23: input tokens use a per-actor basis, not body×subAgents. The orchestrator
+ * reads its own body once; each spawned sub-agent loads its own agent definition
+ * (`agents/<id>.md`, sized via `agentDefCharCounts`) plus a task-context allowance
+ * — it does not receive a copy of the orchestrator body. A `null` actor id (the
+ * tier-1 inline path, or a tier-2/3 command with no `agentPipeline`) is sized at
+ * {@link UNKNOWN_AGENT_DEF_CHARS}. Output tokens stay a 0.25 ratio of input.
+ *
+ * @param agentDefCharCounts resolved char count per spawnable agent id (read from
+ *   the bundled `agents/` dir at the call site). Missing ids fall back to
+ *   {@link UNKNOWN_AGENT_DEF_CHARS}, so the function stays pure and I/O-free.
  */
 function computeTierRows(
   fm: CommandFrontmatter,
   bodyCharCount: number,
+  agentDefCharCounts: ReadonlyMap<string, number>,
   options: { inputCostPer1M: number; outputCostPer1M: number; cacheHitRatio: number },
 ): TierCostRow[] {
-  const perInvocationInputTokens = estimateTokens(bodyCharCount, CHARS_PER_TOKEN);
-  const perInvocationOutputTokens = Math.ceil(perInvocationInputTokens / 4);
+  const orchestratorBodyTokens = estimateTokens(bodyCharCount, CHARS_PER_TOKEN);
 
   const rows: TierCostRow[] = [];
   for (const tier of fm.triageTiers) {
-    const subAgents = subAgentCountForTier(tier, fm.agentPipeline.length);
-    const inputTokens = perInvocationInputTokens * subAgents;
-    const outputTokens = perInvocationOutputTokens * subAgents;
+    const actorIds = subAgentIdsForTier(tier, fm.agentPipeline);
+    const subAgents = actorIds.length;
+
+    // Per-actor input: that sub-agent's own agent definition + a task-context
+    // allowance. The orchestrator body is added ONCE for the run, below.
+    let subAgentInputTokens = 0;
+    for (const actorId of actorIds) {
+      const defChars =
+        actorId !== null && agentDefCharCounts.has(actorId)
+          ? agentDefCharCounts.get(actorId)!
+          : UNKNOWN_AGENT_DEF_CHARS;
+      subAgentInputTokens += estimateTokens(
+        defChars + TASK_CONTEXT_ALLOWANCE_CHARS,
+        CHARS_PER_TOKEN,
+      );
+    }
+    const inputTokens = orchestratorBodyTokens + subAgentInputTokens;
+    const outputTokens = Math.ceil(inputTokens / 4);
     // Build a one-phase summary so we go through the canonical estimateCost
     // path (instead of duplicating its multiplication / threshold logic).
     // PhaseName is a closed enum in src/pipeline/phaseTimeout.ts; "generation"
@@ -267,6 +337,42 @@ function computeTierRows(
   return rows;
 }
 
+/**
+ * D6-23: resolve the char count of each spawnable sub-agent's definition file.
+ * Reads `agents/<id>.md` from the bundled package root for every distinct id that
+ * appears across the command's declared tiers (the `agentPipeline` plus the
+ * tier-3 {@link RESEARCH_MODE_AGENT_ID}). An id whose file is missing or
+ * unreadable is omitted from the map so the pure {@link computeTierRows} falls
+ * back to {@link UNKNOWN_AGENT_DEF_CHARS} — a missing agent definition must not
+ * make `explain --cost` throw (the command body parsed fine; only sizing is
+ * affected). Reads run in parallel since they touch disjoint files.
+ */
+async function resolveAgentDefCharCounts(fm: CommandFrontmatter): Promise<Map<string, number>> {
+  const ids = new Set<string>(fm.agentPipeline);
+  // The tier-3 research mode is only spawned when tier 3 is declared.
+  if (fm.triageTiers.includes(3)) ids.add(RESEARCH_MODE_AGENT_ID);
+
+  const agentsDir = join(findPackageRoot(__dirname), "agents");
+  const counts = new Map<string, number>();
+  await Promise.all(
+    [...ids].map(async (id) => {
+      try {
+        const raw = await readFile(join(agentsDir, `${id}.md`), "utf-8");
+        counts.set(id, raw.length);
+      } catch (err) {
+        // Missing / unreadable agent def → leave unmapped; computeTierRows
+        // sizes it at UNKNOWN_AGENT_DEF_CHARS. A sizing miss must not abort the
+        // estimate (the command body parsed fine), so emit a verbose-only
+        // diagnostic (Silent Failure Contract, CONSTITUTION §2 P5) and continue.
+        verbose(
+          `explain --cost: could not size agent def for ${id} (${err instanceof Error ? err.message : String(err)}); using ~${formatTokens(estimateTokens(UNKNOWN_AGENT_DEF_CHARS, CHARS_PER_TOKEN))}-token fallback.`,
+        );
+      }
+    }),
+  );
+  return counts;
+}
+
 function formatTokens(n: number): string {
   return n.toLocaleString("en-US");
 }
@@ -274,6 +380,47 @@ function formatTokens(n: number): string {
 function formatUsd(usd: number): string {
   if (usd >= 1) return `$${usd.toFixed(2)}`;
   return `$${usd.toFixed(4)}`;
+}
+
+/**
+ * D12-9: word-wrap `text` into segments no wider than `width`, preferring
+ * whitespace boundaries. A single token longer than `width` (e.g. a long path or
+ * id with no spaces) is hard-sliced so no segment ever exceeds the column. An
+ * empty/whitespace-only input yields `[""]` so the caller always has a first
+ * segment to render. Operates on plain (un-styled) text — callers wrap the
+ * customization reason, which carries no ANSI codes.
+ */
+function wrapToWidth(text: string, width: number): string[] {
+  const safeWidth = Math.max(1, width);
+  const normalized = text.replace(/\s+/g, " ").trim();
+  if (normalized.length === 0) return [""];
+
+  const segments: string[] = [];
+  let current = "";
+  for (const word of normalized.split(" ")) {
+    // A word longer than the column is hard-sliced into width-sized chunks.
+    if (word.length > safeWidth) {
+      if (current.length > 0) {
+        segments.push(current);
+        current = "";
+      }
+      for (let i = 0; i < word.length; i += safeWidth) {
+        const chunk = word.slice(i, i + safeWidth);
+        if (chunk.length === safeWidth) segments.push(chunk);
+        else current = chunk; // trailing partial chunk starts the next line
+      }
+      continue;
+    }
+    const candidate = current.length === 0 ? word : `${current} ${word}`;
+    if (candidate.length > safeWidth) {
+      segments.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current.length > 0) segments.push(current);
+  return segments.length > 0 ? segments : [""];
 }
 
 interface ExplainOptions {
@@ -449,7 +596,12 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
     );
   }
 
-  const rows = computeTierRows(fm, bodyCharCount, {
+  // D6-23: size each spawnable sub-agent by its own agent definition so input
+  // tokens reflect (orchestrator body once) + (per sub-agent: its agent def +
+  // task context), not the body re-billed to every sub-agent.
+  const agentDefCharCounts = await resolveAgentDefCharCounts(fm);
+
+  const rows = computeTierRows(fm, bodyCharCount, agentDefCharCounts, {
     inputCostPer1M: inputRate,
     outputCostPer1M: outputRate,
     cacheHitRatio,
@@ -516,6 +668,15 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
         `Token counts use CHARS_PER_TOKEN=${CHARS_PER_TOKEN} (English prose heuristic).`,
     ),
   );
+  // D6-23: state the per-actor input basis so the figures are not read as
+  // "whole command body re-sent to every sub-agent" (the pre-fix over-count).
+  info(
+    chalk.dim(
+      `Input basis: orchestrator body once (${formatTokens(estimateTokens(bodyCharCount, CHARS_PER_TOKEN))} tokens) ` +
+        `+ per sub-agent its own agents/<id>.md + a ~${formatTokens(estimateTokens(TASK_CONTEXT_ALLOWANCE_CHARS, CHARS_PER_TOKEN))}-token task allowance. ` +
+        `An unsized actor (tier-1 inline path / missing agent def) bills at ~${formatTokens(estimateTokens(UNKNOWN_AGENT_DEF_CHARS, CHARS_PER_TOKEN))} tokens. Upper-bound estimate.`,
+    ),
+  );
   console.log();
 }
 
@@ -553,13 +714,32 @@ async function explainCustomizationsMode(): Promise<void> {
     return a.id.localeCompare(b.id);
   });
 
-  // Column widths chosen to fit a 100-col terminal cleanly. Reason is the
-  // widest column so failures/skips have room to be actionable.
+  // D12-9 (Cycle 11 Wave 3): responsive column widths. The pre-fix layout used
+  // static widths summing to 120 cols; with boxen's round border (2) + horizontal
+  // padding (2) + left margin (1) it needs ~125 cols, but boxen's non-TTY / CI
+  // fallback width is 80 — so the table wrapped and garbled (SA12.3-F4). Now the
+  // content width is derived from `process.stdout.columns` (80 when undetectable),
+  // the Type/Outcome/Overrides columns hold fixed minimums, Id flexes within a
+  // clamp, and Reason takes the remaining width with the over-long reason text
+  // wrapped into indented continuation lines (not truncated) so failures/skips
+  // stay legible at 80 cols.
   const COL_TYPE = 10;
-  const COL_ID = 32;
   const COL_OUTCOME = 10;
-  const COL_OVERRIDES = 18;
-  const COL_REASON = 50;
+  // boxen chrome eaten off `stdout.columns`: round border (1 each side) +
+  // horizontal padding (1 each side) + left margin (1) + 1-col safety = 6.
+  const BOXEN_CHROME = 6;
+  const available = Math.max(74, (process.stdout.columns ?? 80) - BOXEN_CHROME);
+  // Flex budget shared by Id + Overrides + Reason after the two fixed columns.
+  // Priority order: Id (the lookup key) gets the larger share, then Overrides,
+  // then Reason — which wraps to continuation lines, so it tolerates the
+  // smallest column without losing content. Id flexes 18..34 (34 = longest
+  // canonical id), Overrides 13..18 ("enabled=false" is 13 wide), Reason ≥18.
+  const flexBudget = available - (COL_TYPE + COL_OUTCOME);
+  const COL_ID = Math.max(18, Math.min(34, flexBudget - 13 - 18));
+  const COL_OVERRIDES = Math.max(13, Math.min(18, flexBudget - COL_ID - 18));
+  const COL_REASON = Math.max(18, flexBudget - COL_ID - COL_OVERRIDES);
+  // Reason continuation lines indent under the Reason column start.
+  const reasonIndent = COL_TYPE + COL_ID + COL_OUTCOME + COL_OVERRIDES;
 
   const tableLines: string[] = [];
   tableLines.push(
@@ -589,19 +769,26 @@ async function explainCustomizationsMode(): Promise<void> {
       }
     })();
 
-    const reasonRaw = entry.reason ?? "";
-    // Truncate the reason to the column width minus an ellipsis budget so
-    // long warnings do not break the layout on narrow terminals.
-    const reasonCell = reasonRaw.length > COL_REASON - 1 ? `${reasonRaw.slice(0, COL_REASON - 2)}…` : reasonRaw;
+    // Id is the one cell that can still overflow its (clamped) column; truncate
+    // it with an ellipsis so the row stays aligned. Reason is wrapped instead.
+    const idCell = entry.id.length > COL_ID - 1 ? `${entry.id.slice(0, COL_ID - 2)}…` : entry.id;
+
+    // D12-9: wrap the reason across continuation lines rather than truncating.
+    const reasonSegments = wrapToWidth(entry.reason ?? "", COL_REASON);
+    const firstReason = reasonSegments[0] ?? "";
 
     tableLines.push(
       `${entry.type.padEnd(COL_TYPE)}` +
-        `${entry.id.padEnd(COL_ID)}` +
+        `${idCell.padEnd(COL_ID)}` +
         // chalk-wrapped strings have ANSI codes that inflate length; pad manually.
         `${outcomeCell}${" ".repeat(Math.max(0, COL_OUTCOME - entry.outcome.length))}` +
         `${overridesCell.padEnd(COL_OVERRIDES)}` +
-        `${reasonCell.padEnd(COL_REASON)}`,
+        `${firstReason.padEnd(COL_REASON)}`,
     );
+    // Indented continuation lines for the wrapped tail of a long reason.
+    for (const segment of reasonSegments.slice(1)) {
+      tableLines.push(`${" ".repeat(reasonIndent)}${segment.padEnd(COL_REASON)}`);
+    }
   }
 
   printBox("Customizations", tableLines, summary.counts.failed > 0 ? "warning" : "info");

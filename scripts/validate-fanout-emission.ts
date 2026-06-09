@@ -79,6 +79,38 @@
  *                         `Task`-granting `.claude/skills/h4tcher-*`
  *                         maintainer-preset class)
  *
+ * Soft consistency heuristics (each emits one WARNING — a static `count`
+ * that passes the structural schema above can still misstate the fan-out;
+ * these warn on the two drift shapes a positive integer cannot catch, per
+ * D7-30 "near-vacuous count≥1 guarantee"):
+ *
+ *   P8-FANOUT-COUNT-LOW   command `count` is below the number of DISTINCT
+ *                         non-specialist agents in `agentPipeline` AND the
+ *                         rationale names no conditional-dispatch reason
+ *                         (mutual exclusion, triage tier, batch scaling) —
+ *                         a `count: 1` against a 6-wide pipeline with no
+ *                         stated reason is the flagged shape. The 9 CQ
+ *                         vector specialists (ui/ux/security/reliability/
+ *                         testability/scalability/performance/
+ *                         maintainability/enhancability) are advisory gates
+ *                         excluded from the floor so a spec-only pipeline
+ *                         that consults them pre-write is not penalized.
+ *   P8-FANOUT-BASIS-MISS  command `rationale` names no decomposition basis
+ *                         (module / concern / mode / stage / specialist-gate
+ *                         / research-question count) for a multi-agent
+ *                         pipeline, so a reviewer cannot check the count
+ *                         against the task without re-deriving it
+ *                         (`rules/hatch3r-fan-out-discipline.md` → Required
+ *                         output field: "The `rationale` states the
+ *                         decomposition basis ... so a reviewer can check
+ *                         the count against the task without re-deriving
+ *                         it"). Single-agent pipelines are exempt.
+ *
+ * Both heuristics are WARNINGS, not errors: they flag likely drift for
+ * human review without failing the CI gate, matching the finding's "keep
+ * as warnings first" remediation. The live command corpus (Cycle 11)
+ * raises zero of either warning.
+ *
  * The audit-cycle prompts (`commands/hatch3r-audit-cycle*.md`) are hard
  * exempt — they run framework-owner dialogs whose fan-out is described
  * narratively, mirroring the exemption in
@@ -274,6 +306,50 @@ function getFanout(fm: Record<string, unknown>): FanoutShape | "missing" | "wron
   return { count: obj.count, rationale: obj.rationale };
 }
 
+// `agentPipeline` is a YAML list of hatch3r-* agent ids. Non-array shapes
+// (absent, scalar) collapse to an empty list — the consistency heuristics
+// below then no-op, since a pipeline of length ≤1 carries no count floor.
+function getAgentPipeline(fm: Record<string, unknown>): string[] {
+  const v = fm.agentPipeline;
+  if (!Array.isArray(v)) return [];
+  return v.filter((e): e is string => typeof e === "string");
+}
+
+// The 9 CQ-vector specialist agents (CONSTITUTION §2B). In every multi-vector
+// command (`hatch3r-feature-plan`, `hatch3r-board-*`) these are advisory
+// pre-write gates, not always-spawned workers — the orchestrator consults the
+// subset a change touches. Excluding them from the count floor stops a
+// spec-only pipeline (`count: 1` spec author + 9 advisory vectors) from
+// tripping P8-FANOUT-COUNT-LOW. Kept in sync with the roster under
+// `agents/hatch3r-{ui,…}.md` and `src/pipeline/` specialist lists.
+const CQ_SPECIALIST_AGENTS: ReadonlySet<string> = new Set([
+  "hatch3r-ui",
+  "hatch3r-ux",
+  "hatch3r-security",
+  "hatch3r-reliability",
+  "hatch3r-testability",
+  "hatch3r-scalability",
+  "hatch3r-performance",
+  "hatch3r-maintainability",
+  "hatch3r-enhancability",
+]);
+
+// Conditional-dispatch markers: a rationale phrase that explains why `count`
+// may sit below the static pipeline width — mutual exclusion (one of N agents
+// runs), triage-tier gating (Tier 1 routes out), or batch scaling (count is
+// per-issue). Presence of any marker suppresses P8-FANOUT-COUNT-LOW because
+// the author has documented the below-width count on purpose.
+const CONDITIONAL_DISPATCH_MARKER =
+  /\b(?:tier|triage|when|if|batch|per[- ]issue|per[- ]module|scales?|up to|conditional(?:ly)?|routes? out|inline|mutually exclusive|chosen between|one of|either|detection|advis(?:e|ory)|consult)\b/i;
+
+// Decomposition-basis markers: the rationale must name WHAT the count counts
+// (module / concern / mode / stage / specialist-gate / research-question
+// count) so a reviewer can check it against the task without re-deriving it
+// (`rules/hatch3r-fan-out-discipline.md` → Required output field). Absence on
+// a multi-agent pipeline raises P8-FANOUT-BASIS-MISS.
+const DECOMPOSITION_BASIS_MARKER =
+  /\b(?:pipeline|module|specialist|gate|research[- ]question|researcher mode|mode|stage|per[- ]issue|review cycle|concern|phase|parallel|sub-agents?|vector|brief)\b/i;
+
 // ── Core check ────────────────────────────────────────────────────
 
 function checkFanoutEmission(file: ParsedFile): Finding[] {
@@ -324,6 +400,64 @@ function checkFanoutEmission(file: ParsedFile): Finding[] {
       message: "`sub_agents_spawned.rationale` must be a non-empty string",
     });
   }
+
+  // Soft consistency heuristics run only when the structural schema above is
+  // sound (valid integer count + non-empty string rationale); a malformed
+  // count/rationale already errored and would make the heuristics noise.
+  if (countOk && rationaleOk) {
+    out.push(...checkFanoutConsistency(file, shape.count as number, shape.rationale as string));
+  }
+  return out;
+}
+
+// Soft floor + consistency heuristic (D7-30). A positive integer `count`
+// proves nothing about whether the number matches the task; these two
+// warnings flag the drift shapes the schema check cannot — a count below the
+// pipeline width with no stated reason, and a rationale that names no
+// decomposition basis. Both are WARNINGS so CI stays green while a reviewer
+// is alerted ("keep as warnings first").
+function checkFanoutConsistency(file: ParsedFile, count: number, rationale: string): Finding[] {
+  const pipeline = getAgentPipeline(file.frontmatter);
+  // A pipeline of ≤1 agent carries no count floor and no decomposition basis
+  // to name, so neither heuristic applies.
+  if (pipeline.length <= 1) return [];
+
+  const out: Finding[] = [];
+
+  // Distinct non-specialist agents set the soft floor: the always-spawned
+  // workers a multi-stage command runs regardless of which CQ vectors a
+  // change touches.
+  const distinctNonSpecialist = new Set(
+    pipeline.filter((a) => !CQ_SPECIALIST_AGENTS.has(a)),
+  ).size;
+
+  if (count < distinctNonSpecialist && !CONDITIONAL_DISPATCH_MARKER.test(rationale)) {
+    out.push({
+      level: "warning",
+      code: "P8-FANOUT-COUNT-LOW",
+      file: file.relPath,
+      message:
+        `\`sub_agents_spawned.count\` (${count}) is below the ${distinctNonSpecialist} distinct ` +
+        "non-specialist agent(s) in `agentPipeline` and the rationale names no conditional-dispatch " +
+        "reason (mutual exclusion, triage tier, batch scaling). Raise the count to the task-derived " +
+        "fan-out, or state in the rationale why fewer sub-agents run (P8 B2 cost-dominance: token cost " +
+        "never serializes independent work).",
+    });
+  }
+
+  if (!DECOMPOSITION_BASIS_MARKER.test(rationale)) {
+    out.push({
+      level: "warning",
+      code: "P8-FANOUT-BASIS-MISS",
+      file: file.relPath,
+      message:
+        "`sub_agents_spawned.rationale` names no decomposition basis (module / concern / mode / stage / " +
+        "specialist-gate / research-question count) for a multi-agent pipeline, so a reviewer cannot check " +
+        "the count against the task without re-deriving it (`rules/hatch3r-fan-out-discipline.md` → " +
+        "Required output field).",
+    });
+  }
+
   return out;
 }
 

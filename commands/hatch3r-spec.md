@@ -112,7 +112,7 @@ Wait for the spec agent's structured result. Verify all 8 deliverables landed:
 
 **Greenfield-specific (`hatch3r-greenfield-spec`):**
 
-5. `market-research.md` — addressable market, growth signals, ≥2 reputable sources ≤12 months old per `.claude/rules/content-authoring.md` §10.
+5. `market-research.md` — addressable market, growth signals, ≥2 reputable sources ≤12 months old per `agents/shared/rigor-contract.md` (Web Research Mandate).
 6. `competitive-analysis.md` — named competitors, capability matrix, differentiation hypothesis.
 7. `personas.md` — ≥2 personas with jobs-to-be-done, current workaround, acceptance signal.
 8. `tech-stack.md` — chosen stack with rationale citing CQ7 (performance budgets) and CQ6 (scalability) impact.
@@ -233,7 +233,7 @@ Both blocks land in the iteration summary's Fan-out + Cost section per `rules/ha
 ## References
 
 - hatch3r design decisions: reputable-source mandate (Decision #14) and the 2-spec-agents-with-shared-core split (Decision #23)
-- `.claude/rules/content-authoring.md` §8 (C8-D5-M1 orchestrator marker) and §9 (Command vs Skill criterion, Decision #13)
+- hatch3r design decisions: C8-D5-M1 orchestrator-marker contract (`orchestrator: true` + `agentPipeline`) and the Command-vs-Skill authoring criterion (Decision #13)
 - `agents/shared/user-question-protocol.md` (B1 gate)
 - `agents/shared/quality-charter.md` §1, §3, §7, §8 (confidence, ambiguity, measurable criteria)
 - `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive)

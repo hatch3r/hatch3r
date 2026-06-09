@@ -347,6 +347,152 @@ agentPipeline: [hatch3r-reviewer]`,
     expect(result.checkedSkills).toBe(0);
     expect(result.errorCount).toBe(0);
   });
+
+  // ── Soft consistency heuristics (D7-30) ──────────────────────────
+
+  it("WARNs (not errors) when count is below the non-specialist pipeline width with no dispatch reason", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-spec.md"),
+      `id: hatch3r-spec
+type: command
+description: Spec
+orchestrator: true
+agentPipeline: [hatch3r-greenfield-spec, hatch3r-brownfield-spec]
+sub_agents_spawned:
+  count: 1
+  rationale: A single spec author writes the document`,
+      `# Spec\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    const low = result.findings.find((f) => f.code === "P8-FANOUT-COUNT-LOW");
+    expect(low).toBeDefined();
+    expect(low?.level).toBe("warning");
+    expect(low?.message).toMatch(/below the 2 distinct/);
+  });
+
+  it("suppresses P8-FANOUT-COUNT-LOW when the rationale states a conditional-dispatch reason", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-spec.md"),
+      `id: hatch3r-spec
+type: command
+description: Spec
+orchestrator: true
+agentPipeline: [hatch3r-greenfield-spec, hatch3r-brownfield-spec]
+sub_agents_spawned:
+  count: 1
+  rationale: One spec sub-agent per invocation chosen between greenfield and brownfield by project-state detection — mutually exclusive, not parallel`,
+      `# Spec\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    expect(result.warningCount).toBe(0);
+    expect(result.findings.some((f) => f.code === "P8-FANOUT-COUNT-LOW")).toBe(false);
+  });
+
+  it("does NOT raise P8-FANOUT-COUNT-LOW when count meets the non-specialist floor", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-bug-pipeline.md"),
+      `id: hatch3r-bug-pipeline
+type: command
+description: Bug pipeline
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer]
+sub_agents_spawned:
+  count: 4
+  rationale: A four-stage pipeline — researcher, implementer, reviewer, fixer — each a distinct worker`,
+      `# Bug pipeline\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    expect(result.warningCount).toBe(0);
+    expect(result.findings).toHaveLength(0);
+  });
+
+  it("excludes the 9 CQ-vector specialists from the count floor", async () => {
+    // count 2 against an 11-wide pipeline, but 9 are advisory CQ specialists,
+    // so the non-specialist floor is 2 and the heuristic does not fire.
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-feature-plan.md"),
+      `id: hatch3r-feature-plan
+type: command
+description: Feature plan
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
+sub_agents_spawned:
+  count: 2
+  rationale: A researcher and a docs-writer compose the spec on the merged module-impact analysis; the 9 CQ vectors advise pre-write`,
+      `# Feature plan\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    expect(result.findings.some((f) => f.code === "P8-FANOUT-COUNT-LOW")).toBe(false);
+  });
+
+  it("WARNs (not errors) when a multi-agent rationale names no decomposition basis", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-thing.md"),
+      `id: hatch3r-thing
+type: command
+description: Thing
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
+sub_agents_spawned:
+  count: 2
+  rationale: Some agents do the work and produce output`,
+      `# Thing\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    const basis = result.findings.find((f) => f.code === "P8-FANOUT-BASIS-MISS");
+    expect(basis).toBeDefined();
+    expect(basis?.level).toBe("warning");
+  });
+
+  it("does NOT raise P8-FANOUT-BASIS-MISS when the rationale names a decomposition basis", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-bug-plan.md"),
+      `id: hatch3r-bug-plan
+type: command
+description: Bug plan
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
+sub_agents_spawned:
+  count: 4
+  rationale: Four parallel researcher modes — symptom-trace, root-cause-hypothesis, impact-assessment, regression-research — dispatched concurrently; a docs-writer assembles the report`,
+      `# Bug plan\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    expect(result.warningCount).toBe(0);
+    expect(result.findings).toHaveLength(0);
+  });
+
+  it("exempts a single-agent pipeline from both consistency heuristics", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-create.md"),
+      `id: hatch3r-create
+type: command
+description: Create
+orchestrator: true
+agentPipeline: [hatch3r-creator]
+sub_agents_spawned:
+  count: 1
+  rationale: A single creator scaffolds the artifact`,
+      `# Create\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    expect(result.warningCount).toBe(0);
+    expect(result.findings).toHaveLength(0);
+  });
 });
 
 // ── Shipped-corpus regression gate ───────────────────────────────────

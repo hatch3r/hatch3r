@@ -1,4 +1,4 @@
-import { readFile, mkdir, copyFile, symlink, lstat, unlink } from "node:fs/promises";
+import { readFile, mkdir, copyFile, symlink, lstat, unlink, readdir, rmdir } from "node:fs/promises";
 import { constants as fsConstants } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join, relative, dirname } from "node:path";
@@ -442,13 +442,106 @@ export async function setupWorktree(
 // ─── Cleanup ─────────────────────────────────────────────────────────────────
 
 /**
+ * Recursively removes the worktree copy of a copy-strategy directory entry.
+ *
+ * D1-33 (Cycle 11 Wave 3, D1, P2): `cleanupWorktree`'s per-entry branch only
+ * removed byte-equal regular FILES (`lstat(...).isFile()`). Every copy-strategy
+ * DIRECTORY entry (`.claude/`, `.cursor/`, `.github/*`, `docs/specs/`,
+ * `.hatch3r/learnings|handoffs`) resolves to `isDirectory()`, fell through both
+ * the symlink and file branches, and leaked on cleanup. `setupWorktree`
+ * materializes those directories as per-file copies (one regular file per
+ * resolved path), so the inverse of setup is a per-file removal walk: unlink
+ * each worktree file that is byte-equal to its `mainRoot` counterpart, then
+ * remove any directory that becomes empty (bottom-up). User-added files and
+ * files the user edited (no longer byte-equal to source) are preserved, and a
+ * directory that still holds a preserved file is left in place — matching the
+ * file branch's "exact matches of the source (not user-modified)" contract.
+ *
+ * `worktreeDir` and `sourceDir` are absolute paths to the same relative
+ * subtree in the worktree and the main repo respectively. Returns true when the
+ * directory was removed (became empty), false when at least one entry survived.
+ * Probe failures (unreadable file, races) are recorded via verbose() and treated
+ * as "preserve" so cleanup never deletes a path it could not prove is a
+ * byte-equal source copy.
+ */
+async function cleanupCopyDirectory(
+  worktreeDir: string,
+  sourceDir: string,
+): Promise<boolean> {
+  let dirEntries: import("node:fs").Dirent[];
+  try {
+    dirEntries = await readdir(worktreeDir, { withFileTypes: true });
+  } catch (err) {
+    recordWorktreeProbeFailure(`cleanupWorktree: readdir(${worktreeDir}) failed — skipping`, err);
+    return false;
+  }
+
+  let allRemoved = true;
+  for (const dirent of dirEntries) {
+    const childWorktree = join(worktreeDir, dirent.name);
+    const childSource = join(sourceDir, dirent.name);
+
+    if (dirent.isSymbolicLink()) {
+      // A symlink inside a copy directory was not created by the copy walk
+      // (setup copies regular files only). Leave it for the user.
+      allRemoved = false;
+      continue;
+    }
+
+    if (dirent.isDirectory()) {
+      const childEmptied = await cleanupCopyDirectory(childWorktree, childSource);
+      if (!childEmptied) allRemoved = false;
+      continue;
+    }
+
+    if (dirent.isFile()) {
+      try {
+        const sourceContent = await readFile(childSource, "utf-8");
+        const targetContent = await readFile(childWorktree, "utf-8");
+        if (sourceContent === targetContent) {
+          await unlink(childWorktree);
+        } else {
+          // User-modified (diverged from source) — preserve.
+          allRemoved = false;
+        }
+      } catch (err) {
+        // Source missing (user-added file) or unreadable — preserve.
+        recordWorktreeProbeFailure(
+          `cleanupWorktree: preserved ${childWorktree} (source/target unreadable or user-added)`,
+          err,
+        );
+        allRemoved = false;
+      }
+      continue;
+    }
+
+    // FIFO, socket, block/char device — not a setup artifact. Preserve.
+    allRemoved = false;
+  }
+
+  if (allRemoved) {
+    try {
+      await rmdir(worktreeDir);
+    } catch (err) {
+      // Lost a race or a non-empty residue appeared — leave it; the next run
+      // is idempotent. Record the probe so --verbose surfaces it.
+      recordWorktreeProbeFailure(`cleanupWorktree: rmdir(${worktreeDir}) failed — leaving in place`, err);
+      return false;
+    }
+    return true;
+  }
+  return false;
+}
+
+/**
  * Removes symlinks and copied files that were created by `setupWorktree`.
  * Reads the `.worktreeinclude` from the worktree root (it may have been
  * symlinked or copied in), falling back to the main worktree if not found.
  *
  * #110: Handles both symlink and copy strategy entries. Symlinks are always
  * removed; copied files are only removed if they are exact matches of the
- * source (not user-modified).
+ * source (not user-modified). D1-33: copy-strategy directory entries are
+ * recursed into via `cleanupCopyDirectory` so they no longer leak.
  */
 export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
   let content: string | null = null;
@@ -505,6 +598,12 @@ export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
             err,
           );
         }
+      } else if (entry.strategy === "copy" && stat.isDirectory() && mainRoot) {
+        // D1-33: copy-strategy directory entry — recurse, removing byte-equal
+        // source copies and pruning emptied directories bottom-up while
+        // preserving user-added or user-modified files.
+        const sourcePath = join(mainRoot, entry.pattern.replace(/\/$/, ""));
+        await cleanupCopyDirectory(targetPath, sourcePath);
       }
     } catch (err) {
       recordWorktreeProbeFailure(

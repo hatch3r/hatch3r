@@ -1784,9 +1784,10 @@ async function validateContentBody(
       // `rules/hatch3r-clarification-default.md`. Enforce it here so an artifact
       // that drops the gate fails CI rather than silently shipping without
       // clarification-default behavior. Reference subdirectories
-      // (agents/shared, agents/modes, commands/board, commands/revision) are
-      // companion material, not standalone mutating artifacts, so they are
-      // exempt — matching the prefix-exemption split in content-authoring.
+      // (agents/shared, agents/modes, commands/board, commands/revision,
+      // commands/shared) are companion material, not standalone mutating
+      // artifacts, so they are exempt — matching the prefix-exemption split in
+      // content-authoring.
       if (requiresAmbiguityGate(dir, fileLabel)) {
         const gate = checkAmbiguityGate(body);
         if (!gate.hasMarker) {
@@ -1812,8 +1813,8 @@ async function validateContentBody(
  * F13.5-F01 (D13): which scanned files must carry the §0 ambiguity gate.
  * Applies to top-level published agents, commands, and skills. Companion
  * material under reference subdirectories (agents/shared, agents/modes,
- * commands/board, commands/revision) is exempt — it is not a standalone
- * mutating artifact, mirroring the filename-prefix exemption in
+ * commands/board, commands/revision, commands/shared) is exempt — it is not a
+ * standalone mutating artifact, mirroring the filename-prefix exemption in
  * `.claude/rules/content-authoring.md`.
  */
 export function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
@@ -1823,6 +1824,7 @@ export function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
     "agents/modes/",
     "commands/board/",
     "commands/revision/",
+    "commands/shared/", // shared command boilerplate (e.g. orchestration-frame.md, type: shared-context) — companion material cited by orchestrators, not a standalone mutating command
     "skills/hatch3r-board-shared/", // board companion skill (parity with commands/board/)
   ];
   if (EXEMPT_SUBDIRS.some((prefix) => fileLabel.startsWith(prefix))) return false;

@@ -869,6 +869,170 @@ export function detectOscillation(state: ReviewLoopState): {
   return { oscillating: false, description: "No oscillation detected" };
 }
 
+// ── Suppression-Pattern Detection (Finding D7-15) ───────────────
+
+/**
+ * Suppression-pattern class surfaced by {@link detectSuppressionPatterns}.
+ *
+ * Each value names one superficial-fix class the
+ * `rules/hatch3r-agent-orchestration.md` -> Root-Cause Depth Requirements
+ * section instructs the orchestrator to reject as PARTIAL:
+ *
+ * - `as_any`            — a TypeScript `as any` (or `<any>`) cast that erases a
+ *                          type mismatch instead of fixing the type at source.
+ * - `eslint_disable`    — an `eslint-disable[-next-line|-line]` directive with
+ *                          no issue-reference token, suppressing a lint rule
+ *                          rather than fixing the underlying pattern. A directive
+ *                          carrying an issue reference (`#123`, a URL, or
+ *                          `TODO(...)`/`see ...`) is treated as tracked and NOT
+ *                          flagged.
+ * - `test_skip`         — a `test.skip` / `it.skip` / `describe.skip` / `xit` /
+ *                          `xdescribe` (or a `// @ts-expect-error`-style skip
+ *                          marker) with no linked issue reference, disabling a
+ *                          test instead of fixing the code that breaks it.
+ *                          (`.claude/rules/test-requirements.md` forbids
+ *                          `test.skip`/`test.todo` without a tracking issue.)
+ */
+export type SuppressionPatternKind = "as_any" | "eslint_disable" | "test_skip";
+
+/** One detected suppression-pattern occurrence. */
+export interface SuppressionPatternHit {
+  kind: SuppressionPatternKind;
+  /** The trimmed added line the pattern was found on (diff prefix stripped). */
+  line: string;
+  /** 1-based index of the matching added line within the scanned diff. */
+  addedLineIndex: number;
+}
+
+export interface SuppressionScanResult {
+  /** True when at least one suppression pattern was found in added lines. */
+  found: boolean;
+  hits: SuppressionPatternHit[];
+  /** Human-readable advisory summarizing the hits (empty when none). */
+  description: string;
+}
+
+/**
+ * Whether a line carries an issue-reference token that marks a suppression as
+ * tracked rather than ad-hoc. Mirrors the `.claude/rules/test-requirements.md`
+ * "without a tracking issue reference" exception and the Root-Cause Depth
+ * "test skips without linked issues" wording: an issue number (`#123`), a URL,
+ * or a `TODO(...)` / `see ...` pointer is accepted as a reference.
+ */
+function hasIssueReference(line: string): boolean {
+  return (
+    /#\d+/.test(line) ||
+    /https?:\/\/\S+/.test(line) ||
+    /\b(?:TODO|FIXME)\s*\([^)]+\)/i.test(line) ||
+    /\bsee\s+\S+/i.test(line)
+  );
+}
+
+/**
+ * Scan a unified diff for superficial-fix suppression patterns (Finding D7-15).
+ *
+ * The hatch3r pipeline is LLM-orchestrator-driven, so the
+ * `rules/hatch3r-agent-orchestration.md` -> Root-Cause Depth Requirements
+ * directive ("Reject superficial fixes from any subagent. If a fixer's output
+ * contains suppression patterns ... classify as PARTIAL and re-run") had no
+ * machine-checkable counterpart — unlike the oscillation, cost-budget, and
+ * confidence gates, which all carry typed contracts + tests. This pure function
+ * is that counterpart: the orchestrator/reviewer runs it over the Phase-2 /
+ * Phase-3 fixer diff and consults `found` the same advisory way the orchestrator
+ * consults {@link detectOscillation}. It does NOT mutate state or terminate the
+ * loop; the reviewer remains the decision authority (it may downgrade the
+ * verdict to a Warning/Critical finding so the existing review gate handles the
+ * re-run). Modeled on `detectOscillation`'s shape (read-only, returns a
+ * structured advisory with a description string).
+ *
+ * Only ADDED lines are scanned (diff lines beginning with a single `+`, but not
+ * the `+++` file header) — a suppression already present in the pre-image is not
+ * introduced by this change. A plain (non-diff) code string is scanned in full,
+ * so a caller can pass either a `git diff` or a raw added-code snippet.
+ *
+ * The three detected classes match the Root-Cause Depth examples verbatim:
+ * `as any` casts (type-error suppression), `eslint-disable` without an issue
+ * reference (lint suppression), and `test.skip`/`it.skip`/`describe.skip`
+ * without a linked issue (test suppression). An `eslint-disable` or skip that
+ * carries an issue reference ({@link hasIssueReference}) is treated as tracked
+ * and not flagged, matching the "without linked issues" qualifier.
+ */
+export function detectSuppressionPatterns(diff: string): SuppressionScanResult {
+  if (typeof diff !== "string" || diff.length === 0) {
+    return { found: false, hits: [], description: "No suppression patterns detected" };
+  }
+
+  const lines = diff.split("\n");
+  // When the input looks like a unified diff (has at least one +/-/@@ marker),
+  // scan only added lines; otherwise treat the whole input as added code.
+  const looksLikeDiff = lines.some(
+    (l) => /^\+(?!\+\+)/.test(l) || /^-(?!--)/.test(l) || l.startsWith("@@"),
+  );
+
+  const hits: SuppressionPatternHit[] = [];
+  let addedLineIndex = 0;
+
+  for (const raw of lines) {
+    let content: string;
+    if (looksLikeDiff) {
+      // Skip everything that is not a genuine added line.
+      if (!/^\+(?!\+\+)/.test(raw)) continue;
+      content = raw.slice(1);
+    } else {
+      content = raw;
+    }
+    addedLineIndex += 1;
+    const trimmed = content.trim();
+    if (trimmed.length === 0) continue;
+
+    // `as any` / `<any>` cast (type-error suppression). Word-boundary the
+    // `any` so identifiers like `anything` or `Many` do not match.
+    if (/\bas\s+any\b/.test(content) || /<\s*any\s*>/.test(content)) {
+      hits.push({ kind: "as_any", line: trimmed, addedLineIndex });
+      continue;
+    }
+
+    // eslint-disable directive without an issue reference (lint suppression).
+    if (/eslint-disable(?:-next-line|-line)?\b/.test(content) && !hasIssueReference(content)) {
+      hits.push({ kind: "eslint_disable", line: trimmed, addedLineIndex });
+      continue;
+    }
+
+    // Skipped test without a linked issue (test suppression). Covers the
+    // method-call form (`test.skip(`, `it.skip(`, `describe.skip(`) and the
+    // x-prefixed form (`xit(`, `xdescribe(`).
+    if (
+      (/\b(?:test|it|describe|context)\s*\.\s*skip\b/.test(content) ||
+        /\bx(?:it|describe)\s*\(/.test(content)) &&
+      !hasIssueReference(content)
+    ) {
+      hits.push({ kind: "test_skip", line: trimmed, addedLineIndex });
+      continue;
+    }
+  }
+
+  if (hits.length === 0) {
+    return { found: false, hits: [], description: "No suppression patterns detected" };
+  }
+
+  const byKind = hits.reduce<Record<string, number>>((acc, h) => {
+    acc[h.kind] = (acc[h.kind] ?? 0) + 1;
+    return acc;
+  }, {});
+  const summary = Object.entries(byKind)
+    .map(([k, n]) => `${k}=${n}`)
+    .join(", ");
+
+  return {
+    found: true,
+    hits,
+    description:
+      `Suppression patterns detected in added lines (${summary}): superficial-fix signals ` +
+      `the reviewer should reject as a root-cause gap (classify the fixer pass PARTIAL and ` +
+      `re-run for a root-cause fix) per rules/hatch3r-agent-orchestration.md Root-Cause Depth Requirements.`,
+  };
+}
+
 /**
  * Get a summary string for the review loop state.
  *

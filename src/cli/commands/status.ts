@@ -201,11 +201,12 @@ function readSpaceTelemetrySummary(rootDir: string): SpaceTelemetrySummary {
  * atomic (old or new bytes, never a half-written file), but the manifest the
  * concurrent sync is mutating (e.g. adding/removing a tool) and the on-disk
  * files can momentarily belong to different generations, yielding a transient
- * "modified"/"unexpected" entry. The advisory `.hatch3r/.lock` that top-level
- * orchestrator pipelines acquire (see `rules/hatch3r-agent-orchestration.md`
- * -> Concurrent Invocation Handling) is the coordination point; a drift report
- * produced while that lock is held by a writer is a snapshot of an in-flight
- * state. Re-run after the writer completes for an authoritative report; do not
+ * "modified"/"unexpected" entry. The advisory `.hatch3r/.lock` note that
+ * top-level orchestrator pipelines write (see `rules/hatch3r-agent-orchestration.md`
+ * -> Concurrent Invocation Handling) is a best-effort coordination point, NOT a
+ * mutual-exclusion primitive (D7-27: no atomic acquire ships; the note is TOCTOU
+ * by construction); a drift report produced while a writer holds that note is a
+ * snapshot of an in-flight state. Re-run after the writer completes for an authoritative report; do not
  * run `status`/`verify` in parallel with `sync` and treat the result as final.
  *
  * D2-SA2.7-F8 (D2, P7) — cost note: there is no result cache. Each invocation

@@ -1,7 +1,8 @@
 import { describe, it, expect } from "vitest";
-import { execFileSync } from "node:child_process";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
+import { execFileSync, spawn } from "node:child_process";
+import { existsSync, mkdtempSync, rmSync } from "node:fs";
+import { resolve, join } from "node:path";
+import { tmpdir } from "node:os";
 
 const CLI_PATH = resolve(import.meta.dirname, "../../../dist/cli/index.js");
 
@@ -118,5 +119,69 @@ describe.skipIf(!HAS_DIST)("CLI entry point (src/cli/index.ts)", () => {
       expect(stderr).toContain("debug");
       expect(stderr).toContain("/debug");
     });
+  });
+
+  // ── D3-12 (Cycle 11 Wave 3): POSIX signal → exit-code contract ───────────────
+  //
+  // src/cli/index.ts maps SIGINT→130, SIGTERM→143, SIGHUP→129 via
+  // SIGNAL_EXIT_CODES, registered at module top. Before this wave only SIGINT=130
+  // was covered (errors.test.ts asserts 130 through formatActionableError, which
+  // never produces 143/129), so the SIGTERM=143 and SIGHUP=129 branches — the
+  // container/CI/SSH-disconnect shutdown signals cli-ux-standards.md mandates —
+  // had zero coverage. These subprocess cases launch a long-parking command
+  // (interactive `init` in an empty temp dir, blocking on piped stdin), send the
+  // signal, and assert the child exits with 128 + signal number.
+  //
+  // SIGTERM/SIGHUP delivery to a child and the 128+n convention are POSIX, so
+  // these run on the unix CI legs; on win32 (which lacks real POSIX signals and
+  // synthesizes termination) they are skipped.
+  describe.skipIf(process.platform === "win32")("signal exit codes (D3-12)", () => {
+    /**
+     * Spawn the CLI on a parking command, wait until it has emitted output
+     * (prompt rendered → signal handler installed and event loop live), send
+     * the signal, and resolve with the observed exit code. Falls back to a
+     * timer if no output appears so the test cannot hang.
+     */
+    function runUntilSignal(
+      signal: NodeJS.Signals,
+    ): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
+      const cwd = mkdtempSync(join(tmpdir(), "hatch3r-signal-test-"));
+      return new Promise((resolvePromise) => {
+        const child = spawn("node", [CLI_PATH, "init"], {
+          cwd,
+          stdio: ["pipe", "pipe", "pipe"],
+          env: { ...process.env, NODE_NO_WARNINGS: "1", HATCH3R_NO_UPDATE_CHECK: "1" },
+        });
+
+        let signalled = false;
+        const sendSignal = (): void => {
+          if (signalled) return;
+          signalled = true;
+          child.kill(signal);
+        };
+        // Fire on first output (the prompt) — handler is registered
+        // synchronously at module top, so it is always present by the time any
+        // byte is written. Fallback timer guards the no-output case.
+        child.stdout.on("data", () => setTimeout(sendSignal, 50));
+        child.stderr.on("data", () => setTimeout(sendSignal, 50));
+        const fallback = setTimeout(sendSignal, 2_000);
+
+        child.on("close", (code, sig) => {
+          clearTimeout(fallback);
+          rmSync(cwd, { recursive: true, force: true });
+          resolvePromise({ code, signal: sig });
+        });
+      });
+    }
+
+    it("exits 143 on SIGTERM", async () => {
+      const { code } = await runUntilSignal("SIGTERM");
+      expect(code).toBe(143);
+    }, 15_000);
+
+    it("exits 129 on SIGHUP", async () => {
+      const { code } = await runUntilSignal("SIGHUP");
+      expect(code).toBe(129);
+    }, 15_000);
   });
 });

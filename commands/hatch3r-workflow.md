@@ -275,18 +275,19 @@ Implementation Plan:
 
 ### Phase 3: Implement
 
-**Goal:** Execute the plan using the selected hatch3r skill, delegating to sub-agents per the Universal Sub-Agent Pipeline.
+**Goal:** Execute the plan using the selected hatch3r skill, delegating to sub-agents per the Universal sub-agent Pipeline.
 
-#### 3a. Context Gathering (Researcher Sub-Agent)
+#### 3a. Context Gathering (Researcher sub-agent)
 
 You MUST spawn a `hatch3r-researcher` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) before implementation. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes).
 
 - Select research modes by task type (bug → symptom-trace/root-cause/codebase-impact, feature → codebase-impact/feature-design/architecture, refactor → current-state/refactoring-strategy/migration-path, QA → codebase-impact).
 - Add tier-appropriate modes per the `hatch3r-deep-context` rule if not already run in Phase 1 Step 1b.
 - Use depth `quick` for low-risk, `standard` for medium-risk, `deep` for high-risk. The complexity tier may override depth upward.
-- Await the researcher result. Use its structured output to inform Step 3b.
+- **Question decomposition (K-parallel-researcher path, per `rules/hatch3r-agent-orchestration.md` → Scaling Heuristic):** when the task decomposes into ≥2 independent research questions — answers that do not depend on each other (e.g. "what is the current auth flow?" and "what does the billing webhook expect?" for a cross-cutting feature) — spawn one `hatch3r-researcher` sub-agent per question in parallel (each scoped to its question with the modes above), then union their structured findings into a single Phase-1 brief before Step 3b. This is the parallel-safe Phase-1 case (read-only, deterministic union, no shared mutable state per the Three Conditions to Parallelize). Keep the single-researcher path for a single-question task; do not serialize independent questions to save tokens (P8 dominates P7).
+- Await the researcher result(s). Use the structured output (unioned across researchers when fanned out) to inform Step 3b.
 
-#### 3b. Core Implementation (Implementer Sub-Agent)
+#### 3b. Core Implementation (Implementer sub-agent)
 
 You MUST spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Do NOT implement inline — always delegate to a dedicated implementer.
 
@@ -329,7 +330,7 @@ Fix any issues before proceeding. If quality checks fail, loop back and resolve 
 
 ---
 
-### Phase 4: Review (Sub-Agent Quality Pipeline)
+### Phase 4: Review (sub-agent Quality Pipeline)
 
 **Goal:** Verify quality and completeness via a two-stage sub-agent pipeline before finalizing. The Review Loop (4a) iterates until code quality is clean, then Final Quality (4b) runs remaining specialists in parallel.
 
@@ -450,7 +451,7 @@ Collapses the 4 phases into a streamlined flow for small, well-defined tasks. Su
 2. Run quality checks (lint, typecheck, test).
 3. Fix any issues before proceeding.
 
-### Quick Step 3: Quick Review (Sub-Agent Quality Pipeline)
+### Quick Step 3: Quick Review (sub-agent Quality Pipeline)
 
 Same two-stage pipeline as Full Mode, with lighter prompts:
 

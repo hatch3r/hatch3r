@@ -256,7 +256,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "bodyHash": "be22bc55886a888bb476320bc3ce636be8da420ae1d6d6b3c9cd6b2728b8150a",
+    "bodyHash": "e82ad8703cb62984c3d519c6ca036d89ab7b7b699d22d6167f7bd3783c5ea5b3",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",

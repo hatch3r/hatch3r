@@ -9,6 +9,7 @@ import {
   reviewLoopSummary,
   reviewLoopConfidence,
   detectOscillation,
+  detectSuppressionPatterns,
   enforceReviewIteration,
   assertReviewIterationAllowed,
   evaluateReviewGate,
@@ -703,6 +704,106 @@ describe("reviewLoop", () => {
       const result = detectOscillation(state);
       expect(result.oscillating).toBe(true);
       expect(result.description).toContain("oscillation detected");
+    });
+  });
+
+  describe("detectSuppressionPatterns (Finding D7-15)", () => {
+    it("returns not-found for empty / non-string input", () => {
+      expect(detectSuppressionPatterns("").found).toBe(false);
+      // @ts-expect-error — defensive: callers may pass undefined from a missing diff
+      expect(detectSuppressionPatterns(undefined).found).toBe(false);
+      expect(detectSuppressionPatterns("   \n  \n").found).toBe(false);
+    });
+
+    it("flags an `as any` cast on an added line", () => {
+      const diff = ["+const x = payload as any;"].join("\n");
+      const result = detectSuppressionPatterns(diff);
+      expect(result.found).toBe(true);
+      expect(result.hits.map((h) => h.kind)).toContain("as_any");
+      expect(result.hits[0].line).toBe("const x = payload as any;");
+      expect(result.description).toContain("as_any=1");
+    });
+
+    it("flags an angle-bracket `<any>` cast", () => {
+      const result = detectSuppressionPatterns("+const y = <any>raw;");
+      expect(result.found).toBe(true);
+      expect(result.hits.map((h) => h.kind)).toContain("as_any");
+    });
+
+    it("does NOT flag identifiers that merely contain 'any' (e.g. anything, Many)", () => {
+      const result = detectSuppressionPatterns("+const anything = manyValues.asString();");
+      expect(result.found).toBe(false);
+    });
+
+    it("flags an eslint-disable directive with no issue reference", () => {
+      const result = detectSuppressionPatterns("+// eslint-disable-next-line no-explicit-any");
+      expect(result.found).toBe(true);
+      expect(result.hits.map((h) => h.kind)).toContain("eslint_disable");
+    });
+
+    it("does NOT flag an eslint-disable that carries an issue reference", () => {
+      const withIssue = detectSuppressionPatterns(
+        "+// eslint-disable-next-line no-console -- see #1234 tracked",
+      );
+      expect(withIssue.found).toBe(false);
+      const withUrl = detectSuppressionPatterns(
+        "+/* eslint-disable no-console */ // https://example.com/issues/9",
+      );
+      expect(withUrl.found).toBe(false);
+    });
+
+    it("flags test.skip / it.skip / describe.skip with no linked issue", () => {
+      expect(detectSuppressionPatterns("+test.skip('flaky', () => {});").found).toBe(true);
+      expect(detectSuppressionPatterns("+  it.skip('todo', () => {});").found).toBe(true);
+      expect(detectSuppressionPatterns("+describe.skip('suite', () => {});").found).toBe(true);
+      expect(detectSuppressionPatterns("+xit('later', () => {});").found).toBe(true);
+      expect(
+        detectSuppressionPatterns("+test.skip('x', () => {});").hits.map((h) => h.kind),
+      ).toContain("test_skip");
+    });
+
+    it("does NOT flag a skipped test that links an issue reference", () => {
+      const result = detectSuppressionPatterns(
+        "+test.skip('blocked on #42', () => {}); // see https://tracker/42",
+      );
+      expect(result.found).toBe(false);
+    });
+
+    it("scans only added lines in a unified diff (ignores context + removed lines)", () => {
+      const diff = [
+        "@@ -1,3 +1,3 @@",
+        " const keep = value as string;",
+        "-const old = value as any;",
+        "+const next = value as number;",
+      ].join("\n");
+      // The only `as any` is on a removed line; the added line is a clean cast.
+      const result = detectSuppressionPatterns(diff);
+      expect(result.found).toBe(false);
+    });
+
+    it("treats a non-diff code snippet as fully added code", () => {
+      const snippet = "function f() {\n  return x as any;\n}";
+      const result = detectSuppressionPatterns(snippet);
+      expect(result.found).toBe(true);
+      expect(result.hits.map((h) => h.kind)).toContain("as_any");
+    });
+
+    it("does not flag the `+++` file header as an added line", () => {
+      const diff = ["+++ b/src/foo.ts", "+const ok = value as number;"].join("\n");
+      expect(detectSuppressionPatterns(diff).found).toBe(false);
+    });
+
+    it("aggregates multiple distinct suppression kinds in one diff", () => {
+      const diff = [
+        "+const a = x as any;",
+        "+// eslint-disable-next-line no-unused-vars",
+        "+it.skip('wip', () => {});",
+      ].join("\n");
+      const result = detectSuppressionPatterns(diff);
+      expect(result.found).toBe(true);
+      const kinds = new Set(result.hits.map((h) => h.kind));
+      expect(kinds).toEqual(new Set(["as_any", "eslint_disable", "test_skip"]));
+      expect(result.hits).toHaveLength(3);
     });
   });
 

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-agent-orchestration
 type: rule
-description: Mandatory agent delegation, skill loading, and subagent usage directives for ALL tasks in ALL contexts
+description: Mandatory agent delegation, skill loading, and sub-agent usage directives for ALL tasks in ALL contexts
 scope: always
 tags: [orchestration, floor:protocol]
 precedence: high
@@ -10,7 +10,7 @@ cache_friendly: true
 ---
 # Agent Orchestration
 
-This rule governs when and how to delegate work to hatch3r agents, load skills, and spawn subagents — mandatory directives, not suggestions. Hatch3r orchestration is a **phase-gated pipeline** (not free-form agent chat) with **structured handoffs** via `PipelineContext` and a **mandatory review gate** before the quality phase. For extended reference (PipelineContext schemas, resilience/failure handling, observability), see `hatch3r-agent-orchestration-detail`.
+This rule governs when and how to delegate work to hatch3r agents, load skills, and spawn sub-agents — mandatory directives, not suggestions. Hatch3r orchestration is a **phase-gated pipeline** (not free-form agent chat) with **structured handoffs** via `PipelineContext` and a **mandatory review gate** before the quality phase. For extended reference (PipelineContext schemas, resilience/failure handling, observability), see `hatch3r-agent-orchestration-detail`.
 
 ## Universal Applicability
 
@@ -163,9 +163,9 @@ Load the matching skill before implementation: `type:bug` → `hatch3r-bug-fix`;
 
 ## Subagent Spawning Protocol
 
-Use `subagent_type: "generalPurpose"` for all delegations. Include the agent protocol (the hatch3r role id, e.g. `hatch3r-reviewer`, named in the prompt), applicable `scope: always` rules, tooling hierarchy, and relevant learnings. Launch independent subagents in parallel (maximum parallelism); await and review results, surfacing BLOCKED or PARTIAL to the user.
+Use `subagent_type: "generalPurpose"` for all delegations. Include the agent protocol (the hatch3r role id, e.g. `hatch3r-reviewer`, named in the prompt), applicable `scope: always` rules, tooling hierarchy, and relevant learnings. Launch independent sub-agents in parallel (maximum parallelism); await and review results, surfacing BLOCKED or PARTIAL to the user.
 
-**Tool-allowlist enforcement boundary (ASI02/ASI03).** The generic-spawn convention has a trust-boundary consequence the orchestrator MUST account for: the Claude Code PreToolUse hook (`src/pipeline/agentToolAllowlist.ts::buildClaudePreToolUseHookScript`) gates only when the payload `agent_type` starts with `hatch3r-`; a `generalPurpose` spawn carries Claude Code's own `agent_type` (`general-purpose`), so the runtime hook passes it through (this is intentional — Claude Code's built-in subagents must not be governed by hatch3r policy). Therefore the **active** allowlist enforcement for delegated hatch3r work is the orchestrator-boundary gate `checkToolAccess(roleId, toolCategory)` (`src/pipeline/agentToolAllowlist.ts`), which the orchestrator applies using the hatch3r role id it placed in the prompt — deny-by-default before forwarding a tool category to the sub-agent. The runtime PreToolUse hook is a defense-in-depth second layer that fires only for adapters/sessions that spawn role-bearing native subagents (`subagent_type: "hatch3r-<role>"`); under the generic-spawn default it does not fire, and the boundary gate is the sole enforcement point.
+**Tool-allowlist enforcement boundary (ASI02/ASI03).** The generic-spawn convention has a trust-boundary consequence the orchestrator MUST account for: the Claude Code PreToolUse hook (`src/pipeline/agentToolAllowlist.ts::buildClaudePreToolUseHookScript`) gates only when the payload `agent_type` starts with `hatch3r-`; a `generalPurpose` spawn carries Claude Code's own `agent_type` (`general-purpose`), so the runtime hook passes it through (this is intentional — Claude Code's built-in sub-agents must not be governed by hatch3r policy). Therefore the **active** allowlist enforcement for delegated hatch3r work is the orchestrator-boundary gate `checkToolAccess(roleId, toolCategory)` (`src/pipeline/agentToolAllowlist.ts`), which the orchestrator applies using the hatch3r role id it placed in the prompt — deny-by-default before forwarding a tool category to the sub-agent. The runtime PreToolUse hook is a defense-in-depth second layer that fires only for adapters/sessions that spawn role-bearing native sub-agents (`subagent_type: "hatch3r-<role>"`); under the generic-spawn default it does not fire, and the boundary gate is the sole enforcement point.
 
 ## Parallel Safety
 
@@ -179,11 +179,11 @@ ALL three must hold: (1) **read-only or disjoint writes** (no conflict zone); (2
 
 **Cost-Dominance Principle.** Token cost of sub-agent invocation never justifies serialization of independent work. The three safety conditions govern WHEN parallelism is safe; cost does not govern WHETHER to parallelize. When in doubt, fan out. Serialization is only valid on true dependency edges.
 
-**Scaling Heuristic.** Sub-agent count tracks task decomposition: N independent modules → N parallel Phase-2 implementers; M specialist gates → M parallel Phase-4 specialists; K independent research questions → K parallel researcher modes. Orchestrators emit `sub_agents_spawned: {count, rationale}` in their structured output.
+**Scaling Heuristic.** Sub-agent count tracks task decomposition: N independent modules → N parallel Phase-2 implementers; M specialist gates → M parallel Phase-4 specialists; K independent research questions → K parallel `hatch3r-researcher` sub-agents (one per question, findings unioned post-Phase-1). The K-parallel-researcher path is mandatory only when Phase 1 decomposes into ≥2 questions whose answers do not depend on each other; a single-question task keeps one researcher running its mode set serially. Orchestrators emit `sub_agents_spawned: {count, rationale}` in their structured output.
 
 ### Concurrent Invocation Handling
 
-Two top-level pipelines running at once (e.g. `hatch3r-workflow` in one shell, `hatch3r-board-pickup` in another) are bounded by the same three conditions, applied cross-pipeline (D7-SA7.5-F7.5.6): (1) **Lockfile** — before Phase 1, the orchestrator acquires `.hatch3r/.lock` (JSON: `pid`, `command`, `branch`, `correlation_id`, `started_at`); release on completion/abort; a lock older than 6h is stale and reclaimable. (2) **Detect-then-warn** — if a live lock names the same branch or an open `.hatch3r/hatch.json` board transaction, WARN and ASK (proceed on a separate branch / wait / abort); never silently co-mutate shared state. (3) **Cache-sharing** — `.hatch3r/learnings/` is read-many, write-once-at-completion with timestamp-ordered conflict resolution. Cross-task context sharing is bounded by condition 3 (no shared mutable state): learnings consolidate at pipeline completion; mid-pipeline writes are out of scope to preserve parallel-safety determinism (D7-SA7.5-F7.5.8). Each command's Guardrails cite this subsection.
+Two top-level pipelines running at once (e.g. `hatch3r-workflow` in one shell, `hatch3r-board-pickup` in another) are bounded by the same three conditions, applied cross-pipeline (D7-SA7.5-F7.5.6): (1) **Advisory lock-note (best-effort, NOT atomic — D7-27)** — before Phase 1, the orchestrator writes/reads `.hatch3r/.lock` (JSON: `pid`, `command`, `branch`, `correlation_id`, `started_at`); clear on completion/abort; treat a note older than 6h as stale. This is an advisory coordination note, not a mutual-exclusion primitive: there is no `hatch3r` lock verb and no atomic acquire in `src/` (the only cross-process lock that ships is `acquireWriteLock` in `src/merge/safeWrite.ts`, scoped to single-file atomic writes, not top-level pipelines), so the LLM orchestrator's read-then-write is TOCTOU by construction and `src/cli/commands/status.ts` already labels this file "advisory". It exists to surface a likely collision, never to guarantee exclusion. (2) **Detect-then-warn** — if a live note names the same branch or an open `.hatch3r/hatch.json` board transaction, WARN and ASK (proceed on a separate branch / wait / abort); never silently co-mutate shared state. (3) **True isolation via worktree, not the lock-note (D7-27)** — when concurrency must actually be conflict-free rather than merely warned (the parallel-implementer path), route each pipeline through `hatch3r worktree-setup <name>` — the isolation primitive hatch3r already ships (`src/cli/commands/worktreeSetup.ts`; `commands/board/pickup-delegation-multi.md` already uses it per implementer) — so the pipelines write disjoint working trees and integrate back on completion, satisfying the disjoint-writes safety condition without relying on the non-atomic note. (4) **Cache-sharing** — `.hatch3r/learnings/` is read-many, write-once-at-completion with timestamp-ordered conflict resolution. Cross-task context sharing is bounded by the no-shared-mutable-state condition: learnings consolidate at pipeline completion; mid-pipeline writes are out of scope to preserve parallel-safety determinism (D7-SA7.5-F7.5.8). Each command's Guardrails cite this subsection.
 
 ## Cross-Phase Error Propagation
 
@@ -193,7 +193,7 @@ On a non-SUCCESS status, the orchestrator MUST propagate error context downstrea
 
 ## Correlation ID
 
-Generate a UUID v4 per top-level task before Phase 1. Include in every subagent prompt as `correlation_id`. All subagents include it in logs, outputs, and status reports. Epic sub-issues get individual IDs; batch tasks share one ID with a sub-task index.
+Generate a UUID v4 per top-level task before Phase 1. Include in every sub-agent prompt as `correlation_id`. All sub-agents include it in logs, outputs, and status reports. Epic sub-issues get individual IDs; batch tasks share one ID with a sub-task index.
 
 ## Severity Scale
 
@@ -207,7 +207,7 @@ Generate a UUID v4 per top-level task before Phase 1. Include in every subagent 
 
 ## Status Codes
 
-All subagents MUST map findings to the Severity Scale above. **SUCCESS** (fully completed, all criteria met) · **PARTIAL** (include `reason`) · **FAILED** (no usable output; include `reason`) · **SKIPPED** (intentionally not executed) · **TIMEOUT** (time budget exceeded; forward partial output) · **BLOCKED_AMBIGUITY** · **BLOCKED_MISSING_CONTEXT** · **BLOCKED_CONFLICTING_SPECS** · **BLOCKED_MISSING_TOOL** · **BLOCKED_PREMISE_CHALLENGE** · **BLOCKED_OTHER** (one-sentence reason required). The six BLOCKED_* values are the canonical named escalation enum codified in `agents/shared/quality-charter.md` §17; every `agents/hatch3r-*.md` main agent MUST declare a Status field selecting from this enum. BLOCKED_PREMISE_CHALLENGE triggers `isHaltStatus()` from `src/pipeline/pipelineContext.ts::AgentStatus` — orchestrator halts and surfaces the premise concern + ≥1 alternative approach (Finding D7-M1 / D7-SA7.1-1). The reviewer's Phase-3 equivalent is the `DESIGN_OBJECTION` verdict; implementer/researcher/fixer emit the agent status, reviewer emits the verdict — both surface the same premise-challenge across non-overlapping phases.
+All sub-agents MUST map findings to the Severity Scale above. **SUCCESS** (fully completed, all criteria met) · **PARTIAL** (include `reason`) · **FAILED** (no usable output; include `reason`) · **SKIPPED** (intentionally not executed) · **TIMEOUT** (time budget exceeded; forward partial output) · **BLOCKED_AMBIGUITY** · **BLOCKED_MISSING_CONTEXT** · **BLOCKED_CONFLICTING_SPECS** · **BLOCKED_MISSING_TOOL** · **BLOCKED_PREMISE_CHALLENGE** · **BLOCKED_OTHER** (one-sentence reason required). The six BLOCKED_* values are the canonical named escalation enum codified in `agents/shared/quality-charter.md` §17; every `agents/hatch3r-*.md` main agent MUST declare a Status field selecting from this enum. BLOCKED_PREMISE_CHALLENGE triggers `isHaltStatus()` from `src/pipeline/pipelineContext.ts::AgentStatus` — orchestrator halts and surfaces the premise concern + ≥1 alternative approach (Finding D7-M1 / D7-SA7.1-1). The reviewer's Phase-3 equivalent is the `DESIGN_OBJECTION` verdict; implementer/researcher/fixer emit the agent status, reviewer emits the verdict — both surface the same premise-challenge across non-overlapping phases.
 
 ## Phase Handoff Contract
 
@@ -235,7 +235,7 @@ When a phase reports a failure or unexpected result, the orchestrator MUST class
 - **Type errors after fixer changes:** not `as any` casts — trace the mismatch to its source and fix the type definition or usage.
 - **Review loop not converging:** not surface after 3 iterations without analysis — classify whether findings oscillate (fixer A breaks what fixer B fixed) and surface the conflict pattern.
 
-Reject superficial fixes from any subagent. If a fixer's output contains suppression patterns (disable comments, `any` casts, test skips without linked issues), classify as PARTIAL and re-run with a prompt requesting a root-cause fix.
+Reject superficial fixes from any sub-agent. If a fixer's output contains suppression patterns (disable comments, `any` casts, test skips without linked issues), classify as PARTIAL and re-run with a prompt requesting a root-cause fix. This rejection is backed by a typed advisory: the reviewer runs `detectSuppressionPatterns(diff)` (`src/pipeline/reviewLoop.ts`) over the fixer diff — it flags `as any` casts, `eslint-disable` directives with no issue reference, and `test.skip`/`it.skip`/`describe.skip` with no linked issue. A non-empty `found` is the machine-checkable signal for this gate (mirroring how the orchestrator consults `detectOscillation`); the reviewer downgrades the verdict so the existing review loop forces the re-run.
 
 ## Task Context Protocols
 
@@ -243,8 +243,8 @@ Reject superficial fixes from any subagent. If a fixer's output contains suppres
 
 ## Rule Application
 
-All `scope: always` rules apply to every task including subagent work; include rule directives in subagent prompts. For limited context windows, Tier 1 is mandatory; Tier 2/3 included selectively. Inclusion tiers:
+All `scope: always` rules apply to every task including sub-agent work; include rule directives in sub-agent prompts. For limited context windows, Tier 1 is mandatory; Tier 2/3 included selectively. Inclusion tiers:
 
-- **Tier 1 — always include (every subagent):** `hatch3r-security-patterns`, `hatch3r-code-standards`.
+- **Tier 1 — always include (every sub-agent):** `hatch3r-security-patterns`, `hatch3r-code-standards`.
 - **Tier 2 — by phase:** `hatch3r-testing` (testability/implementer/reviewer); `hatch3r-accessibility-standards` (ui, UI reviewer); `hatch3r-git-conventions` (orchestrator git ops); `hatch3r-ci-cd` (ci-watcher/devops); `hatch3r-dependency-management` (security CQ3 supply-chain slice).
 - **Tier 3 — on-demand by role + scope:** `hatch3r-api-design`, `hatch3r-secrets-management`, `hatch3r-data-classification`, `hatch3r-performance-budgets`, `hatch3r-browser-verification`, `hatch3r-component-conventions`, `hatch3r-i18n`, `hatch3r-theming`, `hatch3r-migrations`, `hatch3r-feature-flags`, `hatch3r-observability-logging`, `hatch3r-observability-metrics`, `hatch3r-observability-tracing`.

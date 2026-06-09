@@ -430,15 +430,15 @@ describe("compound system content validation", () => {
 
   describe("cross-reference integrity", () => {
     // D22-1 (Cycle 11 Wave 2) added a dangling rule-file-path check to
-    // validateCrossReferences. It surfaces two pre-existing dead rule-path
-    // citations that are owned by the still-open Medium finding D5-30
-    // (`rules/hatch3r-content-authoring.md`) and its enhancability twin
-    // (`rules/hatch3r-plugin-architecture.md`). Those repoints belong to the
-    // Medium wave, not Wave 2 — allow-list them here so the new check stays
-    // active for every OTHER reference. Remove these two entries when D5-30
-    // lands the repoints; any new dangling reference still fails this test.
+    // validateCrossReferences. It surfaced two pre-existing dead rule-path
+    // citations. D5-30 (Cycle 11 Wave 3, Medium) repointed the
+    // `rules/hatch3r-content-authoring.md` citations to
+    // `src/content/userContent.ts` (the module implementing the .md → .mdc
+    // scope transform), so that entry is removed here. The enhancability twin
+    // `rules/hatch3r-plugin-architecture.md` repoint is owned by a separate
+    // finding and stays allow-listed so the check remains active for every
+    // OTHER reference. Any new dangling reference still fails this test.
     const D5_30_DEFERRED_DANGLING = [
-      "rules/hatch3r-content-authoring.md",
       "rules/hatch3r-plugin-architecture.md",
     ];
 

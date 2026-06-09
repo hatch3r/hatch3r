@@ -35,18 +35,21 @@
  *      declares the watchdog directive via EITHER a numeric
  *      `wall_clock_advisory_ms` frontmatter field OR a body reference to the
  *      shared carrier `agents/shared/quality-specialist-frame.md`.
- *   6. CQ specialist trigger-table parity (D16-12 / D6-15 / D22-6) — the 9-row
- *      `## Specialist Delegation` CQ trigger table (`| CQ<n> ... | hatch3r-<x>
- *      | <trigger prose> |`) is hand-copied verbatim into THREE agent files:
- *      implementer.md, reviewer.md, AND fixer.md. The prior gate opened only
- *      implementer + reviewer and checked specialist-id PRESENCE, never the
- *      trigger column and never fixer — so the three copies could (and per the
- *      D16-12 finding did) drift. This check opens all three, extracts each
- *      file's CQ rows, and asserts the full rows (CQ pillar + specialist +
- *      trigger column) are byte-identical across the three copies. Until the
- *      shared-source extraction (sibling D22-6 → `agents/shared/
- *      cq-specialist-roster.md`) lands, this parity gate is what keeps the
- *      hand-copied triple in lock-step.
+ *   6. CQ specialist trigger-table single-source (D16-12 / D6-15 / D22-6) — the
+ *      9-row `## Specialist Delegation` CQ trigger table (`| CQ<n> ... |
+ *      hatch3r-<x> | <trigger prose> |`) was hand-copied verbatim into THREE
+ *      agent files (implementer.md, reviewer.md, fixer.md); the prior gate
+ *      opened only implementer + reviewer and checked specialist-id PRESENCE,
+ *      never the trigger column and never fixer, so the three copies could (and
+ *      per the D16-12 finding did) drift. D22-6 extracted the table to the
+ *      single source `agents/shared/cq-specialist-roster.md` and replaced the
+ *      three copies with a one-line pointer. This check now: (a) asserts the
+ *      shared roster holds the 9 CQ rows (table-loss guard); (b) asserts each of
+ *      the three agents points at the shared roster instead of re-inlining the
+ *      table; (c) if an agent DOES re-inline CQ rows (a regression that copies
+ *      the table back), asserts every inlined row is byte-identical to the
+ *      shared source. The single source makes the former three-way drift
+ *      structurally impossible while the gate keeps any reintroduced copy honest.
  *
  * Failure modes (each emits one ERROR finding):
  *
@@ -59,9 +62,10 @@
  *                          agentPipeline
  *   ROSTER-WATCHDOG-MISSING  SSOT specialist or core pipeline agent declares
  *                          no watchdog directive (field or shared-frame ref)
- *   ROSTER-CQ-TABLE-DRIFT  the CQ trigger table diverges across the three
- *                          agent copies (implementer / reviewer / fixer), or a
- *                          copy is missing the table entirely
+ *   ROSTER-CQ-TABLE-DRIFT  the shared CQ roster is missing its rows, an agent
+ *                          neither points at the shared roster nor inlines the
+ *                          table, or a reintroduced inline copy diverges from
+ *                          the shared source (implementer / reviewer / fixer)
  *
  * Warnings (non-blocking):
  *
@@ -89,21 +93,28 @@ const RULE_FILE = join(ROOT, "rules", "hatch3r-agent-orchestration.md");
 const IMPLEMENTER_FILE = join(AGENTS_DIR, "hatch3r-implementer.md");
 const REVIEWER_FILE = join(AGENTS_DIR, "hatch3r-reviewer.md");
 const FIXER_FILE = join(AGENTS_DIR, "hatch3r-fixer.md");
+const CQ_ROSTER_FILE = join(AGENTS_DIR, "shared", "cq-specialist-roster.md");
 
-// ── CQ trigger-table-parity policy (D16-12 / D6-15 / D22-6) ────────
+// ── CQ trigger-table single-source policy (D16-12 / D6-15 / D22-6) ─
 //
-// The 9-row `## Specialist Delegation` CQ trigger table is hand-copied verbatim
-// into these three agent files. checkCqTriggerTableParity() extracts each
-// file's CQ rows and asserts they are byte-identical across the three copies,
-// so a future diff that edits one copy's trigger prose without the other two
-// fails CI (the D16-12 drift failure mode). The bodies are read in runValidator
-// (implBody / reviewBody / fixerBody); these are the repo-relative labels used
-// in the emitted Finding.file, in the same order the bodies are passed.
+// The 9-row `## Specialist Delegation` CQ trigger table was hand-copied verbatim
+// into these three agent files; D22-6 extracted it to the single source
+// CQ_ROSTER_REL and replaced the copies with a one-line pointer.
+// checkCqTriggerTableParity() asserts the shared roster holds the rows, each
+// agent points at it (or, if a copy is reintroduced, every inlined row matches
+// the shared source). The bodies are read in runValidator (implBody /
+// reviewBody / fixerBody); CQ_TABLE_RELS are the repo-relative labels used in
+// the emitted Finding.file, in the same order the bodies are passed.
 const CQ_TABLE_RELS: readonly string[] = [
   "agents/hatch3r-implementer.md",
   "agents/hatch3r-reviewer.md",
   "agents/hatch3r-fixer.md",
 ];
+const CQ_ROSTER_REL = "agents/shared/cq-specialist-roster.md";
+// The pointer each agent's `## Specialist Delegation` section uses to reference
+// the single source. A bare path substring is the match key (the prose may wrap
+// it in backticks); this is the same path stored in CQ_ROSTER_REL.
+const CQ_ROSTER_POINTER = CQ_ROSTER_REL;
 
 // ── Command dispatch-surface policy (F7.3-H3 rec step 4) ──────────
 //
@@ -552,69 +563,80 @@ function extractCqTriggerRows(body: string): Map<string, string> {
 }
 
 /**
- * Assert the CQ specialist trigger table is identical across the three agent
- * copies (implementer / reviewer / fixer). The first present copy is the
- * reference; every other copy must match it row-for-row. A copy with zero CQ
- * rows (table missing or renamed) is reported so a silent table loss cannot
- * pass. Emits one ROSTER-CQ-TABLE-DRIFT error per offending file/row.
+ * Assert the CQ specialist trigger table has a single source (D22-6): the shared
+ * roster `agents/shared/cq-specialist-roster.md` holds the 9 CQ rows, and each
+ * of the three consumer agents (implementer / reviewer / fixer) points at that
+ * roster rather than re-inlining the table. The single source removes the
+ * former three-way drift; this gate keeps it intact and catches a regression
+ * that copies the table back inline:
+ *
+ *   - shared roster has 0 CQ rows  → ROSTER-CQ-TABLE-DRIFT (table-loss guard)
+ *   - an agent neither points at the roster nor inlines CQ rows
+ *                                  → ROSTER-CQ-TABLE-DRIFT (the delegation
+ *                                    section lost its roster reference)
+ *   - an agent re-inlines a CQ row that diverges from the shared source
+ *                                  → ROSTER-CQ-TABLE-DRIFT (per-row drift)
+ *
+ * Emits one ROSTER-CQ-TABLE-DRIFT error per offending file/row.
  */
 function checkCqTriggerTableParity(
+  rosterBody: string | null,
   copies: { rel: string; body: string | null }[],
 ): Finding[] {
   const out: Finding[] = [];
-  const present = copies.filter(
-    (c): c is { rel: string; body: string } => c.body !== null,
-  );
-  // A missing file is already reported by the watchdog/agent-file checks for
-  // the core agents; here we only need the bodies we can read.
-  const parsed = present.map((c) => ({ rel: c.rel, rows: extractCqTriggerRows(c.body) }));
 
-  for (const c of parsed) {
-    if (c.rows.size === 0) {
+  // (a) The shared roster is the reference. A missing file or an empty table is
+  // a table-loss the single-source model cannot tolerate.
+  const rosterRows = rosterBody === null ? new Map<string, string>() : extractCqTriggerRows(rosterBody);
+  if (rosterBody === null) {
+    out.push({
+      level: "error",
+      code: "ROSTER-CQ-TABLE-DRIFT",
+      file: CQ_ROSTER_REL,
+      message: `the shared CQ specialist roster ${CQ_ROSTER_REL} is missing — it is the single source of the 9-row CQ trigger table that implementer/reviewer/fixer point at; restore it (D22-6)`,
+    });
+    return out;
+  }
+  if (rosterRows.size === 0) {
+    out.push({
+      level: "error",
+      code: "ROSTER-CQ-TABLE-DRIFT",
+      file: CQ_ROSTER_REL,
+      message: `the shared CQ specialist roster ${CQ_ROSTER_REL} has no CQ rows (\`| CQ<n> | ... |\`) — the single-source table was emptied or renamed; restore the 9 rows (D22-6)`,
+    });
+    return out;
+  }
+
+  // (b)/(c) Each consumer agent must either point at the shared roster or, if it
+  // reintroduces an inline copy, match the shared source row-for-row.
+  for (const c of copies) {
+    if (c.body === null) continue; // missing agent files are reported elsewhere
+    const rows = extractCqTriggerRows(c.body);
+    const pointsAtRoster = c.body.includes(CQ_ROSTER_POINTER);
+    if (rows.size === 0) {
+      if (!pointsAtRoster) {
+        out.push({
+          level: "error",
+          code: "ROSTER-CQ-TABLE-DRIFT",
+          file: c.rel,
+          message: `${c.rel} neither inlines the CQ specialist trigger table nor points at the single source ${CQ_ROSTER_REL} — its \`## Specialist Delegation\` section lost the roster reference; add the pointer (D22-6)`,
+        });
+      }
+      continue; // pointer-only consumer: nothing more to diff
+    }
+    // A reintroduced inline copy: every row it carries must match the source.
+    for (const [label, row] of rows) {
+      const refRow = rosterRows.get(label);
+      if (refRow === row) continue;
       out.push({
         level: "error",
         code: "ROSTER-CQ-TABLE-DRIFT",
         file: c.rel,
-        message: `${c.rel} has no CQ specialist trigger table rows (\`| CQ<n> | ... |\`) — the hand-copied CQ Specialist Delegation table is missing or was renamed; restore it so the three copies stay in parity (D16-12)`,
+        message:
+          refRow === undefined
+            ? `${c.rel} re-inlines CQ row \`${label}\` which does not exist in the single source ${CQ_ROSTER_REL} — remove the inline copy and point at the roster, or reconcile the source (D22-6)`
+            : `${c.rel} re-inlines CQ row \`${label}\` which diverges from the single source ${CQ_ROSTER_REL} — remove the inline copy and point at the roster, or reconcile the source (D22-6)`,
       });
-    }
-  }
-
-  // Use the first copy that actually has rows as the reference; compare the rest
-  // against it. With <2 row-bearing copies there is nothing to diff.
-  const withRows = parsed.filter((c) => c.rows.size > 0);
-  if (withRows.length < 2) return out;
-  const [ref, ...rest] = withRows;
-  const allLabels = new Set<string>();
-  for (const c of withRows) for (const k of c.rows.keys()) allLabels.add(k);
-
-  for (const other of rest) {
-    for (const label of [...allLabels].sort()) {
-      const refRow = ref.rows.get(label);
-      const otherRow = other.rows.get(label);
-      if (refRow === otherRow) continue;
-      if (refRow === undefined) {
-        out.push({
-          level: "error",
-          code: "ROSTER-CQ-TABLE-DRIFT",
-          file: other.rel,
-          message: `CQ row \`${label}\` exists in ${other.rel} but not in ${ref.rel} — the hand-copied CQ specialist trigger tables disagree; reconcile so all three copies match (D16-12)`,
-        });
-      } else if (otherRow === undefined) {
-        out.push({
-          level: "error",
-          code: "ROSTER-CQ-TABLE-DRIFT",
-          file: other.rel,
-          message: `CQ row \`${label}\` exists in ${ref.rel} but is missing from ${other.rel} — the hand-copied CQ specialist trigger tables disagree; reconcile so all three copies match (D16-12)`,
-        });
-      } else {
-        out.push({
-          level: "error",
-          code: "ROSTER-CQ-TABLE-DRIFT",
-          file: other.rel,
-          message: `CQ row \`${label}\` differs between ${ref.rel} and ${other.rel} (trigger-column drift) — reconcile the hand-copied CQ specialist trigger tables so all three copies match (D16-12)`,
-        });
-      }
     }
   }
   return out;
@@ -631,14 +653,16 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const implementerFile = root === ROOT ? IMPLEMENTER_FILE : join(agentsDir, "hatch3r-implementer.md");
   const reviewerFile = root === ROOT ? REVIEWER_FILE : join(agentsDir, "hatch3r-reviewer.md");
   const fixerFile = root === ROOT ? FIXER_FILE : join(agentsDir, "hatch3r-fixer.md");
+  const cqRosterFile = root === ROOT ? CQ_ROSTER_FILE : join(agentsDir, "shared", "cq-specialist-roster.md");
 
   const ssot = ssotSpecialistIds();
 
-  const [ruleBody, implBody, reviewBody, fixerBody] = await Promise.all([
+  const [ruleBody, implBody, reviewBody, fixerBody, cqRosterBody] = await Promise.all([
     readFileSafe(ruleFile),
     readFileSafe(implementerFile),
     readFileSafe(reviewerFile),
     readFileSafe(fixerFile),
+    readFileSafe(cqRosterFile),
   ]);
 
   const findings: Finding[] = [];
@@ -654,7 +678,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   findings.push(...(await checkCommands(commandsDir)));
   findings.push(...(await checkWatchdogCoverage(agentsDir, ssot)));
   findings.push(
-    ...checkCqTriggerTableParity([
+    ...checkCqTriggerTableParity(cqRosterBody, [
       { rel: CQ_TABLE_RELS[0], body: implBody },
       { rel: CQ_TABLE_RELS[1], body: reviewBody },
       { rel: CQ_TABLE_RELS[2], body: fixerBody },
@@ -697,7 +721,7 @@ async function main(): Promise<void> {
       else console.warn(line);
     }
     console.log(
-      `validate-specialist-roster: ${result.ssotSpecialists.length} SSOT specialist(s) checked across rule table + agent roster + implementer/reviewer enumerations + command pipelines + CQ trigger-table parity (implementer/reviewer/fixer); ${result.errorCount} error(s), ${result.warningCount} warning(s)`,
+      `validate-specialist-roster: ${result.ssotSpecialists.length} SSOT specialist(s) checked across rule table + agent roster + implementer/reviewer enumerations + command pipelines + CQ trigger-table single-source (shared roster + implementer/reviewer/fixer pointers); ${result.errorCount} error(s), ${result.warningCount} warning(s)`,
     );
   }
   if (result.errorCount > 0) process.exit(1);

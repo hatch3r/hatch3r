@@ -15,15 +15,20 @@
 // ── Capability columns covered ────────────────────────────────────────────────
 // The matrix contains 11 columns. Eight are directly observable from
 // `doGenerate()` output given the `Features` flags: agents, skills, rules,
-// hooks, mcp, commands, prompts, githubAgents. The remaining three
-// (worktree, customization, modelOverride) are not observable via a feature
-// flag alone -- they depend on manifest-level configuration and on whether
-// the adapter threads a specific runtime through its pipeline. This test
-// scopes to the eight feature-flag-driven columns, which is what the finding
-// recommendation names ("instantiating each adapter with maximal features and
-// verifying matrix row matches observed output"). The other three columns
-// are orthogonal facts about the adapter's runtime wiring and would require a
-// separate test fixture to exercise.
+// hooks, mcp, commands, prompts, githubAgents. The feature-flag loop at the
+// bottom of this file covers those eight, which is what the original finding
+// recommendation named ("instantiating each adapter with maximal features and
+// verifying matrix row matches observed output").
+//
+// The remaining three (worktree, customization, modelOverride) are not
+// observable via a feature flag alone — they depend on manifest-level
+// configuration and on whether the adapter threads a specific runtime through
+// its pipeline. D2-16 (Cycle 11 Wave 3) closes the prior gap where nothing
+// pinned them: the "extended-column drift protection (D2-16)" describe block
+// asserts each against its real behavioural source — `worktree` against the
+// load-bearing `WORKTREE_CAPABLE_TOOLS` Set (from which the matrix column is
+// now derived), and `customization` / `modelOverride` against each adapter's
+// `doGenerate` invoking `applyCustomization` / `resolveAgentModel`.
 //
 // ── Detection heuristic ───────────────────────────────────────────────────────
 // For each (tool, feature) pair:
@@ -45,6 +50,8 @@
 
 import { describe, it, expect } from "vitest";
 import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import {
   ADAPTER_CAPABILITIES,
   getAdapter,
@@ -52,7 +59,7 @@ import {
 } from "../../adapters/index.js";
 import { getAskUserToolEntry } from "../../pipeline/adapterToolTranslator.js";
 import { createManifest } from "../../manifest/hatchJson.js";
-import type { Features, HatchManifest, Tool } from "../../types.js";
+import { WORKTREE_CAPABLE_TOOLS, type Features, type HatchManifest, type Tool } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -244,6 +251,61 @@ describe("ADAPTER_CAPABILITIES drift detection (C7.5-W2B2-H6)", () => {
       expect(trueCount).toBe(3);
       expect(falseCount).toBe(0);
     });
+  });
+
+  // ── D2-16 (Cycle 11 Wave 3): extended-column drift protection ──────────────
+  //
+  // The three extended columns (worktree, customization, modelOverride) are not
+  // observable via a single feature flag, so the feature-flag loop below scopes
+  // them out (see the header comment). Before this wave nothing pinned them, so
+  // the matrix could silently lie (flip `cursor.worktree=false` and no behaviour
+  // changed, no test failed). Pin each column to its REAL behavioural source:
+  //   - worktree      → WORKTREE_CAPABLE_TOOLS (the Set init/config/update read).
+  //   - customization → each adapter's doGenerate invoking applyCustomization.
+  //   - modelOverride → each adapter's doGenerate invoking resolveAgentModel.
+  // The customization/modelOverride sources are asserted by reading the adapter
+  // source file and checking the call is present — a static behavioural probe
+  // that catches "adapter dropped the capability but the matrix still claims it"
+  // without mocking the generation pipeline.
+  describe("extended-column drift protection (D2-16)", () => {
+    const ADAPTER_SOURCE: Record<Tool, string> = {
+      cursor: resolve(import.meta.dirname, "../../adapters/cursor.ts"),
+      claude: resolve(import.meta.dirname, "../../adapters/claude.ts"),
+      copilot: resolve(import.meta.dirname, "../../adapters/copilot.ts"),
+    };
+
+    function adapterInvokes(tool: Tool, symbol: string): boolean {
+      const src = readFileSync(ADAPTER_SOURCE[tool], "utf-8");
+      return src.includes(`${symbol}(`);
+    }
+
+    for (const tool of TOOLS_UNDER_TEST) {
+      it(`${tool}.worktree equals WORKTREE_CAPABLE_TOOLS membership`, () => {
+        expect(
+          ADAPTER_CAPABILITIES[tool].worktree,
+          `${tool}: ADAPTER_CAPABILITIES.worktree must equal WORKTREE_CAPABLE_TOOLS.has("${tool}") — ` +
+            `the matrix column is derived from that load-bearing Set (src/types.ts), so it cannot drift.`,
+        ).toBe(WORKTREE_CAPABLE_TOOLS.has(tool));
+      });
+
+      it(`${tool}.customization equals applyCustomization invocation in doGenerate`, () => {
+        const invokes = adapterInvokes(tool, "applyCustomization");
+        expect(
+          ADAPTER_CAPABILITIES[tool].customization,
+          `${tool}: ADAPTER_CAPABILITIES.customization=${ADAPTER_CAPABILITIES[tool].customization} but ` +
+            `adapter ${invokes ? "DOES" : "does NOT"} invoke applyCustomization. Align the matrix column with the source.`,
+        ).toBe(invokes);
+      });
+
+      it(`${tool}.modelOverride equals resolveAgentModel invocation in doGenerate`, () => {
+        const invokes = adapterInvokes(tool, "resolveAgentModel");
+        expect(
+          ADAPTER_CAPABILITIES[tool].modelOverride,
+          `${tool}: ADAPTER_CAPABILITIES.modelOverride=${ADAPTER_CAPABILITIES[tool].modelOverride} but ` +
+            `adapter ${invokes ? "DOES" : "does NOT"} invoke resolveAgentModel. Align the matrix column with the source.`,
+        ).toBe(invokes);
+      });
+    }
   });
 
   for (const tool of TOOLS_UNDER_TEST) {

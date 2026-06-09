@@ -29,19 +29,41 @@ import {
   toCopilotToolsFrontmatterFromCategories,
 } from "../pipeline/adapterToolTranslator.js";
 
-// Issue #73 — Copilot has `hooks: false` in ADAPTER_CAPABILITIES (no
-// PreToolUse hook, no transcript access for external processes, no
-// tool-refusal API). Pipeline enforcement is therefore trust-based;
-// this addendum surfaces the constraint to the model on every turn
-// and names the self-detectable drift indicators.
-const COPILOT_ENFORCEMENT_ADDENDUM = `## Copilot Enforcement Model (no hook surface)
+// Issue #73 — Copilot has `hooks: false` in ADAPTER_CAPABILITIES (the
+// hatch3r-emitted Copilot surface installs no PreToolUse hook, no transcript
+// access for external processes, no tool-refusal API). Pipeline enforcement of
+// what hatch3r ships is therefore trust-based; this addendum surfaces the
+// constraint to the model on every turn and names the self-detectable drift
+// indicators.
+//
+// D9-17 (Cycle 11 Wave 3, D9, P3 currency): the prior absolute "Copilot cannot
+// block server-side" claim is Preview-qualified as of 2026-06-09. The VS Code
+// surface now documents an agent-customization PreToolUse hook (Preview) that
+// returns `permissionDecision: "deny"` to block a single tool call, plus an
+// agent-scoped `hooks:` frontmatter field. hatch3r does NOT yet emit that
+// deny-gate (tracked as a CL-2 content-gap candidate), so the shipped
+// enforcement remains trust-based — but the addendum no longer claims the
+// platform is incapable of a block. Sources (accessed 2026-06-09):
+//   https://code.visualstudio.com/docs/agent-customization/hooks
+//   https://code.visualstudio.com/docs/agent-customization/custom-agents
+const COPILOT_ENFORCEMENT_ADDENDUM = `## Copilot Enforcement Model (trust-based on the emitted surface)
 
-GitHub Copilot Chat does not expose a PreToolUse or pre-edit hook
+The hatch3r-emitted Copilot surface installs no PreToolUse or pre-edit hook
 (see \`src/adapters/index.ts\` — \`copilot\` is the only adapter with
-\`hooks: false\` in \`ADAPTER_CAPABILITIES\`). Hatch3r cannot block
-code-writing tool calls server-side for Copilot. Enforcement is
-therefore trust-based — the directives in this file and in
+\`hooks: false\` in \`ADAPTER_CAPABILITIES\`), so hatch3r does not block
+code-writing tool calls server-side on what it ships today. Enforcement of
+these directives is therefore trust-based — the directives in this file and in
 \`.github/instructions/\` are normative, not advisory.
+
+Platform note (Preview, accessed 2026-06-09): VS Code now exposes an
+agent-customization PreToolUse hook that can return
+\`permissionDecision: "deny"\` to block a single tool call, plus an agent-scoped
+\`hooks:\` frontmatter field
+(https://code.visualstudio.com/docs/agent-customization/hooks,
+https://code.visualstudio.com/docs/agent-customization/custom-agents). hatch3r
+does not emit that deny-gate yet, so the trust-based model above is what governs
+the current output; treat the self-detectable indicators below as the active
+control.
 
 Self-detectable drift indicators (halt the current turn if any appear):
 

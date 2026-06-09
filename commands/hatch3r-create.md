@@ -232,7 +232,7 @@ Pass the collected slots as a structured input:
 }
 ```
 
-The sub-agent composes frontmatter + body, calls `saveUserContent` from `src/content/userContent.ts` (the canonical strict + gentle gate funnel), and atomic-writes the file via `src/merge/safeWrite.ts`. For rule artifacts, `saveUserContent` also generates the paired `.mdc` companion using the `.md → .mdc` scope transform documented in `rules/hatch3r-content-authoring.md`. For skill artifacts, it creates the `{name}/` subdirectory and writes `SKILL.md` inside.
+The sub-agent composes frontmatter + body, calls `saveUserContent` from `src/content/userContent.ts` (the canonical strict + gentle gate funnel), and atomic-writes the file via `src/merge/safeWrite.ts`. For rule artifacts, `saveUserContent` also generates the paired `.mdc` companion using the `.md → .mdc` scope transform implemented in that same `src/content/userContent.ts` module. For skill artifacts, it creates the `{name}/` subdirectory and writes `SKILL.md` inside.
 
 Wait for the sub-agent's structured return:
 

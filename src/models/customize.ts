@@ -88,7 +88,26 @@ export async function readCustomizationWithWarnings(
     return { value: hasValue ? result : undefined, warnings };
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
-    if (code !== "ENOENT" && !(err instanceof Error && err.name.startsWith("YAML"))) throw err;
+    const isYamlError = err instanceof Error && err.name.startsWith("YAML");
+    if (code !== "ENOENT" && !isYamlError) throw err;
+    // D2-12 (Cycle 11 Wave 3): a YAML parse error previously fell through to a
+    // bare `{ value: undefined, warnings: [] }` with the warnings array empty,
+    // so a user's `enabled: false`/override silently did nothing — a Silent
+    // Failure Contract violation (CONSTITUTION §2 P5; cited in
+    // src/adapters/customization.ts fail-closed block). ENOENT (no file) stays
+    // a clean no-op, but a present-but-unparseable file is a user-visible error:
+    // push a warning naming the file and the parse reason so init/sync/update
+    // and `hatch3r validate` surface it through their `warnings[]` consumers
+    // (readCustomizationSnapshot, validate.ts::validateCustomizationFields)
+    // instead of dropping the override without a trace.
+    if (isYamlError) {
+      const reason = (err as Error).message.split("\n")[0];
+      warnings.push(
+        `Customization YAML for "${id}" failed to parse (${reason}). ` +
+        `Overrides in this file are ignored — fix the YAML in ` +
+        `.hatch3r/${type}/${safeId}.customize.yaml and re-run, or the customization has no effect.`,
+      );
+    }
     return { value: undefined, warnings };
   }
 }

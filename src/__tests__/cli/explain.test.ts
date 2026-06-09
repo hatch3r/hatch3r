@@ -500,4 +500,161 @@ describe("explainCommand", () => {
       expect(output).toContain(SENTINEL);
     });
   });
+
+  // D6-23 (Cycle 11 Wave 3): `--cost` input basis is per-actor, not
+  // body×subAgents. The orchestrator reads its body once; each spawned
+  // sub-agent loads its own agent def + a task-context allowance. The pre-fix
+  // basis (body re-billed to every sub-agent) over-counted input.
+  describe("--cost per-actor input basis (D6-23)", () => {
+    it("states the per-actor input basis in the footer instead of body×subAgents", async () => {
+      const body = "x".repeat(40);
+      await writeCommandFile(tempDir, "hatch3r-basis.md", body, {
+        id: "hatch3r-basis",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer", "hatch3r-reviewer"],
+        description: "basis",
+        tags: ["core"],
+        triage_tiers: [1, 2, 3],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-basis" });
+
+      const output = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      // The corrected basis is named explicitly so figures are not misread.
+      expect(output).toContain("Input basis: orchestrator body once");
+      expect(output).toContain("its own agents/<id>.md");
+      expect(output).toContain("task allowance");
+    });
+
+    it("sizes a tier-1 inline actor by the agent-def + task-context fallback, not the body alone", async () => {
+      // A 4-char body: under the pre-fix model tier-1 input was bodyTokens×1
+      // (~1 token). Under the per-actor model the tier-1 inline actor (no
+      // distinct agent def) bills at UNKNOWN_AGENT_DEF_CHARS (12000) +
+      // TASK_CONTEXT_ALLOWANCE_CHARS (6000) = 18000 chars / 4 = 4500 tokens,
+      // plus the tiny body — so the tier-1 input lands in the 4,50x range,
+      // impossible under body×subAgents.
+      const body = "x".repeat(4);
+      await writeCommandFile(tempDir, "hatch3r-tier1.md", body, {
+        id: "hatch3r-tier1",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "tier1",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-tier1" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Tier-1 row carries a ~4,50x input token figure (agent-def + task
+      // allowance dominate the 4-char body).
+      expect(output).toMatch(/Tier 1[\s\S]*?4,50\d/);
+    });
+
+    it("counts the orchestrator body once: tier-2 input delta is body-independent (per-actor)", async () => {
+      // Same body across two commands; the only difference is two extra agents
+      // (reviewer, fixer) in the pipeline. Under the per-actor model the body is
+      // counted ONCE, so the input delta equals exactly the two extra agents'
+      // (def + task-context) token contribution and does NOT depend on body
+      // size. Under the pre-fix body×subAgents model the delta would be
+      // 2×bodyTokens (the body re-billed to each added sub-agent). We assert the
+      // delta is invariant across two very different body sizes — only the
+      // per-actor (body-once) model produces an identical delta.
+      const SMALL = "x".repeat(40);
+      const LARGE = "x".repeat(400_000); // 100k body tokens — would explode a body×N delta
+      const onePipe = ["hatch3r-implementer"];
+      const threePipe = ["hatch3r-implementer", "hatch3r-reviewer", "hatch3r-fixer"];
+
+      async function tier2Input(filename: string, body: string, pipeline: string[]): Promise<number> {
+        await writeCommandFile(tempDir, filename, body, {
+          id: filename.replace(/\.md$/, ""),
+          type: "command",
+          orchestrator: true,
+          agentPipeline: pipeline,
+          description: "delta",
+          tags: ["core"],
+          triage_tiers: [2],
+        });
+        const { explainCommand } = await import("../../cli/commands/explain.js");
+        consoleSpy.mockClear();
+        await explainCommand({ cost: filename.replace(/\.md$/, "") });
+        const out = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        const row = out.split("\n").find((l) => l.includes("Tier 2"));
+        expect(row).toBeTruthy();
+        // Row numbers: [sub-agent count, input, output, total]. Input is index 1.
+        const nums = (row as string).match(/[\d,]+/g)?.map((n) => Number(n.replace(/,/g, ""))) ?? [];
+        return nums[1] ?? 0;
+      }
+
+      const smallDelta =
+        (await tier2Input("hatch3r-s3.md", SMALL, threePipe)) -
+        (await tier2Input("hatch3r-s1.md", SMALL, onePipe));
+      const largeDelta =
+        (await tier2Input("hatch3r-l3.md", LARGE, threePipe)) -
+        (await tier2Input("hatch3r-l1.md", LARGE, onePipe));
+
+      // Body-once invariance: the added-agent delta is identical at 40 chars and
+      // at 400 KB of body. A body×subAgents model would make largeDelta ≈
+      // 2×100000 = 200000 while smallDelta ≈ 2×10, so they could never match.
+      expect(smallDelta).toBeGreaterThan(0);
+      expect(largeDelta).toBe(smallDelta);
+    });
+  });
+
+  // D12-9 (Cycle 11 Wave 3): `--customizations` table is responsive to terminal
+  // width and wraps long reasons into continuation lines instead of truncating,
+  // so it stays legible at the 80-col non-TTY/CI fallback width.
+  describe("--customizations responsive width (D12-9)", () => {
+    let columnsDescriptor: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      columnsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+      // Force the 80-col fallback so the assertion is width-deterministic
+      // regardless of whether CI runs under a TTY.
+      Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+    });
+
+    afterEach(() => {
+      if (columnsDescriptor) {
+        Object.defineProperty(process.stdout, "columns", columnsDescriptor);
+      } else {
+        // jsdom/node leaves columns undefined by default; restore that.
+        Object.defineProperty(process.stdout, "columns", { value: undefined, configurable: true });
+      }
+    });
+
+    it("keeps the artifact id intact and wraps the long reason tail at 80 cols", async () => {
+      // enabled: false on the protected, floor-tagged hatch3r-security agent
+      // produces a ~95-char failure reason ("Cannot disable protected agent
+      // \"hatch3r-security\" via customization. Ignoring enabled: false."). The
+      // pre-fix renderer truncated the reason at 50 cols and dropped the
+      // "Ignoring enabled: false." tail; the wrap keeps it on a continuation
+      // line. The id (16 chars) must survive intact within its responsive
+      // column at 80 cols.
+      const customDir = join(tempDir, ".hatch3r", "agents");
+      await mkdir(customDir, { recursive: true });
+      await writeFile(
+        join(customDir, "hatch3r-security.customize.yaml"),
+        "enabled: false\n",
+        "utf-8",
+      );
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ customizations: true });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Id survives uncropped (no ellipsis on the lookup key).
+      expect(output).toContain("hatch3r-security");
+      // The reason tail that the old 50-col truncation dropped is now present
+      // (wrapped onto a continuation line), proving wrap-not-truncate.
+      expect(output).toContain("Ignoring enabled");
+    });
+  });
 });
