@@ -262,7 +262,13 @@ export function scanValueForSecrets(
  * Scan all environment variables in a parsed env file for secrets.
  *
  * This is the primary API for secret detection in MCP env configuration.
- * Called during `hatch3r validate` and when writing `.env.mcp` files.
+ * Wired into `hatch3r validate` only (`src/cli/commands/validate.ts`
+ * validateEnvMcpSecrets). The `.env.mcp` writer (`src/env/mcpEnv.ts`
+ * ensureEnvMcp) does NOT call this on write, so secrets pasted during
+ * `mcp setup`/init are surfaced only on the next explicit `hatch3r validate`,
+ * not at write time (D11-SA11.3-F6, Cycle 11 Wave 4 — docstring corrected to
+ * match the actual wiring rather than claim a write-time hook that does not
+ * exist).
  */
 export function detectSecrets(
   envVars: Record<string, string>,

@@ -17,6 +17,8 @@ import {
   DEFAULT_TRANSFORM_MAX_DEPTH,
   MCP_ENV_VAR_FORMAT_PARITY,
   CANONICAL_MCP_PACKAGES,
+  MIN_HONORED_MCP_TIMEOUT_MS,
+  MAX_MCP_TIMEOUT_MS,
 } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
@@ -174,6 +176,65 @@ describe("validateMcpEntry", () => {
       args: ["server.js"],
     };
     expect(validateMcpEntry("win-node", entry)).toEqual([]);
+  });
+});
+
+describe("validateMcpEntry _timeout bounds (D9-SA9.1-L / D15-SA15.5-F8)", () => {
+  const base: McpServerEntry = { command: "npx", args: ["@scope/pkg@1.0.0"] };
+
+  it("emits no timeout warning for an in-range value (>=1000ms, <=max)", () => {
+    const warnings = validateMcpEntry("ok", { ...base, _timeout: 30_000 });
+    expect(warnings.some((w) => w.includes("timeout"))).toBe(false);
+  });
+
+  it("emits no timeout warning at the exact minimum honored value", () => {
+    // Boundary: MIN_HONORED is honored (inclusive); only strictly-below warns.
+    const warnings = validateMcpEntry("boundary", {
+      ...base,
+      _timeout: MIN_HONORED_MCP_TIMEOUT_MS,
+    });
+    expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
+      false,
+    );
+  });
+
+  it("warns when a positive _timeout is below the minimum honored value (silently ignored by Claude Code)", () => {
+    const warnings = validateMcpEntry("sub-second", { ...base, _timeout: 500 });
+    const hit = warnings.find((w) => w.includes("below the minimum honored"));
+    expect(hit).toBeDefined();
+    expect(hit).toContain("500ms");
+    expect(hit).toContain(`${MIN_HONORED_MCP_TIMEOUT_MS}ms`);
+    // Actionable: tells the operator the floor and the fall-through behavior.
+    expect(hit).toContain("MCP_TOOL_TIMEOUT");
+  });
+
+  it("warns just below the boundary (999ms) but not at it", () => {
+    const below = validateMcpEntry("just-below", {
+      ...base,
+      _timeout: MIN_HONORED_MCP_TIMEOUT_MS - 1,
+    });
+    expect(below.some((w) => w.includes("below the minimum honored"))).toBe(
+      true,
+    );
+  });
+
+  it("still flags a non-positive _timeout as invalid (not as sub-minimum)", () => {
+    const warnings = validateMcpEntry("zero", { ...base, _timeout: 0 });
+    expect(warnings.some((w) => w.includes("invalid timeout"))).toBe(true);
+    expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
+      false,
+    );
+  });
+
+  it("still caps an over-maximum _timeout", () => {
+    const warnings = validateMcpEntry("too-big", {
+      ...base,
+      _timeout: MAX_MCP_TIMEOUT_MS + 1,
+    });
+    expect(warnings.some((w) => w.includes("exceeds maximum"))).toBe(true);
+    expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
+      false,
+    );
   });
 });
 

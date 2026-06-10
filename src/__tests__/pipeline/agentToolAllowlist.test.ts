@@ -5,6 +5,8 @@ import { parse as parseYaml } from "yaml";
 import {
   AGENT_TOOL_POLICIES,
   ALL_TOOL_CATEGORIES,
+  FUNCTIONAL_TOOL_CATEGORIES,
+  RESERVED_TOOL_CATEGORIES,
   getAgentToolPolicy,
   checkToolAccess,
   toFailureLogEntry,
@@ -448,6 +450,56 @@ describe("agentToolAllowlist", () => {
         const warnings = validateToolPolicies(emptyPolicies);
         expect(warnings.some((w) => w.includes("empty tool allowlist"))).toBe(
           true,
+        );
+      });
+
+      // L-D9 / D2-SA2.4 F5 (reserved tool-category collapse — agentToolAllowlist
+      // side): the "all tool categories" least-privilege warning gates on
+      // FUNCTIONAL_TOOL_CATEGORIES (6), NOT on ALL_TOOL_CATEGORIES (8). The
+      // reserved `git`/`board` aliases collapse onto `execute`/`mcp` at the
+      // translator layer (RESERVED_TOOL_CATEGORIES) and confer no privilege
+      // beyond them, so the broadest *realistic* envelope is the 6 functional
+      // categories. The pre-existing "all categories" test grants all 8, so it
+      // cannot distinguish "gate on 6 functional" from "gate on 8 total"; these
+      // tests pin the collapse semantics so a future regression to gate on
+      // ALL_TOOL_CATEGORIES (which would under-warn a 6-functional grant) fails.
+      it("trips the all-categories warning on the 6 functional categories alone (no git/board)", () => {
+        const functionalOnly: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-functional-only",
+            allowedTools: [...FUNCTIONAL_TOOL_CATEGORIES],
+            description: "has every functional category but neither reserved alias",
+          },
+        ];
+        // Guard the premise: the fixture deliberately omits the reserved aliases.
+        for (const reserved of RESERVED_TOOL_CATEGORIES) {
+          expect(functionalOnly[0].allowedTools).not.toContain(reserved);
+        }
+        const warnings = validateToolPolicies(functionalOnly);
+        expect(warnings.some((w) => w.includes("all tool categories"))).toBe(
+          true,
+        );
+      });
+
+      it("does NOT trip the all-categories warning when ONLY the reserved git/board aliases are granted (they collapse, conferring no functional privilege)", () => {
+        const reservedOnly: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-reserved-only",
+            allowedTools: [...RESERVED_TOOL_CATEGORIES],
+            description: "grants only the reserved categories that collapse to execute/mcp",
+          },
+        ];
+        // Reserved categories are valid (they are in ALL_TOOL_CATEGORIES) so the
+        // validator must not throw on them...
+        let warnings: string[] = [];
+        expect(() => {
+          warnings = validateToolPolicies(reservedOnly);
+        }).not.toThrow();
+        // ...but because they are not functional categories, the least-privilege
+        // "all tool categories" warning must NOT fire (the collapse means this is
+        // not a broad grant — it is in fact a near-empty privilege envelope).
+        expect(warnings.some((w) => w.includes("all tool categories"))).toBe(
+          false,
         );
       });
 

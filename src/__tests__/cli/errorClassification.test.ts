@@ -104,6 +104,40 @@ describe("classifyCliError (D1-SA1.8.1)", () => {
       expect(classifyCliError(err, { shuttingDown: false })).toBe("usage");
     });
 
+    // L-D9-SA12.1-F4: the prior English-substring heuristic ("Invalid"/"Unknown"
+    // /"missing required") would misclassify a localized or reworded commander
+    // message as 'unexpected' (exit 1 + crash footer) for what is a usage error.
+    // The D8-2 fix keys the PRIMARY classification on the stable typed contract
+    // (name === "CommanderError" OR code prefixed "commander.") so the message
+    // TEXT is irrelevant to the decision. These cases prove message-independence:
+    // a CommanderError whose message contains NONE of the English usage lexemes
+    // — including a non-English / fully reworded message — is still 'usage'
+    // purely on the typed code. This is the regression gate the finding's
+    // falsifiability clause ("a future release rewords ... or a localized build")
+    // asks for; without it, a refactor that re-narrowed onto message text would
+    // re-introduce the brittleness with a green suite.
+    it("classifies a CommanderError on its typed code even when the message contains no English usage lexeme", () => {
+      // No "invalid"/"unknown"/"missing"/"not specified"/"argument missing" —
+      // the substring fallback would return 'unexpected' for this text.
+      const err = new CommanderError(1, "commander.unknownOption", "Fehler: Option nicht erkannt");
+      expect(err.message.toLowerCase()).not.toMatch(
+        /invalid|unknown|missing required|argument missing|not specified|unknown option|unknown command/,
+      );
+      expect(classifyCliError(err, { shuttingDown: false })).toBe("usage");
+    });
+
+    it.each([
+      ["commander.unknownOption", "опция не распознана"],
+      ["commander.unknownCommand", "コマンドが認識されません"],
+      ["commander.missingArgument", "(empty reworded message)"],
+    ])(
+      "classifies CommanderError code %s as 'usage' regardless of the localized/reworded message",
+      (code, message) => {
+        const err = new CommanderError(1, code, message);
+        expect(classifyCliError(err, { shuttingDown: false })).toBe("usage");
+      },
+    );
+
     it.each([
       "error: unknown option '--bogus'",
       "error: unknown command 'frobnicate'",

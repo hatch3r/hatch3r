@@ -338,6 +338,66 @@ describe("safeWrite", () => {
       expect(content).toBe("forced content");
     });
 
+    // D1-SA1.5-F90: a forced overwrite of an UNMANAGED file (force is the only
+    // reason we are replacing genuine user content) must back the original up to
+    // a `.bak` FIRST and name it in the warning, so the overwrite is locally
+    // recoverable — not silent data loss.
+    it("force mode backs up the original of an unmanaged file before overwriting", async () => {
+      const dir = await createTempDir();
+      const filePath = join(dir, "custom-file.md");
+      await writeFile(filePath, "irreplaceable user content", "utf-8");
+
+      const result = await safeWriteFile(filePath, "forced content", { force: true });
+
+      expect(result.action).toBe("updated");
+      expect(await readFile(filePath, "utf-8")).toBe("forced content");
+      // The pre-overwrite bytes survive in the canonical `.bak`.
+      const bakPath = filePath + ".bak";
+      expect(await access(bakPath).then(() => true).catch(() => false)).toBe(true);
+      expect(await readFile(bakPath, "utf-8")).toBe("irreplaceable user content");
+      // The warning surfaces the backup path so the operator can recover.
+      expect(result.warning).toContain(bakPath);
+      expect(result.warning).toContain("backed up");
+    });
+
+    // D1-SA1.5-F90 + D11-12 invariant: a pre-existing user `.bak` is never
+    // clobbered — the force backup falls back to a unique `.bak.<8hex>` slot.
+    it("force-mode backup does not clobber a pre-existing user .bak", async () => {
+      const dir = await createTempDir();
+      const filePath = join(dir, "custom-file.md");
+      await writeFile(filePath, "current user content", "utf-8");
+      const userBak = filePath + ".bak";
+      await writeFile(userBak, "the user's own precious backup", "utf-8");
+
+      const result = await safeWriteFile(filePath, "forced content", { force: true });
+
+      expect(result.action).toBe("updated");
+      // The user's own `.bak` is preserved byte-for-byte.
+      expect(await readFile(userBak, "utf-8")).toBe("the user's own precious backup");
+      // The pre-overwrite content was saved to a uniquely-suffixed slot instead.
+      const entries = await readdir(dir);
+      const suffixed = entries.filter((e) => /\.bak\.[0-9a-f]{8}$/.test(e));
+      expect(suffixed).toHaveLength(1);
+      expect(await readFile(join(dir, suffixed[0]), "utf-8")).toBe("current user content");
+      expect(result.warning).toContain(suffixed[0]);
+    });
+
+    // D1-SA1.5-F90 scope guard: a hatch3r-MANAGED file forced through is
+    // regenerable from canonical content, so it keeps the no-backup fast path —
+    // the backup only protects genuine (unmanaged) user content.
+    it("force mode does NOT create a backup for a hatch3r-managed file", async () => {
+      const dir = await createTempDir();
+      const filePath = join(dir, "hatch3r-code-standards.md");
+      await writeFile(filePath, "old managed body", "utf-8");
+
+      const result = await safeWriteFile(filePath, "new managed body", { force: true });
+
+      expect(result.action).toBe("updated");
+      expect(result.warning).toBeUndefined();
+      const entries = await readdir(dir);
+      expect(entries.some((e) => e.includes(".bak"))).toBe(false);
+    });
+
     it("force mode writes through even without managed block markers", async () => {
       const dir = await createTempDir();
       const filePath = join(dir, "AGENTS.md");

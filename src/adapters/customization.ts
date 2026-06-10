@@ -584,6 +584,31 @@ export interface CustomizationResult {
 }
 
 /**
+ * D11-SA11.4-F4 (Cycle 11 Wave 4, Low): truncate a string to at most
+ * `maxBytes` UTF-8 bytes WITHOUT splitting a multi-byte codepoint.
+ *
+ * The prior implementation sliced the raw byte buffer
+ * (`buf.subarray(0, maxBytes).toString("utf-8")`); when the cap fell mid
+ * multi-byte sequence (CJK, emoji, accented Latin) the trailing partial
+ * bytes decoded to a U+FFFD replacement glyph, silently corrupting the
+ * generated artifact for non-ASCII content. This accumulates whole
+ * codepoints until the next one would exceed the byte budget, so the result
+ * is always valid UTF-8 with byteLength <= maxBytes and never emits U+FFFD.
+ */
+function truncateToByteBudget(input: string, maxBytes: number): string {
+  if (Buffer.byteLength(input, "utf-8") <= maxBytes) return input;
+  let out = "";
+  let used = 0;
+  for (const cp of input) {
+    const cpBytes = Buffer.byteLength(cp, "utf-8");
+    if (used + cpBytes > maxBytes) break;
+    out += cp;
+    used += cpBytes;
+  }
+  return out;
+}
+
+/**
  * F2.3-H3 (Cycle 10 Wave 2): customization precedence.
  *
  * Four override layers compose in a fixed order. Higher layer wins on conflict;
@@ -748,11 +773,6 @@ async function applyCustomizationImpl(
     let sanitizedMd = md;
 
     const maxBytes = file.protected ? MAX_PROTECTED_CUSTOMIZE_MD_BYTES : MAX_CUSTOMIZE_MD_BYTES;
-    if (Buffer.byteLength(sanitizedMd, "utf-8") > maxBytes) {
-      warnings.push(`Customization markdown for ${file.id} exceeds ${maxBytes} bytes. Truncating to limit.`);
-      const buf = Buffer.from(sanitizedMd, "utf-8");
-      sanitizedMd = buf.subarray(0, maxBytes).toString("utf-8");
-    }
 
     // C7.5-W2B2-H43 (D15-F15.1-02): wire the pipeline promptGuard into the
     // customization input path so every sync/update/init/add invocation
@@ -767,6 +787,14 @@ async function applyCustomizationImpl(
     // is the per-field structural check in the description/scope/model loop
     // above. This body-path guard protects the appended Layer-3 markdown, a
     // different surface from the single-line frontmatter scalars.
+    //
+    // D2-SA2.3-F5 (Cycle 11 Wave 4, Low): promptGuard AND scanForDeniedPatterns
+    // run on the FULL body BEFORE truncation. The prior order truncated on a
+    // byte boundary first, so a deny phrase straddling the cap (head
+    // "…disable secu", tail "rity …" discarded) split and the surviving head
+    // passed the scan unflagged. Scanning the full body means any deny pattern
+    // anywhere in the body triggers the existing fail-closed full-drop; only
+    // already-cleared content is then truncated.
     const guard = sanitizePipelineInput(sanitizedMd);
     for (const v of guard.violations) {
       warnings.push(`Blocked: Customization for ${file.id} — promptGuard: ${v}`);
@@ -791,6 +819,17 @@ async function applyCustomizationImpl(
       }
       sanitizedMd = "";
     }
+
+    // D11-SA11.4-F4 / D2-SA2.3-F5 (Cycle 11 Wave 4): truncate the already-
+    // scanned, cleared body LAST, on a codepoint-safe boundary. Running after
+    // the deny scan means no deny phrase can be split across the cap (F5), and
+    // truncating by whole codepoints (not raw bytes) means a multi-byte
+    // sequence at the seam is never split into a U+FFFD replacement glyph (F4).
+    if (sanitizedMd && Buffer.byteLength(sanitizedMd, "utf-8") > maxBytes) {
+      warnings.push(`Customization markdown for ${file.id} exceeds ${maxBytes} bytes. Truncating to limit.`);
+      sanitizedMd = truncateToByteBudget(sanitizedMd, maxBytes);
+    }
+
     if (sanitizedMd) {
       // F2.3-H2 (Cycle 10 Wave 2): escape any USER-CUSTOMIZATION or HATCH3R
       // managed-block markers embedded in user content before concatenation.

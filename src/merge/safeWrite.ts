@@ -1117,6 +1117,25 @@ export async function safeWriteFile(
     if (skipIfUnchanged && content === existingContent) {
       return { path: filePath, action: "unchanged" };
     }
+    // D1-SA1.5-F90 (Cycle 11 Wave 4, CQ4): when `force` is the ONLY reason we are
+    // overwriting (the file is NOT hatch3r-managed, so it is genuine user
+    // content) and the bytes actually change, copy the original to a
+    // non-clobbering `.bak` FIRST so a forced overwrite is locally recoverable —
+    // mirroring the corruption-repair UX above ({@link resolveNonClobberingBakPath}).
+    // A hatch3r-managed file is regenerable from canonical content, so it keeps
+    // the no-backup fast path (matching "overwrites a managed file without
+    // creating backups"). The backup uses the same non-clobbering slot scheme so
+    // a pre-existing user `.bak` is never overwritten (the D11-12 invariant).
+    if (options.force && !isManagedFile) {
+      const bakPath = await resolveNonClobberingBakPath(filePath);
+      await copyFile(filePath, bakPath);
+      await atomicWriteFile(filePath, content);
+      return {
+        path: filePath,
+        action: "updated",
+        warning: `Force-overwrote unmanaged file ${filePath}: it has no HATCH3R:BEGIN/END markers, so --force replaced your content with hatch3r output. Your previous file was backed up to ${bakPath}; to restore it, copy that file back or run \`hatch3r rollback --session=<id>\` (\`hatch3r rollback list\` shows session ids).`,
+      };
+    }
     await atomicWriteFile(filePath, content);
     return { path: filePath, action: "updated" };
   }

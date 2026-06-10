@@ -85,6 +85,25 @@ export function stripPrivateMcpFields<T extends Record<string, unknown>>(
 export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
 /** Maximum allowed MCP timeout in milliseconds (5 minutes). */
 export const MAX_MCP_TIMEOUT_MS = 300_000;
+/**
+ * Smallest per-server `_timeout` Claude Code honors. The Claude Code MCP loader
+ * IGNORES a positive `timeout` below 1000ms and falls through to
+ * `MCP_TOOL_TIMEOUT` (or its ~28h default when unset); before v2.1.162 such
+ * values were floored to 1s instead (code.claude.com/docs/en/mcp, accessed
+ * 2026-06-10: "Values below 1000 are ignored and fall through to
+ * MCP_TOOL_TIMEOUT").
+ *
+ * D9-SA9.1-L / D15-SA15.5-F8 (Cycle 11 Wave 4, D9/D15, P3/P6): the bounds check
+ * in {@link validateMcpEntry} accepted any `_timeout > 0`, so an operator who
+ * set `_timeout: 500` to bound a slow server got NO warning while the platform
+ * silently dropped the bound to the ~28h default — a Silent Failure Contract
+ * surface (CONSTITUTION §2 P5). The validator now warns on a positive sub-1000ms
+ * value so the operator learns the bound was not applied. The check lives in the
+ * adapter-agnostic validator rather than only the Claude emission path, so the
+ * warning fires for the whole bundled `mcp.json` independent of which adapter is
+ * generating.
+ */
+export const MIN_HONORED_MCP_TIMEOUT_MS = 1_000;
 
 /**
  * Most-recent stable MCP protocol revision emitted into generated client
@@ -599,6 +618,19 @@ export function validateMcpEntry(
       warnings.push(
         `MCP server "${name}" has invalid timeout: ${entry._timeout}. ` +
         `Timeout must be a positive number (milliseconds). Using default ${DEFAULT_MCP_TIMEOUT_MS}ms.`,
+      );
+    } else if (entry._timeout < MIN_HONORED_MCP_TIMEOUT_MS) {
+      // D9-SA9.1-L / D15-SA15.5-F8 (Cycle 11 Wave 4, D9/D15, P3/P6): a
+      // positive-but-sub-1000ms value passes the `> 0` guard but the Claude
+      // Code loader IGNORES it and falls through to MCP_TOOL_TIMEOUT / the ~28h
+      // default (code.claude.com/docs/en/mcp, accessed 2026-06-10). Warn so the
+      // operator does not believe a bound was applied that the platform silently
+      // dropped (Silent Failure Contract, CONSTITUTION §2 P5).
+      warnings.push(
+        `MCP server "${name}" timeout (${entry._timeout}ms) is below the minimum honored value ` +
+        `(${MIN_HONORED_MCP_TIMEOUT_MS}ms). Claude Code ignores sub-${MIN_HONORED_MCP_TIMEOUT_MS}ms timeouts and ` +
+        `falls through to MCP_TOOL_TIMEOUT (default ~28h). Set _timeout to at least ${MIN_HONORED_MCP_TIMEOUT_MS} ` +
+        `to apply a per-server bound.`,
       );
     } else if (entry._timeout > MAX_MCP_TIMEOUT_MS) {
       warnings.push(
