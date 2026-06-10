@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
@@ -73,8 +73,15 @@ function separatorIsCorrect(argTail: string): boolean {
   return separatorIdx !== -1 && separatorIdx < firstFlagIdx;
 }
 
-describe("h4tcher-audit-execute npm `--` separator (Cycle 11 D19-3)", () => {
-  const body = readFileSync(AUDIT_EXECUTE_SKILL, "utf-8");
+// Privatization gate: `.claude/skills/h4tcher-*` is private overlay IP, gitignored
+// and absent in public CI / contributor clones. Skip the whole suite when the
+// skill source is absent (mirrors validate-governance-total.test.ts's
+// "skips clean when the CONSTITUTION is absent (private-corpus public CI)"
+// contract); the gate stays fully effective wherever the file is present.
+const SKILL_PRESENT = existsSync(AUDIT_EXECUTE_SKILL);
+
+describe.skipIf(!SKILL_PRESENT)("h4tcher-audit-execute npm `--` separator (Cycle 11 D19-3)", () => {
+  const body = SKILL_PRESENT ? readFileSync(AUDIT_EXECUTE_SKILL, "utf-8") : "";
   const invocations = npmAuditInvocations(body);
 
   it("references both flag-bearing audit scripts (premise guard)", () => {

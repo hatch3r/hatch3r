@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
@@ -63,7 +63,15 @@ function skillPillarRangeUpperBounds(skillText: string): number[] {
   return [...skillText.matchAll(/P1[–-]P(\d+)/g)].map((m) => Number(m[1]));
 }
 
-describe("PR-resolve skill pillar-currency gate (Cycle 12 D19-4)", () => {
+// Privatization gate: governance/CONSTITUTION.md and `.claude/skills/h4tcher-*`
+// are private overlay IP, gitignored and absent in public CI / contributor
+// clones. Skip the whole suite when either source is absent (mirrors
+// validate-governance-total.test.ts's "skips clean when the CONSTITUTION is
+// absent (private-corpus public CI)" contract); the gate stays fully effective
+// wherever both files are present.
+const SOURCES_PRESENT = existsSync(CONSTITUTION) && existsSync(SKILL);
+
+describe.skipIf(!SOURCES_PRESENT)("PR-resolve skill pillar-currency gate (Cycle 12 D19-4)", () => {
   it("every P1–P<n> range in the skill names the live highest CONSTITUTION pillar id", () => {
     const highest = liveHighestPillarId();
     const skillText = readFileSync(SKILL, "utf-8");

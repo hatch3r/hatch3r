@@ -4,7 +4,7 @@
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic agentic coding setup into any repository. Audited each release across 24 governance domains and generated for 3 platform adapters (Claude Code, Cursor, GitHub Copilot). One command gives you the full set of agents, skills, rules, commands, hooks, and MCP integrations -- optimized for your coding tool of choice (live counts in [`governance/inventory.json`](governance/inventory.json) <!-- counts auto-derived; see governance/inventory.json -->). Selective init installs only what you need based on your project type and team size.
+hatch3r is an open-source CLI and editor plugin (Claude Code + Cursor) that installs a tool-agnostic agentic coding setup into any repository. Audited each release across 24 governance domains and generated for 3 platform adapters (Claude Code, Cursor, GitHub Copilot). One command gives you the full set of agents, skills, rules, commands, hooks, and MCP integrations -- optimized for your coding tool of choice (live counts in [`governance/inventory.json`](governance/inventory.json) <!-- counts auto-derived; see governance/inventory.json -->). Selective init installs only what you need based on your project type and team size.
 
 > **v1.9.0 scope cut:** As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelve adapters were removed in a hard cut; canonical content is now read from the bundled npm package (no `.agents/` materialization in user repos), and the manifest moved to `.hatch3r/hatch.json`. See [CHANGELOG.md](CHANGELOG.md) for the full breaking-change list and migration notes.
 
@@ -159,9 +159,9 @@ hatch3r separates managed from custom files:
 - User-authored canonical overrides live under `.hatch3r/overrides/` (escape hatch); adapters prefer overrides over bundled content.
 - Configure preferred AI models per agent via `hatch.json` (global default + per-agent overrides), agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [Model Selection](https://docs.hatch3r.com/docs/guides/model-selection).
 
-## Cursor Plugin
+## Editor Plugin
 
-hatch3r is also available as a [Cursor plugin](https://cursor.com/marketplace). Enable it for instant access to all rules, skills, agents, and commands without running `init`.
+hatch3r ships plugin manifests for both Claude Code (`.claude-plugin/marketplace.json`) and Cursor (`.cursor-plugin/plugin.json`). Install it straight from this repo as a marketplace — in Claude Code, run `/plugin marketplace add hatch3r/hatch3r` then `/plugin install hatch3r@hatch3r` — for access to all rules, skills, agents, and commands without running `init`.
 
 ## Documentation
 

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
@@ -94,8 +94,16 @@ function writeReEnvision(dir: string, t8CurrentState: string, extraTail = ""): s
   return "governance/RE-ENVISION.md";
 }
 
+// Privatization gate: governance/RE-ENVISION.md is private overlay IP, gitignored
+// and absent in public CI / contributor clones. Skip the real-repo assertion when
+// it is absent (mirrors validate-governance-total.test.ts's "skips clean when the
+// CONSTITUTION is absent (private-corpus public CI)" contract); the two synthetic
+// gate tests below build their own RE-ENVISION.md and stay fully effective. The
+// real-repo assertion runs unchanged wherever the file is present.
+const RE_ENVISION_PRESENT = existsSync(resolve(ROOT, "governance", "RE-ENVISION.md"));
+
 describe("validate-governance-currency CLI-count gate (Cycle 11 D24-15)", () => {
-  it("the real shipped RE-ENVISION.md caches no CLI count in its T8 row", () => {
+  it.skipIf(!RE_ENVISION_PRESENT)("the real shipped RE-ENVISION.md caches no CLI count in its T8 row", () => {
     const { result, exitCode, stderr } = runGate(ROOT);
     const cliCountErrors = result.drifts.filter((d) => d.code === "GOV-CLI-COUNT-CACHED");
     expect(cliCountErrors, `GOV-CLI-COUNT-CACHED hits:\n${stderr}`).toHaveLength(0);

@@ -76,7 +76,7 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 ```json
 {
   "name": "hatch3r",
-  "description": "10-cycle-audited agentic coding setup: 29 agents, 53 skills, 66 rules, 30 commands, 7 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
+  "description": "10-cycle-audited agentic coding setup: 29 agents, 53 skills, 67 rules, 30 commands, 7 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
   "version": "2.0.0",
   "author": {
     "name": "hatch3r",
@@ -118,7 +118,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 ```markdown
 ## hatch3r
 
-**Description:** 10-cycle-audited agentic coding setup framework. One command installs 29 agents, 53 skills, 66 rules, 30 commands, 7 hooks, and MCP integrations into any repo.
+**Description:** 10-cycle-audited agentic coding setup framework. One command installs 29 agents, 53 skills, 67 rules, 30 commands, 7 hooks, and MCP integrations into any repo.
 
 **License:** MIT
 **Repository:** https://github.com/hatch3r/hatch3r
@@ -128,7 +128,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 ### Capabilities
 - 29 sub-agents (researcher, implementer, reviewer, fixer, test-writer, security-auditor, creator, etc.)
 - 53 skills covering bug-fix, feature, release, incident-response, customization, and more
-- 66 rules (code standards, testing, observability, security patterns, agent orchestration)
+- 67 rules (code standards, testing, observability, security patterns, agent orchestration)
 - 30 commands (board management, planning, workflow, operations)
 - 7 lifecycle hooks (pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, review-loop-cap)
 - 10 MCP servers (3 default, 7 opt-in)
@@ -168,13 +168,13 @@ claude plugin validate .
 cat .claude/hooks/hatch3r-hooks.json | jq .
 
 # Confirm inventory counts match plugin.json description
-npm run inventory && diff <(jq -r '.counts | to_entries[] | "\(.key)=\(.value)"' governance/inventory.json | sort) <(echo "agents=17
-adapters=15
-cliCommands=11
-commands=35
-hooks=6
-pipeline=17
-rules=28
-rulesMdc=28
-skills=26" | sort)
+npm run inventory && diff <(jq -r '.counts | to_entries[] | "\(.key)=\(.value)"' governance/inventory.json | sort) <(echo "agents=29
+adapters=3
+cliCommands=19
+commands=30
+hooks=7
+pipeline=22
+rules=67
+rulesMdc=67
+skills=53" | sort)
 ```

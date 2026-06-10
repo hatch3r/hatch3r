@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
@@ -43,12 +43,18 @@ const D22_DOMAIN = resolve(
   "D22-content-architecture.md",
 );
 
-const body = readFileSync(D22_DOMAIN, "utf-8");
+// Privatization gate: governance/audit/domains/* is private overlay IP, gitignored
+// and absent in public CI / contributor clones. Skip the whole suite when the
+// domain source is absent (mirrors validate-governance-total.test.ts's
+// "skips clean when the CONSTITUTION is absent (private-corpus public CI)"
+// contract); the gate stays fully effective wherever the file is present.
+const D22_PRESENT = existsSync(D22_DOMAIN);
+const body = D22_PRESENT ? readFileSync(D22_DOMAIN, "utf-8") : "";
 
 /** Whitespace-normalized lowercase view for substring-invariant matching. */
 const flat = body.replace(/\s+/g, " ").toLowerCase();
 
-describe("D22 hook reachability key-selection rule (Cycle 11 D22-11)", () => {
+describe.skipIf(!D22_PRESENT)("D22 hook reachability key-selection rule (Cycle 11 D22-11)", () => {
   it("SA 22.1 still prescribes a class-aware reachability test (premise guard)", () => {
     // If SA 22.1 ever stops gating removal on class-aware reachability this rule
     // has no anchor — fail loudly so the premise is re-checked rather than

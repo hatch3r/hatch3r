@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 /**
@@ -56,10 +56,21 @@ function tableRows(section: string): string[] {
     .filter((l) => !/^\|[\s|:-]+\|$/.test(l.trim())); // separator (---|---|---)
 }
 
-describe("D9.5 watchlist grades the highest-traction candidate (Cycle 11 D9-21)", () => {
-  const body = readFileSync(D09, "utf-8");
-  const section = watchlistSection(body);
-  const rows = tableRows(section);
+// Privatization gate: governance/audit/domains/* is private overlay IP, gitignored
+// and absent in public CI / contributor clones. Skip the whole suite when the
+// domain source is absent (mirrors validate-governance-total.test.ts's
+// "skips clean when the CONSTITUTION is absent (private-corpus public CI)"
+// contract); the gate stays fully effective wherever the file is present.
+const D09_PRESENT = existsSync(D09);
+
+describe.skipIf(!D09_PRESENT)("D9.5 watchlist grades the highest-traction candidate (Cycle 11 D9-21)", () => {
+  const body = D09_PRESENT ? readFileSync(D09, "utf-8") : "";
+  // When the private source is absent every `it` below is skipped, but the
+  // describe callback still evaluates at collection time — short-circuit the
+  // section/row derivation (whose helper asserts the marker exists) so no
+  // collection-time `expect` fires on an empty body.
+  const section = D09_PRESENT ? watchlistSection(body) : "";
+  const rows = D09_PRESENT ? tableRows(section) : [];
   // Match on the Candidate column (first cell) only — the Devin Desktop row also
   // mentions "OpenCode" in prose (ACP launch-support list), so a whole-row
   // substring match would grab the wrong row.

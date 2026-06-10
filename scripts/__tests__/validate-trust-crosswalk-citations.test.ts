@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -65,11 +66,23 @@ async function makeFixture(opts: {
 
 // ── Tests ──────────────────────────────────────────────────────────
 
+// Privatization gate: governance/audit/domains/D15-trust-reference.md is private
+// overlay IP, gitignored and absent in public CI / contributor clones. Skip the
+// live-corpus assertion when the doc is absent (mirrors
+// validate-governance-total.test.ts's "skips clean when the CONSTITUTION is
+// absent (private-corpus public CI)" contract); the fixture-driven Check A/B/C
+// suites below stay fully effective regardless. The assertion runs unchanged
+// wherever the doc is present.
+const D15_DOC_PRESENT = existsSync(resolve(REPO_ROOT, DOC_REL));
+
 describe("validate-trust-crosswalk-citations — live corpus", () => {
-  it("passes against the shipped D15-trust-reference.md (every citation resolves)", async () => {
-    const findings = await runValidator(REPO_ROOT);
-    expect(findings).toEqual([]);
-  });
+  it.skipIf(!D15_DOC_PRESENT)(
+    "passes against the shipped D15-trust-reference.md (every citation resolves)",
+    async () => {
+      const findings = await runValidator(REPO_ROOT);
+      expect(findings).toEqual([]);
+    },
+  );
 });
 
 describe("validate-trust-crosswalk-citations — Check A (cited-path resolution)", () => {
