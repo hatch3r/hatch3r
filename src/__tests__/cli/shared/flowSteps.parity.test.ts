@@ -151,7 +151,6 @@ function configMachine(manifest: {
     },
     mcpGateStep<ConfState>({ hasExisting: manifest.mcpServers.length > 0 }),
     mcpServersStep<ConfState>({
-      variant: "gated",
       platform: (s) => s.platform!,
       existing: manifest.mcpServers,
       skip: (s) => !(s.features?.includes("mcp")) || !s.mcpGate,

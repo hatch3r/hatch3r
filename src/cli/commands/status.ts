@@ -27,7 +27,9 @@ import {
   printBox,
   printNextSteps,
   info,
+  isQuiet,
   label,
+  setVerbose,
   verbose,
 } from "../shared/ui.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
@@ -449,6 +451,10 @@ export async function statusCommand(opts?: {
   // the shared beginCommand chokepoint.
   const format = beginCommand(opts ?? {}, { banner: "compact" });
   const jsonMode = format === "json";
+  // W5 parity with sync.ts: verbose diagnostics stay OFF in JSON mode even
+  // when `--verbose` is passed, so stderr verbose lines can never interleave
+  // with the single stdout JSON document.
+  if (jsonMode) setVerbose(false);
 
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
@@ -505,12 +511,14 @@ export async function statusCommand(opts?: {
     return;
   }
 
-  console.log();
+  // Blank-line separators are chrome — suppressed under `--quiet`; the
+  // drift-detail data lines below stay unconditional.
+  if (!isQuiet()) console.log();
 
   for (const line of renderDriftLines(report)) {
     console.log(`  ${line}`);
   }
-  console.log();
+  if (!isQuiet()) console.log();
 
   const summaryLines = [
     `${chalk.green("=")} In sync:    ${report.counts.synced}`,

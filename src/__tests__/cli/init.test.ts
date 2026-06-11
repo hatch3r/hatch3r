@@ -2592,6 +2592,37 @@ describe("init chrome-suppression flags (C9-H26)", () => {
       const { readdir } = await import("node:fs/promises");
       const entries = await readdir(tempDir);
       expect(entries).toEqual([]);
+      // Regression (P3 review): SPACE telemetry is one of the dry-run-skipped
+      // writes — `.hatch3r/telemetry/` must not exist after a dry run.
+      await expect(access(join(tempDir, HATCH3R_DIR, "telemetry"))).rejects.toThrow();
+    });
+
+    it("--dry-run writes NO telemetry on the all-adapters-failed path (the failure terminus precedes the dry-run terminus)", async () => {
+      // Regression (P3 review): the all-adapters-failed terminus records
+      // `firstRunSuccessRate=0` BEFORE the dry-run terminus is reached, so it
+      // carries its own `--dry-run` gate. Without the gate, a failed dry run
+      // leaked `.hatch3r/telemetry/space-<date>.jsonl` despite the zero-writes
+      // contract. Mirrors the non-dry-run test (C7-H8 block), which asserts
+      // the telemetry IS written.
+      const adaptersMod = await import("../../adapters/index.js");
+      const failingAdapter = {
+        get warnings() { return [] as string[]; },
+        generate: async () => { throw new Error("simulated adapter failure"); },
+      };
+      const getAdapterSpy = vi.spyOn(adaptersMod, "getAdapter")
+        .mockReturnValue(failingAdapter as unknown as ReturnType<typeof adaptersMod.getAdapter>);
+
+      try {
+        await expect(
+          initCommand({ yes: true, dryRun: true, tools: "claude" }),
+        ).rejects.toThrow(HatchError);
+
+        const { readdir } = await import("node:fs/promises");
+        const entries = await readdir(tempDir);
+        expect(entries).toEqual([]);
+      } finally {
+        getAdapterSpy.mockRestore();
+      }
     });
 
     it("--dry-run renders the per-tool would-write preview box instead of the success box", async () => {

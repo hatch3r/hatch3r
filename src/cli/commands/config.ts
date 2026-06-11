@@ -985,7 +985,6 @@ async function configCommandImpl(
       hasExisting: manifest.mcp.servers.length > 0,
     }),
     mcpServersStep<ConfigState>({
-      variant: "gated",
       platform: (s) => s.platform!,
       existing: manifest.mcp.servers,
       skip: (s) => !(s.features?.includes("mcp")) || !s.mcpGate,

@@ -83,6 +83,25 @@ describe("hatchJson", () => {
       expect(manifest.mcp.servers).toEqual(["github", "context7"]);
     });
 
+    it("derives features.mcp=true from a non-empty server list when features is not provided", () => {
+      // W3-mcp-optin hardening: a manifest must never carry `mcp.servers`
+      // entries while reporting the feature off.
+      const manifest = createManifest({
+        tools: ["cursor"],
+        mcpServers: ["github", "context7"],
+      });
+      expect(manifest.features.mcp).toBe(true);
+    });
+
+    it("explicit features.mcp=false wins over a non-empty server list", () => {
+      const manifest = createManifest({
+        tools: ["cursor"],
+        features: { mcp: false },
+        mcpServers: ["github"],
+      });
+      expect(manifest.features.mcp).toBe(false);
+    });
+
     it("defaults MCP servers to empty array", () => {
       const manifest = createManifest({
         tools: ["cursor"],

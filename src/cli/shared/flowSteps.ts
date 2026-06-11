@@ -21,7 +21,7 @@
 import inquirer from "inquirer";
 import { BACK, isBack, type StepFor, type StepResult } from "./initSteps.js";
 import { promptRepoIdentity, type RepoIdentity } from "./repoIdentityPrompt.js";
-import { MCP_CHOICES, PLATFORM_MCP_SERVER, TOOL_PROMPT_CHOICES } from "./constants.js";
+import { TOOL_PROMPT_CHOICES } from "./constants.js";
 import { confirmMcpGate, pickCliTools, pickMcpServers } from "./pickers.js";
 import { buildTagGroupedCustomContentChoices } from "./customContentChoices.js";
 import { PRESETS, type PresetId } from "../../content/presets.js";
@@ -371,14 +371,7 @@ export function mcpGateStep<TState extends { features: (keyof Features)[]; mcpGa
 
 // ── mcpServers ──────────────────────────────────────────────────────
 
-/**
- * F10.3-2 step (c) prompt copy for the collapsed init multi-select where
- * an empty selection is the `(none)` no-op.
- */
-export const COLLAPSED_MCP_MESSAGE =
-  "Select MCP servers to enable (leave empty for none — you can add later with `hatch3r mcp setup`):";
-
-interface McpServersStepBaseOptions<TState extends object> {
+export interface McpServersStepOptions<TState extends object> {
   /**
    * Resolve the active platform at run time. Machines with a `platform`
    * slot pass `(s) => s.platform!`; the workspace machine (no platform
@@ -387,68 +380,34 @@ interface McpServersStepBaseOptions<TState extends object> {
   platform: (state: Partial<TState>) => Platform;
   wslTheme?: unknown;
   skip?: (state: Partial<TState>) => boolean;
+  /**
+   * Config's gated picker: delegates to `pickMcpServers`
+   * (manifest-seeded default, platform server always prepended).
+   * `previous` is not threaded — `pickMcpServers` derives its default
+   * from `existing`, matching the pre-extraction config step.
+   */
+  existing: string[];
 }
 
-export type McpServersStepOptions<TState extends object> =
-  | (McpServersStepBaseOptions<TState> & {
-      /**
-       * Init's collapsed multi-select (F10.3-2 step (c)): default is
-       * `previous ?? []`, and the platform server is prepended only when
-       * the user selected at least one server — an empty selection stays
-       * empty (the `(none)` path).
-       */
-      variant: "collapsed";
-      /** Prompt copy override (defaults to {@link COLLAPSED_MCP_MESSAGE}). */
-      message?: string;
-    })
-  | (McpServersStepBaseOptions<TState> & {
-      /**
-       * Config's gated picker: delegates to `pickMcpServers`
-       * (manifest-seeded default, platform server always prepended).
-       * `previous` is not threaded — `pickMcpServers` derives its default
-       * from `existing`, matching the pre-extraction config step.
-       */
-      variant: "gated";
-      existing: string[];
-    });
-
-/** MCP-server multi-select (`name: "mcp"`). */
+/**
+ * MCP-server multi-select (`name: "mcp"`), delegating to `pickMcpServers`.
+ * W3-mcp-optin: init no longer prompts for MCP servers (the collapsed
+ * multi-select moved behind `hatch3r mcp setup` / `init --mcp`), so the
+ * config-style gated picker is the only shape.
+ */
 export function mcpServersStep<TState extends { mcpServers: string[] }>(
   opts: McpServersStepOptions<TState>,
 ): StepFor<TState, "mcpServers"> {
   return {
     id: "mcpServers",
     skip: opts.skip,
-    async run(state, previous): Promise<StepResult<TState["mcpServers"]>> {
-      if (opts.variant === "gated") {
-        const result = await pickMcpServers({
-          platform: opts.platform(state),
-          existing: opts.existing,
-          wslTheme: opts.wslTheme,
-        });
-        return result as StepResult<TState["mcpServers"]>;
-      }
-      const platformMcp = PLATFORM_MCP_SERVER[opts.platform(state)];
-      const themeOption = opts.wslTheme ? { theme: opts.wslTheme } : {};
-      const { mcp } = await inquirer.prompt<{ mcp: string[] | typeof BACK }>([
-        {
-          type: "checkbox",
-          name: "mcp",
-          message: opts.message ?? COLLAPSED_MCP_MESSAGE,
-          choices: MCP_CHOICES,
-          default: previous ?? [],
-          ...themeOption,
-        },
-      ]);
-      if (isBack(mcp)) return BACK;
-      const servers = (mcp ?? []) as string[];
-      // Mirror pickMcpServers: if the user selected ANY server, the
-      // platform server is prepended (board/platform integration depends
-      // on it). An empty selection stays empty — that is the `(none)` path.
-      if (servers.length > 0 && !servers.includes(platformMcp)) {
-        servers.unshift(platformMcp);
-      }
-      return servers as TState["mcpServers"];
+    async run(state): Promise<StepResult<TState["mcpServers"]>> {
+      const result = await pickMcpServers({
+        platform: opts.platform(state),
+        existing: opts.existing,
+        wslTheme: opts.wslTheme,
+      });
+      return result as StepResult<TState["mcpServers"]>;
     },
   };
 }

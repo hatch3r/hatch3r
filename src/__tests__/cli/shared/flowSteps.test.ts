@@ -13,7 +13,6 @@ import {
   type StepResult,
 } from "../../../cli/shared/initSteps.js";
 import {
-  COLLAPSED_MCP_MESSAGE,
   cliToolsStep,
   customItemsStep,
   identityStep,
@@ -24,7 +23,6 @@ import {
   toolsStep,
 } from "../../../cli/shared/flowSteps.js";
 import { pickCliTools, pickMcpServers, confirmMcpGate } from "../../../cli/shared/pickers.js";
-import { PLATFORM_MCP_SERVER } from "../../../cli/shared/constants.js";
 import type { RepoIdentity } from "../../../cli/shared/repoIdentityPrompt.js";
 import type { CatalogItem } from "../../../content/index.js";
 import type { CliToolId, Features, Platform, Tool } from "../../../types.js";
@@ -45,11 +43,11 @@ vi.mock("inquirer", () => {
   };
 });
 
-// The cliTools / gated-mcpServers / mcpGate builders delegate to the
+// The cliTools / mcpServers / mcpGate builders delegate to the
 // pickers module — mock it so the tests assert the delegation contract
 // (argument precedence + BACK passthrough) without registry coupling.
-// The collapsed mcpServers variant and all other builders prompt through
-// inquirer directly and are exercised against the inquirer mock.
+// All other builders prompt through inquirer directly and are exercised
+// against the inquirer mock.
 vi.mock("../../../cli/shared/pickers.js", () => ({
   pickCliTools: vi.fn(),
   pickMcpServers: vi.fn(),
@@ -450,56 +448,10 @@ describe("mcpGateStep", () => {
 });
 
 // ── mcpServersStep ──────────────────────────────────────────────────
+// W3-mcp-optin: init dropped its collapsed MCP multi-select, so the
+// config-style gated picker is the builder's only shape.
 
-describe("mcpServersStep — collapsed variant", () => {
-  interface S {
-    platform: Platform;
-    mcpServers: string[];
-  }
-
-  const step = mcpServersStep<S>({
-    variant: "collapsed",
-    platform: (s) => s.platform!,
-  });
-
-  it("renders the collapsed copy with default [] on first visit and previous on revisit", async () => {
-    const inq = vi.mocked(inquirer.prompt);
-    inq.mockResolvedValueOnce({ mcp: [] });
-    await step.run({ platform: "github" }, undefined);
-    expect(questionAt(0)).toMatchObject({
-      name: "mcp",
-      message: COLLAPSED_MCP_MESSAGE,
-      default: [],
-    });
-
-    inq.mockResolvedValueOnce({ mcp: [] });
-    await step.run({ platform: "github" }, ["context7"]);
-    expect(questionAt(1)).toMatchObject({ default: ["context7"] });
-  });
-
-  it("prepends the platform server only on a non-empty selection", async () => {
-    const inq = vi.mocked(inquirer.prompt);
-    const platformMcp = PLATFORM_MCP_SERVER.github;
-
-    inq.mockResolvedValueOnce({ mcp: ["playwright"] });
-    expect(await step.run({ platform: "github" }, undefined)).toEqual([platformMcp, "playwright"]);
-
-    // Empty stays empty — the `(none)` path.
-    inq.mockResolvedValueOnce({ mcp: [] });
-    expect(await step.run({ platform: "github" }, undefined)).toEqual([]);
-
-    // Already present — no duplicate.
-    inq.mockResolvedValueOnce({ mcp: [platformMcp, "context7"] });
-    expect(await step.run({ platform: "github" }, undefined)).toEqual([platformMcp, "context7"]);
-  });
-
-  it("passes BACK through", async () => {
-    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ mcp: BACK });
-    expect(isBack(await step.run({ platform: "github" }, undefined))).toBe(true);
-  });
-});
-
-describe("mcpServersStep — gated variant", () => {
+describe("mcpServersStep", () => {
   interface S {
     platform: Platform;
     features: (keyof Features)[];
@@ -508,7 +460,6 @@ describe("mcpServersStep — gated variant", () => {
   }
 
   const step = mcpServersStep<S>({
-    variant: "gated",
     platform: (s) => s.platform!,
     existing: ["github"],
     skip: (s) => !(s.features?.includes("mcp")) || !s.mcpGate,

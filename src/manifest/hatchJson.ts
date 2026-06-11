@@ -164,7 +164,15 @@ export function createManifest(options: {
     namespace,
     project,
     tools: options.tools,
-    features: { ...DEFAULT_FEATURES, ...options.features },
+    features: {
+      ...DEFAULT_FEATURES,
+      ...options.features,
+      // W3-mcp-optin hardening: when the caller does not set `features.mcp`
+      // explicitly, derive it from the resolved server list so a manifest can
+      // never carry `mcp.servers` entries while reporting the feature off.
+      // An explicit `features.mcp` (true or false) wins over the derivation.
+      mcp: options.features?.mcp ?? ((options.mcpServers?.length ?? 0) > 0),
+    },
     mcp: { servers: options.mcpServers ?? [] },
     managedFiles: [],
   };

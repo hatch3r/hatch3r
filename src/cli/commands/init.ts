@@ -941,14 +941,22 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       // and is not survivorship-biased to 1. recordFirstRunSuccess honours the
       // Silent Failure Contract (never throws), so it runs before — and does not
       // mask — the ADAPTER_ERROR throw below.
-      recordFirstRunSuccess(false, {
-        source: "hatch3r-init",
-        projectRoot: rootDir,
-        tags: {
-          failure: ioFailure ? "io" : "content",
-          tools: tools.join("+"),
-        },
-      });
+      // W5-bigfour: this site sits BEFORE the dry-run terminus, so it must
+      // carry its own `--dry-run` gate — telemetry writes
+      // `.hatch3r/telemetry/space-<date>.jsonl`, and dry-run promises zero
+      // writes (matches the orphan-sweep / checkpoint / migration /
+      // rehydration gates above). The success-path recording is unreachable
+      // under dry-run (the terminus returns first), so it needs no gate.
+      if (options.dryRun !== true) {
+        recordFirstRunSuccess(false, {
+          source: "hatch3r-init",
+          projectRoot: rootDir,
+          tags: {
+            failure: ioFailure ? "io" : "content",
+            tools: tools.join("+"),
+          },
+        });
+      }
       throw new HatchError(
         "All adapters failed",
         undefined,
