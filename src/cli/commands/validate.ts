@@ -17,6 +17,7 @@ import { ALL_TAGS, facetOf } from "../../content/tags.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies, resolveUserContentRoot } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { findPackageRoot } from "../shared/paths.js";
+import { emitJson } from "../shared/output.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
@@ -2557,6 +2558,13 @@ export async function scanManagedBlockTampering(rootDir: string): Promise<string
  */
 export type ValidateOutputFormat = "human" | "json";
 
+/**
+ * JSON-mode payload schema. Serialization goes through the shared
+ * `emitJson` (`src/cli/shared/output.ts`) — one JSON document plus a single
+ * trailing newline; do NOT interleave other stdout writes in json mode. Call
+ * sites pin this shape via `satisfies ValidateJsonOutput` since the shared
+ * emitter accepts `unknown`.
+ */
 interface ValidateJsonOutput {
   errors: string[];
   warnings: string[];
@@ -2568,12 +2576,6 @@ interface ValidateJsonOutput {
     hatch3rVersion: string;
     timestamp: string;
   };
-}
-
-function emitJson(output: ValidateJsonOutput): void {
-  // Write a single JSON document followed by a newline — one-shot payload for
-  // CI parsers. Do NOT interleave other stdout writes in json mode.
-  process.stdout.write(JSON.stringify(output) + "\n");
 }
 
 /**
@@ -2749,7 +2751,7 @@ export async function validateCommand(opts?: {
             hatch3rVersion: HATCH3R_VERSION,
             timestamp,
           },
-        });
+        } satisfies ValidateJsonOutput);
         // D1-SA1.4-F12 (Cycle 10 Wave 4, P5): in JSON mode the single payload
         // above IS the contract (validate.ts:1467 "Do NOT interleave other
         // stdout writes"). Throwing here would propagate to the top-level CLI
@@ -2779,7 +2781,7 @@ export async function validateCommand(opts?: {
           hatch3rVersion: HATCH3R_VERSION,
           timestamp,
         },
-      });
+      } satisfies ValidateJsonOutput);
     } else {
       spinner?.succeed(`Documentation counts verified (${checked} checks, 0 mismatches)`);
     }
@@ -2815,7 +2817,7 @@ export async function validateCommand(opts?: {
           hatch3rVersion: HATCH3R_VERSION,
           timestamp,
         },
-      });
+      } satisfies ValidateJsonOutput);
       // D1-SA1.4-F12: exit cleanly after the single JSON payload rather than
       // throwing into the stderr-printing top-level handler (CONFIG_ERROR → 65).
       process.exit(exitCodeForErrorCode("CONFIG_ERROR"));
@@ -3057,7 +3059,7 @@ export async function validateCommand(opts?: {
         hatch3rVersion: HATCH3R_VERSION,
         timestamp,
       },
-    });
+    } satisfies ValidateJsonOutput);
     if (hasErrors) {
       // D1-SA1.4-F12: the JSON `errors` array is the machine-readable contract;
       // exit with the sysexits code instead of throwing into the top-level

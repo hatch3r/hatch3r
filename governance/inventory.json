@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-09",
+  "lastUpdated": "2026-06-11",
   "counts": {
     "adapters": 3,
     "agents": 29,
@@ -17,7 +17,7 @@
     "commandsRevision": 4,
     "checks": 5,
     "githubAgents": 4,
-    "testFiles": 232
+    "testFiles": 235
   },
   "files": {
     "adapters": [
@@ -506,7 +506,10 @@
       "src/__tests__/cli/mcp.test.ts",
       "src/__tests__/cli/migration-checkpoints.test.ts",
       "src/__tests__/cli/rollback.test.ts",
+      "src/__tests__/cli/shared/commandOutput.test.ts",
       "src/__tests__/cli/shared/errors.test.ts",
+      "src/__tests__/cli/shared/flowSteps.parity.test.ts",
+      "src/__tests__/cli/shared/flowSteps.test.ts",
       "src/__tests__/cli/shared/output.test.ts",
       "src/__tests__/cli/shared/requireManifest.test.ts",
       "src/__tests__/cli/shared/updateNotifier.test.ts",
