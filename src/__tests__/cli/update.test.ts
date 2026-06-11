@@ -178,6 +178,38 @@ describe("update command", () => {
     expect(output).toContain("Update complete");
   });
 
+  // W5-bigfour: the clean-update epilogue renders the printNextSteps ladder
+  // after the summary box (preserved through the finishCommand adoption).
+  it("clean update output contains the next-steps ladder", async () => {
+    await createTestProject(tempDir);
+
+    const { updateCommand } = await import("../../cli/commands/update.js");
+    await updateCommand({ backup: false });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Next steps:");
+    expect(output).toContain("hatch3r status");
+  });
+
+  // W5-bigfour: `--quiet` (beginCommand → setQuiet) suppresses the banner,
+  // summary box, and next-steps chrome while the update still regenerates.
+  it("--quiet suppresses the banner, summary box, and next steps on stdout", async () => {
+    await createTestProject(tempDir);
+
+    const { updateCommand } = await import("../../cli/commands/update.js");
+    await updateCommand({ backup: false, quiet: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).not.toContain("Update complete");
+    expect(output).not.toContain("Next steps:");
+
+    // The regenerate itself still ran — the manifest version advanced.
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
+  });
+
   it("should note when already at latest version", async () => {
     await createTestProject(tempDir, { hatch3rVersion: HATCH3R_VERSION });
 

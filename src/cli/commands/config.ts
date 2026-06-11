@@ -29,7 +29,6 @@ import {
 import { assertManifest } from "../shared/requireManifest.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import {
-  printBanner,
   createSpinner,
   printBox,
   info,
@@ -38,7 +37,11 @@ import {
   label,
   warn,
   verbose,
+  isQuiet,
+  isVerbose,
 } from "../shared/ui.js";
+import { type CliOutputFormat } from "../shared/output.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { runRegenerate, throwOnPartialAdapterFailure } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
 import { findPackageRoot } from "../shared/paths.js";
@@ -178,6 +181,63 @@ function isDiffEmpty(diff: ConfigDiff): boolean {
     diff.addedCliTools.length === 0 &&
     diff.removedCliTools.length === 0
   );
+}
+
+/**
+ * W5-bigfour (P1): render the per-change diff lines of the config summary.
+ * Extracted from the inline summary builder so the `--dry-run` terminus can
+ * print the IDENTICAL change summary the live "Config updated" box renders,
+ * without duplicating the 13 conditionals.
+ */
+function buildDiffSummaryLines(
+  diff: ConfigDiff,
+  platform: Platform,
+  namespace: string,
+  project: string,
+  defaultBranch: string,
+  currentBranch: string,
+): string[] {
+  const lines: string[] = [];
+  if (diff.addedTools.length > 0) {
+    lines.push(`${chalk.green("+")} Tools added: ${diff.addedTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")}`);
+  }
+  if (diff.removedTools.length > 0) {
+    lines.push(`${chalk.red("-")} Tools removed: ${diff.removedTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")}`);
+  }
+  if (diff.addedMcp.length > 0) {
+    lines.push(`${chalk.green("+")} MCP added: ${diff.addedMcp.join(", ")}`);
+  }
+  if (diff.removedMcp.length > 0) {
+    lines.push(`${chalk.red("-")} MCP removed: ${diff.removedMcp.join(", ")}`);
+  }
+  if (diff.enabledFeatures.length > 0) {
+    lines.push(`${chalk.green("+")} Features enabled: ${diff.enabledFeatures.join(", ")}`);
+  }
+  if (diff.disabledFeatures.length > 0) {
+    lines.push(`${chalk.red("-")} Features disabled: ${diff.disabledFeatures.join(", ")}`);
+  }
+  if (diff.platformChanged) {
+    lines.push(`${chalk.yellow("~")} Platform: ${PLATFORM_DISPLAY_NAMES[platform]}`);
+  }
+  if (diff.repoChanged) {
+    lines.push(`${chalk.yellow("~")} Repo: ${namespace}/${project}`);
+  }
+  if (diff.addedContent.length > 0) {
+    lines.push(`${chalk.green("+")} Content added: ${diff.addedContent.length} item(s)`);
+  }
+  if (diff.removedContent.length > 0) {
+    lines.push(`${chalk.red("-")} Content removed: ${diff.removedContent.length} item(s)`);
+  }
+  if (diff.addedCliTools.length > 0) {
+    lines.push(`${chalk.green("+")} CLI tools added: ${diff.addedCliTools.join(", ")}`);
+  }
+  if (diff.removedCliTools.length > 0) {
+    lines.push(`${chalk.red("-")} CLI tools removed: ${diff.removedCliTools.join(", ")}`);
+  }
+  if (defaultBranch !== currentBranch) {
+    lines.push(`${chalk.yellow("~")} Default branch: ${defaultBranch}`);
+  }
+  return lines;
 }
 
 /**
@@ -407,9 +467,12 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
 async function handleScalarConfig(
   rootDir: string,
   manifest: HatchManifest,
+  format: CliOutputFormat,
+  cliOpts: ConfigCliOptions | undefined,
   arg1?: string,
   arg2?: string,
 ): Promise<boolean> {
+  const dryRun = cliOpts?.dryRun === true;
   // F16.1-C1 (Decision 27 / Bucket 2.2): record a `passed` checkpoint after a
   // scalar-config manifest write under `.config-workspace/checkpoint.json`.
   // The scalar set/get forms are a single-phase mutation (no adapter
@@ -448,10 +511,26 @@ async function handleScalarConfig(
     }
   }
 
-  // Form 1: bare `key=value` ─ e.g. `hatch3r config maturity=team`
-  const inlineSet = parseScalarKeyValue(arg1);
-  if (inlineSet) {
-    const { previous, next } = applyScalarConfigWrite(manifest, inlineSet.key, inlineSet.value);
+  // W5-bigfour: shared epilogue for the two scalar SET forms (`key=value`
+  // and `set key value`). Validation already happened (applyScalarConfigWrite
+  // throws on bad input). `--dry-run` prints the would-change and skips the
+  // snapshot + manifest write + checkpoint; JSON mode emits the standard
+  // envelope with the same {key, value, previous} fields the human lines
+  // render.
+  const finishScalarSet = async (key: ScalarConfigKey, previous: string | undefined, next: string): Promise<void> => {
+    if (dryRun) {
+      if (format === "json") {
+        finishCommand(format, {
+          command: "config",
+          title: "",
+          lines: [],
+          json: { status: "dry-run", key, value: next, previous: previous ?? null },
+        });
+      } else {
+        info(`Dry run: would set ${key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)} (no write).`);
+      }
+      return;
+    }
     // Decision 27 (Bucket 2.2): snapshot the manifest before the
     // scalar-config write so a misconfigured maturity tier can be undone
     // with `hatch3r rollback --session=<id>`.
@@ -463,14 +542,36 @@ async function handleScalarConfig(
     );
     await writeManifest(rootDir, manifest);
     await recordScalarCheckpoint();
+    if (format === "json") {
+      finishCommand(format, {
+        command: "config",
+        title: "",
+        lines: [],
+        json: {
+          key,
+          value: next,
+          previous: previous ?? null,
+          changed: previous !== next,
+          snapshotSessionId: scalarSnap.sessionId ?? null,
+        },
+      });
+      return;
+    }
     if (previous === next) {
-      info(`${inlineSet.key} is already set to "${next}". No change.`);
+      info(`${key} is already set to "${next}". No change.`);
     } else {
-      info(`Set ${inlineSet.key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)}`);
+      info(`Set ${key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)}`);
       if (scalarSnap.sessionId) {
         info(`Snapshot: ${scalarSnap.sessionId} (revert: hatch3r rollback --session=${scalarSnap.sessionId})`);
       }
     }
+  };
+
+  // Form 1: bare `key=value` ─ e.g. `hatch3r config maturity=team`
+  const inlineSet = parseScalarKeyValue(arg1);
+  if (inlineSet) {
+    const { previous, next } = applyScalarConfigWrite(manifest, inlineSet.key, inlineSet.value);
+    await finishScalarSet(inlineSet.key, previous, next);
     return true;
   }
 
@@ -486,6 +587,19 @@ async function handleScalarConfig(
       );
     }
     const value = readScalarConfigValue(manifest, key);
+    // W5-bigfour: JSON envelope for the scalar get form ({key, value} — the
+    // same fields the human path prints as the bare value). style "info"
+    // derives status "ok" (read-only query, nothing passed or failed).
+    if (format === "json") {
+      finishCommand(format, {
+        command: "config",
+        title: "",
+        lines: [],
+        style: "info",
+        json: { key, value },
+      });
+      return true;
+    }
     console.log(value);
     return true;
   }
@@ -522,31 +636,50 @@ async function handleScalarConfig(
       );
     }
     const { previous, next } = applyScalarConfigWrite(manifest, key, value);
-    // Decision 27 (Bucket 2.2): snapshot before `set` form writes too.
-    const scalarSnap = await withSnapshot(
-      "config",
-      [join(rootDir, HATCH3R_DIR, "hatch.json")],
-      async (_sessionId) => undefined,
-      { projectRoot: rootDir, onWarn: warn },
-    );
-    await writeManifest(rootDir, manifest);
-    await recordScalarCheckpoint();
-    if (previous === next) {
-      info(`${key} is already set to "${next}". No change.`);
-    } else {
-      info(`Set ${key}: ${chalk.dim(previous ?? "<default>")} ${chalk.cyan("→")} ${chalk.bold(next)}`);
-      if (scalarSnap.sessionId) {
-        info(`Snapshot: ${scalarSnap.sessionId} (revert: hatch3r rollback --session=${scalarSnap.sessionId})`);
-      }
-    }
+    // Decision 27 (Bucket 2.2): snapshot before `set` form writes too
+    // (inside finishScalarSet, skipped under --dry-run).
+    await finishScalarSet(key, previous, next);
     return true;
   }
 
   return false;
 }
 
-export async function configCommand(arg1?: string, arg2?: string): Promise<void> {
-  printBanner(true);
+/**
+ * W5-bigfour (P1): standardized CLI flags for `hatch3r config`, registered in
+ * program.ts and resolved through `beginCommand`.
+ */
+export interface ConfigCliOptions {
+  /**
+   * `--format <human|json>`. JSON is valid ONLY for the scalar headless forms
+   * (`config get <key>`, `config set <key> <value>`, `config <key>=<value>`)
+   * — the interactive flow is prompt-driven and cannot interleave with the
+   * single-JSON-document stdout contract (exit 2 via beginCommand).
+   */
+  format?: string;
+  /** `--quiet`: suppress stdout chrome (banner, boxes, separators, summaries). */
+  quiet?: boolean;
+  /**
+   * `--dry-run`: scalar set prints the would-change without writing;
+   * the interactive flow runs its prompts, prints the change summary, and
+   * skips every write (archive, manifest, regenerate, workspace post-steps).
+   */
+  dryRun?: boolean;
+  /** `--verbose`: per-adapter regeneration file detail on stderr. */
+  verbose?: boolean;
+}
+
+export async function configCommand(arg1?: string, arg2?: string, opts?: ConfigCliOptions): Promise<void> {
+  // W5-bigfour (P1): standardized entry — `--format`/`--quiet`/`--verbose`
+  // wiring + the compact banner flow through beginCommand. cfg.interactive
+  // derives from the arg shape: only the scalar headless forms may combine
+  // with `--format json`; the prompt-driven interactive flow + json throws
+  // the standard exit-2 usage error (its hint names the scalar escape).
+  const scalarForm = isScalarConfigForm(arg1, arg2);
+  const format: CliOutputFormat = beginCommand(opts ?? {}, {
+    banner: "compact",
+    interactive: !scalarForm,
+  });
 
   const rootDir = process.cwd();
 
@@ -557,13 +690,16 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
   // effort: only removes files older than the 60s in-flight-write floor
   // ({@link ORPHAN_MIN_AGE_MS}), surfaces removals + unlink failures via
   // `warn()` per the Silent Failure Contract (P5), never aborts the command.
-  // Mirrors the `update`/`sync`/`init` entry-point sweep.
-  try {
-    const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
-    const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
-    if (tmpDiag) warn(tmpDiag);
-  } catch (err) {
-    verbose(`config: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+  // Mirrors the `update`/`sync`/`init` entry-point sweep — including its
+  // `--dry-run` skip (the sweep unlinks files; dry-run promises no writes).
+  if (opts?.dryRun !== true) {
+    try {
+      const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+      const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+      if (tmpDiag) warn(tmpDiag);
+    } catch (err) {
+      verbose(`config: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // F1.2-H1 (Cycle 10): Hold a cross-process advisory lock on `hatch.json`
@@ -578,7 +714,7 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
   const manifestPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
   const releaseManifestLock = await acquireWriteLock(manifestPath);
   try {
-    await configCommandImpl(rootDir, arg1, arg2);
+    await configCommandImpl(rootDir, format, opts, arg1, arg2);
   } finally {
     try {
       await releaseManifestLock();
@@ -602,7 +738,13 @@ export async function configCommand(arg1?: string, arg2?: string): Promise<void>
  * the full critical section — including every early `return` path — without
  * duplicating the `try/finally` release at every exit point.
  */
-async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string): Promise<void> {
+async function configCommandImpl(
+  rootDir: string,
+  format: CliOutputFormat,
+  cliOpts: ConfigCliOptions | undefined,
+  arg1?: string,
+  arg2?: string,
+): Promise<void> {
   const manifest = await readManifest(rootDir);
 
   // D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): shared missing-manifest preflight —
@@ -613,7 +755,7 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   // `hatch3r config set <key> <value>`, and `hatch3r config get <key>`.
   // Returns true when the call was handled; false drops through to the
   // interactive flow below.
-  if (await handleScalarConfig(rootDir, manifest, arg1, arg2)) {
+  if (await handleScalarConfig(rootDir, manifest, format, cliOpts, arg1, arg2)) {
     return;
   }
 
@@ -662,7 +804,7 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       `This repo is managed by workspace at ${wsContext.workspaceRoot}. ` +
       `Changes here may be overwritten on next workspace sync.`,
     );
-    console.log();
+    if (!isQuiet()) console.log();
     const actionAnswer = await inquirer.prompt<{ action: string | typeof BACK }>([
       {
         type: "select",
@@ -1061,12 +1203,16 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       dependencyWarnings.push(...orchWarnings);
 
       if (dependencyWarnings.length > 0) {
-        console.log();
+        // W5-bigfour: detail lines are stdout chrome — gate behind quiet
+        // (warn() stays on stderr unconditionally).
+        if (!isQuiet()) console.log();
         warn("Dependency warnings for removed content:");
-        for (const w of dependencyWarnings) {
-          console.log(chalk.dim(`  ${w}`));
+        if (!isQuiet()) {
+          for (const w of dependencyWarnings) {
+            console.log(chalk.dim(`  ${w}`));
+          }
+          console.log();
         }
-        console.log();
       }
     }
 
@@ -1089,8 +1235,13 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         const item = index.byId.get(id);
         if (item) {
           contentChanges.removed.push({ type: item.type, id: item.id });
-          const { archivedCustomizeFiles: rescued } = await archiveCustomizeOverrides(rootDir, item);
-          archivedCustomizeFiles.push(...rescued);
+          // W5-bigfour: the override rescue moves `.customize.*` files into
+          // the archive — a write — so `--dry-run` skips it (the removed-item
+          // diff row still renders below).
+          if (cliOpts?.dryRun !== true) {
+            const { archivedCustomizeFiles: rescued } = await archiveCustomizeOverrides(rootDir, item);
+            archivedCustomizeFiles.push(...rescued);
+          }
         }
       }
     }
@@ -1117,9 +1268,29 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   const diff = computeDiff(manifest, tools, features, mcpServers, platform, owner, repo, namespace, project, selectedCliTools, contentChanges);
 
   if (isDiffEmpty(diff) && defaultBranch === currentBranch && !contentMetadataChanged) {
-    console.log();
+    // W5-bigfour: blank-line separators are stdout chrome — gate behind quiet
+    // (info() is already self-gated).
+    if (!isQuiet()) console.log();
     info("No changes detected.");
-    console.log();
+    if (!isQuiet()) console.log();
+    return;
+  }
+
+  // W5-bigfour (P1): `--dry-run` terminus for the interactive flow — the
+  // prompts ran and the diff is computed, so render the same change summary
+  // the live "Config updated" box prints and stop BEFORE every write below:
+  // tool-output archive, manifest write, `.worktreeinclude`, runRegenerate,
+  // `.env.mcp`, and the workspace post-steps.
+  if (cliOpts?.dryRun === true) {
+    const dryLines = buildDiffSummaryLines(diff, platform, namespace, project, defaultBranch, currentBranch);
+    dryLines.push("");
+    dryLines.push(
+      chalk.dim(
+        "Skipped writes: tool-output archive, manifest, .worktreeinclude, adapter regenerate, .env.mcp, workspace sync.",
+      ),
+    );
+    if (!isQuiet()) console.log();
+    printBox("Config dry run (no writes)", dryLines, "info");
     return;
   }
 
@@ -1155,10 +1326,14 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       }
     }
     if (previewLines.length > 0) {
-      console.log();
-      console.log(chalk.yellow("Tool removal preview:"));
-      for (const line of previewLines) console.log(line);
-      console.log();
+      // W5-bigfour: preview chrome gated behind quiet; the confirm prompt
+      // below still fires (quiet silences chrome, not consent).
+      if (!isQuiet()) {
+        console.log();
+        console.log(chalk.yellow("Tool removal preview:"));
+        for (const line of previewLines) console.log(line);
+        console.log();
+      }
       // `configCommandImpl` runs fully interactively — there is no headless
       // override flag here. The confirm gives the user one chance to abort
       // before the archive step rewrites disk state. Cancelled config exits
@@ -1209,7 +1384,7 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       { projectRoot: rootDir, onWarn: warn },
     );
     removalSnapshotSessionId = removalSnap.sessionId;
-    console.log();
+    if (!isQuiet()) console.log();
     for (let i = 0; i < diff.removedTools.length; i++) {
       const tool = diff.removedTools[i];
       const s = createSpinner(
@@ -1308,11 +1483,23 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   // pre-deletion bytes and this regenerate's writes land in ONE advertised
   // session. Omitted (undefined) when nothing was removed → runRegenerate mints
   // its own session, unchanged.
-  console.log();
+  if (!isQuiet()) console.log();
   const updateResult = await runRegenerate(rootDir, manifest, {
     snapshotCommandName: "config",
     ...(removalSnapshotSessionId ? { reuseSessionId: removalSnapshotSessionId } : {}),
   });
+
+  // W5-bigfour (P1): `--verbose` regeneration detail — per-adapter output
+  // file list. runRegenerate refreshes `manifest.managedFilesByAdapter` in
+  // place (update.ts merge step), so the live post-regenerate file set is
+  // readable here without changing the UpdateResult contract. stderr-only;
+  // no-op when verbose mode is off.
+  if (isVerbose()) {
+    for (const [tool, paths] of Object.entries(manifest.managedFilesByAdapter ?? {})) {
+      verbose(`config: ${tool} regenerated ${paths.length} file(s)`);
+      for (const p of paths) verbose(`  ${p}`);
+    }
+  }
 
   // --- Handle .env.mcp for new MCP servers ---
   if (features.mcp && mcpServers.length > 0) {
@@ -1329,48 +1516,10 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   }
 
   // --- Print summary ---
-  console.log();
-  const summaryLines: string[] = [];
-
-  if (diff.addedTools.length > 0) {
-    summaryLines.push(`${chalk.green("+")} Tools added: ${diff.addedTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")}`);
-  }
-  if (diff.removedTools.length > 0) {
-    summaryLines.push(`${chalk.red("-")} Tools removed: ${diff.removedTools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")}`);
-  }
-  if (diff.addedMcp.length > 0) {
-    summaryLines.push(`${chalk.green("+")} MCP added: ${diff.addedMcp.join(", ")}`);
-  }
-  if (diff.removedMcp.length > 0) {
-    summaryLines.push(`${chalk.red("-")} MCP removed: ${diff.removedMcp.join(", ")}`);
-  }
-  if (diff.enabledFeatures.length > 0) {
-    summaryLines.push(`${chalk.green("+")} Features enabled: ${diff.enabledFeatures.join(", ")}`);
-  }
-  if (diff.disabledFeatures.length > 0) {
-    summaryLines.push(`${chalk.red("-")} Features disabled: ${diff.disabledFeatures.join(", ")}`);
-  }
-  if (diff.platformChanged) {
-    summaryLines.push(`${chalk.yellow("~")} Platform: ${PLATFORM_DISPLAY_NAMES[platform]}`);
-  }
-  if (diff.repoChanged) {
-    summaryLines.push(`${chalk.yellow("~")} Repo: ${namespace}/${project}`);
-  }
-  if (diff.addedContent.length > 0) {
-    summaryLines.push(`${chalk.green("+")} Content added: ${diff.addedContent.length} item(s)`);
-  }
-  if (diff.removedContent.length > 0) {
-    summaryLines.push(`${chalk.red("-")} Content removed: ${diff.removedContent.length} item(s)`);
-  }
-  if (diff.addedCliTools.length > 0) {
-    summaryLines.push(`${chalk.green("+")} CLI tools added: ${diff.addedCliTools.join(", ")}`);
-  }
-  if (diff.removedCliTools.length > 0) {
-    summaryLines.push(`${chalk.red("-")} CLI tools removed: ${diff.removedCliTools.join(", ")}`);
-  }
-  if (defaultBranch !== currentBranch) {
-    summaryLines.push(`${chalk.yellow("~")} Default branch: ${defaultBranch}`);
-  }
+  if (!isQuiet()) console.log();
+  // W5-bigfour: the per-change diff lines are single-sourced in
+  // buildDiffSummaryLines (shared with the `--dry-run` terminus above).
+  const summaryLines: string[] = buildDiffSummaryLines(diff, platform, namespace, project, defaultBranch, currentBranch);
 
   summaryLines.push("");
   summaryLines.push(label("Files", `${updateResult.copiedFiles} canonical files updated`));
@@ -1425,25 +1574,44 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       `${chalk.red("✗")} Adapters failed: ${updateResult.failedTools} of ${manifest.tools.length} (see per-adapter errors above)`,
     );
   }
-  printBox(
-    partialAdapterFailure ? "Config updated with errors" : "Config updated",
-    summaryLines,
-    partialAdapterFailure ? "warning" : "success",
-  );
+  // W5-bigfour (P1): box emission flows through the standardized
+  // finishCommand chokepoint (titles verbatim). The interactive flow can
+  // never reach JSON mode (beginCommand rejects interactive + `--format
+  // json`), so the human box path is the only live branch; the json fields
+  // exist for envelope-shape parity. The partial-failure throw stays AFTER
+  // the emission so the summary always renders before the exit-2 signal.
+  finishCommand(format, {
+    command: "config",
+    title: partialAdapterFailure ? "Config updated with errors" : "Config updated",
+    lines: summaryLines,
+    style: partialAdapterFailure ? "warning" : "success",
+    json: {
+      status: partialAdapterFailure ? "partial" : "passed",
+      filesWritten: updateResult.copiedFiles,
+      syncedTools: updateResult.syncedTools,
+      failedTools: updateResult.failedTools,
+      version: updateResult.version,
+      snapshotSessionId: updateResult.snapshotSessionId ?? null,
+    },
+  });
   throwOnPartialAdapterFailure(updateResult.failedTools, manifest.tools.length);
 
   if (allMigrations.length > 0) {
-    console.log();
-    info("Customizations migrated to .hatch3r/ (tool-agnostic):");
-    for (const m of allMigrations) {
-      console.log(`  ${chalk.dim(m.from)} ${chalk.cyan("→")} ${m.to}`);
+    // W5-bigfour: migration arrows + separators are stdout chrome — gate
+    // behind quiet (info() is already self-gated).
+    if (!isQuiet()) {
+      console.log();
+      info("Customizations migrated to .hatch3r/ (tool-agnostic):");
+      for (const m of allMigrations) {
+        console.log(`  ${chalk.dim(m.from)} ${chalk.cyan("→")} ${m.to}`);
+      }
+      console.log();
     }
-    console.log();
   }
 
   // #146 (D19-17): Show migration guide when switching tools
   if (diff.addedTools.length > 0 || diff.removedTools.length > 0) {
-    console.log();
+    if (!isQuiet()) console.log();
     info("Tool migration notes:");
     if (diff.removedTools.length > 0) {
       // D2-5 (Cycle 11 Wave 2, D2, P1): the recovery path is the rollback
@@ -1476,7 +1644,7 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       info(chalk.dim(`  New tool output generated. Restart your editor to pick up changes.`));
       info(chalk.dim(`  MCP secrets (.env.mcp) are shared across tools — no re-entry needed.`));
     }
-    console.log();
+    if (!isQuiet()) console.log();
   }
 
   // ── Workspace management ──────────────────────────────────────
@@ -1497,11 +1665,15 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       }
     }
 
-    console.log();
-    info(chalk.bold("Workspace configuration"));
-    const currentRepos = wsManifestFinal.repos.map((r) => r.path);
-    console.log(chalk.dim(`  Repos: ${currentRepos.join(", ") || "(none)"}`));
-    console.log(chalk.dim(`  Sync strategy: ${wsManifestFinal.syncStrategy}`));
+    // W5-bigfour: workspace header detail is stdout chrome — gate behind
+    // quiet (the prompts below still fire).
+    if (!isQuiet()) {
+      console.log();
+      info(chalk.bold("Workspace configuration"));
+      const currentRepos = wsManifestFinal.repos.map((r) => r.path);
+      console.log(chalk.dim(`  Repos: ${currentRepos.join(", ") || "(none)"}`));
+      console.log(chalk.dim(`  Sync strategy: ${wsManifestFinal.syncStrategy}`));
+    }
 
     // Workspace block: defensive Shift+Tab guards. The workspace flow is
     // outside the step machine for now (its prompts depend on workspace
@@ -1610,7 +1782,7 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
           info("Re-detected git identities for all repos.");
         } else if (editIdentity === "edit") {
           for (const repo of wsManifestFinal.repos) {
-            console.log(chalk.bold(`\n  ${repo.name ?? repo.path}:`));
+            if (!isQuiet()) console.log(chalk.bold(`\n  ${repo.name ?? repo.path}:`));
             const identity = await inquirer.prompt<{ owner: string | typeof BACK; repo: string | typeof BACK; defaultBranch: string | typeof BACK }>([
               { type: "input", name: "owner", message: "  Owner:", default: repo.owner || undefined },
               { type: "input", name: "repo", message: "  Repo:", default: repo.repo || undefined },

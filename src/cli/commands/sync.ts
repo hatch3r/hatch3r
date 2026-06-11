@@ -73,7 +73,6 @@ import { validateLearningsDirectory } from "../../content/learningsValidation.js
 import { validateHandoffsDirectory, pruneHandoffs } from "../../content/handoffs/index.js";
 import { loadValidatedLearnings } from "../../content/learningsLoader.js";
 import {
-  printBanner,
   createSpinner,
   printBox,
   printNextSteps,
@@ -85,7 +84,8 @@ import {
   setVerbose,
   verbose,
 } from "../shared/ui.js";
-import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { type CliOutputFormat } from "../shared/output.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { getRunId } from "../shared/runId.js";
 import { buildCustomizationSummary, selectionSetFromManifest } from "../../adapters/customizationSummary.js";
 
@@ -241,6 +241,12 @@ export async function syncCommand(
      */
     format?: string;
     /**
+     * W5-bigfour (P1): suppress stdout chrome (banner, spinner text, summary
+     * box, next-steps, timing). Diagnostics (warn/error) stay on stderr per
+     * POSIX. Wired through `beginCommand` → `setQuiet`.
+     */
+    quiet?: boolean;
+    /**
      * SA12.1-F-D12-M8 (D12, P1): under `--dry-run`, print the FULL content
      * body that the named adapter would write so the operator can verify
      * the bytes before any write happens. Without this flag, `--dry-run`
@@ -264,10 +270,16 @@ export async function syncCommand(
 ): Promise<void> {
   // SA12.1-F-D12-M2: branch on `--format json` BEFORE banner/spinner so
   // CI consumers see exactly one JSON document on stdout.
-  const format: CliOutputFormat = parseFormatOption(opts.format);
+  // W5-bigfour (P1): flag wiring flows through the standardized beginCommand
+  // chokepoint — `--format` parsing, `--quiet` → setQuiet, `--verbose` →
+  // setVerbose, compact banner in human mode. JSON mode now additionally
+  // engages chrome suppression (`setJson` implies quiet) so interleaved
+  // info()/printBox chrome can never corrupt the single-document contract.
+  const format: CliOutputFormat = beginCommand(opts, { banner: "compact" });
   const jsonMode = format === "json";
-  setVerbose(jsonMode ? false : !!opts.verbose);
-  if (!jsonMode) printBanner(true);
+  // Pre-adoption contract preserved: verbose diagnostics stay OFF in JSON
+  // mode even when `--verbose` is passed (the legacy block forced it false).
+  if (jsonMode) setVerbose(false);
 
   // SA12.1-F-D12-M8 (D12, P1): `--preview-tool <name>` only makes sense
   // alongside `--dry-run` — without it, the bytes are written immediately
@@ -1569,8 +1581,19 @@ export async function syncCommand(
   // place of the decorated box. The schema lets CI consumers branch on
   // `status` (passed | failed | dry-run), `adapterFailures` (per-tool
   // outcome), and `results` (per-file action). One-shot, single document.
-  if (jsonMode) {
-    const payload = {
+  // W5-bigfour (P1): box-vs-JSON emission flows through the standardized
+  // finishCommand chokepoint. Payload field names are unchanged; the envelope
+  // adds the standard `command` identity field. The interleaved post-box
+  // chrome below (partial-failure box, customization confirmation, next-steps
+  // ladder, timing) stays on ui.ts primitives because finishCommand's single
+  // box + next-steps shape cannot express chrome BETWEEN the box and the
+  // next-steps without reordering the byte-identical human output.
+  finishCommand(format, {
+    command: "sync",
+    title: boxTitle,
+    lines: summaryLines,
+    style: opts.dryRun ? "info" : adapterFailures.length > 0 ? "info" : "success",
+    json: {
       status: opts.dryRun
         ? ("dry-run" as const)
         : adapterFailures.length > 0
@@ -1585,16 +1608,9 @@ export async function syncCommand(
       results,
       partialFailureLines,
       snapshotSessionId: syncSessionId ?? null,
-      hatch3rVersion: HATCH3R_VERSION,
-      timestamp: new Date().toISOString(),
-    };
-    emitJson(payload);
-  } else {
-    printBox(
-      boxTitle,
-      summaryLines,
-      opts.dryRun ? "info" : adapterFailures.length > 0 ? "info" : "success",
-    );
+    },
+  });
+  if (!jsonMode) {
     // SA12.1-F-D12-M6 (D12, P1): partial-failure callout — emit AFTER the
     // main summary box as a dedicated boxed block so the half-state warning
     // is visually distinct and impossible to miss (the prior inline `warn()`

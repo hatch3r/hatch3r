@@ -52,19 +52,19 @@ import {
   printBanner,
   createSpinner,
   printBox,
+  printNextSteps,
   info,
   error as logError,
   step,
   label,
   warn,
   verbose,
-  setQuiet,
-  setJson,
-  resetUiState,
   isJson,
   isQuiet,
   printTimingSummary,
 } from "../shared/ui.js";
+import { emitJson } from "../shared/output.js";
+import { beginCommand } from "../shared/commandOutput.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { TOOL_DISPLAY_NAMES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
 import {
@@ -612,6 +612,16 @@ export interface RunInitOptions {
    * carries no competing toolchains (no field is written to the manifest).
    */
   conflicts?: ConventionConflict[];
+  /**
+   * W5-bigfour (P1): `--dry-run` — run adapter generation up to the write
+   * boundary (Pass 1, in-memory), render the per-tool would-write summary,
+   * and skip every disk mutation: orphan-tmp sweep, legacy-state migration,
+   * customization rehydration, snapshot, adapter outputs, per-package copies,
+   * `.worktreeinclude`, manifest, provenance, learnings/handoffs seeds,
+   * mcp.json, `.env.mcp`, `.gitignore` entries, telemetry, and checkpoints.
+   * Prompts on the interactive path still run; only writes are skipped.
+   */
+  dryRun?: boolean;
 }
 
 // C8-D1-M3: Guard against a double `runInit` on the same target directory.
@@ -670,13 +680,16 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // effort: the sweep only removes files older than the 60s in-flight-write floor
   // ({@link ORPHAN_MIN_AGE_MS}), surfaces removals + any unlink failures via
   // `warn()` per the Silent Failure Contract (P5), and never aborts init.
-  // Mirrors the `update`/`sync` entry-point sweep.
-  try {
-    const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
-    const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
-    if (tmpDiag) warn(tmpDiag);
-  } catch (err) {
-    verbose(`init: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+  // Mirrors the `update`/`sync` entry-point sweep — including its `--dry-run`
+  // skip (the sweep unlinks files; dry-run promises no writes).
+  if (options.dryRun !== true) {
+    try {
+      const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+      const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+      if (tmpDiag) warn(tmpDiag);
+    } catch (err) {
+      verbose(`init: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // Decision 24 / Bucket 2.x: surface a pre-execution cost estimate so an
@@ -721,6 +734,8 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     wave: number,
     status: "in-progress" | "passed" | "failed",
   ): Promise<void> => {
+    // W5-bigfour: `--dry-run` promises zero writes — checkpoints included.
+    if (options.dryRun === true) return;
     const meta: CheckpointMeta = {
       baselineSha: HATCH3R_VERSION,
       lastPassedGateN: status === "passed" ? wave : Math.max(0, wave - 1),
@@ -741,7 +756,12 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // Wave 6: relocate any pre-1.9 `.agents/` state (hatch.json, learnings/,
   // handoffs/, mcp/mcp.json) to `.hatch3r/` before reading the manifest so a
   // re-init over a legacy install discovers the manifest at the new path.
-  await migrateAgentsToHatch3r(rootDir);
+  // W5-bigfour: the relocation moves files, so `--dry-run` skips it — on a
+  // legacy repo the preview then reads no manifest and renders as a fresh
+  // install, which matches what a subsequent real run would migrate into.
+  if (options.dryRun !== true) {
+    await migrateAgentsToHatch3r(rootDir);
+  }
 
   const s1 = createSpinner(step(1, totalSteps, "Resolving canonical content..."));
   s1.start();
@@ -832,8 +852,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // `src/manifest/rehydrate.ts` for the rationale and idempotency guarantee.
   // Existing `.customize.yaml` files are preserved (Layer 2 wins by
   // precedence; this is a Layer-4 fallback).
-  const rehydration = await rehydrateCustomization(rootDir, manifest.customization);
-  for (const w of rehydration.warnings) { warn(w); }
+  // W5-bigfour: rehydration writes `.customize.yaml` files, so `--dry-run`
+  // skips it. Tradeoff: a repo whose Layer-4 manifest customization has no
+  // Layer-2 yaml yet previews adapter output WITHOUT that customization (the
+  // adapters read Layer 2 from disk); the no-writes contract dominates.
+  if (options.dryRun !== true) {
+    const rehydration = await rehydrateCustomization(rootDir, manifest.customization);
+    for (const w of rehydration.warnings) { warn(w); }
+  }
 
   const s3 = createSpinner(
     step(3, totalSteps, `Generating ${tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} output...`),
@@ -951,6 +977,83 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     }
   }
 
+  // W5-bigfour (P1): `--dry-run` terminus. Pass 1 above produced the complete
+  // in-memory output set without touching disk, so every write below this
+  // point (snapshot, adapter outputs, per-package copies, .worktreeinclude,
+  // manifest, provenance, learnings/handoffs seeds, mcp.json, .env.mcp,
+  // .gitignore entries, telemetry, checkpoints) is skipped wholesale. The
+  // rendering mirrors `update --dry-run` (`runUpdateDryRun` in update.ts):
+  // per-tool added/modified/unchanged classification by raw byte comparison
+  // of the generated content against the on-disk copy.
+  if (options.dryRun === true) {
+    s3.succeed(step(3, totalSteps, "Adapter output generated (dry run — no writes)"));
+    const dryRunChanges: Array<{
+      tool: Tool;
+      added: string[];
+      modified: string[];
+      unchanged: string[];
+    }> = [];
+    for (const pa of pendingAdapters) {
+      const bucket = {
+        tool: pa.tool,
+        added: [] as string[],
+        modified: [] as string[],
+        unchanged: [] as string[],
+      };
+      for (const out of pa.outputs) {
+        let existing: string | null = null;
+        try {
+          existing = await readFile(join(rootDir, out.path), "utf-8");
+        } catch (err) {
+          void err; // missing file → "added"
+        }
+        if (existing === null) bucket.added.push(out.path);
+        else if (existing !== out.content) bucket.modified.push(out.path);
+        else bucket.unchanged.push(out.path);
+      }
+      dryRunChanges.push(bucket);
+    }
+    if (isJson()) {
+      emitJson({
+        status: "dry-run",
+        version: HATCH3R_VERSION,
+        rootDir,
+        tools,
+        preset: contentSelection.preset,
+        projectType: contentSelection.projectType,
+        teamSize: contentSelection.teamSize,
+        contentItemCount: countSelectionItems(contentSelection),
+        adapterFailures: adapterFailures.map((f) => ({ tool: f.tool, error: f.error })),
+        adapterChanges: dryRunChanges,
+      });
+      return;
+    }
+    const dryLines: string[] = [];
+    for (const f of adapterFailures) {
+      dryLines.push(`${chalk.red("x")} ${f.tool}: ${f.error}`);
+    }
+    for (const bucket of dryRunChanges) {
+      dryLines.push(chalk.bold(TOOL_DISPLAY_NAMES[bucket.tool] ?? bucket.tool));
+      for (const p of bucket.added) dryLines.push(`  ${chalk.green("+ added")}    ${p}`);
+      for (const p of bucket.modified) dryLines.push(`  ${chalk.yellow("~ modified")} ${p}`);
+      for (const p of bucket.unchanged) dryLines.push(`  ${chalk.dim("= unchanged")} ${p}`);
+    }
+    dryLines.push("");
+    dryLines.push(
+      chalk.dim(
+        `Skipped writes: ${HATCH3R_DIR}/hatch.json, learnings/handoffs seeds, mcp.json, ` +
+          `.env.mcp, .gitignore entries, provenance, snapshots, checkpoints.`,
+      ),
+    );
+    printBox(
+      "Init dry run (no writes)",
+      dryRunChanges.length > 0 ? dryLines : [chalk.dim("No adapters configured.")],
+      "info",
+    );
+    printTimingSummary(initStartMs);
+    return;
+  }
+
   // Decision 27: capture a pre-mutation snapshot of every file we are about
   // to write. The snapshot module's tombstone mode records "did not exist"
   // for files we will create, so `hatch3r rollback --session=<id>` deletes
@@ -1010,6 +1113,9 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       });
       addManagedFile(manifest, out.path);
       toolPaths.push(out.path);
+      // W5-bigfour: `--verbose` per-file written-output detail (stderr;
+      // no-op when verbose mode is off).
+      verbose(`init: wrote ${out.path} (${pa.tool})`);
     }
     manifest.managedFilesByAdapter[pa.tool] = toolPaths;
   }
@@ -1314,7 +1420,11 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       manifestPath: `${HATCH3R_DIR}/hatch.json`,
       snapshotSessionId: sessionId,
     };
-    console.log(JSON.stringify(payload));
+    // W5-bigfour (P1): single-document JSON contract — emit via the shared
+    // emitJson funnel (process.stdout.write + one trailing newline) so the
+    // payload shape and serialization match every other `--format json`
+    // command. Field names are unchanged.
+    emitJson(payload);
     return;
   }
 
@@ -1531,6 +1641,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     printBox("Hatch complete", summaryLines, "success");
   }
 
+  // W5-bigfour (P1): post-box next-steps ladder (no-op under quiet/json).
+  // The in-box CTA ladder above already names every command (hatch3r-spec /
+  // feature-plan / quick-change / validate), so the single complementary
+  // step here is the one action the box cannot perform for the user:
+  // switching to the editor where those commands run.
+  printNextSteps([
+    "Open your editor and run the suggested command above to start your first task.",
+  ]);
+
   if (cliTools && cliTools.selected.length > 0 && !isQuiet()) {
     const finalMissing = await findMissingCliTools(cliTools.selected);
     printMissingCliToolsDisclaimer(finalMissing, cliTools.selected.length);
@@ -1547,11 +1666,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   printTimingSummary(initStartMs);
 }
 
-async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection): Promise<void> {
+async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection, dryRun?: boolean): Promise<void> {
   // Wave 6: migration shim relocates a legacy `.agents/hatch.json` to
   // `.hatch3r/hatch.json` on first read; checkExisting probes the new
-  // location only.
-  await migrateAgentsToHatch3r(rootDir);
+  // location only. W5-bigfour: the relocation moves files, so `--dry-run`
+  // skips it (zero-writes promise).
+  if (dryRun !== true) {
+    await migrateAgentsToHatch3r(rootDir);
+  }
   const hatchJsonPath = join(rootDir, HATCH3R_DIR, "hatch.json");
   try {
     await access(hatchJsonPath);
@@ -1845,6 +1967,27 @@ export async function initCommand(
      */
     noBanner?: boolean;
     /**
+     * W5-bigfour (P1): `--format <human|json>`. `json` is byte-identical to
+     * the legacy `--json` boolean alias (both resolve through `beginCommand`
+     * to the same emitJson payload) and is valid only on headless runs
+     * (`--yes` / `--quick` / `--default`) — an interactive prompt flow cannot
+     * interleave with the single-JSON-document stdout contract (exit 2).
+     */
+    format?: string;
+    /**
+     * W5-bigfour (P1): `--dry-run` — preview the per-tool adapter outputs
+     * (added/modified/unchanged vs disk) without writing anything: no
+     * manifest, adapter outputs, mcp.json, seeds, .gitignore entries,
+     * provenance, snapshots, or checkpoints. Prompts still run on the
+     * interactive path; only writes are skipped.
+     */
+    dryRun?: boolean;
+    /**
+     * W5-bigfour (P1): `--verbose` — per-file written-output detail on the
+     * generation pass (stderr), plus the existing verbose() diagnostics.
+     */
+    verbose?: boolean;
+    /**
      * Decision 27 (Bucket 2.2): re-enter the orchestrator at the last
      * checkpoint recorded under `.init-workspace/checkpoint.json`. When set
      * and a checkpoint exists, init surfaces the recorded phase/wave and
@@ -1906,21 +2049,26 @@ export async function initCommand(
   } = {},
 ): Promise<void> {
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
-  // - `--json` implies `--quiet` (the structured emission replaces all chrome).
+  // - `--json` / `--format json` imply `--quiet` (the structured emission
+  //   replaces all chrome).
   // - `--quiet` implies `--no-banner` (banner is chrome).
   // - `--no-banner` alone keeps spinner/success-box output.
-  // D1-SA1.1-F09: reset EVERY module-global UI flag in one call so no flag
-  // from a previous invocation leaks into the current one (matters under
-  // vitest where the ui module is shared across tests in the same worker).
-  // `resetUiState()` is the single source of truth in `shared/ui.ts` — a
-  // future ui-flag is reset there, not re-listed at each command call site.
-  resetUiState();
-  const jsonMode = opts.json === true;
-  const quietMode = jsonMode || opts.quiet === true;
-  const skipBanner = quietMode || opts.noBanner === true;
-  setJson(jsonMode);
-  setQuiet(quietMode);
-  if (!skipBanner) {
+  // W5-bigfour (P1): the wiring flows through the standardized beginCommand
+  // chokepoint — it resets the module-global UI flags (D1-SA1.1-F09 leak
+  // guard), resolves `--format` with the legacy `--json` boolean as a one-way
+  // upgrade, wires quiet/verbose, and rejects `--format json` on a
+  // prompt-driven run (exit 2): inquirer prompts cannot interleave with the
+  // single-JSON-document stdout contract. `--quick`/`--default` collapse to
+  // the `--yes` path below, so they count as headless here.
+  const headlessRun = opts.yes === true || opts.quick === true || opts.default === true;
+  beginCommand(
+    { format: opts.format, quiet: opts.quiet, verbose: opts.verbose, json: opts.json, yes: headlessRun },
+    { interactive: !headlessRun },
+  );
+  // `--no-banner` keeps the success box but drops the banner. quiet/json
+  // already suppress printBanner internally, so only the explicit flag needs
+  // a local gate (C9-H26 semantics preserved).
+  if (opts.noBanner !== true) {
     printBanner();
   }
   // F16.1-C1 / D11-H-7 (Decision 27 / Bucket 2.2): `--resume` reads the
@@ -2220,9 +2368,9 @@ export async function initCommand(
     warnBoardPrerequisites(contentSelection);
     warnBoardDroppedForSolo(teamSize, preset, projectType, index, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
-    await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts });
-    await runToolImport(rootDir, opts.import, true);
+    await checkExisting(rootDir, true, contentSelection, opts.dryRun);
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+    await runToolImport(rootDir, opts.import, true, opts.dryRun);
     return;
   }
 
@@ -2471,9 +2619,9 @@ export async function initCommand(
   warnBoardPrerequisites(contentSelection);
   warnBoardDroppedForSolo(teamSize, selectedPreset, projectType, filterIndex, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
-  await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts });
-  await runToolImport(rootDir, opts.import, false);
+  await checkExisting(rootDir, false, contentSelection, opts.dryRun);
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+  await runToolImport(rootDir, opts.import, false, opts.dryRun);
 }
 
 // ── Tool import (--import) ─────────────────────────────────────────
@@ -2520,11 +2668,15 @@ function renderFormatImportSummary(summary: FormatImportSummary, headlinePrefix:
  *   leaves disk untouched.
  * - Headless (`--yes`/`--json`/`--quiet`, `headless === true`): writes directly
  *   and surfaces the counts (JSON line under `--json`, summary otherwise).
+ * - W5-bigfour `--dry-run` (`dryRun === true`): renders the conversion
+ *   preview only (runImport in dry-run mode) and returns — no confirm prompt,
+ *   no files written, on both headless and interactive paths.
  */
 async function runToolImport(
   rootDir: string,
   target: string | undefined,
   headless: boolean,
+  dryRun?: boolean,
 ): Promise<void> {
   if (target === undefined) return;
 
@@ -2547,6 +2699,30 @@ async function runToolImport(
   const existingRuleIds = new Set<string>(
     importIndex.items.filter((i) => i.type === "rule").map((i) => i.id),
   );
+
+  // W5-bigfour: under `--dry-run`, render the conversion preview and stop —
+  // no confirm, no write — so `init --dry-run --import <t>` keeps the
+  // zero-writes promise on every path.
+  if (dryRun === true) {
+    const preview = await runImport({ rootDir, target: importTarget, dryRun: true, existingRuleIds });
+    if (isJson()) {
+      emitJson({
+        status: "dry-run",
+        import: importTarget,
+        formats: preview.map((r) => ({
+          format: r.format,
+          sourceFiles: r.sourceFiles,
+          converted: r.converted.length,
+          conflicts: r.conflicts.length,
+          manualReview: r.manualReview.length,
+        })),
+      });
+      return;
+    }
+    for (const s of preview) renderFormatImportSummary(s, "Import (dry run)");
+    info("Import: dry run — no files written.");
+    return;
+  }
 
   // Interactive: dry-run preview → confirm → real write. Headless: write now.
   if (!headless && !isQuiet()) {
@@ -2603,7 +2779,7 @@ async function runWorkspaceInit(
   rootDir: string,
   detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
   repoInfo: RepoInfo,
-  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string; perPackage?: boolean },
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string; perPackage?: boolean; dryRun?: boolean },
   // D1-SA1.2-H1: the entry-point-parsed `--role` / `--facets` filters, passed
   // through so the workspace flow (headless + interactive) applies the same
   // selection filter as the single-repo flow instead of silently dropping them.
@@ -2649,6 +2825,11 @@ async function runWorkspaceInit(
       [],
       "manual",
     );
+    // W5-bigfour: `--dry-run` skips the workspace-manifest write.
+    if (opts.dryRun === true) {
+      info(`Dry run: workspace manifest (${HATCH3R_DIR}/workspace.json) not written.`);
+      return;
+    }
     await writeWorkspaceManifest(rootDir, wsManifest);
     return;
   }
@@ -2942,7 +3123,7 @@ async function runWorkspaceInit(
   warnBoardPrerequisites(contentSelection);
 
   // Step 6: Create canonical .agents/ at workspace root (empty identity — workspace root is not a repo)
-  await checkExisting(rootDir, headless, contentSelection);
+  await checkExisting(rootDir, headless, contentSelection, opts.dryRun);
   await runInit({
     rootDir,
     platform,
@@ -2965,7 +3146,20 @@ async function runWorkspaceInit(
     maturity: wsMaturity,
     // D14-SA14.2-H1: forward the per-package opt-in to the workspace-root init.
     perPackage: opts.perPackage,
+    // W5-bigfour: forward `--dry-run` so the workspace-root init previews
+    // adapter output without writing.
+    dryRun: opts.dryRun,
   });
+
+  // W5-bigfour: `--dry-run` terminus for the workspace flow — the runInit
+  // call above already rendered the per-tool would-write preview; the
+  // remaining steps (workspace-manifest write, sub-repo sync) are writes, so
+  // skip them and stop. The sync-selection prompts are part of the skipped
+  // write phase and are skipped with it.
+  if (opts.dryRun === true) {
+    info(`Dry run: ${HATCH3R_DIR}/workspace.json write and sub-repo sync skipped.`);
+    return;
+  }
 
   // Step 7: Build repo entries and select which to sync
   let repoEntries: WorkspaceRepoEntry[];
@@ -3113,7 +3307,11 @@ async function runWorkspaceInit(
       worktreeEnabled,
       manifestPath: `${HATCH3R_DIR}/workspace.json`,
     };
-    console.log(JSON.stringify(payload));
+    // W5-bigfour (P1): single-document JSON contract — emit via the shared
+    // emitJson funnel (process.stdout.write + one trailing newline) so the
+    // payload shape and serialization match every other `--format json`
+    // command. Field names are unchanged.
+    emitJson(payload);
     return;
   }
 

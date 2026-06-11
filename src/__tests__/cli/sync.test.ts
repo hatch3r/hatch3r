@@ -165,6 +165,38 @@ describe("sync command", () => {
     expect(output).toContain("Sync complete");
   });
 
+  // W5-bigfour: the clean-sync epilogue renders the printNextSteps ladder
+  // after the summary box (preserved through the finishCommand adoption).
+  it("clean sync output contains the next-steps ladder", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Next steps:");
+    expect(output).toContain("hatch3r status");
+  });
+
+  // W5-bigfour: `--quiet` (beginCommand → setQuiet) suppresses the banner,
+  // summary box, and next-steps chrome while the sync still writes output.
+  it("--quiet suppresses the banner, summary box, and next steps on stdout", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand({ quiet: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).not.toContain("hatch3r");
+    expect(output).not.toContain("Sync complete");
+    expect(output).not.toContain("Next steps:");
+
+    // The sync itself still ran — adapter output exists.
+    const cursorRulesDir = join(tempDir, ".cursor", "rules");
+    const entries = await import("node:fs/promises").then((m) => m.readdir(cursorRulesDir));
+    expect(entries.some((f) => f.endsWith(".mdc"))).toBe(true);
+  });
+
   it("should sync multiple tools when configured", async () => {
     await createTestProject(tempDir, { tools: ["cursor", "claude"] });
 

@@ -2415,7 +2415,30 @@ describe("init chrome-suppression flags (C9-H26)", () => {
     quiet?: boolean;
     json?: boolean;
     noBanner?: boolean;
+    format?: string;
+    dryRun?: boolean;
   }) => Promise<void>;
+
+  /**
+   * W5-bigfour: the init JSON payload is now emitted via the shared emitJson
+   * funnel (process.stdout.write), not console.log — capture stdout chunks
+   * around an initCommand run. Restores the spy before returning.
+   */
+  async function captureStdoutWrite(run: () => Promise<void>): Promise<string> {
+    const chunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      await run();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    return chunks.join("");
+  }
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -2465,7 +2488,10 @@ describe("init chrome-suppression flags (C9-H26)", () => {
   });
 
   it("--json emits a single machine-readable JSON line and no chrome", async () => {
-    await initCommand({ yes: true, json: true, tools: "claude" });
+    // W5-bigfour: the payload flows through emitJson (process.stdout.write).
+    const stdoutRaw = await captureStdoutWrite(() =>
+      initCommand({ yes: true, json: true, tools: "claude" }),
+    );
 
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     // Banner + success box must be absent.
@@ -2473,8 +2499,8 @@ describe("init chrome-suppression flags (C9-H26)", () => {
     expect(stdout).not.toContain("Hatch complete");
 
     // Exactly one JSON line on stdout.
-    const jsonLines = consoleSpy.mock.calls
-      .map((c) => String(c[0]))
+    const jsonLines = stdoutRaw
+      .split("\n")
       .filter((line) => line.trim().startsWith("{") && line.trim().endsWith("}"));
     expect(jsonLines.length).toBe(1);
 
@@ -2495,6 +2521,51 @@ describe("init chrome-suppression flags (C9-H26)", () => {
     expect(manifest.tools).toEqual(["claude"]);
   });
 
+  // W5-bigfour: `--format json` must be byte-identical in behavior to the
+  // legacy `--json` boolean alias — same single-document payload, same field
+  // names, same chrome suppression (both resolve through beginCommand).
+  it("--format json is equivalent to --json (same payload fields, same chrome suppression)", async () => {
+    const rawFormat = await captureStdoutWrite(() =>
+      initCommand({ yes: true, format: "json", tools: "claude" }),
+    );
+    const formatPayload = JSON.parse(rawFormat.trim());
+
+    // Chrome suppressed exactly like --json.
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Crack the egg");
+    expect(stdout).not.toContain("Hatch complete");
+
+    // Second run in a fresh dir with the legacy alias; compare the payloads.
+    const aliasDir = await mkdtemp(join(tmpdir(), "hatch3r-init-fmt-"));
+    cwdSpy.mockReturnValue(aliasDir);
+    try {
+      const rawAlias = await captureStdoutWrite(() =>
+        initCommand({ yes: true, json: true, tools: "claude" }),
+      );
+      const aliasPayload = JSON.parse(rawAlias.trim());
+      // Identical schema (key set + order) ...
+      expect(Object.keys(formatPayload)).toEqual(Object.keys(aliasPayload));
+      // ... and identical values on every run-independent field (rootDir and
+      // snapshotSessionId are necessarily per-run).
+      expect(formatPayload.status).toEqual(aliasPayload.status);
+      expect(formatPayload.version).toEqual(aliasPayload.version);
+      expect(formatPayload.tools).toEqual(aliasPayload.tools);
+      expect(formatPayload.preset).toEqual(aliasPayload.preset);
+      expect(formatPayload.canonicalDir).toEqual(aliasPayload.canonicalDir);
+      expect(formatPayload.manifestPath).toEqual(aliasPayload.manifestPath);
+    } finally {
+      cwdSpy.mockReturnValue(tempDir);
+      await rm(aliasDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("--format json without --yes is rejected (exit 2) — prompts cannot interleave with the JSON document", async () => {
+    const err = await initCommand({ format: "json" }).catch((e) => e as HatchError);
+    expect(err).toBeInstanceOf(HatchError);
+    expect((err as HatchError).exitCode).toBe(2);
+    expect((err as HatchError).recoveryHint).toContain("--yes");
+  });
+
   it("--json implies --quiet (no banner, no success box)", async () => {
     await initCommand({ yes: true, json: true });
 
@@ -2508,6 +2579,44 @@ describe("init chrome-suppression flags (C9-H26)", () => {
 
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(stdout).toContain("Hatch complete");
+  });
+
+  // ── W5-bigfour: --dry-run ────────────────────────────────────────────
+  describe("--dry-run (W5-bigfour)", () => {
+    it("--dry-run --yes writes NOTHING (no manifest, no adapter outputs, no workspace/checkpoint state)", async () => {
+      await initCommand({ yes: true, dryRun: true, tools: "claude,cursor" });
+
+      // The temp dir must contain zero init artifacts: no .hatch3r/ (manifest,
+      // seeds, mcp, snapshots), no adapter outputs, no checkpoint workspace,
+      // no .gitignore registration.
+      const { readdir } = await import("node:fs/promises");
+      const entries = await readdir(tempDir);
+      expect(entries).toEqual([]);
+    });
+
+    it("--dry-run renders the per-tool would-write preview box instead of the success box", async () => {
+      await initCommand({ yes: true, dryRun: true, tools: "claude" });
+
+      const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(stdout).toContain("Init dry run (no writes)");
+      expect(stdout).toContain("+ added");
+      expect(stdout).not.toContain("Hatch complete");
+    });
+
+    it("--dry-run --format json emits a single dry-run JSON document and writes nothing", async () => {
+      const raw = await captureStdoutWrite(() =>
+        initCommand({ yes: true, dryRun: true, format: "json", tools: "claude" }),
+      );
+      const payload = JSON.parse(raw.trim());
+      expect(payload.status).toBe("dry-run");
+      expect(payload.tools).toEqual(["claude"]);
+      expect(Array.isArray(payload.adapterChanges)).toBe(true);
+      expect(payload.adapterChanges[0].added.length).toBeGreaterThan(0);
+
+      const { readdir } = await import("node:fs/promises");
+      const entries = await readdir(tempDir);
+      expect(entries).toEqual([]);
+    });
   });
 });
 

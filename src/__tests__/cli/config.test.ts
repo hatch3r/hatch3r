@@ -198,6 +198,21 @@ vi.mock("../../cli/shared/ui.js", () => ({
   label: vi.fn(),
   warn: vi.fn(),
   verbose: vi.fn(),
+  // W5-bigfour: configCommand now routes its entry/exit through
+  // beginCommand/finishCommand (src/cli/shared/commandOutput.ts), which pulls
+  // these state setters + chrome emitters from the ui module. The mock must
+  // export them or beginCommand throws before any assertion runs. State
+  // getters default to "not quiet / not json / not verbose" so the existing
+  // chrome assertions keep observing the human path.
+  resetUiState: vi.fn(),
+  setJson: vi.fn(),
+  setQuiet: vi.fn(),
+  setVerbose: vi.fn(),
+  isQuiet: vi.fn(() => false),
+  isJson: vi.fn(() => false),
+  isVerbose: vi.fn(() => false),
+  printNextSteps: vi.fn(),
+  printTimingSummary: vi.fn(),
 }));
 
 // Wave 5 CLI-tooling pivot: the cliTools section in configCommand calls
@@ -2475,6 +2490,111 @@ describe("config command", () => {
         expect.anything(),
         expect.objectContaining({ snapshotCommandName: "config" }),
       );
+    });
+  });
+
+  // ── W5-bigfour: --format json / --quiet / --dry-run / --verbose ─────────
+  describe("standardized flags (W5-bigfour)", () => {
+    /**
+     * The JSON envelope is emitted via emitJson → process.stdout.write (not
+     * console.log) — capture the chunks around a configCommand run.
+     */
+    async function captureStdoutWrite(run: () => Promise<void>): Promise<string> {
+      const chunks: string[] = [];
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(((chunk: string | Uint8Array): boolean => {
+          chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+          return true;
+        }) as never);
+      try {
+        await run();
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      return chunks.join("");
+    }
+
+    it("scalar get with --format json emits the {key, value} envelope", async () => {
+      const manifest = makeManifest({ maturity: "team" });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      const raw = await captureStdoutWrite(() =>
+        configCommand("get", "maturity", { format: "json" }),
+      );
+      const payload = JSON.parse(raw.trim());
+      expect(payload.command).toBe("config");
+      expect(payload.key).toBe("maturity");
+      expect(payload.value).toBe("team");
+      expect(payload.status).toBe("ok");
+      expect(typeof payload.hatch3rVersion).toBe("string");
+      expect(typeof payload.timestamp).toBe("string");
+    });
+
+    it("scalar set with --format json emits the {key, value, previous} envelope and writes the manifest", async () => {
+      const manifest = makeManifest({ maturity: "solo" });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      const raw = await captureStdoutWrite(() =>
+        configCommand("maturity=team", undefined, { format: "json" }),
+      );
+      const payload = JSON.parse(raw.trim());
+      expect(payload.key).toBe("maturity");
+      expect(payload.value).toBe("team");
+      expect(payload.previous).toBe("solo");
+      expect(payload.status).toBe("passed");
+      expect(vi.mocked(writeManifest)).toHaveBeenCalledWith(
+        tempDir,
+        expect.objectContaining({ maturity: "team" }),
+      );
+    });
+
+    it("interactive flow + --format json is rejected with exit 2 and an actionable hint", async () => {
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      const err = await configCommand(undefined, undefined, { format: "json" }).catch(
+        (e) => e as HatchError,
+      );
+      expect(err).toBeInstanceOf(HatchError);
+      expect((err as HatchError).exitCode).toBe(2);
+      // The hint names the scalar headless escape.
+      expect((err as HatchError).recoveryHint).toContain("config get");
+      // Rejected BEFORE any prompt or write.
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("scalar set with --dry-run prints the would-change and skips writeManifest", async () => {
+      const manifest = makeManifest({ maturity: "solo" });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=team", undefined, { dryRun: true });
+
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+      const infoLines = vi.mocked(info).mock.calls.map((c) => String(c[0])).join("\n");
+      expect(infoLines).toContain("Dry run: would set maturity");
+    });
+
+    it("interactive flow with --dry-run runs the prompts, prints the change summary, and skips writeManifest + runRegenerate", async () => {
+      const manifest = makeManifest();
+      // A branch change makes the diff non-empty without touching tools.
+      primeConfig(manifest, { branch: "develop" });
+
+      const configCommand = await importConfigCommand();
+      await configCommand(undefined, undefined, { dryRun: true });
+
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+      expect(vi.mocked(runRegenerate)).not.toHaveBeenCalled();
+      const dryBox = vi
+        .mocked(printBox)
+        .mock.calls.find((c) => String(c[0]) === "Config dry run (no writes)");
+      expect(dryBox).toBeDefined();
+      const lines = (dryBox![1] as string[]).join("\n");
+      expect(lines).toContain("Default branch: develop");
     });
   });
 });
