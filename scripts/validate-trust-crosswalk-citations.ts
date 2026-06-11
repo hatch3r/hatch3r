@@ -69,6 +69,7 @@
  *   tsx scripts/validate-trust-crosswalk-citations.ts --json
  *   npm run validate:trust-crosswalk
  */
+import { existsSync } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -351,7 +352,15 @@ export async function runValidator(rootDir: string): Promise<CitationFinding[]> 
   };
 
   for (const docRel of DOC_RELS) {
-    const doc = await readFile(join(rootDir, docRel), "utf-8");
+    // The trust docs are private overlay IP (governance privatization
+    // initiative, 2026-06-03), gitignored and absent in public clones /
+    // contributor CI. An absent doc has no citations to verify — skip it (the
+    // run then yields no findings for that doc, exiting clean) rather than
+    // ENOENT. Mirrors scripts/validate-governance-total.ts. When the docs ARE
+    // present (local dev, fixtures), every citation is checked unchanged.
+    const docPath = join(rootDir, docRel);
+    if (!existsSync(docPath)) continue;
+    const doc = await readFile(docPath, "utf-8");
     const lines = doc.split("\n");
     for (let i = 0; i < lines.length; i++) {
       const line = lines[i];
@@ -428,6 +437,22 @@ export function formatFinding(f: CitationFinding): string {
 async function main(): Promise<void> {
   const rootDir = resolve(__dirname, "..");
   const json = process.argv.includes("--json");
+
+  // Both trust docs are private overlay IP, gitignored and absent in public
+  // clones / contributor CI. With neither doc to verify, skip the whole check
+  // (exit clean) — mirroring scripts/validate-governance-total.ts.
+  const anyDocPresent = DOC_RELS.some((rel) => existsSync(join(rootDir, rel)));
+  if (!anyDocPresent) {
+    if (json) {
+      process.stdout.write(JSON.stringify({ skipped: true, findings: [] }, null, 2) + "\n");
+    } else {
+      process.stdout.write(
+        `trust-crosswalk-citations: skipped — ${CROSSWALK_DOC_REL} absent (private-corpus public CI)\n`,
+      );
+    }
+    process.exit(0);
+  }
+
   const findings = await runValidator(rootDir);
 
   if (json) {

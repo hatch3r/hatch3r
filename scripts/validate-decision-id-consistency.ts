@@ -36,6 +36,7 @@
  *
  * Pillars: P5 (Governance Self-Quality), P4 (Lean Coverage).
  */
+import { existsSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -57,6 +58,8 @@ export interface RunOptions {
 }
 
 export interface RunResult {
+  /** True when the private CONSTITUTION was absent and the check skipped. */
+  skipped: boolean;
   drifts: DecisionDrift[];
   rowCount: number;
   errorCount: number;
@@ -100,7 +103,16 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const rootDir = opts.rootDir ?? ROOT;
   const drifts: DecisionDrift[] = [];
 
-  const body = await readFile(join(rootDir, CONSTITUTION_REL), "utf-8");
+  // Governance corpus is private (governance privatization initiative,
+  // 2026-06-03) and absent in public clones / contributor CI. With no
+  // CONSTITUTION §6 register to inspect, skip the whole check (exit clean) —
+  // mirroring scripts/validate-governance-total.ts.
+  const constitutionPath = join(rootDir, CONSTITUTION_REL);
+  if (!existsSync(constitutionPath)) {
+    return { skipped: true, drifts: [], rowCount: 0, errorCount: 0 };
+  }
+
+  const body = await readFile(constitutionPath, "utf-8");
   const section = sliceDecisionSection(body);
   if (section === "") {
     drifts.push({
@@ -108,7 +120,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       code: "DECISION-SECTION-MISSING",
       message: `${CONSTITUTION_REL}: "## 6. Key Design Decisions" section not found`,
     });
-    return { drifts, rowCount: 0, errorCount: drifts.length };
+    return { skipped: false, drifts, rowCount: 0, errorCount: drifts.length };
   }
 
   const ordinals = parseRowOrdinals(section);
@@ -151,7 +163,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     }
   }
 
-  return { drifts, rowCount: n, errorCount: drifts.length };
+  return { skipped: false, drifts, rowCount: n, errorCount: drifts.length };
 }
 
 // ── Output formatting ─────────────────────────────────────────────
@@ -171,6 +183,16 @@ function parseArgs(argv: readonly string[]): CliFlags {
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
   const result = await runValidator();
+  if (result.skipped) {
+    // eslint-disable-next-line no-console
+    if (flags.json) console.log(JSON.stringify(result, null, 2));
+    // eslint-disable-next-line no-console
+    else
+      console.log(
+        `validate-decision-id-consistency: skipped — ${CONSTITUTION_REL} absent (private-corpus public CI)`,
+      );
+    return;
+  }
   if (flags.json) {
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(result, null, 2));

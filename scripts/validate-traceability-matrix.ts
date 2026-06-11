@@ -39,6 +39,7 @@
  *
  * Pillars: P5 (Governance Self-Quality), P4 (Lean Coverage).
  */
+import { existsSync } from "node:fs";
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -76,6 +77,8 @@ export interface RunOptions {
 }
 
 export interface RunResult {
+  /** True when the private governance corpus was absent and the check skipped. */
+  skipped: boolean;
   drifts: MatrixDrift[];
   cellEntries: number;
   domainsScanned: number;
@@ -210,12 +213,28 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const rootDir = opts.rootDir ?? ROOT;
   const drifts: MatrixDrift[] = [];
 
-  const constitution = await readFile(join(rootDir, CONSTITUTION_REL), "utf-8");
+  // Governance corpus is private (governance privatization initiative,
+  // 2026-06-03) and absent in public clones / contributor CI. With no
+  // CONSTITUTION matrix or audit-domain files to cross-check, skip the whole
+  // check (exit clean) — mirroring scripts/validate-governance-total.ts.
+  const constitutionPath = join(rootDir, CONSTITUTION_REL);
+  const domainsDirPath = join(rootDir, DOMAINS_DIR_REL);
+  if (!existsSync(constitutionPath) || !existsSync(domainsDirPath)) {
+    return {
+      skipped: true,
+      drifts: [],
+      cellEntries: 0,
+      domainsScanned: 0,
+      errorCount: 0,
+    };
+  }
+
+  const constitution = await readFile(constitutionPath, "utf-8");
   const gov = parseMatrixSection(constitution, "§3.1", "P");
   const cq = parseMatrixSection(constitution, "§3.2", "CQ");
 
   // Load every domain's pillar declaration.
-  const domainsDir = join(rootDir, DOMAINS_DIR_REL);
+  const domainsDir = domainsDirPath;
   const entries = await readdir(domainsDir);
   const domainPillars = new Map<string, DomainPillars>();
   for (const name of entries) {
@@ -302,6 +321,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   }
 
   return {
+    skipped: false,
     drifts,
     cellEntries,
     domainsScanned: domainPillars.size,
@@ -326,6 +346,16 @@ function parseArgs(argv: readonly string[]): CliFlags {
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
   const result = await runValidator();
+  if (result.skipped) {
+    // eslint-disable-next-line no-console
+    if (flags.json) console.log(JSON.stringify(result, null, 2));
+    // eslint-disable-next-line no-console
+    else
+      console.log(
+        `validate-traceability-matrix: skipped — ${CONSTITUTION_REL} absent (private-corpus public CI)`,
+      );
+    return;
+  }
   if (flags.json) {
     // eslint-disable-next-line no-console
     console.log(JSON.stringify(result, null, 2));

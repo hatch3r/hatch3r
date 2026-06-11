@@ -1,9 +1,36 @@
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { mkdtemp, mkdir, rm, writeFile } from "node:fs/promises";
+import { existsSync, readdirSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { runValidator } from "../validate-fanout-emission.js";
+
+// Repo root (this test lives at scripts/__tests__/). The maintainer presets the
+// shipped-corpus block checks live under `.claude/skills/h4tcher-*` — private
+// overlay IP (governance privatization initiative, 2026-06-03), gitignored and
+// absent in public clones / contributor CI. When that class is absent the
+// validator scans 0 maintainer presets, so the `checkedMaintainerSkills > 0`
+// regression assertion is gated on its presence (mirrors
+// validate-governance-total.test.ts's "skips clean when the CONSTITUTION is
+// absent (private-corpus public CI)" contract). The commands/ and skills/
+// counts stay asserted unconditionally — those classes are public.
+const REPO_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
+const MAINTAINER_SKILLS_PRESENT = (() => {
+  const dir = join(REPO_ROOT, ".claude", "skills");
+  if (!existsSync(dir)) return false;
+  try {
+    return readdirSync(dir).some((name) => name.startsWith("h4tcher-"));
+    // A readdir failure here only means the private maintainer-skill class is
+    // unreadable — the correct, non-degrading classification is "absent", which
+    // gates the assertion exactly as a missing dir does. No diagnostic to emit
+    // (test-time presence probe, no I/O state to log).
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return false;
+  }
+})();
 
 // ── Fixture helpers ────────────────────────────────────────────────
 
@@ -519,6 +546,12 @@ describe("validate-fanout-emission — shipped corpus", () => {
     expect(errors, errors.map((f) => `${f.code} ${f.file}`).join("\n")).toHaveLength(0);
     expect(result.checkedFiles).toBeGreaterThan(0);
     expect(result.checkedSkills).toBeGreaterThan(0);
-    expect(result.checkedMaintainerSkills).toBeGreaterThan(0);
+    // Maintainer presets (.claude/skills/h4tcher-*) are private overlay IP,
+    // absent in public CI — only assert one was scanned when the class is
+    // present locally; the public commands/ + skills/ classes above stay
+    // asserted unconditionally.
+    if (MAINTAINER_SKILLS_PRESENT) {
+      expect(result.checkedMaintainerSkills).toBeGreaterThan(0);
+    }
   });
 });
