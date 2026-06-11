@@ -6,6 +6,7 @@ import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import { sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import {
   AVAILABLE_MCP_SERVERS,
+  DEFAULT_FEATURES,
   HatchError,
 } from "../../types.js";
 // D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): shared missing-manifest preflight,
@@ -89,6 +90,13 @@ export async function mcpSetupCommand(): Promise<void> {
   const selected = selectedResult;
 
   manifest.mcp = { servers: selected };
+  // W3-mcp-optin: keep the feature flag in lockstep with the server list.
+  // sync/update/validate/adapters all gate MCP emission on
+  // `features.mcp && mcp.servers.length > 0`, and DEFAULT_FEATURES.mcp is
+  // false (opt-in) — without this flip, `mcp setup` would configure servers
+  // the rest of the pipeline silently ignores. The DEFAULT_FEATURES spread
+  // backfills a legacy manifest whose `features` object is absent.
+  manifest.features = { ...DEFAULT_FEATURES, ...manifest.features, mcp: selected.length > 0 };
   await writeManifest(rootDir, manifest);
 
   // D10-M7 (Cycle 10): the `Add new secrets` warn() previously fired BEFORE
@@ -179,6 +187,14 @@ export async function mcpRemoveCommand(id: string): Promise<void> {
   }
 
   manifest.mcp = { servers: before.filter((s) => s !== id) };
+  // W3-mcp-optin: recompute the feature flag from the remaining server list —
+  // removing the last server turns MCP off so sync/update/validate/adapters
+  // (which gate on `features.mcp && mcp.servers.length > 0`) stay consistent.
+  manifest.features = {
+    ...DEFAULT_FEATURES,
+    ...manifest.features,
+    mcp: manifest.mcp.servers.length > 0,
+  };
   await writeManifest(rootDir, manifest);
 
   printBox(

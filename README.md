@@ -118,12 +118,12 @@ Since 1.7.5, hatch3r ships a first-class CLI-tools surface as the token-efficien
 
 ## MCP Configuration
 
-Since 1.7.5, MCP is **opt-in**. `npx hatch3r init` gates MCP behind a Yes/No prompt (default No) after the features picker. Declining skips MCP entirely -- no `.env.mcp`, no `mcp.json`, no servers in the manifest. When you accept, `hatch3r init` writes a gitignored `.env.mcp` with the required environment variables and MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`).
+Since 1.7.5, MCP is **opt-in**; since 2.0.0 interactive `npx hatch3r init` no longer offers an MCP prompt. Without an opt-in, init skips MCP entirely -- no `.env.mcp`, no `mcp.json`, no servers in the manifest. When you opt in (`init --mcp` on any init path, or `npx hatch3r mcp setup` afterwards), hatch3r writes a gitignored `.env.mcp` with the required environment variables and MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`).
 
 - **VS Code / Copilot:** secrets pass via the `env` object in `.vscode/mcp.json`.
 - **Cursor / Claude Code / others:** source the file first: `set -a && source .env.mcp && set +a && cursor .`
 
-Manage MCP at any time via `npx hatch3r mcp setup | list | remove <id> | env-check`. **CI note:** as of 1.7.5, `npx hatch3r init --yes` no longer configures MCP by default -- add `--mcp` to restore prior behavior. See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for per-server details and PAT scope guidance.
+Manage MCP at any time via `npx hatch3r mcp setup | list | remove <id> | env-check`. **CI note:** interactive init no longer offers MCP, and `npx hatch3r init --yes` does not configure it by default -- opt in via `npx hatch3r mcp setup` or `init --mcp`. See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for per-server details and PAT scope guidance.
 
 ## Content Profiles
 

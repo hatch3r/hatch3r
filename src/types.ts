@@ -1051,7 +1051,11 @@ export const DEFAULT_FEATURES: Features = {
   // field JSDoc on the Features interface.
   prompts: false,
   commands: true,
-  mcp: true,
+  // 2.0.0 MCP opt-in contract: default OFF. Interactive init no longer prompts
+  // for MCP servers; the only enable paths are `hatch3r init --mcp` (any init
+  // path) and the `hatch3r mcp setup` side-door. init/mcp-setup derive the
+  // effective value from the resolved server list (mcp: servers.length > 0).
+  mcp: false,
   githubAgents: true,
   hooks: true,
   handoffs: true,

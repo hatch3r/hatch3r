@@ -136,6 +136,10 @@ describe("mcpSetupCommand", () => {
     expect(writeManifest).toHaveBeenCalledTimes(1);
     const writtenManifest = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
     expect(writtenManifest.mcp.servers).toEqual(["github", "context7"]);
+    // W3-mcp-optin: `mcp setup` flips features.mcp in lockstep with the server
+    // list — DEFAULT_FEATURES.mcp is false (opt-in), and sync/update/validate/
+    // adapters gate on `features.mcp && servers.length > 0`.
+    expect(writtenManifest.features.mcp).toBe(true);
 
     expect(ensureEnvMcp).toHaveBeenCalledWith(expect.any(String), ["github", "context7"]);
     expect(ensureGitignoreEntry).toHaveBeenCalledTimes(1);
@@ -159,6 +163,9 @@ describe("mcpSetupCommand", () => {
     await mcpSetupCommand();
 
     expect(writeManifest).toHaveBeenCalledTimes(1);
+    // W3-mcp-optin: an empty selection turns the derived feature flag off.
+    const writtenManifest = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
+    expect(writtenManifest.features.mcp).toBe(false);
     expect(ensureEnvMcp).not.toHaveBeenCalled();
     expect(ensureGitignoreEntry).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
@@ -291,6 +298,8 @@ describe("mcpRemoveCommand", () => {
     expect(writeManifest).toHaveBeenCalledTimes(1);
     const written = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
     expect(written.mcp.servers).toEqual(["context7"]);
+    // W3-mcp-optin: servers remain → features.mcp stays true.
+    expect(written.features.mcp).toBe(true);
 
     expect(printBox).toHaveBeenCalledWith(
       "MCP server removed",
@@ -299,13 +308,18 @@ describe("mcpRemoveCommand", () => {
     );
   });
 
-  it("prints 'Remaining: none' when the last server is removed", async () => {
+  it("prints 'Remaining: none' and turns features.mcp off when the last server is removed", async () => {
     vi.mocked(readManifest).mockResolvedValue(makeManifest(["github"]));
 
     await mcpRemoveCommand("github");
 
     const lines = (vi.mocked(printBox).mock.calls[0]?.[1] as string[]).join("\n");
     expect(lines).toMatch(/Remaining[^\w]*none/);
+    // W3-mcp-optin: removing the last server recomputes the derived flag off,
+    // keeping the manifest consistent for sync/update/validate/adapters.
+    const written = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
+    expect(written.mcp.servers).toEqual([]);
+    expect(written.features.mcp).toBe(false);
   });
 
   it("throws HatchError(VALIDATION_ERROR, central-map exitCode 64) when the server is not configured", async () => {

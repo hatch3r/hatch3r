@@ -25,10 +25,14 @@ describe("ClaudeAdapter", () => {
   function makeManifest(
     overrides: Partial<Parameters<typeof createManifest>[0]> & { models?: HatchManifest["models"]; claude?: HatchManifest["claude"] } = {},
   ): HatchManifest {
-    const { models, claude, ...createOpts } = overrides;
+    const { models, claude, features, ...createOpts } = overrides;
     const base = createManifest({
       tools: ["claude"],
       mcpServers: ["github"],
+      // W3-mcp-optin: DEFAULT_FEATURES.mcp is now false (opt-in). This fixture
+      // seeds mcpServers, so pin the feature on to keep exercising the MCP
+      // emission paths; per-test feature overrides still win via the merge.
+      features: { mcp: true, ...features },
       ...createOpts,
     });
     const result = { ...base };

@@ -72,9 +72,9 @@ import {
   type Step,
 } from "../shared/initSteps.js";
 import {
+  cliToolsStep,
   customItemsStep,
   identityStep,
-  mcpServersStep,
   platformStep,
   presetStep,
   toolsStep,
@@ -120,6 +120,21 @@ const CONTENT_ROOT = findPackageRoot(__dirname);
 
 const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
+
+/**
+ * W3-mcp-optin: default MCP server set applied when the user opts in via
+ * `--mcp` (path-independent — interactive, `--yes`, and workspace inits all
+ * resolve through here). The platform server leads; DEFAULT_MCP's "github"
+ * entry is dropped from the tail so a non-GitHub platform does not pull the
+ * GitHub server alongside its own (the Set dedupes it back in for GitHub).
+ * Single source for the expression previously copy-pasted at the three
+ * headless resolution sites.
+ */
+function defaultMcpServers(platform: Platform): string[] {
+  return Array.from(
+    new Set([PLATFORM_MCP_SERVER[platform], ...DEFAULT_MCP.filter((s) => s !== "github")]),
+  );
+}
 
 // D10-SA10.5-H1 (D10, P1): MCP-secret-loading classes used to tailor the
 // post-init `.env.mcp` guidance in the success box. The semantics are the
@@ -1351,6 +1366,13 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
   if (mcpServers.length > 0) {
     summaryLines.push(label("MCP", mcpServers.join(", ")));
+  } else {
+    // W3-mcp-optin: name the opt-in lever on the no-MCP path so a user who
+    // skipped MCP (now the default — interactive init no longer prompts)
+    // learns the side-door without digging through docs.
+    summaryLines.push(
+      `${chalk.dim("·")} ${chalk.dim("MCP servers: none configured — add anytime with npx hatch3r mcp setup")}`,
+    );
   }
   if (manifest.worktree?.enabled) {
     summaryLines.push(label("Worktree", "isolation enabled"));
@@ -1769,17 +1791,24 @@ export async function initCommand(
     quick?: boolean;
     default?: boolean;
     /**
-     * CLI-tools selection for `--yes` non-interactive init (plan §4.3).
-     * Accepts `"tier1"`, `"all"`, or a comma-separated list of registry
-     * ids (e.g. `"ripgrep,jq,gh"`). When omitted on a `--yes` run, the
-     * default tier-1 + triggered-tier-2 selection is applied.
+     * CLI-tools selection on ANY init path (W3-mcp-optin: previously `--yes`
+     * only). Accepts `"tier1"`, `"all"`, or a comma-separated list of
+     * registry ids (e.g. `"ripgrep,jq,gh"`). On `--yes`, omission applies the
+     * default tier-1 + triggered-tier-2 selection; on interactive runs an
+     * explicit value skips the CLI-tools picker prompt.
      */
     cliTools?: string;
-    /** Disable CLI tools entirely on `--yes` (plan §4.3). */
+    /**
+     * Disable CLI tools entirely on any init path (interactive runs skip the
+     * CLI-tools picker prompt; W3-mcp-optin path-independence).
+     */
     noCliTools?: boolean;
     /**
-     * Re-opt-in to MCP on `--yes`. Default is now off — the pivot moved
-     * MCP behind a Yes/No gate (plan §4.3 step 8 / §2 decision row).
+     * Opt in to MCP on ANY init path (W3-mcp-optin: previously `--yes` only).
+     * MCP is off by default — interactive init no longer prompts for MCP
+     * servers; this flag and the `hatch3r mcp setup` side-door are the only
+     * enable paths. When set, the platform default server set
+     * (`defaultMcpServers`) is applied.
      */
     mcp?: boolean;
     /**
@@ -1789,8 +1818,8 @@ export async function initCommand(
      * Commander's `--no-mcp` registration (program.ts) sets `opts.mcp = false`;
      * this dedicated field additionally lets a programmatic caller force-off
      * even if `mcp` is set, and makes the explicit-off intent legible at the
-     * resolution sites below. Honored on the `--yes` single-repo + workspace
-     * paths (the only paths that read `opts.mcp`).
+     * resolution sites below. Honored on every init path — single-repo and
+     * workspace, interactive and `--yes` (W3-mcp-optin path-independence).
      */
     noMcp?: boolean;
     /**
@@ -2139,15 +2168,13 @@ export async function initCommand(
     // worktree-capable tools (preserves pre-1.6.1 --yes behavior for CI callers).
     const worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
 
-    const features = { ...DEFAULT_FEATURES };
-    // CLI-tooling pivot (plan §4.3): MCP is now opt-in on `--yes`. Users
-    // who still want MCP defaults pass `--mcp` explicitly. Without that
-    // flag, MCP server list stays empty and no .env.mcp is generated.
-    // D1-SA1.1-F13: `--no-mcp` forces the list empty even when `--mcp` is set.
-    const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpServers = features.mcp && opts.mcp && !opts.noMcp
-      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
-      : [];
+    // W3-mcp-optin: MCP is pure opt-in on every init path. `--mcp` resolves
+    // the platform default server set; without it the list stays empty and no
+    // .env.mcp is generated. D1-SA1.1-F13: `--no-mcp` forces the list empty
+    // even when `--mcp` is set. `features.mcp` derives from the resolved list
+    // so the manifest flag and server list can never disagree.
+    const mcpServers = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+    const features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
 
     // CLI-tooling pivot (plan §4.3 `--yes` path): default to tier-1 +
     // triggered-tier-2 unless the user passed `--no-cli-tools`. Explicit
@@ -2248,12 +2275,14 @@ export async function initCommand(
     seededMaturityDefault,
     "maturity",
   );
-  // CLI tools default to the post-pivot tier-1 + triggered tier-2 set (matches
-  // `--yes`); customizable later via `hatch3r cli-tools`.
-  const inferredCliTools: CliToolId[] = Array.from(new Set([
-    ...DEFAULT_CLI_TOOLS,
-    ...applyPlatformTriggers(detectedPlatform, evaluateTier2Triggers(repoInfo)),
-  ]));
+  // W3-mcp-optin: `--cli-tools` / `--no-cli-tools` apply on the interactive
+  // path too (flag semantics are path-independent). An explicit selection
+  // skips the picker step below; without a flag the picker runs with tier-1 +
+  // triggered tier-2 pre-checked, so enter-through reproduces the `--yes`
+  // smart default exactly.
+  const explicitCliTools: CliToolId[] | undefined = opts.noCliTools
+    ? []
+    : resolveCliToolsFlag(opts.cliTools, repoInfo, detectedPlatform);
 
   // Step-machine drives the interactive flow with back-navigation.
   // Each step's `run()` calls inquirer with the same shape the
@@ -2262,15 +2291,15 @@ export async function initCommand(
   // the resolved state below.
   // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤5 prompts
   // (Decision 25 / Vercel-Heroku OSS-onboarding benchmark). The five retained
-  // prompts are: platform, identity, preset, tools, and a single collapsed MCP
-  // multi-select (recommendation step c — `(none)` = decline). The four
-  // dropped prompts use smart defaults, each overridable post-init:
+  // prompts are: platform, identity, preset, tools, and the CLI-tools picker
+  // (W3-mcp-optin: the collapsed MCP multi-select moved behind the `--mcp`
+  // flag / `hatch3r mcp setup` side-door, freeing the slot). The dropped
+  // prompts use smart defaults, each overridable post-init:
   //   - defaultBranch → `parseGitDefaultBranch()` (git-detected)
   //   - projectType   → `detectProjectType()` (auto-detected)
   //   - teamSize      → `inferTeamSizeFromGit()` (recommendation step d)
   //   - maturity      → `--maturity` flag / DEFAULT_MATURITY_TIER (2.0.0 add)
-  //   - cliTools      → tier-1 + triggered tier-2 (matches `--yes`; the pivot
-  //                     default — customize later via `hatch3r cli-tools`)
+  //   - mcp           → off unless `--mcp` (opt in later via `hatch3r mcp setup`)
   // `customItems` stays as a conditional power-user prompt (preset=custom only),
   // so it does not count against the common-path ceiling.
   interface SingleRepoState {
@@ -2279,10 +2308,10 @@ export async function initCommand(
     preset: PresetId;
     customItems: string[] | undefined;
     tools: Tool[];
-    // F10.3-2 step (c): collapsed MCP picker. Empty selection = no MCP
-    // (`features.mcp` is derived from `mcpServers.length`). Replaces the prior
-    // two-prompt `wantMcp` confirm + conditional `mcpServers` picker.
-    mcpServers: string[];
+    // W3-mcp-optin: 3-tier CLI-tools picker result. Empty selection = CLI
+    // tools disabled (`{enabled: false, selected: []}`). Replaces the prior
+    // collapsed MCP multi-select as the 5th prompt.
+    cliTools: CliToolId[];
   }
 
   // W2-flowsteps: each step is composed from the shared builders in
@@ -2333,16 +2362,22 @@ export async function initCommand(
       emptyFallback: DEFAULT_TOOLS,
       wslTheme,
     }),
-    // F10.3-2 step (c): single collapsed MCP multi-select. The prior
-    // `wantMcp` confirm + conditional `mcpServers` picker (2 prompts) are
-    // folded into one checkbox where leaving everything unchecked is the
-    // `(none)` no-op. `features.mcp` is derived from the result length
-    // after the step machine, so an empty pick disables MCP cleanly.
-    mcpServersStep<SingleRepoState>({
-      variant: "collapsed",
-      platform: (s) => s.platform!,
-      wslTheme,
-    }),
+    // W3-mcp-optin: the 5th prompt is the CLI-tools picker (the collapsed MCP
+    // multi-select moved behind `--mcp` / `hatch3r mcp setup`). Tier-2
+    // suggestions read the platform chosen in step 1, so they are computed
+    // per-visit from the in-progress state; with no `existing` selection the
+    // picker pre-checks tier-1 + these suggestions, making enter-through equal
+    // the `--yes` smart default. Skipped entirely when `--cli-tools` /
+    // `--no-cli-tools` resolved an explicit selection above.
+    ...(explicitCliTools === undefined
+      ? [
+          cliToolsStep<SingleRepoState>({
+            tier2Suggested: (s) =>
+              applyPlatformTriggers(s.platform ?? detectedPlatform, evaluateTier2Triggers(repoInfo)),
+            wslTheme,
+          }),
+        ]
+      : []),
   ];
 
   const stepState = await runStepMachine<SingleRepoState>(steps);
@@ -2359,20 +2394,25 @@ export async function initCommand(
   const selectedPreset = getPreset(stepState.preset);
   const customSelections = stepState.customItems;
   const tools = stepState.tools;
-  // F10.3-2 step (c): `features.mcp` is now derived from the collapsed MCP
-  // multi-select — a non-empty pick enables MCP, an empty pick (the `(none)`
-  // path) leaves it off. Replaces the prior `wantMcp` confirm.
-  const features: Features = { ...DEFAULT_FEATURES, mcp: (stepState.mcpServers ?? []).length > 0 };
+  // W3-mcp-optin: MCP no longer prompts on the interactive path. The flag
+  // semantics are path-independent: `--mcp` (minus `--no-mcp`) resolves the
+  // platform default server set, otherwise MCP stays off — opt in later via
+  // `hatch3r mcp setup`. `features.mcp` derives from the resolved list.
+  const mcpServers: string[] = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+  const features: Features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
 
   // C9-H32 (D10-SA10.5-F2): Surface MCP secret-loading divergence at
   // tool-selection time — before commit — so a user picking Claude alongside
   // auto-loaders (Cursor / Copilot / Windsurf) sees the divergent shell-source
-  // requirement immediately.
-  const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
-  if (secretNotes.length > 0) {
-    info(chalk.dim("MCP secret loading by tool:"));
-    for (const note of secretNotes) {
-      info(chalk.dim(`  ${note}`));
+  // requirement immediately. W3-mcp-optin: gated on an actual MCP opt-in —
+  // a no-MCP install has no MCP secrets to load, so the note was noise there.
+  if (mcpServers.length > 0) {
+    const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+    if (secretNotes.length > 0) {
+      info(chalk.dim("MCP secret loading by tool:"));
+      for (const note of secretNotes) {
+        info(chalk.dim(`  ${note}`));
+      }
     }
   }
 
@@ -2380,14 +2420,12 @@ export async function initCommand(
   // selected; honor explicit --worktree/--no-worktree override.
   const worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
 
-  // MCP server list is the collapsed multi-select result (empty = no MCP).
-  const mcpServers: string[] = stepState.mcpServers ?? [];
-
-  // F10.3-2: CLI tools are no longer prompted in the ≤5-prompt flow — they
-  // default to the post-pivot tier-1 + triggered tier-2 set (same as `--yes`),
-  // customizable later via `hatch3r cli-tools`. Detection + installer follow-up
-  // still runs so a user with missing tools on PATH gets the same guidance.
-  const selectedCliTools = inferredCliTools;
+  // W3-mcp-optin: CLI tools come from the picker step (5th prompt) unless a
+  // `--cli-tools` / `--no-cli-tools` flag resolved them above. An empty
+  // selection disables CLI tools (`{enabled: false, selected: []}`).
+  // Detection + installer follow-up still runs on a non-empty selection so a
+  // user with missing tools on PATH gets the same guidance as before.
+  const selectedCliTools: CliToolId[] = explicitCliTools ?? stepState.cliTools ?? [];
   if (selectedCliTools.length > 0) {
     const detectSpinner = createSpinner(`Detecting ${selectedCliTools.length} CLI tool(s)...`);
     detectSpinner.start();
@@ -2583,13 +2621,11 @@ async function runWorkspaceInit(
     // Create empty workspace manifest with defaults
     const platform: Platform = "github";
     const tools: Tool[] = resolveToolsFromOpts(opts.tools, repoInfo);
-    const features = { ...DEFAULT_FEATURES };
-    // CLI-tooling pivot: MCP opt-in via --mcp on `--yes`. Defaults empty.
-    // D1-SA1.1-F13: `--no-mcp` forces empty even with `--mcp`.
-    const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpServers = features.mcp && opts.mcp && !opts.noMcp
-      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
-      : [];
+    // W3-mcp-optin: MCP opt-in via --mcp on any init path. Defaults empty.
+    // D1-SA1.1-F13: `--no-mcp` forces empty even with `--mcp`. `features.mcp`
+    // derives from the resolved list.
+    const mcpServers = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+    const features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
     const cliToolsBase = opts.noCliTools
       ? { enabled: false, selected: [] as CliToolId[] }
       : ((): CliToolsConfig => {
@@ -2703,14 +2739,11 @@ async function runWorkspaceInit(
     // Worktree: honor explicit --worktree/--no-worktree, else auto-enable for
     // worktree-capable tools (preserves pre-1.6.1 --yes behavior).
     worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-    features = { ...DEFAULT_FEATURES };
-    // CLI-tooling pivot (plan §4.3): MCP is opt-in on `--yes`; default to
-    // empty server list unless `--mcp` is set. Mirrors single-repo flow.
-    // D1-SA1.1-F13: `--no-mcp` forces empty even with `--mcp`.
-    const platformMcp = PLATFORM_MCP_SERVER[platform];
-    mcpServers = features.mcp && opts.mcp && !opts.noMcp
-      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
-      : [];
+    // W3-mcp-optin: MCP is opt-in via `--mcp` on any init path; default to
+    // empty server list. Mirrors single-repo flow. D1-SA1.1-F13: `--no-mcp`
+    // forces empty even with `--mcp`. `features.mcp` derives from the list.
+    mcpServers = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+    features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
     if (opts.noCliTools) {
       wsCliTools = { enabled: false, selected: [] };
     } else {
@@ -2769,18 +2802,26 @@ async function runWorkspaceInit(
       "team-size",
     );
     wsMaturity = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
-    const wsInferredCliTools: CliToolId[] = Array.from(new Set([
-      ...DEFAULT_CLI_TOOLS,
-      ...applyPlatformTriggers(platform, evaluateTier2Triggers(repoInfo)),
-    ]));
+    // W3-mcp-optin: `--cli-tools` / `--no-cli-tools` apply on the interactive
+    // workspace path too (path-independent flag semantics); an explicit
+    // selection skips the picker step. The workspace platform is derived from
+    // sub-repos before the machine runs, so the tier-2 suggestion set is a
+    // plain array (no state thunk needed).
+    const wsExplicitCliTools: CliToolId[] | undefined = opts.noCliTools
+      ? []
+      : resolveCliToolsFlag(opts.cliTools, repoInfo, platform);
+    const wsTier2Suggested: CliToolId[] = applyPlatformTriggers(
+      platform,
+      evaluateTier2Triggers(repoInfo),
+    );
 
     // The collapsed workspace prompt set: preset, customItems (conditional),
-    // tools, mcp (single multi-select with `(none)`).
+    // tools, cliTools (W3-mcp-optin: replaces the collapsed MCP multi-select).
     interface WorkspaceState {
       preset: PresetId;
       customItems: string[] | undefined;
       tools: Tool[];
-      mcpServers: string[];
+      cliTools: CliToolId[];
     }
 
     // W2-flowsteps: composed from the shared builders in
@@ -2820,15 +2861,19 @@ async function runWorkspaceInit(
         emptyFallback: DEFAULT_TOOLS,
         wslTheme,
       }),
-      // F10.3-2 step (c): single collapsed MCP multi-select (workspace
-      // parity with the single-repo flow). Empty = no MCP. The workspace
-      // state has no platform slot, so the accessor closes over the
-      // workspace platform derived from sub-repos above.
-      mcpServersStep<WorkspaceState>({
-        variant: "collapsed",
-        platform: () => platform,
-        wslTheme,
-      }),
+      // W3-mcp-optin: CLI-tools picker (workspace parity with the single-repo
+      // flow; the collapsed MCP multi-select moved behind `--mcp` /
+      // `hatch3r mcp setup`). Tier-2 suggestions close over the workspace
+      // platform derived from sub-repos above. Skipped when `--cli-tools` /
+      // `--no-cli-tools` resolved an explicit selection.
+      ...(wsExplicitCliTools === undefined
+        ? [
+            cliToolsStep<WorkspaceState>({
+              tier2Suggested: wsTier2Suggested,
+              wslTheme,
+            }),
+          ]
+        : []),
     ];
 
     const wsState = await runStepMachine<WorkspaceState>(wsSteps);
@@ -2840,25 +2885,31 @@ async function runWorkspaceInit(
     const customSelections = wsState.customItems;
     tools = wsState.tools;
 
+    // W3-mcp-optin: MCP no longer prompts on the interactive workspace path;
+    // `--mcp` (minus `--no-mcp`) resolves the platform default server set,
+    // mirroring the single-repo flow. `features.mcp` derives from the list.
+    mcpServers = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+    features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
+
     // C9-H32 (D10-SA10.5-F2): Surface per-editor MCP secret-loading
     // divergence at tool-selection time — before commit — matching the
     // single-repo flow. Workspace parity prevents user surprise.
-    const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
-    if (wsSecretNotes.length > 0) {
-      info(chalk.dim("MCP secret loading by tool:"));
-      for (const note of wsSecretNotes) {
-        info(chalk.dim(`  ${note}`));
+    // W3-mcp-optin: gated on an actual MCP opt-in (no MCP, no MCP secrets).
+    if (mcpServers.length > 0) {
+      const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+      if (wsSecretNotes.length > 0) {
+        info(chalk.dim("MCP secret loading by tool:"));
+        for (const note of wsSecretNotes) {
+          info(chalk.dim(`  ${note}`));
+        }
       }
     }
 
     worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-    // F10.3-2 step (c): `features.mcp` is derived from the collapsed MCP
-    // multi-select result (empty = off).
-    mcpServers = wsState.mcpServers ?? [];
-    features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
 
-    // F10.3-2: CLI tools default to tier-1 + triggered tier-2 (no prompt).
-    const wsSelectedCliTools = wsInferredCliTools;
+    // W3-mcp-optin: CLI tools come from the picker step unless a flag
+    // resolved them; empty selection disables CLI tools.
+    const wsSelectedCliTools: CliToolId[] = wsExplicitCliTools ?? wsState.cliTools ?? [];
     if (wsSelectedCliTools.length > 0) {
       const wsDetectSpinner = createSpinner(`Detecting ${wsSelectedCliTools.length} CLI tool(s)...`);
       wsDetectSpinner.start();

@@ -134,15 +134,15 @@ export function createProgram(): Command {
     .option("--worktree", "Enable git worktree file isolation (overrides tool auto-detect)")
     .option("--no-worktree", "Disable git worktree file isolation")
     .option("--workspace", "Initialize as a multi-repo workspace")
-    .option("--cli-tools <ids>", "CLI tools to opt in on --yes: 'tier1', 'all', or comma-separated ids (default: tier-1 + triggered tier-2)")
-    .option("--no-cli-tools", "Skip the CLI-tools opt-in on --yes")
-    .option("--mcp", "Re-opt-in to MCP servers on --yes (MCP is now opt-in by default)")
+    .option("--cli-tools <ids>", "CLI tools to opt in on any init path: 'tier1', 'all', or comma-separated ids (skips the picker on interactive runs; --yes default: tier-1 + triggered tier-2)")
+    .option("--no-cli-tools", "Skip CLI tools on any init path (interactive runs skip the picker)")
+    .option("--mcp", "Opt in to MCP servers on any init path (MCP is opt-in by default; interactive init no longer prompts — or run `hatch3r mcp setup` later)")
     // D1-SA1.1-F13 (D1, P1): explicit MCP opt-out, symmetric with `--no-cli-tools`.
     // Commander binds `--no-mcp` to the same `mcp` destination (sets opts.mcp =
     // false); the dedicated `noMcp` field init.ts reads additionally force-disables
     // even when `--mcp` is also passed, so a CI/audit config can self-document
     // "no MCP" rather than rely on the implicit default.
-    .option("--no-mcp", "Explicitly disable MCP servers on --yes (default; force-off even with --mcp)")
+    .option("--no-mcp", "Explicitly disable MCP servers on any init path (default; force-off even with --mcp)")
     // --quiet/--json/--no-banner provenance: C9-H26 (Cycle 9). --resume: Decision 27.
     .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit")
     .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet")

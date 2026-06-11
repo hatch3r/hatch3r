@@ -46,7 +46,10 @@ describe("hatchJson", () => {
       // unsupported-feature warning.
       expect(manifest.features.prompts).toBe(false);
       expect(manifest.features.commands).toBe(true);
-      expect(manifest.features.mcp).toBe(true);
+      // W3-mcp-optin: MCP defaults OFF — pure opt-in via `init --mcp` or the
+      // `hatch3r mcp setup` side-door; init derives the effective flag from
+      // the resolved server list.
+      expect(manifest.features.mcp).toBe(false);
       expect(manifest.features.githubAgents).toBe(true);
       expect(manifest.managedFiles).toEqual([]);
     });

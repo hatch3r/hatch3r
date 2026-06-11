@@ -300,11 +300,17 @@ export function toolsStep<TState extends { tools: Tool[] }>(
 
 // ── cliTools ────────────────────────────────────────────────────────
 
-export interface CliToolsStepOptions {
+export interface CliToolsStepOptions<TState extends object = object> {
   /** Persisted selection (config: `manifest.cliTools?.selected`). */
   existing?: CliToolId[];
-  /** Tier-2 suggestion set (init adopts this step in a later slice). */
-  tier2Suggested?: CliToolId[];
+  /**
+   * Tier-2 suggestion set. Init's single-repo machine passes a thunk over
+   * the in-progress state because the suggestions derive from the platform
+   * chosen in an EARLIER step (`applyPlatformTriggers(state.platform, ...)`);
+   * machines that resolve the platform before the machine runs (workspace)
+   * pass the computed array directly.
+   */
+  tier2Suggested?: CliToolId[] | ((state: Partial<TState>) => CliToolId[]);
   wslTheme?: unknown;
 }
 
@@ -314,15 +320,17 @@ export interface CliToolsStepOptions {
  * injected `existing` selection on BACK-revisit.
  */
 export function cliToolsStep<TState extends { cliTools: CliToolId[] }>(
-  opts: CliToolsStepOptions = {},
+  opts: CliToolsStepOptions<TState> = {},
 ): StepFor<TState, "cliTools"> {
   return {
     id: "cliTools",
-    async run(_state, previous): Promise<StepResult<TState["cliTools"]>> {
+    async run(state, previous): Promise<StepResult<TState["cliTools"]>> {
       const existingCliTools = previous ?? opts.existing ?? [];
+      const tier2Suggested =
+        typeof opts.tier2Suggested === "function" ? opts.tier2Suggested(state) : opts.tier2Suggested;
       const result = await pickCliTools({
         existing: existingCliTools,
-        tier2Suggested: opts.tier2Suggested,
+        tier2Suggested,
         wslTheme: opts.wslTheme,
       });
       return result as StepResult<TState["cliTools"]>;

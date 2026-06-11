@@ -2,13 +2,15 @@
 // config-shaped machine — both composed from the shared flowSteps builders
 // with the same options init.ts and config.ts pass — through equivalent
 // mocked answer queues, and assert they resolve identical platform,
-// identity fields, tools, and MCP servers. Pickers are REAL here (only
-// inquirer is mocked) so the config side exercises the production
+// identity fields, tools, and CLI tools. Pickers are REAL here (only
+// inquirer is mocked) so both sides exercise the production
 // pickCliTools / confirmMcpGate / pickMcpServers prompt shapes, including
 // pickCliTools' `name: "tools"` answer key (pickers.ts).
 //
-// cliTools parity is asserted config-side only — init adopts the
-// cliToolsStep in a later slice.
+// W3-mcp-optin: init adopted the cliToolsStep as its 5th prompt and dropped
+// the MCP step entirely (MCP is opt-in via `--mcp` / `hatch3r mcp setup`),
+// so cliTools parity is asserted across BOTH machines and MCP resolution is
+// config-side only.
 import { describe, it, expect, vi, beforeEach } from "vitest";
 import inquirer from "inquirer";
 import {
@@ -65,7 +67,7 @@ interface InitState {
   preset: PresetId;
   customItems: string[] | undefined;
   tools: Tool[];
-  mcpServers: string[];
+  cliTools: CliToolId[];
 }
 
 // Mirrors config.ts::ConfigState minus defaultBranch/worktree (config-local
@@ -99,7 +101,12 @@ function initMachine(): Array<Step<InitState>> {
       previousAsDefault: true,
     }),
     toolsStep<InitState>({ defaults: ["claude"], emptyFallback: ["claude"] }),
-    mcpServersStep<InitState>({ variant: "collapsed", platform: (s) => s.platform! }),
+    // W3-mcp-optin: init's 5th step is the CLI-tools picker; the tier-2
+    // suggestion thunk mirrors init.ts (reads the platform chosen in step 1
+    // — init passes applyPlatformTriggers(s.platform, ...)).
+    cliToolsStep<InitState>({
+      tier2Suggested: (s) => (s.platform === "github" ? (["gh"] as CliToolId[]) : []),
+    }),
   ];
 }
 
@@ -153,15 +160,18 @@ function configMachine(manifest: {
 }
 
 describe("flowSteps parity — init vs config machines", () => {
-  it("equivalent answers resolve identical platform, identity, tools, and MCP servers", async () => {
+  it("equivalent answers resolve identical platform, identity, tools, and CLI tools", async () => {
     const inq = vi.mocked(inquirer.prompt);
 
-    // Init: platform → identity → preset → (customItems skipped) → tools → mcp.
+    // Init: platform → identity → preset → (customItems skipped) → tools →
+    // cliTools (W3-mcp-optin: no MCP step; pickCliTools answers under
+    // `name: "tools"`, same key as the editor-tools prompt — order-based
+    // queue resolves the collision).
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "acme", repo: "rocket" });
     inq.mockResolvedValueOnce({ preset: "standard" });
     inq.mockResolvedValueOnce({ tools: ["claude", "cursor"] });
-    inq.mockResolvedValueOnce({ mcp: ["github"] });
+    inq.mockResolvedValueOnce({ tools: ["jq", "gh"] });
     const initState = await runStepMachine<InitState>(initMachine());
 
     inq.mockReset();
@@ -171,7 +181,7 @@ describe("flowSteps parity — init vs config machines", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "acme", repo: "rocket" });
     inq.mockResolvedValueOnce({ tools: ["claude", "cursor"] });
-    inq.mockResolvedValueOnce({ tools: [] });
+    inq.mockResolvedValueOnce({ tools: ["jq", "gh"] });
     inq.mockResolvedValueOnce({ features: ["mcp"] });
     inq.mockResolvedValueOnce({ proceed: true });
     inq.mockResolvedValueOnce({ mcp: ["github"] });
@@ -197,12 +207,13 @@ describe("flowSteps parity — init vs config machines", () => {
     });
     expect(confState.tools).toEqual(initState.tools);
     expect(initState.tools).toEqual(["claude", "cursor"]);
-    // Same MCP answer resolves the same server list on both machines
-    // (collapsed variant keeps the platform server; gated pickMcpServers
-    // prepends it when missing — identical here because it was selected).
-    expect(confState.mcpServers).toEqual(initState.mcpServers);
-    expect(initState.mcpServers).toEqual(["github"]);
-    expect(confState.cliTools).toEqual([]);
+    // W3-mcp-optin: the same cliTools answer resolves identically on both
+    // machines now that init carries the step too.
+    expect(confState.cliTools).toEqual(initState.cliTools);
+    expect(initState.cliTools).toEqual(["jq", "gh"]);
+    // MCP resolution is config-side only — init has no MCP step (opt-in via
+    // `--mcp` / `hatch3r mcp setup`).
+    expect(confState.mcpServers).toEqual(["github"]);
   });
 
   it("config gate chain: declining the gate skips the server picker on both BACK and forward passes", async () => {
