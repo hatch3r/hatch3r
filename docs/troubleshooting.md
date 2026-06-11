@@ -303,6 +303,8 @@ hatch3r returns a differentiated POSIX exit code per failure kind so CI scripts 
 | 75 | `EX_TEMPFAIL` | `NETWORK_ERROR`, `LOCK_TIMEOUT` | Retryable failure — network fetch, or another hatch3r process holds the lock. |
 | 130 | — | SIGINT | Interrupted with Ctrl+C (128 + signal 2). |
 
+**JSON output note:** every non-stub command accepts `--format <human|json>`. An invalid `--format` value is an exit-2 usage error, and so is `--format json` on an invocation that would prompt (e.g. `mcp setup`, bare `cli-tools`, interactive flows without `--yes`) — the prompts would interleave with the JSON document. In JSON mode, stdout carries exactly one JSON document (envelope: `status`, command payload fields, `command`, `hatch3rVersion`, `timestamp`); diagnostics and spinners go to stderr.
+
 **Scripting note (CI):** branch on the exact code, not `[ $? -eq 1 ]`. hatch3r does not emit exit 1 for command failures — `VALIDATION_ERROR`, `CONFIG_ERROR`, and `ADAPTER_ERROR` surface as 64/65/69, so a `-eq 1` check misses every one of them. The structured `errorCode` string also prints to stderr, and `npx hatch3r validate --format json` emits it as a machine-readable field. Example:
 
 ```bash

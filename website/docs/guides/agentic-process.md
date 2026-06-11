@@ -21,11 +21,11 @@ flowchart LR
     B --> B2["Project context\n(greenfield/brownfield,\nsolo/team)"]
     B2 --> B3["Content profile\n(minimal/standard/full/custom)"]
     B3 --> C["Select tools\n(Claude Code, Cursor, Copilot)"]
-    C --> D["Select MCP servers\n(GitHub, Brave, ...)"]
+    C --> D["CLI-tools picker\n(tier-grouped; MCP only\nvia --mcp / mcp setup)"]
     D --> E["Resolve selection\n(bundled content\n+ .hatch3r/overrides)"]
     E --> F["Run adapters"]:::accent
     F --> G[".cursor/\n.github/\nCLAUDE.md"]:::output
-    F --> H[".env.mcp\n(secrets template)"]:::output
+    F --> H[".env.mcp\n(secrets template,\nMCP opt-in only)"]:::output
 ```
 
 ## Canonical Content Model

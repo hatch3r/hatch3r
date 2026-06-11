@@ -7,6 +7,17 @@ title: CLI Commands
 
 Commands you run directly in the terminal via `npx hatch3r`.
 
+## Standard flags (2.1.0)
+
+Every non-stub command and subcommand accepts:
+
+| Flag | Description |
+|------|-------------|
+| `--format <human\|json>` | `human` (default) or `json`. JSON mode emits exactly one JSON document on stdout (envelope: `status`, command payload fields, `command`, `hatch3rVersion`, `timestamp`); diagnostics and spinners go to stderr. An invalid value, or `--format json` on an invocation that would prompt (e.g. `mcp setup`, bare `cli-tools`, interactive flows without `--yes`), is an exit-2 usage error |
+| `--quiet` | Suppress stdout chrome (banner, spinners, boxes, next steps); stderr diagnostics still emit |
+
+Mutating commands additionally accept `--dry-run` (preview without writing): init, sync, update, config, clean, rollback, worktree-setup, worktree-cleanup, mcp setup/remove, cli-tools, learn capture. `--verbose` is registered only on commands that have detail output wired. The per-command tables below list command-specific flags; the standard flags are not repeated.
+
 ## hatch3r init
 
 Interactive setup that initializes hatch3r in your repository.
@@ -22,47 +33,51 @@ npx hatch3r init --preset full --project-type brownfield --team-size team --yes
 
 | Flag | Values | Default | Description |
 |------|--------|---------|-------------|
-| `--tools` | comma-separated tool names | auto-detected | Which coding tools to configure |
+| `--tools` | comma-separated tool names | auto-detected | Which coding tools to configure (Claude Code, Cursor, Copilot) |
 | `--quick`, `--default` | — | off | Aliases for `--yes` (headless mode) |
 | `--yes` | — | off | Skip all prompts (headless mode) |
-| `--preset` | `minimal`, `standard`, `full` | `full` | Content profile preset |
+| `--preset` | `minimal`, `standard`, `full`, `web-app`, `api-service`, `cli-tool`, `monorepo`, `legacy`, `security`, or a comma-list to compose | `standard` | Content profile preset |
 | `--project-type` | `greenfield`, `brownfield` | auto-detected | Project type context |
-| `--team-size` | `solo`, `team` | `solo` | Team size context |
+| `--team-size` | `solo`, `team` | git-inferred | Team size context |
 | `--maturity` | `solo`, `team`, `scaleup`, `enterprise` | `solo` | Investment-depth dial — calibrates how deeply agents build (see [Maturity Tiers](../../guides/maturity-tiers)). Does not filter content; every tier installs the full corpus |
+| `--cli-tools`, `--no-cli-tools` | `tier1`, `all`, or comma-separated ids | picker / smart default | Resolve the CLI-tools selection up front (skips the picker); `--no-cli-tools` skips CLI tools entirely |
+| `--mcp`, `--no-mcp` | — | off | Opt in to MCP servers (interactive init does not prompt for MCP); `--no-mcp` force-disables even with `--mcp` |
+| `--dry-run` | — | off | Preview what init would create or change without writing files |
 | `--workspace` | — | off | Force workspace mode for multi-repo directories |
 
 When CWD is a non-git directory containing git subdirectories, init auto-detects a workspace layout and suggests workspace mode. Use `--workspace` to force workspace mode without the prompt.
 
-The init flow asks:
+The interactive flow asks (default branch, project type, and team size are inferred, not prompted):
 
 1. **Platform** -- GitHub, Azure DevOps, or GitLab (auto-detected from git remote)
-2. **Repo identity** -- owner/org and repo name
-3. **Default branch** -- for checkout, PR base, and release
-4. **Project type** -- greenfield (new project) or brownfield (existing codebase)
-5. **Team size** -- solo developer or team collaboration
-6. **Content profile** -- Minimal, Standard (recommended), Full, or Custom
-7. **Tools** -- select from the 3 supported adapters (Claude Code, Cursor, GitHub Copilot)
-8. **Features** -- agents, skills, rules, commands, MCP, hooks, GitHub agents
-9. **MCP servers** -- optionally configure up to 10 MCP servers
+2. **Repo identity** -- owner/org and repo name (auto-filled from the remote where possible)
+3. **Content profile** -- Minimal, Standard (recommended), Full, or Custom
+4. **Custom content items** -- only when Custom is selected at step 3
+5. **Tools** -- select from the 3 supported adapters (Claude Code, Cursor, GitHub Copilot)
+6. **CLI tools** -- tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). There is no MCP prompt — opt in with `--mcp` or `npx hatch3r mcp setup` later
 
 Only the content matching your profile and context is generated into your adapter outputs (canonical content is read from the bundled npm package, not copied into your repo). Use `hatch3r config` to add or remove items later.
 
-With `--yes`, init auto-detects greenfield/brownfield, defaults to solo + standard preset, and skips all prompts.
+With `--yes`, init auto-detects greenfield/brownfield, defaults to solo + standard preset, selects tier-1 + triggered tier-2 CLI tools, and skips all prompts.
 
 ## hatch3r config
 
-Interactive reconfiguration of your hatch3r setup.
+Interactive reconfiguration of your hatch3r setup. Also accepts scalar forms: `config maturity=<tier>`, `config get <key>`, `config set <key> <value>`.
 
 ```bash
 npx hatch3r config
+npx hatch3r config --dry-run        # preview the change without writing
+npx hatch3r config maturity=team    # scalar form, no prompts
 ```
 
 - Change platform, tools, features, and MCP servers
-- Add or remove individual content items (agents, skills, rules, commands)
+- Add or remove individual content items (agents, skills, rules, commands) — manifest-only bookkeeping: the selection is written to `.hatch3r/hatch.json` and adapter outputs are regenerated from the bundled canonical content (no `.agents/` materialization). Removing an item rescues its hand-authored `.customize.*` overrides into the archive
 - Enable/disable worktree file isolation for parallel agent sessions
 - Manage workspace repos (add/remove sub-repos, toggle sync, change sync strategy)
 - Archives removed tool outputs to `.hatch3r-archive/`
 - Re-syncs all adapters after changes
+
+**Command-specific flags:** `--dry-run` (preview without writing), `--verbose`.
 
 ## hatch3r sync
 
@@ -126,7 +141,7 @@ Checks sync status by regenerating each adapter output from the bundled canonica
 ```bash
 npx hatch3r status
 npx hatch3r status --verbose   # detailed per-file status
-npx hatch3r status --deep      # byte-for-byte comparison
+npx hatch3r status --diff      # before/after diff summary per generated file
 ```
 
 **Flags:**
@@ -134,7 +149,9 @@ npx hatch3r status --deep      # byte-for-byte comparison
 | Flag | Description |
 |------|-------------|
 | `--verbose` | Show detailed per-file status information |
-| `--deep` | Compare byte-for-byte by regenerating every adapter's output in-memory (regeneration is the only drift path since the integrity manifest was removed in Wave 7) |
+| `--diff` | Show a before/after diff summary for each generated file (same box `hatch3r sync --diff` emits) |
+
+Status compares only the hatch3r-managed block (`HATCH3R:BEGIN`/`END`) against a fresh regeneration; content you author outside the markers is never reported here. (The former `--deep` flag was removed — regeneration is the only drift path.)
 
 Reports synced, drifted, and missing files for each configured tool. When a `workspace.json` manifest exists, also displays workspace topology -- listing each sub-repo, its sync status, and any per-repo overrides.
 
@@ -175,7 +192,7 @@ npx hatch3r verify --fix                        # auto-repair drift by regenerat
 npx hatch3r verify --fix --max-fix-attempts 3   # raise the default 2-cycle cap
 ```
 
-Reports each adapter output as synced, drifted, or missing. Exit code 1 if any drift is found.
+Reports each adapter output as synced, drifted, or missing. Exits 73 (`INTEGRITY_ERROR`) if any drift remains — see [Exit Codes](https://github.com/hatch3r/hatch3r/blob/main/docs/troubleshooting.md#exit-codes).
 
 **Flags:**
 
@@ -183,6 +200,8 @@ Reports each adapter output as synced, drifted, or missing. Exit code 1 if any d
 |------|-------------|
 | `--fix` | Auto-repair drifted/missing output by regenerating it (the same in-memory regeneration `hatch3r sync` performs), re-checking drift after each pass |
 | `--max-fix-attempts <n>` | Maximum regenerate-then-recheck cycles (default: 2, clamped to 1–5) |
+| `--verbose` | Show the per-tool / per-file drift breakdown before the PASS/FAIL summary |
+| `--diff` | Show a before/after diff summary for each generated file |
 
 Recovery:
 - **Drifted:** Run `hatch3r verify --fix` (or `hatch3r sync`) to regenerate the on-disk output
@@ -276,17 +295,21 @@ npx hatch3r cli-tools install         # re-run the installer offer for missing t
 
 Detection uses POSIX `command -v` / Windows `where` with a 2-second timeout and fail-open semantics. The installer never executes — it prints copy-paste commands grouped per package manager (`brew`, `apt`, `dnf`, `winget`, `scoop`, with `cargo` / `pipx` / `npm` fallback). After every flow that touches CLI-tool selection, a warning-style box surfaces any selected-but-not-installed tools alongside a one-liner that chains installable tools through their shared package manager.
 
+The bare command also accepts `--dry-run` (show the resulting selection without writing the manifest). `--format json` is accepted on `list` and `detect`; the bare picker and `install` can prompt, so JSON is rejected there (exit 2).
+
 See the [CLI Tools getting-started guide](../../getting-started/cli-tools.md) for the full tier catalog.
 
 ## hatch3r mcp
 
-Added in 1.7.5. Manage MCP server configuration as a side-door for users who skipped MCP during init or want to revisit it later. MCP is opt-in in 1.7.5 (`hatch3r init --yes` no longer auto-configures MCP — add `--mcp` to restore the prior behavior).
+Added in 1.7.5. Manage MCP server configuration. MCP is pure opt-in since 2.1.0: interactive `init` does not prompt for it, and no init path configures it without `--mcp`. `mcp setup` is the primary opt-in surface; `setup` and `remove` keep the manifest's `features.mcp` flag consistent (`true` only while at least one server remains selected).
 
 ```bash
-npx hatch3r mcp setup                 # reopen the MCP server picker
+npx hatch3r mcp setup                 # open the MCP server picker (writes manifest + .env.mcp)
 npx hatch3r mcp list                  # show current MCP configuration
 npx hatch3r mcp remove <id>           # delete a single MCP server
 npx hatch3r mcp env-check             # audit .env.mcp for missing required env vars
 ```
+
+`setup` and `remove` accept `--dry-run` (show the resulting server list + `features.mcp` without writing). `--format json` is accepted on the headless subcommands (`list`, `remove`, `env-check`); `setup` always prompts, so JSON is rejected there (exit 2).
 
 See [MCP setup](../../guides/mcp-setup.md) for server reference and security model.

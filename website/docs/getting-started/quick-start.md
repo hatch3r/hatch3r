@@ -8,7 +8,7 @@ title: Quick Start
 A copy-paste-runnable walkthrough that takes a project from empty to released using hatch3r. The path is the same for greenfield and brownfield work — the spec step (Step 4) auto-detects which one you are in and branches for you.
 
 :::info Last verified
-2026-05-28 against hatch3r 2.0.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency). MCP became opt-in in 1.7.5 — leaving the MCP multi-select empty skips MCP entirely; selecting any server triggers automatic platform-MCP inclusion.
+2026-06-11 against hatch3r 2.1.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency). MCP is pure opt-in since 2.1.0 — interactive init does not prompt for it; enable with `npx hatch3r init --mcp` or `npx hatch3r mcp setup`.
 :::
 
 ## Prerequisites
@@ -34,9 +34,9 @@ Interactive flow (~2 minutes). On a fresh GitHub greenfield repo hatch3r asks 6 
 3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`. See the [profile table](#content-profiles) below.
 4. **Custom content items** — only when `custom` is selected at step 3.
 5. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
-6. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Leaving everything unchecked is the `(none)` no-op and skips MCP entirely; selecting any server auto-includes the platform MCP that matches your detected platform (per `src/cli/commands/init.ts` mcpServers step).
+6. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later (see [MCP Setup](../guides/mcp-setup)).
 
-Headless `--yes` skips every prompt; `cli-tools` selection is auto-inferred from project triggers (no separate picker prompt). If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm.
+Headless `--yes` skips every prompt; the CLI-tools selection falls back to the smart default (tier-1 + trigger-matched tier-2). If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm.
 
 For headless / CI use, pass `--yes` with optional flags:
 

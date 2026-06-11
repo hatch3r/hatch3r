@@ -2,6 +2,45 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.1.0] - 2026-06-11
+
+### Headline
+
+CLI consistency release: Claude Code becomes the first-listed tool across every picker and enumeration; `init` and `config` share one set of interactive step builders; MCP moves to pure opt-in (the init MCP prompt is replaced by the CLI-tools picker); `config` content changes are manifest-only; and every non-stub command gains the standardized `--format <human|json>` + `--quiet` flag matrix with a single shared command ending and a registration drift-guard test. No manifest schema change (schemaVersion 3 unchanged from v1.9.0).
+
+### Claude-Code-first tool ordering
+
+- `TOOLS` in `src/types.ts` reordered to `["claude", "cursor", "copilot"]`; every derived surface (tool picker choices, `--tools` help text, adapter enumeration, README + website tables) now lists Claude Code first. Ordering only — no behavioral change to any adapter.
+
+### Shared init/config step builders (drift-proof parity)
+
+- `src/cli/shared/flowSteps.ts` — platform, identity, preset, custom-items, tools, CLI-tools, MCP-gate, and MCP-servers steps extracted into shared factories consumed by init's single-repo flow, init's workspace flow, and config. Prompt copy, name keys, defaults, skip predicates, and Shift+Tab BACK threading are single-sourced, so the two commands can no longer drift apart prompt-by-prompt (the pre-extraction test answer-queues pass unmodified).
+
+### MCP is pure opt-in; init's fifth prompt is the CLI-tools picker
+
+- Interactive `init` no longer prompts for MCP. The flow is: platform → repo identity → preset → (custom items, only when preset=custom) → tools → CLI-tools picker (tier-1 + trigger-matched tier-2 pre-checked, so enter-through equals the `--yes` smart default).
+- MCP opt-in paths: `init --mcp` on any init path, or `hatch3r mcp setup` afterwards. `features.mcp` defaults to false; `mcp setup` and `mcp remove` maintain the flag (`true` only while at least one server remains selected) so adapter emission and `sync` stay consistent with the manifest.
+- `--no-mcp` force-disables even when combined with `--mcp`, so a CI config can self-document "no MCP" instead of relying on the implicit default.
+
+### config content changes are manifest-only
+
+- `hatch3r config` add/remove of content items updates `.hatch3r/hatch.json` and regenerates adapter outputs from the bundled canonical content — no `.agents/` materialization on any path. Removing an item still rescues hand-authored `.customize.yaml`/`.customize.md` overrides into the archive via `archiveCustomizeOverrides` (skipped under `--dry-run`, which performs no writes).
+
+### Standardized flag matrix + shared command endings
+
+- Every non-stub command and subcommand registers `--format <human|json>` + `--quiet` (normalized via `parseFormatOption`); mutating commands register `--dry-run` with wired previews (init, sync, update, config, clean, rollback, worktree-setup, worktree-cleanup, mcp setup/remove, cli-tools, learn capture); `--verbose` is registered only where detail output is wired — a registered-but-unread flag violates the Silent Failure Contract.
+- `--format json` on a prompting invocation (e.g. `mcp setup`, bare `cli-tools`, interactive flows without `--yes`) is an exit-2 usage error; an invalid `--format` value is also exit 2. JSON mode emits exactly one document on stdout with the envelope `{ status, <command payload>, command, hatch3rVersion, timestamp }`; diagnostics stay on stderr. Legacy `init --json` is kept as a boolean alias that upgrades `--format` to `json`.
+- `src/cli/shared/commandOutput.ts` — `beginCommand`/`finishCommand` are the single chokepoint for command endings: one outcome box + ≤3 next-steps + optional timing in human mode, or the one JSON envelope in JSON mode, never both.
+- Drift guard: `src/__tests__/cli/index.test.ts` ("W5 flag-surface drift guard") fails when a newly registered command or subcommand is not classified into the flag matrix.
+
+### Dry-run no-write contracts
+
+- `--dry-run` paths are covered by tests asserting no file mutation (manifest, adapter outputs, `.env.mcp`, archive moves) across init, sync, update, config, clean, rollback, worktree-setup/cleanup, mcp setup/remove, cli-tools, and learn capture.
+
+### Security
+
+- **Path-charset guard in `archiveCustomizeOverrides`** (`src/content/index.ts`): a cleaned item id outside `[A-Za-z0-9._-]` (or containing `..`) is rejected before any path is built, closing a traversal read/delete primitive that would open if a future caller wired user-supplied ids into the rescue flow. Degrades like the function's other failure modes (verbose diagnostic + skip, no throw).
+
 ## [2.0.0] - 2026-05-26
 
 ### Headline

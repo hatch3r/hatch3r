@@ -8,7 +8,7 @@ title: Workflow
 hatch3r provides a full project lifecycle, from setup to release. This guide walks through the typical flow and links to the deeper view of the four-phase pickup pipeline and review loop.
 
 :::info Last verified
-2026-06-06 against hatch3r 2.0.0. The init flow described in Step 1 mirrors the canonical prompt order in `src/cli/commands/init.ts`; the copy-paste-runnable version lives in the [Quick Start](../getting-started/quick-start). Re-verified each audit cycle (P3 — Adapter & MCP Currency).
+2026-06-11 against hatch3r 2.1.0. The init flow described in Step 1 mirrors the canonical prompt order in `src/cli/commands/init.ts`; the copy-paste-runnable version lives in the [Quick Start](../getting-started/quick-start). Re-verified each audit cycle (P3 — Adapter & MCP Currency).
 :::
 
 ## 1. Initialize
@@ -24,9 +24,9 @@ Interactive setup (~2 minutes) detects your repository from its git remote and w
 3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`.
 4. **Custom content items** — only when `custom` is selected at step 3.
 5. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
-6. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Leaving everything unchecked skips MCP entirely; selecting any server auto-includes the platform MCP that matches your detected platform.
+6. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later.
 
-Default branch, project type (greenfield/brownfield), and team size (solo/team) are **inferred, not prompted** — branch from git, the others from repository signals. CLI-tool selection is **auto-inferred from project triggers** (no separate picker prompt); if detected tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm. Headless `--yes` skips every prompt.
+Default branch, project type (greenfield/brownfield), and team size (solo/team) are **inferred, not prompted** — branch from git, the others from repository signals. If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm. Headless `--yes` skips every prompt and falls back to the CLI-tools smart default.
 
 :::tip CLI tools default-on since 1.7.5
 hatch3r's primary agent-tooling surface is CLI tools (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd as the tier-1 default; 19 more across tier-2 conditional and tier-3 opt-in). MCP is opt-in. See [CLI Tools](../getting-started/cli-tools) for the full catalog, decision tree, and trade-off discussion.
