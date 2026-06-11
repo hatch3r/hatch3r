@@ -70,7 +70,7 @@
  *   npm run validate:trust-crosswalk
  */
 import { readFile, readdir, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -101,6 +101,17 @@ export interface CitationFinding {
   message: string;
 }
 
+/**
+ * Repo-relative path in POSIX (`/`) form regardless of host OS. The source-file
+ * index this builds is consumed with `/`-based string ops (`lastIndexOf("/")`
+ * for the basename, `includes("/__tests__/")` for the test-tree split), so a
+ * Windows `\` separator would break every bare-filename and `.test.ts`
+ * resolution. Normalizing at the index-emit site fixes both consumers.
+ */
+function toPosixRel(absPath: string, baseDir: string): string {
+  return relative(baseDir, absPath).split(sep).join(posix.sep);
+}
+
 /** Words that can follow `` `validate` `` in prose but are not check IDs. */
 const VALIDATE_PROSE_WORDS = new Set([
   "asserts",
@@ -129,7 +140,7 @@ async function listFiles(dir: string, root: string): Promise<string[]> {
     if (entry.isDirectory()) {
       out.push(...(await listFiles(abs, root)));
     } else if (entry.isFile()) {
-      out.push(abs.slice(root.length + 1));
+      out.push(toPosixRel(abs, root));
     }
   }
   return out;

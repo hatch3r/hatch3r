@@ -56,7 +56,7 @@
  *   tsx scripts/validate-pricing-currency.ts --json
  */
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -70,6 +70,15 @@ const DEFAULT_SKILLS_DIR = "skills";
 export const DEFAULT_WINDOW_DAYS = 90;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
+
+/**
+ * Repo-relative path in POSIX (`/`) form regardless of host OS. The `file`
+ * field is a portable, cross-OS diagnostic id (and the surface tests match on),
+ * so a Windows `\` separator must never leak into it.
+ */
+function toPosixRel(absPath: string, baseDir: string): string {
+  return relative(baseDir, absPath).split(sep).join(posix.sep);
+}
 
 // An ISO date (YYYY-MM-DD) anywhere in a cell.
 const ISO_DATE_RE = /(\d{4})-(\d{2})-(\d{2})/;
@@ -267,7 +276,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       // Unreadable SKILL.md — skip it (a vanished file is not a gate fault).
       continue;
     }
-    const rel = abs.startsWith(rootDir) ? abs.slice(rootDir.length + 1) : abs;
+    const rel = abs.startsWith(rootDir) ? toPosixRel(abs, rootDir) : abs;
     const tables = findPriceTables(raw);
     priceTables += tables.length;
 

@@ -56,7 +56,7 @@
  *   npm run validate:efficiency
  */
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join, relative, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -93,6 +93,15 @@ const VERIFY_GATE_TOKEN_PREFIX = "${HATCH3R:VERIFY_GATE";
 // regex requires the command token to start at a word boundary.
 const BARE_GATE_LINE =
   /^\s*\$?\s*(npm run (?:test|lint|typecheck)|npm test|npx tsc)\b/;
+
+/**
+ * Repo-relative path in POSIX (`/`) form regardless of host OS. The `file`
+ * field is a portable, cross-OS diagnostic id, so a Windows `\` separator from
+ * `relative()` must never leak into it.
+ */
+function toPosixRel(absPath: string, baseDir: string): string {
+  return relative(baseDir, absPath).split(sep).join(posix.sep);
+}
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -232,7 +241,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     } catch {
       continue;
     }
-    findings.push(...findBareGateBlocks(raw, relative(rootDir, abs)));
+    findings.push(...findBareGateBlocks(raw, toPosixRel(abs, rootDir)));
   }
 
   let errorCount = 0;

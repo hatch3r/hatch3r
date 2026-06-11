@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import { mkdtemp, mkdir, writeFile, readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 
@@ -317,7 +317,10 @@ describe("status command", () => {
       const entries = await readdir(cursorRulesDir);
       const ruleFile = entries.find((f) => f.endsWith(".mdc"));
       expect(ruleFile).toBeDefined();
-      const targetPath = join(".cursor", "rules", ruleFile!);
+      // `e.path` is the adapter's POSIX-separator output path (always `/`), so
+      // the comparison target must be POSIX too — `join` would emit `\` on
+      // Windows and never match (`posix.join` keeps `/` on every OS).
+      const targetPath = posix.join(".cursor", "rules", ruleFile!);
       await rm(join(cursorRulesDir, ruleFile!));
 
       const afterDelete = await computeAdapterDrift(tempDir, manifest!);
@@ -530,7 +533,14 @@ describe("status command", () => {
       const ruleEntries = await readdir(cursorRulesDir);
       const ruleFile = ruleEntries.find((f) => f.endsWith(".mdc"));
       expect(ruleFile).toBeDefined();
-      const targetRel = join(".cursor", "rules", ruleFile!);
+      // `targetRel` is matched against POSIX-separator paths from both surfaces:
+      // provenance `o.path` (written as the adapter's `/`-path) and drift entry
+      // `e.path` (the same adapter output path). Build it with `posix.join` so it
+      // stays `/`-based — a plain `join` emits `\` on Windows, the lookups miss,
+      // and `staleEntry`/`staleDrifted` come back `undefined` (the reported
+      // "undefined to be defined" Windows failure). `targetAbs` stays `join`
+      // because it is a real on-disk path the test reads/writes.
+      const targetRel = posix.join(".cursor", "rules", ruleFile!);
       const targetAbs = join(cursorRulesDir, ruleFile!);
 
       const provenancePath = join(tempDir, HATCH3R_DIR, "provenance.json");

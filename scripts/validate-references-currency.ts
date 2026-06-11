@@ -53,7 +53,7 @@
  *   npm run validate:references-currency
  */
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -144,6 +144,15 @@ export interface RunResult {
 }
 
 // ── Discovery ─────────────────────────────────────────────────────
+
+/**
+ * Repo-relative path in POSIX (`/`) form regardless of host OS. The `file`
+ * field is a portable, cross-OS diagnostic id, so a Windows `\` separator must
+ * never leak into it.
+ */
+function toPosixRel(absPath: string, baseDir: string): string {
+  return relative(baseDir, absPath).split(sep).join(posix.sep);
+}
 
 /**
  * List every `skills/<name>/SKILL.md` under the skills dir. A missing skills
@@ -237,7 +246,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     } catch {
       continue;
     }
-    const rel = abs.startsWith(rootDir) ? abs.slice(rootDir.length + 1) : abs;
+    const rel = abs.startsWith(rootDir) ? toPosixRel(abs, rootDir) : abs;
     const block = extractReferenceBlock(raw);
 
     if (block) {
