@@ -31,11 +31,22 @@ export interface RepoIdentity {
 
 /**
  * Optional defaults consumed by the prompt. `previous` carries forward the
- * last answers in BACK/forward navigation; `remote` carries git-remote
- * parser hints (owner, repo) detected at init time.
+ * last answers in BACK/forward navigation; `seed` carries persisted
+ * identity values (e.g. the manifest fields `hatch3r config` re-prompts
+ * over); `remote` carries git-remote parser hints (owner, repo) detected
+ * at init time. Resolution order per field: `previous` → `seed` → `remote`.
  */
 export interface RepoIdentityDefaults {
   previous?: Partial<RepoIdentity>;
+  /**
+   * Persisted identity defaults, consulted after `previous` and before
+   * `remote` in every branch. On the GitLab branch `seed.namespace` falls
+   * back to `seed.owner` and `seed.project` to `seed.repo` (single-id
+   * platform aliasing), so a manifest that predates the namespace/project
+   * fields keeps its owner/repo defaults — the same chain `hatch3r
+   * config` used inline before the W2 flowSteps extraction.
+   */
+  seed?: Partial<RepoIdentity>;
   remote?: { owner?: string; repo?: string };
 }
 
@@ -48,16 +59,16 @@ export async function promptRepoIdentity(
   platform: Platform,
   defaults: RepoIdentityDefaults = {},
 ): Promise<RepoIdentity | typeof BACK> {
-  const { previous, remote } = defaults;
+  const { previous, seed, remote } = defaults;
   if (platform === "azure-devops") {
     const ado = await inquirer.prompt<{
       org: string | typeof BACK;
       project: string | typeof BACK;
       repo: string | typeof BACK;
     }>([
-      { type: "input", name: "org", message: "Azure DevOps organization:", default: previous?.owner || remote?.owner || undefined },
-      { type: "input", name: "project", message: "Azure DevOps project:", default: previous?.project || undefined },
-      { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || remote?.repo || undefined },
+      { type: "input", name: "org", message: "Azure DevOps organization:", default: previous?.owner || seed?.owner || remote?.owner || undefined },
+      { type: "input", name: "project", message: "Azure DevOps project:", default: previous?.project || seed?.project || undefined },
+      { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || seed?.repo || remote?.repo || undefined },
     ]);
     if (isBack(ado.org) || isBack(ado.project) || isBack(ado.repo)) return BACK;
     const owner = sanitizeInput(ado.org as string);
@@ -73,8 +84,8 @@ export async function promptRepoIdentity(
       namespace: string | typeof BACK;
       project: string | typeof BACK;
     }>([
-      { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: previous?.namespace || remote?.owner || undefined },
-      { type: "input", name: "project", message: "Project name:", default: previous?.project || remote?.repo || undefined },
+      { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: previous?.namespace || seed?.namespace || seed?.owner || remote?.owner || undefined },
+      { type: "input", name: "project", message: "Project name:", default: previous?.project || seed?.project || seed?.repo || remote?.repo || undefined },
     ]);
     if (isBack(gl.namespace) || isBack(gl.project)) return BACK;
     const owner = sanitizeInput(gl.namespace as string);
@@ -83,8 +94,8 @@ export async function promptRepoIdentity(
   }
   // Default branch: github
   const gh = await inquirer.prompt<{ owner: string | typeof BACK; repo: string | typeof BACK }>([
-    { type: "input", name: "owner", message: "GitHub owner (org or username):", default: previous?.owner || remote?.owner || undefined },
-    { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || remote?.repo || undefined },
+    { type: "input", name: "owner", message: "GitHub owner (org or username):", default: previous?.owner || seed?.owner || remote?.owner || undefined },
+    { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || seed?.repo || remote?.repo || undefined },
   ]);
   if (isBack(gh.owner) || isBack(gh.repo)) return BACK;
   const owner = sanitizeInput(gh.owner as string);

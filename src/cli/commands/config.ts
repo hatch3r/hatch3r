@@ -46,8 +46,7 @@ import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/m
 import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.js";
 import { syncWorkspaceRepos } from "../../workspace/sync.js";
 import { detectRepoGitIdentity } from "../../workspace/git.js";
-import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, FEATURE_CHOICES, PLATFORM_DISPLAY_NAMES, sanitizeInput, isWSL } from "../shared/constants.js";
-import { pickCliTools, pickMcpServers, confirmMcpGate } from "../shared/pickers.js";
+import { TOOL_DISPLAY_NAMES, FEATURE_CHOICES, PLATFORM_DISPLAY_NAMES, sanitizeInput, isWSL } from "../shared/constants.js";
 import {
   BACK,
   isBack,
@@ -55,9 +54,18 @@ import {
   type Step,
   type StepResult,
 } from "../shared/initSteps.js";
+import {
+  cliToolsStep,
+  customItemsStep,
+  identityStep,
+  mcpGateStep,
+  mcpServersStep,
+  platformStep,
+  presetStep,
+  toolsStep,
+} from "../shared/flowSteps.js";
 import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
-import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
 import {
   buildContentIndex,
   addContentItem,
@@ -67,12 +75,9 @@ import {
   extractContentReferences,
   validateOrchestrationDependencies,
   resolveSelection,
-  countPresetExclusions,
-  presetOmittedClusters,
-  estimatePresetItemCount,
   getAllContentIds,
 } from "../../content/index.js";
-import { PRESETS, getPreset, type PresetId } from "../../content/presets.js";
+import { getPreset, type PresetId } from "../../content/presets.js";
 import { acquireWriteLock, safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { writeCheckpoint, type CheckpointMeta } from "../../pipeline/checkpoint.js";
@@ -724,7 +729,6 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   let agentsDir: string | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let contentIndex: any;
-  let totalItems = 0;
   let contentProjectType: ContentSelection["projectType"] | undefined;
   let contentTeamSize: ContentSelection["teamSize"] | undefined;
   if (manifest.content) {
@@ -741,7 +745,6 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     // sourcing in a follow-up wave.
     agentsDir = join(rootDir, ".agents");
     contentIndex = await buildContentIndex(contentRoot);
-    totalItems = contentIndex.items.length;
     contentProjectType = manifest.content.projectType;
     contentTeamSize = manifest.content.teamSize;
     // NOTE: `getAllContentIds(manifest.content)` is intentionally deferred
@@ -765,65 +768,26 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     customItems: string[] | undefined;
   }
 
+  // W2-flowsteps: shared prompt steps are composed from the builders in
+  // `src/cli/shared/flowSteps.ts`; config-local steps (defaultBranch,
+  // features, worktree) stay inline — they have no init counterpart.
   const steps: Array<Step<ConfigState, keyof ConfigState>> = [
-    {
-      id: "platform",
-      async run(_state, previous): Promise<StepResult<Platform>> {
-        const answer = await inquirer.prompt<{ platform: Platform | typeof BACK }>([
-          {
-            type: "select",
-            name: "platform",
-            message: "Platform:",
-            choices: [
-              { name: "GitHub", value: "github" as Platform },
-              { name: "Azure DevOps", value: "azure-devops" as Platform },
-              { name: "GitLab", value: "gitlab" as Platform },
-            ],
-            default: previous ?? manifest.platform ?? "github",
-          },
-        ]);
-        return isBack(answer.platform) ? BACK : (answer.platform as Platform);
+    platformStep<ConfigState>({
+      message: "Platform:",
+      defaultPlatform: manifest.platform ?? "github",
+    }),
+    // W2-flowsteps: the shared identityStep + manifest-sourced `seed`
+    // replaces config's inline 3-branch identity prompt. Per-field
+    // resolution order (previous → manifest field → single-id alias) is
+    // unchanged — see `RepoIdentityDefaults.seed` in repoIdentityPrompt.ts.
+    identityStep<ConfigState>({
+      seed: {
+        owner: manifest.owner,
+        repo: manifest.repo,
+        namespace: manifest.namespace,
+        project: manifest.project,
       },
-    },
-    {
-      id: "identity",
-      async run(state, previous): Promise<StepResult<ConfigState["identity"]>> {
-        const plat = state.platform!;
-        if (plat === "azure-devops") {
-          const ado = await inquirer.prompt<{ org: string | typeof BACK; project: string | typeof BACK; repo: string | typeof BACK }>([
-            { type: "input", name: "org", message: "Azure DevOps organization:", default: previous?.owner || manifest.owner || undefined },
-            { type: "input", name: "project", message: "Azure DevOps project:", default: previous?.project || manifest.project || undefined },
-            { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || manifest.repo || undefined },
-          ]);
-          if (isBack(ado.org) || isBack(ado.project) || isBack(ado.repo)) return BACK;
-          const owner = sanitizeInput(ado.org as string);
-          return {
-            owner,
-            repo: sanitizeInput(ado.repo as string),
-            namespace: owner,
-            project: sanitizeInput(ado.project as string),
-          };
-        } else if (plat === "gitlab") {
-          const gl = await inquirer.prompt<{ namespace: string | typeof BACK; project: string | typeof BACK }>([
-            { type: "input", name: "namespace", message: "GitLab namespace (group or username):", default: previous?.namespace || manifest.namespace || manifest.owner || undefined },
-            { type: "input", name: "project", message: "Project name:", default: previous?.project || manifest.project || manifest.repo || undefined },
-          ]);
-          if (isBack(gl.namespace) || isBack(gl.project)) return BACK;
-          const owner = sanitizeInput(gl.namespace as string);
-          const repo2 = sanitizeInput(gl.project as string);
-          return { owner, repo: repo2, namespace: owner, project: repo2 };
-        } else {
-          const gh = await inquirer.prompt<{ owner: string | typeof BACK; repo: string | typeof BACK }>([
-            { type: "input", name: "owner", message: "GitHub owner (org or username):", default: previous?.owner || manifest.owner || undefined },
-            { type: "input", name: "repo", message: "Repository name:", default: previous?.repo || manifest.repo || undefined },
-          ]);
-          if (isBack(gh.owner) || isBack(gh.repo)) return BACK;
-          const owner = sanitizeInput(gh.owner as string);
-          const repo2 = sanitizeInput(gh.repo as string);
-          return { owner, repo: repo2, namespace: owner, project: repo2 };
-        }
-      },
-    },
+    }),
     {
       id: "defaultBranch",
       async run(_state, previous): Promise<StepResult<string>> {
@@ -851,33 +815,16 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         return (answers.defaultBranch as string).trim() || currentBranch;
       },
     },
-    {
-      id: "tools",
-      async run(_state, previous): Promise<StepResult<Tool[]>> {
-        const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "tools",
-            message: "Select tools to configure:",
-            choices: TOOL_PROMPT_CHOICES,
-            default: previous ?? manifest.tools,
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(toolAnswers.tools)) return BACK;
-        return (toolAnswers.tools ?? []) as Tool[];
-      },
-    },
-    {
-      id: "cliTools",
-      async run(_state, previous): Promise<StepResult<CliToolId[]>> {
-        const existingCliTools = previous ?? manifest.cliTools?.selected ?? [];
-        return await pickCliTools({
-          existing: existingCliTools,
-          wslTheme,
-        });
-      },
-    },
+    // No emptyFallback: config returns the raw (possibly empty) selection
+    // and validates non-empty after the machine resolves.
+    toolsStep<ConfigState>({
+      defaults: manifest.tools,
+      wslTheme,
+    }),
+    cliToolsStep<ConfigState>({
+      existing: manifest.cliTools?.selected,
+      wslTheme,
+    }),
     {
       id: "features",
       async run(_state, previous): Promise<StepResult<(keyof Features)[]>> {
@@ -898,29 +845,20 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         return (featureAnswers.features ?? []) as (keyof Features)[];
       },
     },
-    {
-      id: "mcpGate",
-      skip: (s) => !(s.features?.includes("mcp")),
-      async run(): Promise<StepResult<boolean>> {
-        // Re-running config with no prior MCP servers defaults to No;
-        // re-running with existing servers defaults to Yes so users
-        // don't accidentally wipe their MCP setup by accepting the
-        // default (plan §4.4 / `confirmMcpGate` semantics).
-        const hasExistingMcp = manifest.mcp.servers.length > 0;
-        return await confirmMcpGate({ hasExisting: hasExistingMcp });
-      },
-    },
-    {
-      id: "mcpServers",
+    // Re-running config with no prior MCP servers defaults the gate to No;
+    // re-running with existing servers defaults to Yes so users don't
+    // accidentally wipe their MCP setup by accepting the default
+    // (plan §4.4 / `confirmMcpGate` semantics).
+    mcpGateStep<ConfigState>({
+      hasExisting: manifest.mcp.servers.length > 0,
+    }),
+    mcpServersStep<ConfigState>({
+      variant: "gated",
+      platform: (s) => s.platform!,
+      existing: manifest.mcp.servers,
       skip: (s) => !(s.features?.includes("mcp")) || !s.mcpGate,
-      async run(state): Promise<StepResult<string[]>> {
-        return await pickMcpServers({
-          platform: state.platform!,
-          existing: manifest.mcp.servers,
-          wslTheme,
-        });
-      },
-    },
+      wslTheme,
+    }),
     {
       id: "worktreeEnabled",
       skip: (s) => !(s.tools?.some((t) => WORKTREE_CAPABLE_TOOLS.has(t))),
@@ -935,70 +873,33 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         return wtAnswer.enabled as boolean;
       },
     },
-    {
-      id: "preset",
+    // F10.6-1 (D10) / D10-12 (Cycle 11): the shared presetStep surfaces the
+    // omitted clusters by name from the realized post-floor delta so
+    // reconfiguring a preset is an informed choice. Config passes
+    // `skipContextFilters` (estimates ignore project-type/team-size
+    // filtering here) and no `customUniverseHint` — same rendering as the
+    // pre-extraction inline step.
+    presetStep<ConfigState>({
+      index: contentIndex,
+      projectType: contentProjectType!,
+      teamSize: contentTeamSize!,
+      estimateOptions: { skipContextFilters: true },
+      defaultPreset: () => manifest.content!.preset as PresetId,
       skip: () => !manifest.content,
-      async run(_state, previous): Promise<StepResult<PresetId>> {
-        const presetAnswer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
-          {
-            type: "select",
-            name: "preset",
-            message: "Select content profile:",
-            choices: PRESETS.map((p) => {
-              const excluded = countPresetExclusions(p, contentIndex);
-              const estimated = p.id !== "custom"
-                ? estimatePresetItemCount(
-                    p,
-                    contentProjectType!,
-                    contentTeamSize!,
-                    contentIndex,
-                    undefined,
-                    { skipContextFilters: true },
-                  )
-                : 0;
-              const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
-              const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
-              // F10.6-1 (D10): surface the omitted clusters by name (not just a
-              // count) so reconfiguring a preset is an informed choice. D10-12
-              // (Cycle 11): derive from the realized post-floor delta via
-              // presetOmittedClusters — the static `p.omits` capability-intent
-              // field over-states drops (floor items ship regardless of preset).
-              const omittedClusters = presetOmittedClusters(p, contentIndex);
-              const omitLine = omittedClusters.length ? `omits: ${omittedClusters.join(", ")}` : undefined;
-              return {
-                name: `${p.name} — ${p.description}${countHint}${suffix}`,
-                value: p.id,
-                description: omitLine,
-              };
-            }),
-            default: previous ?? (manifest.content!.preset as PresetId),
-          },
-        ]);
-        return isBack(presetAnswer.preset) ? BACK : (presetAnswer.preset as PresetId);
-      },
-    },
-    {
-      id: "customItems",
-      skip: (s) => !manifest.content || s.preset !== "custom",
-      async run(_state, previous): Promise<StepResult<string[] | undefined>> {
+    }),
+    customItemsStep<ConfigState>({
+      index: contentIndex,
+      // `getAllContentIds(manifest.content)` runs inside the per-visit
+      // baseline factory so call ordering matches the pre-extraction
+      // behaviour — the configHelpers `stubContentIdsTransition` stub
+      // returns oldIds-then-newIds across two calls.
+      baselineChecked: (previous) => {
         const currentIds = getAllContentIds(manifest.content!);
-        const groupedChoices = buildTagGroupedCustomContentChoices(
-          contentIndex.items,
-          (item: { id: string }) => (previous ? previous.includes(item.id) : currentIds.has(item.id)),
-        );
-        const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "items",
-            message: "Select content items:",
-            choices: groupedChoices,
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(customAnswer.items)) return BACK;
-        return (customAnswer.items ?? []) as string[];
+        return (item) => (previous ? previous.includes(item.id) : currentIds.has(item.id));
       },
-    },
+      extraSkip: () => !manifest.content,
+      wslTheme,
+    }),
   ];
 
   const stepState = await runStepMachine<ConfigState>(steps);

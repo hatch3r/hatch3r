@@ -66,16 +66,19 @@ import {
   printTimingSummary,
 } from "../shared/ui.js";
 import { findPackageRoot } from "../shared/paths.js";
-import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
-import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
+import { TOOL_DISPLAY_NAMES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
 import {
-  BACK,
-  isBack,
   runStepMachine,
   type Step,
-  type StepResult,
 } from "../shared/initSteps.js";
-import { promptRepoIdentity } from "../shared/repoIdentityPrompt.js";
+import {
+  customItemsStep,
+  identityStep,
+  mcpServersStep,
+  platformStep,
+  presetStep,
+  toolsStep,
+} from "../shared/flowSteps.js";
 import {
   AVAILABLE_CLI_TOOLS,
   CLI_TOOL_SECRET_NOTES,
@@ -86,9 +89,8 @@ import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/triggers.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, presetOmittedClusters, estimatePresetItemCount, resolveUserContentRoot, type ContentIndex } from "../../content/index.js";
+import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, resolveUserContentRoot, type ContentIndex } from "../../content/index.js";
 import {
-  PRESETS,
   getPreset,
   resolvePresetArg,
   KNOWN_PRESET_IDS,
@@ -2205,7 +2207,6 @@ export async function initCommand(
   const filterIndex = await buildContentIndex(CONTENT_ROOT);
   const projectLanguages = languagesForSelection(repoInfo);
   const detection = await detectProjectType(repoInfo, rootDir);
-  const totalItems = filterIndex.items.length;
   const wslTheme = isWSL()
     ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
     : undefined;
@@ -2284,166 +2285,64 @@ export async function initCommand(
     mcpServers: string[];
   }
 
+  // W2-flowsteps: each step is composed from the shared builders in
+  // `src/cli/shared/flowSteps.ts` — prompt copy, name keys, defaults, skip
+  // predicates, and BACK threading are unchanged from the inline versions.
   const steps: Array<Step<SingleRepoState, keyof SingleRepoState>> = [
-    {
-      id: "platform",
-      async run(_state, previous): Promise<StepResult<Platform>> {
-        const answer = await inquirer.prompt<{ platform: Platform | typeof BACK }>([
-          {
-            type: "select",
-            name: "platform",
-            message: "Select your platform:",
-            choices: [
-              { name: "GitHub", value: "github" as Platform },
-              { name: "Azure DevOps", value: "azure-devops" as Platform },
-              { name: "GitLab", value: "gitlab" as Platform },
-            ],
-            default: previous ?? detectedPlatform,
-          },
-        ]);
-        return isBack(answer.platform) ? BACK : (answer.platform as Platform);
-      },
-    },
-    {
-      id: "identity",
-      async run(state, previous): Promise<StepResult<SingleRepoState["identity"]>> {
-        // D1-M4: Delegate to the shared repoIdentityPrompt helper so the
-        // 3-branch GitHub / Azure DevOps / GitLab prompt is single-sourced.
-        return promptRepoIdentity(state.platform!, { previous, remote });
-      },
-    },
-    {
-      id: "preset",
-      async run(_state, previous): Promise<StepResult<PresetId>> {
-        // F10.3-2: projectType + teamSize are no longer prompted — the item-
-        // count estimate uses the auto-detected projectType and the
-        // git-inferred teamSize resolved above the step machine.
-        // D10-M17 (Cycle 10 rollover): surface the inferred projectType +
-        // teamSize filters BEFORE the picker so the operator sees which
-        // filters drive the `(~N items)` and `(excludes M of T)` counts on
-        // each choice. Previously the filter context was only visible in the
-        // post-init success summary, after the preset choice was already
-        // committed. The override path (`--project-type` / `--team-size`
-        // flags) is named inline so a user who disagrees with the inference
-        // can re-run with the flag instead of accepting an off-target preset.
+    platformStep<SingleRepoState>({
+      message: "Select your platform:",
+      defaultPlatform: detectedPlatform,
+    }),
+    // D1-M4: identityStep delegates to the shared repoIdentityPrompt helper
+    // so the 3-branch GitHub / Azure DevOps / GitLab prompt is single-sourced.
+    identityStep<SingleRepoState>({ remote }),
+    // F10.3-2: projectType + teamSize are no longer prompted — the item-
+    // count estimate uses the auto-detected projectType and the git-inferred
+    // teamSize resolved above the step machine. D10-M17 (Cycle 10 rollover):
+    // the banner surfaces the inferred filters BEFORE the picker so the
+    // operator sees which filters drive the `(~N items)` and `(excludes M of
+    // T)` counts on each choice; the override path (`--project-type` /
+    // `--team-size` flags) is named inline so a user who disagrees with the
+    // inference can re-run with the flag instead of accepting an off-target
+    // preset.
+    presetStep<SingleRepoState>({
+      index: filterIndex,
+      projectType: inferredProjectType,
+      teamSize: inferredTeamSize,
+      projectLanguages,
+      defaultPreset: "standard",
+      customUniverseHint: true,
+      banner: () =>
         info(
           chalk.dim(
             `Filters: projectType=${inferredProjectType}, teamSize=${inferredTeamSize}. ` +
               `Override with --project-type / --team-size at re-run.`,
           ),
-        );
-        const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
-          {
-            type: "select",
-            name: "preset",
-            message: "Select content profile:",
-            choices: PRESETS.map((p) => {
-              const excluded = countPresetExclusions(p, filterIndex);
-              const estimated = p.id !== "custom" ? estimatePresetItemCount(p, inferredProjectType, inferredTeamSize, filterIndex, projectLanguages) : 0;
-              // D1-SA1.1-F11: the `custom` preset has no fixed item count
-              // (the user picks per-item), so `estimatePresetItemCount` is not
-              // run for it. Surface the size of the universe the checkbox will
-              // present (`filterIndex.items.length`) so the user knows how
-              // many items they will choose from before entering the picker.
-              const countHint =
-                p.id === "custom"
-                  ? ` (${totalItems} items to choose from)`
-                  : estimated > 0
-                    ? ` (~${estimated} items)`
-                    : "";
-              const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
-              // F10.6-1 (D10): name WHAT each preset drops, not just a count, so
-              // a user picking "Standard" sees the real omissions before
-              // committing. D10-12 (Cycle 11): derive the labels from the
-              // realized post-floor selection delta via presetOmittedClusters —
-              // the static `p.omits` field is capability *intent* and over-states
-              // drops because floor-tagged items ship regardless of preset.
-              const omittedClusters = presetOmittedClusters(p, filterIndex);
-              const omitLine = omittedClusters.length ? `omits: ${omittedClusters.join(", ")}` : undefined;
-              return {
-                name: `${p.name} — ${p.description}${countHint}${suffix}`,
-                value: p.id,
-                description: omitLine,
-              };
-            }),
-            default: previous ?? ("standard" as PresetId),
-          },
-        ]);
-        return isBack(answer.preset) ? BACK : (answer.preset as PresetId);
-      },
-    },
-    {
-      id: "customItems",
-      skip: (s) => s.preset !== "custom",
-      async run(_state, previous): Promise<StepResult<string[] | undefined>> {
-        const groupedChoices = buildTagGroupedCustomContentChoices(
-          filterIndex.items,
-          // D10-13: floor + protected rows are locked-on by the picker itself;
-          // this baseline only governs optional rows (no retired `core` tag).
-          (item) => item.protected === true,
-        );
-        const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "items",
-            message: "Select content items:",
-            choices: groupedChoices,
-            ...(previous ? { default: previous } : {}),
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(customAnswer.items)) return BACK;
-        return (customAnswer.items ?? []) as string[];
-      },
-    },
-    {
-      id: "tools",
-      async run(_state, previous): Promise<StepResult<Tool[]>> {
-        const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "tools",
-            message: "Select tools to configure:",
-            choices: TOOL_PROMPT_CHOICES,
-            default: previous ?? toolDefaults,
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(toolAnswers.tools)) return BACK;
-        const filtered = (toolAnswers.tools ?? []) as Tool[];
-        return filtered.length > 0 ? filtered : DEFAULT_TOOLS;
-      },
-    },
-    {
-      // F10.3-2 step (c): single collapsed MCP multi-select. The prior
-      // `wantMcp` confirm + conditional `mcpServers` picker (2 prompts) are
-      // folded into one checkbox where leaving everything unchecked is the
-      // `(none)` no-op. `features.mcp` is derived from the result length
-      // after the step machine, so an empty pick disables MCP cleanly.
-      id: "mcpServers",
-      async run(state, previous): Promise<StepResult<string[]>> {
-        const platformMcp = PLATFORM_MCP_SERVER[state.platform!];
-        const { mcp } = await inquirer.prompt<{ mcp: string[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "mcp",
-            message: "Select MCP servers to enable (leave empty for none — you can add later with `hatch3r mcp setup`):",
-            choices: MCP_CHOICES,
-            default: previous ?? [],
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(mcp)) return BACK;
-        const servers = (mcp ?? []) as string[];
-        // Mirror pickMcpServers: if the user selected ANY server, ensure the
-        // platform server is present (board/platform integration depends on
-        // it). An empty selection stays empty — that is the `(none)` path.
-        if (servers.length > 0 && !servers.includes(platformMcp)) {
-          servers.unshift(platformMcp);
-        }
-        return servers;
-      },
-    },
+        ),
+    }),
+    customItemsStep<SingleRepoState>({
+      index: filterIndex,
+      // D10-13: floor + protected rows are locked-on by the picker itself;
+      // this baseline only governs optional rows (no retired `core` tag).
+      baselineChecked: () => (item) => item.protected === true,
+      previousAsDefault: true,
+      wslTheme,
+    }),
+    toolsStep<SingleRepoState>({
+      defaults: toolDefaults,
+      emptyFallback: DEFAULT_TOOLS,
+      wslTheme,
+    }),
+    // F10.3-2 step (c): single collapsed MCP multi-select. The prior
+    // `wantMcp` confirm + conditional `mcpServers` picker (2 prompts) are
+    // folded into one checkbox where leaving everything unchecked is the
+    // `(none)` no-op. `features.mcp` is derived from the result length
+    // after the step machine, so an empty pick disables MCP cleanly.
+    mcpServersStep<SingleRepoState>({
+      variant: "collapsed",
+      platform: (s) => s.platform!,
+      wslTheme,
+    }),
   ];
 
   const stepState = await runStepMachine<SingleRepoState>(steps);
@@ -2852,7 +2751,6 @@ async function runWorkspaceInit(
     const wsFilterIndex = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
     const wsDetection = await detectProjectType(repoInfo, rootDir);
-    const wsTotalItems = wsFilterIndex.items.length;
     const wsToolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
 
     // F10.3-2 (D10, P1): workspace flow mirrors the single-repo ≤5-prompt
@@ -2885,123 +2783,52 @@ async function runWorkspaceInit(
       mcpServers: string[];
     }
 
+    // W2-flowsteps: composed from the shared builders in
+    // `src/cli/shared/flowSteps.ts` (same composition as the single-repo
+    // machine minus platform/identity, which the workspace flow derives
+    // from sub-repos instead of prompting).
     const wsSteps: Array<Step<WorkspaceState>> = [
-      {
-        id: "preset",
-        async run(_state, previous): Promise<StepResult<PresetId>> {
-          // D10-M17 (Cycle 10 rollover): workspace flow mirrors the single-repo
-          // pre-picker filter banner so the operator sees which inferred
-          // projectType + teamSize drive the `(~N items)` / `(excludes M of T)`
-          // counts before picking a preset.
+      // D10-M17 (Cycle 10 rollover): workspace flow mirrors the single-repo
+      // pre-picker filter banner so the operator sees which inferred
+      // projectType + teamSize drive the `(~N items)` / `(excludes M of T)`
+      // counts before picking a preset.
+      presetStep<WorkspaceState>({
+        index: wsFilterIndex,
+        projectType: wsInferredProjectType,
+        teamSize: wsInferredTeamSize,
+        projectLanguages,
+        defaultPreset: "standard",
+        customUniverseHint: true,
+        banner: () =>
           info(
             chalk.dim(
               `Filters: projectType=${wsInferredProjectType}, teamSize=${wsInferredTeamSize}. ` +
                 `Override with --project-type / --team-size at re-run.`,
             ),
-          );
-          const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
-            {
-              type: "select",
-              name: "preset",
-              message: "Select content profile:",
-              choices: PRESETS.map((p) => {
-                const excluded = countPresetExclusions(p, wsFilterIndex);
-                const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, wsInferredProjectType, wsInferredTeamSize, wsFilterIndex, projectLanguages) : 0;
-                // D1-SA1.1-F11: workspace-flow parity with the single-repo
-                // picker — show the choose-from universe size for `custom`
-                // since it has no estimable fixed count.
-                const wsCountHint =
-                  p.id === "custom"
-                    ? ` (${wsTotalItems} items to choose from)`
-                    : wsEstimated > 0
-                      ? ` (~${wsEstimated} items)`
-                      : "";
-                const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
-                // F10.6-1 (D10): name the omitted clusters (not just a count) so
-                // the workspace operator sees what each preset drops. D10-12
-                // (Cycle 11): use the realized post-floor delta via
-                // presetOmittedClusters, not the over-stating capability-intent
-                // `p.omits` field.
-                const wsOmittedClusters = presetOmittedClusters(p, wsFilterIndex);
-                const omitLine = wsOmittedClusters.length ? `omits: ${wsOmittedClusters.join(", ")}` : undefined;
-                return {
-                  name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
-                  value: p.id,
-                  description: omitLine,
-                };
-              }),
-              default: previous ?? ("standard" as PresetId),
-            },
-          ]);
-          return isBack(answer.preset) ? BACK : (answer.preset as PresetId);
-        },
-      },
-      {
-        id: "customItems",
-        skip: (s) => s.preset !== "custom",
-        async run(_state, previous): Promise<StepResult<string[] | undefined>> {
-          const wsGroupedChoices = buildTagGroupedCustomContentChoices(
-            wsFilterIndex.items,
-            // D10-13: floor + protected rows are locked-on by the picker itself;
-            // this baseline only governs optional rows (no retired `core` tag).
-            (item) => item.protected === true,
-          );
-          const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
-            {
-              type: "checkbox",
-              name: "items",
-              message: "Select content items:",
-              choices: wsGroupedChoices,
-              ...(previous ? { default: previous } : {}),
-              ...(wslTheme && { theme: wslTheme }),
-            },
-          ]);
-          if (isBack(customAnswer.items)) return BACK;
-          return (customAnswer.items ?? []) as string[];
-        },
-      },
-      {
-        id: "tools",
-        async run(_state, previous): Promise<StepResult<Tool[]>> {
-          const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
-            {
-              type: "checkbox",
-              name: "tools",
-              message: "Select tools to configure:",
-              choices: TOOL_PROMPT_CHOICES,
-              default: previous ?? wsToolDefaults,
-              ...(wslTheme && { theme: wslTheme }),
-            },
-          ]);
-          if (isBack(toolAnswers.tools)) return BACK;
-          const filtered = (toolAnswers.tools ?? []) as Tool[];
-          return filtered.length > 0 ? filtered : DEFAULT_TOOLS;
-        },
-      },
-      {
-        // F10.3-2 step (c): single collapsed MCP multi-select (workspace
-        // parity with the single-repo flow). Empty = no MCP.
-        id: "mcpServers",
-        async run(_state, previous): Promise<StepResult<string[]>> {
-          const platformMcp = PLATFORM_MCP_SERVER[platform];
-          const { mcp } = await inquirer.prompt<{ mcp: string[] | typeof BACK }>([
-            {
-              type: "checkbox",
-              name: "mcp",
-              message: "Select MCP servers to enable (leave empty for none — you can add later with `hatch3r mcp setup`):",
-              choices: MCP_CHOICES,
-              default: previous ?? [],
-              ...(wslTheme && { theme: wslTheme }),
-            },
-          ]);
-          if (isBack(mcp)) return BACK;
-          const servers = (mcp ?? []) as string[];
-          if (servers.length > 0 && !servers.includes(platformMcp)) {
-            servers.unshift(platformMcp);
-          }
-          return servers;
-        },
-      },
+          ),
+      }),
+      customItemsStep<WorkspaceState>({
+        index: wsFilterIndex,
+        // D10-13: floor + protected rows are locked-on by the picker itself;
+        // this baseline only governs optional rows (no retired `core` tag).
+        baselineChecked: () => (item) => item.protected === true,
+        previousAsDefault: true,
+        wslTheme,
+      }),
+      toolsStep<WorkspaceState>({
+        defaults: wsToolDefaults,
+        emptyFallback: DEFAULT_TOOLS,
+        wslTheme,
+      }),
+      // F10.3-2 step (c): single collapsed MCP multi-select (workspace
+      // parity with the single-repo flow). Empty = no MCP. The workspace
+      // state has no platform slot, so the accessor closes over the
+      // workspace platform derived from sub-repos above.
+      mcpServersStep<WorkspaceState>({
+        variant: "collapsed",
+        platform: () => platform,
+        wslTheme,
+      }),
     ];
 
     const wsState = await runStepMachine<WorkspaceState>(wsSteps);

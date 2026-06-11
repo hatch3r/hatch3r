@@ -1,0 +1,446 @@
+/**
+ * Shared step builders for the `hatch3r init` and `hatch3r config`
+ * interactive step machines (W2-flowsteps extraction).
+ *
+ * Sits between the machine driver (`initSteps.ts::runStepMachine`) and the
+ * prompt primitives (`pickers.ts`, `repoIdentityPrompt.ts`,
+ * `customContentChoices.ts`). Each builder is a factory returning the
+ * {@link StepFor} shape the driver executes, generic over any state object
+ * with the matching slot, so init's `SingleRepoState`, init's
+ * `WorkspaceState`, and config's `ConfigState` all compose the same
+ * implementations.
+ *
+ * Pure-refactor invariants (verified by the init/config test answer-queues,
+ * which pass unmodified):
+ *  - Prompt `name` keys, copy, choice rendering, defaults, skip predicates,
+ *    and BACK threading are identical to the pre-extraction inline steps.
+ *  - Defaults are INJECTED by the caller (git/detection values for init,
+ *    manifest values for config) — builders never read the manifest.
+ *  - `previous`-value threading on BACK-revisit lives inside each builder.
+ */
+import inquirer from "inquirer";
+import { BACK, isBack, type StepFor, type StepResult } from "./initSteps.js";
+import { promptRepoIdentity, type RepoIdentity } from "./repoIdentityPrompt.js";
+import { MCP_CHOICES, PLATFORM_MCP_SERVER, TOOL_PROMPT_CHOICES } from "./constants.js";
+import { confirmMcpGate, pickCliTools, pickMcpServers } from "./pickers.js";
+import { buildTagGroupedCustomContentChoices } from "./customContentChoices.js";
+import { PRESETS, type PresetId } from "../../content/presets.js";
+import {
+  countPresetExclusions,
+  estimatePresetItemCount,
+  presetOmittedClusters,
+  type CatalogItem,
+  type ContentIndex,
+} from "../../content/index.js";
+import type { CliToolId, Features, Platform, Tool } from "../../types.js";
+
+// Leaf casts like `answer.platform as TState["platform"]` close the
+// generic seam: the builder's constraint (`TState extends { platform:
+// Platform }`) guarantees the slot type, but TS cannot correlate a
+// concrete value back to the indexed-access type. Mirrors the documented
+// seam cast in `initSteps.ts::runStepMachine`.
+
+// ── platform ────────────────────────────────────────────────────────
+
+export interface PlatformStepOptions {
+  /** Prompt copy — init: "Select your platform:"; config: "Platform:". */
+  message: string;
+  /** First-visit default (init: git-remote detection; config: manifest). */
+  defaultPlatform: Platform;
+}
+
+/** Single-select platform picker (`name: "platform"`). */
+export function platformStep<TState extends { platform: Platform }>(
+  opts: PlatformStepOptions,
+): StepFor<TState, "platform"> {
+  return {
+    id: "platform",
+    async run(_state, previous): Promise<StepResult<TState["platform"]>> {
+      const answer = await inquirer.prompt<{ platform: Platform | typeof BACK }>([
+        {
+          type: "select",
+          name: "platform",
+          message: opts.message,
+          choices: [
+            { name: "GitHub", value: "github" as Platform },
+            { name: "Azure DevOps", value: "azure-devops" as Platform },
+            { name: "GitLab", value: "gitlab" as Platform },
+          ],
+          default: previous ?? opts.defaultPlatform,
+        },
+      ]);
+      return isBack(answer.platform) ? BACK : (answer.platform as TState["platform"]);
+    },
+  };
+}
+
+// ── identity ────────────────────────────────────────────────────────
+
+export interface IdentityStepOptions {
+  /** Git-remote parser hints (init single-repo flow). */
+  remote?: { owner?: string; repo?: string };
+  /**
+   * Persisted identity defaults (config: manifest owner/repo/namespace/
+   * project), consulted after `previous` and before `remote` — see
+   * `RepoIdentityDefaults.seed` for the per-branch resolution.
+   */
+  seed?: Partial<RepoIdentity>;
+}
+
+/**
+ * Platform-aware repo-identity prompt. Delegates to the shared
+ * `promptRepoIdentity` helper (D1-M4) so the 3-branch GitHub / Azure
+ * DevOps / GitLab flow stays single-sourced. Reads `state.platform`, so
+ * it must be sequenced after a platform step.
+ */
+export function identityStep<TState extends { platform: Platform; identity: RepoIdentity }>(
+  opts: IdentityStepOptions = {},
+): StepFor<TState, "identity"> {
+  return {
+    id: "identity",
+    async run(state, previous): Promise<StepResult<TState["identity"]>> {
+      const result = await promptRepoIdentity(state.platform!, {
+        previous,
+        seed: opts.seed,
+        remote: opts.remote,
+      });
+      return result as StepResult<TState["identity"]>;
+    },
+  };
+}
+
+// ── preset ──────────────────────────────────────────────────────────
+
+export interface PresetStepOptions<TState extends object> {
+  /** Content index driving the per-choice counts (caller-built). */
+  index: ContentIndex;
+  projectType: "greenfield" | "brownfield";
+  teamSize: "solo" | "team";
+  /** Language filter for the item-count estimate (init flows only). */
+  projectLanguages?: string[];
+  /** Estimate options (config passes `{ skipContextFilters: true }`). */
+  estimateOptions?: { skipContextFilters?: boolean };
+  /**
+   * First-visit default. A thunk defers reads off optional sources —
+   * config passes `() => manifest.content!.preset` and relies on its
+   * `skip` guard to make the non-null access safe.
+   */
+  defaultPreset: PresetId | (() => PresetId);
+  /**
+   * Render the `custom` row with the "(N items to choose from)" universe
+   * hint (D1-SA1.1-F11 — init flows). Config's picker omits it.
+   */
+  customUniverseHint?: boolean;
+  /** Printed at the top of every run (init: the D10-M17 `Filters:` line). */
+  banner?: () => void;
+  skip?: (state: Partial<TState>) => boolean;
+}
+
+/** Single-select content-profile picker (`name: "preset"`). */
+export function presetStep<TState extends { preset: PresetId }>(
+  opts: PresetStepOptions<TState>,
+): StepFor<TState, "preset"> {
+  return {
+    id: "preset",
+    skip: opts.skip,
+    async run(_state, previous): Promise<StepResult<TState["preset"]>> {
+      opts.banner?.();
+      const totalItems = opts.index.items.length;
+      const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
+        {
+          type: "select",
+          name: "preset",
+          message: "Select content profile:",
+          choices: PRESETS.map((p) => {
+            const excluded = countPresetExclusions(p, opts.index);
+            const estimated =
+              p.id !== "custom"
+                ? estimatePresetItemCount(
+                    p,
+                    opts.projectType,
+                    opts.teamSize,
+                    opts.index,
+                    opts.projectLanguages,
+                    opts.estimateOptions,
+                  )
+                : 0;
+            // D1-SA1.1-F11: the `custom` preset has no estimable fixed count
+            // (the user picks per-item) — init flows surface the size of the
+            // choose-from universe instead.
+            const countHint =
+              opts.customUniverseHint && p.id === "custom"
+                ? ` (${totalItems} items to choose from)`
+                : estimated > 0
+                  ? ` (~${estimated} items)`
+                  : "";
+            const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
+            // F10.6-1 (D10): name WHAT each preset drops, not just a count.
+            // D10-12 (Cycle 11): derive the labels from the realized
+            // post-floor selection delta via presetOmittedClusters — the
+            // static `p.omits` field is capability *intent* and over-states
+            // drops because floor-tagged items ship regardless of preset.
+            const omittedClusters = presetOmittedClusters(p, opts.index);
+            const omitLine = omittedClusters.length ? `omits: ${omittedClusters.join(", ")}` : undefined;
+            return {
+              name: `${p.name} — ${p.description}${countHint}${suffix}`,
+              value: p.id,
+              description: omitLine,
+            };
+          }),
+          default:
+            previous ??
+            (typeof opts.defaultPreset === "function" ? opts.defaultPreset() : opts.defaultPreset),
+        },
+      ]);
+      return isBack(answer.preset) ? BACK : (answer.preset as TState["preset"]);
+    },
+  };
+}
+
+// ── customItems ─────────────────────────────────────────────────────
+
+export interface CustomItemsStepOptions<TState extends object> {
+  /** Items rendered by the tag-grouped picker. */
+  index: { items: CatalogItem[] };
+  /**
+   * Per-visit factory for the checked baseline. Receives `previous` (the
+   * BACK-revisit answer) so callers can bake prior answers into `checked`
+   * (config) or ignore it and thread via `previousAsDefault` (init). The
+   * factory runs exactly once per visit — config's `getAllContentIds`
+   * call count (the configHelpers `stubContentIdsTransition` contract)
+   * depends on this.
+   */
+  baselineChecked: (previous: string[] | undefined) => (item: CatalogItem) => boolean;
+  /** Thread `previous` via inquirer `default:` (init flows). */
+  previousAsDefault?: boolean;
+  wslTheme?: unknown;
+  /**
+   * Extra skip ORed with the built-in `preset !== "custom"` guard
+   * (config: `() => !manifest.content`).
+   */
+  extraSkip?: (state: Partial<TState>) => boolean;
+}
+
+/**
+ * Conditional multi-select over canonical content items (`name: "items"`).
+ * Built-in skip: runs only when the resolved preset is `custom`.
+ */
+export function customItemsStep<
+  TState extends { preset: PresetId; customItems: string[] | undefined },
+>(opts: CustomItemsStepOptions<TState>): StepFor<TState, "customItems"> {
+  return {
+    id: "customItems",
+    skip: (s) => (opts.extraSkip ? opts.extraSkip(s) : false) || s.preset !== "custom",
+    async run(_state, previous): Promise<StepResult<TState["customItems"]>> {
+      const groupedChoices = buildTagGroupedCustomContentChoices(
+        opts.index.items,
+        opts.baselineChecked(previous),
+      );
+      const themeOption = opts.wslTheme ? { theme: opts.wslTheme } : {};
+      const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
+        {
+          type: "checkbox",
+          name: "items",
+          message: "Select content items:",
+          choices: groupedChoices,
+          ...(opts.previousAsDefault && previous ? { default: previous } : {}),
+          ...themeOption,
+        },
+      ]);
+      if (isBack(customAnswer.items)) return BACK;
+      return (customAnswer.items ?? []) as TState["customItems"];
+    },
+  };
+}
+
+// ── tools ───────────────────────────────────────────────────────────
+
+export interface ToolsStepOptions {
+  /**
+   * First-visit default (init: detected existing tools or DEFAULT_TOOLS;
+   * config: `manifest.tools`).
+   */
+  defaults: Tool[];
+  /**
+   * Substituted when the user submits an empty selection (init falls back
+   * to DEFAULT_TOOLS). Omit to return the empty array as-is — config
+   * validates non-empty after the machine resolves.
+   */
+  emptyFallback?: Tool[];
+  wslTheme?: unknown;
+}
+
+/** Multi-select editor-tool picker (`name: "tools"`). */
+export function toolsStep<TState extends { tools: Tool[] }>(
+  opts: ToolsStepOptions,
+): StepFor<TState, "tools"> {
+  return {
+    id: "tools",
+    async run(_state, previous): Promise<StepResult<TState["tools"]>> {
+      const themeOption = opts.wslTheme ? { theme: opts.wslTheme } : {};
+      const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
+        {
+          type: "checkbox",
+          name: "tools",
+          message: "Select tools to configure:",
+          choices: TOOL_PROMPT_CHOICES,
+          default: previous ?? opts.defaults,
+          ...themeOption,
+        },
+      ]);
+      if (isBack(toolAnswers.tools)) return BACK;
+      const filtered = (toolAnswers.tools ?? []) as Tool[];
+      if (opts.emptyFallback) {
+        return (filtered.length > 0 ? filtered : opts.emptyFallback) as TState["tools"];
+      }
+      return filtered as TState["tools"];
+    },
+  };
+}
+
+// ── cliTools ────────────────────────────────────────────────────────
+
+export interface CliToolsStepOptions {
+  /** Persisted selection (config: `manifest.cliTools?.selected`). */
+  existing?: CliToolId[];
+  /** Tier-2 suggestion set (init adopts this step in a later slice). */
+  tier2Suggested?: CliToolId[];
+  wslTheme?: unknown;
+}
+
+/**
+ * 3-tier CLI-tools picker — delegates to `pickCliTools` (which prompts
+ * under `name: "tools"`, see `pickers.ts`). `previous` wins over the
+ * injected `existing` selection on BACK-revisit.
+ */
+export function cliToolsStep<TState extends { cliTools: CliToolId[] }>(
+  opts: CliToolsStepOptions = {},
+): StepFor<TState, "cliTools"> {
+  return {
+    id: "cliTools",
+    async run(_state, previous): Promise<StepResult<TState["cliTools"]>> {
+      const existingCliTools = previous ?? opts.existing ?? [];
+      const result = await pickCliTools({
+        existing: existingCliTools,
+        tier2Suggested: opts.tier2Suggested,
+        wslTheme: opts.wslTheme,
+      });
+      return result as StepResult<TState["cliTools"]>;
+    },
+  };
+}
+
+// ── mcpGate ─────────────────────────────────────────────────────────
+
+export interface McpGateStepOptions {
+  /**
+   * Whether the manifest already has MCP servers configured. Re-running
+   * config with no prior MCP servers defaults the confirm to No; with
+   * existing servers it defaults to Yes so users don't accidentally wipe
+   * their MCP setup by accepting the default (`confirmMcpGate` semantics).
+   */
+  hasExisting: boolean;
+}
+
+/**
+ * Yes/No MCP gate (`name: "proceed"` via `confirmMcpGate`). Built-in
+ * skip: runs only when the in-progress feature selection includes "mcp".
+ * `previous` is intentionally not threaded — the confirm default derives
+ * from `hasExisting`, matching the pre-extraction config step.
+ */
+export function mcpGateStep<TState extends { features: (keyof Features)[]; mcpGate: boolean }>(
+  opts: McpGateStepOptions,
+): StepFor<TState, "mcpGate"> {
+  return {
+    id: "mcpGate",
+    skip: (s) => !(s.features?.includes("mcp")),
+    async run(): Promise<StepResult<TState["mcpGate"]>> {
+      const result = await confirmMcpGate({ hasExisting: opts.hasExisting });
+      return result as StepResult<TState["mcpGate"]>;
+    },
+  };
+}
+
+// ── mcpServers ──────────────────────────────────────────────────────
+
+/**
+ * F10.3-2 step (c) prompt copy for the collapsed init multi-select where
+ * an empty selection is the `(none)` no-op.
+ */
+export const COLLAPSED_MCP_MESSAGE =
+  "Select MCP servers to enable (leave empty for none — you can add later with `hatch3r mcp setup`):";
+
+interface McpServersStepBaseOptions<TState extends object> {
+  /**
+   * Resolve the active platform at run time. Machines with a `platform`
+   * slot pass `(s) => s.platform!`; the workspace machine (no platform
+   * slot) passes a constant accessor over its derived platform.
+   */
+  platform: (state: Partial<TState>) => Platform;
+  wslTheme?: unknown;
+  skip?: (state: Partial<TState>) => boolean;
+}
+
+export type McpServersStepOptions<TState extends object> =
+  | (McpServersStepBaseOptions<TState> & {
+      /**
+       * Init's collapsed multi-select (F10.3-2 step (c)): default is
+       * `previous ?? []`, and the platform server is prepended only when
+       * the user selected at least one server — an empty selection stays
+       * empty (the `(none)` path).
+       */
+      variant: "collapsed";
+      /** Prompt copy override (defaults to {@link COLLAPSED_MCP_MESSAGE}). */
+      message?: string;
+    })
+  | (McpServersStepBaseOptions<TState> & {
+      /**
+       * Config's gated picker: delegates to `pickMcpServers`
+       * (manifest-seeded default, platform server always prepended).
+       * `previous` is not threaded — `pickMcpServers` derives its default
+       * from `existing`, matching the pre-extraction config step.
+       */
+      variant: "gated";
+      existing: string[];
+    });
+
+/** MCP-server multi-select (`name: "mcp"`). */
+export function mcpServersStep<TState extends { mcpServers: string[] }>(
+  opts: McpServersStepOptions<TState>,
+): StepFor<TState, "mcpServers"> {
+  return {
+    id: "mcpServers",
+    skip: opts.skip,
+    async run(state, previous): Promise<StepResult<TState["mcpServers"]>> {
+      if (opts.variant === "gated") {
+        const result = await pickMcpServers({
+          platform: opts.platform(state),
+          existing: opts.existing,
+          wslTheme: opts.wslTheme,
+        });
+        return result as StepResult<TState["mcpServers"]>;
+      }
+      const platformMcp = PLATFORM_MCP_SERVER[opts.platform(state)];
+      const themeOption = opts.wslTheme ? { theme: opts.wslTheme } : {};
+      const { mcp } = await inquirer.prompt<{ mcp: string[] | typeof BACK }>([
+        {
+          type: "checkbox",
+          name: "mcp",
+          message: opts.message ?? COLLAPSED_MCP_MESSAGE,
+          choices: MCP_CHOICES,
+          default: previous ?? [],
+          ...themeOption,
+        },
+      ]);
+      if (isBack(mcp)) return BACK;
+      const servers = (mcp ?? []) as string[];
+      // Mirror pickMcpServers: if the user selected ANY server, the
+      // platform server is prepended (board/platform integration depends
+      // on it). An empty selection stays empty — that is the `(none)` path.
+      if (servers.length > 0 && !servers.includes(platformMcp)) {
+        servers.unshift(platformMcp);
+      }
+      return servers as TState["mcpServers"];
+    },
+  };
+}
