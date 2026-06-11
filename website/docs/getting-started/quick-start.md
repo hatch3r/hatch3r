@@ -15,7 +15,7 @@ A copy-paste-runnable walkthrough that takes a project from empty to released us
 
 - **Node.js 22 or later** — the only hard prerequisite. Check with `node --version`.
 - **A git repository** at the working directory, OR a non-git folder containing one or more git subdirectories (workspace mode is auto-detected).
-- **One of the [supported tools](./supported-tools)** — Cursor, Claude Code, or GitHub Copilot. (As of 1.9.0, hatch3r supports these 3 adapters only; see [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the 1.9.0 scope cut.)
+- **One of the [supported tools](./supported-tools)** — Claude Code, Cursor, or GitHub Copilot. (As of 1.9.0, hatch3r supports these 3 adapters only; see [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the 1.9.0 scope cut.)
 
 That is it. No global install, no preflight setup.
 
@@ -33,7 +33,7 @@ Interactive flow (~2 minutes). On a fresh GitHub greenfield repo hatch3r asks 6 
 2. **Repo identity** — 2 sub-prompts for GitHub (owner + repo) and GitLab (namespace + project); 3 for Azure DevOps (org + project + repo). Auto-filled from git remote where possible. Default branch is git-detected, not prompted; project type and team size are inferred and no longer prompted.
 3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`. See the [profile table](#content-profiles) below.
 4. **Custom content items** — only when `custom` is selected at step 3.
-5. **Tools** — multi-select from the 3 supported adapters (Cursor, Claude Code, Copilot).
+5. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
 6. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Leaving everything unchecked is the `(none)` no-op and skips MCP entirely; selecting any server auto-includes the platform MCP that matches your detected platform (per `src/cli/commands/init.ts` mcpServers step).
 
 Headless `--yes` skips every prompt; `cli-tools` selection is auto-inferred from project triggers (no separate picker prompt). If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm.
@@ -51,7 +51,7 @@ npx hatch3r init --yes --preset standard --tools claude --project-type brownfiel
 | `.hatch3r/hatch.json` | Manifest with content selection, tool list, MCP servers (schemaVersion 3) |
 | `.hatch3r/overrides/` | User-authored canonical overrides (escape hatch — adapters prefer overrides over bundled canonical content) |
 | `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/` | `/learn` outputs, cross-session handoff bundles, resolved MCP config |
-| Tool-specific outputs | `.cursor/` (Cursor), `.claude/` + `CLAUDE.md` (Claude), `.github/copilot-instructions.md` + `.github/instructions/` + `.github/prompts/` + `.github/agents/` (Copilot) |
+| Tool-specific outputs | `.claude/` + `CLAUDE.md` (Claude), `.cursor/` (Cursor), `.github/copilot-instructions.md` + `.github/instructions/` + `.github/prompts/` + `.github/agents/` (Copilot) |
 | `.env.mcp` | Secret placeholder file (gitignored) — only created if you enabled MCP |
 | `.gitignore` | Updated to exclude `.env.mcp` |
 | `.worktreeinclude` | Created only if a worktree-capable tool is selected |

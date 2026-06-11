@@ -41,7 +41,7 @@ The init flow asks:
 4. **Project type** -- greenfield (new project) or brownfield (existing codebase)
 5. **Team size** -- solo developer or team collaboration
 6. **Content profile** -- Minimal, Standard (recommended), Full, or Custom
-7. **Tools** -- select from the 3 supported adapters (Cursor, Claude Code, GitHub Copilot)
+7. **Tools** -- select from the 3 supported adapters (Claude Code, Cursor, GitHub Copilot)
 8. **Features** -- agents, skills, rules, commands, MCP, hooks, GitHub agents
 9. **MCP servers** -- optionally configure up to 10 MCP servers
 

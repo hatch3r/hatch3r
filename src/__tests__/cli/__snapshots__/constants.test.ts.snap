@@ -109,16 +109,16 @@ exports[`data constants > TOOL_DISPLAY_NAMES matches snapshot 1`] = `
 exports[`data constants > TOOL_PROMPT_CHOICES matches snapshot 1`] = `
 [
   {
+    "name": "Claude Code",
+    "value": "claude",
+  },
+  {
     "name": "Cursor",
     "value": "cursor",
   },
   {
     "name": "GitHub Copilot",
     "value": "copilot",
-  },
-  {
-    "name": "Claude Code",
-    "value": "claude",
   },
 ]
 `;

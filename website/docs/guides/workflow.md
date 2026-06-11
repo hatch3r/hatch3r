@@ -23,7 +23,7 @@ Interactive setup (~2 minutes) detects your repository from its git remote and w
 2. **Repo identity** — owner + repo (GitHub), namespace + project (GitLab), or org + project + repo (Azure DevOps), auto-filled from the remote where possible.
 3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`.
 4. **Custom content items** — only when `custom` is selected at step 3.
-5. **Tools** — multi-select from the 3 supported adapters (Cursor, Claude Code, Copilot).
+5. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
 6. **MCP servers** — multi-select from 10 servers (3 default, 7 opt-in). Leaving everything unchecked skips MCP entirely; selecting any server auto-includes the platform MCP that matches your detected platform.
 
 Default branch, project type (greenfield/brownfield), and team size (solo/team) are **inferred, not prompted** — branch from git, the others from repository signals. CLI-tool selection is **auto-inferred from project triggers** (no separate picker prompt); if detected tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm. Headless `--yes` skips every prompt.

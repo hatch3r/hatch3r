@@ -4,9 +4,9 @@ hatch3r lets you configure preferred AI models for your agents. You can set a gl
 
 ## Overview
 
-When you configure a model, hatch3r includes it in the generated config for each tool (Cursor, Copilot, Claude Code, etc.). Some platforms support native model selection in their config; others receive the recommendation as guidance text. Either way, the preference is preserved across `npx hatch3r sync` runs.
+When you configure a model, hatch3r includes it in the generated config for each tool (Claude Code, Cursor, Copilot, etc.). Some platforms support native model selection in their config; others receive the recommendation as guidance text. Either way, the preference is preserved across `npx hatch3r sync` runs.
 
-**When no model is configured at any level**, hatch3r does not emit a model preference. Each platform (Cursor, Copilot, Claude Code, etc.) uses its own default.
+**When no model is configured at any level**, hatch3r does not emit a model preference. Each platform (Claude Code, Cursor, Copilot, etc.) uses its own default.
 
 ## Configuration Points
 

@@ -12,14 +12,14 @@ hatch3r supports 3 AI coding tools, each with different platform capabilities, m
 
 Full feature parity with the canonical content model. These adapters receive first-class support because the underlying platforms have the richest integration surfaces and the largest user bases. **All 3 currently supported adapters are Tier 1.**
 
-**Adapters:** Cursor, Claude Code, Copilot
+**Adapters:** Claude Code, Cursor, Copilot
 
 **Scope:**
 - All content types: agents, rules, skills, commands, hooks
 - MCP server configuration and tool routing
 - Managed blocks with safe partial updates
 - Both output strategies (native per-file config, bridge files)
-- Platform-specific optimizations (Cursor `.mdc` frontmatter, Claude `CLAUDE.md` conventions, Copilot YAML frontmatter)
+- Platform-specific optimizations (Claude `CLAUDE.md` conventions, Cursor `.mdc` frontmatter, Copilot YAML frontmatter)
 - GitHub Agents support (Copilot)
 
 ### Tier 2 -- Standard

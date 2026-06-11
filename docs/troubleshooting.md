@@ -45,7 +45,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 **Cause:** The tool name is not supported.
 
-**Solution:** As of v1.9.0, hatch3r ships 3 adapters: `cursor`, `claude`, `copilot`. Pass one or more, comma-separated. Example: `npx hatch3r init --tools cursor,claude`. The 12 other adapters previously shipped (`aider`, `amazon-q`, `amp`, `antigravity`, `cline`, `codex`, `gemini`, `goose`, `kiro`, `opencode`, `windsurf`, `zed`) were removed in v1.9.0; pick one of the 3 supported targets instead.
+**Solution:** As of v1.9.0, hatch3r ships 3 adapters: `claude`, `cursor`, `copilot`. Pass one or more, comma-separated. Example: `npx hatch3r init --tools claude,cursor`. The 12 other adapters previously shipped (`aider`, `amazon-q`, `amp`, `antigravity`, `cline`, `codex`, `gemini`, `goose`, `kiro`, `opencode`, `windsurf`, `zed`) were removed in v1.9.0; pick one of the 3 supported targets instead.
 
 ### Not in a git repository
 
@@ -321,7 +321,7 @@ esac
 
 hatch3r is an instruction-generation framework. Understanding its trust boundaries helps you use it safely.
 
-**IDE Sandbox.** hatch3r generates markdown instruction files, rule files, and tool configurations. It does not execute agent actions itself — your IDE or CLI tool (Cursor, Claude Code, Copilot, etc.) provides the execution sandbox. Agent outputs such as file writes, shell commands, and API calls are governed by the host tool's own permission model, not by hatch3r. Review your IDE's security settings (e.g., Claude Code's `.claude/settings.json` permissions, Cursor's tool approval prompts) to control what agents can do at runtime.
+**IDE Sandbox.** hatch3r generates markdown instruction files, rule files, and tool configurations. It does not execute agent actions itself — your IDE or CLI tool (Claude Code, Cursor, Copilot, etc.) provides the execution sandbox. Agent outputs such as file writes, shell commands, and API calls are governed by the host tool's own permission model, not by hatch3r. Review your IDE's security settings (e.g., Claude Code's `.claude/settings.json` permissions, Cursor's tool approval prompts) to control what agents can do at runtime.
 
 **Advisory Boundaries.** Agent capability boundaries expressed in hatch3r instructions — such as "Never: Create branches, commits, or PRs without explicit user approval" — are advisory markdown directives, not technical enforcement. This is a known characteristic of all instruction-based agentic frameworks: the LLM interprets these instructions but is not mechanically prevented from violating them. Treat these boundaries as strong guidance rather than hard security controls. For operations requiring strict enforcement, rely on your IDE's built-in permission system or external guardrails (branch protection rules, CI checks, etc.).
 
