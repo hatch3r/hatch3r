@@ -228,6 +228,35 @@ describe("mcpSetupCommand", () => {
       expect.objectContaining({ wslTheme: expect.any(Object) }),
     );
   });
+
+  // W5-bigfour --dry-run: behavioral no-write contract (mirrors the init
+  // --dry-run block in init.test.ts).
+  it("--dry-run reports the would-be selection and writes NOTHING (no manifest write, no .env.mcp, features.mcp untouched)", async () => {
+    const manifest = makeManifest([], "github");
+    vi.mocked(readManifest).mockResolvedValue(manifest);
+    vi.mocked(pickMcpServers).mockResolvedValue(["github"]);
+
+    await mcpSetupCommand({ dryRun: true });
+
+    // No-write contract: no manifest persist, no .env.mcp provisioning,
+    // no .gitignore registration.
+    expect(writeManifest).not.toHaveBeenCalled();
+    expect(ensureEnvMcp).not.toHaveBeenCalled();
+    expect(ensureGitignoreEntry).not.toHaveBeenCalled();
+    // The in-memory manifest is not mutated either — the dry-run terminus
+    // returns BEFORE the mcp/features assignments.
+    expect(manifest.mcp.servers).toEqual([]);
+    expect((manifest as { features?: unknown }).features).toBeUndefined();
+
+    // The dry-run outcome box is emitted with the would-be state.
+    const call = vi.mocked(printBox).mock.calls.find((c) => c[0] === "MCP setup (dry-run)");
+    expect(call).toBeDefined();
+    expect(call?.[2]).toBe("info");
+    const lines = (call?.[1] as string[]).join("\n");
+    expect(lines).toContain("github");
+    expect(lines).toContain("features.mcp: true");
+    expect(lines).toContain("not written");
+  });
 });
 
 // ── mcpListCommand ────────────────────────────────────────────
@@ -358,6 +387,29 @@ describe("mcpRemoveCommand", () => {
 
     await expect(mcpRemoveCommand("github")).rejects.toThrow(HatchError);
     expect(writeManifest).not.toHaveBeenCalled();
+  });
+
+  // W5-bigfour --dry-run: behavioral no-write contract (mirrors the init
+  // --dry-run block in init.test.ts).
+  it("--dry-run reports the post-removal state and writes NOTHING (manifest + features.mcp untouched)", async () => {
+    const manifest = makeManifest(["github", "context7"]);
+    vi.mocked(readManifest).mockResolvedValue(manifest);
+
+    await mcpRemoveCommand("github", { dryRun: true });
+
+    expect(writeManifest).not.toHaveBeenCalled();
+    // In-memory manifest untouched: full server list intact, no derived
+    // features.mcp recompute — the dry-run terminus precedes both assignments.
+    expect(manifest.mcp.servers).toEqual(["github", "context7"]);
+    expect((manifest as { features?: unknown }).features).toBeUndefined();
+
+    const call = vi.mocked(printBox).mock.calls.find((c) => c[0] === "MCP remove (dry-run)");
+    expect(call).toBeDefined();
+    expect(call?.[2]).toBe("info");
+    const lines = (call?.[1] as string[]).join("\n");
+    expect(lines).toContain("Would remove: github");
+    expect(lines).toContain("context7");
+    expect(lines).toContain("features.mcp: true");
   });
 });
 

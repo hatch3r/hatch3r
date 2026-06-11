@@ -415,6 +415,41 @@ describe("cliToolsCommand interactive picker flow (C9-H8)", () => {
   });
 });
 
+// W5-bigfour --dry-run: behavioral no-write contract for the bare picker
+// command (mirrors the init --dry-run block in init.test.ts).
+describe("cliToolsCommand --dry-run no-write contract (W5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(writeManifest).mockResolvedValue(undefined);
+  });
+
+  it("--dry-run shows the would-be selection and writes NOTHING (no manifest write, no detection, no installer)", async () => {
+    const manifest = makeManifest([]);
+    vi.mocked(readManifest).mockResolvedValue(manifest);
+    vi.mocked(pickCliTools).mockResolvedValue(["ripgrep", "fd"] as never);
+
+    await cliToolsCommand({ dryRun: true });
+
+    // No-write contract: no manifest persist, and the dry-run terminus
+    // precedes the detection probe + installer offer + disclaimer entirely.
+    expect(writeManifest).not.toHaveBeenCalled();
+    expect(findMissingCliTools).not.toHaveBeenCalled();
+    expect(offerInstaller).not.toHaveBeenCalled();
+    expect(printMissingCliToolsDisclaimer).not.toHaveBeenCalled();
+    // The in-memory manifest keeps its pre-picker cliTools shape.
+    expect(manifest.cliTools).toEqual({ enabled: false, selected: [] });
+
+    // The dry-run outcome box is emitted with the would-be selection.
+    const call = vi.mocked(printBox).mock.calls.find((c) => c[0] === "CLI tools (dry-run)");
+    expect(call).toBeDefined();
+    expect(call?.[2]).toBe("info");
+    const lines = (call?.[1] as string[]).join("\n");
+    expect(lines).toContain("ripgrep");
+    expect(lines).toContain("fd");
+    expect(lines).toContain("not written");
+  });
+});
+
 // F3.2-F2 (D3 Cycle 10 Wave 2): the describe blocks above stub readManifest/
 // writeManifest, so a regression that breaks the real manifest writer — or one
 // where cliToolsCommand builds a structurally invalid `cliTools` shape the real

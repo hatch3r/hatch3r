@@ -488,6 +488,42 @@ describe("content/index — queries, mutations & counts", () => {
 
       expect(result.archivedCustomizeFiles).toEqual([]);
     });
+
+    it("rejects a traversal id (`../../etc/passwd`) without touching the filesystem (charset guard)", async () => {
+      // Cycle 12 P6: the id-derived fileName flows into cp + rm(force: true).
+      // A traversal id must short-circuit BEFORE any path is built — plant a
+      // sentinel exactly where the unguarded rm() would have resolved
+      // (join(rootDir, ".hatch3r", "agents", "../../etc/passwd.customize.yaml")
+      // → rootDir/etc/passwd.customize.yaml) and assert it survives.
+      const dir = await makeTempDir();
+      const rootDir = join(dir, "project");
+      await mkdir(join(rootDir, "etc"), { recursive: true });
+      await writeFile(join(rootDir, "etc", "passwd.customize.yaml"), "sentinel");
+
+      const result = await archiveCustomizeOverrides(rootDir, { id: "../../etc/passwd", type: "agent" });
+
+      expect(result.archivedCustomizeFiles).toEqual([]);
+      // The sentinel survives — the guard fired before any cp/rm path was built.
+      expect(await readFile(join(rootDir, "etc", "passwd.customize.yaml"), "utf-8")).toBe("sentinel");
+      // No archive directory is created either.
+      await expect(readdir(join(rootDir, ARCHIVE_DIR))).rejects.toThrow();
+    });
+
+    it("rejects a path-separator id (`a/b`) and leaves the nested file untouched", async () => {
+      const dir = await makeTempDir();
+      const rootDir = join(dir, "project");
+      await mkdir(join(rootDir, ".hatch3r", "agents", "a"), { recursive: true });
+      await writeFile(join(rootDir, ".hatch3r", "agents", "a", "b.customize.yaml"), "nested");
+
+      const result = await archiveCustomizeOverrides(rootDir, { id: "a/b", type: "agent" });
+
+      expect(result.archivedCustomizeFiles).toEqual([]);
+      // Without the guard, rm(force: true) would have deleted this file.
+      expect(
+        await readFile(join(rootDir, ".hatch3r", "agents", "a", "b.customize.yaml"), "utf-8"),
+      ).toBe("nested");
+      await expect(readdir(join(rootDir, ARCHIVE_DIR))).rejects.toThrow();
+    });
   });
 
   // ── getAllContentIds ─────────────────────────────────────

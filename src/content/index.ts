@@ -1493,6 +1493,19 @@ export async function archiveCustomizeOverrides(
   if (!customDir) return { archivedCustomizeFiles };
 
   const cleanId = item.id.replace(/^cmd-/, "").replace(/^hatch3r-/, "");
+  // Path guard (Cycle 12 P6): the id-derived fileName below flows into
+  // `cp` + `rm(force: true)`. Today every caller passes canonical catalog ids,
+  // but a future caller wiring user-tier items in would turn a separator- or
+  // `..`-bearing id into a traversal read/delete primitive. Reject any cleaned
+  // id outside the safe charset BEFORE a path is built, degrading exactly like
+  // the function's other failure modes (verbose diagnostic + skip, no throw)
+  // so a removal flow never aborts on a malformed id.
+  if (!/^[A-Za-z0-9._-]+$/.test(cleanId) || cleanId.includes("..")) {
+    verbose(
+      `archiveCustomizeOverrides: invalid item id ${JSON.stringify(item.id)} — skipped (unsafe path characters)`,
+    );
+    return { archivedCustomizeFiles };
+  }
   const archiveDir = join(rootDir, ARCHIVE_DIR, "customize", customDir);
   for (const fileName of [`${cleanId}.customize.yaml`, `${cleanId}.customize.md`]) {
     const srcPath = join(rootDir, ".hatch3r", customDir, fileName);

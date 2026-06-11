@@ -278,12 +278,17 @@ describe("finishCommand() — json mode", () => {
     expect((JSON.parse(stdoutText()) as Record<string, unknown>).status).toBe("drifted");
   });
 
-  it("does not let outcome.json clobber hatch3rVersion or timestamp", () => {
+  it("does not let outcome.json clobber command, hatch3rVersion, or timestamp", () => {
     finishCommand(
       "json",
-      makeOutcome({ json: { hatch3rVersion: "0.0.0", timestamp: "forged" } }),
+      makeOutcome({
+        json: { command: "forged", hatch3rVersion: "0.0.0", timestamp: "forged" },
+      }),
     );
     const parsed = JSON.parse(stdoutText()) as Record<string, unknown>;
+    // `command` sits AFTER the outcome.json spread (status is the only
+    // documented override), so the envelope's identity field always wins.
+    expect(parsed.command).toBe("sync");
     expect(parsed.hatch3rVersion).toBe(HATCH3R_VERSION);
     expect(parsed.timestamp).not.toBe("forged");
   });

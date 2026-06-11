@@ -126,18 +126,19 @@ const STYLE_TO_STATUS: Record<NonNullable<CommandOutcome["style"]>, string> = {
  * Exit epilogue for a standardized command: one outcome box (+ next steps +
  * timing) in human mode, OR one JSON document in JSON mode — never both.
  *
- * JSON envelope: `{ status, command, ...outcome.json, hatch3rVersion,
+ * JSON envelope: `{ status, ...outcome.json, command, hatch3rVersion,
  * timestamp }`. `status` derives from `style` but a `status` key inside
- * `outcome.json` wins (spread order); `hatch3rVersion` and `timestamp` are
- * appended last so commands cannot clobber the envelope's provenance fields.
+ * `outcome.json` wins (spread order) — it is the only documented override;
+ * `command`, `hatch3rVersion`, and `timestamp` are appended after the spread
+ * so commands cannot clobber the envelope's identity/provenance fields.
  */
 export function finishCommand(format: CliOutputFormat, outcome: CommandOutcome): void {
   const style = outcome.style ?? "success";
   if (format === "json") {
     emitJson({
       status: STYLE_TO_STATUS[style],
-      command: outcome.command,
       ...outcome.json,
+      command: outcome.command,
       hatch3rVersion: HATCH3R_VERSION,
       timestamp: new Date().toISOString(),
     });

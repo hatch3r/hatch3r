@@ -233,6 +233,53 @@ describe("sync command", () => {
     expect(output).toContain("GITHUB_PAT");
   });
 
+  // MCP side-door → sync e2e: `hatch3r mcp setup` only mutates the manifest
+  // and defers adapter regeneration to the next sync, so sync MUST actually
+  // emit the MCP adapter output for the manifest-configured servers — the
+  // env-var warning test above alone left "sync silently ignores side-door
+  // config" unguarded.
+  it("emits the cursor MCP config on disk for manifest-configured servers (side-door e2e)", async () => {
+    await createTestProject(tempDir, {
+      mcp: { servers: ["github"] },
+    });
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    // The cursor adapter writes `.cursor/mcp.json` with a top-level
+    // `mcpServers` map (cursor.ts:326) containing the selected server.
+    const raw = await readFile(join(tempDir, ".cursor", "mcp.json"), "utf-8");
+    const parsed = JSON.parse(raw) as { mcpServers: Record<string, unknown> };
+    expect(parsed.mcpServers).toHaveProperty("github");
+  });
+
+  it("does NOT emit MCP config when features.mcp is false even with a non-empty server list (opt-in gate)", async () => {
+    // Negative side of the side-door contract: adapters gate MCP emission on
+    // `features.mcp && mcp.servers.length > 0` (base.ts::readFilteredMcp), so
+    // a server list left behind with the feature flag off must produce no
+    // MCP output file.
+    await createTestProject(tempDir, {
+      features: {
+        agents: true,
+        skills: true,
+        rules: true,
+        prompts: true,
+        commands: true,
+        mcp: false,
+        githubAgents: true,
+        hooks: true,
+        handoffs: true,
+      },
+      mcp: { servers: ["github"] },
+    });
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const mcpJson = await readFile(join(tempDir, ".cursor", "mcp.json"), "utf-8").catch(() => null);
+    expect(mcpJson).toBeNull();
+  });
+
   it("should report 'skipped' for unchanged non-managed files on re-sync", async () => {
     await createTestProject(tempDir);
 
