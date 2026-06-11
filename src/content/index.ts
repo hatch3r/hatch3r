@@ -1458,142 +1458,80 @@ export async function buildSelectionsFromDisk(
   };
 }
 
-// ── Content item add/remove ────────────────────────────────────
+// ── Customize-override archival ────────────────────────────────
 
 /**
- * Add a single content item from the package to .agents/.
- */
-export async function addContentItem(
-  contentRoot: string,
-  agentsDir: string,
-  item: CatalogItem,
-): Promise<void> {
-  assertSafePath(item.relativePath, "addContentItem");
-  if (item.companionPath) {
-    assertSafePath(item.companionPath, "addContentItem companion");
-  }
-
-  const srcPath = join(contentRoot, item.relativePath);
-  const destPath = join(agentsDir, item.relativePath);
-
-  try {
-    if (item.type === "skill") {
-      await mkdir(destPath, { recursive: true });
-      await cp(srcPath, destPath, { recursive: true, force: true });
-    } else {
-      await mkdir(dirname(destPath), { recursive: true });
-      await cp(srcPath, destPath, { force: true });
-
-      if (item.companionPath) {
-        try {
-          await cp(
-            join(contentRoot, item.companionPath),
-            join(agentsDir, item.companionPath),
-            { force: true },
-          );
-        } catch (err) {
-          if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-        }
-      }
-    }
-  } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
-      throw new HatchError(
-        `Content "${item.id}" (${item.type}) not found in package at ${item.relativePath}. ` +
-        `It may have been renamed or removed in this hatch3r version.`,
-        1,
-        "FS_ERROR",
-      );
-    }
-    throw err;
-  }
-}
-
-/**
- * Remove a single content item from .agents/. When `rootDir` is provided, the
- * item's hand-authored `.customize.yaml` / `.customize.md` overrides are NOT
- * hard-deleted — they are moved into `<rootDir>/.hatch3r/archive/customize/<dir>/`
- * so the user-authored bytes survive a preset downgrade and can be restored by
+ * Archive (never hard-delete) a removed item's hand-authored
+ * `.hatch3r/<type-dir>/<id>.customize.{yaml,md}` overrides.
+ *
+ * When a content item leaves the selection, its overrides are moved into
+ * `<rootDir>/.hatch3r-archive/customize/<type-dir>/` (`ARCHIVE_DIR`) so the
+ * user-authored bytes survive a preset downgrade and can be restored by
  * moving them back. The returned `archivedCustomizeFiles` lists each rescued
- * file as a `.hatch3r/archive/customize/...` repo-relative path so the caller
+ * file as a `.hatch3r-archive/customize/...` repo-relative path so the caller
  * can surface it in the removal summary (D10-35, Cycle 11 Wave 3, D10, P1).
+ *
+ * Failure handling: a missing override (ENOENT) is skipped silently; any
+ * other stat error degrades to a verbose line and skips the archive; an
+ * archive write failure (permission, disk) also degrades to a verbose line —
+ * in every case the live override is still removed so the on-disk override
+ * set stays consistent with the manifest selection.
  */
-export async function removeContentItem(
-  agentsDir: string,
-  item: CatalogItem,
-  options?: { rootDir?: string },
+export async function archiveCustomizeOverrides(
+  rootDir: string,
+  item: Pick<CatalogItem, "id" | "type">,
 ): Promise<{ archivedCustomizeFiles: string[] }> {
-  assertSafePath(item.relativePath, "removeContentItem");
-  if (item.companionPath) {
-    assertSafePath(item.companionPath, "removeContentItem companion");
-  }
-
-  const destPath = join(agentsDir, item.relativePath);
-
-  if (item.type === "skill") {
-    await rm(destPath, { recursive: true, force: true });
-  } else {
-    await rm(destPath, { force: true });
-
-    if (item.companionPath) {
-      await rm(join(agentsDir, item.companionPath), { force: true });
-    }
-  }
-
   const archivedCustomizeFiles: string[] = [];
 
-  // Archive (not delete) customize files when rootDir provided.
-  if (options?.rootDir) {
-    const typeToDir: Record<string, string> = {
-      agent: "agents",
-      skill: "skills",
-      rule: "rules",
-      command: "commands",
-    };
-    const customDir = typeToDir[item.type];
-    if (customDir) {
-      const cleanId = item.id.replace(/^cmd-/, "").replace(/^hatch3r-/, "");
-      const archiveDir = join(options.rootDir, ARCHIVE_DIR, "customize", customDir);
-      for (const fileName of [`${cleanId}.customize.yaml`, `${cleanId}.customize.md`]) {
-        const srcPath = join(options.rootDir, ".hatch3r", customDir, fileName);
-        // D10-35: a hard `rm` here silently destroyed user-authored overrides on
-        // every preset downgrade (the removal preview only covered archived tool
-        // output, never these files). Move each existing override into the
-        // customize archive instead, then remove the original. Probe existence
-        // first so a missing override never creates an empty archive directory.
-        let exists = false;
-        try {
-          await stat(srcPath);
-          exists = true;
-        } catch (err) {
-          // ENOENT: no override to rescue — leave `exists` false and skip the
-          // move. Any other stat error (e.g. permission) also degrades to "skip
-          // the archive"; the original `rm` below still runs so the on-disk
-          // selection stays consistent.
-          const code = (err as NodeJS.ErrnoException)?.code;
-          if (code !== "ENOENT") {
-            const message = err instanceof Error ? err.message : String(err);
-            verbose(`removeContentItem: stat ${srcPath} skipped — ${message}`);
-          }
-        }
-        if (exists) {
-          try {
-            // `cp` overwrites a same-named prior archive copy — acceptable since
-            // the archive is an inspection/restore convenience, not a versioned
-            // store.
-            await mkdir(archiveDir, { recursive: true });
-            await cp(srcPath, join(archiveDir, fileName));
-            archivedCustomizeFiles.push(posix.join(ARCHIVE_DIR, "customize", customDir, fileName));
-          } catch (err) {
-            // Archive write failed (permission, disk) — downgrade to a verbose
-            // line and still remove the original so the selection is consistent.
-            const message = err instanceof Error ? err.message : String(err);
-            verbose(`removeContentItem: archive ${srcPath} skipped — ${message}`);
-          }
-        }
-        await rm(srcPath, { force: true });
+  const typeToDir: Record<string, string> = {
+    agent: "agents",
+    skill: "skills",
+    rule: "rules",
+    command: "commands",
+  };
+  const customDir = typeToDir[item.type];
+  if (!customDir) return { archivedCustomizeFiles };
+
+  const cleanId = item.id.replace(/^cmd-/, "").replace(/^hatch3r-/, "");
+  const archiveDir = join(rootDir, ARCHIVE_DIR, "customize", customDir);
+  for (const fileName of [`${cleanId}.customize.yaml`, `${cleanId}.customize.md`]) {
+    const srcPath = join(rootDir, ".hatch3r", customDir, fileName);
+    // D10-35: a hard `rm` here silently destroyed user-authored overrides on
+    // every preset downgrade (the removal preview only covered archived tool
+    // output, never these files). Move each existing override into the
+    // customize archive instead, then remove the original. Probe existence
+    // first so a missing override never creates an empty archive directory.
+    let exists = false;
+    try {
+      await stat(srcPath);
+      exists = true;
+    } catch (err) {
+      // ENOENT: no override to rescue — leave `exists` false and skip the
+      // move. Any other stat error (e.g. permission) also degrades to "skip
+      // the archive"; the original `rm` below still runs so the on-disk
+      // selection stays consistent.
+      const code = (err as NodeJS.ErrnoException)?.code;
+      if (code !== "ENOENT") {
+        const message = err instanceof Error ? err.message : String(err);
+        verbose(`archiveCustomizeOverrides: stat ${srcPath} skipped — ${message}`);
       }
     }
+    if (exists) {
+      try {
+        // `cp` overwrites a same-named prior archive copy — acceptable since
+        // the archive is an inspection/restore convenience, not a versioned
+        // store.
+        await mkdir(archiveDir, { recursive: true });
+        await cp(srcPath, join(archiveDir, fileName));
+        archivedCustomizeFiles.push(posix.join(ARCHIVE_DIR, "customize", customDir, fileName));
+      } catch (err) {
+        // Archive write failed (permission, disk) — downgrade to a verbose
+        // line and still remove the original so the selection is consistent.
+        const message = err instanceof Error ? err.message : String(err);
+        verbose(`archiveCustomizeOverrides: archive ${srcPath} skipped — ${message}`);
+      }
+    }
+    await rm(srcPath, { force: true });
   }
 
   return { archivedCustomizeFiles };

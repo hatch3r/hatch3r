@@ -68,8 +68,7 @@ import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import {
   buildContentIndex,
-  addContentItem,
-  removeContentItem,
+  archiveCustomizeOverrides,
   countSelectionItems,
   selectionSummary,
   extractContentReferences,
@@ -106,12 +105,11 @@ interface ConfigDiff {
 
 /**
  * D1-M5 (Cycle 10 Wave-3 Medium): structured input for content-side diff
- * pieces that are computed by the surrounding apply-loop (`addContentItem` /
- * `removeContentItem` side effects). Previously `computeDiff` returned
- * empty arrays for these fields and the caller patched them up after the
- * call, leaving the return shape misleading on its own. Accept the lists
- * here so the returned ConfigDiff is internally consistent without a
- * post-construction mutation step at the call-site.
+ * pieces that are computed by the surrounding apply-loop bookkeeping.
+ * Previously `computeDiff` returned empty arrays for these fields and the
+ * caller patched them up after the call, leaving the return shape misleading
+ * on its own. Accept the lists here so the returned ConfigDiff is internally
+ * consistent without a post-construction mutation step at the call-site.
  */
 interface ContentChanges {
   added: Array<{ type: string; id: string }>;
@@ -726,7 +724,6 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   // they derive from the on-disk manifest (which the machine never
   // mutates).
   let contentRoot: string | undefined;
-  let agentsDir: string | undefined;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let contentIndex: any;
   let contentProjectType: ContentSelection["projectType"] | undefined;
@@ -737,13 +734,6 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     // printBox(..., 'info') visible on every interactive invocation; no need
     // to restate the one-liner mid-flow.
     contentRoot = findPackageRoot(__dirname);
-    // Wave 7: legacy `.agents/` literal — the `addContentItem` / canonical
-    // AGENTS.md materialization block below operates on the pre-1.9
-    // canonical tree, which Wave 3+4 has already eliminated for new installs.
-    // Wired through here so existing `.agents/` installs that have not yet
-    // run the migration shim continue to behave; replace with bundled-content
-    // sourcing in a follow-up wave.
-    agentsDir = join(rootDir, ".agents");
     contentIndex = await buildContentIndex(contentRoot);
     contentProjectType = manifest.content.projectType;
     contentTeamSize = manifest.content.teamSize;
@@ -972,17 +962,12 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
   // D10-35 (Cycle 11 Wave 3, D10, P1): repo-relative paths of `.customize.*`
-  // overrides that content removal rescued into `.hatch3r/archive/customize/`
+  // overrides that content removal rescued into `.hatch3r-archive/customize/`
   // instead of hard-deleting. Surfaced in the success summary so a preset
   // downgrade no longer silently destroys hand-authored overrides.
   const archivedCustomizeFiles: string[] = [];
   let contentMetadataChanged = false;
   if (manifest.content) {
-    // The step-machine prelude initialised these inside the same
-    // `manifest.content` guard — narrow here so TypeScript sees them as
-    // defined for the trailing references.
-    const contentRootLocal: string = contentRoot!;
-    const agentsDirLocal: string = agentsDir!;
     const previousContent = manifest.content;
     const { projectType, teamSize } = manifest.content;
     const index = contentIndex;
@@ -1003,8 +988,8 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     if (pendingRemovals.length > 0) {
       // F10.4-10 (Cycle 10): the body-reference dependency scan reads each KEPT
       // item's source to check whether it free-references a REMOVED id. It
-      // previously read from `agentsDirLocal` (the legacy `.agents/` tree), which
-      // 1.9+ installs no longer materialize — so on every modern install the read
+      // previously read from the legacy `.agents/` tree, which 1.9+ installs
+      // no longer materialize — so on every modern install the read
       // ENOENT'd and the scan silently no-op'd (a verbose-only line per file). Read
       // from the bundled content root instead (same canonical layout the content
       // index is built against: `<type>/<id>` with `/SKILL.md` for skills), so the
@@ -1085,13 +1070,17 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
       }
     }
 
-    // Apply adds and removes
+    // Apply adds and removes — manifest-only bookkeeping. Since the 1.9.0
+    // hard-cut of the `.agents/` mirror, no per-item file copy or delete
+    // happens here: `manifest.content = newSelection` below plus the
+    // `runRegenerate` call after the diff are what materialize adapter
+    // outputs from the bundled canonical content. Removal additionally
+    // rescues hand-authored `.customize.*` overrides into the archive.
     for (const id of newIds) {
       if (!oldIds.has(id)) {
         const item = index.byId.get(id);
         if (item) {
           contentChanges.added.push({ type: item.type, id: item.id });
-          await addContentItem(contentRootLocal, agentsDirLocal, item);
         }
       }
     }
@@ -1100,7 +1089,7 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         const item = index.byId.get(id);
         if (item) {
           contentChanges.removed.push({ type: item.type, id: item.id });
-          const { archivedCustomizeFiles: rescued } = await removeContentItem(agentsDirLocal, item, { rootDir });
+          const { archivedCustomizeFiles: rescued } = await archiveCustomizeOverrides(rootDir, item);
           archivedCustomizeFiles.push(...rescued);
         }
       }
@@ -1118,14 +1107,13 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     // contract. Adapters source canonical content from the bundled package
     // via `resolveBundledContentRoot()`; archive `TOOL_PATH_PREFIXES` has no
     // AGENTS.md entry, so writing one from config left a dangling root
-    // `AGENTS.md` after tool switches or `hatch3r clean`. `addContentItem` /
-    // `removeContentItem` above already handle per-item materialization.
+    // `AGENTS.md` after tool switches or `hatch3r clean`. Content changes
+    // are manifest-only; `runRegenerate` below rebuilds adapter outputs.
   }
 
   // --- Compute diff ---
-  // D1-M5: pass content changes (computed by addContentItem/removeContentItem
-  // side effects above) directly into computeDiff instead of patching the
-  // returned struct afterwards.
+  // D1-M5: pass content changes (computed by the apply loops above) directly
+  // into computeDiff instead of patching the returned struct afterwards.
   const diff = computeDiff(manifest, tools, features, mcpServers, platform, owner, repo, namespace, project, selectedCliTools, contentChanges);
 
   if (isDiffEmpty(diff) && defaultBranch === currentBranch && !contentMetadataChanged) {

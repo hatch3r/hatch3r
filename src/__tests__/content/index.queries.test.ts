@@ -2,14 +2,13 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, readdir } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ARCHIVE_DIR, HatchError } from "../../types.js";
+import { ARCHIVE_DIR } from "../../types.js";
 import type { ContentSelection } from "../../types.js";
 import {
   buildContentIndex,
   getAvailableItems,
   buildSelectionsFromDisk,
-  addContentItem,
-  removeContentItem,
+  archiveCustomizeOverrides,
   getAllContentIds,
   countSelectionItems,
   selectionSummary,
@@ -394,192 +393,22 @@ describe("content/index — queries, mutations & counts", () => {
     });
   });
 
-  // ── addContentItem ───────────────────────────────────────
+  // ── archiveCustomizeOverrides ────────────────────────────
 
-  describe("addContentItem", () => {
-    it("copies a glob-strategy item", async () => {
-      const dir = await makeTempDir();
-      const contentRoot = await createContentRoot(dir);
-      const agentsDir = join(dir, "output");
-      const index = await buildContentIndex(contentRoot);
-      const item = index.byId.get("hatch3r-implementer")!;
-
-      await addContentItem(contentRoot, agentsDir, item);
-
-      const content = await readFile(join(agentsDir, "agents", "hatch3r-implementer.md"), "utf-8");
-      expect(content).toContain("hatch3r-implementer");
-    });
-
-    it("copies a skill directory recursively", async () => {
-      const dir = await makeTempDir();
-      const contentRoot = await createContentRoot(dir);
-      const agentsDir = join(dir, "output");
-      const index = await buildContentIndex(contentRoot);
-      const item = index.byId.get("hatch3r-refactor")!;
-
-      await addContentItem(contentRoot, agentsDir, item);
-
-      // SKILL.md should exist
-      const skillContent = await readFile(join(agentsDir, "skills", "hatch3r-refactor", "SKILL.md"), "utf-8");
-      expect(skillContent).toContain("hatch3r-refactor");
-      // Extra helper file should also be copied
-      const helperContent = await readFile(join(agentsDir, "skills", "hatch3r-refactor", "helper.md"), "utf-8");
-      expect(helperContent).toContain("Extra helper file");
-    });
-
-    it("copies companion .mdc file for rules", async () => {
-      const dir = await makeTempDir();
-      const contentRoot = await createContentRoot(dir);
-      const agentsDir = join(dir, "output");
-      const index = await buildContentIndex(contentRoot);
-      const item = index.byId.get("hatch3r-code-standards")!;
-
-      await addContentItem(contentRoot, agentsDir, item);
-
-      const mdcContent = await readFile(join(agentsDir, "rules", "hatch3r-code-standards.mdc"), "utf-8");
-      expect(mdcContent).toBe("companion mdc content");
-    });
-
-    it("throws HatchError for missing source item (ENOENT)", async () => {
-      const dir = await makeTempDir();
-      const agentsDir = join(dir, "output");
-
-      const fakeItem: CatalogItem = {
-        id: "nonexistent",
-        type: "agent",
-        description: "Does not exist",
-        tags: [],
-        relativePath: "agents/nonexistent.md",
-        source: "canonical",
-      };
-
-      await expect(
-        addContentItem(join(dir, "empty-content"), agentsDir, fakeItem),
-      ).rejects.toThrow(HatchError);
-
-      try {
-        await addContentItem(join(dir, "empty-content"), agentsDir, fakeItem);
-      } catch (e) {
-        expect(e).toBeInstanceOf(HatchError);
-        expect((e as HatchError).message).toContain("not found in package");
-      }
-    });
-
-    it("throws HatchError for path traversal in relativePath", async () => {
-      const dir = await makeTempDir();
-      const contentRoot = await createContentRoot(dir);
-      const agentsDir = join(dir, "output");
-
-      const maliciousItem: CatalogItem = {
-        id: "evil",
-        type: "agent",
-        description: "Path traversal attempt",
-        tags: [],
-        relativePath: "../../../etc/passwd",
-        source: "canonical",
-      };
-
-      await expect(
-        addContentItem(contentRoot, agentsDir, maliciousItem),
-      ).rejects.toThrow(HatchError);
-    });
-  });
-
-  // ── removeContentItem ────────────────────────────────────
-
-  describe("removeContentItem", () => {
-    it("removes a glob-strategy item", async () => {
-      const dir = await makeTempDir();
-      const agentsDir = join(dir, "agents");
-      await mkdir(join(agentsDir, "agents"), { recursive: true });
-      await writeFile(join(agentsDir, "agents", "to-remove.md"), "# content");
-
-      const item: CatalogItem = {
-        id: "to-remove",
-        type: "agent",
-        description: "Will be removed",
-        tags: [],
-        relativePath: "agents/to-remove.md",
-        source: "canonical",
-      };
-
-      await removeContentItem(agentsDir, item);
-
-      await expect(readFile(join(agentsDir, "agents", "to-remove.md"), "utf-8")).rejects.toThrow();
-    });
-
-    it("removes a skill directory recursively", async () => {
-      const dir = await makeTempDir();
-      const agentsDir = join(dir, "agents");
-      await mkdir(join(agentsDir, "skills", "my-skill"), { recursive: true });
-      await writeFile(join(agentsDir, "skills", "my-skill", "SKILL.md"), "# skill");
-      await writeFile(join(agentsDir, "skills", "my-skill", "extra.md"), "# extra");
-
-      const item: CatalogItem = {
-        id: "my-skill",
-        type: "skill",
-        description: "Skill to remove",
-        tags: [],
-        relativePath: "skills/my-skill",
-        source: "canonical",
-      };
-
-      await removeContentItem(agentsDir, item);
-
-      // Entire directory should be gone
-      await expect(readdir(join(agentsDir, "skills", "my-skill"))).rejects.toThrow();
-    });
-
-    it("removes companion .mdc file for rules", async () => {
-      const dir = await makeTempDir();
-      const agentsDir = join(dir, "agents");
-      await mkdir(join(agentsDir, "rules"), { recursive: true });
-      await writeFile(join(agentsDir, "rules", "my-rule.md"), "# rule");
-      await writeFile(join(agentsDir, "rules", "my-rule.mdc"), "companion");
-
-      const item: CatalogItem = {
-        id: "my-rule",
-        type: "rule",
-        description: "Rule with companion",
-        tags: [],
-        relativePath: "rules/my-rule.md",
-        companionPath: "rules/my-rule.mdc",
-        source: "canonical",
-      };
-
-      await removeContentItem(agentsDir, item);
-
-      await expect(readFile(join(agentsDir, "rules", "my-rule.md"), "utf-8")).rejects.toThrow();
-      await expect(readFile(join(agentsDir, "rules", "my-rule.mdc"), "utf-8")).rejects.toThrow();
-    });
-
-    it("archives .hatch3r customize files (not hard-delete) when rootDir is provided", async () => {
+  describe("archiveCustomizeOverrides", () => {
+    it("archives .hatch3r customize files (not hard-delete) on removal", async () => {
       // D10-35 (Cycle 11 Wave 3): a preset downgrade must not silently destroy
-      // hand-authored overrides. removeContentItem moves them to
+      // hand-authored overrides. archiveCustomizeOverrides moves them to
       // `.hatch3r-archive/customize/<type>/` and reports the rescued paths.
       const dir = await makeTempDir();
-      const agentsDir = join(dir, "agents");
       const rootDir = join(dir, "project");
-
-      // Create the item to remove
-      await mkdir(join(agentsDir, "agents"), { recursive: true });
-      await writeFile(join(agentsDir, "agents", "my-agent.md"), "# agent");
 
       // Create customize files
       await mkdir(join(rootDir, ".hatch3r", "agents"), { recursive: true });
       await writeFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "overrides: true");
       await writeFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.md"), "# custom");
 
-      const item: CatalogItem = {
-        id: "my-agent",
-        type: "agent",
-        description: "Agent with customize files",
-        tags: [],
-        relativePath: "agents/my-agent.md",
-        source: "canonical",
-      };
-
-      const result = await removeContentItem(agentsDir, item, { rootDir });
+      const result = await archiveCustomizeOverrides(rootDir, { id: "my-agent", type: "agent" });
 
       // Originals are gone from the live .hatch3r/ tree …
       await expect(readFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "utf-8")).rejects.toThrow();
@@ -597,52 +426,27 @@ describe("content/index — queries, mutations & counts", () => {
       ]);
     });
 
-    it("returns an empty archived list when no customize files exist", async () => {
+    it("returns an empty archived list when no customize files exist (ENOENT skip)", async () => {
       const dir = await makeTempDir();
-      const agentsDir = join(dir, "agents");
       const rootDir = join(dir, "project");
+      await mkdir(rootDir, { recursive: true });
 
-      await mkdir(join(agentsDir, "agents"), { recursive: true });
-      await writeFile(join(agentsDir, "agents", "plain-agent.md"), "# agent");
+      const result = await archiveCustomizeOverrides(rootDir, { id: "plain-agent", type: "agent" });
 
-      const item: CatalogItem = {
-        id: "plain-agent",
-        type: "agent",
-        description: "Agent with no overrides",
-        tags: [],
-        relativePath: "agents/plain-agent.md",
-        source: "canonical",
-      };
-
-      const result = await removeContentItem(agentsDir, item, { rootDir });
       expect(result.archivedCustomizeFiles).toEqual([]);
       // No customize archive directory is created when there is nothing to move.
       await expect(readdir(join(rootDir, ARCHIVE_DIR, "customize", "agents"))).rejects.toThrow();
     });
 
-    it("strips cmd- and hatch3r- prefixes when cleaning up command customize files", async () => {
+    it("strips cmd- and hatch3r- prefixes when archiving command customize files", async () => {
       const dir = await makeTempDir();
-      const agentsDir = join(dir, "agents");
       const rootDir = join(dir, "project");
-
-      // Create the command file to remove
-      await mkdir(join(agentsDir, "commands"), { recursive: true });
-      await writeFile(join(agentsDir, "commands", "hatch3r-board-fill.md"), "# command");
 
       // Customize files are stored WITHOUT the cmd- and hatch3r- prefixes
       await mkdir(join(rootDir, ".hatch3r", "commands"), { recursive: true });
       await writeFile(join(rootDir, ".hatch3r", "commands", "board-fill.customize.yaml"), "overrides: true");
 
-      const item: CatalogItem = {
-        id: "cmd-hatch3r-board-fill",
-        type: "command",
-        description: "Command with prefixed id",
-        tags: [],
-        relativePath: "commands/hatch3r-board-fill.md",
-        source: "canonical",
-      };
-
-      const result = await removeContentItem(agentsDir, item, { rootDir });
+      const result = await archiveCustomizeOverrides(rootDir, { id: "cmd-hatch3r-board-fill", type: "command" });
 
       // The customize file (named without prefixes) moves out of the live tree …
       await expect(readFile(join(rootDir, ".hatch3r", "commands", "board-fill.customize.yaml"), "utf-8")).rejects.toThrow();
@@ -655,37 +459,34 @@ describe("content/index — queries, mutations & counts", () => {
       ]);
     });
 
-    it("throws HatchError for path traversal in relativePath", async () => {
+    it("degrades gracefully when the archive write fails and still removes the original", async () => {
       const dir = await makeTempDir();
+      const rootDir = join(dir, "project");
 
-      const maliciousItem: CatalogItem = {
-        id: "evil",
-        type: "agent",
-        description: "Path traversal attempt",
-        tags: [],
-        relativePath: "../../../etc/passwd",
-        source: "canonical",
-      };
+      await mkdir(join(rootDir, ".hatch3r", "agents"), { recursive: true });
+      await writeFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "overrides: true");
+      // Plant a FILE where the archive root directory must be created so
+      // `mkdir(archiveDir, { recursive: true })` fails (ENOTDIR/EEXIST).
+      await writeFile(join(rootDir, ARCHIVE_DIR), "not a directory");
 
-      await expect(removeContentItem(dir, maliciousItem)).rejects.toThrow(HatchError);
+      // No throw: the failure downgrades to a verbose diagnostic …
+      const result = await archiveCustomizeOverrides(rootDir, { id: "my-agent", type: "agent" });
+
+      // … nothing is reported as archived …
+      expect(result.archivedCustomizeFiles).toEqual([]);
+      // … and the live override is still removed so the on-disk override set
+      // stays consistent with the manifest selection (documented degradation).
+      await expect(readFile(join(rootDir, ".hatch3r", "agents", "my-agent.customize.yaml"), "utf-8")).rejects.toThrow();
     });
 
-    it("does not throw when removing an already-absent item", async () => {
+    it("returns an empty list for types without a customize directory", async () => {
       const dir = await makeTempDir();
-      const agentsDir = join(dir, "agents");
-      await mkdir(agentsDir, { recursive: true });
+      const rootDir = join(dir, "project");
+      await mkdir(rootDir, { recursive: true });
 
-      const item: CatalogItem = {
-        id: "gone",
-        type: "agent",
-        description: "Already removed",
-        tags: [],
-        relativePath: "agents/gone.md",
-        source: "canonical",
-      };
+      const result = await archiveCustomizeOverrides(rootDir, { id: "some-hook", type: "hook" });
 
-      // rm with { force: true } should not throw; no rootDir → nothing rescued.
-      await expect(removeContentItem(agentsDir, item)).resolves.toEqual({ archivedCustomizeFiles: [] });
+      expect(result.archivedCustomizeFiles).toEqual([]);
     });
   });
 

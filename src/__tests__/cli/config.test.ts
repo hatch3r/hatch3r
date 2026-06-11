@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { ARCHIVE_DIR, HatchError, DEFAULT_FEATURES, type HatchManifest } from "../../types.js";
@@ -89,8 +89,7 @@ vi.mock("../../archive/index.js", () => ({
 vi.mock("../../content/index.js", () => ({
   buildContentIndex: vi.fn(),
   getAvailableItems: vi.fn(),
-  addContentItem: vi.fn(),
-  removeContentItem: vi.fn(),
+  archiveCustomizeOverrides: vi.fn(),
   countSelectionItems: vi.fn(),
   selectionSummary: vi.fn(),
   extractContentReferences: vi.fn(),
@@ -229,8 +228,7 @@ import { runRegenerate } from "../../cli/commands/update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths } from "../../archive/index.js";
 import {
   buildContentIndex,
-  addContentItem,
-  removeContentItem,
+  archiveCustomizeOverrides,
   countSelectionItems,
   selectionSummary,
   extractContentReferences,
@@ -239,7 +237,7 @@ import {
   getAllContentIds,
 } from "../../content/index.js";
 import { generateCanonicalAgentsMd, generateRootAgentsMd } from "../../cli/shared/agentsContent.js";
-import { safeWriteFile } from "../../merge/safeWrite.js";
+import { safeWriteFile, atomicWriteFile } from "../../merge/safeWrite.js";
 import { ensureEnvMcp, ensureGitignoreEntry, getSourceEnvMcpCommand } from "../../env/mcpEnv.js";
 import { findPackageRoot } from "../../cli/shared/paths.js";
 import { printBox, info, error as logError, warn, createSpinner, step, label } from "../../cli/shared/ui.js";
@@ -341,11 +339,11 @@ describe("config command", () => {
       step,
       label,
     });
-    // D10-35 (Cycle 11 Wave 3): removeContentItem now returns the customize
+    // D10-35 (Cycle 11 Wave 3): archiveCustomizeOverrides returns the customize
     // files it rescued into the archive. The config flow destructures that
     // result, so the default mock must resolve to the empty-rescue shape (the
     // assertion test below sets its own resolved value where it matters).
-    vi.mocked(removeContentItem).mockResolvedValue({ archivedCustomizeFiles: [] });
+    vi.mocked(archiveCustomizeOverrides).mockResolvedValue({ archivedCustomizeFiles: [] });
   });
 
   afterEach(async () => {
@@ -667,7 +665,7 @@ describe("config command", () => {
       expect(vi.mocked(resolveSelection)).toHaveBeenCalled();
     });
 
-    it("should add new content items when preset resolves additional items", async () => {
+    it("should record added content items manifest-only (no .agents/ materialization)", async () => {
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
@@ -681,14 +679,21 @@ describe("config command", () => {
 
       await (await importConfigCommand())();
 
-      expect(vi.mocked(addContentItem)).toHaveBeenCalledWith(
-        "/fake/package/root",
-        expect.stringContaining(".agents"),
-        expect.objectContaining({ id: "hatch3r-reviewer" }),
-      );
+      // The add lands in the manifest selection; adapters regenerate from it.
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.content?.items.agents).toContain("hatch3r-reviewer");
+      expect(vi.mocked(runRegenerate)).toHaveBeenCalled();
+      // Adding never archives overrides, and no write touches a `.agents`
+      // path — the 1.9.0 hard-cut removed the mirror entirely.
+      expect(vi.mocked(archiveCustomizeOverrides)).not.toHaveBeenCalled();
+      const agentsWrites = [
+        ...vi.mocked(safeWriteFile).mock.calls,
+        ...vi.mocked(atomicWriteFile).mock.calls,
+      ].filter(([p]) => typeof p === "string" && p.includes(".agents"));
+      expect(agentsWrites).toHaveLength(0);
     });
 
-    it("should remove content items when preset resolves fewer items", async () => {
+    it("should archive customize overrides when preset resolves fewer items", async () => {
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
@@ -703,11 +708,41 @@ describe("config command", () => {
 
       await (await importConfigCommand())();
 
-      expect(vi.mocked(removeContentItem)).toHaveBeenCalledWith(
-        expect.stringContaining(".agents"),
+      expect(vi.mocked(archiveCustomizeOverrides)).toHaveBeenCalledWith(
+        tempDir,
         expect.objectContaining({ id: "hatch3r-reviewer" }),
-        expect.objectContaining({ rootDir: tempDir }),
       );
+    });
+
+    it("should never create a .agents/ tree when content items are added (regression, v1.9.0 hard-cut)", async () => {
+      // Pre-1.9 `hatch3r config` materialized added items under `.agents/`
+      // via addContentItem. That path is deleted: content changes are
+      // manifest-only and runRegenerate produces adapter outputs. Guard the
+      // full write surface (safeWriteFile + atomicWriteFile mocks) and the
+      // real temp dir against any `.agents` reappearance.
+      const contentItems = makeContentSelection({
+        items: { agents: ["hatch3r-implementer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
+      });
+      const manifest = makeManifest({ content: contentItems });
+      primeContent(manifest, ["hatch3r-implementer", "hatch3r-reviewer", "hatch3r-protected"]);
+
+      stubContentIdsTransition(
+        getAllContentIds,
+        ["hatch3r-implementer"],
+        ["hatch3r-implementer", "hatch3r-reviewer", "hatch3r-protected"],
+      );
+      stubResolveSelectionAgents(resolveSelection, ["hatch3r-implementer", "hatch3r-reviewer", "hatch3r-protected"]);
+
+
+      await (await importConfigCommand())();
+
+      const allWritePaths = [
+        ...vi.mocked(safeWriteFile).mock.calls,
+        ...vi.mocked(atomicWriteFile).mock.calls,
+      ].map(([p]) => p);
+      expect(allWritePaths.filter((p) => typeof p === "string" && p.includes(".agents"))).toEqual([]);
+      // The on-disk project tree gained no `.agents/` directory either.
+      await expect(stat(join(tempDir, ".agents"))).rejects.toThrow();
     });
 
     it("should update manifest content after preset change", async () => {
