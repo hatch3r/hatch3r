@@ -3,7 +3,7 @@
 // canonical and user roots in a temp dir and asserts on the merged shape.
 
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, symlink } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildContentIndex } from "../../content/index.js";
@@ -203,5 +203,51 @@ describe("buildContentIndex with userRoot", () => {
     const canonIds = new Set(onlyCanonical.items.map((i) => i.id));
     const mergedIds = new Set(merged.items.map((i) => i.id));
     expect([...canonIds].sort()).toEqual([...mergedIds].sort());
+  });
+
+  // D2-19 (Cycle 11 Wave 3): one malformed-YAML file in a glob-scanned content
+  // dir (realistic trigger: a `.hatch3r/overrides/` typo) previously threw a
+  // YAMLParseError with no source path and aborted the entire index build for
+  // init/sync/status/add/show/config. The scan now skips the bad file with an
+  // actionable named warning and indexes the rest of the corpus.
+  it("D2-19: skips a malformed-YAML user file and continues indexing", async () => {
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    // Valid sibling that MUST survive the malformed neighbour.
+    await seedUserAgent(userRoot, "good-agent");
+    // Unbalanced bracket in an inline-array value → YAMLParseError on parse.
+    await writeFile(
+      join(userRoot, "agents", "broken.md"),
+      "---\nid: broken-agent\ntype: agent\ndescription: broken fixture\ntags: [core\n---\n# body\n",
+    );
+
+    const index = await buildContentIndex(canonicalRoot, { userRoot });
+
+    // The build did not throw; the valid user item and canonical items survive.
+    expect(index.items.find((i) => i.id === "good-agent")).toBeDefined();
+    expect(index.items.find((i) => i.id === "hatch3r-implementer")).toBeDefined();
+    // The malformed file is absent from the index.
+    expect(index.items.find((i) => i.id === "broken-agent")).toBeUndefined();
+    // An actionable warning names the offending path so the user can fix it.
+    const warning = (index.warnings ?? []).find((w) => w.includes("broken.md"));
+    expect(warning).toBeDefined();
+    expect(warning).toContain("malformed frontmatter");
+  });
+
+  it("D2-19: re-throws ENOENT (file vanished mid-scan) rather than swallowing it", async () => {
+    // ENOENT after readdir listed the file is a genuine filesystem race, not a
+    // user typo — it must surface as a hard error, not a per-file warning. A
+    // dangling symlink reproduces this deterministically: readdir lists the
+    // `.md` entry, then readFile follows it to a missing target and throws
+    // ENOENT.
+    const agentsDir = join(userRoot, "agents");
+    await mkdir(agentsDir, { recursive: true });
+    await symlink(
+      join(agentsDir, "does-not-exist-target.md"),
+      join(agentsDir, "dangling.md"),
+    );
+
+    await expect(
+      buildContentIndex(canonicalRoot, { userRoot }),
+    ).rejects.toThrow(/ENOENT/);
   });
 });

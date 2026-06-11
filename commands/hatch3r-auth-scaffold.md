@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-security]
 description: "Scaffold authentication boilerplate for a greenfield API service — OAuth 2.1 authorization-code-with-PKCE flow, OIDC ID-token validation, and hashed personal-access-token (PAT) issuance/verification. Implementer writes the code; hatch3r-security gates it against the CQ3 auth-depth floor."
+argument-hint: "[service-name]"
 tags: [implementation, security, floor:security, floor:content-quality]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -181,19 +182,7 @@ Run the project verification gates and record exit codes: `npm test` (or the pro
 
 ### End-of-Turn Delegation Attestation (Bypass Protection)
 
-Emit immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote each `Delegation proof ID` verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - src/auth/oauth/<file>: via hatch3r-implementer (proof: <delegation_proof_id>)
-  - src/auth/oidc/<file>: via hatch3r-implementer (proof: <delegation_proof_id>)
-  - src/auth/pat/<file>: via hatch3r-implementer (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: `src/auth/oauth/<file>`, `src/auth/oidc/<file>`, `src/auth/pat/<file>` — all `via hatch3r-implementer`.
 
 ### Iteration Summary (mandatory output)
 
@@ -233,13 +222,7 @@ Status decision rules:
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit at the start of every task-touching turn, per `rules/hatch3r-agent-orchestration.md`:
-
-```
-[hatch3r-pipeline: phase {1|2|3} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping: `1` = spec parse + confirm, `2` = implementer boilerplate generation, `3` = security gate + verify + summary. Tier 1 single-mode runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping: `1` = spec parse + confirm, `2` = implementer boilerplate generation, `3` = security gate + verify + summary. Tier 1 single-mode runs are exempt per the Tier 1 exemption.
 
 ---
 
@@ -256,14 +239,7 @@ Phase mapping: `1` = spec parse + confirm, `2` = implementer boilerplate generat
 
 auth-scaffold fans out one implementer per auth mode, so checkpoint at the per-mode boundary — an interrupted run re-enters at the first un-generated mode rather than regenerating completed OAuth/OIDC/PAT modules.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.auth-scaffold-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 1 → Step 5 progression), `wave` (the per-mode index in Step 3/4), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, generatedModes, securityGateVerdicts, implementerProofIds }`.
-2. **Write points:** after the Step 1 spec parse, after the Step 2 accept gate, after each Step 3 implementer return (per mode), and after each Step 4 security gate.
-3. **`--resume` invocation:** `hatch3r auth-scaffold --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed — re-run from scratch, since a stale spec must not gate fresh auth code. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of every `src/auth/**` file a Step 3 implementer or a Step 4 regeneration touches land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's generated auth code. Diff preview precedes every mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.auth-scaffold-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the per-mode index in Step 3/4; snapshot/rollback paths every `src/auth/**` file a Step 3 implementer or a Step 4 regeneration touches. Write points: after the Step 1 spec parse, after the Step 2 accept gate, after each Step 3 implementer return (per mode), and after each Step 4 security gate.
 
 ## References
 

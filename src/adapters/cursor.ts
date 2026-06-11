@@ -1,25 +1,35 @@
-// Last updated: 2026-05-28 (P3 platform-currency anchor; cursor.com/docs/hooks
+// Last updated: 2026-06-06 (P3 platform-currency anchor; cursor.com/docs/agent/hooks
 // + cursor.com/docs/agent/subagents access dates inside this file remain
 // authoritative for individual claims. D9-M1 Cycle 10 Wave-3 re-verified the
 // `readonly: true` subagent frontmatter primitive against the current
-// /docs/agent/subagents URL.).
+// /docs/agent/subagents URL. D9-4 Cycle 11 Wave-2 re-verified the full hook
+// lifecycle against cursor.com/docs/agent/hooks accessed 2026-06-06: the
+// `subagentStart` event carries `subagent_type` and returns
+// `{permission: "deny"}` to block an over-privileged agent at spawn — wired
+// to `.cursor/hooks/subagent-guard.mjs` as the hard runtime ASI02 block.).
 import type {
   AdapterOutput,
   CanonicalFile,
 } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
-import { readMaturityTier } from "../manifest/hatchJson.js";
+import {
+  readMaturityTier,
+  maturityDirective,
+  readConfidenceFloor,
+  confidenceFloorDirective,
+} from "../manifest/hatchJson.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
-import { sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
 import { applyCustomization } from "./customization.js";
-import { transformEnvVarSyntax } from "./mcp-utils.js";
+import { stripPrivateMcpFields, transformEnvVarSyntax } from "./mcp-utils.js";
 import { toCursorReadonlyFrontmatter } from "../pipeline/adapterToolTranslator.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import {
   buildAgentToolPoliciesJson,
   buildCursorAllowlistRule,
+  buildCursorSubagentGuardHookScript,
 } from "../pipeline/agentToolAllowlist.js";
 
 /**
@@ -44,14 +54,29 @@ import {
  * the tier shown here matches the content actually selected.
  */
 function cursorMaturityHeader(ctx: AdapterContext): string {
-  const tier = readMaturityTier(ctx.manifest);
-  return `<!-- hatch3r: right-size to maturity=${tier}. Invest only as deep as this tier needs; never default to enterprise-grade. Universal floor (security, correctness, a11y basics, baseline tests) always binds. See rules/hatch3r-right-sizing.md. -->`;
+  // D6-29 (Cycle 11 Wave 3): wrap the shared directive payload (single source in
+  // hatchJson.ts::maturityDirective) in an HTML comment so it renders invisibly
+  // in Cursor's rule view while staying greppable for drift checks.
+  return `<!-- ${maturityDirective(readMaturityTier(ctx.manifest))} -->`;
+}
+
+/**
+ * D1-17 (Cycle 11 Wave 3, D1, P1): per-rule confidence-floor marker, the
+ * agent-assertiveness analog of {@link cursorMaturityHeader}. Wraps the shared
+ * `confidenceFloorDirective` payload (single source in hatchJson.ts) in an HTML
+ * comment — same invisible-render + greppable design as the maturity header —
+ * so the resolved floor ({@link readConfidenceFloor}: explicit `confidenceFloor`
+ * else the maturity-aware default) travels with each generated rule. Pre-fix the
+ * persisted floor reached no adapter output.
+ */
+function cursorConfidenceFloorHeader(ctx: AdapterContext): string {
+  return `<!-- ${confidenceFloorDirective(readConfidenceFloor(ctx.manifest))} -->`;
 }
 
 /**
  * D9-H-4 (Cycle 10 D9, Pillar P3): canonical hook event → Cursor 1.7+
  * `hooks.json` lifecycle event (camelCase taxonomy per
- * https://cursor.com/docs/hooks accessed 2026-05-27).
+ * https://cursor.com/docs/agent/hooks accessed 2026-06-06).
  *
  * Cursor's hook surface runs a shell `command` and reads a permission
  * decision (`{permission: allow|deny|ask}`) — it does NOT spawn an agent.
@@ -60,8 +85,19 @@ function cursorMaturityHeader(ctx: AdapterContext): string {
  * directive on stdout and the `.cursor/rules/hook-*.mdc` rule (still
  * emitted below) carries the actual agent-spawn instruction. Events with
  * no Cursor lifecycle equivalent (`post-merge`, `ci-failure`,
- * `worktree-create`, `worktree-remove`) are absent from this map and fall
- * through to the `.mdc` fallback only.
+ * `worktree-create`, `worktree-remove`, `review-loop-cap`) are absent from
+ * this map and fall through to the `.mdc` fallback only.
+ *
+ * D9-15 (Cycle 11 Wave 3, D9, P6): `review-loop-cap` is advisory-only on
+ * Cursor by decision, not omission. The fixer-spawn iteration gate needs the
+ * orchestrator's per-issue `.review-loop.json` counter context, which no
+ * Cursor hook payload carries; the closest pre-tool event is `preToolUse`
+ * (its payload exposes no agent-identity field — cursor.com/docs/agent/hooks
+ * accessed 2026-06-09 — so it cannot bind to a fixer-spawn), and `subagentStart`
+ * is already the ASI02 NO_POLICY hard-deny boundary that fires at every spawn
+ * without the loop counter. Cursor therefore matches the Copilot downgrade:
+ * the `.mdc` advisory rule, not a `hooks.json` runtime gate. The canonical
+ * `hooks/hatch3r-review-loop-cap.md` Event Mapping records the same decision.
  */
 interface CursorHookMapping {
   /** Cursor lifecycle event name. */
@@ -107,19 +143,51 @@ function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): str
   const lines: string[] = [`description: ${rule.description}`];
   if (scope === "always") {
     lines.push("alwaysApply: true");
-  } else if (scope) {
-    const globs = scope.includes(",")
-      ? scope.split(",").map((g) => g.trim())
-      : [scope];
-    lines.push(`globs: [${globs.map((g) => `"${g}"`).join(", ")}]`);
   } else {
-    lines.push("alwaysApply: false");
+    // X4/CD4 (D6-1/D9-1/D11-1 — GLOBS DROP): resolve the real glob set via
+    // the shared helper. For `scope: conditional` rules the patterns live in
+    // the canonical `globs:` field; the previous `scope.split(",")` derived
+    // globs from `scope` alone and emitted `globs: ["conditional"]`, which
+    // never matched any file so the rule never auto-attached. An empty set
+    // (unconditional rule, `scope` absent, or `scope: agent-requested`) falls
+    // back to `alwaysApply: false`. For `agent-requested` this IS the intended
+    // Cursor "Apply Intelligently" shape — `description:` present + no `globs:`
+    // + `alwaysApply: false` — where the agent pulls the rule in by description
+    // (cursor.com/docs/context/rules, accessed 2026-06-09; D5-28).
+    const globs = resolveRuleGlobs(rule, { scope: scopeOverride });
+    if (globs.length > 0) {
+      // D9-13 (Cycle 11 Wave 3, D9, P3): emit `globs:` as an unquoted
+      // comma-separated string, NOT a YAML/JSON array. cursor.com/docs/context/rules
+      // (accessed 2026-06-06) documents `globs` only as a comma-separated string
+      // (e.g. `docs/**/*.md, docs/**/*.mdx`); the bracketed-array form is
+      // undocumented and Cursor staff have not confirmed it auto-attaches
+      // (forum.cursor.com/t/correct-way-to-specify-rules-globs/71752, Colin reply,
+      // accessed 2026-06-06), so the prior array emission risked the rule silently
+      // never attaching. The join uses NO space after the comma: the same forum
+      // thread (KyleM reply) reports a space after the comma silently breaks glob
+      // matching, so `a,b` attaches but `a, b` does not.
+      lines.push(`globs: ${globs.join(",")}`);
+    } else {
+      lines.push("alwaysApply: false");
+    }
   }
   return `---\n${lines.join("\n")}\n---`;
 }
 
-function mdcOutput(path: string, frontmatter: string, body: string): AdapterOutput {
-  return output(path, `${frontmatter}\n\n${wrapManagedFor(path, body)}`, body);
+function mdcOutput(path: string, frontmatter: string, body: string, sourceFiles?: string[]): AdapterOutput {
+  return output(path, `${frontmatter}\n\n${wrapManagedFor(path, body)}`, body, sourceFiles);
+}
+
+/**
+ * D12-1 (Cycle 11 Wave 2, D12, P2): single-canonical-source attribution for a
+ * per-file Cursor output (one rule `.mdc`, one agent `.md`). Returns
+ * `[file.sourcePath]` so the output self-attributes to its one canonical input
+ * instead of inheriting the adapter-wide read set in `BaseAdapter.generate`;
+ * `undefined` for a synthesised fixture whose `sourcePath` is empty (falls back
+ * to the broad set rather than a `[""]` row).
+ */
+function cursorSingleSource(file: CanonicalFile): string[] | undefined {
+  return file.sourcePath ? [file.sourcePath] : undefined;
 }
 
 export class CursorAdapter extends BaseAdapter {
@@ -155,13 +223,15 @@ export class CursorAdapter extends BaseAdapter {
         const substituted = this.substituteDetectedRepoTokens(rawContent, ctx);
         // F14.3-H2 (D14, P3): prepend the per-tier maturity header so the
         // declared tier travels with each rule body (was byte-identical
-        // across tiers before).
-        const content = `${cursorMaturityHeader(ctx)}\n\n${substituted}`;
+        // across tiers before). D1-17 (D1, P1): also prepend the resolved
+        // confidence-floor marker so the configured agent-assertiveness floor
+        // reaches the generated artifact (was a write-only config key).
+        const content = `${cursorMaturityHeader(ctx)}\n${cursorConfidenceFloorHeader(ctx)}\n\n${substituted}`;
         const desc = overrides.description ?? rule.description;
         const ruleWithDesc = { ...rule, description: desc };
         const nn = precedenceRank(rule.precedence) / 10;
         const baseName = `${nn}-${toPrefixedId(rule.id)}.mdc`;
-        results.push(mdcOutput(`.cursor/rules/${baseName}`, cursorRuleFrontmatter(ruleWithDesc, overrides.scope), content));
+        results.push(mdcOutput(`.cursor/rules/${baseName}`, cursorRuleFrontmatter(ruleWithDesc, overrides.scope), content, cursorSingleSource(rule)));
       }
     }
 
@@ -194,7 +264,7 @@ export class CursorAdapter extends BaseAdapter {
         if (effectiveReadonly) lines.push("readonly: true");
         if (agent.background) lines.push("is_background: true");
         const fm = `---\n${lines.join("\n")}\n---`;
-        results.push(mdcOutput(`.cursor/agents/${prefixedId}.md`, fm, content));
+        results.push(mdcOutput(`.cursor/agents/${prefixedId}.md`, fm, content, cursorSingleSource(agent)));
       }
     }
 
@@ -234,14 +304,32 @@ export class CursorAdapter extends BaseAdapter {
       // sentry, postgres, linear, azure-devops, gitlab). The canonical
       // MCP fixture already uses `${env:VAR}` form, so "passthrough"
       // keeps it byte-identical to Cursor's required syntax.
-      const transformed = transformEnvVarSyntax(mcp, "passthrough") as Record<string, Record<string, unknown>>;
+      //
+      // D2-13 (Cycle 11 Wave 3, D2, P6): strip every `_`-prefixed framework
+      // marker per entry before emission. `readFilteredMcp` removes only
+      // `_disabled`/`_description`, so without this the endpoint-pin opt-out
+      // (`_pinned_sha256`/`_trust_bypass`) and `_timeout` leaked verbatim into
+      // the committed `.cursor/mcp.json` (claude.ts already destructures them
+      // out — this closes the adapter inconsistency at the shared helper).
+      const cleaned: Record<string, Record<string, unknown>> = {};
+      for (const [name, entry] of Object.entries(mcp)) {
+        cleaned[name] = stripPrivateMcpFields(entry);
+      }
+      const transformed = transformEnvVarSyntax(cleaned, "passthrough") as Record<string, Record<string, unknown>>;
+      // D15-27 (Cycle 11 Wave 3, D15, P3/P6, SA15.5-F6): no top-level
+      // `protocolVersion` here. The MCP forward-pin is Claude-only by SCHEMA
+      // CONSTRAINT, not omission — Cursor's `.cursor/mcp.json` top level is
+      // `mcpServers` only (cursor.com/docs/mcp, accessed 2026-06-09), so a
+      // sibling `protocolVersion` would be an unknown key. The shared rationale
+      // and the Claude-side emission contrast live at
+      // `MCP_DEFAULT_PROTOCOL_VERSION` in mcp-utils.ts.
       results.push(output(".cursor/mcp.json", JSON.stringify({ mcpServers: transformed }, null, 2)));
     }
 
     // D9-H-4 (D9, P3): Cursor 1.7+ exposes a native hook surface at
     // `.cursor/hooks.json` (version 1, camelCase lifecycle events,
-    // `{permission: allow|deny|ask}` outputs — cursor.com/docs/hooks
-    // accessed 2026-05-27). Cursor hooks run a shell `command` and read a
+    // `{permission: allow|deny|ask}` outputs — cursor.com/docs/agent/hooks
+    // accessed 2026-06-06). Cursor hooks run a shell `command` and read a
     // permission decision; they do NOT spawn agents, and hatch3r hooks
     // carry an `agent:` to activate rather than a script. So we emit BOTH:
     //   1. `.cursor/hooks.json` — wires each mappable canonical event
@@ -255,9 +343,14 @@ export class CursorAdapter extends BaseAdapter {
     const hooksJsonEvents: Record<string, Array<Record<string, unknown>>> = {};
     for (const hook of hookResults) {
       const globs = hook.condition?.globs || [];
+      // D9-13 (Cycle 11 Wave 3, D9, P3): same Cursor `globs:` contract as
+      // `cursorRuleFrontmatter` above — unquoted comma-separated string with NO
+      // space after the comma (cursor.com/docs/context/rules accessed 2026-06-06;
+      // the bracketed-array form is undocumented and the comma-space form silently
+      // fails to auto-attach), so the hook→rule shim attaches on the scoped files.
       const globLine =
         globs.length > 0
-          ? `globs: [${globs.map((g: string) => `"${g}"`).join(", ")}]`
+          ? `globs: ${globs.join(",")}`
           : "alwaysApply: false";
       const fm = `---\ndescription: "Hook: ${hook.description}"\n${globLine}\n---`;
       const body = `# Hook: ${hook.id}\n\n**Event:** ${hook.event}\n**Agent:** ${hook.agent}\n\n${hook.description}\n\nHATCH3R_HOOK_ACTIVATED: When this hook's event (${hook.event}) is triggered${globs.length > 0 ? ` for files matching ${globs.join(", ")}` : ""}, you MUST spawn the ${hook.agent} agent now. Read and follow the ${hook.agent} agent protocol in \`.cursor/agents/${toPrefixedId(hook.agent)}.md\`.`;
@@ -269,24 +362,31 @@ export class CursorAdapter extends BaseAdapter {
         (hooksJsonEvents[mapping.event] ??= []).push(entry);
       }
     }
-    if (Object.keys(hooksJsonEvents).length > 0) {
-      const hooksJson = { version: 1, hooks: hooksJsonEvents };
-      results.push(output(".cursor/hooks.json", JSON.stringify(hooksJson, null, 2) + "\n"));
-    }
+    // D9-4 (Cycle 11 D9, P6): the `.cursor/hooks.json` write is deferred to
+    // after the ASI02 `subagentStart` guard entry is injected below, so the
+    // hard runtime block always ships alongside any lifecycle-event wiring.
 
-    // C9-H49 (D15-SA15.2, P6): emit the per-adapter MCP / tool gating
-    // artifacts. Cursor 1.7+ exposes a `preToolUse` hook in
-    // `.cursor/hooks.json` (cursor.com/docs/hooks accessed 2026-05-27),
-    // but it gates tool calls by running a shell command per event rather
-    // than by per-agent allowlist — there is no native primitive that maps
-    // a hatch3r agent id to its permitted tool categories. So per-agent
-    // ASI02 enforcement stays rule-delegated: an alwaysApply rule plus a
-    // machine-readable `agents-policy.json` document. Pairs with the
-    // `readonly: true` frontmatter primitive already emitted by
-    // `toCursorReadonlyFrontmatter` for agents whose policy lacks both
-    // `write` and `execute`. (Lifecycle-event wiring — pre-commit, file-save,
-    // session-start — IS emitted natively to `.cursor/hooks.json` above
-    // per D9-H-4.)
+    // D9-4 (Cycle 11 D9, P6/P3): emit the per-adapter MCP / tool gating
+    // artifacts. Cursor's `preToolUse` hook payload (cursor.com/docs/agent/hooks
+    // accessed 2026-06-06) carries `tool_name`/`tool_input`/`tool_use_id`/
+    // `cwd`/`model`/`agent_message` but NO agent-identity field, so a
+    // per-tool-CATEGORY deny cannot bind to the active hatch3r agent there —
+    // category granularity stays rule-delegated (alwaysApply rule +
+    // machine-readable `agents-policy.json`) and the `readonly: true`
+    // frontmatter primitive (emitted by `toCursorReadonlyFrontmatter` for
+    // agents whose policy lacks both `write` and `execute`) is the hard
+    // write/execute guard.
+    //
+    // The agent-IDENTITY gate that `preToolUse` cannot serve is bound at the
+    // `subagentStart` event, which DOES expose `subagent_type` + `subagent_id`
+    // and returns `{permission: "deny"}` to block a subagent at spawn. That
+    // closes the prior gap (a Cursor over-privileged agent had no hard runtime
+    // block at parity with the Claude PreToolUse deny gate): the
+    // `.cursor/hooks/subagent-guard.mjs` script (built below, mirrors
+    // `buildClaudePreToolUseHookScript`) reads `agents-policy.json` and denies
+    // any `hatch3r-*` subagent with no policy row (NO_POLICY), the Cursor
+    // analog of the Claude NO_POLICY deny. It is wired into the `subagentStart`
+    // event of `.cursor/hooks.json` below.
     const allowlistFm = `---\ndescription: Per-agent tool allowlist (ASI02). Enforced by the Cursor agent runtime — out-of-policy tool calls must be refused.\nalwaysApply: true\n---`;
     results.push(mdcOutput(
       ".cursor/rules/hatch3r-tool-allowlist.mdc",
@@ -297,6 +397,26 @@ export class CursorAdapter extends BaseAdapter {
       ".cursor/agents-policy.json",
       buildAgentToolPoliciesJson(),
     ));
+
+    // D9-4 (Cycle 11 D9, P6): emit the `subagentStart` deny hook — the hard
+    // runtime ASI02 block for Cursor, at parity with the Claude PreToolUse
+    // NO_POLICY deny. The script lives under `.cursor/hooks/` and resolves the
+    // sibling policy doc at `../agents-policy.json`; it is wired into the
+    // `subagentStart` event with `failClosed: true` so a crash/timeout blocks
+    // the spawn rather than failing open (cursor.com/docs/agent/hooks accessed
+    // 2026-06-06). Emitted regardless of `features.rules` — the guard is a
+    // trust artifact, identical posture to the allowlist rule above.
+    results.push(output(
+      ".cursor/hooks/subagent-guard.mjs",
+      buildCursorSubagentGuardHookScript(),
+    ));
+    (hooksJsonEvents.subagentStart ??= []).push({
+      type: "command",
+      command: "node ./.cursor/hooks/subagent-guard.mjs",
+      failClosed: true,
+    });
+    const hooksJson = { version: 1, hooks: hooksJsonEvents };
+    results.push(output(".cursor/hooks.json", JSON.stringify(hooksJson, null, 2) + "\n"));
 
     const bridgeFm = `---
 description: Bridge to canonical agent instructions and mandatory orchestration directives

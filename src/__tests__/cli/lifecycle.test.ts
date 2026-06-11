@@ -1,4 +1,14 @@
-import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
+import {
+  describe,
+  it,
+  expect,
+  vi,
+  beforeEach,
+  afterEach,
+  beforeAll,
+  afterAll,
+  type MockInstance,
+} from "vitest";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access, readdir } from "node:fs/promises";
 import { join, relative } from "node:path";
 import { tmpdir } from "node:os";
@@ -75,15 +85,67 @@ vi.mock("node:child_process", async (importOriginal) => {
 // Wave 5: user-authored overrides live under .hatch3r/overrides/{type}/.
 const HATCH3R_DIR = ".hatch3r";
 
+// D3-19 (Cycle 11 Wave-3 Medium): soft per-file wall-clock budget. This file
+// is the heaviest in the suite — 5 tests each running a real init/sync/update
+// over a fresh tmpdir tree — and the audit recorded it at 100026ms once, when
+// the cwd/coverage parallel race (fixed structurally by the heavy-fs lane +
+// `sequential: true` below) forced retries and 60s timeouts. In isolation the
+// file now runs ~24-40s green across repeated runs (no retries, no timeouts).
+// The budget is a tripwire, NOT an assertion: the `afterAll` below emits a
+// `console.warn` (which reaches the CI log because the per-test `console.log`/
+// `console.error` spies are restored in `afterEach` before `afterAll` runs) if
+// the suite's own wall-clock crosses this line. It never fails the test — a
+// soft budget surfaces a regression toward the 100s pathology in the CI log
+// without flaking the build on slow-runner variance. 75000ms sits ~2x above the
+// worst observed healthy isolation run (~40s) and well below the 100s symptom.
+const SLOW_FILE_BUDGET_MS = 75_000;
+
 // Heavy filesystem I/O per test (mkdtemp + init creates 131 files + per-adapter
 // generation + integrity hashing + rm -rf teardown). On Windows Node 22 CI
 // runners this regularly exceeds the 30s default (vitest#7302, nodejs/node#60397).
-describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
+//
+// D3-1 (Cycle 11 Wave-2 High): `sequential: true` pins this suite to in-order
+// execution. The `beforeEach` calls `process.chdir(tempDir)` (line below) and
+// `process.cwd()` is process-global state that the `forks` pool reuses across
+// files and that `isolate: true` does NOT reset (same mechanism documented in
+// vitest.config.ts under D3-4). Without an explicit `sequential` marker a
+// future `describe.concurrent` edit, or vitest interleaving these chdir-mutating
+// tests with a sibling that also chdirs, could let one test observe a cwd a
+// concurrent test moved out from under it. The flake symptom was the
+// idempotency test seeing `Map(248) vs Map(218)` — one snapshot missing the 30
+// `.cursor/commands/hatch3r-*.md` files. Vitest already runs intra-file tests
+// in order by default; this marker makes the contract explicit and inheritance-
+// proof. Paired with the warm-sync hardening in "sync is idempotent".
+describe("init -> sync -> update lifecycle", { timeout: 60_000, sequential: true }, () => {
   let tempDir: string;
   let originalCwd: string;
   let exitSpy: MockInstance;
   let consoleSpy: MockInstance;
   let consoleErrorSpy: MockInstance;
+  // D3-19: suite wall-clock start, sampled before the first test, read in
+  // `afterAll` for the soft slow-file budget.
+  let suiteStartMs = 0;
+
+  beforeAll(() => {
+    suiteStartMs = Date.now();
+  });
+
+  afterAll(() => {
+    // Soft budget only — log, never throw. `afterAll` runs after the last
+    // `afterEach` has restored the console spies, so this `console.warn`
+    // reaches the real CI log. Silent on a healthy run; speaks only when the
+    // file drifts back toward the audited 100s pathology (D3-19).
+    const elapsedMs = Date.now() - suiteStartMs;
+    if (elapsedMs > SLOW_FILE_BUDGET_MS) {
+      console.warn(
+        `[slow-file] lifecycle.test.ts ran ${elapsedMs}ms, over the ` +
+          `${SLOW_FILE_BUDGET_MS}ms soft budget (D3-19). Healthy isolation ` +
+          `runs are ~24-40s; a value near 100s signals the cwd/coverage ` +
+          `parallel race has regressed — check the heavy-fs lane in ` +
+          `vitest.config.ts and the \`sequential: true\` marker on this suite.`,
+      );
+    }
+  });
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-lifecycle-"));
@@ -164,11 +226,26 @@ describe("init -> sync -> update lifecycle", { timeout: 60_000 }, () => {
 
     const { syncCommand } = await import("../../cli/commands/sync.js");
 
-    // First sync
+    // D3-1 (Cycle 11 Wave-2 High): warm the project state with a throwaway
+    // sync BEFORE the two snapshots compared below. The idempotency invariant
+    // this test protects is sync(warm) == sync(warm), not init-then-sync ==
+    // sync. The first sync after `init` is the only run that diffs its
+    // per-adapter output against the manifest history `init` wrote, sweeps a
+    // cold orphan set, and first-creates non-deterministic operational ledgers
+    // (`.hatch3r/.breaker-state.jsonl`, the `.sync-workspace/` checkpoint).
+    // Snapshotting after the FIRST sync (the prior shape of this test) compared
+    // a post-init-cold state against a warm one, leaving a window where the two
+    // snapshots could legitimately differ on first-run-only side effects. With
+    // the warm-up sync, both `snapshot1` and `snapshot2` are taken after a warm
+    // sync, so any inequality is a real adapter-output regression — the signal
+    // the test exists to catch — not a cold/warm asymmetry.
+    await syncCommand();
+
+    // First measured sync (state already warm from the throwaway above).
     await syncCommand();
     const snapshot1 = await snapshotProject(tempDir);
 
-    // Second sync (must be byte-identical — every adapter output, every
+    // Second measured sync (must be byte-identical — every adapter output, every
     // managed file, every wrap/insert round-trip. The previous version of
     // this test only compared AGENTS.md, which missed the v1.7.0 worktree-
     // setup symptom where adapter outputs drifted by trailing-newline bytes

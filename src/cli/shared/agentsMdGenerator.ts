@@ -9,8 +9,17 @@ import { readDirFiles, readSkillDirs } from "./agentsContentShared.js";
  * No behavior change — bodies moved verbatim; the shared filesystem readers
  * are now imported from `agentsContentShared.ts`.
  *
- * Wave 4: kept for back-compat with external tooling/tests. Sync paths no
- * longer emit a root AGENTS.md (W3). Paths reflect the claude-adapter shape;
+ * Retention status (D1-28, Cycle 11): these four exports have no production
+ * caller. Sync/config paths no longer emit a root AGENTS.md (Cycle-10 W3); the
+ * only sync-path importer, `src/adapters/base.ts`, imports `generateBridge-
+ * Orchestration` from the sibling `bridgeOrchestration.ts`, not these. The
+ * package publishes only a `bin` (no `main`/`exports` in package.json), so no
+ * external tool can `import` them either — the prior "external tooling"
+ * rationale was incorrect. They are retained because the barrel
+ * `agentsContent.ts` re-exports them under a surface-pin test
+ * (`agentsContent.test.ts`) and per-module behavioral coverage exercises the
+ * real bodies (`agentsMdGenerator.test.ts`); `config.test.ts` asserts the
+ * sync path never calls them. Paths reflect the claude-adapter shape;
  * adapter-specific call sites should prefer their own bridge file content.
  */
 export const AGENTS_MD_INNER = [
@@ -32,10 +41,11 @@ export const AGENTS_MD_FULL = wrapInManagedBlock(AGENTS_MD_INNER);
 /**
  * Generate a rich root-level AGENTS.md from what's on disk.
  *
- * Wave 4: sync paths no longer emit a root AGENTS.md; this helper is kept
- * exported for back-compat with external tooling and tests. The output now
- * names per-adapter native paths (`.claude/`, `.cursor/`, `.github/`) rather
- * than the removed `.agents/` tree.
+ * Wave 4: sync paths no longer emit a root AGENTS.md; this helper has no
+ * production caller and is kept exported only for the barrel surface-pin and
+ * per-module coverage tests (see the module-header retention note). The output
+ * now names per-adapter native paths (`.claude/`, `.cursor/`, `.github/`)
+ * rather than the removed `.agents/` tree.
  *
  * The content is wrapped in a managed block so user-added content outside the
  * block is preserved across syncs.
@@ -120,8 +130,10 @@ export async function generateRootAgentsMd(agentsDir: string): Promise<{ full: s
 
 /**
  * Generate canonical AGENTS.md content based on the bundled canonical
- * content tree. Wave 4: kept exported for back-compat with external tooling
- * and tests; sync paths no longer emit a root or `.agents/` AGENTS.md.
+ * content tree. Wave 4: sync paths no longer emit a root or `.agents/`
+ * AGENTS.md, so this helper has no production caller; it is kept exported only
+ * for the barrel surface-pin and per-module coverage tests (see the
+ * module-header retention note).
  */
 export async function generateCanonicalAgentsMd(agentsDir: string): Promise<string> {
   const sections: string[] = [];

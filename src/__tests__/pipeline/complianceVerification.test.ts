@@ -4,6 +4,7 @@ import {
   formatComplianceReport,
   detectResilienceInvocations,
   verifyMonotonicPrivilege,
+  type EnforcementClass,
 } from "../../pipeline/complianceVerification.js";
 import { ALL_TOOL_CATEGORIES } from "../../pipeline/agentToolAllowlist.js";
 
@@ -83,6 +84,53 @@ describe("complianceVerification", () => {
       expect(hashCheck!.description).toMatch(/self-test|contract is intact/);
     });
 
+    // D15-21: the content-safety-patterns check must EARN its pass via a
+    // scanForDeniedPatterns self-test over a malicious + clean fixture, not the
+    // prior hard-coded tautology. Guard against regression to the static string.
+    it("content-safety-patterns is de-tautologized: pass is earned by a deny-pattern self-test", async () => {
+      const report = await runComplianceChecks();
+      const check = report.checks.find((c) => c.id === "content-safety-patterns");
+      expect(check).toBeDefined();
+      expect(check!.status).toBe("pass");
+      // The old tautological detail must be gone.
+      expect(check!.detail).not.toBe(
+        "Deny patterns cover prompt injection, code execution, exfiltration, and credential exposure",
+      );
+      // The detail now describes the self-test.
+      expect(check!.detail).toMatch(/self-test|prompt-injection probe is flagged/);
+      expect(check!.description).toMatch(/self-test|flag injection/);
+    });
+
+    // D15-21: the mcp-input-boundary check must EARN its pass by round-tripping a
+    // poisoned MCP entry through scanMcpServers and asserting _description is
+    // stripped, not the prior hard-coded tautology.
+    it("mcp-input-boundary is de-tautologized: pass is earned by a poisoned-entry round-trip", async () => {
+      const report = await runComplianceChecks();
+      const check = report.checks.find((c) => c.id === "mcp-input-boundary");
+      expect(check).toBeDefined();
+      expect(check!.status).toBe("pass");
+      expect(check!.detail).not.toBe(
+        "MCP-specific injection patterns and tool delimiter detection enabled",
+      );
+      expect(check!.detail).toMatch(/self-test|poisoned _description is flagged|stripped/);
+      expect(check!.description).toMatch(/self-test|flag and strip/);
+    });
+
+    // D15-21: the mcp-integrity-coverage check must EARN its pass by asserting the
+    // timeout bounds are in range and `_`-prefixed integrity markers are stripped,
+    // not the prior hard-coded tautology.
+    it("mcp-integrity-coverage is de-tautologized: pass is earned by a timeout-bound + strip self-test", async () => {
+      const report = await runComplianceChecks();
+      const check = report.checks.find((c) => c.id === "mcp-integrity-coverage");
+      expect(check).toBeDefined();
+      expect(check!.status).toBe("pass");
+      expect(check!.detail).not.toBe(
+        "Integrity scans include mcp/ directory (.json files). MCP timeout configurable per-server (default: 30s, max: 5m)",
+      );
+      expect(check!.detail).toMatch(/self-test|markers .*stripped|timeout bounds in range/);
+      expect(check!.description).toMatch(/self-test|stripped \+ timeout bounded/);
+    });
+
     it("should include least privilege check", async () => {
       const report = await runComplianceChecks();
       const lpCheck = report.checks.find((c) => c.id === "asi02-least-privilege");
@@ -157,6 +205,58 @@ describe("complianceVerification", () => {
       const lines = formatComplianceReport(report);
       const joined = lines.join("\n");
       expect(joined).not.toContain("NON-COMPLIANT");
+    });
+
+    // D15-4: the report mirrors the Enforcement column of the
+    // Control-to-Trust Mapping so a library contract is never read as a live
+    // CLI gate. Each rendered check line carries its enforcement class.
+    it("mirrors the enforcement class into every rendered check line", async () => {
+      const report = await runComplianceChecks();
+      const lines = formatComplianceReport(report);
+      const checkLines = lines.filter(
+        (l) => l.includes("[PASS]") || l.includes("[FAIL]") || l.includes("[WARN]"),
+      );
+      expect(checkLines.length).toBe(report.checks.length);
+      for (const line of checkLines) {
+        expect(line).toMatch(
+          /\((runtime-CLI|setup-time-shape-check|library-contract-for-downstream|prompt-directive)\)/,
+        );
+      }
+    });
+  });
+
+  // D15-4: every compliance check declares an enforcement class, and the
+  // library-only controls (reviewLoop, diffHash — both @library_export_only with
+  // 0 CLI importers) are not mislabeled as runtime-CLI gates.
+  describe("D15-4: enforcement classification", () => {
+    const VALID: ReadonlyArray<EnforcementClass> = [
+      "runtime-CLI",
+      "setup-time-shape-check",
+      "library-contract-for-downstream",
+      "prompt-directive",
+    ];
+
+    it("assigns a valid enforcement class to every check", async () => {
+      const report = await runComplianceChecks();
+      for (const check of report.checks) {
+        expect(VALID, `enforcement for ${check.id}`).toContain(check.enforcement);
+      }
+    });
+
+    it("classifies the @library_export_only controls as library-contract-for-downstream", async () => {
+      const report = await runComplianceChecks();
+      const reviewLoop = report.checks.find((c) => c.id === "review-loop-limit");
+      const diffHash = report.checks.find((c) => c.id === "diff-hash-verify");
+      expect(reviewLoop?.enforcement).toBe("library-contract-for-downstream");
+      expect(diffHash?.enforcement).toBe("library-contract-for-downstream");
+    });
+
+    it("classifies CLI-wired controls as runtime-CLI", async () => {
+      const report = await runComplianceChecks();
+      const asi07 = report.checks.find((c) => c.id === "asi07-phase-schemas");
+      const pipelineTimeout = report.checks.find((c) => c.id === "pipeline-timeout");
+      expect(asi07?.enforcement).toBe("runtime-CLI");
+      expect(pipelineTimeout?.enforcement).toBe("runtime-CLI");
     });
   });
 

@@ -7,7 +7,7 @@ vi.mock("../../worktree/resolve.js", () => ({
   isInsideWorktree: vi.fn(() => false),
   findMainWorktree: vi.fn(() => "/fake/main"),
   listWorktrees: vi.fn((): WorktreeListEntry[] => []),
-  getWorktreeStatus: vi.fn((): WorktreeStatus => ({ modified: 0, untracked: 0, stashes: 0 })),
+  getWorktreeStatus: vi.fn((): WorktreeStatus => ({ modified: 0, untracked: 0 })),
 }));
 
 vi.mock("../../worktree/index.js", async (importOriginal) => {
@@ -22,6 +22,26 @@ vi.mock("../../worktree/index.js", async (importOriginal) => {
 vi.mock("inquirer", () => ({
   default: { prompt: vi.fn(async () => ({})) },
 }));
+
+// D1-13 (Cycle 11 Wave 2): worktreeCleanup canonicalizes the not-inside-worktree
+// main root via `realpathSync.native`. Mock `node:fs` so the test controls that
+// canonicalization (macOS `/var` → `/private/var`, Windows 8.3 → long form)
+// while preserving the rest of the module. The map drives the `.native` mock; a
+// path with no mapping is returned as-is (identity), matching realpath's no-op on
+// an already-canonical path.
+const REALPATH_NATIVE_MAP = new Map<string, string>();
+vi.mock("node:fs", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("node:fs")>();
+  return {
+    ...actual,
+    realpathSync: Object.assign(
+      (p: string) => actual.realpathSync(p),
+      {
+        native: (p: string) => REALPATH_NATIVE_MAP.get(p) ?? p,
+      },
+    ),
+  };
+});
 
 const MAIN = "/fake/main";
 const W1 = `${MAIN}/.worktrees/feat-a`;
@@ -68,7 +88,7 @@ describe("worktreeCleanupCommand", () => {
     isInsideWorktree.mockReset().mockReturnValue(false);
     findMainWorktree.mockReset().mockReturnValue(MAIN);
     listWorktrees.mockReset().mockReturnValue([]);
-    getWorktreeStatus.mockReset().mockReturnValue({ modified: 0, untracked: 0, stashes: 0 });
+    getWorktreeStatus.mockReset().mockReturnValue({ modified: 0, untracked: 0 });
     cleanupWorktree.mockReset().mockResolvedValue(undefined);
     removeGitWorktree.mockReset();
 
@@ -79,6 +99,7 @@ describe("worktreeCleanupCommand", () => {
     const cmdModule = await import("../../cli/commands/worktreeCleanup.js");
     worktreeCleanupCommand = cmdModule.worktreeCleanupCommand;
 
+    REALPATH_NATIVE_MAP.clear();
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
     vi.spyOn(process, "cwd").mockReturnValue(MAIN);
@@ -120,6 +141,34 @@ describe("worktreeCleanupCommand", () => {
     expect(cleanupWorktree).toHaveBeenCalledTimes(2);
     expect(cleanupWorktree).toHaveBeenCalledWith(W1);
     expect(cleanupWorktree).toHaveBeenCalledWith(WOTHER);
+  });
+
+  // D1-13 (Cycle 11 Wave 2): when cwd is the main repo expressed in a
+  // non-canonical form (macOS `/var/...` vs git's `/private/var/...`), the prior
+  // code returned the raw cwd as `mainRoot`, so `partition()` never matched it
+  // against the canonicalized path git emits and mis-classified the MAIN repo as
+  // a cleanable candidate. With the realpath fix on the not-inside-worktree
+  // branch, the main repo is correctly identified and never offered for cleanup.
+  it("canonicalizes a non-canonical main cwd so the main repo is not a candidate", async () => {
+    const RAW_MAIN = "/var/fake/main";
+    const CANON_MAIN = "/private/var/fake/main";
+    REALPATH_NATIVE_MAP.set(RAW_MAIN, CANON_MAIN);
+    isInsideWorktree.mockReturnValue(false);
+    vi.spyOn(process, "cwd").mockReturnValue(RAW_MAIN);
+    // git porcelain emits the canonical main path + one managed worktree under it.
+    listWorktrees.mockReturnValue([
+      entry(CANON_MAIN, "main"),
+      entry(`${CANON_MAIN}/.worktrees/feat-a`, "feat-a"),
+    ]);
+
+    await worktreeCleanupCommand({ all: true });
+
+    // Only the managed worktree is cleaned; the main repo is excluded.
+    expect(cleanupWorktree).toHaveBeenCalledTimes(1);
+    expect(cleanupWorktree).toHaveBeenCalledWith(`${CANON_MAIN}/.worktrees/feat-a`);
+    expect(cleanupWorktree).not.toHaveBeenCalledWith(CANON_MAIN);
+    // listWorktrees must be queried against the canonical main, not the raw cwd.
+    expect(listWorktrees).toHaveBeenCalledWith(CANON_MAIN);
   });
 
   it("refuses when cwd is inside a candidate worktree", async () => {
@@ -177,7 +226,7 @@ describe("worktreeCleanupCommand", () => {
     (process.stdin as { isTTY?: boolean }).isTTY = true;
     listWorktrees.mockReturnValue([entry(MAIN, "main"), entry(W1, "feat-a")]);
     getWorktreeStatus.mockImplementation((p: string) =>
-      p === W1 ? { modified: 3, untracked: 1, stashes: 0 } : { modified: 0, untracked: 0, stashes: 0 },
+      p === W1 ? { modified: 3, untracked: 1 } : { modified: 0, untracked: 0 },
     );
     inquirerPrompt
       .mockResolvedValueOnce({ mode: "all" })
@@ -190,7 +239,7 @@ describe("worktreeCleanupCommand", () => {
 
   it("--yes bypasses the dirty confirmation", async () => {
     listWorktrees.mockReturnValue([entry(MAIN, "main"), entry(W1, "feat-a")]);
-    getWorktreeStatus.mockReturnValue({ modified: 5, untracked: 0, stashes: 2 });
+    getWorktreeStatus.mockReturnValue({ modified: 5, untracked: 0 });
 
     await worktreeCleanupCommand({ yes: true });
 

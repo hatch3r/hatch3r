@@ -1,14 +1,19 @@
 import { access, readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
 import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
+import { hashEmittedContent } from "../../manifest/provenance.js";
 import { getAdapter } from "../../adapters/index.js";
 import { HATCH3R_DIR, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
+import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import { discoverUserContent } from "../../content/userContent.js";
-import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
+import {
+  loadSpaceMetricsFromDisk,
+  summarizeSpaceMetricRecords,
+} from "../../pipeline/spaceTelemetry.js";
+import { buildCustomizationSummary, selectionSetFromManifest } from "../../adapters/customizationSummary.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import {
   assertManifest,
@@ -69,21 +74,13 @@ export interface DriftReport {
   };
 }
 
-/**
- * F2.7-F5 / SA12.4-F1 (D2/D12): canonical normalization used by BOTH the
- * provenance writer (`sync.ts`) and this drift reader, so the emit-time hash
- * matches the hash derived from an on-disk file. Hashes the trimmed managed
- * block when one is present (the part hatch3r owns and overwrites), else the
- * full content. The same logic mirrors the comparison in
- * {@link computeAdapterDrift}: there, on-disk block is compared to expected
- * block; here we reduce each side to a stable sha256 so a stored baseline can
- * be compared across runs without retaining full file bodies.
- */
-export function hashEmittedContent(content: string, managedContent?: string): string {
-  const block = extractManagedBlock(content) ?? managedContent ?? null;
-  const payload = block !== null ? block.trim() : content;
-  return createHash("sha256").update(payload).digest("hex");
-}
+// D12-4 (Cycle 11 Wave 2): `hashEmittedContent` moved to
+// `src/manifest/provenance.ts` (alongside the `writeProvenance` writer it
+// pairs with) so `init`/`update` can emit a hash-bearing provenance baseline
+// without importing the whole status command graph. Re-exported here so
+// existing `import { hashEmittedContent } from "./status.js"` call sites keep
+// working unchanged; the drift reader below uses the same binding.
+export { hashEmittedContent };
 
 /**
  * F2.7-F5 (D2): one entry of the emit-time provenance baseline read from
@@ -119,6 +116,75 @@ async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, stri
 }
 
 /**
+ * D10-17 (D10, P1): number of trailing calendar days of SPACE telemetry the
+ * status reporting surface reads. The per-day JSONL filename is derived from the
+ * record timestamp (`space-<YYYY-MM-DD>.jsonl`), so a `status` run the day after
+ * `hatch3r init` would miss the init's `firstRunSuccessRate` if it read only
+ * today. A 7-day window keeps the recent first-run signal visible without an
+ * unbounded directory walk.
+ */
+const SPACE_TELEMETRY_WINDOW_DAYS = 7;
+
+/**
+ * D10-17 (D10, P1): structured SPACE-telemetry rollup surfaced by `status` from
+ * the persisted JSONL (the cross-process read counterpart to the
+ * `recordFirstRunSuccess` call wired into `init.ts`). Empty `axes` + zero
+ * `recordCount` means no telemetry has been written yet.
+ */
+export interface SpaceTelemetrySummary {
+  /** Calendar days (YYYY-MM-DD) scanned, newest first. */
+  daysScanned: string[];
+  /** Total metric records read across the window. */
+  recordCount: number;
+  /** Per-axis count + mean over the window (one row per SPACE axis). */
+  axes: ReturnType<typeof summarizeSpaceMetricRecords>;
+  /**
+   * Mean of the `performance`-axis `firstRunSuccessRate` records (0..1), or
+   * `null` when none were recorded in the window. This is the primary P1 metric.
+   */
+  firstRunSuccessRate: number | null;
+}
+
+/**
+ * D10-17 (D10, P1): read the trailing {@link SPACE_TELEMETRY_WINDOW_DAYS}-day
+ * SPACE telemetry from `.hatch3r/telemetry/space-<date>.jsonl` and roll it up.
+ *
+ * Delegates the across-runs day-walk to {@link loadSpaceMetricsFromDisk} (the
+ * canonical multi-day reader, D10-38) so the trailing-window logic lives in one
+ * place. Best-effort and side-effect-free: the loader swallows
+ * missing/unreadable/corrupt files (Silent Failure Contract), so this returns a
+ * zero-record summary rather than throwing when telemetry is absent.
+ */
+function readSpaceTelemetrySummary(rootDir: string): SpaceTelemetrySummary {
+  const now = Date.now();
+  const newestDay = new Date(now).toISOString().slice(0, 10);
+  const oldestDay = new Date(now - (SPACE_TELEMETRY_WINDOW_DAYS - 1) * 86_400_000)
+    .toISOString()
+    .slice(0, 10);
+  // Pass an explicit [oldestDay, newestDay] range so the day list `daysScanned`
+  // reports is exactly the set the loader read (one `Date.now()` reference, no
+  // midnight-crossing skew between the two).
+  const all = loadSpaceMetricsFromDisk(rootDir, { from: oldestDay, to: newestDay });
+  const days: string[] = [];
+  for (let i = 0; i < SPACE_TELEMETRY_WINDOW_DAYS; i += 1) {
+    days.push(new Date(now - i * 86_400_000).toISOString().slice(0, 10));
+  }
+  const firstRunRecords = all.filter(
+    (r) => r.metricId === "firstRunSuccessRate" && r.axis === "performance",
+  );
+  const firstRunSuccessRate =
+    firstRunRecords.length === 0
+      ? null
+      : firstRunRecords.reduce((sum, r) => sum + r.value, 0) / firstRunRecords.length;
+  return {
+    daysScanned: days,
+    recordCount: all.length,
+    axes: summarizeSpaceMetricRecords(all),
+    firstRunSuccessRate,
+  };
+}
+
+/**
  * Wave 7: regenerate every adapter's output in memory (from the bundled
  * content root, no `.agents/` involvement) and compare against on-disk
  * output. The integrity-manifest fast path was removed with the integrity
@@ -135,11 +201,12 @@ async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, stri
  * atomic (old or new bytes, never a half-written file), but the manifest the
  * concurrent sync is mutating (e.g. adding/removing a tool) and the on-disk
  * files can momentarily belong to different generations, yielding a transient
- * "modified"/"unexpected" entry. The advisory `.hatch3r/.lock` that top-level
- * orchestrator pipelines acquire (see `rules/hatch3r-agent-orchestration.md`
- * -> Concurrent Invocation Handling) is the coordination point; a drift report
- * produced while that lock is held by a writer is a snapshot of an in-flight
- * state. Re-run after the writer completes for an authoritative report; do not
+ * "modified"/"unexpected" entry. The advisory `.hatch3r/.lock` note that
+ * top-level orchestrator pipelines write (see `rules/hatch3r-agent-orchestration.md`
+ * -> Concurrent Invocation Handling) is a best-effort coordination point, NOT a
+ * mutual-exclusion primitive (D7-27: no atomic acquire ships; the note is TOCTOU
+ * by construction); a drift report produced while a writer holds that note is a
+ * snapshot of an in-flight state. Re-run after the writer completes for an authoritative report; do not
  * run `status`/`verify` in parallel with `sync` and treat the result as final.
  *
  * D2-SA2.7-F8 (D2, P7) — cost note: there is no result cache. Each invocation
@@ -180,14 +247,14 @@ export async function computeAdapterDrift(
       const destPath = join(rootDir, out.path);
       try {
         const existing = await readFile(destPath, "utf-8");
-        const existingBlock = extractManagedBlock(existing);
+        const existingBlock = extractManagedBlock(existing, out.path);
         // Prefer extracting from the regenerated content rather than the raw
         // managedContent hint: `wrapInManagedBlock` / `extractManagedBlock`
         // trim their payload, and several adapters pass an un-trimmed body
         // in `out.managedContent` for convenience. Comparing trimmed-on-disk
         // against raw-from-managedContent produced spurious "modified"
         // entries on every status call.
-        const expectedBlock = extractManagedBlock(out.content) ?? out.managedContent ?? null;
+        const expectedBlock = extractManagedBlock(out.content, out.path) ?? out.managedContent ?? null;
         const matches = existingBlock !== null && expectedBlock !== null
           ? existingBlock === expectedBlock.trim()
           : existing === out.content;
@@ -200,8 +267,12 @@ export async function computeAdapterDrift(
           // the same normalization the baseline used, so a clean comparison is
           // possible without retaining full file bodies.
           const baselineHash = baseline.get(out.path);
-          const onDiskHash = hashEmittedContent(existing);
-          const regeneratedHash = hashEmittedContent(out.content, out.managedContent ?? undefined);
+          const onDiskHash = hashEmittedContent(existing, undefined, out.path);
+          const regeneratedHash = hashEmittedContent(
+            out.content,
+            out.managedContent ?? undefined,
+            out.path,
+          );
           let driftKind: NonNullable<DriftEntry["driftKind"]>;
           if (!baselineHash) {
             driftKind = "unknown";
@@ -235,6 +306,20 @@ export async function computeAdapterDrift(
         entries.push({ path: out.path, tool, status: "missing" });
         counts.missing++;
       }
+    }
+
+    // F14.2-H1 (D14): monorepo per-package emission parity. When the manifest
+    // records workspace packages AND --per-package was opted in, init/sync ALSO
+    // write per-directory copies for tools whose load model reads them — cursor
+    // only, per D14-6 — into every `<package>/<rel>` and stamp those paths into
+    // `manifest.managedFiles`. Re-target this tool's root outputs through the
+    // SAME helper init/sync use (which returns [] for claude/copilot) and
+    // register every per-package path as seen, so the orphan loop below does not
+    // classify a legitimately-emitted per-package file as `unexpected`. Without
+    // this, an N-package cursor repo reports ~(root-output-count x N) false
+    // orphans on every status/verify call.
+    for (const perPkg of planPerPackageOutputs(tool, manifest.packages, outputs)) {
+      seenPaths.add(perPkg.output.path);
     }
   }
 
@@ -388,6 +473,11 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
 
   const report = await computeAdapterDrift(rootDir, manifest);
 
+  // D10-17 (D10, P1): roll up the persisted SPACE telemetry (written by
+  // `init.ts::recordFirstRunSuccess`) so the human box and the JSON payload both
+  // surface it. Read-only, never throws.
+  const spaceTelemetry = readSpaceTelemetrySummary(rootDir);
+
   spinner?.stop();
 
   // SA12.1-F-D12-M2: emit the JSON payload before any human chrome and exit
@@ -401,6 +491,9 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
       driftKindCounts: report.driftKindCounts,
       entries: report.entries,
       tools: manifest.tools,
+      // D10-17: SPACE developer-productivity telemetry rollup. `recordCount: 0`
+      // + `firstRunSuccessRate: null` when no telemetry has been written yet.
+      spaceTelemetry,
       hatch3rVersion: HATCH3R_VERSION,
       timestamp: new Date().toISOString(),
     });
@@ -572,6 +665,32 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
     printBox("User content", userLines, "info");
   }
 
+  // ── Developer productivity (SPACE telemetry, D10-17) ────────
+  // Surface the persisted SPACE metrics written by `init.ts` (primary metric
+  // `firstRunSuccessRate`). Shown only when telemetry exists so a fresh repo
+  // that has never run init keeps the status output compact. This is the
+  // reporting surface that makes the SPACE pipeline a wired runtime feature
+  // rather than a tested-but-uncalled library (the F10.8-1 integration gap).
+  if (spaceTelemetry.recordCount > 0) {
+    const spaceLines: string[] = [];
+    if (spaceTelemetry.firstRunSuccessRate !== null) {
+      const pct = Math.round(spaceTelemetry.firstRunSuccessRate * 100);
+      const perfRow = spaceTelemetry.axes.find((a) => a.axis === "performance");
+      const runs = perfRow?.count ?? 0;
+      spaceLines.push(
+        label("First-run success", `${pct}% (${runs} run${runs === 1 ? "" : "s"})`),
+      );
+    }
+    const populatedAxes = spaceTelemetry.axes.filter((a) => a.count > 0);
+    for (const a of populatedAxes) {
+      spaceLines.push(`  ${a.axis.padEnd(14)}${a.count} metric(s), mean ${a.mean.toFixed(2)}`);
+    }
+    spaceLines.push(
+      chalk.dim(`  ${spaceTelemetry.recordCount} record(s) over the last ${SPACE_TELEMETRY_WINDOW_DAYS} day(s)`),
+    );
+    printBox("Developer productivity (SPACE)", spaceLines, "info");
+  }
+
   // ── Customizations (SA12.3-F03) ─────────────────────────────
   // Surface the per-artifact .customize.{yaml,md} state that previously stayed
   // silent under the Silent Failure Contract. Default mode prints a one-line
@@ -586,13 +705,20 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
   // needing `--verbose` or `hatch3r explain --customizations`. The prior
   // one-line "N active" summary hid the per-artifact id list.
   try {
-    const customizationSummary = await buildCustomizationSummary(rootDir);
+    const customizationSummary = await buildCustomizationSummary(
+      rootDir,
+      selectionSetFromManifest(manifest.content),
+    );
     if (customizationSummary.entries.length > 0) {
       const c = customizationSummary.counts;
       const oneLine =
         `${chalk.bold(String(c.active))} active` +
         (c.skipped > 0 ? `, ${chalk.yellow(String(c.skipped))} skipped` : "") +
-        (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "");
+        (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "") +
+        // D10-29: inert overrides (deselected artifact, no adapter emits them)
+        // surface in the one-liner so an override that silently does nothing is
+        // not hidden behind the active count.
+        (c.inert > 0 ? `, ${chalk.yellow(String(c.inert))} inert` : "");
       const customLines: string[] = [oneLine];
       if (opts?.verbose) {
         customLines.push("");
@@ -602,28 +728,35 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
               ? chalk.red("✗")
               : entry.outcome === "skipped"
                 ? chalk.yellow("○")
-                : entry.outcome === "active"
-                  ? chalk.green("✓")
-                  : chalk.dim("·");
+                : entry.outcome === "inert"
+                  ? chalk.yellow("⊘")
+                  : entry.outcome === "active"
+                    ? chalk.green("✓")
+                    : chalk.dim("·");
           const reason = entry.reason ? chalk.dim(` — ${entry.reason}`) : "";
           customLines.push(`  ${icon} ${entry.type}/${entry.id}${reason}`);
         }
       } else {
         // SA12.1-F-D12-M7: list non-active entries first (failed > skipped >
-        // active) so problems are immediately visible. Cap the active rows at
-        // 8 to keep the box readable on a fresh install with many overrides;
-        // the operator runs `--verbose` or `hatch3r explain --customizations`
-        // for the full list.
+        // inert > active) so problems are immediately visible. Cap the active
+        // rows at 8 to keep the box readable on a fresh install with many
+        // overrides; the operator runs `--verbose` or
+        // `hatch3r explain --customizations` for the full list.
         const FAILED_FIRST = customizationSummary.entries
           .filter((e) => e.outcome === "failed")
           .sort((a, b) => a.id.localeCompare(b.id));
         const SKIPPED_NEXT = customizationSummary.entries
           .filter((e) => e.outcome === "skipped")
           .sort((a, b) => a.id.localeCompare(b.id));
+        // D10-29: inert overrides are user-actionable (the artifact is
+        // deselected) — show every one, never capped, ranked above active.
+        const INERT_NEXT = customizationSummary.entries
+          .filter((e) => e.outcome === "inert")
+          .sort((a, b) => a.id.localeCompare(b.id));
         const ACTIVE_LAST = customizationSummary.entries
           .filter((e) => e.outcome === "active")
           .sort((a, b) => a.id.localeCompare(b.id));
-        const visible = [...FAILED_FIRST, ...SKIPPED_NEXT, ...ACTIVE_LAST.slice(0, 8)];
+        const visible = [...FAILED_FIRST, ...SKIPPED_NEXT, ...INERT_NEXT, ...ACTIVE_LAST.slice(0, 8)];
         const hiddenActive = Math.max(0, ACTIVE_LAST.length - 8);
         if (visible.length > 0) {
           customLines.push("");
@@ -633,7 +766,9 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
                 ? chalk.red("✗")
                 : entry.outcome === "skipped"
                   ? chalk.yellow("○")
-                  : chalk.green("✓");
+                  : entry.outcome === "inert"
+                    ? chalk.yellow("⊘")
+                    : chalk.green("✓");
             const reason = entry.reason ? chalk.dim(` — ${entry.reason}`) : "";
             customLines.push(`  ${icon} ${entry.type}/${entry.id}${reason}`);
           }
@@ -643,14 +778,14 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
             );
           }
         }
-        if (c.failed > 0 || c.skipped > 0) {
+        if (c.failed > 0 || c.skipped > 0 || c.inert > 0) {
           customLines.push(chalk.dim(`  Run \`hatch3r explain --customizations\` for the per-artifact table.`));
         }
       }
       printBox(
         "Customizations",
         customLines,
-        c.failed > 0 ? "warning" : c.skipped > 0 ? "info" : "success",
+        c.failed > 0 ? "warning" : c.skipped > 0 || c.inert > 0 ? "info" : "success",
       );
     }
   } catch (err) {

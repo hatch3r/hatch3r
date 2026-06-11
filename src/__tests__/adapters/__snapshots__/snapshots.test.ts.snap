@@ -12,6 +12,7 @@ exports[`adapter output snapshots > ClaudeAdapter > file paths match snapshot 1`
   ".claude/hooks/agent-tool-policies.json",
   ".claude/hooks/hatch3r-hooks.json",
   ".claude/hooks/pretooluse-allowlist.mjs",
+  ".claude/rules/50-hatch3r-advisory-hooks.md",
   ".claude/rules/50-hatch3r-scoped-rule.md",
   ".claude/rules/50-hatch3r-test-rule.md",
   ".claude/settings.json",
@@ -25,6 +26,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
 [
   {
     "action": "create",
+    "bodyHash": "b731f3c75569da28d57e76dbc3c78dd6a752d0d50992780c4792b9f08f7d8f46",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -34,6 +36,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "efac1c138be38c9b17cab4a9958224086721bc505f97a61da359ee97ce95b523",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -43,6 +46,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "6ca12684f9fdd792051a0a9fe99059ad4cc3296a55167113e1e4455e9cc61a6d",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -51,6 +55,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "d177b412a95083564aae400d4073842e8cfe83fa6e17cc41479c16060a39c5ea",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -59,6 +64,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "20920e1be60e075ae0f4897944a66b90b56220e0f38b7a6902b8d9d142e3fde1",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -67,6 +73,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "5b7f3d7a8b2bc9637ad66c33774a0b0082b5a78dfd72f138fbc6ca725c51a323",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -75,6 +82,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "a1d33909d7202d1cd9d939d325559c88297d10910e0448ab3e0d5594e6793dfd",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -83,6 +91,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "1f66726280e0ebf465eb41b68bfa54218d39dfb61a180d2c5cd2ba349d86fe9e",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -91,6 +100,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "83a3967d2abe7cb5036bb85aa41266f676aaff4e1a60cd57f4378e6ea3c095c9",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -99,12 +109,23 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "05facd1d9b74fe4307956f40ea8612014973cfd738135dce8f197fc54228fcc4",
     "contentMarkers": [],
     "hasManagedContent": false,
     "path": ".claude/hooks/pretooluse-allowlist.mjs",
   },
   {
     "action": "create",
+    "bodyHash": "d4a0483decada2deab9c4d67d8a2bceb4fff9056295f11181f0a061b8cdc16f8",
+    "contentMarkers": [
+      "MANAGED_BLOCK",
+    ],
+    "hasManagedContent": true,
+    "path": ".claude/rules/50-hatch3r-advisory-hooks.md",
+  },
+  {
+    "action": "create",
+    "bodyHash": "73f9e79d460f6838450f7eb93c63e5cc49e316f04a3d6041b722be6d54196b20",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -114,6 +135,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "90ac9aad163073c719b5b240139eead315f0b66306e4a9eb76c75c75b5220360",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -122,6 +144,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "0ded848afbc37cf9aa9cffe15d9015e8f52f72b8516f5458beba85406d40396f",
     "contentMarkers": [
       "PERMISSIONS_CONFIG",
       "VALID_JSON",
@@ -131,6 +154,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "44a01c4e7a01b3ff1bb948e97220fddafdc09753d78a9bdb8247c6af1bc59b2d",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -139,6 +163,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "8fd6059209e0b8396d3831ce8db1aafd8d263feff0bef1aa3baba072295b25d5",
     "contentMarkers": [
       "MCP_CONFIG",
       "VALID_JSON",
@@ -148,6 +173,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "f2ab0d4b47b5553d81b6270262e5af370ccbb82d20899618d2aeff329d32c68c",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "AGENT_TEAMS",
@@ -165,7 +191,6 @@ exports[`adapter output snapshots > CopilotAdapter > file paths match snapshot 1
 [
   ".github/agents/hatch3r-readonly-agent.agent.md",
   ".github/agents/hatch3r-test-agent.agent.md",
-  ".github/agents/hatch3r-test-gh-agent.agent.md",
   ".github/agents/modes/fake-mode.md",
   ".github/agents/shared/fake-reference.md",
   ".github/copilot-instructions.md",
@@ -182,6 +207,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
 [
   {
     "action": "create",
+    "bodyHash": "a4d49abd5a9dccf8d385045179b752872d01dda9f141460ff4cba32baeb71abe",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -191,6 +217,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "3b6e4cb715f5bf364bd0c42bfe9af4536f0cdc0c6b20ac43e3d8adc38a3d8627",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -200,14 +227,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "contentMarkers": [
-      "MANAGED_BLOCK",
-    ],
-    "hasManagedContent": true,
-    "path": ".github/agents/hatch3r-test-gh-agent.agent.md",
-  },
-  {
-    "action": "create",
+    "bodyHash": "46f946ee2e38ce272c8d7da19b2364d9579777975a1db9145e10f1054a7037e9",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -216,6 +236,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "dfcf8a7cecf20bd87beb1f153630d7efe9f606b8987255df75ca8f817587fd1a",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -224,6 +245,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "e82ad8703cb62984c3d519c6ca036d89ab7b7b699d22d6167f7bd3783c5ea5b3",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",
@@ -235,6 +257,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "dfa8307ac7c5c95b8481f1d346b684bf97cb834c41041ae3eede669e9fc56567",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -244,6 +267,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "bf65585e2e990619c2a58e87b907ade8b0a4ae8b4ab26e6b9f5d05d6eeee949d",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -252,6 +276,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "75db9d5cece0faac2cae0552991a52abb3408eecbe3ff848a5a6ccfc71ee6d5b",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -260,6 +285,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "4d053d2a947b87015360fee4792728b411305dfb573f73db54996e5dda1475d6",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -269,6 +295,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "ce338653eaafef2f0bfbd8cf956d76a15c736ab210e0c083a37dff4c750f513c",
     "contentMarkers": [
       "MANAGED_BLOCK_YAML",
     ],
@@ -277,6 +304,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
+    "bodyHash": "db39256a82f6352b66ec868fe1519e001df2b87dbe036d3e0e936a371f03df27",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -297,6 +325,7 @@ exports[`adapter output snapshots > CursorAdapter > file paths match snapshot 1`
   ".cursor/commands/hatch3r-test-command.md",
   ".cursor/environment.json",
   ".cursor/hooks.json",
+  ".cursor/hooks/subagent-guard.mjs",
   ".cursor/mcp.json",
   ".cursor/rules/50-hatch3r-scoped-rule.mdc",
   ".cursor/rules/50-hatch3r-test-rule.mdc",
@@ -314,6 +343,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
 [
   {
     "action": "create",
+    "bodyHash": "1f66726280e0ebf465eb41b68bfa54218d39dfb61a180d2c5cd2ba349d86fe9e",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -322,6 +352,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "484302b2cee70363d0963ffcaf5b390545a60a8ffd5dd10ebe1b63ac8dddb3d5",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -331,6 +362,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "3b6e4cb715f5bf364bd0c42bfe9af4536f0cdc0c6b20ac43e3d8adc38a3d8627",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -340,6 +372,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "46f946ee2e38ce272c8d7da19b2364d9579777975a1db9145e10f1054a7037e9",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -348,6 +381,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "dfcf8a7cecf20bd87beb1f153630d7efe9f606b8987255df75ca8f817587fd1a",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -356,6 +390,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "bf65585e2e990619c2a58e87b907ade8b0a4ae8b4ab26e6b9f5d05d6eeee949d",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -364,6 +399,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "75db9d5cece0faac2cae0552991a52abb3408eecbe3ff848a5a6ccfc71ee6d5b",
     "contentMarkers": [
       "MANAGED_BLOCK",
     ],
@@ -372,6 +408,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "b9d9d9857fd5bd58f1717a2520116979864f1954ad01d41e5778ffbd23dc8383",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -380,6 +417,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "65862275014bc9202aeede29bb97bb8eafc71c4dc6ce23f62c80c62d77c91103",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -388,6 +426,14 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "faf3207c762d560f59fbe8664e9cc30b459bdcf6cdec5f403692ec7237dbd8e1",
+    "contentMarkers": [],
+    "hasManagedContent": false,
+    "path": ".cursor/hooks/subagent-guard.mjs",
+  },
+  {
+    "action": "create",
+    "bodyHash": "edcff16c54d750a9715197a8205fd4bc0795cf8982787be472150394411524d6",
     "contentMarkers": [
       "MCP_CONFIG",
       "VALID_JSON",
@@ -397,6 +443,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "7e5cdf906b26ca27061df2113190bb65c17e501a830992a7857b5dad26569286",
     "contentMarkers": [
       "CURSOR_GLOBS",
       "FRONTMATTER",
@@ -407,6 +454,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "e25c2953c18286987c258bee0a8f0d0f30efffd8803d716b755fdb373f6e3e7e",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",
@@ -417,6 +465,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "88995935dcb64a6b9ded816994701089c8456d5339672056c50019cbd33c2ba7",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",
@@ -431,6 +480,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "e926ca4a2f0f48ddf3034ade03525f5e1d8a2e54884c3cf7b9570a3b48b0e860",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",
@@ -441,6 +491,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "b59d6fe565418b9ae87a240dbf48d370995a9e5f0d6a4cf9dc96a0221b964ef9",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",
@@ -451,6 +502,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "395c71441315a27ea732a968c25b586102455235e517885bb94bde85eff66be4",
     "contentMarkers": [
       "CURSOR_GLOBS",
       "FRONTMATTER",
@@ -461,6 +513,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "25473cbfc6faef2db27925467a0e6dfb6b94798507b0b4208f18466b3541d1ad",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",
@@ -471,6 +524,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "d2ebbbe25afc508938adbd765240455370cde85f0a1d2b3cfa1f72b538166144",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",
@@ -481,6 +535,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
+    "bodyHash": "4d053d2a947b87015360fee4792728b411305dfb573f73db54996e5dda1475d6",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",

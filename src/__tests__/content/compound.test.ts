@@ -20,15 +20,21 @@ import { describe, it, expect, beforeAll } from "vitest";
 import { readdir, readFile } from "node:fs/promises";
 import { join, resolve } from "node:path";
 import { parseFrontmatter } from "../../adapters/canonical.js";
-import { ALL_TAGS } from "../../content/tags.js";
+import {
+  ALL_TAGS,
+  isFloorTag,
+  TAG_FLOOR_SECURITY,
+  TAG_FLOOR_CONTENT_QUALITY,
+} from "../../content/tags.js";
 import {
   buildContentIndex,
   validateCrossReferences,
   validateOrchestrationDependencies,
   resolveSelection,
+  getAllContentIds,
   type ContentIndex,
 } from "../../content/index.js";
-import { getPreset } from "../../content/presets.js";
+import { getPreset, type PresetId } from "../../content/presets.js";
 
 // ── Constants ──────────────────────────────────────────────────
 
@@ -365,14 +371,83 @@ describe("compound system content validation", () => {
       const warnings = validateOrchestrationDependencies(selection);
       expect(warnings).toEqual([]);
     });
+
+    // D10-37 (D14-SA14.3-F, P1): board-presence contract lock. The init
+    // success-box disclosure for solo+full claims team-scoped (`ctx:team-only`)
+    // workflows are EXCLUDED for solo even under full — because
+    // `resolveSelection` Stage 4 (team-size filter, src/content/index.ts) strips
+    // every NON-floor `ctx:team-only` item when teamSize=solo, and init never
+    // passes `skipContextFilters`. This test locks that contract so the
+    // disclosure can never silently re-invert: a non-floor team-only board skill
+    // (e.g. `hatch3r-board-init`, tags `[board, ctx:team-only]`) must be ABSENT
+    // under solo+full and PRESENT under team+full. The id is derived from the
+    // live index (not hard-coded) so a tag/id rename keeps the assertion honest.
+    it("D10-37: solo+full excludes non-floor ctx:team-only board workflows; team+full includes them", () => {
+      const isFloor = (tags: readonly string[]) => tags.some((t) => t.startsWith("floor:"));
+      // A representative non-floor, team-only board item that init's Step-5 flow
+      // enters (board-init). Prove it exists with the expected facets first.
+      const boardTeamOnly = contentIndex.items.find(
+        (i) =>
+          i.id === "hatch3r-board-init" &&
+          i.tags.includes("ctx:team-only") &&
+          !isFloor(i.tags),
+      );
+      expect(
+        boardTeamOnly,
+        "expected hatch3r-board-init to be a non-floor ctx:team-only item",
+      ).toBeDefined();
+      const targetId = boardTeamOnly!.id;
+
+      const fullPreset = getPreset("full");
+      const soloFull = getAllContentIds(
+        resolveSelection(fullPreset, "brownfield", "solo", contentIndex),
+      );
+      const teamFull = getAllContentIds(
+        resolveSelection(fullPreset, "brownfield", "team", contentIndex),
+      );
+      // The disclosure's claim: solo+full strips non-floor team-only workflows.
+      expect(soloFull.has(targetId)).toBe(false);
+      // ...and the named remedy (`--team-size team`) actually includes them.
+      expect(teamFull.has(targetId)).toBe(true);
+
+      // Generalize: every non-floor ctx:team-only item present under team+full
+      // is absent under solo+full (the filter is uniform, not item-specific).
+      const teamOnlyNonFloor = contentIndex.items
+        .filter((i) => i.tags.includes("ctx:team-only") && !isFloor(i.tags) && !i.protected)
+        .map((i) => i.id);
+      for (const id of teamOnlyNonFloor) {
+        if (teamFull.has(id)) {
+          expect(
+            soloFull.has(id),
+            `solo+full must exclude non-floor team-only item ${id}`,
+          ).toBe(false);
+        }
+      }
+    });
   });
 
   // ── Cross-reference integrity ──────────────────────────────
 
   describe("cross-reference integrity", () => {
+    // D22-1 (Cycle 11 Wave 2) added a dangling rule-file-path check to
+    // validateCrossReferences. It surfaced two pre-existing dead rule-path
+    // citations. D5-30 (Cycle 11 Wave 3, Medium) repointed the
+    // `rules/hatch3r-content-authoring.md` citations to
+    // `src/content/userContent.ts` (the module implementing the .md → .mdc
+    // scope transform), so that entry is removed here. The enhancability twin
+    // `rules/hatch3r-plugin-architecture.md` repoint is owned by a separate
+    // finding and stays allow-listed so the check remains active for every
+    // OTHER reference. Any new dangling reference still fails this test.
+    const D5_30_DEFERRED_DANGLING = [
+      "rules/hatch3r-plugin-architecture.md",
+    ];
+
     it("all content cross-references resolve to existing IDs", async () => {
       const result = await validateCrossReferences(CONTENT_ROOT, contentIndex);
-      expect(result.warnings).toEqual([]);
+      const unexpected = result.warnings.filter(
+        (w) => !D5_30_DEFERRED_DANGLING.some((p) => w.includes(p)),
+      );
+      expect(unexpected).toEqual([]);
     });
   });
 
@@ -588,6 +663,107 @@ describe("compound system content validation", () => {
         0,
       );
       expect(stdCount).toBeGreaterThanOrEqual(minCount);
+    });
+
+    // D2-20 (Cycle 11 Wave 3): the `CapabilityTag` union + every
+    // `preset.capabilities` array list only 9 of the 44 capability-facet tags
+    // in TAG_REGISTRY. An artifact whose ONLY capability tags fall in the other
+    // 35 (no floor:* tag, protected !== true) intersects no preset's
+    // `capabilities` and is dropped by EVERY preset INCLUDING `full` — a silent
+    // corpus hole, since `full` is meant to ship everything. The corpus has 0
+    // such orphans today; this guard fails the build the moment one is added.
+    // `skipContextFilters: true` isolates the preset-admission set (floor +
+    // capability + customize + protected) from the context/language stages, so
+    // a legitimately project-scoped item (ctx:greenfield-only on brownfield)
+    // is not misreported as a capability-coverage orphan.
+    it("every canonical artifact is admitted by full, floor-tagged, or protected (D2-20)", () => {
+      const fullAdmitted = getAllContentIds(
+        resolveSelection(getPreset("full"), "brownfield", "team", contentIndex, undefined, undefined, {
+          skipContextFilters: true,
+        }),
+      );
+      const orphans = contentIndex.items.filter(
+        (item) =>
+          !fullAdmitted.has(item.id) &&
+          !item.protected &&
+          !item.tags.some(isFloorTag),
+      );
+      expect(
+        orphans.map((i) => `${i.id} [${i.tags.join(", ")}]`),
+        "artifacts admitted by no preset (capability tags outside the 9 preset-positive tags, no floor tag, not protected)",
+      ).toEqual([]);
+    });
+  });
+
+  // ── Archetype preset corpus resolution (D3-14) ─────────────────
+  // The 6 project-archetype presets were exercised only by capability-set
+  // arithmetic (presets.test.ts); the sole preset→resolveSelection content
+  // test (above) covered minimal/standard/full only. A corpus retag that left
+  // an archetype's realized selection empty — e.g. `security` if the
+  // floor:security/floor:content-quality artifacts lost their tags — was
+  // uncaught. These tests resolve each archetype against the REAL contentIndex.
+  describe("archetype preset corpus resolution (D3-14)", () => {
+    const ARCHETYPE_IDS: PresetId[] = [
+      "web-app",
+      "api-service",
+      "cli-tool",
+      "monorepo",
+      "legacy",
+      "security",
+    ];
+
+    // `full` is the capability superset; every archetype is a capability subset
+    // of it (asserted by presets.test.ts), so each archetype's realized,
+    // context-invariant selection must be a subset of full's. skipContextFilters
+    // isolates preset admission from project-type/language stages so the subset
+    // relation reflects capability shaping, not context divergence.
+    const fullSelectedIds = (): Set<string> =>
+      getAllContentIds(
+        resolveSelection(getPreset("full"), "brownfield", "team", contentIndex, undefined, undefined, {
+          skipContextFilters: true,
+        }),
+      );
+
+    it.each(ARCHETYPE_IDS)(
+      "%s resolves to a non-empty selection that is a subset of full's real-corpus selection",
+      (id) => {
+        const fullIds = fullSelectedIds();
+        const selectedIds = getAllContentIds(
+          resolveSelection(getPreset(id), "brownfield", "team", contentIndex, undefined, undefined, {
+            skipContextFilters: true,
+          }),
+        );
+        expect(selectedIds.size, `${id} must select ≥1 artifact against the real corpus`).toBeGreaterThan(0);
+        const notInFull = [...selectedIds].filter((x) => !fullIds.has(x));
+        expect(notInFull, `${id} selection must be ⊆ full's selection`).toEqual([]);
+      },
+    );
+
+    it("security archetype includes the floor:security and floor:content-quality artifacts", () => {
+      const selectedIds = getAllContentIds(
+        resolveSelection(getPreset("security"), "brownfield", "team", contentIndex, undefined, undefined, {
+          skipContextFilters: true,
+        }),
+      );
+      // The security floor (CQ3 specialist + supporting rules) and the
+      // content-quality floor (CQ1-CQ9 specialists) ship in every non-custom
+      // preset via floor admission; the security archetype is the one a user
+      // picks expressly for hardening, so a retag dropping these from it is the
+      // exact regression D3-14 targets. Assert both floors land via membership.
+      const floorSecurity = contentIndex.items.filter((i) => i.tags.includes(TAG_FLOOR_SECURITY));
+      const floorContentQuality = contentIndex.items.filter((i) =>
+        i.tags.includes(TAG_FLOOR_CONTENT_QUALITY),
+      );
+      // Guard against a vacuous assertion: both floor sets must be non-empty.
+      expect(floorSecurity.length, "corpus must carry ≥1 floor:security artifact").toBeGreaterThan(0);
+      expect(
+        floorContentQuality.length,
+        "corpus must carry ≥1 floor:content-quality artifact",
+      ).toBeGreaterThan(0);
+      const missingSecurity = floorSecurity.filter((i) => !selectedIds.has(i.id)).map((i) => i.id);
+      const missingCQ = floorContentQuality.filter((i) => !selectedIds.has(i.id)).map((i) => i.id);
+      expect(missingSecurity, "floor:security items missing from the security archetype").toEqual([]);
+      expect(missingCQ, "floor:content-quality items missing from the security archetype").toEqual([]);
     });
   });
 });

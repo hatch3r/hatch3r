@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 # Development Workflow -- Guided Lifecycle for Structured Implementation
 
@@ -37,7 +37,7 @@ Optional guided development lifecycle command that walks through structured phas
 | 3b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes) |
 | 3c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes) |
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
-| 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-ui`, `hatch3r-performance` | Yes | When triggered |
+| 3e. Final Quality — Conditional | `hatch3r-lint-fixer` + all conditional CQ specialists (CQ1-CQ9: `hatch3r-ui`, `hatch3r-ux`, `hatch3r-reliability`, `hatch3r-scalability`, `hatch3r-performance`, `hatch3r-maintainability`, `hatch3r-enhancability`) per `SPECIALIST_TRIGGER_TABLE` | Yes | Spawn each whose trigger matches the diff |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (multi-module implementers in Phase 3, the Phase-4b final-quality batch) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
@@ -73,6 +73,8 @@ Every sub-agent delegation prompt in this command MUST include the confidence ex
 
 Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
+Absent-confidence clause (D13-SA13.2-F3): a clean verdict (0 Critical + 0 Warning) whose reviewer `confidence` field is absent or unparseable is treated as `confidence: low` at every gate — trigger the second pass / ASK, never proceed. This matches the code gate in `src/pipeline/reviewLoop.ts` (`evaluateReviewGate`), where an `unknown`/absent confidence ranks below `low` (`CONFIDENCE_RANK.unknown = 0`) and so does not pass. A prose gate that reads `confidence != low` would otherwise let absence pass silently — inverting the code gate. Resolve absence to `low` before applying the Step 0.7 floor.
+
 ---
 
 ## Triage
@@ -80,7 +82,7 @@ Downstream propagation: every ASK checkpoint that reports verification quality, 
 Classify the development task before delegating. Detailed mode classification runs in Step 0 (Triage / Scale-Adaptive Mode Selection); this section summarizes the routing:
 
 - **Tier 1 (trivial)**: single-line edit, typo, or trivial config change; Quick Mode runs the streamlined 3-step path. The B1 ambiguity gate (`§0 Detect Ambiguity` per `.claude/rules/clarification-default.md`) is NEVER skipped — Tier 1 admission already requires that the brief alone be testable, single-file, and single-concern, so the gate evaluates trivially and passes silently when those preconditions hold. ASK checkpoints downstream of the brief (mid-plan, end-of-implementation, mid-review) are reduced to one consolidated end-of-run "merge or revise?" prompt rather than per-phase prompts — Tier 1 work is short enough that incremental ASK fatigue would dominate the workflow without proportional benefit. Any mid-run ambiguity that wasn't visible at the brief surface re-invokes the B1 protocol on the spot. This satisfies P8 B1 default-not-exception: the protocol still applies; the checkpoint cadence is right-sized (Finding D7-M11 / D7-SA7.4-4).
-- **Tier 2 (standard)**: bug fix or small feature in 1–3 files; Quick Mode with full sub-agent delegation (researcher, implementer, reviewer, fixer, test-writer, security-auditor).
+- **Tier 2 (standard)**: bug fix or small feature in 1–3 files; Quick Mode with full sub-agent delegation (researcher, implementer, reviewer, fixer, hatch3r-testability, hatch3r-security).
 - **Tier 3 (deep)**: multi-module feature, architectural change, or cross-cutting refactor; Full Mode with all 4 phases (Analyze, Plan, Implement, Review) and deep research before mutating files.
 
 If Tier 1, take Quick Mode with reduced sub-agent prompts. If Tier 2, take Quick Mode below. If Tier 3, switch to Full Mode and confirm the plan with the user before implementation.
@@ -246,7 +248,7 @@ Map the task type to the appropriate skill:
 | Visual refactor  | hatch3r-visual-refactor        |
 | QA validation    | hatch3r-qa-validation          |
 
-Identify supporting agents needed: test-writer, docs-writer, reviewer, security-auditor.
+Identify supporting agents needed: hatch3r-testability, docs-writer, reviewer, hatch3r-security.
 
 #### 2c. Identify Risks
 
@@ -275,18 +277,19 @@ Implementation Plan:
 
 ### Phase 3: Implement
 
-**Goal:** Execute the plan using the selected hatch3r skill, delegating to sub-agents per the Universal Sub-Agent Pipeline.
+**Goal:** Execute the plan using the selected hatch3r skill, delegating to sub-agents per the Universal sub-agent Pipeline.
 
-#### 3a. Context Gathering (Researcher Sub-Agent)
+#### 3a. Context Gathering (Researcher sub-agent)
 
 You MUST spawn a `hatch3r-researcher` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) before implementation. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes).
 
 - Select research modes by task type (bug → symptom-trace/root-cause/codebase-impact, feature → codebase-impact/feature-design/architecture, refactor → current-state/refactoring-strategy/migration-path, QA → codebase-impact).
 - Add tier-appropriate modes per the `hatch3r-deep-context` rule if not already run in Phase 1 Step 1b.
 - Use depth `quick` for low-risk, `standard` for medium-risk, `deep` for high-risk. The complexity tier may override depth upward.
-- Await the researcher result. Use its structured output to inform Step 3b.
+- **Question decomposition (K-parallel-researcher path, per `rules/hatch3r-agent-orchestration.md` → Scaling Heuristic):** when the task decomposes into ≥2 independent research questions — answers that do not depend on each other (e.g. "what is the current auth flow?" and "what does the billing webhook expect?" for a cross-cutting feature) — spawn one `hatch3r-researcher` sub-agent per question in parallel (each scoped to its question with the modes above), then union their structured findings into a single Phase-1 brief before Step 3b. This is the parallel-safe Phase-1 case (read-only, deterministic union, no shared mutable state per the Three Conditions to Parallelize). Keep the single-researcher path for a single-question task; do not serialize independent questions to save tokens (P8 dominates P7).
+- Await the researcher result(s). Use the structured output (unioned across researchers when fanned out) to inform Step 3b.
 
-#### 3b. Core Implementation (Implementer Sub-Agent)
+#### 3b. Core Implementation (Implementer sub-agent)
 
 You MUST spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Do NOT implement inline — always delegate to a dedicated implementer.
 
@@ -317,10 +320,10 @@ Await the implementer sub-agent. Collect its structured result.
 
 #### 3d. Run Quality Checks
 
-Run the project's quality checks (adapt to project conventions):
+Run the project's quality checks (adapt to project conventions; resolved to the project's language-aware command set at sync time, fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`):
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 ```
 
 Fix any issues before proceeding. If quality checks fail, loop back and resolve before advancing to Phase 4.
@@ -329,7 +332,7 @@ Fix any issues before proceeding. If quality checks fail, loop back and resolve 
 
 ---
 
-### Phase 4: Review (Sub-Agent Quality Pipeline)
+### Phase 4: Review (sub-agent Quality Pipeline)
 
 **Goal:** Verify quality and completeness via a two-stage sub-agent pipeline before finalizing. The Review Loop (4a) iterates until code quality is clean, then Final Quality (4b) runs remaining specialists in parallel.
 
@@ -338,9 +341,9 @@ Fix any issues before proceeding. If quality checks fail, loop back and resolve 
 Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Include the diff and acceptance criteria in the prompt.
 
 1. **Review:** Await the reviewer result. Extract Critical and Warning findings AND the reviewer's top-level `confidence` field (high/medium/low).
-2. **Confidence-aware gate** (the second-pass trigger tightens with the `--confidence-floor` set in Step 0.7 — `any` = default below, `medium`/`high` raise the bar):
-   - **0 Critical + 0 Warning AND reviewer confidence != low:** Review loop is clean. Proceed to 4b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
-   - **0 Critical + 0 Warning AND reviewer confidence == low:** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
+2. **Confidence-aware gate** (the second-pass trigger tightens with the `--confidence-floor` set in Step 0.7 — `any` = default below, `medium`/`high` raise the bar). First resolve the reviewer `confidence` field per the Confidence Propagation Contract absent-confidence clause: an absent or unparseable value is treated as `low` (it does NOT satisfy `!= low`), matching the code gate where `unknown` ranks below `low`.
+   - **0 Critical + 0 Warning AND reviewer confidence == high or medium:** Review loop is clean. Proceed to 4b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
+   - **0 Critical + 0 Warning AND reviewer confidence == low (including absent/unparseable, resolved to `low` above):** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns high/medium confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
 3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings.
 4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.
 5. **Repeat** steps 2-4 for a maximum of **3 iterations** (code-class cap). If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort).
@@ -359,7 +362,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 #### 4b. Final Quality (Parallel Specialists)
 
-**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by `max_phase4_parallel` (default `8`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`, valid range 1-16) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality. The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
+**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by the orchestrator-honored fan-out width `max_phase4_parallel` (default `8`) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality — LLM-honored guidance, not a code-enforced cap (the host Task tool applies no platform fan-out limit). The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
 
 **Always spawn (mandatory for every code change):**
 
@@ -370,11 +373,20 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 3. **`hatch3r-docs-writer`** — spawn when changes affect public APIs, architectural patterns, user-facing behavior, or when specs/ADRs need updating. Skip silently if no documentation impact.
 
-**Conditional specialists (spawn when triggered):**
+**Conditional specialists (spawn each whose trigger matches the diff):**
 
-4. **`hatch3r-lint-fixer`** — when lint or type errors are present after implementation.
-5. **`hatch3r-ui`** (CQ1) — when UI or accessibility changes are made.
-6. **`hatch3r-performance`** (CQ7) — when performance-sensitive changes are made.
+Spawn **all conditional CQ specialists (CQ1-CQ9) per `SPECIALIST_TRIGGER_TABLE`** plus `hatch3r-lint-fixer` — not the lint/ui/performance subset alone. Evaluate each via `shouldTriggerSpecialist(specialist, changedFiles, projectType)` (D6-M11); spawn the ones that return `{ triggered: true }`:
+
+4. **`hatch3r-lint-fixer`** — lint or type errors present after implementation.
+5. **`hatch3r-ui`** (CQ1) — UI component / design-token / theme files modified.
+6. **`hatch3r-ux`** (CQ2) — flow / route-transition / modal / error-state files or microcopy/i18n strings modified.
+7. **`hatch3r-reliability`** (CQ4) — service/request handler, OTel/SLO, retry/circuit-breaker, or Kubernetes-probe code modified.
+8. **`hatch3r-scalability`** (CQ6) — request handler, queue client, connection-pool, cache, or background-job code modified.
+9. **`hatch3r-performance`** (CQ7) — ORM/data-access, UI-rendering, or bundle/hot-path code modified.
+10. **`hatch3r-maintainability`** (CQ8) — any code mutation (duplication + complexity scan); schema / migration / API spec modified.
+11. **`hatch3r-enhancability`** (CQ9) — user-visible behavior, public API surface, config schema, or extension-point interface modified.
+
+(`hatch3r-architect` and `hatch3r-devops` are also conditional in `SPECIALIST_TRIGGER_TABLE` but are not CQ-vector specialists; spawn them too when their architectural / CI-CD triggers match.)
 
 > **Single source of truth for triggers (D6-M11):** the canonical trigger map lives in `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` and the predicate `shouldTriggerSpecialist(specialist, changedFiles, projectType)` returns `{ triggered, reasons }` for any specialist. The brief prose list above is a quick reference only; for the authoritative trigger evaluation at runtime, call `shouldTriggerSpecialist` from the orchestrator harness (or the equivalent mirror in `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). Adding a specialist to the prose without updating the TS table is rejected by `npm run validate:specialist-roster`.
 
@@ -412,8 +424,8 @@ For each criterion, rate verification confidence: high (tested and confirmed via
 Review Results:
   Acceptance Criteria: {N/M met}
   Code Quality: {reviewer findings}
-  Security: {security-auditor findings}
-  Test Coverage: {test-writer results}
+  Security: {hatch3r-security findings}
+  Test Coverage: {hatch3r-testability results}
   Documentation: {docs-writer results / not applicable}
   Performance: {pass/issues}
   Overall Confidence: {high/medium/low}
@@ -450,24 +462,34 @@ Collapses the 4 phases into a streamlined flow for small, well-defined tasks. Su
 2. Run quality checks (lint, typecheck, test).
 3. Fix any issues before proceeding.
 
-### Quick Step 3: Quick Review (Sub-Agent Quality Pipeline)
+### Quick Step 3: Quick Review (sub-agent Quality Pipeline)
 
 Same two-stage pipeline as Full Mode, with lighter prompts:
 
 **Stage 1 — Review Loop:**
 
-1. Spawn **`hatch3r-reviewer`** with a focused prompt covering correctness and quality.
+1. Spawn **`hatch3r-reviewer`** with a focused prompt covering correctness and quality. Extract Critical/Warning findings AND the reviewer's top-level `confidence` field.
 2. If Critical or Warning findings exist, spawn **`hatch3r-fixer`**, then re-review. Max 3 iterations.
+3. **Confidence-aware gate (parity with Full Mode 4a step 2 — the `--confidence-floor` from Step 0.7 is NOT inert in Quick Mode):** resolve an absent/unparseable reviewer `confidence` to `low` per the Confidence Propagation Contract, then apply the same floor branch as Full Mode 4a:
+   - **0 Critical + 0 Warning AND confidence == high or medium:** clean — proceed to Stage 2. (Floor `medium`: also force a second pass on any finding `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
+   - **0 Critical + 0 Warning AND confidence == low (including absent/unparseable):** trigger a second reviewer pass before exiting; do not proceed to Stage 2 until it returns high/medium confidence OR the user accepts the low-confidence PASS at the finalize ASK.
 
 **Stage 2 — Final Quality (after review loop is clean):**
 
-3. **`hatch3r-testability`** (CQ5) — ALWAYS for code changes.
-4. **`hatch3r-security`** (CQ3) — ALWAYS for code changes.
-5. **`hatch3r-docs-writer`** — evaluate; spawn when documentation impact exists.
-6. Verify acceptance criteria are met.
-7. Confirm lint/typecheck/test pass.
+4. **`hatch3r-testability`** (CQ5) — ALWAYS for code changes.
+5. **`hatch3r-security`** (CQ3) — ALWAYS for code changes.
+6. **`hatch3r-docs-writer`** — evaluate; spawn when documentation impact exists.
+7. Verify acceptance criteria are met (rate each criterion high/medium/low per Full Mode 4c).
+8. Confirm lint/typecheck/test pass.
 
-**ASK:** "Changes complete. Quality checks pass. Finalize? (yes / deeper review needed → switch to Full Mode Phase 4)"
+Before the finalize ASK, emit an `Overall Confidence` line (parity with Full Mode 4d) sourced from the lowest upstream confidence across reviewer, testability, security, and the acceptance-criteria checks:
+
+```
+Overall Confidence: {high/medium/low}
+  Lowest-confidence area: {description or "none"}
+```
+
+**ASK:** "Changes complete. Quality checks pass. Overall confidence: {high/medium/low}. Finalize? (yes / deeper review needed → switch to Full Mode Phase 4)"
 
 ---
 
@@ -539,40 +561,17 @@ At the end of an auto workflow session, generate a summary:
 
 workflow is long-running — a Tier 2/3 run walks the 4-phase delivery pipeline (Analyze → Plan → Implement → Review), fans out one implementer per independent module in Phase 3, and runs a reviewer ↔ fixer loop plus Phase 4b CQ1–CQ9 specialist batch in Phase 4. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed phase rather than re-running researchers or re-implementing already-applied module changes.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.workflow-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (1 Analyze / 2 Plan / 3 Implement / 4 Review), `wave` (per-module implementer batch index for Phase 3 and reviewer-fixer iteration count for Phase 4a), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, moduleManifest, implementerProofIds }`. The cached researcher outputs from Phase 1 live alongside in `.workflow-workspace/research-cache.json` so Phase 2/3 do not re-spawn researcher modes on resume.
-2. **Write points:** after Phase 1 researcher fan-out returns, after the Phase 2 plan synthesis is confirmed by ASK, after each Phase 3 implementer sub-agent returns (one write per module so a mid-batch crash preserves prior `delegation_proof_id`s), after each Phase 4a reviewer-fixer iteration, and after the Phase 4b parallel specialist batch (docs-writer + lint-fixer + CQ1–CQ9 specialists) completes.
-3. **`--resume` invocation:** `hatch3r-workflow --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the working tree / branch state changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming. Phase 3 resume reads `implementerProofIds` so already-applied module changes are not re-applied.
-4. **Snapshot rollback:** pre-mutation snapshots of every file touched by Phase 3 implementers and Phase 4a fixers land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every implement / fix mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.workflow-workspace/`; step range the command's step progression; `wave` = per-module implementer batch index for Phase 3 and reviewer-fixer iteration count for Phase 4a; snapshot/rollback paths every file touched by Phase 3 implementers and Phase 4a fixers. Write points: after Phase 1 researcher fan-out returns, after the Phase 2 plan synthesis is confirmed by ASK, after each Phase 3 implementer sub-agent returns (one write per module so a mid-batch crash preserves prior `delegation_proof_id`s), after each Phase 4a reviewer-fixer iteration, and after the Phase 4b parallel specialist batch (docs-writer + lint-fixer + CQ1–CQ9 specialists) completes.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for workflow: `1` = workflow intake + step decomposition, `2` = per-step sub-agent dispatch, `3` = aggregation + verification of step outputs, `4` = workflow report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for workflow: `1` = workflow intake + step decomposition, `2` = per-step sub-agent dispatch, `3` = aggregation + verification of step outputs, `4` = workflow report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (workflow definition, step outputs, automation manifests) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: workflow definition, step outputs, automation manifests.
 
 ## Iteration Summary (mandatory output)
 
@@ -592,18 +591,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 
@@ -620,8 +608,9 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 - **Quality check failure in Phase 3:** Loop back and fix before proceeding to Phase 4. Do not advance with failing checks.
 - **Acceptance criteria not met in Phase 4:** Loop back to Phase 3 with specific items to address.
-- **Sub-agent failure:** Retry once, then fall back to direct implementation.
-- **Context degradation (>25 turns):** Suggest starting a fresh chat with a progress summary capturing completed work and remaining items.
+- **Sub-agent failure:** Per the shared sub-agent-failure clause in `rules/hatch3r-agent-orchestration.md` -> Cross-Phase Error Propagation: retry once, then re-spawn `hatch3r-fixer` with the failure context, then `BLOCKED_OTHER` + ASK. Never fall back to inline implementation (issue #73 bypass mode).
+- **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback for this command is ~25 turns, at which point suggest a fresh chat with a progress summary capturing completed work and remaining items.
+- **Handoff information loss (>0.3):** When a lossy phase transition crosses the `informationLossEstimate > 0.3` threshold, emit the `formatPhaseHandoffWarning` line in the iteration summary per `rules/hatch3r-agent-orchestration.md` -> Phase Handoff Contract (Handoff-loss trigger) so the next phase verifies critical context survived — distinct from the turn-count degradation rule above.
 - **Mode switch:** User can switch from Quick to Full (or vice versa) at any ASK checkpoint. State carries forward — no work is lost.
 
 ## Guardrails

@@ -51,7 +51,7 @@ import {
 } from "../../clean/index.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { runInit } from "../../cli/commands/init.js";
-import { info } from "../../cli/shared/ui.js";
+import { info, printBox } from "../../cli/shared/ui.js";
 
 // ── Import module under test ──────────────────────────────────
 
@@ -482,5 +482,156 @@ describe("cleanCommand", () => {
 
     const callArgs = vi.mocked(runInit).mock.calls[0]?.[0] as { preservedManifestFields?: { cliTools?: unknown } };
     expect(callArgs.preservedManifestFields?.cliTools).toBeUndefined();
+  });
+
+  // ── D1-21 (Cycle 11 Wave 3): --purge full-uninstall surface ────
+  //
+  // The standard clean preserves `.hatch3r/` state + `.env.mcp`. `--purge`
+  // removes those too, supersedes reinit, and is irreversible (it deletes the
+  // pre-clean snapshot under `.hatch3r/snapshots/`). The real node:fs/promises
+  // `rm({ force: true })` is a no-op against the non-existent /fake/repo, so
+  // these tests assert on the UX surface, not on-disk effects.
+  it("--purge --yes skips all prompts, purges, and does not reinit", async () => {
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      hatch3rDir: true,
+      envMcp: true,
+      manifest: makeManifest(),
+    });
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [],
+      errors: [],
+    });
+
+    await cleanCommand({ yes: true, purge: true });
+
+    // No prompts at all under --yes.
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    // Reinit is superseded by purge.
+    expect(runInit).not.toHaveBeenCalled();
+    // Summary box reports the purge, not the standard "Clean complete".
+    expect(vi.mocked(printBox)).toHaveBeenCalledWith(
+      "Purge complete",
+      expect.arrayContaining([expect.stringContaining(".hatch3r/")]),
+      "success",
+    );
+  });
+
+  it("--purge prompts for a separate confirmation after the clean confirm", async () => {
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      hatch3rDir: true,
+      envMcp: true,
+      manifest: makeManifest(),
+    });
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [],
+      errors: [],
+    });
+    // 1st prompt: proceed with clean; 2nd prompt: confirm purge.
+    vi.mocked(inquirer.prompt)
+      .mockResolvedValueOnce({ proceed: true })
+      .mockResolvedValueOnce({ confirmPurge: true });
+
+    await cleanCommand({ purge: true });
+
+    expect(inquirer.prompt).toHaveBeenCalledTimes(2);
+    expect(inquirer.prompt).toHaveBeenLastCalledWith(
+      expect.arrayContaining([
+        expect.objectContaining({ name: "confirmPurge", type: "confirm" }),
+      ]),
+    );
+    expect(vi.mocked(printBox)).toHaveBeenCalledWith(
+      "Purge complete",
+      expect.anything(),
+      "success",
+    );
+  });
+
+  it("--purge declined keeps .hatch3r/ and .env.mcp (standard clean still applied)", async () => {
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      hatch3rDir: true,
+      envMcp: true,
+      manifest: makeManifest(),
+    });
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [],
+      errors: [],
+    });
+    vi.mocked(inquirer.prompt)
+      .mockResolvedValueOnce({ proceed: true })
+      .mockResolvedValueOnce({ confirmPurge: false });
+
+    await cleanCommand({ purge: true });
+
+    // No "Purge complete" box; the decline path returns before it.
+    expect(vi.mocked(printBox)).not.toHaveBeenCalledWith(
+      "Purge complete",
+      expect.anything(),
+      "success",
+    );
+    expect(vi.mocked(info)).toHaveBeenCalledWith(
+      expect.stringContaining("Purge declined"),
+    );
+    // Reinit is not offered on the purge path even when declined.
+    expect(runInit).not.toHaveBeenCalled();
+  });
+
+  it("--dry-run --purge previews .hatch3r/ and .env.mcp as removed, not kept", async () => {
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      hatch3rDir: true,
+      envMcp: true,
+      manifest: makeManifest(),
+    });
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [".env.mcp (contains secrets)", ".hatch3r/ (preserved)"],
+      errors: [],
+    });
+
+    await cleanCommand({ dryRun: true, purge: true });
+
+    // executeClean still runs in dry-run mode.
+    expect(executeClean).toHaveBeenCalledWith("/fake/repo", inv, true);
+    // No mutation prompt in dry-run.
+    expect(inquirer.prompt).not.toHaveBeenCalled();
+    // The preview should announce .hatch3r/ + .env.mcp under "Would remove".
+    const printed = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(printed).toMatch(/Would remove/);
+    expect(printed).toContain(".hatch3r/");
+    expect(printed).toContain(".env.mcp");
+  });
+
+  it("--purge under --yes reports purged paths even when .env.mcp is absent", async () => {
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      hatch3rDir: true,
+      envMcp: false,
+      manifest: makeManifest(),
+    });
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [],
+      errors: [],
+    });
+
+    await cleanCommand({ yes: true, purge: true });
+
+    // .hatch3r/ is always purged; .env.mcp line is omitted when absent.
+    const boxCall = vi.mocked(printBox).mock.calls.find((c) => c[0] === "Purge complete");
+    expect(boxCall).toBeDefined();
+    const lines = (boxCall?.[1] as string[]).join("\n");
+    expect(lines).toContain(".hatch3r/");
+    expect(lines).not.toContain(".env.mcp");
   });
 });

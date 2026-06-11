@@ -8,7 +8,7 @@ cache_friendly: true
 
 ## Agent Quality Charter
 
-> Last updated: 2026-05-26
+> Last updated: 2026-06-09
 
 All agents operating under hatch3r should embody these behavioral standards. This charter is the single source of truth for agent conduct — referenced by content artifacts and verified by the weekly audit cycle.
 
@@ -157,13 +157,26 @@ Free-form "stuck" or "failed" prose substitution is rejected at the orchestrator
 
 Match the depth of every robustness, scalability, testing, and infrastructure investment to the project's maturity tier. Use only as much complexity as it takes to reach the next stage — never default to enterprise-grade. Overengineering is a defect: a solo prototype carrying multi-region SLOs, a plugin registry, or a mutation-testing gate has burned the user's time and added carrying cost the project cannot pay down. Premature bureaucracy (ADR ceremony, deprecation-window policy, FinOps accounting on a project that did not ask for it) is the same failure. The universal floor — security, correctness and data integrity, accessibility basics, and baseline tests on changed surfaces — binds at EVERY tier including solo and is never relaxed; below the floor there is no calibration, the floor wins. This is the behavioral core of `rules/hatch3r-right-sizing.md`; the nine CQ specialists carry per-vector depth ladders in their `## Tier calibration` sections. When a calibration choice and a floor conflict, state the conflict and hold the floor.
 
+### Non-Determinism Budget
+
+LLM sampling makes a single pass non-reproducible: the same prompt can yield different verdicts across runs. Most tasks accept a single pass; high-stakes Tier-3 work touching `floor:security` items does not. This section is the canonical specification the `VarianceBudget` typed stub (`src/pipeline/pipelineContext.ts`) and the `rules/hatch3r-agent-orchestration.md` Tier-to-Phase-4 depth mapping cite.
+
+**NOT-YET-AVAILABLE (Finding D7-22):** the multi-pass control below is a specification, not a shipped feature. No runtime reads `VarianceBudget`, the `varianceTracker.ts` reconciliation module does not exist, and `--variance-runs=N` is not a registered CLI flag — it names the intended opt-in surface. Until that module ships, every run is single-pass (`N = 1`); the `N = 3` rule states the target behavior, not current behavior.
+
+- **Sample count `N`.** `N = 1` is the single-pass default at Tier 1 and Tier 2. At Tier 3 when the change touches one or more `floor:security` items, the always-mode specialists (`hatch3r-security` CQ3, `hatch3r-testability` CQ5) run `N = 3` independent passes. Lower-stakes Tier 3 changes (no `floor:security` item touched) stay `N = 1`. Opt in to any `N > 1` on a non-default run via the orchestrator's `--variance-runs=N` intent (CL-2 stub; see the `VarianceBudget` module header for the not-yet-shipped `varianceTracker.ts` reconciliation module).
+- **Majority-vote rule.** When `N > 1`, each pass emits a structured per-run verdict (PASS / FINDING with severity). The orchestrator takes the majority verdict: with `N = 3`, two agreeing passes decide. A finding surfaced by the majority is reported; a finding surfaced by a minority is recorded as a low-confidence note, not a merge gate. Set `majorityVoteUsed = true` on the `VarianceBudget` record once a majority is reached so the orchestrator can short-circuit any remaining passes.
+- **Tier-3 + `floor:security` gating.** This budget only escalates above `N = 1` for the intersection of Tier 3 AND a touched `floor:security` item — the highest-blast-radius slice. It is never applied to Tier 1/2 (single-pass), and never relaxed below the floor: when a security finding appears in any pass, it is surfaced for adjudication even if outvoted, because a false-negative on security costs more than the extra pass.
+- **Reproducibility key.** When `N > 1` runs land, each pass records `{ model, promptHash, seed?, temperature? }` (mirrors `rules/hatch3r-ai-evals.md` reproducibility-key vocabulary) so a replay audit can reconstruct which sampling produced which verdict.
+
+Cross-reference: `rules/hatch3r-agent-orchestration.md` Deep Context Integration (Tier-to-Phase-4 specialist depth mapping), `src/pipeline/pipelineContext.ts::VarianceBudget` (typed CL-2 contract), Finding D7-M10 / D7-SA7.4-3.
+
 ### UI/UX quality (for agent-produced output in end-user projects)
 
 When an agent produces UI for an end-user project, the charter binds it to these criteria. Each is measurable; each is a regression if missed.
 
 - **Accessibility:** WCAG 2.2 AA conformance verified by axe-core (0 serious/critical violations), with explicit checks for SC 2.5.8 (target size 24x24 + 24px spacing), SC 2.4.11 (focus not obscured), and SC 2.5.7 (drag operations have a single-tap alternative). Reference `rules/hatch3r-accessibility-standards.md`.
-- **Design-token reuse:** detect existing tokens before authoring via `skills/hatch3r-design-system-detect`; apply the precedence reuse > extend > create; achieve >=95% design-token adoption on color and spacing in generated code. Reference `rules/hatch3r-design-system-detection.md`.
-- **Four-state surface contract:** every async view ships loading, empty, error, and partial states with documented content structure that distinguishes cold-start from active-filter from network failure. Reference `rules/hatch3r-ux-states-and-flows.md`.
+- **Design-token reuse:** detect existing tokens before authoring via `skills/hatch3r-design-system-detect` (library-detection step, shipped); apply the precedence reuse > extend > create. The >=95% color/spacing/typography adoption number is a **project-supplied measurement**: hatch3r ships the threshold + the scan pattern (`agents/hatch3r-ui.md` item 2 token-scan — project-local scan script or `npx style-dictionary` build + grep against the project's token registry), not a turnkey adoption scanner — the framework does not own the project's token taxonomy. Reference `rules/hatch3r-design-system-detection.md`.
+- **Four-state surface contract:** every async view ships loading, empty, error, and partial states with documented content structure that distinguishes cold-start from active-filter from network failure; the loading skeleton carries explicit `width`/`height`/`aspect-ratio` so it does not shift layout. `skills/hatch3r-ui-ux-verify` Gate 4 statically asserts the four state snapshots exist (`src/__tests__/states/<feature>.<state>.spec.ts`); the CLS <=0.1 target those dimensions serve is a **project-supplied browser measurement** under the deferrable Gate 7 (Core Web Vitals via Lighthouse CI / `web-vitals`), not the static snapshot gate. Reference `rules/hatch3r-ux-states-and-flows.md`.
 - **Microcopy and tone:** plain language, second person, corrective verb on errors, no jargon visible to end users (`null`, `500`, `FIDO2`); ICU MessageFormat for plurals and gender. Reference `rules/hatch3r-i18n.md` Microcopy subsection and `rules/hatch3r-ux-states-and-flows.md`.
 - **AI-UX patterns (when applicable):** streaming responses via AI SDK UI hooks plus AI Elements; tool-call UI cards; human-approval gates for side-effectful tools; cancel, abort, and undo affordances; span-grounded citations. Reference `rules/hatch3r-ai-ux-patterns.md`.
 - **Verification gate:** a feature is not done until `skills/hatch3r-ui-ux-verify` passes all 9 gates — axe-core, keyboard trace, a11y-tree snapshot, four-state coverage, visual regression, microcopy lint, Core Web Vitals, AI-UX checks (when applicable), and one human screen-reader pass per release.
@@ -258,7 +271,7 @@ Cross-reference: AUDIT Directive 16 (f), D15 SA15.8 (supply-chain end-user floor
 
 When an agent produces a service or a deploy artifact, the charter binds it to these criteria.
 
-- **Circuit breaker + retry with decorrelated jitter:** every outbound call has a circuit breaker with documented thresholds and retries with decorrelated jitter (AWS Architecture Blog pattern), not naked exponential backoff. Reference `rules/hatch3r-reliability.md`.
+- **Circuit breaker + retry with decorrelated jitter:** every outbound call has a circuit breaker with documented thresholds and retries with decorrelated jitter (AWS Architecture Blog pattern), not naked exponential backoff. Reference `rules/hatch3r-resilience-patterns.md`.
 - **Timeouts with deadline propagation:** every outbound call has a timeout strictly less than the inbound deadline; deadlines propagate via gRPC metadata or HTTP `traceparent` + `request-deadline`.
 - **Idempotency keys and bulkheads:** non-idempotent operations gate on idempotency keys; resource pools are bulkheaded so one slow dependency does not exhaust the whole service.
 - **Probes wired:** Kubernetes liveness, readiness, and startup probes are wired with documented commands; readiness gates on dependency health, not on liveness.

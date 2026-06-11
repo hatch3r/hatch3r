@@ -6,6 +6,7 @@ import type { ContentSelection } from "../../types.js";
 import {
   buildContentIndex,
   extractContentReferences,
+  extractRuleFileReferences,
   validateCrossReferences,
   validateOrchestrationDependencies,
 } from "../../content/index.js";
@@ -192,6 +193,59 @@ describe("content/index — cross-references", () => {
     });
   });
 
+  // ── extractRuleFileReferences (D22-1) ────────────────────
+
+  describe("extractRuleFileReferences (D22-1)", () => {
+    it("extracts backticked rules/hatch3r-*.md path references", () => {
+      const content = "See `rules/hatch3r-resilience-patterns.md` for breakers.";
+      const refs = extractRuleFileReferences(content);
+      expect(refs).toEqual(["rules/hatch3r-resilience-patterns.md"]);
+    });
+
+    it("extracts the .mdc twin form", () => {
+      const content = "The Cursor twin is `rules/hatch3r-operability.mdc`.";
+      const refs = extractRuleFileReferences(content);
+      expect(refs).toEqual(["rules/hatch3r-operability.mdc"]);
+    });
+
+    it("deduplicates repeated rule-file paths", () => {
+      const content =
+        "First `rules/hatch3r-api-design.md`, then `rules/hatch3r-api-design.md` again.";
+      const refs = extractRuleFileReferences(content);
+      expect(refs).toEqual(["rules/hatch3r-api-design.md"]);
+    });
+
+    it("does not match bare-id references (no path prefix)", () => {
+      const content = "Use `hatch3r-resilience-patterns` the bare id.";
+      const refs = extractRuleFileReferences(content);
+      expect(refs).toEqual([]);
+    });
+
+    it("does not match non-backticked rule paths", () => {
+      const content = "Edit rules/hatch3r-operability.md by hand.";
+      const refs = extractRuleFileReferences(content);
+      expect(refs).toEqual([]);
+    });
+
+    it("ignores rule paths inside fenced code blocks", () => {
+      const content =
+        "Real ref `rules/hatch3r-operability.md`.\n\n" +
+        "```bash\n" +
+        "cat `rules/hatch3r-example-only.md`\n" +
+        "```\n";
+      const refs = extractRuleFileReferences(content);
+      expect(refs).toEqual(["rules/hatch3r-operability.md"]);
+    });
+
+    it("does not match non-rules paths (agents/, src/, docs/)", () => {
+      const content =
+        "See `agents/hatch3r-reliability.md`, `src/pipeline/circuitBreaker.ts`, " +
+        "and `docs/maturity-tiers.md`.";
+      const refs = extractRuleFileReferences(content);
+      expect(refs).toEqual([]);
+    });
+  });
+
   // ── validateCrossReferences ──────────────────────────────
 
   describe("validateCrossReferences", () => {
@@ -243,6 +297,49 @@ describe("content/index — cross-references", () => {
       const index = await buildContentIndex(dir);
       const result = await validateCrossReferences(dir, index);
       expect(result.warnings).toEqual([]);
+    });
+
+    // D22-1 (Cycle 11 Wave 2): a backticked `rules/hatch3r-*.md` citation that
+    // does not resolve on disk is drift. The id-based scanners miss it because
+    // it is a path, not a bare id, so a dedicated existence check warns.
+    it("warns when a backticked rules/ path does not exist on disk", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "hatch3r-citer.md"),
+        mdFile({ id: "hatch3r-citer", type: "agent", description: "Cites a rule" }) +
+          "\nApply circuit breakers per `rules/hatch3r-reliability.md`.\n",
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      const ruleWarnings = result.warnings.filter((w) =>
+        w.includes("does not exist on disk"),
+      );
+      expect(ruleWarnings.length).toBe(1);
+      expect(ruleWarnings[0]).toContain("rules/hatch3r-reliability.md");
+    });
+
+    it("does NOT warn when the backticked rules/ path exists on disk", async () => {
+      const dir = await makeTempDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "hatch3r-resilience-patterns.md"),
+        mdFile({ id: "hatch3r-resilience-patterns", type: "rule", description: "Breakers" }),
+      );
+      await writeFile(
+        join(dir, "agents", "hatch3r-citer2.md"),
+        mdFile({ id: "hatch3r-citer2", type: "agent", description: "Cites a real rule" }) +
+          "\nApply breakers per `rules/hatch3r-resilience-patterns.md`.\n",
+      );
+
+      const index = await buildContentIndex(dir);
+      const result = await validateCrossReferences(dir, index);
+      const ruleWarnings = result.warnings.filter((w) =>
+        w.includes("does not exist on disk"),
+      );
+      expect(ruleWarnings).toEqual([]);
     });
 
     it("handles skill subdirectory cross-references", async () => {

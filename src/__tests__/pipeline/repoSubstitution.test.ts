@@ -12,9 +12,12 @@ import {
   LINTER_TOKEN,
   REPO_SUBSTITUTION_TOKENS,
   TEST_FRAMEWORK_TOKEN,
+  VERIFY_GATE_ALL_TOKEN,
   detectionContextFromManifest,
   renderDetectionList,
   substituteRepoTokens,
+  substituteVerificationGateTokens,
+  verificationGatesFromManifest,
 } from "../../pipeline/repoSubstitution.js";
 import type { HatchManifest } from "../../types.js";
 
@@ -194,5 +197,91 @@ describe("detectionContextFromManifest", () => {
       detectionContextFromManifest(baseManifest()),
     );
     expect(out).toBe("Lint: unknown; Tests: unknown; CI: unknown");
+  });
+});
+
+describe("verificationGatesFromManifest — package-manager forwarding (D14-M7)", () => {
+  it("renders npm commands for a typescript project with packageManager 'npm'", () => {
+    const gates = verificationGatesFromManifest(
+      baseManifest({ languages: ["typescript"], packageManager: "npm" }),
+    );
+    expect(gates.all).toBe("npm run lint && npm run typecheck && npm run test");
+  });
+
+  it("renders pnpm commands for a typescript project with packageManager 'pnpm'", () => {
+    const gates = verificationGatesFromManifest(
+      baseManifest({ languages: ["typescript"], packageManager: "pnpm" }),
+    );
+    // Root cause of D14-M7: before the fix the resolver always received
+    // `undefined`, so a pnpm project still rendered `npm run test`. Note
+    // `pnpm run` contains the substring `npm run`, so the bug signature is
+    // the *standalone* `npm run test` — assert that exact gate is absent.
+    expect(gates.all).toBe("pnpm run lint && pnpm run typecheck && pnpm run test");
+    expect(gates.test).toBe("pnpm run test");
+    expect(gates.test).not.toBe("npm run test");
+  });
+
+  it("renders yarn commands for a javascript project with packageManager 'yarn'", () => {
+    const gates = verificationGatesFromManifest(
+      baseManifest({ languages: ["javascript"], packageManager: "yarn" }),
+    );
+    expect(gates.test).toBe("yarn test");
+    expect(gates.lint).toBe("yarn lint");
+    expect(gates.all).not.toContain("npm run test");
+  });
+
+  it("renders bun commands for a typescript project with packageManager 'bun'", () => {
+    const gates = verificationGatesFromManifest(
+      baseManifest({ languages: ["typescript"], packageManager: "bun" }),
+    );
+    expect(gates.test).toBe("bun run test");
+    expect(gates.test).not.toBe("npm run test");
+  });
+
+  it("falls back to npm when packageManager is 'unknown' (no regression)", () => {
+    const gates = verificationGatesFromManifest(
+      baseManifest({ languages: ["typescript"], packageManager: "unknown" }),
+    );
+    expect(gates.all).toBe("npm run lint && npm run typecheck && npm run test");
+  });
+
+  it("falls back to npm when packageManager is absent (pre-Cycle-11 manifest)", () => {
+    const gates = verificationGatesFromManifest(baseManifest({ languages: ["typescript"] }));
+    expect(gates.all).toBe("npm run lint && npm run typecheck && npm run test");
+  });
+
+  it("ignores packageManager for non-JS languages (Python uses pytest)", () => {
+    // A package manager only adjusts the JS/TS run prefix; a Python project
+    // resolves to its native toolchain regardless of any persisted PM value.
+    const gates = verificationGatesFromManifest(
+      baseManifest({ languages: ["python"], packageManager: "pnpm" }),
+    );
+    expect(gates.test).toBe("pytest");
+    expect(gates.lint).toBe("ruff check .");
+    expect(gates.all).toBe("ruff check . && mypy . && pytest");
+  });
+});
+
+describe("substituteVerificationGateTokens — package-manager forwarding (D14-M7)", () => {
+  it("substitutes ${HATCH3R:VERIFY_GATE_ALL} with the pnpm command set", () => {
+    const body = `Run the gate:\n\n${VERIFY_GATE_ALL_TOKEN}\n`;
+    const out = substituteVerificationGateTokens(
+      body,
+      baseManifest({ languages: ["typescript"], packageManager: "pnpm" }),
+    );
+    expect(out).toContain("pnpm run lint && pnpm run typecheck && pnpm run test");
+    expect(out).not.toContain(VERIFY_GATE_ALL_TOKEN);
+    // `pnpm run` contains `npm run` as a substring; the bug signature is the
+    // standalone npm gate chain, which must not appear after the fix.
+    expect(out).not.toContain("npm run lint && npm run typecheck && npm run test");
+  });
+
+  it("is a no-op when the body carries no verify-gate token", () => {
+    const body = "Just prose, no gate tokens.";
+    const out = substituteVerificationGateTokens(
+      body,
+      baseManifest({ languages: ["typescript"], packageManager: "pnpm" }),
+    );
+    expect(out).toBe(body);
   });
 });

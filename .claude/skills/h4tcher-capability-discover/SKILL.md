@@ -9,7 +9,7 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-06
 
 # Capability Discover (Maintainer, Read-Only)
 
@@ -61,6 +61,8 @@ Spawn 3 parallel `Task` sub-agents. Slice the surface so file scopes are disjoin
 
 Each sub-agent prompt MUST include: discovery slice from Step 2, the h4tcher-development context block (pillar test, lean thresholds, anti-slop wordlist ref, commit format) modeled on `.claude/skills/h4tcher-pr-resolve/SKILL.md`, the confidence-with-basis requirement from the rigor contract, and an explicit "no branches, no commits, no PRs, read-only" guardrail. T1 skips this step entirely.
 
+Fan-out is task-derived (P8 B2): 0 sub-agents on T1, 3 on T2/T3. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 7 report).
+
 ## Step 5: Cross-Skill Delegation
 
 None. This preset is purely investigative — no delegation to `h4tcher-content-author`, `h4tcher-adapter-author`, or `h4tcher-domain-author`. The Step 7 report's "recommended next preset" field tells the maintainer which lifecycle preset to invoke next.
@@ -90,6 +92,7 @@ Duplication candidates (K):
 
 Cross-reference impact: <total inbound references across candidates>
 Pillar coverage delta: <gap closed | gap unchanged | risk of redundant coverage>
+Sub-agents: count=<0|3>, rationale=<one-line task-decomposition justification>
 
 Recommended next preset: <h4tcher-capability-add | h4tcher-capability-refactor | h4tcher-capability-remove | no action | h4tcher-scoped-audit>
 

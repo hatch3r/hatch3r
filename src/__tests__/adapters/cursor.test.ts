@@ -68,9 +68,64 @@ describe("CursorAdapter", () => {
 
     const scopedRule = outputs.find((o) => o.path.includes("hatch3r-scoped-rule.mdc"));
     expect(scopedRule).toBeDefined();
-    expect(scopedRule!.content).toContain("globs:");
-    expect(scopedRule!.content).toContain("**/*.ts");
+    // D9-6 (P2): exact-value frontmatter, not a value-blind `.toContain("globs:")`.
+    // The legacy inline-CSV fixture `scope: "**/*.ts"` resolves to a single glob.
+    // A value-blind substring assertion passed even when the X4/CD4 GLOBS-DROP
+    // bug emitted `globs: conditional`; pinning the rendered line closes that
+    // false-negative.
+    // D9-13 (Cycle 11 Wave 3): the rendered form is an unquoted comma-separated
+    // string (NOT a bracketed array), per cursor.com/docs/context/rules.
+    expect(scopedRule!.content).toContain("globs: **/*.ts");
+    expect(scopedRule!.content).not.toContain("globs: [");
+    // Regression sentinel: the literal scope keyword must never leak into the
+    // emitted glob value (the D9-1 cross-adapter failure mode). Scoped to the
+    // `globs:` line so the test survives a description that mentions the word.
+    expect(scopedRule!.content).not.toContain("globs: conditional");
     expect(scopedRule!.content).not.toContain("alwaysApply: true");
+  });
+
+  // D9-6 (P2): second scoped fixture in the canonical `scope: conditional` +
+  // `globs:` two-line form (distinct from the legacy inline-CSV `scoped-rule.md`
+  // fixture). This exercises the `resolveRuleGlobs` `scope === "conditional"`
+  // branch — the one the X4/CD4 GLOBS-DROP regression broke, emitting
+  // `globs: conditional` and silently never auto-attaching the rule. Pins the
+  // exact rendered multi-glob string (D9-13: unquoted comma-separated, no space
+  // after the comma) per https://cursor.com/docs/context/rules and asserts no
+  // glob value is the literal scope keyword. Isolated temp dir so the shared
+  // `FIXTURES_DIR` rule-count assertions are untouched.
+  it("emits the real conditional glob set, never the literal scope keyword", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-conditional-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "conditional-rule.md"),
+        `---
+id: conditional-rule
+type: rule
+description: A conditional-scoped rule
+scope: conditional
+globs: "src/api/**,**/*.proto"
+---
+# Conditional Rule
+
+Applies to API code and protobufs.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const rule = outputs.find((o) => o.path.includes("conditional-rule.mdc"));
+      expect(rule).toBeDefined();
+      // D9-13: unquoted comma-separated string, no space after the comma.
+      expect(rule!.content).toContain("globs: src/api/**,**/*.proto");
+      expect(rule!.content).not.toContain("globs: [");
+      // The scope keyword must not survive into the glob value. Scoped to the
+      // `globs:` line — the fixture description contains the word "conditional".
+      expect(rule!.content).not.toContain("globs: conditional");
+      expect(rule!.content).not.toContain("alwaysApply: true");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   // F3.1.3 (D3 Cycle 10 Wave 2): cursor.test.ts previously asserted
@@ -264,6 +319,66 @@ You are a test agent.`,
     const parsed = JSON.parse(mcp!.content);
     expect(parsed.mcpServers.github).toBeDefined();
     expect(parsed.mcpServers.github.url).toBe("https://api.githubcopilot.com/mcp/");
+  });
+
+  // D2-13 (Cycle 11 Wave 3, D2, P6): no `_`-prefixed framework marker may leak
+  // into the committed `.cursor/mcp.json`. Before the fix, `_pinned_sha256`,
+  // `_trust_bypass`, and `_timeout` survived `readFilteredMcp` (which strips
+  // only `_disabled`/`_description`) and were emitted verbatim by the cursor
+  // adapter. The shared `stripPrivateMcpFields` helper now removes every
+  // underscore-prefixed key per entry before emission.
+  it("strips all `_`-prefixed private fields from .cursor/mcp.json (D2-13)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-mcp-priv-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            "pinned-http": {
+              _description: "private description",
+              _trust_bypass: true,
+              _timeout: 45000,
+              _pinned_sha256:
+                "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef",
+              url: "https://example.com/mcp",
+              headers: { Authorization: "Bearer ${env:API_TOKEN}" },
+            },
+            "stdio-server": {
+              _timeout: 1000,
+              command: "npx",
+              args: ["-y", "@scope/some-mcp@1.0.0"],
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({ mcpServers: ["pinned-http", "stdio-server"] });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".cursor/mcp.json");
+      expect(mcp).toBeDefined();
+      // No underscore-prefixed key may appear anywhere in the serialized file.
+      expect(mcp!.content).not.toContain("_trust_bypass");
+      expect(mcp!.content).not.toContain("_pinned_sha256");
+      expect(mcp!.content).not.toContain("_timeout");
+      expect(mcp!.content).not.toContain("_description");
+
+      const parsed = JSON.parse(mcp!.content);
+      for (const server of Object.values(
+        parsed.mcpServers as Record<string, Record<string, unknown>>,
+      )) {
+        for (const key of Object.keys(server)) {
+          expect(key.startsWith("_")).toBe(false);
+        }
+      }
+      // Public fields survive untouched.
+      expect(parsed.mcpServers["pinned-http"].url).toBe("https://example.com/mcp");
+      expect(parsed.mcpServers["stdio-server"].command).toBe("npx");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("does not generate mcp.json when no servers configured", async () => {
@@ -586,6 +701,116 @@ Low priority rule body.
     });
   });
 
+  // D9-4 (Cycle 11 D9, P6): the `subagentStart` deny hook is the hard runtime
+  // ASI02 block for Cursor, at parity with the Claude PreToolUse NO_POLICY
+  // deny. cursor.com/docs/agent/hooks (accessed 2026-06-06) confirms
+  // `subagentStart` exposes `subagent_type` and denies with
+  // `{permission: "deny"}`; the prior "Cursor has no PreToolUse hook
+  // primitive" premise was false against current docs.
+  describe("D9-4 subagentStart guard hook + hooks.json wiring", () => {
+    it("emits .cursor/hooks/subagent-guard.mjs that reads ../agents-policy.json and denies NO_POLICY", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const guard = outputs.find((o) => o.path === ".cursor/hooks/subagent-guard.mjs");
+      expect(guard).toBeDefined();
+      expect(guard!.content).toContain("subagentStart");
+      expect(guard!.content).toContain('join(__dirname, "..", "agents-policy.json")');
+      expect(guard!.content).toContain('permission: "deny"');
+      expect(guard!.content).toContain('reasonCode: "NO_POLICY"');
+      expect(guard!.content).toContain('if (!subagentType.startsWith("hatch3r-"))');
+    });
+
+    it("wires the guard into .cursor/hooks.json under the subagentStart event with failClosed", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      expect(hooksFile).toBeDefined();
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(parsed.version).toBe(1);
+      expect(Array.isArray(parsed.hooks.subagentStart)).toBe(true);
+      const entry = parsed.hooks.subagentStart[0];
+      expect(entry.type).toBe("command");
+      expect(entry.command).toBe("node ./.cursor/hooks/subagent-guard.mjs");
+      // failClosed: a crash/timeout blocks the spawn rather than failing open.
+      expect(entry.failClosed).toBe(true);
+    });
+
+    it("emits the guard + hooks.json even when no canonical lifecycle hooks map (features.hooks off)", async () => {
+      // The guard is a trust artifact: it must ship even when no
+      // pre-commit/file-save/session-start hook produced a hooks.json entry,
+      // otherwise the Cursor ASI02 runtime block silently disappears.
+      const manifest = makeManifest({ features: { hooks: false } });
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      expect(hooksFile).toBeDefined();
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(parsed.hooks.subagentStart[0].command).toBe(
+        "node ./.cursor/hooks/subagent-guard.mjs",
+      );
+      expect(
+        outputs.find((o) => o.path === ".cursor/hooks/subagent-guard.mjs"),
+      ).toBeDefined();
+    });
+  });
+
+  // D9-14 (Cycle 11 Wave 3, D9, P3): behavioral coverage for the
+  // CURSOR_HOOK_EVENT_MAP -> buildCursorHookEntry -> hooks.json path
+  // (cursor.ts CURSOR_HOOK_EVENT_MAP + buildCursorHookEntry). The prior
+  // hooks.json coverage was path-level only (D9-4 asserted the subagentStart
+  // guard entry); no test pinned the canonical-event -> lifecycle-event keys,
+  // the printf-prefixed command, or the `git commit` matcher. The shared
+  // FIXTURES_DIR already carries pre-commit-lint-fixer.md (event pre-commit ->
+  // beforeShellExecution + matcher "git commit", agent lint-fixer) and
+  // session-start-ci-watcher.md (event session-start -> sessionStart), so this
+  // exercises both a matcher-bearing and a matcher-less mapping.
+  describe("D9-14 hooks.json lifecycle-event wiring (CURSOR_HOOK_EVENT_MAP)", () => {
+    it("maps pre-commit to beforeShellExecution with a git-commit matcher and printf-prefixed command", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      expect(hooksFile).toBeDefined();
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(Array.isArray(parsed.hooks.beforeShellExecution)).toBe(true);
+      const entry = parsed.hooks.beforeShellExecution[0];
+      expect(entry.type).toBe("command");
+      expect(entry.matcher).toBe("git commit");
+      // The command is a printf that surfaces the activation directive to the
+      // agent transcript (Cursor runs the command, it does not spawn an agent).
+      expect(entry.command).toMatch(/^printf '%s\\n' '/);
+      expect(entry.command).toContain("spawn the lint-fixer agent");
+    });
+
+    it("maps session-start to sessionStart with a printf-prefixed command and no matcher", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(Array.isArray(parsed.hooks.sessionStart)).toBe(true);
+      const entry = parsed.hooks.sessionStart[0];
+      expect(entry.type).toBe("command");
+      // session-start has no command-text matcher (afterFileEdit/sessionStart
+      // carry none in CURSOR_HOOK_EVENT_MAP).
+      expect(entry.matcher).toBeUndefined();
+      expect(entry.command).toMatch(/^printf '%s\\n' '/);
+      expect(entry.command).toContain("spawn the ci-watcher agent");
+    });
+
+    it("does not emit a hooks.json lifecycle entry for the advisory-only review-loop-cap event (D9-15)", async () => {
+      // review-loop-cap is intentionally absent from CURSOR_HOOK_EVENT_MAP: it
+      // is advisory-only on Cursor (no per-issue counter context at any Cursor
+      // hook payload), so the only Cursor surface is the `.mdc` rule, never a
+      // hooks.json runtime entry. Pin the decision so a future re-wire is a
+      // deliberate test change, not a silent regression.
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      const parsed = JSON.parse(hooksFile!.content);
+      // No lifecycle key carries a review-loop-cap directive; the subagentStart
+      // key holds only the NO_POLICY guard command (asserted in the D9-4 block).
+      const allCommands = Object.values(
+        parsed.hooks as Record<string, Array<{ command: string }>>,
+      )
+        .flat()
+        .map((e) => e.command);
+      expect(allCommands.some((c) => c.includes("review-loop-cap"))).toBe(false);
+    });
+  });
+
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
   // Cursor's skills surface is filtered by `manifest.cliTools.selected` via
@@ -686,5 +911,39 @@ Low priority rule body.
         expect(rule!.content).toContain("rules/hatch3r-right-sizing.md");
       });
     }
+  });
+
+  // D1-17 (Cycle 11 Wave 3, D1, P1): `cursorConfidenceFloorHeader` stamps the
+  // resolved confidence floor on every per-rule body alongside the maturity
+  // marker. Pre-fix the persisted `confidenceFloor` config key reached no
+  // adapter output. Explicit floor wins; absence resolves to the maturity-aware
+  // default.
+  describe("confidence-floor header (D1-17)", () => {
+    for (const floor of ["any", "medium", "high"] as const) {
+      it(`emits confidence floor=${floor} on rule bodies when set explicitly`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: floor };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const rule = outputs.find((o) => o.path.includes("hatch3r-test-rule.mdc"));
+        expect(rule).toBeDefined();
+        expect(rule!.content).toContain(`confidence floor=${floor}`);
+      });
+    }
+
+    it("resolves an absent floor to the maturity-aware default (enterprise → high)", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+      expect(manifest.confidenceFloor).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rule = outputs.find((o) => o.path.includes("hatch3r-test-rule.mdc"));
+      expect(rule!.content).toContain("confidence floor=high");
+    });
+
+    it("an explicit floor overrides the maturity-derived default", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise", confidenceFloor: "any" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const rule = outputs.find((o) => o.path.includes("hatch3r-test-rule.mdc"));
+      expect(rule!.content).toContain("confidence floor=any");
+      expect(rule!.content).not.toContain("confidence floor=high");
+    });
   });
 });

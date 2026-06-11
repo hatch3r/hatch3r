@@ -30,6 +30,26 @@
  *      is the documented Tier-1 carve-out that intentionally skips docs-writer
  *      (`commands/hatch3r-quick-change.md` "intentionally skips"), but is still
  *      held to the always-mode (test-writer / security-auditor) floor.
+ *   5. Watchdog coverage (D8-12) — every SSOT specialist + the four core
+ *      4-phase pipeline agents (researcher / implementer / fixer / reviewer)
+ *      declares the watchdog directive via EITHER a numeric
+ *      `wall_clock_advisory_ms` frontmatter field OR a body reference to the
+ *      shared carrier `agents/shared/quality-specialist-frame.md`.
+ *   6. CQ specialist trigger-table single-source (D16-12 / D6-15 / D22-6) — the
+ *      9-row `## Specialist Delegation` CQ trigger table (`| CQ<n> ... |
+ *      hatch3r-<x> | <trigger prose> |`) was hand-copied verbatim into THREE
+ *      agent files (implementer.md, reviewer.md, fixer.md); the prior gate
+ *      opened only implementer + reviewer and checked specialist-id PRESENCE,
+ *      never the trigger column and never fixer, so the three copies could (and
+ *      per the D16-12 finding did) drift. D22-6 extracted the table to the
+ *      single source `agents/shared/cq-specialist-roster.md` and replaced the
+ *      three copies with a one-line pointer. This check now: (a) asserts the
+ *      shared roster holds the 9 CQ rows (table-loss guard); (b) asserts each of
+ *      the three agents points at the shared roster instead of re-inlining the
+ *      table; (c) if an agent DOES re-inline CQ rows (a regression that copies
+ *      the table back), asserts every inlined row is byte-identical to the
+ *      shared source. The single source makes the former three-way drift
+ *      structurally impossible while the gate keeps any reintroduced copy honest.
  *
  * Failure modes (each emits one ERROR finding):
  *
@@ -40,6 +60,12 @@
  *   ROSTER-REVIEW-MISSING  SSOT specialist not named in reviewer.md Phase 4
  *   ROSTER-CMD-MISSING     always/evaluate specialist absent from a command's
  *                          agentPipeline
+ *   ROSTER-WATCHDOG-MISSING  SSOT specialist or core pipeline agent declares
+ *                          no watchdog directive (field or shared-frame ref)
+ *   ROSTER-CQ-TABLE-DRIFT  the shared CQ roster is missing its rows, an agent
+ *                          neither points at the shared roster nor inlines the
+ *                          table, or a reintroduced inline copy diverges from
+ *                          the shared source (implementer / reviewer / fixer)
  *
  * Warnings (non-blocking):
  *
@@ -66,6 +92,29 @@ const AGENTS_DIR = join(ROOT, "agents");
 const RULE_FILE = join(ROOT, "rules", "hatch3r-agent-orchestration.md");
 const IMPLEMENTER_FILE = join(AGENTS_DIR, "hatch3r-implementer.md");
 const REVIEWER_FILE = join(AGENTS_DIR, "hatch3r-reviewer.md");
+const FIXER_FILE = join(AGENTS_DIR, "hatch3r-fixer.md");
+const CQ_ROSTER_FILE = join(AGENTS_DIR, "shared", "cq-specialist-roster.md");
+
+// ── CQ trigger-table single-source policy (D16-12 / D6-15 / D22-6) ─
+//
+// The 9-row `## Specialist Delegation` CQ trigger table was hand-copied verbatim
+// into these three agent files; D22-6 extracted it to the single source
+// CQ_ROSTER_REL and replaced the copies with a one-line pointer.
+// checkCqTriggerTableParity() asserts the shared roster holds the rows, each
+// agent points at it (or, if a copy is reintroduced, every inlined row matches
+// the shared source). The bodies are read in runValidator (implBody /
+// reviewBody / fixerBody); CQ_TABLE_RELS are the repo-relative labels used in
+// the emitted Finding.file, in the same order the bodies are passed.
+const CQ_TABLE_RELS: readonly string[] = [
+  "agents/hatch3r-implementer.md",
+  "agents/hatch3r-reviewer.md",
+  "agents/hatch3r-fixer.md",
+];
+const CQ_ROSTER_REL = "agents/shared/cq-specialist-roster.md";
+// The pointer each agent's `## Specialist Delegation` section uses to reference
+// the single source. A bare path substring is the match key (the prose may wrap
+// it in backticks); this is the same path stored in CQ_ROSTER_REL.
+const CQ_ROSTER_POINTER = CQ_ROSTER_REL;
 
 // ── Command dispatch-surface policy (F7.3-H3 rec step 4) ──────────
 //
@@ -80,6 +129,27 @@ const FULL_PIPELINE_COMMANDS: readonly string[] = [
   "hatch3r-board-pickup.md",
 ];
 const ALWAYS_FLOOR_COMMANDS: readonly string[] = ["hatch3r-quick-change.md"];
+
+// ── Watchdog-coverage policy (D8-12) ──────────────────────────────
+//
+// D8-12 (Cycle 11 D8, Medium): watchdog-field coverage was unenforced by any
+// gate, so the 14-of-29 split (only some dispatched agents declared
+// `wall_clock_advisory_ms`) was silently drift-prone. This gate asserts every
+// SSOT Phase-4 specialist PLUS the four core 4-phase pipeline agents declares
+// the watchdog directive. D8-11 documents two accepted carriers of that
+// directive, so the gate accepts EITHER: a numeric `wall_clock_advisory_ms`
+// frontmatter field, OR a body reference to the shared watchdog carrier
+// `agents/shared/quality-specialist-frame.md` (whose "Wall-clock advisory"
+// section restates the clause for the CQ specialists that inherit it). A miss
+// emits a ROSTER-WATCHDOG-MISSING error, converting F1 from latent to
+// CI-blocked.
+const CORE_PIPELINE_AGENTS: readonly string[] = [
+  "hatch3r-researcher",
+  "hatch3r-implementer",
+  "hatch3r-fixer",
+  "hatch3r-reviewer",
+];
+const WATCHDOG_FRAME_REF = "quality-specialist-frame";
 
 // ── Types ─────────────────────────────────────────────────────────
 
@@ -422,6 +492,156 @@ async function checkCommands(commandsDir: string): Promise<Finding[]> {
   return out;
 }
 
+// ── Watchdog-coverage check (D8-12) ───────────────────────────────
+
+/** True when the agent body declares the watchdog directive via either carrier. */
+function hasWatchdogDirective(raw: string): boolean {
+  // Carrier 1: a numeric `wall_clock_advisory_ms` frontmatter field.
+  if (/^\s*wall_clock_advisory_ms\s*:\s*\d+\s*$/m.test(raw)) return true;
+  // Carrier 2: a body reference to the shared watchdog frame (D8-11).
+  if (raw.includes(WATCHDOG_FRAME_REF)) return true;
+  return false;
+}
+
+/**
+ * D8-12: assert every SSOT specialist + the four core pipeline agents declares
+ * the watchdog directive (frontmatter field OR shared-frame reference). Emits
+ * one ROSTER-WATCHDOG-MISSING error per offending agent id.
+ */
+async function checkWatchdogCoverage(agentsDir: string, ssot: string[]): Promise<Finding[]> {
+  const out: Finding[] = [];
+  const required = [...new Set([...ssot, ...CORE_PIPELINE_AGENTS])].sort();
+  for (const id of required) {
+    const raw = await readFileSafe(join(agentsDir, `${id}.md`));
+    if (raw === null) {
+      // A missing core agent file is the diagnostic; specialist files absent
+      // from disk are already reported by checkAgentFiles, so scope this error
+      // to the core pipeline agents to avoid double-reporting.
+      if (CORE_PIPELINE_AGENTS.includes(id)) {
+        out.push({
+          level: "error",
+          code: "ROSTER-WATCHDOG-MISSING",
+          file: `agents/${id}.md`,
+          message: `core pipeline agent file agents/${id}.md not found; cannot verify watchdog coverage (D8-12)`,
+        });
+      }
+      continue;
+    }
+    if (!hasWatchdogDirective(raw)) {
+      out.push({
+        level: "error",
+        code: "ROSTER-WATCHDOG-MISSING",
+        file: `agents/${id}.md`,
+        message: `agents/${id}.md declares no watchdog directive — add a numeric \`wall_clock_advisory_ms\` frontmatter field OR reference agents/shared/quality-specialist-frame.md in the body so a dispatched agent cannot exhaust its phase budget without an advisory (D8-12)`,
+      });
+    }
+  }
+  return out;
+}
+
+// ── CQ trigger-table-parity check (D16-12 / D6-15 / D22-6) ────────
+
+/**
+ * Extract the CQ specialist trigger-table rows from an agent body. Each row is
+ * a pipe-delimited markdown line whose first cell is a `CQ<n>` label, e.g.
+ *   | CQ3 Security | `hatch3r-security` | `src/auth/**`, ... |
+ * Rows are normalized (internal whitespace collapsed, outer pipes trimmed) so
+ * the comparison ignores incidental spacing but catches any substantive change
+ * to the pillar label, specialist id, or trigger prose. Returns the rows in
+ * file order keyed by their CQ label for a stable per-row diff.
+ */
+function extractCqTriggerRows(body: string): Map<string, string> {
+  const rows = new Map<string, string>();
+  for (const line of body.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    const m = trimmed.match(/^\|\s*(CQ\d)\b/);
+    if (!m) continue;
+    const normalized = trimmed.replace(/\s+/g, " ");
+    rows.set(m[1], normalized);
+  }
+  return rows;
+}
+
+/**
+ * Assert the CQ specialist trigger table has a single source (D22-6): the shared
+ * roster `agents/shared/cq-specialist-roster.md` holds the 9 CQ rows, and each
+ * of the three consumer agents (implementer / reviewer / fixer) points at that
+ * roster rather than re-inlining the table. The single source removes the
+ * former three-way drift; this gate keeps it intact and catches a regression
+ * that copies the table back inline:
+ *
+ *   - shared roster has 0 CQ rows  → ROSTER-CQ-TABLE-DRIFT (table-loss guard)
+ *   - an agent neither points at the roster nor inlines CQ rows
+ *                                  → ROSTER-CQ-TABLE-DRIFT (the delegation
+ *                                    section lost its roster reference)
+ *   - an agent re-inlines a CQ row that diverges from the shared source
+ *                                  → ROSTER-CQ-TABLE-DRIFT (per-row drift)
+ *
+ * Emits one ROSTER-CQ-TABLE-DRIFT error per offending file/row.
+ */
+function checkCqTriggerTableParity(
+  rosterBody: string | null,
+  copies: { rel: string; body: string | null }[],
+): Finding[] {
+  const out: Finding[] = [];
+
+  // (a) The shared roster is the reference. A missing file or an empty table is
+  // a table-loss the single-source model cannot tolerate.
+  const rosterRows = rosterBody === null ? new Map<string, string>() : extractCqTriggerRows(rosterBody);
+  if (rosterBody === null) {
+    out.push({
+      level: "error",
+      code: "ROSTER-CQ-TABLE-DRIFT",
+      file: CQ_ROSTER_REL,
+      message: `the shared CQ specialist roster ${CQ_ROSTER_REL} is missing — it is the single source of the 9-row CQ trigger table that implementer/reviewer/fixer point at; restore it (D22-6)`,
+    });
+    return out;
+  }
+  if (rosterRows.size === 0) {
+    out.push({
+      level: "error",
+      code: "ROSTER-CQ-TABLE-DRIFT",
+      file: CQ_ROSTER_REL,
+      message: `the shared CQ specialist roster ${CQ_ROSTER_REL} has no CQ rows (\`| CQ<n> | ... |\`) — the single-source table was emptied or renamed; restore the 9 rows (D22-6)`,
+    });
+    return out;
+  }
+
+  // (b)/(c) Each consumer agent must either point at the shared roster or, if it
+  // reintroduces an inline copy, match the shared source row-for-row.
+  for (const c of copies) {
+    if (c.body === null) continue; // missing agent files are reported elsewhere
+    const rows = extractCqTriggerRows(c.body);
+    const pointsAtRoster = c.body.includes(CQ_ROSTER_POINTER);
+    if (rows.size === 0) {
+      if (!pointsAtRoster) {
+        out.push({
+          level: "error",
+          code: "ROSTER-CQ-TABLE-DRIFT",
+          file: c.rel,
+          message: `${c.rel} neither inlines the CQ specialist trigger table nor points at the single source ${CQ_ROSTER_REL} — its \`## Specialist Delegation\` section lost the roster reference; add the pointer (D22-6)`,
+        });
+      }
+      continue; // pointer-only consumer: nothing more to diff
+    }
+    // A reintroduced inline copy: every row it carries must match the source.
+    for (const [label, row] of rows) {
+      const refRow = rosterRows.get(label);
+      if (refRow === row) continue;
+      out.push({
+        level: "error",
+        code: "ROSTER-CQ-TABLE-DRIFT",
+        file: c.rel,
+        message:
+          refRow === undefined
+            ? `${c.rel} re-inlines CQ row \`${label}\` which does not exist in the single source ${CQ_ROSTER_REL} — remove the inline copy and point at the roster, or reconcile the source (D22-6)`
+            : `${c.rel} re-inlines CQ row \`${label}\` which diverges from the single source ${CQ_ROSTER_REL} — remove the inline copy and point at the roster, or reconcile the source (D22-6)`,
+      });
+    }
+  }
+  return out;
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
@@ -432,13 +652,17 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     root === ROOT ? RULE_FILE : join(root, "rules", "hatch3r-agent-orchestration.md");
   const implementerFile = root === ROOT ? IMPLEMENTER_FILE : join(agentsDir, "hatch3r-implementer.md");
   const reviewerFile = root === ROOT ? REVIEWER_FILE : join(agentsDir, "hatch3r-reviewer.md");
+  const fixerFile = root === ROOT ? FIXER_FILE : join(agentsDir, "hatch3r-fixer.md");
+  const cqRosterFile = root === ROOT ? CQ_ROSTER_FILE : join(agentsDir, "shared", "cq-specialist-roster.md");
 
   const ssot = ssotSpecialistIds();
 
-  const [ruleBody, implBody, reviewBody] = await Promise.all([
+  const [ruleBody, implBody, reviewBody, fixerBody, cqRosterBody] = await Promise.all([
     readFileSafe(ruleFile),
     readFileSafe(implementerFile),
     readFileSafe(reviewerFile),
+    readFileSafe(fixerFile),
+    readFileSafe(cqRosterFile),
   ]);
 
   const findings: Finding[] = [];
@@ -452,6 +676,14 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     ...checkAgentEnumeration(reviewBody, ssot, "agents/hatch3r-reviewer.md", "ROSTER-REVIEW-MISSING"),
   );
   findings.push(...(await checkCommands(commandsDir)));
+  findings.push(...(await checkWatchdogCoverage(agentsDir, ssot)));
+  findings.push(
+    ...checkCqTriggerTableParity(cqRosterBody, [
+      { rel: CQ_TABLE_RELS[0], body: implBody },
+      { rel: CQ_TABLE_RELS[1], body: reviewBody },
+      { rel: CQ_TABLE_RELS[2], body: fixerBody },
+    ]),
+  );
 
   let errorCount = 0;
   let warningCount = 0;
@@ -489,7 +721,7 @@ async function main(): Promise<void> {
       else console.warn(line);
     }
     console.log(
-      `validate-specialist-roster: ${result.ssotSpecialists.length} SSOT specialist(s) checked across rule table + agent roster + implementer/reviewer enumerations + command pipelines; ${result.errorCount} error(s), ${result.warningCount} warning(s)`,
+      `validate-specialist-roster: ${result.ssotSpecialists.length} SSOT specialist(s) checked across rule table + agent roster + implementer/reviewer enumerations + command pipelines + CQ trigger-table single-source (shared roster + implementer/reviewer/fixer pointers); ${result.errorCount} error(s), ${result.warningCount} warning(s)`,
     );
   }
   if (result.errorCount > 0) process.exit(1);

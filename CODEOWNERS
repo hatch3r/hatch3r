@@ -1,7 +1,17 @@
-* @denismasatovic
-* @vicdotdevelop
+# Default owners for everything unless a more-specific rule below matches.
+# Both maintainers MUST be on ONE line: GitHub treats the LAST matching
+# pattern as authoritative and only unions owners written on the SAME line, so
+# two separate `* @a` / `* @b` lines silently drop @a. (D4-6; enforced by
+# scripts/validate-codeowners.ts -> npm run validate:codeowners.)
+* @denismasatovic @vicdotdevelop
 
 # Critical paths require explicit review
-src/integrity/** @denismasatovic
+# Drift detection (relocated from the removed src/integrity/ subsystem in 1.9.0;
+# `hatch3r status` / `hatch3r verify` now regenerate adapter outputs and diff —
+# CHANGELOG.md "Removed" 1.9.0 + CONSTITUTION §6 Decision 12). The stale
+# src/integrity/** rule that pointed here was silently dead; scripts/validate-codeowners.ts
+# now fails on any CODEOWNERS pattern whose on-disk path no longer exists (CODEOWNERS-STALE-PATH).
+src/cli/commands/status.ts @denismasatovic
+src/cli/commands/verify.ts @denismasatovic
 src/merge/** @denismasatovic
 .github/workflows/** @denismasatovic

@@ -128,7 +128,7 @@ Methodology aligned with **BFCL v4** (Berkeley Function Calling Leaderboard) and
 
 ## OpenTelemetry GenAI Semantic Conventions
 
-Every LLM call emits an OpenTelemetry span named `gen_ai.<operation>` with the attributes prescribed by the OpenTelemetry GenAI semantic conventions: `gen_ai.system`, `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cached_tokens`, `gen_ai.request.temperature`, `gen_ai.tool.name` (when tools used). Cross-reference Slice 2 observability rules for the broader span taxonomy.
+Every LLM call emits an OpenTelemetry span named `{gen_ai.operation.name} {gen_ai.request.model}` with the attributes named by the OpenTelemetry GenAI semantic conventions (v1.41.1): `gen_ai.operation.name`, `gen_ai.provider.name` (renamed from the deprecated `gen_ai.system`), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cached_tokens`, `gen_ai.request.temperature`, `gen_ai.tool.name` (when tools used). These `gen_ai.*` keys are Development-status as of v1.41.1 — names may change; pin the SemConv version you emit and re-verify each P3 currency cycle. Cross-reference Slice 2 observability rules for the broader span taxonomy.
 
 ## User-Feedback Loop
 
@@ -148,7 +148,7 @@ Write eval before prompt, measure baseline, write prompt, measure delta, iterate
 
 ## References
 
-- promptfoo — `promptfoo.dev`
+- promptfoo — `promptfoo.dev` (acquired by OpenAI 2026-03-09; remains OSS MIT)
 - DeepEval — `github.com/confident-ai/deepeval`
 - RAGAS — `docs.ragas.io`
 - Inspect (UK AISI) — `github.com/UKGovernmentBEIS/inspect_ai`

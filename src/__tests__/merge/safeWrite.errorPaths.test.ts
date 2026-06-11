@@ -229,12 +229,127 @@ describe("atomicWriteFile error paths", () => {
       expect(mockClose).toHaveBeenCalled();
     });
 
-    it("closes the file handle even when datasync throws EPERM", async () => {
+    it("closes both the file and directory handles even when datasync throws EPERM", async () => {
       mockDatasync.mockRejectedValue(mkErrno("EPERM"));
 
       await atomicWriteFile("/tmp/test.txt", "data");
 
-      expect(mockClose).toHaveBeenCalledTimes(1);
+      // D11-5 (Cycle 11 Wave 2): two handles are opened and closed per write —
+      // the tmp file (data datasync) and the parent directory (post-rename
+      // directory datasync). Both close in their own finally even when datasync
+      // rejects EPERM (the shared mock rejects for both), so neither fd leaks.
+      expect(mockClose).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  // ── D11-5: parent-directory fsync after rename (durable replace) ──
+  // The durable complete-or-nothing replace needs TWO syncs: the tmp file's
+  // DATA before the rename, and the parent DIRECTORY's entry after it. These
+  // tests pin the second half — open(dir, "r") + datasync — including its
+  // ordering relative to the rename and its best-effort errno tolerance.
+
+  describe("D11-5 parent-directory fsync after rename", () => {
+    it("opens the parent directory ('r') and datasyncs it after a successful write", async () => {
+      // Give the tmp-file open and the dir open DISTINCT handles so we can
+      // assert the directory handle specifically was synced + closed.
+      const dirDatasync = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+      const dirClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+      const tmpDatasync = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+      const tmpClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+      mockOpen.mockImplementation(async (...args: unknown[]) => {
+        const flag = args[1];
+        return flag === "r+"
+          ? { datasync: tmpDatasync, close: tmpClose }
+          : { datasync: dirDatasync, close: dirClose };
+      });
+
+      await atomicWriteFile("/some/dir/target.md", "data");
+
+      // Two opens: tmp file "r+", then the parent directory "r".
+      expect(mockOpen).toHaveBeenCalledTimes(2);
+      const dirCall = mockOpen.mock.calls.find((c) => c[1] === "r");
+      expect(dirCall).toBeDefined();
+      expect(dirCall?.[0]).toBe("/some/dir");
+      // The directory fd was datasynced (persisting the rename) and closed.
+      expect(dirDatasync).toHaveBeenCalledTimes(1);
+      expect(dirClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("syncs the directory AFTER the rename, not before", async () => {
+      const order: string[] = [];
+      mockRename.mockImplementation(async () => {
+        order.push("rename");
+      });
+      mockOpen.mockImplementation(async (...args: unknown[]) => {
+        const flag = args[1];
+        return {
+          datasync: vi.fn<() => Promise<void>>().mockImplementation(async () => {
+            order.push(flag === "r" ? "dir-datasync" : "tmp-datasync");
+          }),
+          close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+        };
+      });
+
+      await atomicWriteFile("/some/dir/target.md", "data");
+
+      // Durability ordering: tmp data synced → rename → directory entry synced.
+      expect(order).toEqual(["tmp-datasync", "rename", "dir-datasync"]);
+    });
+
+    it("tolerates a directory open that rejects with EISDIR (best-effort)", async () => {
+      // e.g. a platform that cannot open a directory as an fd (Windows-like).
+      mockOpen.mockImplementation(async (...args: unknown[]) => {
+        if (args[1] === "r") throw mkErrno("EISDIR");
+        return { datasync: mockDatasync, close: mockClose };
+      });
+
+      await expect(
+        atomicWriteFile("/some/dir/target.md", "data"),
+      ).resolves.toBeUndefined();
+    });
+
+    it("tolerates a directory datasync that rejects with ENOTSUP (best-effort)", async () => {
+      const dirClose = vi.fn<() => Promise<void>>().mockResolvedValue(undefined);
+      mockOpen.mockImplementation(async (...args: unknown[]) => {
+        if (args[1] === "r") {
+          return {
+            datasync: vi.fn<() => Promise<void>>().mockRejectedValue(mkErrno("ENOTSUP")),
+            close: dirClose,
+          };
+        }
+        return { datasync: mockDatasync, close: mockClose };
+      });
+
+      await expect(
+        atomicWriteFile("/some/dir/target.md", "data"),
+      ).resolves.toBeUndefined();
+      // The directory fd is still closed even though its datasync was rejected.
+      expect(dirClose).toHaveBeenCalledTimes(1);
+    });
+
+    it("rethrows an unrecognised errno from the directory datasync", async () => {
+      // An untolerated directory-sync errno (EIO) is re-thrown by
+      // syncParentDirectory and propagates into atomicWriteFile's outer catch,
+      // where the shared FS_ERRNO_MESSAGE table maps EIO to its actionable
+      // FS_ERROR — the same treatment a write-side EIO gets. A genuinely
+      // failing disk surfaces; it is not silently swallowed like the tolerated
+      // best-effort errnos above.
+      mockOpen.mockImplementation(async (...args: unknown[]) => {
+        if (args[1] === "r") {
+          return {
+            datasync: vi.fn<() => Promise<void>>().mockRejectedValue(mkErrno("EIO", "dir I/O error")),
+            close: vi.fn<() => Promise<void>>().mockResolvedValue(undefined),
+          };
+        }
+        return { datasync: mockDatasync, close: mockClose };
+      });
+
+      await expect(
+        atomicWriteFile("/some/dir/target.md", "data"),
+      ).rejects.toMatchObject({ name: "HatchError", errorCode: "FS_ERROR" });
+      await expect(
+        atomicWriteFile("/some/dir/target.md", "data"),
+      ).rejects.toThrow(/Low-level I\/O error writing/);
     });
   });
 

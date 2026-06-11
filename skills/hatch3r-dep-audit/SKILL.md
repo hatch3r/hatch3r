@@ -2,7 +2,7 @@
 id: hatch3r-dep-audit
 name: hatch3r-dep-audit
 type: skill
-description: Audit and update npm dependencies for security, freshness, and bundle impact. Use when auditing dependencies, responding to CVEs, or upgrading packages.
+description: Audits and updates npm dependencies for security, freshness, and bundle impact. Use when auditing dependencies, responding to CVEs, or upgrading packages.
 tags: [maintenance, floor:security]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -31,12 +31,19 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (trivial single-file): inline execution acceptable.
-- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
-- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Emit `sub_agents_spawned: { count, rationale }` in your output.
 
-Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+## Required Agent Delegation
+
+> **Note:** When this skill is invoked via an orchestration pipeline (a `commands/hatch3r-*.md` flow), skip this section — the orchestrator handles agent delegation.
+
+This skill realizes the two-agent dependency pattern (governance PRD Decision 13, F13.1-F04): the agent that *assesses* upgrade risk is distinct from the agent that *applies* it. Spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the points below:
+
+- **`hatch3r-dependency-drafter`** (analysis phase, Steps 1–3) — MUST spawn to inventory the dependency surface, classify each candidate by SemVer band, cross-check advisories, and draft the per-dependency proposal (current pin → proposed pin, band, driver, risk, consumer call sites, verification gate). The drafter is read-only (its `tools.deny` forbids manifest edits and installs), so its proposal is a reviewable decision artifact, not a mutation. Skip only for a trivial single-package patch already scoped by the invocation.
+- **`hatch3r-fixer`** (apply phase, Step 4) — MUST spawn under reviewer authority to perform the manifest edit + `npm install` + per-upgrade verification the drafter's proposal names. The fixer flips each proposal from `drafted` to `applied` after its row's verification gate passes.
+- **`hatch3r-devops`** (apply phase, Step 4 — CI-wiring variant) — spawn instead of `hatch3r-fixer` when the upgrade requires CI manifest wiring (lockfile-cache keys, build-matrix version pins, Renovate/Dependabot config) rather than only a source-tree dependency bump.
+
+The drafter never applies and the fixer/devops never re-assess risk — the split keeps risk assessment separate from risk acceptance.
 
 ## Step 1: Gather Findings
 
@@ -77,9 +84,11 @@ Before changing anything:
 ## Step 5: Verify
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 npm run build
 ```
+
+The gate line is resolved to the project's language-aware command set at sync time (fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`); the build line is illustrative — substitute the project's build command.
 
 - Confirm bundle size within budget (if defined).
 - Run `npm audit` — no critical or high vulnerabilities remaining.

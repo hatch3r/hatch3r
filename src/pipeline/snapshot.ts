@@ -459,11 +459,43 @@ export async function createSnapshot(
   const acceptedAbs: string[] = [];
   const acceptedRel: string[] = [];
   const seen = new Map<string, string>(); // mirror rel -> first abs that claimed it
+  // Seed the dedup guard from the EXISTING manifest so a same-session
+  // incremental call that collides with a mirror captured by a *prior* call is
+  // detected too (D8-9). Without this seed the per-call guard only catches
+  // collisions within a single call: two cross-drive inputs split across two
+  // createSnapshot calls would each pass their own fresh guard, append a second
+  // `abs` to `paths` while the union dedup collapses the duplicate `rel`,
+  // desyncing the `paths`/`relativePaths` index pairing that applyRollback
+  // relies on (`meta.paths[i]` <-> `meta.relativePaths[i]`). `seededRels`
+  // remembers which mirrors came from a prior call so a benign idempotent
+  // re-pass of the *same* path is skipped silently, while a genuine cross-call
+  // cross-drive collision (different abs, same mirror) still warns.
+  const seededRels = new Set<string>();
+  if (existing) {
+    for (let i = 0; i < existing.relativePaths.length; i++) {
+      const priorRel = existing.relativePaths[i];
+      if (!seen.has(priorRel)) {
+        // Map back to the abs the prior call recorded for this mirror so the
+        // collision warning names the original input, not just the mirror.
+        seen.set(priorRel, existing.paths[i] ?? priorRel);
+        seededRels.add(priorRel);
+      }
+    }
+  }
   for (const abs of absPaths) {
     const rel = mirrorRelativePath(projectRoot, abs);
     const prior = seen.get(rel);
     if (prior !== undefined) {
-      // Mirror collision: a previous input already wrote these bytes. Skip
+      if (prior === abs && seededRels.has(rel)) {
+        // Idempotent re-snapshot: a prior same-session call already captured
+        // this exact path under this mirror. The mirror bytes and the
+        // (abs, rel) manifest pair are already present, so skip silently — this
+        // is the documented "extend a session incrementally" contract, not a
+        // collision. (A within-call exact duplicate still warns below, matching
+        // the F1.5-H2 cross-drive reproduction the dedup guard was authored for.)
+        continue;
+      }
+      // Mirror collision: a different input already wrote these bytes. Skip
       // the second write so the first capture is preserved, and surface a
       // warning so the operator can rename one input.
       emitWarning(
@@ -508,12 +540,35 @@ export async function createSnapshot(
   }
 
   // Union with prior paths so a repeated call accumulates rather than
-  // replaces. De-duplicate by relative path to keep meta.json compact.
-  // Derived from the ACCEPTED paths so a skipped collision is never recorded.
-  const unionAbs = existing ? Array.from(new Set([...existing.paths, ...acceptedAbs])) : acceptedAbs;
-  const unionRel = existing
-    ? Array.from(new Set([...existing.relativePaths, ...acceptedRel]))
-    : acceptedRel;
+  // replaces. De-duplicate by relative path (the mirror identity applyRollback
+  // pairs on) and build `paths`/`relativePaths` as ONE paired walk so the two
+  // arrays can never drift out of index alignment (D8-9). The previous code ran
+  // two independent `Set` dedups — `Set(existing.paths + acceptedAbs)` and
+  // `Set(existing.relativePaths + acceptedRel)` — which produce different
+  // lengths whenever two distinct abs share a mirror rel, silently corrupting
+  // the index pairing. Keying the dedup on `rel` keeps the pair atomic: each
+  // mirror contributes exactly one (abs, rel) row, in first-seen order.
+  const unionAbs: string[] = [];
+  const unionRel: string[] = [];
+  const unionSeen = new Set<string>();
+  const pushPair = (abs: string, rel: string): void => {
+    if (unionSeen.has(rel)) return;
+    unionSeen.add(rel);
+    unionAbs.push(abs);
+    unionRel.push(rel);
+  };
+  if (existing) {
+    for (let i = 0; i < existing.relativePaths.length; i++) {
+      const rel = existing.relativePaths[i];
+      // Pair with the abs the prior manifest recorded at the same index; fall
+      // back to the rel itself if a legacy manifest is shorter on `paths` (the
+      // same `?? rel` defensive default applyRollback uses).
+      pushPair(existing.paths[i] ?? rel, rel);
+    }
+  }
+  for (let i = 0; i < acceptedRel.length; i++) {
+    pushPair(acceptedAbs[i], acceptedRel[i]);
+  }
 
   const meta: SnapshotMeta = {
     schemaVersion: SNAPSHOT_SCHEMA_VERSION,
@@ -930,7 +985,11 @@ export async function applyRollback(
           // Already absent — consistent with the snapshot's pre-state.
         }
       } else {
-        await atomicWriteFile(e.target, (e.sourceContent as Buffer).toString("utf-8"));
+        // D8-3 (Cycle 11 Wave 2, CQ4): write the captured Buffer verbatim.
+        // The prior `.toString("utf-8")` round-tripped non-UTF-8 user bytes
+        // through U+FFFD, corrupting any binary or non-UTF-8 file on restore;
+        // atomicWriteFile now accepts a Buffer and preserves bytes exactly.
+        await atomicWriteFile(e.target, e.sourceContent as Buffer);
       }
       dispositions[i].state = "original-restored";
       applied.push(i);
@@ -962,7 +1021,10 @@ export async function applyRollback(
             if (code !== "ENOENT") throw err;
           });
         } else {
-          await atomicWriteFile(e.target, snap.bytes.toString("utf-8"));
+          // D8-3 (Cycle 11 Wave 2, CQ4): roll the pre-rollback bytes forward
+          // verbatim. As with the commit-phase restore above, a UTF-8
+          // re-encode here would corrupt non-UTF-8 content; pass the Buffer.
+          await atomicWriteFile(e.target, snap.bytes);
         }
         dispositions[idx].state = "rolled-forward";
         restored--;

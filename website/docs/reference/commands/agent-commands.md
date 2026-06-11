@@ -5,57 +5,27 @@ title: Agent Commands
 
 # Agent Commands
 
-Commands invoked inside your coding tool (e.g., as Cursor commands or Claude Code slash commands). These orchestrate agent workflows.
+Commands invoked inside your coding tool (e.g. as Cursor commands or Claude Code slash commands). A command is an **orchestrator**: it delegates to one or more hatch3r agents via the Task tool. Single-pass procedures, dispatchers, and inline workflows ship as [Skills](../skills) instead, so board grooming, customization, cost tracking, learning capture, and the other non-orchestrating flows live on the Skills page, not here.
 
-## Board Commands
+There are 30 agent commands.
 
-### board-init
+## Spec and Planning Commands
 
-Bootstrap a GitHub Projects V2 board for your repository.
+### spec
 
-Creates a new project or connects to an existing one, configures status fields with five default columns, creates the full hatch3r label taxonomy, prompts for default branch, optionally migrates issues from another project, and writes all project IDs back to `hatch.json`. All mutations require user confirmation.
-
-### board-fill
-
-Parse `todo.md` and create GitHub epics and issues with full board reorganization.
-
-Deduplicates against existing issues, classifies each item by type/executor/priority/area/risk, groups into epics, builds a dependency graph, determines implementation order, identifies parallel work lanes, and marks issues as `status:ready` when all readiness criteria are met.
-
-### board-groom
-
-Ongoing backlog refinement for existing board items.
-
-Scans all open issues, surfaces health-driven refinement suggestions (stale items, priority imbalances, missing metadata, decomposition candidates, duplicates), and lets you selectively apply grooming actions: re-prioritize, reclassify, re-scope, demote to triage, archive stale items, decompose oversized issues, merge duplicates, refresh dependencies, and remediate board health gaps.
-
-### board-pickup
-
-Pick up the next best issue from the board for development.
-
-Auto-selects based on dependency order and priority when no specific issue is referenced. Performs collision detection against in-progress work, creates a branch, marks the issue in-progress, runs adaptive deep context analysis, delegates to the appropriate implementation skill with convention lock, and creates a pull request with label transitions and Projects V2 status sync.
-
-### board-refresh
-
-Regenerate the living board overview dashboard on demand.
-
-Scans all open and recently closed issues, computes board health metrics (missing metadata, stale issues, blocked dependency chains), assigns recommended models using the quality-first heuristic, and updates the `meta:board-overview` issue with current status tables, epic progress, and health diagnostics.
-
-### board-shared
-
-Shared context and procedures referenced by all board commands. Provides board configuration from `hatch.json`, GitHub context, Projects V2 sync procedure, label taxonomy, tooling directives, and token-saving guidelines. Not invoked directly.
-
-## Planning Commands
+Spec orchestrator. Detects greenfield vs brownfield project state and runs the matching spec agent to produce requirements, acceptance criteria, a risk inventory, and a test plan. Greenfield adds market/competitive/persona/tech-stack research; brownfield adds codebase-map, existing-pattern detection, integration-surface analysis, and a migration-aware plan.
 
 ### project-spec
 
-Generate complete project documentation from a project vision using parallel researcher sub-agents (stack, features, architecture, pitfalls, UX, business model & market, production & scale). Produces `docs/specs/`, `docs/adr/`, and `todo.md`.
+Translate a greenfield vision into future-state design artifacts using parallel researcher sub-agents (stack, features, architecture, pitfalls, UX, business model & market, production & scale). Produces `docs/specs/`, `docs/adr/`, and `todo.md`.
 
 ### codebase-map
 
-Analyze an existing codebase to reverse-engineer specifications. Spawns parallel analyzers to discover modules, dependencies, conventions, and tech debt. Outputs to `docs/specs/` and `docs/adr/`.
+Reverse-engineer a brownfield codebase into current-state module boundaries and specifications. Spawns parallel analyzers to discover modules, dependencies, conventions, and tech debt. Outputs to `docs/specs/` and `docs/adr/`.
 
 ### roadmap
 
-Generate a phased roadmap from specs or project vision. Breaks work into epics and features with dependency ordering and parallel work lane identification. Outputs to `todo.md` in `board-fill` format.
+Sequence delivery phases over time into a dependency-ordered milestone plan. Breaks work into epics and features with parallel work-lane identification. Outputs to `todo.md` in `board-fill` format.
 
 ### feature-plan
 
@@ -63,7 +33,7 @@ Plan a single feature in depth. Spawns parallel researchers (codebase impact, fe
 
 ### bug-plan
 
-Plan a complex bug investigation. Spawns parallel researchers (symptom tracer, root cause investigator, impact assessor, regression researcher). Produces an investigation report with ranked hypotheses and `todo.md` entries.
+Diagnose a complex incident. Spawns parallel researchers (symptom tracer, root-cause investigator, impact assessor, regression researcher). Produces an investigation report with ranked hypotheses and `todo.md` entries.
 
 ### refactor-plan
 
@@ -71,43 +41,89 @@ Plan a refactoring or migration effort. Auto-detects the refactoring dimension (
 
 ### api-spec
 
-Generate API specifications from project requirements and existing code. Produces OpenAPI/Swagger specs with endpoint definitions, request/response schemas, authentication, and documentation. Integrates with `project-spec` for greenfield and `codebase-map` for brownfield.
+Generate or validate an OpenAPI specification from project requirements and existing code. Produces endpoint definitions, request/response schemas, authentication, and documentation. Integrates with `project-spec` for greenfield and `codebase-map` for brownfield.
 
 ### migration-plan
 
-Plan a database or system migration with backward-compatible schema changes, idempotent migration scripts, rollback plans, data validation, and phased execution strategy. Produces migration specs and `todo.md` entries for `board-fill`.
+Plan a database or system migration with backward-compatible schema changes, idempotent migration scripts, rollback plans, data validation, and a phased execution strategy. Produces migration specs and `todo.md` entries for `board-fill`.
 
 ### test-plan
 
-Plan a test strategy for a feature, module, or codebase area across coverage, risk, and boundary dimensions. Spawns parallel researchers (coverage analysis, complexity & risk mapping, test pattern extraction, boundary analysis, risk-based prioritization). Produces a test plan spec with coverage targets, strategy matrix, prioritized test case outlines, and `todo.md` entries. Supports feature-scoped planning (often chained from `feature-plan`) and module/codebase-level coverage auditing. Optionally chains to `hatch3r-testability` for immediate implementation or `hatch3r-board-fill` for issue creation.
+Plan a test strategy for a feature, module, or codebase area across coverage, risk, and boundary dimensions. Spawns parallel researchers (coverage analysis, complexity & risk mapping, test-pattern extraction, boundary analysis, risk-based prioritization). Produces a test-plan spec with coverage targets, a strategy matrix, prioritized test-case outlines, and `todo.md` entries. Optionally chains to `hatch3r-testability` for implementation or `board-fill` for issue creation.
+
+## Board Commands
+
+### board-fill
+
+Create epics and issues/work items from `todo.md`, then reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Deduplicates against existing issues, classifies each item by type/executor/priority/area/risk, groups into epics, builds a dependency graph, identifies parallel work lanes, and marks issues `status:ready` when all readiness criteria are met. Supports GitHub Projects V2, Azure DevOps, and GitLab.
+
+### board-pickup
+
+Pick up the next best epic/issue from the board for development. Auto-selects by dependency order and priority when no issue is referenced, performs collision detection against in-progress work, creates a branch, runs adaptive deep-context analysis, delegates to the appropriate implementation skill with convention lock, and opens a pull request with label transitions and board-status sync. Multi-platform.
+
+Board setup, grooming, and dashboard refresh are skills (`/hatch3r-board-init`, `/hatch3r-board-groom`, `/hatch3r-board-refresh`) — see the [Skills reference](../skills).
 
 ## Quality Commands
 
 ### healthcheck
 
-Create a full-product QA and testing audit epic. Discovers logical modules, creates per-module audit sub-issues plus cross-cutting audits.
+Open a QA and reliability epic surveying coverage gaps, flaky tests, and missing audits. Discovers logical modules and creates per-module audit sub-issues plus cross-cutting audits.
 
 ### security-audit
 
-Create a full-product security audit epic. Per-module audits covering 7 security domains (authentication, input validation, data protection, access control, secret management, error handling, API security).
-
-### dep-audit
-
-Scan, assess, and upgrade npm dependencies. Runs `npm audit` and `npm outdated`, researches migration paths, upgrades one at a time with testing.
+Open an OWASP ASI security epic. Per-module audits cover authentication, input validation, data protection, access control, secret management, error handling, and API security.
 
 ### benchmark
 
 Run and compare benchmark suites for code performance. Captures before/after metrics, detects regressions, and produces structured reports with statistical analysis.
 
-## Release Commands
+## Pipeline and Fix Commands
+
+### bug-pipeline
+
+Run a known-cause bug fix through a 3-phase test-first pipeline -- reproduce + root-cause, regression-test + fix together, then root-cause-depth review -- with full sub-agent delegation.
+
+### debug
+
+Standalone debug-and-fix workflow. Adds strategic debug logging (`[HATCH3R-DEBUG]` prefixed), pauses for the user to reproduce the issue and provide runtime logs, performs root-cause analysis, implements the fix, removes all debug artifacts, and runs the full review-fix-test-security pipeline.
+
+### revision
+
+User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done from the git diff, interviews the user for structured feedback, scans for agent leftovers (dead code, TODOs, type issues), delegates fixes to specialist sub-agents, and assesses merge readiness.
+
+### quick-change
+
+Lightweight workflow for small, board-free changes (typo fixes, constant tweaks, config updates, small refactors). Parses batch input, applies soft scope guards (5 files / 200 lines), classifies items as trivial (inline) or nontrivial (implementer sub-agent), runs quality checks, and optionally delegates a light review.
+
+### pr-resolve
+
+Read all open PR comments (inline + review summary + general discussion) across GitHub, Azure DevOps, and GitLab; evaluate each against current code via the rigor contract; implement accepted findings through the standard agent pipeline; and reply per comment with rationale. Auto-detects the PR from the current branch or accepts an explicit PR number.
+
+## Scaffold Commands
+
+### auth-scaffold
+
+Scaffold authentication boilerplate for a greenfield API service -- OAuth 2.1 authorization-code-with-PKCE flow, OIDC ID-token validation, and hashed personal-access-token (PAT) issuance/verification. The implementer writes the code; `hatch3r-security` gates it against the CQ3 auth-depth floor.
+
+### slo-scaffold
+
+Generate baseline SLI/SLO scaffolding for a user-facing service -- availability + latency p95/p99 objectives, a 28-day error budget, and Google-SRE multi-window multi-burn-rate alert rules in OpenSLO `openslo/v1`. The implementer writes the files; `hatch3r-reliability` gates them against the CQ4 floor.
+
+## Incident Commands
+
+### incident-response
+
+Drive a live production incident through a structured lifecycle -- triage + topology, bounded-autonomy mitigation, stakeholder communication, then a blameless post-mortem with runbook -- via delegated sub-agents.
+
+## Release and Onboarding Commands
 
 ### release
 
-Cut a versioned release with changelog. Determines semantic version bump, generates grouped changelog, runs quality gates, creates git tag, publishes GitHub release.
+Cut a versioned release with changelog. Determines the semantic-version bump, generates a grouped changelog, runs quality gates, creates the git tag, and publishes the GitHub release.
 
 ### onboard
 
-Interactive project onboarding for new team members and AI agents. Scans the repository to build a contextual overview of project structure, conventions, key modules, and development workflow. Produces a personalized onboarding guide.
+Generate an onboarding guide for a new developer joining the project. Spawns parallel researchers to analyze codebase structure, architecture, and conventions, then produces a tailored document with setup instructions, an architecture walkthrough, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet.
 
 ## Workflow Commands
 
@@ -115,33 +131,9 @@ Interactive project onboarding for new team members and AI agents. Scans the rep
 
 Guided development lifecycle with 4 phases: Analyze, Plan, Implement, and Review. Includes a quick mode for small tasks that skips unnecessary ceremony. Scale-adaptive -- adjusts depth based on issue complexity and scope.
 
-### quick-change
-
-Lightweight command for small, board-free changes (typo fixes, constant tweaks, config updates, small refactors). Parses batch input, applies soft scope guards (5 files / 200 lines threshold), classifies items as trivial (inline) or nontrivial (implementer sub-agent), runs quality checks, and optionally delegates a light review.
-
-### revision
-
-User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done from the git diff, interviews the user for structured feedback, proactively scans for agent leftovers (dead code, TODOs, type issues), delegates fixes to specialist sub-agents, and assesses merge readiness.
-
-### debug
-
-Standalone debug-and-fix command. Adds strategic debug logging (`[HATCH3R-DEBUG]` prefixed), pauses for the user to reproduce the issue and provide runtime logs, performs root cause analysis, implements the fix, removes all debug artifacts, and runs the full review-fix-test-security pipeline.
-
-### hooks
-
-Interactive hook management for event-driven agent activation. View, add, remove, and test lifecycle hooks.
-
-### learn
-
-Capture learnings from completed issues, code reviews, and architectural decisions into reusable knowledge files.
-
-### pr-resolve
-
-Read all open PR comments (inline + review summary + general discussion) across GitHub, Azure DevOps, and GitLab; evaluate each against current code via the rigor contract; implement accepted findings through the standard agent pipeline; and reply per comment with rationale. Auto-detects the PR from the current branch or accepts an explicit PR number.
-
 ### handoff
 
-Added in 1.7.5 (Slice 1 of 3). Capture mid-work session state into a tool-agnostic handoff artifact under `.hatch3r/handoffs/active/<id>.md` so any of the 3 supported coding tools (Cursor, Claude Code, Copilot) can resume the work cleanly later — same tool, different tool, same developer, different developer.
+Capture mid-work session state into a tool-agnostic handoff artifact under `.hatch3r/handoffs/active/<id>.md` so any of the 3 supported coding tools (Cursor, Claude Code, Copilot) can resume the work cleanly later -- same tool or different tool, same developer or different developer.
 
 ```
 /hatch3r-handoff prepare           # capture current session state into a new handoff
@@ -151,29 +143,17 @@ Added in 1.7.5 (Slice 1 of 3). Capture mid-work session state into a tool-agnost
 /hatch3r-handoff prune [--dry-run] # auto-archive expired actives; delete archives older than 90 days
 ```
 
-`prepare` delegates to `hatch3r-handoff-preparer` to capture state via the 10-criterion readiness gate (`rules/hatch3r-handoff-readiness.md`) — body ≤ 50 KB, all 8 required sections present (Problem, Decisions, Work Done, Work Remaining, Blockers, Next Steps, Build & Test Status, File Manifest), `git_ref` matches HEAD, integrity hash computed, injection-pattern scan clean. `resume` validates schema + integrity + `git_ref` drift + expiry before surfacing content under user-tier instruction-hierarchy markers. The frontmatter shape is mapped 1:1 to the 2026 cross-framework consensus payload (OpenAI Agents SDK, Microsoft Agent Framework, softaworks/agent-toolkit) so non-hatch3r tools can consume hatch3r handoffs via the bi-directional `payloadAdapter` (`src/content/handoffs/payloadAdapter.ts`).
+`prepare` delegates to `hatch3r-handoff-preparer` to capture state via the 10-criterion readiness gate (`rules/hatch3r-handoff-readiness.md`) -- body ≤ 50 KB, all 8 required sections present (Problem, Decisions, Work Done, Work Remaining, Blockers, Next Steps, Build & Test Status, File Manifest), `git_ref` matches HEAD, integrity hash computed, injection-pattern scan clean. `resume` validates schema + integrity + `git_ref` drift + expiry before surfacing content under user-tier instruction-hierarchy markers. The frontmatter shape maps 1:1 to the 2026 cross-framework consensus payload (OpenAI Agents SDK, Microsoft Agent Framework, softaworks/agent-toolkit) so non-hatch3r tools can consume hatch3r handoffs via the bi-directional `payloadAdapter` (`src/content/handoffs/payloadAdapter.ts`).
 
 A session-start sibling agent `hatch3r-handoff-loader` surfaces active handoffs ranked by work-item match, recency, and status priority. Manifest gate: `features.handoffs: boolean` (default `true`).
 
-## Monitoring Commands
+## Pack Commands
 
-### context-health
+### pack-install
 
-Monitor conversation context health and detect degradation during long sessions. Provides token usage metrics and recommendations.
+Walk the user through the pack trust-model gate (tier + signature + body-scan + capability declaration), confirm the trust posture, then delegate the verified install to `hatch3r-pack-installer`.
 
-### report
-
-In-chat session report: every tool call, sub-agent delegation, file edit, and hook event from the active or named transcript, with diagnostics for missed parallelism, redundant work, and over-serialization. Defaults to the current session and an executive summary; flags extend scope and depth.
-
-### cost-tracking
-
-Track token usage and estimated costs across agent workflows. Per-command and per-agent cost breakdowns with budget alerts.
-
-## Customization Commands
-
-### recipe
-
-Create and manage composable workflow recipes that chain commands and skills.
+## Framework Commands
 
 ### create
 
@@ -183,18 +163,10 @@ When to use: you need a project-specific artifact that does not exist in the can
 
 Outputs: one new file under `.hatch3r/overrides/{type}/{name}.md` (rules also write a paired `.mdc`; skills create a `{name}/SKILL.md` subdirectory). Run `hatch3r sync` afterward to propagate the artifact to all enabled adapter outputs.
 
-### agent-customize
+### diagnose
 
-Configure per-agent customization via `.customize.yaml` files.
+Troubleshoot a hatch3r framework issue (setup, config, adapter wiring, drift). Gathers state, delegates root-cause analysis to `hatch3r-researcher`, proposes a fix, and applies it via `hatch3r-fixer` after one confirmation gate.
 
-### command-customize
+## Related Skills
 
-Configure per-command customization via `.customize.yaml` files.
-
-### skill-customize
-
-Configure per-skill customization via `.customize.yaml` files.
-
-### rule-customize
-
-Configure per-rule customization via `.customize.yaml` files.
+The following user-invocable flows are **skills**, not commands, because they run a single-pass procedure rather than orchestrating sub-agents. They are documented on the [Skills reference](../skills): `board-init`, `board-groom`, `board-refresh`, `board-shared`, `context-health`, `cost-tracking`, `customize`, `dep-audit`, `hooks`, `learn`, `recipe`, and `report`.

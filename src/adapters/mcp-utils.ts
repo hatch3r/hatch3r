@@ -30,12 +30,80 @@ export interface McpServerEntry {
    * compromise risk.
    */
   _trust_bypass?: boolean;
+  /**
+   * D11-15 (Cycle 11 Wave 3, D11, P6/SA11.3-F3): documented rationale for a
+   * `_trust_bypass: true` opt-out. When present and non-empty, the per-server
+   * "pinning bypassed" warning {@link validateMcpEntry} would otherwise emit
+   * on every read is SUPPRESSED — the bypass stays auditable via this recorded
+   * reason rather than a repeating runtime warning. Bypass without a reason
+   * still warns, so the security signal fires only for operator-added unpinned
+   * HTTP servers that have not documented why. The bundled `github` server
+   * carries `_trust_bypass_reason: "github-first-party"` because its endpoint
+   * (`api.githubcopilot.com`) is a rotating GitHub-operated remote with no
+   * stable artifact to SHA-256 pin; emitting an un-actionable warning on a
+   * framework decision trains operators to ignore MCP security warnings (alarm
+   * fatigue). A malformed value (non-string, or empty/whitespace-only string)
+   * is itself a misconfiguration and does NOT suppress — see
+   * {@link validateMcpEntry}.
+   */
+  _trust_bypass_reason?: string;
+}
+
+/**
+ * D2-13 (Cycle 11 Wave 3, D2, P6): strip every `_`-prefixed key from an MCP
+ * server entry, returning a shallow copy that carries only public, on-disk-safe
+ * fields.
+ *
+ * The `_` prefix is the framework-internal namespace (`_description`,
+ * `_disabled`, `_timeout`, `_pinned_sha256`, `_trust_bypass`). These are
+ * hatch3r policy/metadata markers consumed at generation time
+ * ({@link validateMcpHttpEndpoint}, the manifest selection gate, the Claude
+ * `_timeout`→`timeout` translation) — none of them has a meaning in a committed
+ * client config, and `_pinned_sha256`/`_trust_bypass` in particular leak the
+ * endpoint-pin opt-out into a file the user commits. Before this helper,
+ * `readFilteredMcp` only removed `_disabled`/`_description` by name, so cursor
+ * (`.cursor/mcp.json`) shipped the remaining `_`-prefixed keys verbatim while
+ * claude destructured them out inline — an adapter inconsistency.
+ *
+ * Prefix-based (not a hand-maintained omit list) so a future `_`-field added to
+ * {@link McpServerEntry} is stripped automatically rather than silently
+ * leaking until someone notices. Returns the entry's own public keys only;
+ * inherited/prototype keys are not copied (`Object.entries`).
+ */
+export function stripPrivateMcpFields<T extends Record<string, unknown>>(
+  entry: T,
+): Record<string, unknown> {
+  const clean: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(entry)) {
+    if (key.startsWith("_")) continue;
+    clean[key] = value;
+  }
+  return clean;
 }
 
 /** Default MCP server request timeout in milliseconds. */
 export const DEFAULT_MCP_TIMEOUT_MS = 30_000;
 /** Maximum allowed MCP timeout in milliseconds (5 minutes). */
 export const MAX_MCP_TIMEOUT_MS = 300_000;
+/**
+ * Smallest per-server `_timeout` Claude Code honors. The Claude Code MCP loader
+ * IGNORES a positive `timeout` below 1000ms and falls through to
+ * `MCP_TOOL_TIMEOUT` (or its ~28h default when unset); before v2.1.162 such
+ * values were floored to 1s instead (code.claude.com/docs/en/mcp, accessed
+ * 2026-06-10: "Values below 1000 are ignored and fall through to
+ * MCP_TOOL_TIMEOUT").
+ *
+ * D9-SA9.1-L / D15-SA15.5-F8 (Cycle 11 Wave 4, D9/D15, P3/P6): the bounds check
+ * in {@link validateMcpEntry} accepted any `_timeout > 0`, so an operator who
+ * set `_timeout: 500` to bound a slow server got NO warning while the platform
+ * silently dropped the bound to the ~28h default — a Silent Failure Contract
+ * surface (CONSTITUTION §2 P5). The validator now warns on a positive sub-1000ms
+ * value so the operator learns the bound was not applied. The check lives in the
+ * adapter-agnostic validator rather than only the Claude emission path, so the
+ * warning fires for the whole bundled `mcp.json` independent of which adapter is
+ * generating.
+ */
+export const MIN_HONORED_MCP_TIMEOUT_MS = 1_000;
 
 /**
  * Most-recent stable MCP protocol revision emitted into generated client
@@ -48,10 +116,42 @@ export const MAX_MCP_TIMEOUT_MS = 300_000;
  * code from -32002 to the standard -32602; it is tentatively GA in Q3 2026
  * (blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate, accessed
  * 2026-05-27). Until that GA lands, the most-recent *stable* revision is
- * `2025-11-25` (same source, "Most Recent Stable Version"). Emitting the
- * stable string lets hatch3r-generated `.mcp.json` declare an explicit,
- * forward-pinnable protocol version instead of leaving the field absent and
- * inheriting whatever the client/server negotiate by default.
+ * `2025-11-25` (same source, "Most Recent Stable Version").
+ *
+ * D9-9 (Cycle 11 Wave 3, D9, P3): this string is emitted as an ADVISORY marker,
+ * NOT a field the Claude Code MCP loader consumes. The documented `.mcp.json`
+ * top-level schema is `mcpServers` only — protocol-version negotiation happens
+ * per-server at `initialize` time, and no top-level `protocolVersion` key is
+ * listed (code.claude.com/docs/en/mcp, accessed 2026-06-09). So emitting it does
+ * not change the client/server handshake; it is a human-/tooling-readable record
+ * of the revision the operator targets and the override seam
+ * (`.hatch3r/hatch.json::mcp.protocolVersion`) for staging the RC ahead of GA.
+ * It is retained rather than dropped because the Claude emission path also does
+ * the per-server `_timeout`→`timeout` translation (a documented, loader-consumed
+ * field per the same source) and the override seam is the forward-pin staging
+ * surface documented in docs/MIGRATION-mcp-2026-07-28.md.
+ *
+ * D15-27 (Cycle 11 Wave 3, D15, P3/P6, SA15.5-F6): the advisory marker is
+ * **Claude-only by schema constraint**, not by omission. Only the Claude Code
+ * `.mcp.json` top-level object tolerates an unknown sibling field next to
+ * `mcpServers` (claude.ts emits `{ protocolVersion, mcpServers }`). The other two
+ * adapters cannot carry it because their top-level schemas are closed to it:
+ *   - Cursor `.cursor/mcp.json`: top-level is `mcpServers` only; per-server keys
+ *     are `type|command|args|env|url|headers` (+ OAuth), and variable
+ *     interpolation resolves only in `command|args|env|url|headers`
+ *     (cursor.com/docs/mcp, accessed 2026-06-09). A top-level `protocolVersion`
+ *     is an unknown key.
+ *   - VS Code `.vscode/mcp.json` (Copilot): top-level fields are exactly
+ *     `servers`, `inputs`, `sandbox`
+ *     (code.visualstudio.com/docs/agents/reference/mcp-configuration, accessed
+ *     2026-06-09). An unknown top-level key is rejected by the schema-aware
+ *     tooling the copilot adapter already targets (D9-C-2: mcp-inspector / VS
+ *     Code strict mode / awesome-copilot lint).
+ * Emitting it on Cursor/Copilot would ship a schema-invalid file, so the
+ * cursor.ts / copilot.ts MCP emission sites carry a back-reference to this
+ * rationale instead. The protocol version is negotiated per-server at
+ * `initialize` time regardless; the top-level advisory marker is a Claude-surface
+ * convenience, not a cross-adapter contract and not a loader-consumed field.
  */
 export const MCP_DEFAULT_PROTOCOL_VERSION = "2025-11-25";
 
@@ -151,11 +251,25 @@ function transformEnvVarSyntaxInner(
  * Each row records the env-var syntax actually consumed by the target platform
  * for a given adapter output surface (verified against the cited primary
  * source) and the corresponding `transformEnvVarSyntax` format the adapter
- * MUST request. Regression test `src/__tests__/adapters/mcp-utils.test.ts`
- * loops over this table to enforce that every adapter call site stays aligned
- * with the platform contract — a future adapter that picks the wrong format
- * (e.g., emits `$VAR` to a consumer that does not perform shell expansion)
- * breaks the test rather than silently shipping unsubstituted placeholders.
+ * MUST request.
+ *
+ * Two regression suites guard this table, and the second is the one that makes
+ * it a real contract (D2-14, Cycle 11 Wave 3, D2, P2):
+ *   1. `src/__tests__/adapters/mcp-utils.test.ts` → describe
+ *      "MCP_ENV_VAR_FORMAT_PARITY": a table-INTERNAL consistency check — every
+ *      supported adapter has both surface rows, and each row's `format` maps to
+ *      the documented `transformEnvVarSyntax` output. This pins the table's
+ *      shape but, on its own, cannot catch an adapter call site that requests a
+ *      format the table does not list (it never reads a call site).
+ *   2. `src/__tests__/adapters/mcp-dataflow.test.ts` → describe
+ *      "MCP_ENV_VAR_FORMAT_PARITY adapter cross-check (D2-14)": the real gate.
+ *      For every row it runs the OWNING adapter's `generate()` against a
+ *      `${env:VAR}` fixture and asserts the emitted `.mcp.json` / `.cursor/mcp.json`
+ *      / `.vscode/mcp.json` carries the substitution the row declares (honoring
+ *      `viaEnvFile` and `viaInputs` surfaces). A call site that picks the wrong
+ *      format (e.g., emits `$VAR` to a consumer that does not perform shell
+ *      expansion), or a table row that drifts from its call site, breaks this
+ *      test rather than silently shipping unsubstituted placeholders.
  *
  * Sources accessed 2026-05-27:
  *   - Claude Code MCP: https://code.claude.com/docs/en/mcp (uses `${VAR}`).
@@ -164,10 +278,15 @@ function transformEnvVarSyntaxInner(
  *   - VS Code MCP STDIO env: https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
  *     (does NOT perform shell expansion on `env:` values; MUST route secrets
  *     via `envFile` instead of substitution — see D11-C-2 in copilot.ts).
- *   - VS Code MCP HTTP headers: same source (uses literal `$VAR` only
- *     reachable via `${input:NAME}` prompts in current Copilot release;
- *     `shell` format is retained on the headers path pending a follow-up
- *     that wires `inputs[]`, tracked outside this work unit).
+ *   - VS Code MCP HTTP headers: same source (header secrets are substituted
+ *     via top-level `inputs[]` + `${input:NAME}` references, NOT shell
+ *     expansion — VS Code does not shell-expand `$VAR` in header values).
+ *     D11-7 (Cycle 11, P6/CQ4) wired the `inputs[]` emission, so the copilot
+ *     `mcp-headers` row carries `format: "passthrough"` (the canonical
+ *     `${env:NAME}` value passes through `transformEnvVarSyntax` untouched)
+ *     plus `viaInputs: true` — the adapter then rewrites `${env:NAME}` to
+ *     `${input:NAME}` and emits a matching `inputs[]` entry. See
+ *     `src/adapters/copilot.ts::collectMcpHeaderInputs`.
  */
 export interface McpEnvVarFormatRow {
   adapter: "claude" | "cursor" | "copilot";
@@ -175,6 +294,12 @@ export interface McpEnvVarFormatRow {
   format: "claude" | "shell" | "passthrough";
   /** True when the surface uses `envFile` instead of inline substitution. */
   viaEnvFile?: true;
+  /**
+   * True when header secrets are substituted via VS Code's top-level
+   * `inputs[]` + `${input:NAME}` mechanism rather than a `transformEnvVarSyntax`
+   * format (D11-7, copilot HTTP/STDIO header path).
+   */
+  viaInputs?: true;
 }
 
 export const MCP_ENV_VAR_FORMAT_PARITY: ReadonlyArray<McpEnvVarFormatRow> = [
@@ -183,7 +308,7 @@ export const MCP_ENV_VAR_FORMAT_PARITY: ReadonlyArray<McpEnvVarFormatRow> = [
   { adapter: "cursor", surface: "mcp-env", format: "passthrough" },
   { adapter: "cursor", surface: "mcp-headers", format: "passthrough" },
   { adapter: "copilot", surface: "mcp-env", format: "shell", viaEnvFile: true },
-  { adapter: "copilot", surface: "mcp-headers", format: "shell" },
+  { adapter: "copilot", surface: "mcp-headers", format: "passthrough", viaInputs: true },
 ] as const;
 
 const ALLOWED_COMMANDS = new Set([
@@ -209,6 +334,13 @@ const ALLOWED_COMMANDS = new Set([
   "bunx",
   "pnpm",
   "yarn",
+  // D11-8 (Cycle 11, P3/P6): the GitLab CLI launched as a local system
+  // binary for the canonical `gitlab` MCP server (`glab mcp serve`). It is
+  // not an on-demand fetch launcher (it runs an installed binary, like
+  // `docker`/`go`/`cargo` above), so it carries no version-pin gate — it is
+  // allowlisted so the bundled config does not self-emit a false
+  // "unrecognized command" warning.
+  "glab",
 ]);
 
 const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
@@ -434,7 +566,7 @@ export function validateMcpEntry(
           launcher,
         );
         if (launcherPkg) {
-          const pinWarning = checkVersionPin(name, launcherPkg);
+          const pinWarning = checkVersionPin(name, launcherPkg, launcher);
           if (pinWarning) warnings.push(pinWarning);
         }
       }
@@ -450,11 +582,34 @@ export function validateMcpEntry(
   if (!httpPolicy.ok && httpPolicy.reason) {
     warnings.push(`MCP server "${name}" ${httpPolicy.reason}`);
   } else if (entry._trust_bypass === true && entry.url && !entry.command) {
-    warnings.push(
-      `MCP server "${name}" HTTP endpoint "${entry.url}" pinning bypassed ` +
-        `via _trust_bypass: true. Endpoint is trusted on faith — operator ` +
-        `accepts upstream-compromise risk.`,
-    );
+    // D11-15 (D11, P6/SA11.3-F3): suppress the per-server bypass warning when
+    // a documented rationale is recorded. The bypass remains auditable through
+    // the recorded reason; emitting a repeating un-actionable warning for a
+    // deliberate, justified opt-out (e.g. the bundled github server's rotating
+    // first-party endpoint) trains operators to ignore MCP security warnings.
+    // A reason that is present-but-malformed (non-string, or empty/whitespace-
+    // only) does NOT suppress — it is a misconfiguration that gets its own
+    // warning, so an attempt to silence the signal without a real rationale
+    // still surfaces. Bypass with no reason at all keeps the original warning,
+    // preserving the signal for operator-added unpinned HTTP servers.
+    const reason = entry._trust_bypass_reason;
+    const hasValidReason = typeof reason === "string" && reason.trim() !== "";
+    if (reason !== undefined && !hasValidReason) {
+      warnings.push(
+        `MCP server "${name}" has invalid _trust_bypass_reason ` +
+          `(${typeof reason === "string" ? "empty/whitespace string" : `${typeof reason}`}). ` +
+          `Provide a non-empty rationale string to document the pinning opt-out, ` +
+          `or remove the field to restore the bypass warning.`,
+      );
+    }
+    if (!hasValidReason) {
+      warnings.push(
+        `MCP server "${name}" HTTP endpoint "${entry.url}" pinning bypassed ` +
+          `via _trust_bypass: true. Endpoint is trusted on faith — operator ` +
+          `accepts upstream-compromise risk. Document the rationale in ` +
+          `_trust_bypass_reason to suppress this warning.`,
+      );
+    }
   }
 
   // D15 Medium (#15.44): Validate timeout if specified
@@ -463,6 +618,19 @@ export function validateMcpEntry(
       warnings.push(
         `MCP server "${name}" has invalid timeout: ${entry._timeout}. ` +
         `Timeout must be a positive number (milliseconds). Using default ${DEFAULT_MCP_TIMEOUT_MS}ms.`,
+      );
+    } else if (entry._timeout < MIN_HONORED_MCP_TIMEOUT_MS) {
+      // D9-SA9.1-L / D15-SA15.5-F8 (Cycle 11 Wave 4, D9/D15, P3/P6): a
+      // positive-but-sub-1000ms value passes the `> 0` guard but the Claude
+      // Code loader IGNORES it and falls through to MCP_TOOL_TIMEOUT / the ~28h
+      // default (code.claude.com/docs/en/mcp, accessed 2026-06-10). Warn so the
+      // operator does not believe a bound was applied that the platform silently
+      // dropped (Silent Failure Contract, CONSTITUTION §2 P5).
+      warnings.push(
+        `MCP server "${name}" timeout (${entry._timeout}ms) is below the minimum honored value ` +
+        `(${MIN_HONORED_MCP_TIMEOUT_MS}ms). Claude Code ignores sub-${MIN_HONORED_MCP_TIMEOUT_MS}ms timeouts and ` +
+        `falls through to MCP_TOOL_TIMEOUT (default ~28h). Set _timeout to at least ${MIN_HONORED_MCP_TIMEOUT_MS} ` +
+        `to apply a per-server bound.`,
       );
     } else if (entry._timeout > MAX_MCP_TIMEOUT_MS) {
       warnings.push(
@@ -476,7 +644,43 @@ export function validateMcpEntry(
 }
 
 /**
- * Check whether an `npx`-launched package argument carries an immutable version pin.
+ * Package base-names (scope + name, NO version suffix) shipped by the bundled
+ * canonical `mcp/mcp.json` on an on-demand fetch launcher.
+ *
+ * D15-25 (Cycle 11 Wave 3, D15, P6/SA15.5-F2): the version-pin gate used to give
+ * the SAME generic "pin a version" advice for every unpinned package, whether it
+ * was a recognized canonical MCP package that merely lacked a version or a bare
+ * name that is not a package on the launcher's registry at all. That conflation
+ * is what produced the unsatisfiable `glab@<version>` advice (D15-1): the right
+ * signal there was "this is not the package you think it is," not "you forgot a
+ * version." This allowlist lets {@link checkVersionPin} ESCALATE the message for
+ * an unpinned package whose base name is unknown — the dependency-confusion /
+ * wrong-launcher class — while keeping the plain pin advice for a known package.
+ *
+ * Source of truth is the bundled `mcp/mcp.json` (the npx-launched server
+ * `args[]` package tokens). It is a hand-mirrored list, kept in lockstep with
+ * that file; `src/__tests__/mcp/mcp-package-resolution.test.ts` (Decision 20)
+ * loads the real bundle, and the parity assertion in
+ * `src/__tests__/adapters/mcp-utils.test.ts` asserts every npx-launched bundled
+ * package base-name is present here, so a future canonical addition that forgets
+ * to update this set breaks a test rather than silently mis-escalating. The
+ * non-fetch-launcher servers (`github` HTTP transport, `gitlab` `glab` system
+ * binary) are intentionally absent — they never reach the version-pin gate.
+ */
+export const CANONICAL_MCP_PACKAGES: ReadonlySet<string> = new Set([
+  "@upstash/context7-mcp",
+  "@modelcontextprotocol/server-filesystem",
+  "@playwright/mcp",
+  "@brave/brave-search-mcp-server",
+  "@sentry/mcp-server",
+  "@henkey/postgres-mcp-server",
+  "@mkusaka/mcp-server-linear",
+  "@tiberriver256/mcp-server-azure-devops",
+]);
+
+/**
+ * Check whether an on-demand-fetch-launched package argument carries an
+ * immutable version pin.
  *
  * Returns a warning string when the package is unpinned (no `@version` suffix) or
  * pinned to a mutable tag (`@latest`); returns `null` for any other case (a
@@ -486,11 +690,36 @@ export function validateMcpEntry(
  * Handles both unscoped (`pkg-name`) and scoped (`@scope/pkg`) package arguments
  * by detecting the package version separator after the optional scope prefix.
  *
- * Origin: C7-H6 (D15 / Pillar P6). See call site in `validateMcpEntry`.
+ * `launcher` names the on-demand fetch launcher that triggered the check (one of
+ * {@link ON_DEMAND_FETCH_LAUNCHERS}); it defaults to `"npx"` for backward
+ * compatibility with the original npm-only gate. D11-8 (Cycle 11, P3/P6): the
+ * advice is launcher-aware and does not assert that the package is
+ * npm-registry-resolvable. The bundled `gitlab` entry exposed the failure mode —
+ * its old `npx -y glab` form pointed at a bare name (`glab`) that is the GitLab
+ * CLI Go binary, not an npm package, so the prior hardcoded "pin glab@<version>"
+ * advice was unsatisfiable (pinning `glab@1.0.2` would have installed the
+ * unrelated, since-unpublished 2017 npm package). The message now offers two
+ * exits — pin a published version of THIS launcher's registry, or switch to the
+ * correct package/launcher — so it stays actionable for uvx/pipx/bunx/pnpm dlx/
+ * yarn dlx packages and for entries whose package is not on npm at all.
+ *
+ * D15-25 (Cycle 11 Wave 3, D15, P6/SA15.5-F2): when the unpinned package's base
+ * name is NOT in {@link CANONICAL_MCP_PACKAGES}, the message ESCALATES — it
+ * leads with an "unknown/unexpected package" line flagging the
+ * dependency-confusion / wrong-launcher class (the `glab` failure mode) before
+ * the standard pin-or-switch advice. A known canonical package that merely lacks
+ * a version keeps the plain advice. The supply-chain severity of an unpinned
+ * unknown name (an attacker can register the bare name and `-y` auto-installs +
+ * executes it) is higher than a forgotten version on a vetted package, so the
+ * operator gets the stronger signal first.
+ *
+ * Origin: C7-H6 (D15 / Pillar P6); advice corrected under D11-8 (Cycle 11),
+ * escalation added under D15-25 (Cycle 11). See call site in `validateMcpEntry`.
  */
 export function checkVersionPin(
   serverName: string,
   pkgArg: string,
+  launcher: (typeof ON_DEMAND_FETCH_LAUNCHERS)[number] = "npx",
 ): string | null {
   // Skip non-package args: tarballs, git URLs, file paths.
   if (
@@ -516,11 +745,29 @@ export function checkVersionPin(
   // Unpinned: no `@version` suffix. `@latest` is also unpinned because it is
   // a mutable tag that resolves to the newest published version on each launch.
   if (versionSpec === "" || versionSpec === "latest") {
+    const baseName = pkgArg.slice(
+      0,
+      versionAt > 0 ? versionAt : pkgArg.length,
+    );
+    // D15-25 (D15, P6): escalate when the base name is not a known canonical
+    // MCP package. An unpinned UNKNOWN name is the dependency-confusion /
+    // wrong-launcher class (the `glab` failure mode) — higher severity than a
+    // vetted package that merely lacks a version, so the operator sees the
+    // unknown-package signal first.
+    const escalation = CANONICAL_MCP_PACKAGES.has(baseName)
+      ? ""
+      : `"${baseName}" is not a known/expected hatch3r canonical MCP package on ` +
+        `${launcher}'s registry — an unpinned unknown name lets an attacker ` +
+        `register it and have ${launcher} auto-install + execute it ` +
+        `(dependency-confusion / wrong-launcher risk). `;
     return (
-      `MCP server "${serverName}" uses npx -y with unpinned package "${pkgArg}". ` +
+      `MCP server "${serverName}" uses ${launcher} with unpinned package "${pkgArg}". ` +
+      escalation +
       `Unpinned packages download the latest version on every invocation, exposing ` +
       `the agent to supply chain compromise (e.g., 2025 npm maintainer-account incidents). ` +
-      `Add an immutable version pin: "${pkgArg.slice(0, versionAt > 0 ? versionAt : pkgArg.length)}@<version>".`
+      `Pin a published version ("${baseName}@<version>"), or — if "${baseName}" is not a ` +
+      `package on ${launcher}'s registry — switch to the correct package or a system-CLI ` +
+      `command instead of the ${launcher} launcher.`
     );
   }
 
@@ -803,15 +1050,43 @@ export interface McpConfigResult {
 }
 
 /**
+ * Options for {@link readMcpConfig}.
+ *
+ * D11-16 (Cycle 11 Wave 3, D11, P5/SA11.3-F4): `validateEntries` toggles the
+ * warn-only per-entry validation pass ({@link validateMcpEntry} +
+ * {@link scanMcpServers}).
+ *
+ *  - `true` (default): full-bundle validation — every server entry is checked
+ *    and its warnings accumulated. This is the surface `hatch3r validate`
+ *    relies on to report problems across the WHOLE bundled `mcp.json`,
+ *    independent of any per-repo selection.
+ *  - `false`: skip the warn-only validation. The refusal-grade drop gates
+ *    ({@link validateServerName}, {@link validateMcpServerArgs}) still run —
+ *    they protect every consumer regardless of selection. The adapter path
+ *    ({@link BaseAdapter.readFilteredMcp}) passes `false` so it can re-run
+ *    per-entry validation AFTER the manifest-selection + `_disabled` filter,
+ *    surfacing warnings only about the servers the repo actually emits — a
+ *    2-server selection no longer reports warnings about the other 8.
+ */
+export interface ReadMcpConfigOptions {
+  validateEntries?: boolean;
+}
+
+/**
  * Read and validate the MCP server configuration from `.agents/mcp/mcp.json`.
  *
  * Parses the JSON, validates each server name and entry, and returns
  * the validated servers with any accumulated warnings. Servers with
- * invalid names are skipped entirely.
+ * invalid names — or with argv that fail the refusal-grade dangerous-character
+ * scan — are dropped entirely. The warn-only per-entry validation pass is
+ * controlled by `opts.validateEntries` (default `true`; see
+ * {@link ReadMcpConfigOptions}).
  */
 export async function readMcpConfig(
   agentsDir: string,
+  opts?: ReadMcpConfigOptions,
 ): Promise<McpConfigResult> {
+  const validateEntries = opts?.validateEntries ?? true;
   const mcpPath = join(agentsDir, "mcp", "mcp.json");
   const warnings: string[] = [];
   try {
@@ -830,6 +1105,8 @@ export async function readMcpConfig(
         // hit DROPS the entry so the adapter never emits an unsafe
         // launcher invocation. The warning is auditable (Silent Failure
         // Contract, CONSTITUTION.md §2 P5) so operators see the drop.
+        // Runs regardless of `validateEntries`: a drop gate protects every
+        // consumer and is not a selection-scoped diagnostic.
         const argsResult = validateMcpServerArgs(entry);
         if (!argsResult.ok) {
           warnings.push(
@@ -837,7 +1114,9 @@ export async function readMcpConfig(
           );
           continue;
         }
-        warnings.push(...validateMcpEntry(name, entry));
+        // D11-16: warn-only per-entry validation is skipped when the caller
+        // will re-run it on a filtered subset (the adapter selection path).
+        if (validateEntries) warnings.push(...validateMcpEntry(name, entry));
         validServers[name] = entry;
       }
       // C7.5-W2B2-H46 (D15-F15.6-03, Pillar P6): static scan of MCP
@@ -845,8 +1124,9 @@ export async function readMcpConfig(
       // injection / tool-poisoning markers (Invariant Labs 2025). Warns
       // only — servers still emit so legitimate servers whose descriptions
       // happen to hit a pattern are not silently dropped (Silent Failure
-      // Contract, CONSTITUTION.md §2 P5).
-      warnings.push(...scanMcpServers(validServers));
+      // Contract, CONSTITUTION.md §2 P5). D11-16: scoped with the rest of
+      // the warn-only pass so the adapter can run it on survivors only.
+      if (validateEntries) warnings.push(...scanMcpServers(validServers));
       return { servers: validServers, warnings };
     }
     return { servers: {}, warnings };

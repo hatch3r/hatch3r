@@ -238,6 +238,108 @@ describe("explainCommand", () => {
     ).rejects.toThrow(HatchError);
   });
 
+  it("prices at the resolved --model rate and prints the assumed model (D6-18)", async () => {
+    const body = "x".repeat(8000);
+    await writeCommandFile(tempDir, "hatch3r-model.md", body, {
+      id: "hatch3r-model",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "model",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ cost: "hatch3r-model", model: "opus" });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Opus rates: $5/1M input, $25/1M output (not the Sonnet $3/$15 default).
+    expect(output).toContain("Rates: $5/1M input, $25/1M output");
+    expect(output).toContain("opus");
+    expect(output).toContain("rate accessed");
+  });
+
+  it("lets --input-rate override the --model rate per-axis (D6-18)", async () => {
+    const body = "x".repeat(8000);
+    await writeCommandFile(tempDir, "hatch3r-model-override.md", body, {
+      id: "hatch3r-model-override",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "override",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ cost: "hatch3r-model-override", model: "opus", inputRate: "99" });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Explicit --input-rate wins; output keeps the resolved Opus $25 rate.
+    expect(output).toContain("Rates: $99/1M input, $25/1M output");
+  });
+
+  it("rejects an unknown --model selector with an actionable error (D6-18)", async () => {
+    const body = "x";
+    await writeCommandFile(tempDir, "hatch3r-bad-model.md", body, {
+      id: "hatch3r-bad-model",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "bad",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await expect(
+      explainCommand({ cost: "hatch3r-bad-model", model: "gpt-4" }),
+    ).rejects.toThrow(HatchError);
+    try {
+      await explainCommand({ cost: "hatch3r-bad-model", model: "gpt-4" });
+    } catch (e) {
+      expect((e as HatchError).message).toContain("Unknown --model");
+    }
+  });
+
+  it("applies --cache-hit and notes the cached-input discount in the footer (D6-19)", async () => {
+    const body = "x".repeat(8000);
+    await writeCommandFile(tempDir, "hatch3r-cache.md", body, {
+      id: "hatch3r-cache",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "cache",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await explainCommand({ cost: "hatch3r-cache", cacheHit: "0.9" });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("90% input cache-hit");
+  });
+
+  it("rejects an out-of-range --cache-hit value (D6-19)", async () => {
+    const body = "x";
+    await writeCommandFile(tempDir, "hatch3r-bad-cache.md", body, {
+      id: "hatch3r-bad-cache",
+      type: "command",
+      orchestrator: true,
+      agentPipeline: ["hatch3r-implementer"],
+      description: "bad cache",
+      tags: ["core"],
+      triage_tiers: [1],
+    });
+
+    const { explainCommand } = await import("../../cli/commands/explain.js");
+    await expect(
+      explainCommand({ cost: "hatch3r-bad-cache", cacheHit: "1.5" }),
+    ).rejects.toThrow(HatchError);
+  });
+
   it("does not require orchestrator: true (declared tiers are honored regardless)", async () => {
     // Inline-execution commands rarely declare triage_tiers, but the command
     // should still print whatever the canonical file declares so authors can
@@ -324,5 +426,345 @@ describe("explainCommand", () => {
     expect(output).toContain("hatch3r-security");
     expect(output).toContain("failed");
     expect(output).toMatch(/[1-9]\d* failed/);
+  });
+
+  // D12-2 (Cycle 11 Wave 2, D12, P4/P1): `explain --source all` defaults to a
+  // bounded per-output count summary rather than enumerating every canonical
+  // source for every output. The old full enumeration was 224,672 lines /
+  // 19.3 MB for a standard init+sync. These tests pin: (1) the default `all`
+  // form prints counts, not per-source bullet lines; (2) `--verbose` expands
+  // to the full per-path lists; (3) the single-path form is unchanged (full
+  // list for the one requested output).
+  describe("--source provenance summary (D12-2)", () => {
+    // One aggregate output carrying many sources, plus single-source outputs —
+    // mirrors the post-D12-1 shape where ~95% of outputs have one source and a
+    // handful (CLAUDE.md, the cursor bridge) aggregate the canonical read set.
+    const AGG_SOURCES = Array.from({ length: 40 }, (_, i) => `agents/hatch3r-src-${i}.md`);
+    // A grep sentinel that only appears if individual source filenames are printed.
+    const SENTINEL = "agents/hatch3r-src-37.md";
+
+    async function writeProvenanceFixture(): Promise<void> {
+      const dir = join(tempDir, ".hatch3r");
+      await mkdir(dir, { recursive: true });
+      const manifest = {
+        schemaVersion: 1,
+        hatch3rVersion: "2.0.0",
+        generatedAt: "2026-06-06T00:00:00.000Z",
+        lastCommand: "sync",
+        lastRunId: "hr-d122-test",
+        outputs: [
+          { path: "CLAUDE.md", adapter: "claude", sourceFiles: AGG_SOURCES },
+          { path: ".cursor/rules/10-secrets.mdc", adapter: "cursor", sourceFiles: ["rules/hatch3r-secrets-management.md"] },
+          { path: ".cursor/rules/30-supply.mdc", adapter: "cursor", sourceFiles: ["rules/hatch3r-supply-chain.md"] },
+        ],
+      };
+      await writeFile(join(dir, "provenance.json"), JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+    }
+
+    it("`--source all` prints a per-output count summary, not the full source enumeration", async () => {
+      await writeProvenanceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "all" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Header reports total outputs + total source links.
+      expect(output).toContain("Per-output source counts");
+      expect(output).toContain("CLAUDE.md");
+      // The aggregate's source COUNT (40) is shown...
+      expect(output).toContain("40");
+      // ...but NOT the individual source filenames (the 224K-line symptom).
+      expect(output).not.toContain(SENTINEL);
+      // Detail hint is surfaced so the user can opt in.
+      expect(output).toContain("--source all --verbose");
+    });
+
+    it("`--source all --verbose` expands to the full per-path source list", async () => {
+      await writeProvenanceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "all", verbose: true });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Verbose mode prints each individual canonical source filename.
+      expect(output).toContain(SENTINEL);
+      expect(output).toContain("rules/hatch3r-secrets-management.md");
+    });
+
+    it("`--source <single-path>` still prints the full source list for that one output", async () => {
+      await writeProvenanceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "CLAUDE.md" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Single-path form is unaffected by the summary cap: full list shown.
+      expect(output).toContain("Source: CLAUDE.md");
+      expect(output).toContain(SENTINEL);
+    });
+  });
+
+  // D12-11 (Cycle 11 Wave 3, D12, P1): `explain --source --format json` emits a
+  // single machine-readable document (via emitJson → process.stdout.write), not
+  // boxen chrome — matching the JSON surface `provenance`/`verify` already ship.
+  // JSON is source-only; the stored sourceFiles are already repo-root-relative
+  // (D12-3 / H3), so the JSON form surfaces those relative paths verbatim.
+  describe("--source --format json (D12-11)", () => {
+    let stdoutSpy: MockInstance;
+
+    beforeEach(() => {
+      // emitJson writes via process.stdout.write, not console.log — spy that.
+      stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    });
+    afterEach(() => {
+      stdoutSpy.mockRestore();
+    });
+
+    function jsonPayload(): unknown {
+      // The first stdout.write is the emitted JSON document (one-shot).
+      const raw = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+      return JSON.parse(raw.trim());
+    }
+
+    async function writeJsonFixture(): Promise<void> {
+      const dir = join(tempDir, ".hatch3r");
+      await mkdir(dir, { recursive: true });
+      const manifest = {
+        schemaVersion: 1,
+        hatch3rVersion: "2.0.0",
+        generatedAt: "2026-06-07T00:00:00.000Z",
+        lastCommand: "sync",
+        lastRunId: "hr-d1211-test",
+        outputs: [
+          { path: "CLAUDE.md", adapter: "claude", sourceFiles: ["agents/hatch3r-architect.md", "rules/hatch3r-security-patterns.md"] },
+          { path: ".cursor/rules/10-secrets.mdc", adapter: "cursor", sourceFiles: ["rules/hatch3r-secrets-management.md"] },
+        ],
+      };
+      await writeFile(join(dir, "provenance.json"), JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+    }
+
+    it("single-path form emits {output, adapter, sourceFiles, hatch3rVersion, generatedAt} with relative paths", async () => {
+      await writeJsonFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "CLAUDE.md", format: "json" });
+
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.status).toBe("present");
+      expect(payload.output).toBe("CLAUDE.md");
+      expect(payload.adapter).toBe("claude");
+      expect(payload.sourceFiles).toEqual([
+        "agents/hatch3r-architect.md",
+        "rules/hatch3r-security-patterns.md",
+      ]);
+      // H3: sourceFiles are repo-root-relative, not absolute home paths.
+      for (const src of payload.sourceFiles as string[]) {
+        expect(src.startsWith("/")).toBe(false);
+      }
+      expect(payload.hatch3rVersion).toBe("2.0.0");
+      expect(payload.generatedAt).toBe("2026-06-07T00:00:00.000Z");
+    });
+
+    it("`--source all --format json` emits an uncapped outputs[] envelope", async () => {
+      await writeJsonFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "all", format: "json" });
+
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.status).toBe("present");
+      const outputs = payload.outputs as Array<Record<string, unknown>>;
+      expect(outputs).toHaveLength(2);
+      // Full (uncapped) source lists in JSON, regardless of the human --verbose cap.
+      const claudeRow = outputs.find((o) => o.output === "CLAUDE.md")!;
+      expect(claudeRow.sourceFiles).toEqual([
+        "agents/hatch3r-architect.md",
+        "rules/hatch3r-security-patterns.md",
+      ]);
+      expect(payload.hatch3rVersion).toBe("2.0.0");
+    });
+
+    it("an unrecorded path emits status:not-found JSON and still throws exit-config", async () => {
+      await writeJsonFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await expect(
+        explainCommand({ source: "does/not/exist.md", format: "json" }),
+      ).rejects.toThrow(HatchError);
+
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.status).toBe("not-found");
+      expect(payload.output).toBe("does/not/exist.md");
+    });
+
+    it("a missing manifest emits status:absent JSON (no boxen chrome) and throws", async () => {
+      // No provenance.json written.
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await expect(
+        explainCommand({ source: "all", format: "json" }),
+      ).rejects.toThrow(HatchError);
+
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.status).toBe("absent");
+      expect(payload.hatch3rVersion).toBeTruthy();
+    });
+
+    it("rejects --format json paired with a non-source mode (usage error, exit 2)", async () => {
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      const err = await explainCommand({ customizations: true, format: "json" }).catch((e) => e);
+      expect(err).toBeInstanceOf(HatchError);
+      expect((err as HatchError).exitCode).toBe(2);
+    });
+  });
+
+  // D6-23 (Cycle 11 Wave 3): `--cost` input basis is per-actor, not
+  // body×subAgents. The orchestrator reads its body once; each spawned
+  // sub-agent loads its own agent def + a task-context allowance. The pre-fix
+  // basis (body re-billed to every sub-agent) over-counted input.
+  describe("--cost per-actor input basis (D6-23)", () => {
+    it("states the per-actor input basis in the footer instead of body×subAgents", async () => {
+      const body = "x".repeat(40);
+      await writeCommandFile(tempDir, "hatch3r-basis.md", body, {
+        id: "hatch3r-basis",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer", "hatch3r-reviewer"],
+        description: "basis",
+        tags: ["core"],
+        triage_tiers: [1, 2, 3],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-basis" });
+
+      const output = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      // The corrected basis is named explicitly so figures are not misread.
+      expect(output).toContain("Input basis: orchestrator body once");
+      expect(output).toContain("its own agents/<id>.md");
+      expect(output).toContain("task allowance");
+    });
+
+    it("sizes a tier-1 inline actor by the agent-def + task-context fallback, not the body alone", async () => {
+      // A 4-char body: under the pre-fix model tier-1 input was bodyTokens×1
+      // (~1 token). Under the per-actor model the tier-1 inline actor (no
+      // distinct agent def) bills at UNKNOWN_AGENT_DEF_CHARS (12000) +
+      // TASK_CONTEXT_ALLOWANCE_CHARS (6000) = 18000 chars / 4 = 4500 tokens,
+      // plus the tiny body — so the tier-1 input lands in the 4,50x range,
+      // impossible under body×subAgents.
+      const body = "x".repeat(4);
+      await writeCommandFile(tempDir, "hatch3r-tier1.md", body, {
+        id: "hatch3r-tier1",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "tier1",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-tier1" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Tier-1 row carries a ~4,50x input token figure (agent-def + task
+      // allowance dominate the 4-char body).
+      expect(output).toMatch(/Tier 1[\s\S]*?4,50\d/);
+    });
+
+    it("counts the orchestrator body once: tier-2 input delta is body-independent (per-actor)", async () => {
+      // Same body across two commands; the only difference is two extra agents
+      // (reviewer, fixer) in the pipeline. Under the per-actor model the body is
+      // counted ONCE, so the input delta equals exactly the two extra agents'
+      // (def + task-context) token contribution and does NOT depend on body
+      // size. Under the pre-fix body×subAgents model the delta would be
+      // 2×bodyTokens (the body re-billed to each added sub-agent). We assert the
+      // delta is invariant across two very different body sizes — only the
+      // per-actor (body-once) model produces an identical delta.
+      const SMALL = "x".repeat(40);
+      const LARGE = "x".repeat(400_000); // 100k body tokens — would explode a body×N delta
+      const onePipe = ["hatch3r-implementer"];
+      const threePipe = ["hatch3r-implementer", "hatch3r-reviewer", "hatch3r-fixer"];
+
+      async function tier2Input(filename: string, body: string, pipeline: string[]): Promise<number> {
+        await writeCommandFile(tempDir, filename, body, {
+          id: filename.replace(/\.md$/, ""),
+          type: "command",
+          orchestrator: true,
+          agentPipeline: pipeline,
+          description: "delta",
+          tags: ["core"],
+          triage_tiers: [2],
+        });
+        const { explainCommand } = await import("../../cli/commands/explain.js");
+        consoleSpy.mockClear();
+        await explainCommand({ cost: filename.replace(/\.md$/, "") });
+        const out = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+        const row = out.split("\n").find((l) => l.includes("Tier 2"));
+        expect(row).toBeTruthy();
+        // Row numbers: [sub-agent count, input, output, total]. Input is index 1.
+        const nums = (row as string).match(/[\d,]+/g)?.map((n) => Number(n.replace(/,/g, ""))) ?? [];
+        return nums[1] ?? 0;
+      }
+
+      const smallDelta =
+        (await tier2Input("hatch3r-s3.md", SMALL, threePipe)) -
+        (await tier2Input("hatch3r-s1.md", SMALL, onePipe));
+      const largeDelta =
+        (await tier2Input("hatch3r-l3.md", LARGE, threePipe)) -
+        (await tier2Input("hatch3r-l1.md", LARGE, onePipe));
+
+      // Body-once invariance: the added-agent delta is identical at 40 chars and
+      // at 400 KB of body. A body×subAgents model would make largeDelta ≈
+      // 2×100000 = 200000 while smallDelta ≈ 2×10, so they could never match.
+      expect(smallDelta).toBeGreaterThan(0);
+      expect(largeDelta).toBe(smallDelta);
+    });
+  });
+
+  // D12-9 (Cycle 11 Wave 3): `--customizations` table is responsive to terminal
+  // width and wraps long reasons into continuation lines instead of truncating,
+  // so it stays legible at the 80-col non-TTY/CI fallback width.
+  describe("--customizations responsive width (D12-9)", () => {
+    let columnsDescriptor: PropertyDescriptor | undefined;
+
+    beforeEach(() => {
+      columnsDescriptor = Object.getOwnPropertyDescriptor(process.stdout, "columns");
+      // Force the 80-col fallback so the assertion is width-deterministic
+      // regardless of whether CI runs under a TTY.
+      Object.defineProperty(process.stdout, "columns", { value: 80, configurable: true });
+    });
+
+    afterEach(() => {
+      if (columnsDescriptor) {
+        Object.defineProperty(process.stdout, "columns", columnsDescriptor);
+      } else {
+        // jsdom/node leaves columns undefined by default; restore that.
+        Object.defineProperty(process.stdout, "columns", { value: undefined, configurable: true });
+      }
+    });
+
+    it("keeps the artifact id intact and wraps the long reason tail at 80 cols", async () => {
+      // enabled: false on the protected, floor-tagged hatch3r-security agent
+      // produces a ~95-char failure reason ("Cannot disable protected agent
+      // \"hatch3r-security\" via customization. Ignoring enabled: false."). The
+      // pre-fix renderer truncated the reason at 50 cols and dropped the
+      // "Ignoring enabled: false." tail; the wrap keeps it on a continuation
+      // line. The id (16 chars) must survive intact within its responsive
+      // column at 80 cols.
+      const customDir = join(tempDir, ".hatch3r", "agents");
+      await mkdir(customDir, { recursive: true });
+      await writeFile(
+        join(customDir, "hatch3r-security.customize.yaml"),
+        "enabled: false\n",
+        "utf-8",
+      );
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ customizations: true });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Id survives uncropped (no ellipsis on the lookup key).
+      expect(output).toContain("hatch3r-security");
+      // The reason tail that the old 50-col truncation dropped is now present
+      // (wrapped onto a continuation line), proving wrap-not-truncate.
+      expect(output).toContain("Ignoring enabled");
+    });
   });
 });

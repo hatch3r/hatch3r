@@ -1,0 +1,53 @@
+---
+description: TypeScript and JavaScript typing mechanics — satisfies over as, discriminated unions, branded types, strict utility types, barrel exports, and import ordering
+globs: ["**/*.ts", "**/*.tsx", "**/*.mts", "**/*.cts", "**/*.js", "**/*.jsx", "**/*.mjs", "**/*.cjs", "**/tsconfig*.json", "**/.eslintrc*", "**/eslint.config.*"]
+alwaysApply: false
+---
+# TypeScript Patterns
+
+**Pillars:** P2 (Scientific & Practical Quality), CQ8 (Maintainability Quality)
+
+> Applies when the project ships TypeScript or JavaScript. Detection signals: `tsconfig.json` at repo root, `*.ts`/`*.tsx` source files, or an ESLint config. This rule carries the TypeScript/JavaScript-specific typing, barrel, and import mechanics that were split out of `rules/hatch3r-code-standards.md` (the language-agnostic code floor) under D14-14 / SA14.1-F3, so these idioms bind only on TS/JS repos and not as a floor on Go, Rust, Python, Ruby, or Java repos where they are nonsensical.
+
+## TypeScript-Specific Patterns
+
+### `satisfies` Over `as`
+
+- Use `satisfies` to validate a value conforms to a type while preserving its narrower inferred type. Prefer `satisfies Config` over `as Config` because `as` silences type errors and loses narrowing.
+- Use `as const` for literal types in configuration objects, action types, and discriminant values. Combine with `satisfies` when both literal inference and shape validation are needed: `const config = { ... } as const satisfies Config`.
+
+### Discriminated Unions
+
+- Model domain variants with discriminated unions over polymorphic classes or `type` string checks. Every variant must share a common literal discriminant field (e.g., `kind`, `type`, `status`).
+- Use a `switch` that handles every variant, with a `never` default case so the compiler errors when a new variant is added but not handled.
+
+### Branded Types
+
+- Use branded types for domain identifiers that must not be accidentally interchanged (e.g., `UserId`, `OrderId`, `Currency`). Implement via intersection with a unique symbol: `type UserId = string & { readonly __brand: unique symbol }`.
+- Provide factory functions (`createUserId(raw: string): UserId`) that validate the input before branding. Never brand raw values without validation.
+
+### Strict Utility Types
+
+- Prefer `Readonly<T>` for function parameters and return types that should not be mutated by the caller.
+- Use `Record<string, never>` instead of `{}` to represent an empty object type. `{}` matches any non-nullish value.
+- Avoid `Omit` with string literals that do not exist on the source type — use `satisfies` or a helper type that enforces key existence.
+
+## Barrel Exports
+
+- Use barrel files (`index.ts`) at module boundaries to define the public API of a module. Re-export only the types and functions intended for external consumption.
+- Never import from a module's internal files directly — import from the barrel. Enforce with ESLint `no-restricted-imports` or equivalent.
+- Keep barrel files thin — only re-exports, no logic. A barrel with logic is a code smell.
+
+## Import Ordering
+
+Enforce consistent import ordering via linter rules (e.g., `eslint-plugin-import`). The canonical order:
+
+1. **Built-in modules** — `node:fs`, `node:path`, etc.
+2. **External packages** — `zod`, `express`, etc.
+3. **Internal aliases** — `@/utils`, `@/types`, etc.
+4. **Relative imports** — `./sibling`, `../parent`, etc.
+5. **Type-only imports** — `import type { ... }` (grouped separately where the linter supports it)
+
+Separate each group with a blank line. Sort alphabetically within each group.
+
+Reference: `rules/hatch3r-code-standards.md` (language-agnostic code floor — naming, size caps, Result-type error handling, module boundaries, dead-code, untrusted-content hygiene), `rules/hatch3r-edge-case-discipline.md` (every-variant-matching and silent-catch rules that build on the discriminated-union mechanics above).

@@ -37,10 +37,42 @@ export function classifyCliError(
     return "shutting-down";
   }
 
+  // D8-2 (Cycle 11 Wave 2, P1): primary signal is commander's stable error
+  // contract, not its human-readable message text. Every parse/usage failure
+  // commander 14.x raises is a CommanderError whose `code` is prefixed
+  // `commander.` (e.g. commander.unknownOption / .unknownCommand /
+  // .invalidArgument / .missingMandatoryOptionValue). Matching on `name`/`code`
+  // is stable across commander's message-string wording, whereas the prior
+  // capitalized-substring heuristic missed commander's lowercase messages
+  // ("unknown option '--x'", "... argument 'z' is invalid") and so misreported
+  // a user mistake as a hatch3r bug (exit 1 + bug-report URL) instead of a
+  // usage error (exit 2).
+  if (err instanceof Error) {
+    const code = (err as { code?: unknown }).code;
+    if (
+      err.name === "CommanderError" ||
+      (typeof code === "string" && code.startsWith("commander."))
+    ) {
+      return "usage";
+    }
+  }
+
+  // Fallback for errors that carry a usage-shaped message but are not (or are no
+  // longer) CommanderError instances — e.g. a re-thrown / re-wrapped parse
+  // failure. Normalize to lowercase first so commander's own lowercase wording
+  // is caught here too, then key on the stable lexemes commander emits.
   const isUsageError =
     err instanceof Error &&
-    (err.message.includes("Invalid") ||
-      err.message.includes("Unknown") ||
-      err.message.includes("missing required"));
+    (() => {
+      const message = err.message.toLowerCase();
+      return (
+        message.includes("invalid") ||
+        message.includes("unknown option") ||
+        message.includes("unknown command") ||
+        message.includes("missing required") ||
+        message.includes("argument missing") ||
+        message.includes("not specified")
+      );
+    })();
   return isUsageError ? "usage" : "unexpected";
 }

@@ -107,23 +107,15 @@ Cross-cutting concerns (logging, auth, persistence, telemetry, error handling) g
 
 ## Per-Finding Output Format
 
-Every finding emitted under this rule MUST include the rigor-contract fields per `agents/shared/rigor-contract.md`:
-
-- `proof_trace`: file:line citation + spec-diff/grep output excerpt.
-- `impact_horizon`: short | medium | long per CONSTITUTION Decision 17.
-- `progress_toward_pillar: content-quality.CQ9+<delta>`: numeric delta against the threshold.
-- `confidence`: high | medium | low with explicit basis.
-- `causal_chain`: ≥3-step linkage from observation → root cause → impact.
+Every finding emitted under this rule uses the CQ per-finding rigor-field schema per `rules/hatch3r-cq-rule-frame.md` → Per-Finding Output Format (rigor-contract fields per `agents/shared/rigor-contract.md`), with `<N>` = CQ9. The `proof_trace` excerpt is the file:line citation + spec-diff/grep output for the threshold that produced the finding.
 
 ## Severity Mapping
 
-Source: `agents/shared/severity-mapping.md`.
+The Specialist-Status to canonical-severity map (`CRITICAL` → Critical, `FINDINGS` → High + Medium, `PASS` → Low + Info) is the shared CQ frame per `rules/hatch3r-cq-rule-frame.md` → Specialist-Status to Canonical-Severity Map, sourced from `agents/shared/severity-mapping.md`. CQ9 Action per status:
 
-| Specialist Status | Canonical Severity | Action |
-|-------------------|--------------------|--------|
-| `CRITICAL` | Critical | Behavior change shipped without a flag; breaking change on stable endpoint without major-version bump; hardcoded credential or secret; silent fallback on config-validation error; missing CI spec-diff gate |
-| `FINDINGS` | High + Medium | Externalization gap (hardcoded URL/timeout/batch-size); missing Deprecation/Sunset header; semver-policy gap; under-documented extension point |
-| `PASS` | Low + Info | All thresholds met; surface in iteration summary |
+- `CRITICAL`: Behavior change shipped without a flag; breaking change on stable endpoint without major-version bump; hardcoded credential or secret; silent fallback on config-validation error; missing CI spec-diff gate.
+- `FINDINGS`: Externalization gap (hardcoded URL/timeout/batch-size); missing Deprecation/Sunset header; semver-policy gap; under-documented extension point.
+- `PASS`: All thresholds met; surface in iteration summary.
 
 ## Irreversibility Trigger
 

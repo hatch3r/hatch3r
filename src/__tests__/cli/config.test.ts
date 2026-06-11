@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { HatchError, DEFAULT_FEATURES, type HatchManifest } from "../../types.js";
+import { ARCHIVE_DIR, HatchError, DEFAULT_FEATURES, type HatchManifest } from "../../types.js";
 import {
   makeManifest,
   makeContentSelection,
@@ -54,20 +54,32 @@ vi.mock("../../manifest/hatchJson.js", () => ({
       ? value
       : "solo";
   }),
-  // D13-SA13.3-F13.3.3: scalar config `get confidence_floor` consults
-  // `readConfidenceFloor`; mirror the real helper (valid pass-through, else "any").
-  readConfidenceFloor: vi.fn((m: { confidenceFloor?: string } | null | undefined) => {
+  // D13-SA13.3-F13.3.3 / -F2: scalar config `get confidence_floor` consults
+  // `readConfidenceFloor`; mirror the real helper — explicit valid floor wins,
+  // else the maturity-aware default (scaleup/enterprise → "high", else "any").
+  readConfidenceFloor: vi.fn((m: { confidenceFloor?: string; maturity?: string } | null | undefined) => {
     const value = m?.confidenceFloor;
-    return value && ["any", "medium", "high"].includes(value) ? value : "any";
+    if (value && ["any", "medium", "high"].includes(value)) return value;
+    const tier =
+      m?.maturity && ["solo", "team", "scaleup", "enterprise"].includes(m.maturity) ? m.maturity : "solo";
+    return tier === "scaleup" || tier === "enterprise" ? "high" : "any";
   }),
   isValidGitBranchName: vi.fn(() => true),
 }));
 
-vi.mock("../../cli/commands/update.js", () => ({
-  runUpdate: vi.fn(),
-  runRegenerate: vi.fn(),
-  runPackageUpdate: vi.fn(),
-}));
+vi.mock("../../cli/commands/update.js", async (importOriginal) => {
+  // D1-3 (Cycle 11 Wave 2): config now calls the real partial-failure gate after
+  // runRegenerate. Keep the heavy update entry points stubbed (no network/disk),
+  // but pull the REAL `throwOnPartialAdapterFailure` from the actual module so the
+  // exit-2 contract is exercised end-to-end rather than re-implemented in the test.
+  const actual = await importOriginal<typeof import("../../cli/commands/update.js")>();
+  return {
+    runUpdate: vi.fn(),
+    runRegenerate: vi.fn(),
+    runPackageUpdate: vi.fn(),
+    throwOnPartialAdapterFailure: actual.throwOnPartialAdapterFailure,
+  };
+});
 
 vi.mock("../../archive/index.js", () => ({
   archiveToolOutputs: vi.fn(),
@@ -97,6 +109,10 @@ vi.mock("../../content/index.js", () => ({
     items: { agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
   }),
   countPresetExclusions: vi.fn().mockReturnValue(0),
+  // D10-12 (Cycle 11 Wave 2): the preset picker now renders the realized
+  // post-floor omit clusters via presetOmittedClusters; stub it so the picker
+  // step renders without hitting an undefined export.
+  presetOmittedClusters: vi.fn().mockReturnValue([]),
   estimatePresetItemCount: vi.fn().mockReturnValue(50),
   getAllContentIds: vi.fn().mockReturnValue(new Set<string>()),
 }));
@@ -121,12 +137,29 @@ vi.mock("../../cli/shared/agentsContent.js", () => ({
   generateRootAgentsMd: vi.fn(),
 }));
 
-vi.mock("../../merge/safeWrite.js", () => ({
-  safeWriteFile: vi.fn(),
-  // F1.2-H1 (Cycle 10): configCommand wraps its body in an outer manifest
-  // lock; mock returns a no-op release so tests do not need HATCH3R_LOCK=1.
-  acquireWriteLock: vi.fn().mockResolvedValue(async () => {}),
-}));
+vi.mock("../../merge/safeWrite.js", async () => {
+  // D2-7 (Cycle 11 Wave 2): the tool-removal path now opens a real pre-deletion
+  // snapshot via `withSnapshot` (pipeline/snapshot.js is NOT mocked here), and
+  // `createSnapshot` writes its meta.json through `atomicWriteFile`. The prior
+  // mock omitted that export, so the snapshot capture threw `atomicWriteFile is
+  // not a function`, the Silent Failure Contract downgraded it to a warning, and
+  // the session id came back null. Provide a functional `atomicWriteFile` that
+  // performs the externally-observable write (mkdir parent + writeFile) so the
+  // snapshot lands and a real `config-<ts>` session id is minted — matching
+  // production. The fsync/lock ceremony is irrelevant to these assertions.
+  const { writeFile, mkdir } = await import("node:fs/promises");
+  const { dirname } = await import("node:path");
+  return {
+    safeWriteFile: vi.fn(),
+    // F1.2-H1 (Cycle 10): configCommand wraps its body in an outer manifest
+    // lock; mock returns a no-op release so tests do not need HATCH3R_LOCK=1.
+    acquireWriteLock: vi.fn().mockResolvedValue(async () => {}),
+    atomicWriteFile: vi.fn(async (filePath: string, content: string | Buffer) => {
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeFile(filePath, content as Parameters<typeof writeFile>[1]);
+    }),
+  };
+});
 
 vi.mock("../../env/mcpEnv.js", () => ({
   ensureEnvMcp: vi.fn(),
@@ -268,10 +301,17 @@ async function importConfigCommand(): Promise<typeof import("../../cli/commands/
 
 describe("config command", () => {
   let tempDir: string;
+  let originalStdinIsTTY: boolean | undefined;
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-config-"));
     vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    // D1-18 (Cycle 11 Wave 3): the interactive flow now refuses to run under a
+    // non-TTY stdin (CI/pipe). Under vitest stdin is not a TTY, so mark it
+    // interactive for the prompt-driven cases; the dedicated non-TTY test below
+    // sets it false explicitly. Restored in afterEach.
+    originalStdinIsTTY = process.stdin.isTTY;
+    (process.stdin as { isTTY?: boolean }).isTTY = true;
     // Silence console noise from configCommand UI; restored by restoreAllMocks.
     vi.spyOn(console, "log").mockImplementation(() => {});
     vi.spyOn(console, "error").mockImplementation(() => {});
@@ -301,10 +341,20 @@ describe("config command", () => {
       step,
       label,
     });
+    // D10-35 (Cycle 11 Wave 3): removeContentItem now returns the customize
+    // files it rescued into the archive. The config flow destructures that
+    // result, so the default mock must resolve to the empty-rescue shape (the
+    // assertion test below sets its own resolved value where it matters).
+    vi.mocked(removeContentItem).mockResolvedValue({ archivedCustomizeFiles: [] });
   });
 
   afterEach(async () => {
     vi.restoreAllMocks();
+    if (originalStdinIsTTY === undefined) {
+      delete (process.stdin as { isTTY?: boolean }).isTTY;
+    } else {
+      (process.stdin as { isTTY?: boolean }).isTTY = originalStdinIsTTY;
+    }
     await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
@@ -800,6 +850,139 @@ describe("config command", () => {
         ["CLAUDE.md", ".claude/settings.json"],
       );
     });
+
+    // D2-6 (Cycle 11 Wave 2): the tool-removal confirm prompt must name the real
+    // archive destination via ARCHIVE_DIR, not the drifted `.hatch3r/archive/`
+    // literal it used to print (the on-disk path is `${ARCHIVE_DIR}/<tool>/<ts>/`).
+    it("tool-removal confirm prompt references ARCHIVE_DIR (no path drift)", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      // Find the inquirer.prompt call that posed the `confirmArchive` question.
+      const confirmCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "confirmArchive");
+      });
+      expect(confirmCall).toBeDefined();
+      const archiveQuestion = (confirmCall![0] as unknown as Array<{ name?: string; message?: string }>).find(
+        (q) => q.name === "confirmArchive",
+      );
+      // The literal ".hatch3r-archive" (ARCHIVE_DIR's value) must appear; the
+      // stale ".hatch3r/archive/" literal must not.
+      expect(archiveQuestion?.message).toContain(ARCHIVE_DIR);
+      expect(archiveQuestion?.message).not.toContain(".hatch3r/archive/");
+    });
+
+    // D2-5 (Cycle 11 Wave 2): the prompt must name the SUPPORTED recovery path —
+    // the `hatch3r rollback` snapshot D2-7 captures — and must NOT present the
+    // gitignored, clean-deleted `${ARCHIVE_DIR}/` as the recovery source. The
+    // prior "...and can be recovered" wording made the archive look durable.
+    it("tool-removal confirm prompt points recovery at hatch3r rollback, not the archive dir", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      const confirmCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "confirmArchive");
+      });
+      const archiveQuestion = (confirmCall![0] as unknown as Array<{ name?: string; message?: string }>).find(
+        (q) => q.name === "confirmArchive",
+      );
+      // Recovery is steered to the rollback command...
+      expect(archiveQuestion?.message).toContain("hatch3r rollback");
+      // ...and the archive is qualified as an inspection copy, not "recovered".
+      expect(archiveQuestion?.message).toContain("inspection");
+      expect(archiveQuestion?.message).not.toContain("can be recovered");
+    });
+
+    // D2-7 (Cycle 11 Wave 2): tool removal must snapshot the dropped tool's files
+    // BEFORE the archive deletes them and thread that session into runRegenerate
+    // (reuseSessionId) so the single advertised `config-<ts>` rollback restores
+    // the removed tool. Asserts runRegenerate receives a `reuseSessionId`.
+    it("reuses the pre-deletion snapshot session for runRegenerate on tool removal", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md", ".claude/settings.json"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md", ".claude/settings.json"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      const regenCall = vi.mocked(runRegenerate).mock.calls.at(-1);
+      expect(regenCall).toBeDefined();
+      const opts = regenCall![2] as { snapshotCommandName?: string; reuseSessionId?: string };
+      expect(opts.snapshotCommandName).toBe("config");
+      // A real `config-<ts>` session id was minted by the pre-deletion snapshot
+      // and handed to runRegenerate to accumulate into.
+      expect(opts.reuseSessionId).toMatch(/^config-/);
+    });
+
+    // D2-5 (Cycle 11 Wave 2): the tool-removal migration notes must steer
+    // recovery to the rollback snapshot (`hatch3r rollback --session=<id>`),
+    // not present `${ARCHIVE_DIR}/` as "recoverable" — the archive is gitignored
+    // and `hatch3r clean` deletes it, so it is an inspection copy only.
+    it("migration notes steer undo to hatch3r rollback, not the archive (recoverable claim removed)", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md", ".claude/settings.json"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md", ".claude/settings.json"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      const infoMessages = vi.mocked(info).mock.calls.map((c) => String(c[0]));
+      // The undo line names the live rollback session captured by D2-7.
+      expect(infoMessages.some((m) => /hatch3r rollback --session=config-/.test(m))).toBe(true);
+      // No surface calls the archive dir "recoverable" anymore.
+      expect(infoMessages.some((m) => m.includes("(recoverable)"))).toBe(false);
+      // The archive copy is described as inspection-only.
+      expect(infoMessages.some((m) => m.includes("inspection copy"))).toBe(true);
+    });
+
+    // D2-7: when NO tool is removed, runRegenerate mints its own session — the
+    // reuseSessionId field is absent so behavior is unchanged from pre-D2-7.
+    it("does not pass reuseSessionId when no tool is removed", async () => {
+      const manifest = makeManifest({ tools: ["cursor"] });
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
+
+      await (await importConfigCommand())();
+
+      const regenCall = vi.mocked(runRegenerate).mock.calls.at(-1);
+      expect(regenCall).toBeDefined();
+      const opts = regenCall![2] as { snapshotCommandName?: string; reuseSessionId?: string };
+      expect(opts.snapshotCommandName).toBe("config");
+      expect(opts.reuseSessionId).toBeUndefined();
+    });
   });
 
   // ── Update + env ─────────────────────────────────────────────
@@ -964,6 +1147,53 @@ describe("config command", () => {
       const toolsLine = lines.find((l) => typeof l === "string" && l.includes("Tools") && l.includes("synced"));
       expect(filesLine).toContain("15");
       expect(toolsLine).toContain("2");
+    });
+
+    // D1-3 (Cycle 11 Wave 2): a partial adapter-regenerate failure must NOT
+    // exit 0 with a green "Config updated" box. config now honours the same
+    // partial-failure contract `update`/`sync` enforce — it titles the box
+    // "Config updated with errors", styles it as a warning, names the failed
+    // count, then throws an exit-2 ADAPTER_ERROR.
+    it("throws exit-2 ADAPTER_ERROR and renders a warning box on partial adapter failure", async () => {
+      const manifest = makeManifest({ tools: ["cursor"] });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      // 2 tools resolved, 1 regenerated, 1 failed → partial failure.
+      vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 8, syncedTools: 1, failedTools: 1, version: "1.1.0" });
+      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+
+      let thrown: unknown;
+      try {
+        await (await importConfigCommand())();
+        expect.unreachable("Expected a partial-adapter-failure HatchError");
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(HatchError);
+      expect((thrown as HatchError).exitCode).toBe(2);
+      expect((thrown as HatchError).errorCode).toBe("ADAPTER_ERROR");
+
+      // The summary box rendered as a warning titled "Config updated with errors",
+      // and the green "Config updated" box was NOT used.
+      const calls = vi.mocked(printBox).mock.calls as unknown as [string, string[], string][];
+      const warnBox = calls.find((c) => c[0] === "Config updated with errors");
+      expect(warnBox).toBeDefined();
+      expect(warnBox![2]).toBe("warning");
+      expect(warnBox![1].some((l) => typeof l === "string" && l.includes("Adapters failed"))).toBe(true);
+      expect(calls.some((c) => c[0] === "Config updated")).toBe(false);
+    });
+
+    // D1-3: a clean regenerate (failedTools 0) keeps the green box and does not throw.
+    it("keeps the green 'Config updated' box when no adapters fail", async () => {
+      const manifest = makeManifest({ tools: ["cursor"] });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(runRegenerate).mockResolvedValue({ copiedFiles: 12, syncedTools: 2, failedTools: 0, version: "1.1.0" });
+      setupStandardPrompts(manifest, { tools: ["cursor", "claude"] });
+
+      await (await importConfigCommand())();
+
+      const calls = vi.mocked(printBox).mock.calls as unknown as [string, string[], string][];
+      expect(calls.some((c) => c[0] === "Config updated")).toBe(true);
+      expect(calls.some((c) => c[0] === "Config updated with errors")).toBe(false);
     });
 
     it("should show MCP added in summary", async () => {
@@ -1787,6 +2017,46 @@ describe("config command", () => {
       const writtenManifest = getWrittenManifest(writeManifest);
       // No servers were picked because the gate defaulted to No.
       expect(writtenManifest.mcp.servers).toEqual([]);
+    });
+  });
+
+  // ── Non-TTY preflight (D1-18) ─────────────────────────────────
+  //
+  // The interactive flow issues ~15 inquirer prompts; under a pipe/CI stdin is
+  // not a TTY and inquirer cannot read a response. config now fails fast with a
+  // usage-code (exit 2) error naming the scalar escape hatch. Scalar forms
+  // short-circuit before the gate, so they keep working headlessly.
+  describe("non-TTY preflight (D1-18)", () => {
+    it("throws a usage-code (exit 2) HatchError when stdin is not a TTY", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = false;
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      try {
+        await configCommand();
+        throw new Error("expected configCommand to throw under non-TTY stdin");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).exitCode).toBe(2);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        expect((e as HatchError).recoveryHint).toMatch(/config maturity=/);
+      }
+      // No interactive prompt should have been reached.
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+    });
+
+    it("still accepts the scalar form under non-TTY stdin (short-circuits before the gate)", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = false;
+      const manifest = makeManifest();
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+
+      const configCommand = await importConfigCommand();
+      await configCommand("maturity=team");
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("team");
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
     });
   });
 

@@ -1,6 +1,10 @@
-// Last updated: 2026-05-19 (P3 currency anchor; per-platform PreToolUse /
+// Last updated: 2026-06-06 (P3 currency anchor; per-platform PreToolUse /
 // askUser surface access dates inside this file remain authoritative for
-// individual claims).
+// individual claims. D9-4 Cycle 11 Wave-2 re-verified the Cursor hook surface
+// against cursor.com/docs/agent/hooks accessed 2026-06-06: `subagentStart`
+// carries `subagent_type` and denies with `{permission: "deny"}`, so Cursor
+// now gets the `buildCursorSubagentGuardHookScript` hard runtime block —
+// previous "Cursor has no PreToolUse hook primitive" prose was false.).
 
 /**
  * ASI02 tool allowlist enforcement per agent type.
@@ -150,14 +154,27 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     writeScope: "diff-hash-review",
   },
   {
+    // D5-2 (Cycle 11 Wave 2, High): the prior `["read","search","write"]` policy
+    // omitted the `execute` (markdown-lint command, agents/hatch3r-docs-writer.md
+    // §Commands `npx markdownlint docs/`), `web` (§Web research focus), and `mcp`
+    // (§External Knowledge Context7 `resolve-library-id`/`query-docs`) categories
+    // the body instructs. Under the Claude PreToolUse hook those calls denied
+    // silently (TOOL_NOT_ALLOWED). Grant the three categories the body exercises;
+    // `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts) now
+    // regression-locks body⊆policy for this agent.
     agentId: "hatch3r-docs-writer",
-    allowedTools: ["read", "search", "write"],
-    description: "Documentation: file read/write, code search. No execute, git, board, or web.",
+    allowedTools: ["read", "search", "write", "execute", "web", "mcp"],
+    description: "Documentation: file read/write, code search, markdown-lint execution, web research, and Context7 MCP library-docs lookups. No git or board.",
   },
   {
+    // D5-2 (Cycle 11 Wave 2, High): added `web` (agents/hatch3r-lint-fixer.md
+    // §Web research focus) and `mcp` (§Workflow step 2 + §External Knowledge
+    // Context7 `resolve-library-id`/`query-docs`) — the body instructed both but
+    // the policy granted neither, so the Claude PreToolUse hook denied them
+    // silently. `execute` was already present (linter auto-fix + typecheck/test).
     agentId: "hatch3r-lint-fixer",
-    allowedTools: ["read", "search", "write", "execute"],
-    description: "Lint fixing: file read/write, code search, linter execution. No git, board, or web.",
+    allowedTools: ["read", "search", "write", "execute", "web", "mcp"],
+    description: "Lint fixing: file read/write, code search, linter execution, web research for fix patterns, and Context7 MCP lint-rule docs. No git or board.",
   },
   // F16.3-H1 (Cycle 10 Wave 1C): the 5 legacy meta-agents (hatch3r-test-writer,
   // hatch3r-security-auditor, hatch3r-a11y-auditor, hatch3r-perf-profiler,
@@ -168,24 +185,65 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
   // (read+search) by §Boundaries; fix authorship delegates to producer agents
   // (hatch3r-fixer, hatch3r-implementer) under the orchestrator's Phase 3+4.
   {
+    // D5-2 (Cycle 11 Wave 2, High): added `web` (agents/hatch3r-architect.md
+    // §Web research focus + Architecture Protocol step 2 "Use web research for
+    // architecture pattern comparisons") and `mcp` (step 2 "Use Context7 MCP
+    // (`resolve-library-id` then `query-docs`)" + §External Knowledge). The body
+    // instructed both; the policy granted neither, so the Claude PreToolUse hook
+    // denied them silently. `write` remains for ADRs; `execute` stays denied
+    // (architecture only — no shell). Regression-locked by
+    // `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts).
     agentId: "hatch3r-architect",
-    allowedTools: ["read", "search", "write"],
-    description: "Architecture: file read/write (docs/ADRs), code search. No execute, git, board, or web.",
+    allowedTools: ["read", "search", "write", "web", "mcp"],
+    description: "Architecture: file read/write (docs/ADRs), code search, web research for pattern/scalability comparison, and Context7 MCP API-surface lookups. No execute, git, or board.",
   },
   {
+    // D5-24 (Cycle 11 Wave 3, Medium): added `web` (agents/hatch3r-devops.md
+    // §Design step "Use web research for deployment strategy best practices…" +
+    // §External Knowledge "Web research focus for this agent:" + the `WebSearch`
+    // token in the agent's `tools.allow` frontmatter and §Allowed Tools table)
+    // and `mcp` (§Design step "Use Context7 MCP (`resolve-library-id` then
+    // `query-docs`)…" + §External Knowledge "Context7 focus for this agent:").
+    // The body instructed both; the prior `["read","search","write","execute"]`
+    // policy granted neither, so the emitted Claude allowlist dropped WebSearch
+    // and the PreToolUse hook denied every web/Context7 call silently
+    // (TOOL_NOT_ALLOWED) — the self-contradiction this finding closes. `write`
+    // (IaC/CI authoring) and `execute` (dry-run validation: terraform validate/
+    // plan, kubectl get, docker build, aws/gcloud --dry-run) were already present.
+    // Granting all six functional categories trips the advisory least-privilege
+    // warning in validateToolPolicies (expected — same posture as the docs-writer
+    // and lint-fixer producer agents). Regression-locked by
+    // `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts), which
+    // now scans hatch3r-devops via the D5_2_BODY_CAPABILITY_AGENTS literal.
     agentId: "hatch3r-devops",
-    allowedTools: ["read", "search", "write", "execute"],
-    description: "DevOps: file read/write, code search, CI/CD command execution. No git, board, or web.",
+    allowedTools: ["read", "search", "write", "execute", "web", "mcp"],
+    description: "DevOps: file read/write, code search, CI/CD command execution (dry-run validation only), web research for deployment strategy + cloud-service docs, and Context7 MCP IaC/CI action-API lookups. No git or board.",
   },
   {
+    // D5-2 (Cycle 11 Wave 2, High): added `execute` (agents/hatch3r-ci-watcher.md
+    // §Commands platform-CLI `gh run list`/`az pipelines`/`glab ci` + local
+    // reproduce `lint`/`typecheck`/test runs), `web` (§Web research focus), and
+    // `mcp` (§External Knowledge Context7 `resolve-library-id`/`query-docs`).
+    // The body instructed all three; the prior `["read","search"]` policy granted
+    // none, so the Claude PreToolUse hook denied every CLI/research call silently.
+    // Granting `execute` makes this agent state-changing on Cursor (readonly:false)
+    // — that is correct: it runs shell commands. `write` stays denied (no file
+    // mutation; it suggests fixes, the fixer/lint-fixer apply them). Regression-
+    // locked by `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts).
     agentId: "hatch3r-ci-watcher",
-    allowedTools: ["read", "search"],
-    description: "CI monitoring: file reading, code search. No write, execute, git, board, or web.",
+    allowedTools: ["read", "search", "execute", "web", "mcp"],
+    description: "CI monitoring: file reading, code search, platform-CLI + local lint/typecheck/test execution, web research for CI errors, and Context7 MCP action/task docs. No write, git, or board.",
   },
   {
+    // D5-2 (Cycle 11 Wave 2, High): added `web` (agents/hatch3r-context-rules.md
+    // §Web research focus) and `mcp` (§External Knowledge Context7 focus). The
+    // body instructed both; the policy granted neither, so the Claude PreToolUse
+    // hook denied them silently. `write`/`execute` stay denied — this agent
+    // reports rule violations inline and never mutates code. Regression-locked by
+    // `validateAgentBodyCapabilityCoverage` (src/cli/commands/validate.ts).
     agentId: "hatch3r-context-rules",
-    allowedTools: ["read", "search"],
-    description: "Context loading: file reading and code search only. No write, execute, git, board, or web.",
+    allowedTools: ["read", "search", "web", "mcp"],
+    description: "Context loading: file reading, code search, web research for evolving coding standards, and Context7 MCP framework-convention lookups. No write, execute, git, or board.",
   },
   {
     agentId: "hatch3r-learnings-loader",
@@ -604,11 +662,17 @@ validateToolPolicies();
 //     alongside their managed-hooks output.
 //   - `buildClaudePreToolUseHookScript()` — Node ESM PreToolUse hook
 //     script that Claude Code executes on every tool call; reads the
-//     policy JSON and exits 2 to block out-of-policy invocations.
+//     policy JSON and emits a `permissionDecision: "deny"` payload on
+//     stdout (exit 0) to block out-of-policy invocations.
+//   - `buildCursorSubagentGuardHookScript()` — Node ESM `subagentStart`
+//     hook that Cursor runs at sub-agent spawn; reads the policy JSON and
+//     emits `{permission: "deny"}` for any `hatch3r-*` sub-agent with no
+//     policy row (the hard runtime block, parity with the Claude deny).
 //   - `buildCursorAllowlistRule()` — Cursor `.mdc` rule body that
-//     instructs the Cursor agent runtime to honour the registry
-//     (Cursor lacks a PreToolUse hook surface, so enforcement is
-//     rule-delegated; pairs with the existing `readonly: true`
+//     instructs the Cursor agent runtime to honour the registry for
+//     per-CATEGORY restrictions (Cursor's `preToolUse` payload exposes no
+//     agent-identity field, so category granularity stays rule-delegated;
+//     pairs with the `subagentStart` guard above and the `readonly: true`
 //     primitive emitted by `toCursorReadonlyFrontmatter`).
 //
 // Reclassifies the allowlist as **Hybrid** per SECURITY.md §Allowlist
@@ -624,12 +688,32 @@ validateToolPolicies();
  * The JSON is deterministic — sort order matches registry insertion
  * order — so adapter outputs stay stable across runs.
  */
-export function buildAgentToolPoliciesJson(): string {
+export function buildAgentToolPoliciesJson(
+  extraPolicies: readonly AgentToolPolicy[] = [],
+): string {
+  // D20-1 (X5/CD5): `extraPolicies` carries runtime-derived policies for
+  // user-authored agents whose emitted (re-prefixed) id has no canonical
+  // AGENT_TOOL_POLICIES entry. The Claude adapter derives these from each
+  // user agent's authored `tools.allowed`/`tools.denied` grant via
+  // {@link deriveUserAgentPolicy} and appends them here so the emitted
+  // policy document the PreToolUse hook reads contains a row for the user
+  // agent — closing the NO_POLICY deny-all path. A canonical id always
+  // wins: an extra policy whose agentId collides with a registered policy
+  // is dropped so user content can never widen a canonical agent's grant.
+  const canonicalIds = new Set(AGENT_TOOL_POLICIES.map((p) => p.agentId));
+  const dedupedExtras: AgentToolPolicy[] = [];
+  const seenExtra = new Set<string>();
+  for (const p of extraPolicies) {
+    if (canonicalIds.has(p.agentId) || seenExtra.has(p.agentId)) continue;
+    seenExtra.add(p.agentId);
+    dedupedExtras.push(p);
+  }
+  const allPolicies = [...AGENT_TOOL_POLICIES, ...dedupedExtras];
   const doc = {
     schema: "hatch3r/agent-tool-policies/v1",
     generatedBy: "src/pipeline/agentToolAllowlist.ts",
     allToolCategories: ALL_TOOL_CATEGORIES,
-    policies: AGENT_TOOL_POLICIES.map((p) => ({
+    policies: allPolicies.map((p) => ({
       agentId: p.agentId,
       allowedTools: p.allowedTools,
       description: p.description,
@@ -640,6 +724,62 @@ export function buildAgentToolPoliciesJson(): string {
     })),
   };
   return JSON.stringify(doc, null, 2);
+}
+
+/**
+ * D20-1 (X5/CD5): derive a runtime {@link AgentToolPolicy} for a user-authored
+ * agent from its authored `tools.allowed` / `tools.denied` grant.
+ *
+ * Problem closed: a user agent slug cannot use the `hatch3r-` prefix
+ * (`src/content/userContent.ts` slug gate), so the Claude adapter re-prefixes
+ * it to `hatch3r-<slug>` on emission. That re-prefixed id matches no entry in
+ * the canonical `AGENT_TOOL_POLICIES` registry, so the emitted
+ * `agent-tool-policies.json` had no row for it and the PreToolUse hook denied
+ * EVERY tool call by `NO_POLICY` deny-by-default — a bricked agent. Deriving a
+ * policy from the grant the author already declared (and the gate already
+ * validated against {@link ALL_TOOL_CATEGORIES}) lets the hook govern the user
+ * agent with its intended privilege envelope.
+ *
+ * Deny-by-default floor: the resolved allowlist is the authored `allowed`
+ * categories MINUS the authored `denied` categories. Unknown categories are
+ * dropped (defensive — the user-content gate rejects them at author time, but
+ * a hand-edited file could carry one). An agent that declared no `allowed`
+ * grant resolves to an empty allowlist (every tool still denied) — the same
+ * least-privilege posture as a canonical read-only agent, and the validate-time
+ * coverage warning (`validateAgentToolPolicyCoverage`) nudges the author to add
+ * a grant.
+ *
+ * @param emittedAgentId The re-prefixed id the adapter writes (e.g.
+ *   `hatch3r-foo`) — the same string the PreToolUse hook matches on
+ *   `agent_type`.
+ * @param grant The author-declared categories from the agent's `tools`
+ *   frontmatter (`toolsAllowed` / `toolsDenied` on the CanonicalFile).
+ */
+export function deriveUserAgentPolicy(
+  emittedAgentId: string,
+  grant: { allowed?: readonly string[]; denied?: readonly string[] },
+): AgentToolPolicy {
+  const known = new Set<string>(ALL_TOOL_CATEGORIES);
+  const denied = new Set<string>(
+    (grant.denied ?? []).filter((c) => known.has(c)),
+  );
+  const allowedTools: string[] = [];
+  const seen = new Set<string>();
+  for (const cat of grant.allowed ?? []) {
+    if (!known.has(cat)) continue;
+    if (denied.has(cat)) continue;
+    if (seen.has(cat)) continue;
+    seen.add(cat);
+    allowedTools.push(cat);
+  }
+  return {
+    agentId: emittedAgentId,
+    allowedTools,
+    description:
+      `User-authored agent (.hatch3r/overrides/agents/) — policy derived from authored ` +
+      `tools grant (deny-by-default: allowed minus denied). ` +
+      `Allowed categories: ${allowedTools.length > 0 ? allowedTools.join(", ") : "(none — agent has no tool grant)"}.`,
+  };
 }
 
 /**
@@ -847,14 +987,162 @@ process.exit(0);
 }
 
 /**
- * Render the Cursor allowlist rule body. Cursor's plugin runtime has
- * no PreToolUse hook surface (per cursor.com/docs/agents accessed
- * 2026-04-19), so enforcement is rule-delegated: the rule is
- * `alwaysApply: true` and instructs the Cursor agent runtime to
- * refuse tool calls that exceed the allowlist in the sibling
- * `agents-policy.json`. Pairs with the `readonly: true` frontmatter
- * primitive emitted by `toCursorReadonlyFrontmatter` for read-only
- * roles.
+ * Render the Cursor `subagentStart` deny hook script (Node ESM). This is
+ * the hard runtime ASI02 block for Cursor, at parity with the Claude
+ * PreToolUse NO_POLICY deny — it blocks an over-privileged or unknown
+ * hatch3r sub-agent at spawn rather than letting it run unconstrained.
+ *
+ * Contract source: https://cursor.com/docs/agent/hooks (accessed
+ * 2026-06-06). The `subagentStart` event fires before a sub-agent begins;
+ * its stdin payload carries `subagent_type` (the named agent class, matched
+ * against the registry's `agentId`) and `subagent_id` (per-instance id).
+ * Hooks communicate over stdio with JSON in both directions: a deny is a
+ * stdout JSON document `{permission: "deny", user_message: "…"}`; `allow`
+ * (or no decision) lets the spawn proceed.
+ *
+ * Why `subagentStart` and not `preToolUse`: the `preToolUse` payload exposes
+ * `tool_name`/`tool_input`/`cwd`/`model`/`agent_message` but NO agent-identity
+ * field, so it cannot map a tool call to the active hatch3r agent's policy.
+ * `subagentStart` is the only Cursor lifecycle event that exposes the active
+ * sub-agent id with a blocking decision, so the per-agent gate binds here.
+ * Per-tool-CATEGORY granularity remains rule-delegated (the `agents-policy.json`
+ * + allowlist rule) plus the `readonly: true` write/execute frontmatter guard.
+ *
+ * Scope: only `hatch3r-*` sub-agents are governed by AGENT_TOOL_POLICIES.
+ * Cursor's own sub-agents and any non-hatch3r `subagent_type` pass through.
+ * Within hatch3r scope, an agent with no policy row denies-by-default
+ * (NO_POLICY), the Cursor analog of the Claude NO_POLICY path. The hook entry
+ * is emitted with `failClosed: true` so a crash/timeout also blocks the spawn.
+ *
+ * The script reads the sibling policy doc via a relative path
+ * (`../agents-policy.json` from `.cursor/hooks/`) so it has zero runtime
+ * dependencies, mirroring {@link buildClaudePreToolUseHookScript}.
+ */
+export function buildCursorSubagentGuardHookScript(): string {
+  return `#!/usr/bin/env node
+// hatch3r — Cursor subagentStart allowlist guard (D9-4, D15 P6).
+//
+// This script is regenerated by \`npx hatch3r sync\`. Do not edit by hand;
+// edit src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES instead.
+//
+// Contract (https://cursor.com/docs/agent/hooks accessed 2026-06-06):
+//   - subagentStart payload arrives as JSON on stdin. Relevant fields:
+//     \`subagent_type\` (named agent class) and \`subagent_id\` (per-instance).
+//   - Allow / no-decision: exit 0 with empty stdout. The spawn proceeds.
+//   - Deny: exit 0 with stdout JSON \`{permission:"deny",user_message:"…"}\`.
+//   - A structured deny event is also written to stderr so failure-log
+//     pipelines can persist the denial.
+//
+// Scope: only \`hatch3r-*\` sub-agents are governed by the canonical
+// AGENT_TOOL_POLICIES registry. Cursor's own sub-agents and any other
+// \`subagent_type\` pass through. Within hatch3r scope, an agent with no
+// policy row denies-by-default (NO_POLICY).
+
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+// agents-policy.json lives one level up at \`.cursor/agents-policy.json\`;
+// this script lives at \`.cursor/hooks/subagent-guard.mjs\`.
+const POLICY_FILE = join(__dirname, "..", "agents-policy.json");
+
+function readStdinSync() {
+  try {
+    return readFileSync(0, "utf-8");
+  } catch {
+    return "";
+  }
+}
+
+function emitDenyEvent(event) {
+  process.stderr.write(
+    JSON.stringify({
+      hook: "hatch3r-cursor-subagent-guard",
+      timestamp: new Date().toISOString(),
+      ...event,
+    }) + "\\n",
+  );
+}
+
+function denySubagent(event, reason) {
+  emitDenyEvent(event);
+  process.stdout.write(
+    JSON.stringify({
+      permission: "deny",
+      user_message: reason,
+    }),
+  );
+  process.exit(0);
+}
+
+let payload = {};
+const raw = readStdinSync();
+if (raw) {
+  try {
+    payload = JSON.parse(raw);
+  } catch {
+    // Malformed payload — fall through to no-decision so a parser bug
+    // here cannot brick the host session.
+    process.exit(0);
+  }
+}
+
+const subagentType = typeof payload.subagent_type === "string" ? payload.subagent_type : "";
+const subagentInstanceId = typeof payload.subagent_id === "string" ? payload.subagent_id : "";
+
+// Scope filter: only hatch3r-authored sub-agents are governed by this
+// allowlist. Cursor's own sub-agents and any non-hatch3r type pass through.
+if (!subagentType.startsWith("hatch3r-")) {
+  process.exit(0);
+}
+
+let policiesDoc;
+try {
+  policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+} catch (err) {
+  denySubagent(
+    {
+      reasonCode: "POLICY_FILE_MISSING",
+      agentId: subagentType,
+      subagentInstanceId,
+      message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+    },
+    \`hatch3r ASI02 guard: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+  );
+}
+
+const policy = policiesDoc.policies.find((p) => p.agentId === subagentType);
+if (!policy) {
+  denySubagent(
+    {
+      reasonCode: "NO_POLICY",
+      agentId: subagentType,
+      subagentInstanceId,
+      message: \`No policy registered for agent "\${subagentType}"; deny-by-default.\`,
+    },
+    \`hatch3r ASI02 guard: no policy registered for agent "\${subagentType}"; deny-by-default. Add it to src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES and re-run \\\`npx hatch3r sync\\\`.\`,
+  );
+}
+
+// A registered hatch3r agent with a policy row is allowed to start; its
+// per-tool-category envelope is enforced by the allowlist rule + the
+// \`readonly: true\` frontmatter guard (preToolUse cannot see agent identity,
+// so category granularity cannot bind at the tool-call boundary on Cursor).
+process.exit(0);
+`;
+}
+
+/**
+ * Render the Cursor allowlist rule body. Cursor's `preToolUse` hook payload
+ * exposes no agent-identity field (per cursor.com/docs/agent/hooks accessed
+ * 2026-06-06), so per-tool-CATEGORY enforcement is rule-delegated: the rule
+ * is `alwaysApply: true` and instructs the Cursor agent runtime to refuse
+ * tool calls that exceed the allowlist in the sibling `agents-policy.json`.
+ * The agent-identity gate that `preToolUse` cannot serve is bound at the
+ * `subagentStart` event by {@link buildCursorSubagentGuardHookScript} (the
+ * hard NO_POLICY deny). Pairs with the `readonly: true` frontmatter primitive
+ * emitted by `toCursorReadonlyFrontmatter` for read-only roles.
  *
  * The rule is deliberately short — Cursor enforces by reading rules
  * into the active context window, and verbose policy prose would
@@ -884,7 +1172,7 @@ export function buildCursorAllowlistRule(): string {
     "",
     "## Enforcement",
     "",
-    "Cursor has no PreToolUse hook primitive, so enforcement is delegated to the agent runtime. Cursor's subagent frontmatter `readonly: true` (emitted automatically for agents whose policy lacks `write` and `execute`) blocks file edits and state-changing shell commands as a hard runtime guard. For richer category restrictions (e.g., denying `web` or `mcp`), the agent must refuse the call and surface a `TOOL_NOT_ALLOWED` rejection.",
+    "Cursor enforces this allowlist on three surfaces. (1) The `subagentStart` hook (`.cursor/hooks/subagent-guard.mjs`) is a hard runtime block: it reads this registry from `.cursor/agents-policy.json` and denies any `hatch3r-*` sub-agent with no policy row at spawn (`{permission: \"deny\"}`), the Cursor analog of the Claude PreToolUse NO_POLICY deny. (2) The subagent frontmatter `readonly: true` (emitted automatically for agents whose policy lacks `write` and `execute`) blocks file edits and state-changing shell commands. (3) For richer per-CATEGORY restrictions (e.g., denying `web` or `mcp`), the agent must refuse the call and surface a `TOOL_NOT_ALLOWED` rejection — Cursor's `preToolUse` payload carries no agent-identity field, so category granularity cannot bind at the tool-call boundary and stays runtime-delegated.",
     "",
     "Deny-by-default: unknown agent ids and unknown categories must be refused.",
   ].join("\n");

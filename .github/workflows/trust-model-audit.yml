@@ -62,9 +62,194 @@ jobs:
       - name: Compliance verification (pipeline)
         run: npx vitest run src/__tests__/pipeline/complianceVerification.test.ts src/__tests__/pipeline/agentToolAllowlist.test.ts src/__tests__/pipeline/agentIdentity.test.ts src/__tests__/pipeline/reviewLoop.test.ts
 
+      # D15-30: crosswalk currency was unenforced — the only prior doc check
+      # was the section-presence grep below, so Mediums D15-14/15/24 (stale
+      # framework versions, a broken Implementation path `secretDetect.ts`, an
+      # aged source date) sailed through green. This step adds three machine
+      # assertions over governance/audit/domains/D15-trust-reference.md:
+      #   1. every Implementation-column file path in the Control-to-Trust
+      #      Mapping table resolves to an on-disk file (catches a renamed/
+      #      deleted module before the doc rots);
+      #   2. no `accessed <ISO>` source-provenance date is older than the
+      #      120-day window (same backstop window as validate-pricing-currency
+      #      / validate-references-currency);
+      #   3. each framework version in expected-versions.json still matches
+      #      the crosswalk, and no known-stale predecessor version regex does.
+      # The version source-of-truth is expected-versions.json (committed
+      # alongside this workflow): bump it when a cited framework re-versions
+      # and the crosswalk is updated, and this gate fails until they agree.
       - name: Trust reference doc currency
+        env:
+          DOC: governance/audit/domains/D15-trust-reference.md
+          VERSIONS: expected-versions.json
+          WINDOW_DAYS: "120"
         run: |
-          if ! grep -q "## Compliance Verification Schedule" governance/audit/domains/D15-trust-reference.md; then
-            echo "::error::governance/audit/domains/D15-trust-reference.md is missing the Compliance Verification Schedule section."
+          set -euo pipefail
+          if ! grep -q "## Compliance Verification Schedule" "$DOC"; then
+            echo "::error::$DOC is missing the Compliance Verification Schedule section."
             exit 1
           fi
+          cat > "$RUNNER_TEMP/trust-crosswalk-currency.cjs" <<'CURRENCY_CHECK'
+          "use strict";
+          // D15-30 trust-crosswalk currency assertions. Inputs via env:
+          // DOC (trust-reference path), VERSIONS (expected-versions.json),
+          // WINDOW_DAYS (accessed-date staleness window).
+          const fs = require("fs");
+          const path = require("path");
+          const docPath = process.env.DOC;
+          const versionsPath = process.env.VERSIONS;
+          const WINDOW_DAYS = Number(process.env.WINDOW_DAYS || "120");
+          const repoRoot = process.cwd();
+          const errors = [];
+          const fail = (m) => errors.push(m);
+
+          let doc, versions;
+          try {
+            doc = fs.readFileSync(docPath, "utf8");
+          } catch {
+            fail(`cannot read trust-reference doc: ${docPath}`);
+          }
+          try {
+            versions = JSON.parse(fs.readFileSync(versionsPath, "utf8"));
+          } catch (e) {
+            fail(`cannot read/parse version manifest ${versionsPath}: ${e.message}`);
+          }
+          if (errors.length) {
+            for (const e of errors) console.error(`::error::${e}`);
+            process.exit(1);
+          }
+          const lines = doc.split("\n");
+
+          // Assertion 1: every Implementation-column file path exists. Scope is
+          // strictly the Control-to-Trust Mapping table's 3rd pipe field, so
+          // provenance citations elsewhere (absorbed-file names in the intro)
+          // are not treated as live paths.
+          function extractImplPaths() {
+            const out = new Set();
+            let inHeader = false, inBody = false;
+            for (const raw of lines) {
+              const line = raw.trim();
+              if (/^\|\s*Control\s*\|\s*Trust Dimensions\s*\|\s*Implementation\b/.test(line)) {
+                inHeader = true;
+                continue;
+              }
+              if (inHeader && /^\|\s*-/.test(line)) {
+                inHeader = false;
+                inBody = true;
+                continue;
+              }
+              if (inBody) {
+                if (!line.startsWith("|")) break;
+                const impl = (line.split("|")[3] || "").trim();
+                for (const tok of impl.match(/[A-Za-z0-9_./-]+\.(?:ts|md)/g) || []) out.add(tok);
+              }
+            }
+            return [...out];
+          }
+          function findByBasename(dir, base) {
+            let entries;
+            try {
+              entries = fs.readdirSync(dir, { withFileTypes: true });
+            } catch {
+              return null;
+            }
+            for (const e of entries) {
+              const full = path.join(dir, e.name);
+              if (e.isDirectory()) {
+                if (e.name === "node_modules" || e.name === "__tests__" || e.name === "dist") continue;
+                const hit = findByBasename(full, base);
+                if (hit) return hit;
+              } else if (e.name === base) {
+                return full;
+              }
+            }
+            return null;
+          }
+          function resolvePath(token) {
+            if (token.includes("/")) {
+              return fs.existsSync(path.join(repoRoot, token)) ? token : null;
+            }
+            for (const r of ["src", "docs", "scripts", "governance"]) {
+              const hit = findByBasename(path.join(repoRoot, r), token);
+              if (hit) return path.relative(repoRoot, hit);
+            }
+            return null;
+          }
+          const implTokens = extractImplPaths();
+          if (implTokens.length === 0) {
+            fail("Implementation-column parse found 0 file tokens — table structure changed; assertion cannot run");
+          }
+          let implOk = 0;
+          for (const tok of implTokens) {
+            if (resolvePath(tok)) implOk++;
+            else fail(`Implementation path does not resolve to an on-disk file: "${tok}" (Control-to-Trust Mapping table)`);
+          }
+
+          // Assertion 2: no `accessed <ISO>` date older than the window.
+          const ACCESSED_RE = /accessed[:\s]+(\d{4})-(\d{2})-(\d{2})/g;
+          const now = Date.now();
+          const MS_PER_DAY = 86400000;
+          let accessedCount = 0, m;
+          while ((m = ACCESSED_RE.exec(doc)) !== null) {
+            accessedCount++;
+            const iso = `${m[1]}-${m[2]}-${m[3]}`;
+            const ts = Date.parse(iso + "T00:00:00Z");
+            if (Number.isNaN(ts)) {
+              fail(`unparseable accessed date: "${iso}"`);
+              continue;
+            }
+            const ageDays = Math.floor((now - ts) / MS_PER_DAY);
+            if (ageDays > WINDOW_DAYS) {
+              fail(`crosswalk source accessed date ${iso} is ${ageDays}d old (> ${WINDOW_DAYS}d window) — re-verify the source and refresh the date`);
+            }
+          }
+          if (accessedCount === 0) {
+            fail("no `accessed <date>` provenance found in doc — crosswalk currency is unverifiable");
+          }
+
+          // Assertion 3: each expected version regex matches, no stale predecessor does.
+          const fw = (versions && versions.frameworks) || [];
+          if (fw.length === 0) {
+            fail(`${versionsPath} lists 0 frameworks — version assertion cannot run`);
+          }
+          for (const f of fw) {
+            if (f.expectedRegex) {
+              let er;
+              try {
+                er = new RegExp(f.expectedRegex);
+              } catch (e) {
+                fail(`bad expectedRegex for ${f.id}: ${e.message}`);
+                continue;
+              }
+              if (!er.test(doc)) {
+                fail(`expected current version /${f.expectedRegex}/ (${f.id}) not found in doc — crosswalk drifted behind ${versionsPath}`);
+              }
+            } else {
+              fail(`framework ${f.id} has no expectedRegex in ${versionsPath}`);
+            }
+            if (f.staleRegex) {
+              let re;
+              try {
+                re = new RegExp(f.staleRegex);
+              } catch (e) {
+                fail(`bad staleRegex for ${f.id}: ${e.message}`);
+                continue;
+              }
+              if (re.test(doc)) {
+                fail(`known-stale version for ${f.id} matched /${f.staleRegex}/ in doc — a predecessor version string is still cited; bump it to the current version`);
+              }
+            }
+          }
+
+          if (errors.length) {
+            for (const e of errors) console.error(`::error::${e}`);
+            console.error(`\nTrust-crosswalk currency: ${errors.length} failure(s).`);
+            process.exit(1);
+          }
+          console.log(
+            `Trust-crosswalk currency OK: ${implOk} implementation paths resolve, ` +
+              `${accessedCount} accessed-date(s) within ${WINDOW_DAYS}d, ` +
+              `${fw.length} framework version(s) current.`,
+          );
+          CURRENCY_CHECK
+          node "$RUNNER_TEMP/trust-crosswalk-currency.cjs"

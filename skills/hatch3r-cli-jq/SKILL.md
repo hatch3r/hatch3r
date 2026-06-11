@@ -33,7 +33,7 @@ Before invoking `jq`, resolve these via `agents/shared/user-question-protocol.md
 
 ## Fan-out Discipline (P8 B2)
 
-Tier 1 reference card — no fan-out. This skill is a single-tool usage reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+Tier 1 reference card — no fan-out. This skill is a single-tool usage reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `rules/hatch3r-fan-out-discipline.md` (P8 B2).
 
 ## When to Use
 
@@ -83,7 +83,7 @@ Compact (`-c`) one-object-per-line projection — perfect input for `xargs -L1` 
 |------|----------------|
 | `yq` (toolbox section) | YAML, TOML, XML input — yq speaks them all, jq is JSON-only. |
 | `gron` | Flatten JSON to `path = value` lines for grep-based exploration and reverse-translation. |
-| `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. Pin to >=3.11.0 (CVE-2026-46377 / -46378 / -33320 fixed there). |
+| `dasel` | Single binary across JSON/YAML/TOML/XML with a path-query DSL — handy in CI where you do not want jq+yq. Pin to >=3.11.0 (clears CVE-2026-33320 fixed in 3.3.2, plus CVE-2026-46377 / -46378 fixed in 3.10.1). |
 | `fx` | Interactive JSON browsing in a TTY; jq is the right call in scripts. |
 
 ## Detection / Install

@@ -14,10 +14,12 @@
 // reader) only initialise once.
 
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
+import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
+import { fileURLToPath } from "node:url";
 import { HatchError } from "../../types.js";
+import { findPackageRoot } from "../../cli/shared/paths.js";
 import {
   validateCommandOrchestratorFrontmatter,
   validateEfficiencyFrontmatter,
@@ -25,8 +27,15 @@ import {
   scanAntiSlopHits,
   hasPillarReference,
   validateDocsCounts,
+  bodyHasDecision13Handoff,
+  checkAmbiguityGate,
+  requiresAmbiguityGate,
+  scanCanonicalReadDiagnostics,
+  validateSkillDescriptionVoice,
+  toThirdPersonSingular,
   type ValidationResult,
 } from "../../cli/commands/validate.js";
+import type { CatalogItem } from "../../content/index.js";
 
 function makeResult(): ValidationResult {
   return { errors: [], warnings: [] };
@@ -60,6 +69,84 @@ async function createMinimalManifest(root: string, extra: Record<string, unknown
   };
   await writeFile(join(dir, "hatch.json"), JSON.stringify(manifest, null, 2));
 }
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: validateSkillDescriptionVoice + toThirdPersonSingular (Cycle 11 D5-35)
+// ═════════════════════════════════════════════════════════════════════
+
+function makeSkill(relativePath: string, description: string, type = "skill"): CatalogItem {
+  return { type, relativePath, description } as unknown as CatalogItem;
+}
+
+describe("toThirdPersonSingular", () => {
+  it("applies the regular +s rule", () => {
+    expect(toThirdPersonSingular("run")).toBe("Runs");
+    expect(toThirdPersonSingular("generate")).toBe("Generates");
+    expect(toThirdPersonSingular("plan")).toBe("Plans");
+  });
+
+  it("applies +es after a sibilant ending", () => {
+    expect(toThirdPersonSingular("watch")).toBe("Watches");
+    expect(toThirdPersonSingular("fix")).toBe("Fixes");
+    expect(toThirdPersonSingular("push")).toBe("Pushes");
+  });
+
+  it("honors explicit overrides", () => {
+    expect(toThirdPersonSingular("audit")).toBe("Audits");
+    expect(toThirdPersonSingular("author")).toBe("Authors");
+  });
+});
+
+describe("validateSkillDescriptionVoice", () => {
+  it("flags a skill description that leads with an imperative verb", () => {
+    const findings = validateSkillDescriptionVoice([
+      makeSkill("skills/hatch3r-x/SKILL.md", "Run a WCAG audit. Use when auditing accessibility."),
+    ]);
+    expect(findings).toHaveLength(1);
+    expect(findings[0]).toContain('leads with imperative "Run"');
+    expect(findings[0]).toContain('third-person "Runs"');
+  });
+
+  it("does not flag a third-person leading verb", () => {
+    expect(
+      validateSkillDescriptionVoice([
+        makeSkill("skills/hatch3r-x/SKILL.md", "Generates and validates OpenAPI specs. Use when ..."),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("does not flag a noun-phrase lead", () => {
+    expect(
+      validateSkillDescriptionVoice([
+        makeSkill("skills/hatch3r-x/SKILL.md", "Verification gate before declaring a feature done."),
+        makeSkill("skills/hatch3r-y/SKILL.md", "End-to-end feature implementation workflow."),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("does not treat a hyphenated compound lead as an imperative verb", () => {
+    // "Opt-in" / "Eval-driven": first word is followed by a hyphen, not a space.
+    expect(
+      validateSkillDescriptionVoice([
+        makeSkill("skills/hatch3r-x/SKILL.md", "Opt-in browser verification skill — Playwright checks."),
+        makeSkill("skills/hatch3r-y/SKILL.md", "Eval-driven development workflow for AI features."),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("only inspects skills, ignoring agents/rules/commands", () => {
+    expect(
+      validateSkillDescriptionVoice([
+        makeSkill("agents/hatch3r-x.md", "Run the pipeline.", "agent"),
+        makeSkill("commands/hatch3r-y.md", "Generate a report.", "command"),
+      ]),
+    ).toHaveLength(0);
+  });
+
+  it("tolerates an empty or missing description", () => {
+    expect(validateSkillDescriptionVoice([makeSkill("skills/hatch3r-x/SKILL.md", "")])).toHaveLength(0);
+  });
+});
 
 // ═════════════════════════════════════════════════════════════════════
 // Unit: validateCommandOrchestratorFrontmatter (Decision #13 + C8-D5-M1)
@@ -158,6 +245,36 @@ describe("validateCommandOrchestratorFrontmatter", () => {
     expect(r.errors).toHaveLength(0);
     expect(r.warnings).toHaveLength(1);
     expect(r.warnings[0]).toMatch(/Unused 'agentPipeline'/);
+  });
+});
+
+// D19-12 (Cycle audit, Medium): the content-authoring §9 rule MUST describe the
+// Decision #13 gate in present tense. Before the fix it ended "Validation gate
+// to be added to src/cli/commands/validate.ts" — directional misinformation,
+// because validateCommandOrchestratorFrontmatter already enforces it (proven by
+// the F1.4-H1 cases above: a canonical orchestrator:false is a hard error). This
+// block reads the CANONICAL .claude/rules source (not resolveBundledContentRoot,
+// per the D5-23 block's rationale at line ~1068) and pins the doc claim true so
+// the future-tense "to be added" framing cannot silently regress.
+describe("content-authoring §9 describes the Decision #13 gate in present tense (D19-12)", () => {
+  function readRuleBody(): Promise<string> {
+    const pkgRoot = findPackageRoot(dirname(fileURLToPath(import.meta.url)));
+    return readFile(join(pkgRoot, ".claude", "rules", "content-authoring.md"), "utf-8");
+  }
+
+  it("no longer claims the gate is unimplemented ('to be added')", async () => {
+    const body = await readRuleBody();
+    // The exact stale phrasing the finding flagged. Zero occurrences post-fix.
+    expect(body).not.toMatch(/to be added to .*validate\.ts/i);
+    expect(body.toLowerCase()).not.toContain("validation gate to be added");
+  });
+
+  it("states the gate enforces orchestrator:false as a hard error", async () => {
+    const body = await readRuleBody();
+    // §9 must now cite the real enforcer and call orchestrator:false a hard
+    // (errors-channel) failure, not a warning — matching the runtime branch.
+    expect(body).toMatch(/Enforced by .*validateCommandOrchestratorFrontmatter/);
+    expect(body).toMatch(/a hard validation error, not a warning/);
   });
 });
 
@@ -312,6 +429,43 @@ describe("hasPillarReference", () => {
 
   it("returns true even when frontmatter is null but body has a Pillars heading", () => {
     expect(hasPillarReference(null, "## Pillars\n\nP5")).toBe(true);
+  });
+
+  // D5-34: two-axis map shape `pillars: { governance, content-quality }` is
+  // the corpus-dominant form (15 specialist agents + the spec orchestrator).
+  // It must be recognized from FRONTMATTER with an empty body — proving the
+  // frontmatter check no longer silently defers to the body P-token fallback.
+  it("returns true for the two-axis map shape from frontmatter alone (empty body)", () => {
+    expect(
+      hasPillarReference(
+        { pillars: { governance: ["P1", "P2", "P8"], "content-quality": ["CQ8", "CQ9"] } },
+        "",
+      ),
+    ).toBe(true);
+  });
+
+  it("returns true for a map whose governance axis is empty but content-quality has a CQ token", () => {
+    expect(
+      hasPillarReference({ pillars: { governance: [], "content-quality": ["CQ6"] } }, ""),
+    ).toBe(true);
+  });
+
+  it("returns false for a map whose axes are all empty arrays and body has no token", () => {
+    expect(
+      hasPillarReference({ pillars: { governance: [], "content-quality": [] } }, "no marker"),
+    ).toBe(false);
+  });
+
+  it("returns true for a content-quality token (CQ1..CQ9) in a flat array", () => {
+    expect(hasPillarReference({ pillars: ["CQ8"] }, "")).toBe(true);
+  });
+
+  it("returns true for a content-quality token mentioned inline in the body", () => {
+    expect(hasPillarReference(null, "This serves CQ6 (Scalability).")).toBe(true);
+  });
+
+  it("returns false for a CQ token out of range (CQ0)", () => {
+    expect(hasPillarReference({ pillars: ["CQ0"] }, "no CQ marker here")).toBe(false);
   });
 });
 
@@ -548,6 +702,52 @@ describe("validateCommand E2E", () => {
     await expect(validateCommand()).rejects.toThrow(HatchError);
   });
 
+  it("warns (not errors) when a user agent declares no tools grant — D20-1 coverage scan", async () => {
+    // D20-1 (X5/CD5): a user agent re-prefixed to `hatch3r-<slug>` with no
+    // authored tools grant derives an empty allowlist, so the Claude PreToolUse
+    // hook deny-alls it at runtime. validateAgentToolPolicyCoverage now scans
+    // `.hatch3r/overrides/agents/` and surfaces a coverage WARNING (not a hard
+    // error — user content is outside the framework commit gate) so the author
+    // adds a grant. A grant-bearing user agent must NOT warn.
+    await createMinimalManifest(tempDir);
+    const agentsDir = join(tempDir, HATCH3R_DIR, "overrides", "agents");
+    await mkdir(agentsDir, { recursive: true });
+    // Descriptions are deliberately dissimilar so the cosine-similarity
+    // duplicate-description detector (a separate validate gate) does not fire
+    // and confound the coverage-warning assertion under test.
+    await writeFile(
+      join(agentsDir, "no-grant-helper.md"),
+      `---\nid: no-grant-helper\ntype: agent\ndescription: Summarizes weekly burndown charts and posts a sprint-retrospective digest to the team channel every Friday afternoon\ntags: [core, customize]\nquality_charter: agents/shared/quality-charter.md\npillars: [P6]\n---\n**Pillars:** P6\n\nUser agent body without a tools grant.\n`,
+    );
+    await writeFile(
+      join(agentsDir, "granted-helper.md"),
+      `---\nid: granted-helper\ntype: agent\ndescription: Audits database migration scripts for missing rollback steps and flags expand-contract ordering violations before deploy\ntags: [core, customize]\nquality_charter: agents/shared/quality-charter.md\npillars: [P6]\ntools:\n  allowed: [read, search]\n---\n**Pillars:** P6\n\nUser agent body with a tools grant.\n`,
+    );
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    try {
+      await validateCommand({ format: "json" });
+    } catch {
+      /* tolerate canonical-level errors — we assert on the warnings array only */
+    }
+    const parsed = JSON.parse(capturedStdout().trim());
+    const warnings: string[] = parsed.warnings;
+    // The grantless agent must produce a coverage warning naming its file and
+    // the deny-all consequence…
+    expect(
+      warnings.some(
+        (w) =>
+          w.includes("no-grant-helper.md") &&
+          /no effective tool grant/i.test(w) &&
+          /deny its every tool call|NO_POLICY/i.test(w),
+      ),
+    ).toBe(true);
+    // …but it must be a WARNING, never an error.
+    const errors: string[] = parsed.errors;
+    expect(errors.some((e) => e.includes("no-grant-helper"))).toBe(false);
+    // The grant-bearing agent must NOT trigger the coverage warning.
+    expect(warnings.some((w) => w.includes("granted-helper.md"))).toBe(false);
+  });
+
   it("does not throw when validating a clean tempdir with no overrides", async () => {
     await createMinimalManifest(tempDir);
     const { validateCommand } = await import("../../cli/commands/validate.js");
@@ -669,5 +869,276 @@ describe("scanAntiSlopHits — additional banned phrases", () => {
   it("treats 'as appropriate' (without trigger) as anti-slop", () => {
     const hits = scanAntiSlopHits("Refactor as appropriate when scaling.", "agents/x.md");
     expect(hits.length).toBeGreaterThanOrEqual(1);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: bodyHasDecision13Handoff (D5-H8 / D16-H10 — command↔skill twin
+// documentation gate). The collision gate exempts an orchestrating
+// command↔skill pair ONLY when the skill twin carries this section.
+// ═════════════════════════════════════════════════════════════════════
+
+describe("bodyHasDecision13Handoff", () => {
+  it("returns true for the canonical handoff heading", () => {
+    const body =
+      "---\nid: hatch3r-release\n---\n# Release Workflow\n\n" +
+      "## Relationship to `commands/hatch3r-release.md` (Decision 13 handoff)\n\n" +
+      "This skill shares the id with the orchestrator command.\n";
+    expect(bodyHasDecision13Handoff(body)).toBe(true);
+  });
+
+  it("returns true regardless of the linked command path between marker bounds", () => {
+    const body = "## Relationship to `commands/hatch3r-api-spec.md` (Decision 13 handoff)\n";
+    expect(bodyHasDecision13Handoff(body)).toBe(true);
+  });
+
+  it("matches under a deeper heading level (### / ####)", () => {
+    expect(
+      bodyHasDecision13Handoff("### Relationship to the command (Decision 13 handoff)\n"),
+    ).toBe(true);
+  });
+
+  it("is case-insensitive on the heading prose", () => {
+    expect(
+      bodyHasDecision13Handoff("## relationship TO the command (Decision 13 handoff)\n"),
+    ).toBe(true);
+  });
+
+  it("returns false when the (Decision 13 handoff) label is absent", () => {
+    const body =
+      "# Incident Response Workflow\n\n## Relationship to the command\n\nSome prose.\n";
+    expect(bodyHasDecision13Handoff(body)).toBe(false);
+  });
+
+  it("returns false for an undocumented skill body (no handoff section)", () => {
+    const body = "---\nid: x\n---\n# Foo\n\n## Quick Start\n\nbody";
+    expect(bodyHasDecision13Handoff(body)).toBe(false);
+  });
+
+  it("does not match the label outside a heading (prose mention only)", () => {
+    const body = "We follow the Relationship to command (Decision 13 handoff) convention inline.\n";
+    expect(bodyHasDecision13Handoff(body)).toBe(false);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: checkAmbiguityGate / requiresAmbiguityGate (D13-26 + D5-46)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("checkAmbiguityGate", () => {
+  // ── D13-26: §0 marker anchored to a heading ──────────────────────
+
+  it("does NOT treat a §0.5-only prose reference as a marker (D13-26)", () => {
+    // The user-question-protocol.md:22 `§0.5` reference is the cited
+    // false-positive. A body that only mentions §0.5 in prose must report
+    // hasMarker=false so the missing-gate ERROR fires (not a WARNING).
+    const body = "This step routes back per §0.5 of the protocol.\nMore prose here.\n";
+    expect(checkAmbiguityGate(body).hasMarker).toBe(false);
+  });
+
+  it("does NOT treat a bare §0 prose mention as a marker (D13-26)", () => {
+    const body = "See §0 elsewhere in the document for the gate.\n";
+    expect(checkAmbiguityGate(body).hasMarker).toBe(false);
+  });
+
+  it("treats a `## §0 ...` heading as a marker", () => {
+    expect(checkAmbiguityGate("## §0 Detect Ambiguity (P8 B1)\nbody").hasMarker).toBe(true);
+  });
+
+  it("treats a spaced `### § 0` heading and an em-dash variant as markers", () => {
+    expect(checkAmbiguityGate("### § 0 Ambiguity\nbody").hasMarker).toBe(true);
+    expect(checkAmbiguityGate("## §0 — Ambiguity & Safety Gate\nbody").hasMarker).toBe(true);
+  });
+
+  it("does NOT treat a `## §0.5` subsection heading as the §0 gate marker (D13-26)", () => {
+    expect(checkAmbiguityGate("## §0.5 Something Else\nbody").hasMarker).toBe(false);
+  });
+
+  it("still accepts a Step-0-ambiguity heading without the § glyph", () => {
+    expect(checkAmbiguityGate("## Step 0 — Ambiguity gate\nbody").hasMarker).toBe(true);
+  });
+
+  // ── D5-36: every marker disjunct is heading-anchored ──────────────
+
+  it("does NOT treat an inline `> **Ambiguity detection (P8 B1):**` blockquote as a marker (D5-36)", () => {
+    // The skills/hatch3r-feature/SKILL.md:40 false-positive: prose that names
+    // "Ambiguity detection" without a real §0/Step-0 heading must report
+    // hasMarker=false so the missing-gate ERROR fires.
+    const body =
+      "> **Ambiguity detection (P8 B1):** use the question protocol when scope is unresolved.\n";
+    expect(checkAmbiguityGate(body).hasMarker).toBe(false);
+  });
+
+  it("does NOT treat a bare `ambiguity gate` prose sentence as a marker (D5-36)", () => {
+    expect(checkAmbiguityGate("This skill enforces an ambiguity gate before work.\n").hasMarker).toBe(false);
+  });
+
+  it("does NOT treat a `Step 0: detect ambiguity` Task-Progress checkbox as a marker (D5-36)", () => {
+    expect(checkAmbiguityGate("- [ ] Step 0: Detect ambiguity (P8 B1)\n").hasMarker).toBe(false);
+  });
+
+  it("accepts a `## Step 0 — Detect Ambiguity (P8 B1)` heading (D5-36)", () => {
+    expect(checkAmbiguityGate("## Step 0 — Detect Ambiguity (P8 B1)\nbody").hasMarker).toBe(true);
+  });
+
+  it("accepts an `## Ambiguity-detection gate` heading (D5-36)", () => {
+    expect(checkAmbiguityGate("## Ambiguity-detection gate\nbody").hasMarker).toBe(true);
+  });
+
+  // ── D5-46: referencesProtocol accepts the two include hubs ────────
+
+  it("accepts a direct user-question-protocol reference (referencesProtocol)", () => {
+    const body = "Follow `agents/shared/user-question-protocol.md` when asking.";
+    expect(checkAmbiguityGate(body).referencesProtocol).toBe(true);
+  });
+
+  it("accepts the clarification-default-block include hub (D5-46)", () => {
+    const body = "See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity.";
+    expect(checkAmbiguityGate(body).referencesProtocol).toBe(true);
+  });
+
+  it("accepts the quality-specialist-frame include hub (D5-46)", () => {
+    const body = "See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity.";
+    expect(checkAmbiguityGate(body).referencesProtocol).toBe(true);
+  });
+
+  it("accepts the orchestration-frame command-side one-hop (D22-4)", () => {
+    // A command that collapses its inline §0 block to a pointer at
+    // commands/shared/orchestration-frame.md → §0 Detect Ambiguity is wired to
+    // the canonical question protocol via that frame (which cites
+    // user-question-protocol.md), exactly like the agent-side hubs above.
+    const body =
+      "## §0 Detect Ambiguity (P8 B1)\n\n> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.";
+    const gate = checkAmbiguityGate(body);
+    expect(gate.hasMarker).toBe(true);
+    expect(gate.referencesProtocol).toBe(true);
+  });
+});
+
+describe("requiresAmbiguityGate", () => {
+  it("requires the gate on top-level agents / commands / skill SKILL.md", () => {
+    expect(requiresAmbiguityGate("agents", "agents/hatch3r-ui.md")).toBe(true);
+    expect(requiresAmbiguityGate("commands", "commands/hatch3r-workflow.md")).toBe(true);
+    expect(requiresAmbiguityGate("skills", "skills/hatch3r-foo/SKILL.md")).toBe(true);
+  });
+
+  it("exempts companion subdirs and non-SKILL skill files", () => {
+    expect(requiresAmbiguityGate("agents", "agents/shared/quality-charter.md")).toBe(false);
+    expect(requiresAmbiguityGate("agents", "agents/modes/user-flows.md")).toBe(false);
+    expect(requiresAmbiguityGate("commands", "commands/board/foo.md")).toBe(false);
+    expect(requiresAmbiguityGate("commands", "commands/revision/foo.md")).toBe(false);
+    // commands/shared/ holds shared command boilerplate (orchestration-frame.md,
+    // type: shared-context) — companion material cited by orchestrators, not a
+    // standalone mutating command, so it carries no §0 gate.
+    expect(requiresAmbiguityGate("commands", "commands/shared/orchestration-frame.md")).toBe(false);
+    expect(requiresAmbiguityGate("skills", "skills/hatch3r-foo/references/x.md")).toBe(false);
+    expect(requiresAmbiguityGate("rules", "rules/hatch3r-x.md")).toBe(false);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: scanCanonicalReadDiagnostics (D2-11)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("scanCanonicalReadDiagnostics", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "validate-d2-11-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("surfaces a TYPE_MISMATCH warning for a numeric agent id (D2-11)", async () => {
+    // A numeric `id:` parses as a YAML number — the manual id/type-presence
+    // loop accepts it (truthy), but the canonical reader flags TYPE_MISMATCH.
+    await mkdir(join(dir, "agents"), { recursive: true });
+    await writeFile(
+      join(dir, "agents", "hatch3r-numeric.md"),
+      "---\nid: 123\ntype: agent\ndescription: x\ntags: [implementation]\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(r.warnings.some((w) => w.includes("TYPE_MISMATCH"))).toBe(true);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("is silent for a well-formed canonical agent", async () => {
+    await mkdir(join(dir, "agents"), { recursive: true });
+    await writeFile(
+      join(dir, "agents", "hatch3r-clean.md"),
+      "---\nid: hatch3r-clean\ntype: agent\ndescription: A clean agent.\ntags: [implementation]\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(r.warnings).toHaveLength(0);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("recurses into command subdirectories the flat readdir misses (D2-11)", async () => {
+    // A malformed command in commands/board/ — the legacy non-recursive
+    // frontmatter loop never reached subdirs; the reader does.
+    await mkdir(join(dir, "commands", "board"), { recursive: true });
+    await writeFile(
+      join(dir, "commands", "board", "hatch3r-sub.md"),
+      "---\nid: 456\ntype: command\ndescription: x\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(r.warnings.some((w) => w.includes("TYPE_MISMATCH"))).toBe(true);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Regression: clarification-default-block.md single-source-of-truth (D5-23)
+// ═════════════════════════════════════════════════════════════════════
+//
+// D5-23 (Cycle 11 Wave 3, D5 Medium, P4 single-source-of-truth): the shared
+// §0 clarification block once carried a per-agent "Domain-specific trigger
+// phrase" table that duplicated each agent's inline trigger line. Nothing in
+// code read that table, so it drifted from 7+ agents' inline lines (context-
+// rules most wrong). The root-cause fix deletes the duplicate column: each
+// `agents/hatch3r-*.md` inline trigger line is the single source of truth.
+// This guard locks the deletion in — if a future edit reintroduces a parallel
+// per-agent table, the drift surface returns and this test fails.
+//
+// Reads the CANONICAL source under the package root (agents/shared/...),
+// deliberately NOT resolveBundledContentRoot(): that resolver prefers a stale
+// dist/content/ copy when one exists, and dist/ is gitignored + rebuilt, so
+// asserting against it would test the wrong (possibly pre-edit) bytes.
+describe("clarification-default-block.md trigger single-source-of-truth (D5-23)", () => {
+  function readCanonicalBlock(): Promise<string> {
+    const pkgRoot = findPackageRoot(dirname(fileURLToPath(import.meta.url)));
+    return readFile(
+      join(pkgRoot, "agents", "shared", "clarification-default-block.md"),
+      "utf-8",
+    );
+  }
+
+  it("carries no parallel per-agent trigger table (the drift source)", async () => {
+    const body = await readCanonicalBlock();
+    // A per-agent trigger table is a markdown row whose first cell names a
+    // specific `hatch3r-*` agent id, e.g. `| `hatch3r-implementer` | ... |`.
+    // The pre-fix file had 18 such rows; the fix leaves zero. Inline backtick
+    // mentions of agent ids in prose are fine — only table rows (line starts
+    // with `|`) are the duplication the fix removed.
+    const perAgentTableRows = body
+      .split("\n")
+      .filter((line) => /^\s*\|\s*`hatch3r-[a-z-]+`\s*\|/.test(line));
+    expect(perAgentTableRows).toHaveLength(0);
+  });
+
+  it("declares the inline trigger line the single source of truth", async () => {
+    const body = await readCanonicalBlock();
+    // The replacement framing must state that the agent's inline line is the
+    // single source of truth and that this shared file keeps no parallel
+    // table — so a reader knows where the authoritative triggers live.
+    expect(body).toContain("single source of truth");
+    expect(body).toMatch(/no parallel per-agent table/i);
   });
 });

@@ -11,6 +11,8 @@ import { HATCH3R_DIR, HATCH3R_PREFIX, HatchError, exitCodeForErrorCode, getMarke
 import type { HatchManifest } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
+import { readCanonicalFilesDetailed } from "../../adapters/canonical.js";
+import type { CanonicalType, CanonicalReadError } from "../../adapters/canonical.js";
 import { ALL_TAGS, facetOf } from "../../content/tags.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies, resolveUserContentRoot } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
@@ -214,8 +216,76 @@ async function validateFrontmatter(
     }
   }
 
+  // D2-11 (Cycle 11 Wave 3, Medium): the per-file loop above is non-recursive
+  // and only checks id/type presence — a strictly weaker diagnostic set than the
+  // canonical reader. Run `readCanonicalFilesDetailed` over each canonical type
+  // so the deeper checks the reader already implements (TYPE_MISMATCH for a
+  // wrong-typed id/tags field, INJECTION_TOKEN for a structural-injection body
+  // token, UTF8/encoding decode failures, and subdirectory coverage the flat
+  // readdir misses) surface here too instead of slipping past `validate` to
+  // misbehave at preset-resolution / adapter-generation time. NOT_FOUND is the
+  // normal skills-strategy "no SKILL.md" / absent-dir signal and is suppressed,
+  // matching `readCanonicalFiles`. `mcp` is excluded — it is a JSON config dir,
+  // not a CanonicalType.
+  await scanCanonicalReadDiagnostics(canonicalRoot, result);
+
   // Wave 4: the root AGENTS.md is no longer emitted (W3). Bundled content
   // contains no AGENTS.md either — the bridge file is the orchestration doc.
+}
+
+/**
+ * D2-11: surface the per-file diagnostics that `readCanonicalFilesDetailed`
+ * already computes (TYPE_MISMATCH / INJECTION_TOKEN / encoding / recursive
+ * subdir coverage) as warnings on the validation result. The canonical reader
+ * keeps the file loaded with the offending field coerced to its empty fallback,
+ * so every diagnostic here is advisory (warning), matching how the
+ * `readCanonicalFiles` adapter path treats the same channel. NOT_FOUND is
+ * suppressed (normal absent-file / absent-dir signal).
+ */
+function formatCanonicalDiagnostic(error: CanonicalReadError): string {
+  return `[canonical] ${error.code}: ${error.message}`;
+}
+
+export async function scanCanonicalReadDiagnostics(
+  canonicalRoot: string,
+  result: ValidationResult,
+): Promise<void> {
+  // Canonical types that overlap the frontmatter-bearing content dirs above.
+  // `mcp` is intentionally absent (JSON config, not a CanonicalType).
+  const types: CanonicalType[] = [
+    "agents",
+    "skills",
+    "rules",
+    "commands",
+    "prompts",
+    "policy",
+    "github-agents",
+  ];
+  for (const type of types) {
+    let results;
+    try {
+      results = await readCanonicalFilesDetailed(canonicalRoot, type);
+    } catch (err) {
+      // A reader-level throw (not a per-file error) is itself a diagnostic —
+      // surface it rather than letting validateFrontmatter abort (Silent
+      // Failure Contract, CONSTITUTION §2 P5).
+      const message = err instanceof Error ? err.message : String(err);
+      result.warnings.push(`[canonical] reader failed for "${type}": ${message}`);
+      continue;
+    }
+    for (const r of results) {
+      if (r.error) {
+        // NOT_FOUND is the normal skills "no SKILL.md" / absent-dir signal.
+        if (r.error.code === "NOT_FOUND") continue;
+        result.warnings.push(formatCanonicalDiagnostic(r.error));
+      }
+      if (r.typeMismatches) {
+        for (const m of r.typeMismatches) {
+          result.warnings.push(formatCanonicalDiagnostic(m));
+        }
+      }
+    }
+  }
 }
 
 /**
@@ -732,20 +802,28 @@ async function validateCustomizations(
   manifest: HatchManifest,
   result: ValidationResult,
 ): Promise<void> {
+  // D10-30 (Cycle 11 Wave 3, Medium): resolve the backing canonical artifact
+  // through `findContentFile` rather than a flat `join`. The prior flat join
+  // mislocated two artifact classes:
+  //   - skills resolved to a bare `skills/<id>` directory (the real artifact is
+  //     `skills/<id>/SKILL.md`), so a `.customize.yaml` for a non-existent skill
+  //     never warned when an empty same-named directory happened to exist.
+  //   - commands joined flat under `commands/<id>.md`, missing the `board/` and
+  //     `revision/` subdirs (and the manifest `cmd-` prefix), so a legitimate
+  //     override of a subdir command false-warned as "non-existent".
+  // `findContentFile` handles the subdir walk, the `cmd-` prefix strip, the
+  // frontmatter-id fallback, and asserts `skills/<id>/SKILL.md` for the subdir
+  // strategy — the same resolver `validateContentConsistency` already uses.
   for (const { dir, canonical } of CUSTOMIZATION_TYPES) {
     const customDir = join(rootDir, ".hatch3r", dir);
+    const strategy: "glob" | "subdir" = canonical === "skills" ? "subdir" : "glob";
     try {
       const customFiles = await readdir(customDir);
       for (const file of customFiles) {
         if (file.endsWith(".customize.yaml")) {
           const itemId = file.replace(".customize.yaml", "");
-          const canonicalPath = canonical === "skills"
-            ? join(agentsDir, canonical, itemId)
-            : join(agentsDir, canonical, `${itemId}.md`);
-          try {
-            await access(canonicalPath);
-          } catch (err) {
-            if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+          const found = await findContentFile(agentsDir, { dir: canonical, strategy }, itemId);
+          if (!found) {
             result.warnings.push(`Customization file for non-existent ${canonical.slice(0, -1)}: .hatch3r/${dir}/${file}`);
           }
         }
@@ -1321,10 +1399,80 @@ function validateDescriptionCollisions(artifacts: CatalogItem[]): string[] {
 }
 
 /**
- * Hook point: run both description-quality checks against the canonical
+ * Cycle 11 D5-35: imperative (base-form) verbs that, when they LEAD a skill
+ * `description:`, read as a command rather than the third-person capability
+ * statement Anthropic's SKILL.md spec recommends (so the model reads the
+ * description as "what this skill does", e.g. "Generates ..." not
+ * "Generate ..."). Matched only as a standalone first word (followed by
+ * whitespace, not a hyphen) so compound-adjective leads like "Opt-in" or
+ * "Eval-driven" — and noun-phrase leads like "Verification" / "Workflow" /
+ * "Shared" — never trip the check. Curated from the canonical skill corpus
+ * rather than morphologically derived, so it has no false positives on
+ * non-verb leads.
+ */
+const IMPERATIVE_LEAD_VERBS = new Set<string>([
+  "add", "audit", "author", "build", "capture", "configure", "containerize",
+  "create", "cut", "define", "design", "detect", "diagnose", "draft", "elicit",
+  "evaluate", "execute", "generate", "handle", "implement", "initialize",
+  "load", "manage", "migrate", "monitor", "optimize", "persist", "plan",
+  "profile", "refactor", "regenerate", "remove", "review", "run", "scaffold",
+  "set", "track", "update", "validate", "verify", "write",
+]);
+
+/**
+ * The third-person singular form the author should switch a flagged leading
+ * verb to. Irregular/spelling cases are mapped explicitly; the rest take the
+ * regular `+s` rule applied by {@link toThirdPersonSingular}.
+ */
+const THIRD_PERSON_OVERRIDES: Readonly<Record<string, string>> = {
+  audit: "Audits",
+  author: "Authors",
+};
+
+/** Capitalized third-person singular suggestion for an imperative verb. */
+export function toThirdPersonSingular(verbLower: string): string {
+  const override = THIRD_PERSON_OVERRIDES[verbLower];
+  if (override) return override;
+  const cap = verbLower.charAt(0).toUpperCase() + verbLower.slice(1);
+  // Regular `+es` after a sibilant ending, else `+s`.
+  if (/(?:s|x|z|ch|sh)$/.test(verbLower)) return `${cap}es`;
+  return `${cap}s`;
+}
+
+/**
+ * Cycle 11 D5-35: flag skill descriptions that LEAD with an imperative verb,
+ * which degrades skill discovery under Anthropic's SKILL.md spec (third-person
+ * capability statements read as "what the skill does"). Advisory WARNING — the
+ * "Use when ..." clause and the rest of the description are left untouched;
+ * only the leading verb is reported with a third-person suggestion. Scoped to
+ * `type === "skill"` because the agent/rule/command classes carry different
+ * description conventions (role nouns, scope clauses, orchestration verbs).
+ */
+export function validateSkillDescriptionVoice(artifacts: CatalogItem[]): string[] {
+  const findings: string[] = [];
+  for (const item of artifacts) {
+    if (item.type !== "skill") continue;
+    const desc = (item.description ?? "").trim();
+    if (desc.length === 0) continue;
+    // First word = leading run of letters; require a whitespace boundary after
+    // it so hyphenated compounds ("Opt-in", "Eval-driven") are not first words.
+    const m = /^([A-Za-z]+)\s/.exec(desc);
+    if (!m) continue;
+    const firstLower = m[1].toLowerCase();
+    if (!IMPERATIVE_LEAD_VERBS.has(firstLower)) continue;
+    findings.push(
+      `skill ${item.relativePath}: description leads with imperative "${m[1]}" — use third-person "${toThirdPersonSingular(firstLower)}" for SKILL.md discovery (keep the "Use when ..." clause)`,
+    );
+  }
+  return findings;
+}
+
+/**
+ * Hook point: run the description-quality checks against the canonical
  * content index and fold the findings into the shared ValidationResult.
- * Wave C1: emits on the errors channel (previously warnings) — same
- * pattern as validateCommandOrchestratorFrontmatter's error emissions.
+ * Length + collision findings emit on the errors channel (Wave C1 — same
+ * pattern as validateCommandOrchestratorFrontmatter); the D5-35 third-person
+ * voice check emits on the warnings channel (advisory, skill-scoped).
  */
 function runDescriptionQualityChecks(
   index: ContentIndex,
@@ -1341,6 +1489,9 @@ function runDescriptionQualityChecks(
   }
   for (const e of validateDescriptionCollisions(scoped)) {
     result.errors.push(e);
+  }
+  for (const w of validateSkillDescriptionVoice(scoped)) {
+    result.warnings.push(w);
   }
 }
 
@@ -1437,6 +1588,49 @@ async function commandOrchestrates(commandPath: string, result: ValidationResult
   return orchestrator && hasPipeline;
 }
 
+// D5-H8 / D16-H10 (Decision 13): the mandatory handoff-section marker a
+// skill twin must carry to document a command↔skill execution-model split.
+// Heading form: `## Relationship to ... (Decision 13 handoff)`. The
+// `(Decision 13 handoff)` label is the load-bearing token; the linked
+// command path between "Relationship to" and the label varies per skill.
+const DECISION13_HANDOFF_MARKER = /^#{1,4}\s+Relationship to\b.*\(Decision 13 handoff\)/im;
+
+/**
+ * D5-H8 / D16-H10 (Decision 13): returns true when a skill body declares the
+ * Decision-13 handoff section that documents the command↔skill split. Pure
+ * (no I/O) so the marker contract is unit-testable; `skillDocumentsDecision13Split`
+ * is the file-reading wrapper used by the collision gate.
+ */
+export function bodyHasDecision13Handoff(raw: string): boolean {
+  return DECISION13_HANDOFF_MARKER.test(raw);
+}
+
+/**
+ * D5-H8 / D16-H10 (Decision 13): returns true when the skill twin at
+ * `skillPath` carries the mandatory Decision-13 handoff section. Without
+ * this documentation an orchestrating command and its id-sharing skill ship
+ * as an undocumented twin pair: Claude Code resolves the slash name to the
+ * skill, shadowing the command, with no artifact recording the split. A read
+ * failure returns false (fail toward surfacing the gap) and records a
+ * diagnostic on `result.warnings` (Silent Failure Contract, CONSTITUTION §2
+ * P5).
+ */
+async function skillDocumentsDecision13Split(
+  skillPath: string,
+  result: ValidationResult,
+): Promise<boolean> {
+  let raw: string;
+  try {
+    raw = await readFile(skillPath, "utf-8");
+  } catch (err) {
+    result.warnings.push(
+      `Could not read skill ${skillPath} to verify the Decision-13 handoff section — treating the command↔skill twin as undocumented (${err instanceof Error ? err.message : String(err)})`,
+    );
+    return false;
+  }
+  return bodyHasDecision13Handoff(raw);
+}
+
 async function listMarkdownFiles(dirPath: string): Promise<string[]> {
   const found: string[] = [];
   try {
@@ -1487,21 +1681,47 @@ export function scanAntiSlopHits(body: string, fileLabel: string): string[] {
 }
 
 /**
+ * True when `v` is a governance pillar token (P1..P8) or a content-quality
+ * pillar token (CQ1..CQ9). Both axes count as a valid pillar declaration per
+ * the two-axis framework in `governance/CONSTITUTION.md` §2A (P1-P8) / §2B
+ * (CQ1-CQ9).
+ */
+function isPillarToken(v: unknown): boolean {
+  return typeof v === "string" && (/^P[1-8]$/.test(v) || /^CQ[1-9]$/.test(v));
+}
+
+/**
  * Pillar-reference detection: returns true when the file declares at least
- * one P1..P8 reference via frontmatter `pillars:` or any body mention.
+ * one pillar token via frontmatter `pillars:` or any body mention.
+ *
+ * Three frontmatter shapes are recognized (D5-34):
+ *   - array:  `pillars: [P1, P4]` or `pillars: [P2, CQ8]`
+ *   - string: `pillars: "P1 P4"`
+ *   - map:    `pillars: { governance: [P1, P2], content-quality: [CQ8] }`
+ * The map shape is the corpus-dominant two-axis form (15 specialist agents +
+ * the spec orchestrator); before D5-34 it passed only via the weaker body
+ * P-token fallback, so the frontmatter check silently ignored it.
  */
 export function hasPillarReference(parsedFm: Record<string, unknown> | null, body: string): boolean {
   if (parsedFm) {
     const fmPillars = parsedFm.pillars;
-    if (Array.isArray(fmPillars) && fmPillars.some((v) => typeof v === "string" && /^P[1-8]$/.test(v))) {
+    if (Array.isArray(fmPillars) && fmPillars.some(isPillarToken)) {
       return true;
     }
-    if (typeof fmPillars === "string" && /\bP[1-8]\b/.test(fmPillars)) {
+    if (typeof fmPillars === "string" && /\b(P[1-8]|CQ[1-9])\b/.test(fmPillars)) {
       return true;
+    }
+    // Two-axis map shape: { governance: [...], content-quality: [...] }.
+    if (fmPillars && typeof fmPillars === "object" && !Array.isArray(fmPillars)) {
+      for (const axis of Object.values(fmPillars as Record<string, unknown>)) {
+        if (Array.isArray(axis) && axis.some(isPillarToken)) return true;
+        if (isPillarToken(axis)) return true;
+      }
     }
   }
-  // Body-line forms: `**Pillars:** P1, P4`, `Pillars: P1`, or any inline P1..P8.
-  if (/\bP[1-8]\b/.test(body)) return true;
+  // Body-line forms: `**Pillars:** P1, P4`, `Pillars: P1`, or any inline
+  // P1..P8 / CQ1..CQ9 token.
+  if (/\b(P[1-8]|CQ[1-9])\b/.test(body)) return true;
   return false;
 }
 
@@ -1590,9 +1810,10 @@ async function validateContentBody(
       // `rules/hatch3r-clarification-default.md`. Enforce it here so an artifact
       // that drops the gate fails CI rather than silently shipping without
       // clarification-default behavior. Reference subdirectories
-      // (agents/shared, agents/modes, commands/board, commands/revision) are
-      // companion material, not standalone mutating artifacts, so they are
-      // exempt — matching the prefix-exemption split in content-authoring.
+      // (agents/shared, agents/modes, commands/board, commands/revision,
+      // commands/shared) are companion material, not standalone mutating
+      // artifacts, so they are exempt — matching the prefix-exemption split in
+      // content-authoring.
       if (requiresAmbiguityGate(dir, fileLabel)) {
         const gate = checkAmbiguityGate(body);
         if (!gate.hasMarker) {
@@ -1602,9 +1823,12 @@ async function validateContentBody(
           );
         } else if (!gate.referencesProtocol) {
           // Marker present but no protocol reference is weak prose: warn so the
-          // author wires it to the canonical "how to ask" surface.
+          // author wires it to the canonical "how to ask" surface — directly or
+          // via the blessed one-hop frames (clarification-default-block.md /
+          // quality-specialist-frame.md / orchestration-frame.md), all accepted
+          // by checkAmbiguityGate.
           result.warnings.push(
-            `${fileLabel}: §0 ambiguity gate present but does not reference agents/shared/user-question-protocol.md — wire the gate to the canonical question protocol (P8 B1)`,
+            `${fileLabel}: §0 ambiguity gate present but does not reference the canonical question protocol — cite agents/shared/user-question-protocol.md directly OR via agents/shared/clarification-default-block.md / quality-specialist-frame.md / commands/shared/orchestration-frame.md (P8 B1)`,
           );
         }
       }
@@ -1616,17 +1840,18 @@ async function validateContentBody(
  * F13.5-F01 (D13): which scanned files must carry the §0 ambiguity gate.
  * Applies to top-level published agents, commands, and skills. Companion
  * material under reference subdirectories (agents/shared, agents/modes,
- * commands/board, commands/revision) is exempt — it is not a standalone
- * mutating artifact, mirroring the filename-prefix exemption in
+ * commands/board, commands/revision, commands/shared) is exempt — it is not a
+ * standalone mutating artifact, mirroring the filename-prefix exemption in
  * `.claude/rules/content-authoring.md`.
  */
-function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
+export function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
   if (dir !== "agents" && dir !== "commands" && dir !== "skills") return false;
   const EXEMPT_SUBDIRS = [
     "agents/shared/",
     "agents/modes/",
     "commands/board/",
     "commands/revision/",
+    "commands/shared/", // shared command boilerplate (e.g. orchestration-frame.md, type: shared-context) — companion material cited by orchestrators, not a standalone mutating command
     "skills/hatch3r-board-shared/", // board companion skill (parity with commands/board/)
   ];
   if (EXEMPT_SUBDIRS.some((prefix) => fileLabel.startsWith(prefix))) return false;
@@ -1640,18 +1865,52 @@ function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
 /**
  * F13.5-F01 (D13): detect the §0 ambiguity-detection gate in an artifact body.
  * `hasMarker` is true when a recognizable gate heading/marker is present;
- * `referencesProtocol` is true when the body points at the canonical
- * `agents/shared/user-question-protocol.md` (the "how to ask" surface). The
- * matchers are deliberately broad so authors can phrase the heading naturally
- * (e.g. "§0 — Ambiguity & Safety Gate", "Step 0 — Ambiguity gate").
+ * `referencesProtocol` is true when the body points at the canonical question
+ * protocol either directly (`agents/shared/user-question-protocol.md` — the
+ * "how to ask" surface) OR via the blessed one-hop indirection through the
+ * shared clarification frames: `agents/shared/clarification-default-block.md`
+ * (the canonical pointer that agents.md authoring-rule 1 mandates citing) or
+ * `agents/shared/quality-specialist-frame.md` (the transitive frame the 9 CQ
+ * specialists incorporate per authoring-rule 2). Accepting the one-hop forms
+ * closes F24.4-D13-8: `clarification-default-block.md` explicitly FORBIDS
+ * inlining the protocol body, so the 15 agents that satisfy B1 through it must
+ * not be flagged for "not referencing user-question-protocol" — that made the
+ * §2 P5 "100%" B1 invariant false against its own check. Every `hasMarker`
+ * disjunct is heading-anchored (D5-36): the trigger phrase must lead a markdown
+ * heading, so an inline blockquote or body sentence no longer counts as a gate.
+ * Heading phrasing itself stays flexible (e.g. "## §0 — Ambiguity & Safety
+ * Gate", "## Step 0 — Ambiguity gate", "## Step 0 — Detect Ambiguity (P8 B1)").
  */
-function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProtocol: boolean } {
+export function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProtocol: boolean } {
+  // D5-36 (Cycle 11 Wave 3, D5 Medium): every marker disjunct is now anchored
+  // to a markdown heading line. Previously only the §0 disjunct (D13-26) was
+  // heading-anchored; the three Step-0/ambiguity disjuncts matched bare prose
+  // anywhere in the body, so an inline blockquote — e.g. `> **Ambiguity
+  // detection (P8 B1):** ...` in skills/hatch3r-feature/SKILL.md:40 — registered
+  // hasMarker===true without a real §0/Step-0 section. That let a skill ship the
+  // gate-coverage floor as a sentence instead of a structured gate, while the
+  // §2 P5 "Ambiguity-detection gate coverage" row demands a real block.
+  // `HEADING` matches an ATX heading start (`#`..`####`, up to 3 leading
+  // spaces); each disjunct requires its trigger phrase to appear on that same
+  // heading line, so only a genuine gate section satisfies the marker. The
+  // `(?!\.\d)` lookahead on the §0 disjunct still rejects a `§0.5` subsection.
+  const HEADING = String.raw`^\s{0,3}#{1,4}\s*`;
   const hasMarker =
-    /§0/.test(body) ||
-    /step\s*0\b[^\n]*ambig/i.test(body) ||
-    /\bambiguity[- ](detection|gate|&)/i.test(body) ||
-    /\bambiguity\b[^\n]*\bgate\b/i.test(body);
-  const referencesProtocol = /user-question-protocol/.test(body);
+    new RegExp(HEADING + String.raw`§\s*0\b(?!\.\d)`, "m").test(body) ||
+    new RegExp(HEADING + String.raw`[^\n]*\bstep\s*0\b[^\n]*ambig`, "im").test(body) ||
+    new RegExp(HEADING + String.raw`[^\n]*\bambiguity[- ](detection|gate|&)`, "im").test(body) ||
+    new RegExp(HEADING + String.raw`[^\n]*\bambiguity\b[^\n]*\bgate\b`, "im").test(body);
+  const referencesProtocol =
+    /user-question-protocol/.test(body) ||
+    /clarification-default-block/.test(body) ||
+    /quality-specialist-frame/.test(body) ||
+    // D22-4: the command-side §0 one-hop frame. orchestration-frame.md's
+    // "§0 Detect Ambiguity" section cites agents/shared/user-question-protocol.md,
+    // so an orchestrator command that collapses its inline §0 block to a
+    // `commands/shared/orchestration-frame.md → §0 Detect Ambiguity` pointer is
+    // wired to the canonical question protocol exactly as the agent-side
+    // clarification-default-block.md one-hop is. Accept it as a blessed frame.
+    /orchestration-frame/.test(body);
   return { hasMarker, referencesProtocol };
 }
 
@@ -1671,17 +1930,23 @@ function checkAmbiguityGate(body: string): { hasMarker: boolean; referencesProto
 async function validateAgentToolPolicyCoverage(
   canonicalRoot: string,
   result: ValidationResult,
+  userRepoRoot?: string,
 ): Promise<void> {
   // Lazy-import the registry to avoid pulling the pipeline module into every
   // validate invocation when the canonical agents/ directory is absent
   // (e.g., consumer repo with a partial bundle).
   const agentsDir = join(canonicalRoot, "agents");
-  let entries;
+  let entries: Dirent[];
   try {
     entries = await readdir(agentsDir, { withFileTypes: true });
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
-    throw err;
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      // Canonical agents/ absent — still scan the user override tree below so
+      // a consumer repo with only user agents gets coverage warnings.
+      entries = [];
+    } else {
+      throw err;
+    }
   }
 
   const filesystemIds: string[] = [];
@@ -1720,17 +1985,285 @@ async function validateAgentToolPolicyCoverage(
     filesystemIds.push(fm.id);
   }
 
-  if (filesystemIds.length === 0) return;
-
   const { AGENT_TOOL_POLICIES } = await import("../../pipeline/agentToolAllowlist.js");
   const policyIds = new Set(AGENT_TOOL_POLICIES.map((p) => p.agentId));
-  const missing = filesystemIds.filter((id) => !policyIds.has(id)).sort();
-  for (const id of missing) {
-    result.errors.push(
-      `Agent "${id}" (agents/${id}.md) has no AGENT_TOOL_POLICIES entry — ` +
-        `add an AgentToolPolicy in src/pipeline/agentToolAllowlist.ts so ASI02 deny-by-default ` +
-        `does not silently block every tool call by this agent.`,
-    );
+  if (filesystemIds.length > 0) {
+    const missing = filesystemIds.filter((id) => !policyIds.has(id)).sort();
+    for (const id of missing) {
+      result.errors.push(
+        `Agent "${id}" (agents/${id}.md) has no AGENT_TOOL_POLICIES entry — ` +
+          `add an AgentToolPolicy in src/pipeline/agentToolAllowlist.ts so ASI02 deny-by-default ` +
+          `does not silently block every tool call by this agent.`,
+      );
+    }
+  }
+
+  // D20-1 (X5/CD5): user-authored agents under `.hatch3r/overrides/agents/` are
+  // re-prefixed to `hatch3r-<slug>` and have no canonical AGENT_TOOL_POLICIES
+  // entry by construction. The Claude adapter derives a runtime policy from
+  // each user agent's authored `tools.allowed`/`tools.denied` grant, so the
+  // policy doc the PreToolUse hook reads DOES carry a row for them. But a user
+  // agent that declared no `tools` grant (or an empty `allowed`) derives an
+  // empty allowlist — the hook then denies its every tool call. Warn (not
+  // error: user content lives outside the framework's commit gate, and the
+  // disposition is "fix your grant", not "block CI") so the author adds a
+  // `tools: { allowed: [...] }` block. Canonical-id collisions are impossible
+  // (the user-content slug gate forbids the `hatch3r-` prefix), so this scan
+  // never double-reports a canonical agent.
+  await scanUserAgentPolicyCoverage(userRepoRoot, result);
+}
+
+/**
+ * D20-1 (X5/CD5): scan `.hatch3r/overrides/agents/` and warn for any user agent
+ * whose authored `tools` grant resolves to an empty allowlist — that agent is
+ * NO_POLICY/deny-all under the Claude PreToolUse hook at runtime. A user agent
+ * with a non-empty `tools.allowed` (minus `tools.denied`) is covered by the
+ * Claude adapter's derived policy and produces no warning.
+ *
+ * Read-only; tolerates an absent override tree (the common case) and surfaces
+ * malformed user-agent YAML on the warning channel rather than skipping it
+ * silently (Silent Failure Contract).
+ */
+async function scanUserAgentPolicyCoverage(
+  userRepoRoot: string | undefined,
+  result: ValidationResult,
+): Promise<void> {
+  if (!userRepoRoot) return;
+  const userAgentsDir = join(resolveUserContentRoot(userRepoRoot), "agents");
+  let entries: Dirent[];
+  try {
+    entries = await readdir(userAgentsDir, { withFileTypes: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return;
+    throw err;
+  }
+
+  const { ALL_TOOL_CATEGORIES } = await import("../../pipeline/agentToolAllowlist.js");
+  const known = new Set<string>(ALL_TOOL_CATEGORIES);
+
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".md")) continue;
+    const filePath = join(userAgentsDir, entry.name);
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue;
+      throw err;
+    }
+    if (!raw.startsWith("---")) continue;
+    const endIdx = raw.indexOf("---", 3);
+    if (endIdx === -1) continue;
+    let fm: Record<string, unknown> | null;
+    try {
+      fm = parseYaml(raw.slice(3, endIdx).trim()) as Record<string, unknown> | null;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      result.warnings.push(
+        `.hatch3r/overrides/agents/${entry.name}: YAML frontmatter parse failed during user-agent tool-policy coverage scan — ${message}`,
+      );
+      continue;
+    }
+    if (!fm || typeof fm !== "object") continue;
+    if (fm.type !== "agent") continue;
+
+    // Resolve the authored grant the same way the Claude adapter does:
+    // allowed minus denied, restricted to known categories (deny-by-default).
+    const toolsRaw = fm.tools;
+    let allowed: string[] = [];
+    let denied: string[] = [];
+    if (toolsRaw && typeof toolsRaw === "object" && !Array.isArray(toolsRaw)) {
+      const t = toolsRaw as Record<string, unknown>;
+      if (Array.isArray(t.allowed)) {
+        allowed = t.allowed.filter((c): c is string => typeof c === "string" && known.has(c));
+      }
+      if (Array.isArray(t.denied)) {
+        denied = t.denied.filter((c): c is string => typeof c === "string");
+      }
+    }
+    const deniedSet = new Set(denied);
+    const effective = allowed.filter((c) => !deniedSet.has(c));
+    if (effective.length === 0) {
+      const name = entry.name.replace(/\.md$/, "");
+      result.warnings.push(
+        `User agent ".hatch3r/overrides/agents/${entry.name}" has no effective tool grant — ` +
+          `the Claude PreToolUse hook will deny its every tool call (NO_POLICY/deny-all) at runtime. ` +
+          `Add a 'tools: { allowed: [read, search, ...] }' block (canonical categories: ${ALL_TOOL_CATEGORIES.join(", ")}) ` +
+          `so the adapter derives a runtime policy for the emitted "hatch3r-${name}" agent.`,
+      );
+    }
+  }
+}
+
+/**
+ * D5-2 (Cycle 11 Wave 2, High): body-vs-policy capability-coverage gate.
+ *
+ * The F2.4-F1 gate above only checks that a policy EXISTS for each agent. It
+ * does not check that the policy GRANTS the capabilities the agent's prompt
+ * body instructs it to use. The D5-2 finding caught five agents
+ * (architect / ci-watcher / context-rules / docs-writer / lint-fixer) whose
+ * bodies told them to run web research, Context7 MCP `resolve-library-id`
+ * lookups, and (for ci-watcher/docs-writer) platform-CLI / lint shell commands,
+ * while their `AGENT_TOOL_POLICIES` allowlist omitted the matching `web`/`mcp`/
+ * `execute` category. Under the Claude PreToolUse hook those calls were denied
+ * silently (TOOL_NOT_ALLOWED) — the agent followed its own instructions and was
+ * blocked with no actionable signal, the same silent-failure class as the
+ * NO_POLICY path. The policies were corrected in the same finding; this gate
+ * regression-locks the body⊆policy property so a future prompt edit that adds a
+ * capability instruction (or a policy edit that drops a category) fails CI.
+ *
+ * Scope: the five agents named in D5-2. The gate is deliberately NOT corpus-wide
+ * — several review-only agents (the 9 CQ specialists, hatch3r-reviewer,
+ * hatch3r-learnings-loader) carry prose that mentions shell commands they
+ * describe but do not themselves run (e.g. the shared VERIFY_GATE placeholder,
+ * an illustrative `gh run list` for reading CI history), and producer agents
+ * (implementer/fixer) name `WebSearch`/Context7 in boundary/never clauses or
+ * when describing the researcher's modes, not as their own directives. Their
+ * `["read","search"]` (review-only) and execute-only (producer) policies are
+ * deliberate invariants (agentToolAllowlist.test.ts "applies review-only
+ * allowlist"). A naive "any capability mention ⇒ require the category" scan
+ * false-positives on ~15 such prose sites, so the gate binds an explicit
+ * allowlist of producer agents whose bodies issue genuine self-directives;
+ * full-corpus generalization is a separate change that must first reconcile that
+ * review-only/boundary prose.
+ *
+ * D5-25 (Cycle 11 Wave 3, Medium) confirms this gate IS the body-vs-policy
+ * heuristic the finding requires (its root cause — "no validator detects a body
+ * instructing a denied capability" — predates this D5-2 gate). D5-24 (same wave)
+ * closed the one named coverage gap, hatch3r-devops: it grants the devops
+ * `web`+`mcp` categories in src/pipeline/agentToolAllowlist.ts and adds the devops
+ * scope entry to D5_2_BODY_CAPABILITY_AGENTS in the same atomic commit, so the
+ * gate fires on devops only after the grant exists. See the literal below — the
+ * scanned set is now six agents.
+ *
+ * Detection uses high-precision directive patterns (not loose keyword matching)
+ * so an incidental mention ("the agent does not need WebFetch") does not trip a
+ * false positive. Each detected capability is checked against the agent's
+ * registered policy; a miss emits on `result.errors` so CI exits non-zero.
+ */
+const D5_2_BODY_CAPABILITY_AGENTS = [
+  "hatch3r-architect",
+  "hatch3r-ci-watcher",
+  "hatch3r-context-rules",
+  "hatch3r-docs-writer",
+  "hatch3r-lint-fixer",
+  // D5-24 (Cycle 11 Wave 3, Medium): hatch3r-devops's body issues genuine "Use
+  // web research" / "Use Context7 MCP" directives (agents/hatch3r-devops.md
+  // §Design steps + §External Knowledge focus sections). D5-24 grants the matching
+  // `web`+`mcp` categories in src/pipeline/agentToolAllowlist.ts AND adds this
+  // scope entry in the same atomic wave commit, so the gate activates only after
+  // the grant exists (no false-positive ERROR). The D5-25 root cause — "a
+  // body-vs-policy capability gate exists at all" — is satisfied by
+  // validateAgentBodyCapabilityCoverage (this function); adding devops here closes
+  // the one named coverage gap D5-25 deferred to D5-24.
+  "hatch3r-devops",
+] as const;
+
+/**
+ * High-precision body→capability directive detectors. Each entry maps a
+ * canonical tool category to the instruction patterns that mean "this agent is
+ * told to exercise this capability itself". Patterns are intentionally narrow:
+ * they match imperative directive forms, a populated focus section, or a
+ * `tools.allow` token — not every incidental keyword.
+ */
+const CAPABILITY_BODY_PATTERNS: Readonly<Record<string, readonly RegExp[]>> = {
+  // Web research: the imperative "Use web research", a populated
+  // "Web research focus for this agent:" section, or a WebSearch/WebFetch token.
+  web: [
+    /\bUse web research\b/i,
+    /\*\*Web research focus for this agent:\*\*/,
+    /\bWebSearch\b/,
+    /\bWebFetch\b/,
+  ],
+  // Context7 MCP: the imperative "Use Context7 MCP", the resolve-library-id /
+  // query-docs call pair, or a populated "Context7 focus for this agent:" section.
+  mcp: [
+    /\bUse Context7 MCP\b/i,
+    /\bresolve-library-id\b/,
+    /\bquery-docs\b/,
+    /\*\*Context7 focus for this agent:\*\*/,
+  ],
+  // Execute (shell): platform CI CLI verbs, the markdown-lint command, or the
+  // lint auto-fix directive these agents run to reproduce/verify locally.
+  execute: [
+    /\bgh run (?:list|view|watch)\b/,
+    /\baz pipelines run\b/,
+    /\bglab ci\b/,
+    /\bnpx markdownlint\b/,
+    /\blint:fix\b/,
+  ],
+};
+
+/**
+ * Negation guard: a line that explicitly disclaims a capability ("does not need
+ * WebFetch", "No execute") must not be read as an instruction to use it. Applied
+ * per matched line before counting a capability as instructed.
+ */
+function lineDisclaimsCapability(line: string): boolean {
+  // Tolerate markdown emphasis around "not" (e.g. "does **not** need WebFetch")
+  // so a disclaimer that uses bold/italic is still recognized as a disclaimer.
+  const notMarker = "[*_]{0,2}not[*_]{0,2}";
+  return new RegExp(`\\bdo(?:es)?\\s+${notMarker}\\s+need\\b`, "i").test(line) ||
+    /\b(?:no longer use|never use|out of scope|not (?:in scope|required))\b/i.test(line) ||
+    /^\s*[-*]\s*\*\*Never:\*\*/.test(line);
+}
+
+async function validateAgentBodyCapabilityCoverage(
+  canonicalRoot: string,
+  result: ValidationResult,
+): Promise<void> {
+  const agentsDir = join(canonicalRoot, "agents");
+  const { getAgentToolPolicy } = await import("../../pipeline/agentToolAllowlist.js");
+
+  for (const agentId of D5_2_BODY_CAPABILITY_AGENTS) {
+    const filePath = join(agentsDir, `${agentId}.md`);
+    let raw: string;
+    try {
+      raw = await readFile(filePath, "utf-8");
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code === "ENOENT") continue; // partial bundle
+      throw err;
+    }
+
+    // Strip frontmatter so a `tags:`/`description:` keyword cannot be misread as
+    // a body directive; the capability instructions all live in the prose body.
+    let body = raw;
+    if (raw.startsWith("---")) {
+      const endIdx = raw.indexOf("---", 3);
+      if (endIdx !== -1) body = raw.slice(endIdx + 3);
+    }
+
+    const policy = getAgentToolPolicy(agentId);
+    if (!policy) {
+      // The F2.4-F1 coverage gate already errors on a missing policy; do not
+      // double-report. Skip the body check — there is nothing to compare against.
+      continue;
+    }
+    const granted = new Set(policy.allowedTools);
+
+    for (const [category, patterns] of Object.entries(CAPABILITY_BODY_PATTERNS)) {
+      // A capability is "instructed" when a pattern matches on a non-disclaiming
+      // line.
+      let instructed = false;
+      for (const pattern of patterns) {
+        for (const line of body.split("\n")) {
+          if (pattern.test(line) && !lineDisclaimsCapability(line)) {
+            instructed = true;
+            break;
+          }
+        }
+        if (instructed) break;
+      }
+      if (instructed && !granted.has(category)) {
+        result.errors.push(
+          `Agent "${agentId}" (agents/${agentId}.md) instructs the "${category}" capability in its body ` +
+            `but its AGENT_TOOL_POLICIES allowlist (${policy.allowedTools.join(", ")}) does not grant it — ` +
+            `the Claude PreToolUse hook will deny that tool call silently (TOOL_NOT_ALLOWED). ` +
+            `Add "${category}" to this agent's policy in src/pipeline/agentToolAllowlist.ts, or remove the ` +
+            `instruction from the body. (D5-2 body⊆policy gate.)`,
+        );
+      }
+    }
   }
 }
 
@@ -1831,7 +2364,7 @@ export async function validateDocsCounts(rootDir: string): Promise<{ mismatches:
 
   const actual: Record<string, number> = {};
   const dirs: [string, string, (e: string) => boolean][] = [
-    ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "toml-utils.ts", "contextBudget.ts"].includes(e)],
+    ["adapters", join(rootDir, "src/adapters"), (e) => e.endsWith(".ts") && !["base.ts", "index.ts", "canonical.ts", "customization.ts", "types.ts", "mcp-utils.ts", "contextBudget.ts"].includes(e)],
     ["commands", join(rootDir, "src/cli/commands"), (e) => e.endsWith(".ts")],
     ["agents", join(rootDir, "agents"), (e) => e.endsWith(".md")],
     ["skills", join(rootDir, "skills"), (_e) => true],
@@ -2365,14 +2898,21 @@ export async function validateCommand(opts?: {
 
       // Content ID collision validation.
       //
-      // F16.3-H3 (D16) / Decision 13: a command↔skill ID pair is legitimate
-      // ONLY when the command genuinely orchestrates — `orchestrator: true`
-      // with a non-empty `agentPipeline` — so the command (delegation) and the
-      // skill (inline execution) are distinct artifacts, not a duplicate. A
-      // bare command↔skill pair where the command does NOT orchestrate is a
-      // Decision-13 violation (a duplicate that should collapse to one
-      // artifact) and is surfaced as a warning. Previously ALL command↔skill
-      // pairs were silently exempted, which let undocumented duplicates ship.
+      // F16.3-H3 (D16) / D5-H8 / D16-H10 / Decision 13: a command↔skill ID
+      // pair is legitimate ONLY when BOTH (1) the command genuinely
+      // orchestrates — `orchestrator: true` with a non-empty `agentPipeline`
+      // — so the command (delegation) and the skill (inline execution) are
+      // distinct artifacts, AND (2) the skill twin carries the Decision-13
+      // handoff section documenting the split. Either gap is a finding:
+      //   - command does NOT orchestrate -> Decision-13 duplicate (collapse
+      //     to one artifact or promote the command to a real orchestrator).
+      //   - command orchestrates but the skill twin OMITS the handoff doc ->
+      //     the slash-name collision (Claude resolves `/hatch3r-X` to the
+      //     skill, shadowing the command) ships undocumented. The fix is the
+      //     `## Relationship to ... (Decision 13 handoff)` section, modeled
+      //     on `skills/hatch3r-api-spec/SKILL.md`.
+      // Previously a qualifying command silently exempted the pair, which let
+      // the undocumented twin ship (D5-H8: "no artifact documents it").
       // Same-type duplicates and other cross-type pairs are always warnings.
       for (const collision of index.collisions) {
         if (collision.kind === "cross-type") {
@@ -2381,15 +2921,29 @@ export async function validateCommand(opts?: {
             const commandPath = collision.existingType === "command"
               ? collision.existingPath
               : collision.duplicatePath;
+            const skillPath = collision.existingType === "skill"
+              ? collision.existingPath
+              : collision.duplicatePath;
             const qualifies = await commandOrchestrates(join(canonicalRoot, commandPath), result);
-            if (qualifies) {
-              // Legitimate Decision-13 command/skill pair — the command
-              // delegates via agentPipeline; the skill is its inline sibling.
+            if (!qualifies) {
+              result.warnings.push(
+                `Content ID collision: "${collision.id}" exists as both a command (${commandPath}) and a skill (${skillPath}), but the command is not orchestrator:true with a non-empty agentPipeline — per Decision 13 this is a duplicate: collapse to one artifact or promote the command to a real orchestrator (.claude/rules/content-authoring.md item 9)`,
+              );
               continue;
             }
-            result.warnings.push(
-              `Content ID collision: "${collision.id}" exists as both a command (${collision.existingType === "command" ? collision.existingPath : collision.duplicatePath}) and a skill (${collision.existingType === "skill" ? collision.existingPath : collision.duplicatePath}), but the command is not orchestrator:true with a non-empty agentPipeline — per Decision 13 this is a duplicate: collapse to one artifact or promote the command to a real orchestrator (.claude/rules/content-authoring.md item 9)`,
+            const documented = await skillDocumentsDecision13Split(
+              join(canonicalRoot, skillPath),
+              result,
             );
+            if (!documented) {
+              result.warnings.push(
+                `Content ID collision: "${collision.id}" — command ${commandPath} orchestrates, but its id-sharing skill ${skillPath} omits the Decision-13 handoff section, so the command↔skill split is undocumented (Claude Code resolves /hatch3r-${collision.id.replace(/^hatch3r-/, "")} to the skill, shadowing the command). Add a "## Relationship to \`${commandPath}\` (Decision 13 handoff)" section to the skill (model: skills/hatch3r-api-spec/SKILL.md), OR collapse the pair to one artifact.`,
+              );
+              continue;
+            }
+            // Legitimate, documented Decision-13 command/skill pair — the
+            // command delegates via agentPipeline; the skill is its inline
+            // sibling and records the split.
             continue;
           }
         }
@@ -2423,7 +2977,14 @@ export async function validateCommand(opts?: {
   // affected agent under the Claude PreToolUse hook and widens privilege
   // silently under Cursor/Copilot (no readonly frontmatter emitted).
   verbose("Checking AGENT_TOOL_POLICIES coverage...");
-  await validateAgentToolPolicyCoverage(canonicalRoot, result);
+  await validateAgentToolPolicyCoverage(canonicalRoot, result, rootDir);
+
+  // D5-2 (Cycle 11 Wave 2, High): the coverage gate above only checks a policy
+  // EXISTS; this gate checks each of the five D5-2 agents' policies GRANT the
+  // web/mcp/execute capabilities their prompt body instructs, so a future
+  // body↔policy drift fails CI instead of denying tool calls silently.
+  verbose("Checking agent body⊆policy capability coverage (D5-2)...");
+  await validateAgentBodyCapabilityCoverage(canonicalRoot, result);
 
   // D9-H-6 (D9, P1): execute-capable skills must pre-approve their wrapped
   // shell binary via `allowed_tools` so the Copilot Skills runtime skips the

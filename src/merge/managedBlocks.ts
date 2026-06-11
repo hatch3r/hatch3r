@@ -35,30 +35,130 @@ import {
  * across the full adapter output, not by relying on the marker structure.
  *
  * Scan {@link content} for any known marker variant and return the
- * matched variant + the indices of its start and end markers.
+ * matched variant + the character indices of its start and end markers.
  *
- * "Detected" means both markers were found in the same variant; mixed
- * variants (e.g. an HTML start with a YAML end) are not recognised — the
- * file is treated as having no managed block, which causes the merge
- * branch in safeWriteFile to fall back to the "missing markers" error
- * path. That's the safer outcome than swapping in new content based on
+ * "Detected" means both markers of a single variant appear **each on their
+ * own line** (the only shape hatch3r emits — see {@link wrapWithMarkers},
+ * which writes `${start}\n…\n${end}`) AND the start line precedes the end
+ * line. Mixed variants (e.g. an HTML start with a YAML end) are not
+ * recognised — the file is treated as having no managed block, which causes
+ * the merge branch in safeWriteFile to fall back to the "missing markers"
+ * error path. That's the safer outcome than swapping in new content based on
  * a partially-recognised pair.
  *
- * Returns `null` when no complete variant matches.
+ * **D1-7 / D11-4 / D11-6 (Cycle 11 Wave 2, D1+D11, P6+CQ8) — line-anchored,
+ * path-aware detection.** Recognition is anchored to whole lines: a marker is
+ * only matched when a line, after trimming surrounding whitespace, equals the
+ * marker token exactly. The prior bare-`indexOf` form matched the token
+ * mid-line, so user content that merely *quotes* a marker (a `.yml` body that
+ * documents `# HATCH3R:END`, or markdown prose mentioning
+ * `<!-- HATCH3R:END -->`) truncated the block at the quoted token — corrupting
+ * extractManagedBlock/extractCustomContent, which in turn fed a wrong slice to
+ * the safeWrite deny-scan (so the fail-closed throw never fired) and to the
+ * orphan-cleanup `unlink` gate. Variant selection is also path-aware: when
+ * {@link filePath} is supplied, the variant {@link getMarkersForPath} would
+ * emit for that path is tried first, so a `.yml` file that legitimately uses
+ * YAML `#` markers but whose body mentions the HTML token is read as YAML, not
+ * mis-detected as HTML by array order. Remaining variants are tried in
+ * {@link MANAGED_BLOCK_VARIANTS} order so legacy wrong-variant files (issue #76)
+ * still auto-repair.
+ *
+ * Returns `null` when no complete, ordered, line-anchored variant matches.
+ * The start-before-end half of "ordered" is now also asserted explicitly at the
+ * return site (D1-34, `startIdx < endIdx`), not left implicit in the END-search
+ * offset, so a reversed `(startIdx, endIdx)` pair can never reach the read-side
+ * extractors and trigger a {@link String.prototype.substring} bound-swap.
  */
-function detectMarkers(content: string): {
+function detectMarkers(
+  content: string,
+  filePath?: string,
+): {
   variant: ManagedBlockMarkers;
   startIdx: number;
   endIdx: number;
 } | null {
-  for (const variant of MANAGED_BLOCK_VARIANTS) {
-    const startIdx = content.indexOf(variant.start);
-    const endIdx = content.indexOf(variant.end);
-    if (startIdx !== -1 && endIdx !== -1) {
-      return { variant, startIdx, endIdx };
-    }
+  // Path-aware precedence: try the variant this path would EMIT first, then
+  // the rest in declared order. De-duplicate so the preferred variant is not
+  // scanned twice.
+  const preferred = filePath ? getMarkersForPath(filePath) : undefined;
+  const ordered = preferred
+    ? [preferred, ...MANAGED_BLOCK_VARIANTS.filter((v) => v.start !== preferred.start)]
+    : MANAGED_BLOCK_VARIANTS;
+
+  for (const variant of ordered) {
+    const startIdx = lineAnchoredIndexOf(content, variant.start);
+    if (startIdx === -1) continue;
+    // Require the END to be a line-anchored token AFTER the start line so a
+    // quoted token before the real start (or no real end at all) cannot be
+    // mistaken for the block boundary.
+    const endIdx = lineAnchoredIndexOf(content, variant.end, startIdx + variant.start.length);
+    if (endIdx === -1) continue;
+    // D1-34 (Cycle 11 Wave 3, D1, P6+CQ8) — explicit start-before-end guard at
+    // the return site. The `fromIdx = startIdx + variant.start.length` argument
+    // above already makes a returned `endIdx` strictly greater than `startIdx`
+    // (lineAnchoredIndexOf's `tokenIdx >= fromIdx` clause), so today this branch
+    // is unreachable. It is kept as a structural invariant so the read-side
+    // extractors can never receive a reversed pair regardless of how the
+    // index-search internals evolve: a future refactor of lineAnchoredIndexOf's
+    // fromIdx handling, or a marker variant whose `end` token overlaps `start`,
+    // could otherwise yield `startIdx >= endIdx`. Both extractManagedBlock and
+    // extractCustomContent feed (startIdx, endIdx) to String.prototype.substring,
+    // which SWAPS its bounds when the first exceeds the second — silently
+    // emitting polluted/duplicated content (a sibling of D1-7's cross-variant
+    // misdetection, distinct reversed-order root cause). Failing closed to null
+    // routes such content down the "no managed block" branch, which
+    // safeWriteFile skips non-destructively.
+    if (startIdx >= endIdx) continue;
+    return { variant, startIdx, endIdx };
   }
   return null;
+}
+
+/**
+ * Find the character index of the first line that — after trimming leading and
+ * trailing whitespace — equals {@link marker} exactly, scanning from
+ * {@link fromIdx}. Returns the index of the marker token within that line (the
+ * first non-whitespace character), so callers keep the same substring contract
+ * as a bare `indexOf(marker)` hit. Returns -1 when no such line exists.
+ *
+ * Anchoring to a whole line is what makes detection collision-proof: a marker
+ * token embedded in prose or quoted inside a YAML/JSON value lives on a line
+ * with other characters, so its trimmed line never equals the bare token.
+ */
+function lineAnchoredIndexOf(content: string, marker: string, fromIdx = 0): number {
+  // Walk line boundaries from fromIdx. A line spans [lineStart, lineEnd).
+  // Back up to the start of the line that fromIdx falls inside so a marker on
+  // that same line is still considered (start+end never share a line in
+  // hatch3r output, but a caller-supplied fromIdx may land mid-line).
+  let lineStart = content.lastIndexOf("\n", fromIdx > 0 ? fromIdx - 1 : 0) + 1;
+  while (lineStart <= content.length) {
+    const nlIdx = content.indexOf("\n", lineStart);
+    const lineEnd = nlIdx === -1 ? content.length : nlIdx;
+    const line = content.slice(lineStart, lineEnd);
+    if (line.trim() === marker) {
+      const tokenIdx = lineStart + (line.length - line.trimStart().length);
+      // Honor fromIdx: a token strictly before it (same-line back-up case) is
+      // skipped so the END search never re-matches the START line.
+      if (tokenIdx >= fromIdx) return tokenIdx;
+    }
+    if (nlIdx === -1) break;
+    lineStart = nlIdx + 1;
+  }
+  return -1;
+}
+
+/**
+ * Count lines that — after trimming — equal {@link marker} exactly. Used by
+ * {@link insertManagedBlock} for duplicate-marker detection so a marker token
+ * quoted inside user content (which lives on a line with other characters and
+ * therefore never trims to the bare token) is not miscounted as a duplicate.
+ */
+function countLineAnchored(content: string, marker: string): number {
+  let count = 0;
+  for (const line of content.split("\n")) {
+    if (line.trim() === marker) count++;
+  }
+  return count;
 }
 
 /**
@@ -77,7 +177,7 @@ export function insertManagedBlock(
   filePath?: string,
 ): string {
   const outputMarkers = getMarkersForPath(filePath);
-  const detected = detectMarkers(existingContent);
+  const detected = detectMarkers(existingContent, filePath);
 
   if (!detected) {
     throw new HatchError(
@@ -90,20 +190,21 @@ export function insertManagedBlock(
 
   const { variant, startIdx, endIdx } = detected;
 
-  // D1-SA1.5-F7 (Cycle 10 Wave 4, D1, content-quality.CQ8): scan for a second
-  // occurrence of each marker from position 0 (not from after the first hit)
-  // and treat any second index distinct from the detected one as a duplicate.
-  // The prior `indexOf(..., startIdx + 1)` form missed a duplicate that
-  // appears BEFORE the detected marker (the reversed-corruption case
-  // `END … BEGIN … END … BEGIN`), where detectMarkers locks onto the first
-  // BEGIN and the earlier END is the detected end — the second-end scan from
-  // `endIdx + 1` then reported a false negative and the operator saw the
-  // generic "must appear before" message instead of the duplicate diagnostic.
-  const firstStart = existingContent.indexOf(variant.start);
-  const lastStart = existingContent.lastIndexOf(variant.start);
-  const firstEnd = existingContent.indexOf(variant.end);
-  const lastEnd = existingContent.lastIndexOf(variant.end);
-  if (lastStart !== firstStart) {
+  // D1-SA1.5-F7 (Cycle 10 Wave 4, D1, content-quality.CQ8): count every
+  // occurrence of each marker (not just from after the first hit) and treat a
+  // second occurrence as a duplicate. The prior `indexOf(..., startIdx + 1)`
+  // form missed a duplicate that appears BEFORE the detected marker (the
+  // reversed-corruption case `END … BEGIN … END … BEGIN`).
+  // D1-7 / D11-4 (Cycle 11 Wave 2): the count is line-anchored to match
+  // detectMarkers. The prior bare `indexOf`/`lastIndexOf` form counted a marker
+  // token QUOTED in user content (markdown prose, or a YAML value documenting
+  // `# HATCH3R:END`) as a duplicate, throwing the false "duplicate marker"
+  // error — which routed safeWrite to the `.bak` auto-repair path that
+  // overwrites out-of-block user content. Counting whole-line tokens only,
+  // exactly as detection does, removes that false positive at the root.
+  const startCount = countLineAnchored(existingContent, variant.start);
+  const endCount = countLineAnchored(existingContent, variant.end);
+  if (startCount > 1) {
     throw new HatchError(
       "Corrupted managed block: duplicate start marker found. Remove the duplicate before syncing.",
       1,
@@ -111,7 +212,7 @@ export function insertManagedBlock(
       "Open the file, delete the extra HATCH3R:BEGIN line so only one remains, then re-run the command.",
     );
   }
-  if (lastEnd !== firstEnd) {
+  if (endCount > 1) {
     throw new HatchError(
       "Corrupted managed block: duplicate end marker found. Remove the duplicate before syncing.",
       1,
@@ -120,14 +221,15 @@ export function insertManagedBlock(
     );
   }
 
-  if (startIdx >= endIdx) {
-    throw new HatchError(
-      "Corrupted managed block: start marker must appear before end marker",
-      1,
-      "VALIDATION_ERROR",
-      "Reorder the markers so HATCH3R:BEGIN precedes HATCH3R:END, or delete both and re-run to regenerate the block.",
-    );
-  }
+  // D1-7 / D11-6 (Cycle 11 Wave 2): the start-before-end ordering check that
+  // previously lived here is now an upstream invariant — detectMarkers only
+  // returns a pair when the END line is found AFTER the START line
+  // (lineAnchoredIndexOf(end, startIdx + start.length)) AND, since D1-34
+  // (Cycle 11 Wave 3), the explicit `startIdx < endIdx` guard at its return
+  // site, so endIdx > startIdx always holds here. A reversed `END … BEGIN` file
+  // no longer detects as a block at all; it falls into the "must contain managed
+  // block markers" path above, and safeWriteFile then SKIPS it non-destructively
+  // rather than .bak-overwriting it.
 
   // G1: Trim at insert time so the round-trip with extractManagedBlock
   // (which also trims) is symmetric. Without this, asymmetric whitespace
@@ -146,9 +248,14 @@ export function insertManagedBlock(
   return result.endsWith("\n") ? result : result + "\n";
 }
 
-/** Extract the text between HATCH3R:BEGIN and HATCH3R:END markers (any variant), or null if absent. */
-export function extractManagedBlock(content: string): string | null {
-  const detected = detectMarkers(content);
+/**
+ * Extract the text between HATCH3R:BEGIN and HATCH3R:END markers (any variant),
+ * or null if absent. Pass {@link filePath} (D1-7/D11-6) so variant selection
+ * prefers the format the path would emit — disambiguates a file whose body
+ * quotes the other variant's token.
+ */
+export function extractManagedBlock(content: string, filePath?: string): string | null {
+  const detected = detectMarkers(content, filePath);
   if (!detected) return null;
 
   return content
@@ -156,9 +263,15 @@ export function extractManagedBlock(content: string): string | null {
     .trim();
 }
 
-/** Extract user-authored content outside the managed block markers (any variant). */
-export function extractCustomContent(content: string): string {
-  const detected = detectMarkers(content);
+/**
+ * Extract user-authored content outside the managed block markers (any
+ * variant). Pass {@link filePath} (D1-7/D11-6) so the boundary is computed from
+ * the line-anchored, path-preferred variant — a user line that quotes a marker
+ * token no longer truncates the slice fed to the safeWrite deny-scan or the
+ * orphan-cleanup `unlink` gate.
+ */
+export function extractCustomContent(content: string, filePath?: string): string {
+  const detected = detectMarkers(content, filePath);
   if (!detected) return content;
 
   const before = content.substring(0, detected.startIdx).trim();
@@ -222,9 +335,15 @@ export function wrapInManagedBlock(content: string, filePath?: string): string {
   return wrapWithMarkers(content, getMarkersForPath(filePath));
 }
 
-/** Check whether content contains both markers of any known variant. */
-export function hasManagedBlock(content: string): boolean {
-  return detectMarkers(content) !== null;
+/**
+ * Check whether content contains both line-anchored markers of any known
+ * variant (start line before end line). Pass {@link filePath} (D1-7/D11-6) so
+ * variant selection prefers the format the path would emit; this keeps the
+ * detection decision consistent with the matching extract call on the same
+ * file (the orphan-cleanup `unlink` gate reads both).
+ */
+export function hasManagedBlock(content: string, filePath?: string): boolean {
+  return detectMarkers(content, filePath) !== null;
 }
 
 /**
@@ -242,7 +361,7 @@ export function hasManagedBlock(content: string): boolean {
  * already matches the variant {@link getMarkersForPath} would emit.
  */
 export function wouldChangeMarkerVariant(existingContent: string, filePath?: string): boolean {
-  const detected = detectMarkers(existingContent);
+  const detected = detectMarkers(existingContent, filePath);
   if (!detected) return false;
   const outputMarkers = getMarkersForPath(filePath);
   return (

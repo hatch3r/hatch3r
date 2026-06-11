@@ -1,16 +1,22 @@
 import { readFile, readdir, cp, mkdir, rm, stat } from "node:fs/promises";
 import { createHash } from "node:crypto";
 import { join, dirname, normalize, isAbsolute, posix } from "node:path";
-import { parseFrontmatter } from "../adapters/canonical.js";
+import { parseFrontmatter, csvToGlobList } from "../adapters/canonical.js";
 import { extractAdaptersFrontmatter } from "./frontmatter.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import {
   PLATFORM_TOOL_MARKER,
   substituteCanonicalPlatformMarker,
 } from "../pipeline/adapterToolTranslator.js";
-import { HatchError } from "../types.js";
+import { ARCHIVE_DIR, HatchError } from "../types.js";
 import type { ContentSelection } from "../types.js";
-import type { ContentPreset } from "./presets.js";
+import {
+  getPreset,
+  capabilityLabel,
+  FULL_CAPABILITY_SUPERSET,
+  type ContentPreset,
+  type CapabilityTag,
+} from "./presets.js";
 import {
   TAG_CTX_BROWNFIELD_ONLY,
   TAG_CTX_GREENFIELD_ONLY,
@@ -201,6 +207,37 @@ export function extractUserContentReferences(content: string): string[] {
   return [...refs];
 }
 
+/**
+ * D22-1 (Cycle 11 Wave 2): scan markdown for BACKTICKED references to
+ * canonical rule files by path — `` `rules/hatch3r-foo.md` `` or its `.mdc`
+ * twin — so a citation of a rule file that does not exist on disk is caught.
+ * The id-based scanners (`extractContentReferences`) only resolve bare ids
+ * like `` `hatch3r-foo` ``; a backticked PATH such as
+ * `` `rules/hatch3r-reliability.md` `` matches neither the bare-id regex (the
+ * leading backtick is followed by `rules/`, not `hatch3r-`) nor the bare-prose
+ * scanner (which carves out `/`-prefixed and `.md`-suffixed forms). That gap
+ * let a rule path cited 5× across the corpus dangle while `hatch3r validate`
+ * exited 0. Returns deduplicated repo-relative paths; the CALLER resolves each
+ * against the content root and warns on miss.
+ *
+ * Scope is deliberately narrow — only `rules/hatch3r-*.{md,mdc}` paths — to
+ * keep the false-positive rate at zero: these are first-class canonical rule
+ * artifacts that MUST exist on disk, unlike illustrative `src/...` or
+ * `docs/...` paths that appear in prose as examples. Frontmatter and fenced
+ * code blocks are stripped first so example paths inside ```bash blocks or
+ * frontmatter values are not flagged.
+ */
+export function extractRuleFileReferences(content: string): string[] {
+  const refs = new Set<string>();
+  const scannable = stripFrontmatterAndFences(content);
+  const pattern = /`(rules\/hatch3r-[a-z0-9-]+\.mdc?)`/g;
+  let match: RegExpExecArray | null;
+  while ((match = pattern.exec(scannable)) !== null) {
+    refs.add(match[1]);
+  }
+  return [...refs];
+}
+
 export interface CrossReferenceResult {
   warnings: string[];
 }
@@ -229,6 +266,25 @@ export async function validateCrossReferences(
   const warnings: string[] = [];
   const allIds = new Set(index.items.map((item) => item.id));
   const allIdsList = [...allIds];
+
+  // D22-1: existence cache for backticked `rules/hatch3r-*.{md,mdc}` path
+  // references. The same rule path is cited many times across the corpus
+  // (e.g. `rules/hatch3r-resilience-patterns.md` appears in 10+ files), so a
+  // per-path `stat` is memoized to one filesystem probe per distinct path.
+  const ruleFileExists = new Map<string, boolean>();
+  const checkRuleFile = async (refPath: string): Promise<boolean> => {
+    const cached = ruleFileExists.get(refPath);
+    if (cached !== undefined) return cached;
+    let exists = false;
+    try {
+      await stat(join(contentRoot, refPath));
+      exists = true;
+    } catch {
+      exists = false;
+    }
+    ruleFileExists.set(refPath, exists);
+    return exists;
+  };
 
   // D2-M10: cheap Levenshtein distance for bare-ref typo detection. Scoped
   // small (≤ 2) so adjective-modifier matches like "hatch3r-generated" never
@@ -301,6 +357,18 @@ export async function validateCrossReferences(
       if (best && bestDistance > 0 && bestDistance <= 2) {
         warnings.push(
           `${item.type} "${item.id}" contains bare prose reference "${bareRef}" which appears to be a typo of "${best}" (edit distance ${bestDistance})`,
+        );
+      }
+    }
+
+    // D22-1: dangling rule-file path scan. A backticked `rules/hatch3r-*.md`
+    // (or `.mdc`) citation that does not resolve on disk is drift — the
+    // id-based scanners above never see it because it is a path, not a bare
+    // id. Warn so the reference is repointed to an existing rule.
+    for (const rulePath of extractRuleFileReferences(content)) {
+      if (!(await checkRuleFile(rulePath))) {
+        warnings.push(
+          `${item.type} "${item.id}" references rule file "${rulePath}" which does not exist on disk — repoint it to an existing rule or author the missing file`,
         );
       }
     }
@@ -542,8 +610,28 @@ async function scanContentRoot(
 
       for (const file of entries) {
         const filePath = join(dirPath, file);
-        const raw = await readFile(filePath, "utf-8");
-        const { metadata } = parseFrontmatter(raw);
+        let raw: string;
+        let metadata: ReturnType<typeof parseFrontmatter>["metadata"];
+        try {
+          raw = await readFile(filePath, "utf-8");
+          ({ metadata } = parseFrontmatter(raw));
+        } catch (err) {
+          // D2-19 (Cycle 11 Wave 3): one malformed-YAML file (realistic trigger:
+          // a `.hatch3r/overrides/` typo) previously threw a YAMLParseError with
+          // no source path and aborted the entire index build for
+          // init/sync/status/add/show/config. ENOENT means the file vanished
+          // between readdir and readFile — a genuine filesystem race worth
+          // surfacing loudly — so re-throw it. Any other error (parse failure,
+          // permission) is per-file: record an actionable named warning naming
+          // the offending path and continue indexing the rest of the corpus.
+          if ((err as NodeJS.ErrnoException).code === "ENOENT") throw err;
+          recordContentProbeFailure(
+            `buildContentIndex: skipped ${posix.join(config.dir, file)} (unreadable or malformed frontmatter)`,
+            err,
+            warnings,
+          );
+          continue;
+        }
         const rawId = metadata.id || metadata.name || file.replace(/\.md$/, "");
         const id = applyCommandPrefix(rawId, config.type);
 
@@ -924,6 +1012,67 @@ export function countPresetExclusions(
     count++;
   }
   return count;
+}
+
+/**
+ * D10-12 (Cycle 11 Wave 2, P1): the capability clusters a preset actually drops
+ * from a generated repo, computed from the realized post-floor selection delta
+ * `resolveSelection(full) \ resolveSelection(preset)` rather than the
+ * capability-intent gap in `presets.ts::omittedCapabilityClusters`.
+ *
+ * Why this exists: floor admission (stage 2 of `resolveSelection`) ships every
+ * `floor:*`-tagged item for every non-custom preset, so the capability-intent
+ * gap systematically over-states what a preset removes. A `minimal` preset that
+ * intent-omits "review" still ships `floor:content-quality`-tagged review
+ * artifacts; labeling it "omits review" in the picker was a lie (D10-12). This
+ * function names only the clusters whose items are genuinely absent after floor
+ * admission, so the picker's `omits:` line matches the generated output.
+ *
+ * Method:
+ *   1. Resolve `full` and `preset` with `skipContextFilters: true` on BOTH —
+ *      the cluster labels describe the capability/floor dial, independent of
+ *      project-type / team-size context filtering (which the picker surfaces
+ *      separately via its `Filters:` line and the `(excludes N of M)` count).
+ *   2. Diff the id sets → the items `preset` drops that `full` keeps.
+ *   3. Collect those dropped items' capability tags, intersect with the `full`
+ *      capability superset, and emit the matching labels in superset order via
+ *      the shared `capabilityLabel` map (single source of truth with
+ *      `presets.ts`). Non-capability tags on dropped items (e.g. `supply-chain`,
+ *      `ctx:*`) are not cluster labels and are excluded.
+ *
+ * `full` and `custom` return `[]` (full drops nothing; custom is user-driven).
+ * Pure read-only over `index`; no I/O.
+ */
+export function presetOmittedClusters(
+  preset: ContentPreset,
+  index: ContentIndex,
+): string[] {
+  if (preset.id === "full" || preset.id === "custom") return [];
+
+  const opts = { skipContextFilters: true } as const;
+  const fullIds = getAllContentIds(
+    resolveSelection(getPreset("full"), "brownfield", "team", index, undefined, undefined, opts),
+  );
+  const presetIds = getAllContentIds(
+    resolveSelection(preset, "brownfield", "team", index, undefined, undefined, opts),
+  );
+
+  // Capability tags carried by at least one genuinely-dropped item.
+  const droppedCapabilities = new Set<string>();
+  for (const id of fullIds) {
+    if (presetIds.has(id)) continue;
+    const item = index.byId.get(id);
+    if (!item) continue;
+    for (const tag of item.tags) {
+      if (isCapabilityTag(tag)) droppedCapabilities.add(tag);
+    }
+  }
+
+  // Emit in full-superset order via the shared label map so the picker labels
+  // match `presets.ts` exactly (e.g. ai → "AI feature engineering").
+  return FULL_CAPABILITY_SUPERSET.filter((cap) => droppedCapabilities.has(cap)).map(
+    (cap) => capabilityLabel(cap as CapabilityTag),
+  );
 }
 
 /**
@@ -1361,13 +1510,19 @@ export async function addContentItem(
 }
 
 /**
- * Remove a single content item from .agents/ and optionally clean up customization files.
+ * Remove a single content item from .agents/. When `rootDir` is provided, the
+ * item's hand-authored `.customize.yaml` / `.customize.md` overrides are NOT
+ * hard-deleted — they are moved into `<rootDir>/.hatch3r/archive/customize/<dir>/`
+ * so the user-authored bytes survive a preset downgrade and can be restored by
+ * moving them back. The returned `archivedCustomizeFiles` lists each rescued
+ * file as a `.hatch3r/archive/customize/...` repo-relative path so the caller
+ * can surface it in the removal summary (D10-35, Cycle 11 Wave 3, D10, P1).
  */
 export async function removeContentItem(
   agentsDir: string,
   item: CatalogItem,
   options?: { rootDir?: string },
-): Promise<void> {
+): Promise<{ archivedCustomizeFiles: string[] }> {
   assertSafePath(item.relativePath, "removeContentItem");
   if (item.companionPath) {
     assertSafePath(item.companionPath, "removeContentItem companion");
@@ -1385,7 +1540,9 @@ export async function removeContentItem(
     }
   }
 
-  // Clean up customize files if rootDir provided
+  const archivedCustomizeFiles: string[] = [];
+
+  // Archive (not delete) customize files when rootDir provided.
   if (options?.rootDir) {
     const typeToDir: Record<string, string> = {
       agent: "agents",
@@ -1396,12 +1553,50 @@ export async function removeContentItem(
     const customDir = typeToDir[item.type];
     if (customDir) {
       const cleanId = item.id.replace(/^cmd-/, "").replace(/^hatch3r-/, "");
-      const yamlPath = join(options.rootDir, ".hatch3r", customDir, `${cleanId}.customize.yaml`);
-      const mdPath = join(options.rootDir, ".hatch3r", customDir, `${cleanId}.customize.md`);
-      await rm(yamlPath, { force: true });
-      await rm(mdPath, { force: true });
+      const archiveDir = join(options.rootDir, ARCHIVE_DIR, "customize", customDir);
+      for (const fileName of [`${cleanId}.customize.yaml`, `${cleanId}.customize.md`]) {
+        const srcPath = join(options.rootDir, ".hatch3r", customDir, fileName);
+        // D10-35: a hard `rm` here silently destroyed user-authored overrides on
+        // every preset downgrade (the removal preview only covered archived tool
+        // output, never these files). Move each existing override into the
+        // customize archive instead, then remove the original. Probe existence
+        // first so a missing override never creates an empty archive directory.
+        let exists = false;
+        try {
+          await stat(srcPath);
+          exists = true;
+        } catch (err) {
+          // ENOENT: no override to rescue — leave `exists` false and skip the
+          // move. Any other stat error (e.g. permission) also degrades to "skip
+          // the archive"; the original `rm` below still runs so the on-disk
+          // selection stays consistent.
+          const code = (err as NodeJS.ErrnoException)?.code;
+          if (code !== "ENOENT") {
+            const message = err instanceof Error ? err.message : String(err);
+            verbose(`removeContentItem: stat ${srcPath} skipped — ${message}`);
+          }
+        }
+        if (exists) {
+          try {
+            // `cp` overwrites a same-named prior archive copy — acceptable since
+            // the archive is an inspection/restore convenience, not a versioned
+            // store.
+            await mkdir(archiveDir, { recursive: true });
+            await cp(srcPath, join(archiveDir, fileName));
+            archivedCustomizeFiles.push(posix.join(ARCHIVE_DIR, "customize", customDir, fileName));
+          } catch (err) {
+            // Archive write failed (permission, disk) — downgrade to a verbose
+            // line and still remove the original so the selection is consistent.
+            const message = err instanceof Error ? err.message : String(err);
+            verbose(`removeContentItem: archive ${srcPath} skipped — ${message}`);
+          }
+        }
+        await rm(srcPath, { force: true });
+      }
     }
   }
+
+  return { archivedCustomizeFiles };
 }
 
 /**
@@ -1458,18 +1653,64 @@ export function selectionSummary(selection: ContentSelection): string {
 
 /**
  * Generate Cursor-native frontmatter from canonical rule metadata.
- * Maps `scope` to `alwaysApply` / `globs` as the Cursor adapter does.
+ * Maps `scope` (+ a separate `globs` CSV) to `alwaysApply` / `globs` using the
+ * same `.md → .mdc` transform the Cursor adapter applies via `resolveRuleGlobs`
+ * (`src/adapters/canonical.ts`):
+ *   - `scope: always`                      → `alwaysApply: true` (no globs)
+ *   - `scope: agent-requested`             → `alwaysApply: false` (no globs;
+ *                                             Cursor Apply-Intelligently mode —
+ *                                             the agent pulls the rule in by its
+ *                                             `description`. D5-28)
+ *   - `scope: conditional` + `globs: <csv>`→ `globs: ["g1", ...]` (auto-attached)
+ *   - `scope: conditional` with no `globs`  → `alwaysApply: false` (deprecated
+ *                                             globs-less conditional — prefer the
+ *                                             explicit `agent-requested` keyword)
+ *   - `scope: "<csv>"` (legacy inline form) → `globs: ["g1", ...]`
+ *   - absent / empty scope                  → `alwaysApply: false`
+ *
+ * D2-18 (Cycle 11 Wave 3): before the `globs` parameter existed, the canonical
+ * two-line form (`scope: conditional` + a separate `globs:` line — the form
+ * `.claude/rules/content-authoring.md` mandates for new rules) fell through to
+ * the final `alwaysApply: false` branch with NO globs, silently demoting every
+ * auto-attached Cursor rule (50+ canonical rules) to manual-only `@`-mention.
+ * Routing the CSV through `csvToGlobList` mirrors the parity gate
+ * (`scripts/validate-rule-parity.ts` `csvToSet`) so the emitted `.mdc` glob set
+ * matches what the validator derives from the same `.md`.
  */
-function cursorCompanionFrontmatter(description: string, scope?: string): string {
+function cursorCompanionFrontmatter(
+  description: string,
+  scope?: string,
+  globs?: string,
+): string {
   const lines: string[] = [`description: ${description}`];
   if (scope === "always") {
     lines.push("alwaysApply: true");
-  } else if (scope && scope !== "conditional") {
-    // Treat non-"always", non-"conditional" scope values as glob patterns
-    const globs = scope.includes(",")
-      ? scope.split(",").map((g) => g.trim())
-      : [scope];
-    lines.push(`globs: [${globs.map((g) => `"${g}"`).join(", ")}]`);
+  } else if (scope === "agent-requested") {
+    // D5-28: Cursor Apply-Intelligently mode — description-only `.mdc` with no
+    // globs. The agent reads `description` and pulls the rule in when relevant
+    // (cursor.com/docs/context/rules, accessed 2026-06-09). Must short-circuit
+    // before the legacy-CSV branch, which would otherwise treat the literal
+    // "agent-requested" token as a glob.
+    lines.push("alwaysApply: false");
+  } else if (scope === "conditional") {
+    // Canonical two-line form: the real patterns live in the separate `globs`
+    // CSV, never in `scope`. A conditional rule with no `globs` is a deprecated
+    // globs-less rule → manual-only (alwaysApply: false), per the transform.
+    const list = csvToGlobList(globs);
+    if (list.length > 0) {
+      lines.push(`globs: [${list.map((g) => `"${g}"`).join(", ")}]`);
+    } else {
+      lines.push("alwaysApply: false");
+    }
+  } else if (scope) {
+    // Legacy inline-CSV form (`scope: "**/*.ts, **/*.tsx"` or a single bare
+    // glob): the patterns live in the scope string itself.
+    const list = csvToGlobList(scope);
+    if (list.length > 0) {
+      lines.push(`globs: [${list.map((g) => `"${g}"`).join(", ")}]`);
+    } else {
+      lines.push("alwaysApply: false");
+    }
   } else {
     lines.push("alwaysApply: false");
   }
@@ -1523,7 +1764,8 @@ export async function generateMdcCompanions(rulesDir: string): Promise<string[]>
     const { metadata, content } = parseFrontmatter(raw);
     const description = metadata.description || "";
     const scope = metadata.scope;
-    const frontmatter = cursorCompanionFrontmatter(description, scope);
+    const globs = metadata.globs;
+    const frontmatter = cursorCompanionFrontmatter(description, scope, globs);
     const mdcContent = `${frontmatter}\n${content}`;
     const mdcFile = mdFile.replace(/\.md$/, ".mdc");
     const mdcPath = join(rulesDir, mdcFile);

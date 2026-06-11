@@ -1,6 +1,6 @@
-import { access, mkdir, readFile, readdir, rename, rmdir, stat } from "node:fs/promises";
+import { access, cp, mkdir, readFile, readdir, rename, rm, rmdir, stat } from "node:fs/promises";
 import { dirname, join, relative, sep } from "node:path";
-import { HATCH3R_DIR, MANIFEST_FILE } from "../types.js";
+import { HatchError, HATCH3R_DIR, MANIFEST_FILE } from "../types.js";
 
 /**
  * Repo-relative path rendered with forward slashes regardless of host OS.
@@ -162,6 +162,36 @@ async function directoriesEqual(
   return { equal: true };
 }
 
+/**
+ * D8-6: cross-device-safe move. `rename(2)` fails with `EXDEV` when source and
+ * destination sit on different filesystems — the common case for containerized
+ * upgrades (bind-mounted `.agents/` from a different volume) and OneDrive /
+ * networked-home setups where `.hatch3r/` and `.agents/` straddle a mount
+ * boundary. Node's `rename` does not transparently fall back, so a 1.8→2.0
+ * upgrade would hard-fail there. On `EXDEV` we copy the subtree
+ * (`cp` with `recursive`, preserving a directory or a single file) then remove
+ * the source — the same effect as a rename, just non-atomic across the device
+ * boundary. Any non-EXDEV rename error re-throws unchanged.
+ *
+ * `recursive: true` is a no-op for a single file and required for a directory,
+ * so the one helper serves both move sites. `cp` does not preserve symlinks as
+ * links by default, but the migration shim only moves regular bookkeeping
+ * files and content directories — symlinked sources go down the same path the
+ * pre-fix `rename` took and are dereferenced by the copy, which is acceptable
+ * for the one-shot relocation.
+ */
+async function renameAcrossDevices(oldPath: string, newPath: string): Promise<void> {
+  try {
+    await rename(oldPath, newPath);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "EXDEV") throw err;
+    // Cross-device: copy then delete. If the copy fails we leave the source in
+    // place (cp throws before rm runs), so the legacy copy is never lost.
+    await cp(oldPath, newPath, { recursive: true });
+    await rm(oldPath, { recursive: true, force: true });
+  }
+}
+
 async function moveFileIfPossible(
   oldPath: string,
   newPath: string,
@@ -196,7 +226,7 @@ async function moveFileIfPossible(
     };
   }
   await mkdir(dirname(newPath), { recursive: true });
-  await rename(oldPath, newPath);
+  await renameAcrossDevices(oldPath, newPath);
   return { moved: true };
 }
 
@@ -231,7 +261,7 @@ async function moveDirIfPossible(
     };
   }
   await mkdir(dirname(newDir), { recursive: true });
-  await rename(oldDir, newDir);
+  await renameAcrossDevices(oldDir, newDir);
   return { moved: true };
 }
 
@@ -264,6 +294,39 @@ function recordIfConflict(
 }
 
 /**
+ * D8-5: best-effort compensating move-back for an interrupted migration. Walks
+ * the completed-move ledger in reverse (last relocated, first restored) and
+ * moves each entry from its new path back to its origin via the same
+ * cross-device-safe primitive used on the forward path. Each reversal is
+ * individually guarded: a failed move-back is surfaced on stderr in verbose
+ * mode (Silent Failure Contract) but never re-thrown, so it cannot mask the
+ * original interruption error the caller is about to throw. This function never
+ * throws.
+ */
+async function rollbackMoves(
+  completedMoves: ReadonlyArray<{ from: string; to: string }>,
+): Promise<void> {
+  for (let i = completedMoves.length - 1; i >= 0; i--) {
+    const { from, to } = completedMoves[i];
+    try {
+      // Only move back when the destination still holds the relocated entry
+      // and the origin is free — guards against a partially-reversed re-entry.
+      if ((await exists(to)) && !(await exists(from))) {
+        await mkdir(dirname(from), { recursive: true });
+        await renameAcrossDevices(to, from);
+      }
+    } catch (err) {
+      if (process.env.HATCH3R_VERBOSE) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(
+          `[hatch3r] migration: rollback of ${to} -> ${from} failed — ${message}`,
+        );
+      }
+    }
+  }
+}
+
+/**
  * One-shot relocation of `.agents/` -> `.hatch3r/`. Safe to call on every
  * pipeline entry — idempotent and silent when nothing needs to move.
  *
@@ -277,6 +340,12 @@ export async function migrateAgentsToHatch3r(
 ): Promise<AgentsToHatch3rMigrationResult> {
   const moved: string[] = [];
   const conflicts: MigrationConflict[] = [];
+  // D8-5: reversible record of each completed move ({ from, to }) so a failure
+  // partway through the sequence can be compensated (best-effort move-back)
+  // before re-throwing. The shim has no atomic multi-move primitive, so the
+  // rollback restores the pre-migration layout rather than leaving the tree
+  // half-relocated.
+  const completedMoves: Array<{ from: string; to: string }> = [];
   const oldRoot = join(rootDir, AGENTS_DIR);
 
   // Fast path: no legacy directory at all.
@@ -284,99 +353,123 @@ export async function migrateAgentsToHatch3r(
     return { moved, removedLegacyDir: false, conflicts };
   }
 
-  // hatch.json
-  {
-    const oldP = join(oldRoot, MANIFEST_FILE);
-    const newP = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
-    const outcome = await moveFileIfPossible(oldP, newP);
+  // Run one move attempt: on success record both the operator-facing display
+  // string and the reversible { from, to } pair; otherwise capture any
+  // divergent-destination conflict. Collapses four near-identical blocks
+  // (P4 lean) and is the single place that feeds the rollback ledger.
+  const attemptMove = async (
+    oldP: string,
+    newP: string,
+    display: string,
+    kind: "file" | "directory",
+    mover: (a: string, b: string) => Promise<MoveOutcome>,
+  ): Promise<void> => {
+    const outcome = await mover(oldP, newP);
     if (outcome.moved) {
-      moved.push(`${AGENTS_DIR}/${MANIFEST_FILE} -> ${HATCH3R_DIR}/${MANIFEST_FILE}`);
+      moved.push(display);
+      completedMoves.push({ from: oldP, to: newP });
     } else {
-      recordIfConflict(outcome, rootDir, oldP, newP, "file", conflicts);
+      recordIfConflict(outcome, rootDir, oldP, newP, kind, conflicts);
     }
-  }
+  };
 
-  // learnings/ (whole subtree)
-  {
-    const oldP = join(oldRoot, "learnings");
-    const newP = join(rootDir, HATCH3R_DIR, "learnings");
-    const outcome = await moveDirIfPossible(oldP, newP);
-    if (outcome.moved) {
-      moved.push(`${AGENTS_DIR}/learnings/ -> ${HATCH3R_DIR}/learnings/`);
-    } else {
-      recordIfConflict(outcome, rootDir, oldP, newP, "directory", conflicts);
-    }
-  }
-
-  // handoffs/ (whole subtree)
-  {
-    const oldP = join(oldRoot, "handoffs");
-    const newP = join(rootDir, HATCH3R_DIR, "handoffs");
-    const outcome = await moveDirIfPossible(oldP, newP);
-    if (outcome.moved) {
-      moved.push(`${AGENTS_DIR}/handoffs/ -> ${HATCH3R_DIR}/handoffs/`);
-    } else {
-      recordIfConflict(outcome, rootDir, oldP, newP, "directory", conflicts);
-    }
-  }
-
-  // mcp/mcp.json (single file under mcp/)
-  {
-    const oldP = join(oldRoot, "mcp", "mcp.json");
-    const newP = join(rootDir, HATCH3R_DIR, "mcp", "mcp.json");
-    const outcome = await moveFileIfPossible(oldP, newP);
-    if (outcome.moved) {
-      moved.push(`${AGENTS_DIR}/mcp/mcp.json -> ${HATCH3R_DIR}/mcp/mcp.json`);
-    } else {
-      recordIfConflict(outcome, rootDir, oldP, newP, "file", conflicts);
-    }
-  }
-  // If `.agents/mcp/` is now empty (we just moved its only file), drop it
-  // so the legacy-dir emptiness check below has a chance to clear `.agents/`.
-  try {
-    const mcpDir = join(oldRoot, "mcp");
-    if (await exists(mcpDir)) {
-      const entries = await readdir(mcpDir);
-      if (entries.length === 0) await rmdir(mcpDir);
-    }
-  } catch (err) {
-    // Best-effort cleanup; the legacy `.agents/mcp/` removal is purely a
-    // tidiness step. Surface the failure on stderr only when the runtime
-    // is in a verbose mode (process.env.HATCH3R_VERBOSE) so silent
-    // fallbacks remain observable per the Silent Failure Contract.
-    if (process.env.HATCH3R_VERBOSE) {
-      const message = err instanceof Error ? err.message : String(err);
-      console.warn(`[hatch3r] migration: legacy .agents/mcp/ cleanup skipped — ${message}`);
-    }
-  }
-
-  // user/ (Wave 5) — D20 user-authored content moves to `.hatch3r/overrides/`.
-  // The whole `.agents/user/` subtree relocates wholesale; `resolveUserContentRoot`
-  // now resolves to `.hatch3r/overrides/` so adapter reads + saveUserContent
-  // follow the new path automatically.
-  {
-    const oldP = join(oldRoot, "user");
-    const newP = join(rootDir, HATCH3R_DIR, "overrides");
-    const outcome = await moveDirIfPossible(oldP, newP);
-    if (outcome.moved) {
-      moved.push(`${AGENTS_DIR}/user/ -> ${HATCH3R_DIR}/overrides/`);
-    } else {
-      recordIfConflict(outcome, rootDir, oldP, newP, "directory", conflicts);
-    }
-  }
-
-  // Attempt to remove the now-empty `.agents/` shell. Anything left behind
-  // (e.g. `.agents/.integrity.json` until Wave 7, or any of the
-  // destination-exists conflicts above) keeps the directory.
   let removedLegacyDir = false;
   try {
-    const remaining = await readdir(oldRoot);
-    if (remaining.length === 0) {
-      await rmdir(oldRoot);
-      removedLegacyDir = true;
+    // hatch.json
+    await attemptMove(
+      join(oldRoot, MANIFEST_FILE),
+      join(rootDir, HATCH3R_DIR, MANIFEST_FILE),
+      `${AGENTS_DIR}/${MANIFEST_FILE} -> ${HATCH3R_DIR}/${MANIFEST_FILE}`,
+      "file",
+      moveFileIfPossible,
+    );
+
+    // learnings/ (whole subtree)
+    await attemptMove(
+      join(oldRoot, "learnings"),
+      join(rootDir, HATCH3R_DIR, "learnings"),
+      `${AGENTS_DIR}/learnings/ -> ${HATCH3R_DIR}/learnings/`,
+      "directory",
+      moveDirIfPossible,
+    );
+
+    // handoffs/ (whole subtree)
+    await attemptMove(
+      join(oldRoot, "handoffs"),
+      join(rootDir, HATCH3R_DIR, "handoffs"),
+      `${AGENTS_DIR}/handoffs/ -> ${HATCH3R_DIR}/handoffs/`,
+      "directory",
+      moveDirIfPossible,
+    );
+
+    // mcp/mcp.json (single file under mcp/)
+    await attemptMove(
+      join(oldRoot, "mcp", "mcp.json"),
+      join(rootDir, HATCH3R_DIR, "mcp", "mcp.json"),
+      `${AGENTS_DIR}/mcp/mcp.json -> ${HATCH3R_DIR}/mcp/mcp.json`,
+      "file",
+      moveFileIfPossible,
+    );
+    // If `.agents/mcp/` is now empty (we just moved its only file), drop it
+    // so the legacy-dir emptiness check below has a chance to clear `.agents/`.
+    try {
+      const mcpDir = join(oldRoot, "mcp");
+      if (await exists(mcpDir)) {
+        const entries = await readdir(mcpDir);
+        if (entries.length === 0) await rmdir(mcpDir);
+      }
+    } catch (err) {
+      // Best-effort cleanup; the legacy `.agents/mcp/` removal is purely a
+      // tidiness step. Surface the failure on stderr only when the runtime
+      // is in a verbose mode (process.env.HATCH3R_VERBOSE) so silent
+      // fallbacks remain observable per the Silent Failure Contract.
+      if (process.env.HATCH3R_VERBOSE) {
+        const message = err instanceof Error ? err.message : String(err);
+        console.warn(`[hatch3r] migration: legacy .agents/mcp/ cleanup skipped — ${message}`);
+      }
+    }
+
+    // user/ (Wave 5) — D20 user-authored content moves to `.hatch3r/overrides/`.
+    // The whole `.agents/user/` subtree relocates wholesale; `resolveUserContentRoot`
+    // now resolves to `.hatch3r/overrides/` so adapter reads + saveUserContent
+    // follow the new path automatically.
+    await attemptMove(
+      join(oldRoot, "user"),
+      join(rootDir, HATCH3R_DIR, "overrides"),
+      `${AGENTS_DIR}/user/ -> ${HATCH3R_DIR}/overrides/`,
+      "directory",
+      moveDirIfPossible,
+    );
+
+    // Attempt to remove the now-empty `.agents/` shell. Anything left behind
+    // (e.g. `.agents/.integrity.json` until Wave 7, or any of the
+    // destination-exists conflicts above) keeps the directory.
+    try {
+      const remaining = await readdir(oldRoot);
+      if (remaining.length === 0) {
+        await rmdir(oldRoot);
+        removedLegacyDir = true;
+      }
+    } catch (err) {
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
     }
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    // D8-5: the move sequence was interrupted (e.g. EXDEV copy failure mid-way,
+    // a permission flip between entries, process-level I/O error). Without
+    // compensation the tree is left half-relocated and a re-run would hit a
+    // mix of source-missing and destination-exists states. Best-effort move
+    // each completed relocation back to its origin (reverse order) so the
+    // pre-migration layout is restored, then re-throw a structured HatchError
+    // the operator can act on. Each move-back is individually guarded so a
+    // failed reversal never masks the original failure.
+    await rollbackMoves(completedMoves);
+    const message = err instanceof Error ? err.message : String(err);
+    throw new HatchError(
+      `Migration of legacy ${AGENTS_DIR}/ state to ${HATCH3R_DIR}/ was interrupted: ${message}`,
+      undefined,
+      "FS_ERROR",
+      "Migration interrupted; re-run to finish or move the listed entries manually",
+    );
   }
 
   if (moved.length > 0) {

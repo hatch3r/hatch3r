@@ -2,7 +2,7 @@
 id: hatch3r-perf-audit
 name: hatch3r-perf-audit
 type: skill
-description: Profile and optimize application performance against defined budgets. Use when investigating performance issues, auditing performance budgets, or optimizing hot paths.
+description: Profiles and optimizes application performance against defined budgets. Use when investigating performance issues, auditing performance budgets, or optimizing hot paths.
 tags: [review, performance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -31,12 +31,7 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (trivial single-file): inline execution acceptable.
-- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
-- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
-
-Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Read Performance Budgets
 
@@ -106,9 +101,11 @@ Common strategies:
 ## Step 6: Verify
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 npm run build
 ```
+
+The gate line is resolved to the project's language-aware command set at sync time (fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`); the build line is illustrative — substitute the project's build command.
 
 - All performance budgets met.
 - No functional regressions.

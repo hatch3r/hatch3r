@@ -22,6 +22,8 @@
  * P5 (a single output funnel keeps the contract testable in one place).
  */
 
+import { HatchError } from "../../types.js";
+
 /**
  * Supported CLI output formats. The contract mirrors `ValidateOutputFormat`
  * in `src/cli/commands/validate.ts` so the JSON-mode opt-in is uniform
@@ -31,14 +33,32 @@ export type CliOutputFormat = "human" | "json";
 
 /**
  * Normalize a user-supplied `--format <value>` argument to a
- * {@link CliOutputFormat}. Accepts case-insensitive `"json"` /
- * `"JSON"` / `"Json"`; anything else (including empty, undefined,
- * mistyped values) falls back to `"human"` so the legacy decorated
+ * {@link CliOutputFormat}. Accepts case-insensitive `"human"` / `"json"`
+ * (and the equivalent mixed-case spellings); `undefined`, a non-string, or
+ * an empty/whitespace-only value falls back to `"human"` so the decorated
  * surface remains the default for interactive users.
+ *
+ * D10-22 (Cycle 11 Wave 3, D10, P1): a `--format` value that is neither
+ * `human` nor `json` (e.g. the typo `jsom`) previously degraded silently to
+ * `"human"` and exited 0 — a CI consumer that asked for JSON got decorated
+ * human output and no signal that its flag was wrong. An explicit, non-empty,
+ * unrecognized value is now a usage error (exit 2 via the top-level funnel in
+ * `src/cli/index.ts`) so the mistyped CI flag fails loudly. The empty/absent
+ * fallback is preserved because Commander supplies the `"human"` default on
+ * the no-flag path; only an explicitly-supplied bad value throws.
  */
 export function parseFormatOption(value: string | undefined): CliOutputFormat {
   if (typeof value !== "string") return "human";
-  return value.trim().toLowerCase() === "json" ? "json" : "human";
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "") return "human";
+  if (normalized === "human") return "human";
+  if (normalized === "json") return "json";
+  throw new HatchError(
+    `Invalid --format value: ${JSON.stringify(value)}. Expected "human" or "json".`,
+    2,
+    "VALIDATION_ERROR",
+    "Re-run with --format human or --format json (omit --format for the human default).",
+  );
 }
 
 /**

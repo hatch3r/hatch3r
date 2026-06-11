@@ -3,6 +3,7 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml } from "yaml";
 import { LEARNINGS_INJECTION_PATTERNS } from "../learningsValidation.js";
+import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import {
   type Handoff,
   type HandoffFrontmatter,
@@ -135,13 +136,40 @@ function extractSectionHeadings(body: string): string[] {
 }
 
 /**
- * Scan `body` for the 5 learnings-injection patterns (P-LEARN-01..05).
- * Returns the matching pattern ids; empty array on clean input.
+ * Scan `body` for context-poisoning injection.
+ *
+ * Returns human-readable hit descriptions; empty array on clean input.
+ *
+ * Two layers, matching what `validateLearningContent` runs for `.hatch3r/
+ * learnings/` so a handoff and a learning carry the SAME deterministic floor:
+ *
+ *   1. The 5 handoff/learnings structural patterns (P-LEARN-01..05) — fake
+ *      system-prompt headers, config-override frontmatter, cross-agent
+ *      targeting, forged managed-block markers, tool-use tags.
+ *   2. The broad ASCII-override deny set (`scanForDeniedPatterns` from
+ *      `customization.ts`) — "ignore all previous instructions", role-directed
+ *      "you must always …", cross-agent "when the <role> runs …", etc.
+ *
+ * D15-19 (Cycle 11 Wave 3, D15, ASI06): layer 2 was missing here. `.hatch3r/
+ * handoffs/` are user-tier state a resuming agent reads into its context, but
+ * the handoff gate ran only the 5-pattern P-LEARN subset — narrower than the
+ * learnings gate, which also runs `scanForDeniedPatterns`. A handoff carrying a
+ * plain role-injection override ("ignore all previous instructions …") that
+ * does not also trip a P-LEARN structural pattern therefore passed the gate and
+ * reached the next agent behind no deterministic block. Adding layer 2 closes
+ * that gap so a poisoned handoff is refused at the same boundary a poisoned
+ * learning is.
  */
 function scanForInjectionPatterns(body: string): string[] {
   const hits: string[] = [];
+  // Layer 1: P-LEARN-01..05 structural patterns.
   for (const { patternId, pattern } of LEARNINGS_INJECTION_PATTERNS) {
     if (pattern.test(body)) hits.push(patternId);
+  }
+  // Layer 2: broad ASCII-override / role-injection deny set. Returns already-
+  // formatted "denied pattern …" strings; surface them verbatim.
+  for (const denyHit of scanForDeniedPatterns(body)) {
+    hits.push(denyHit);
   }
   return hits;
 }
@@ -277,11 +305,15 @@ export function validateHandoffContent(
     }
 
     // ── Injection scan (criterion 6 — Required, ASI06) ──
+    // D15-19: scan now covers BOTH the P-LEARN structural patterns AND the
+    // broad deny set (role-injection / ASCII overrides), matching the learnings
+    // gate. Each hit is a hard error so a poisoned handoff is refused before a
+    // resuming agent reads it.
     if (!options.skipInjectionScan) {
       const hits = scanForInjectionPatterns(handoff.body);
-      for (const patternId of hits) {
+      for (const hit of hits) {
         errors.push(
-          `Handoff body matches injection pattern ${patternId}. ` +
+          `Handoff body matches injection pattern (${hit}). ` +
             "Review and sanitize before consuming.",
         );
       }
@@ -322,6 +354,16 @@ export interface HandoffsDirectoryResult {
   warnings: string[];
   activeCount: number;
   archivedCount: number;
+  /**
+   * Ids of active handoffs whose `expires_after` is at-or-before now
+   * (per {@link isHandoffExpired}). First-class detection output so a caller
+   * can deterministically quarantine them (move active → archived) at the
+   * resume-flow boundary instead of only reading the advisory drift warning.
+   * D6-26 (Cycle 11 Wave 3, D6, ASI06): expiry was advisory-only; surfacing
+   * the ids lets `hatch3r sync` auto-quarantine past-expiry handoffs before a
+   * resuming agent reads stale state.
+   */
+  expiredActiveIds: string[];
 }
 
 /**
@@ -403,10 +445,13 @@ async function loadHandoffFile(
  */
 export async function validateHandoffsDirectory(
   activeDir: string,
-  options: { archivedDir?: string; currentGitRef?: string } = {},
+  options: { archivedDir?: string; currentGitRef?: string; now?: Date } = {},
 ): Promise<HandoffsDirectoryResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
+  const expiredActiveIds: string[] = [];
+  // Clock for expiry detection: default `new Date()`, overridable for tests.
+  const now = options.now ?? new Date();
 
   async function listMdFiles(dir: string): Promise<string[] | null> {
     try {
@@ -436,11 +481,22 @@ export async function validateHandoffsDirectory(
       errors.push(error ?? `Failed to load handoff "${file}".`);
       continue;
     }
-    const r = validateHandoffContent(handoff, { currentGitRef: options.currentGitRef });
+    const r = validateHandoffContent(handoff, { currentGitRef: options.currentGitRef, now });
     for (const e of r.errors) errors.push(`[${file}] ${e}`);
     for (const w of r.warnings) warnings.push(`[${file}] ${w}`);
     if (r.driftWarnings) {
       for (const dw of r.driftWarnings) warnings.push(`[${file}] ${dw}`);
+    }
+    // D6-26: record past-expiry active handoffs by id for deterministic
+    // quarantine by the caller (sync). Only valid-id entries are recorded —
+    // a malformed id is already a hard error above and there is nothing
+    // stable to quarantine by.
+    if (
+      isHandoffExpired(handoff, now) &&
+      typeof handoff.frontmatter.id === "string" &&
+      handoff.frontmatter.id.length > 0
+    ) {
+      expiredActiveIds.push(handoff.frontmatter.id);
     }
   }
 
@@ -467,5 +523,6 @@ export async function validateHandoffsDirectory(
     warnings,
     activeCount: activeFiles.length,
     archivedCount,
+    expiredActiveIds,
   };
 }

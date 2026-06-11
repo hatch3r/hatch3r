@@ -139,10 +139,16 @@ export function formatCommandHint(tools: Tool[], commandName: string): string {
  * (`code .`, `cursor .`, `open -a` from a shell that has sourced .env.mcp)
  * reliably propagates the secrets to MCP STDIO server child processes.
  * The notes now flag the caveat so users do not silently get empty tokens.
+ *
+ * D11-7 (Cycle 11 D11, P6/CQ4): the copilot note now distinguishes the two
+ * VS Code secret paths the adapter actually emits — STDIO server `env` via
+ * the `.env.mcp` envFile loader, and HTTP/header secrets via VS Code's
+ * `${input:NAME}` prompt (top-level `inputs[]`), which VS Code prompts for
+ * on first use rather than reading from `.env.mcp`.
  */
 export const TOOL_SECRET_NOTES: Partial<Record<Tool, string>> = {
   cursor: "Cursor: auto-loads .env.mcp from project root (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var)",
-  copilot: "VS Code / Copilot: auto-loads .env.mcp from project root (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var)",
+  copilot: "VS Code / Copilot: STDIO server env auto-loads from .env.mcp (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var); MCP header secrets are prompted via VS Code ${input:NAME} variables on first use",
   claude: "Claude Code: reads .env.mcp via shell sourcing (run `set -a && source .env.mcp && set +a` before starting; macOS GUI launchers do not inherit shell env)",
 };
 

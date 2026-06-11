@@ -1,15 +1,21 @@
 export type Platform = "github" | "azure-devops" | "gitlab";
 
 /**
- * Project maturity tier. Decision 4 / #16: gates content admission so install
- * footprint and gate strictness scale with the project's operational maturity.
+ * Project maturity tier. Decision 4 / #16: an investment-calibration dial.
+ * It does NOT gate content admission — every tier installs the identical
+ * corpus (Decision 16; see `docs/maturity-tiers.md`). The tier only calibrates
+ * how deep the agents invest (robustness, scalability, testing, infra) and how
+ * strict the user-content gates run, anchored by a universal floor that never
+ * relaxes at any tier.
  *
- * - `solo`     — individual developer / hobby project. Drops items tagged
- *                `floor:enterprise-only`. Default at init.
- * - `team`     — small team with shared repo. Admits team-tagged items.
- * - `scaleup`  — multi-team org with formal review processes.
- * - `enterprise` — regulated environment, full audit/compliance posture.
- *                  Admits every artifact regardless of tier tag.
+ * - `solo`     — individual developer / hobby project. Universal floor only;
+ *                gentle (warn-only) user-content gates. Default at init.
+ * - `team`     — small team with shared repo. + duplication/design-system
+ *                discipline; user-content gates promote to strict.
+ * - `scaleup`  — multi-team org. + production-operations depth (SLOs, tracing,
+ *                performance budgets).
+ * - `enterprise` — regulated environment. + org-governance depth (full
+ *                  mutation/property/contract testing, AI-eval coverage, FinOps).
  *
  * Persisted in `.hatch3r/hatch.json` under the `maturity` field.
  * Set via `hatch3r config maturity=<tier>`.
@@ -39,8 +45,8 @@ export const MATURITY_TIER_RANK = Object.fromEntries(
  * `rules/hatch3r-clarification-default.md` — the floor only adds ASK pressure on
  * uncertain results, it never relaxes those triggers.
  *
- * - `any`    — current behavior: forced second-pass only on a top-level
- *              `confidence == low` reviewer finding. Default.
+ * - `any`    — forced second-pass only on a top-level `confidence == low`
+ *              reviewer finding. Default for the `solo` + `team` maturity tiers.
  * - `medium` — force second-pass on any `confidence == low` finding even with
  *              0 Critical + 0 Warning.
  * - `high`   — force second-pass on `confidence != high` AND ASK on every
@@ -49,7 +55,10 @@ export const MATURITY_TIER_RANK = Object.fromEntries(
  * Persisted in `.hatch3r/hatch.json` under the `confidenceFloor` field.
  * Set via `hatch3r config confidence_floor=<floor>`; an explicit
  * `--confidence-floor=<floor>` run flag overrides the persisted default.
- * Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise `high`.
+ * Per P1 maturity tier (Decision 16) the *absent-field* default is tier-aware:
+ * `solo` + `team` default `any`, `scaleup` + `enterprise` default `high`.
+ * Resolved by `readConfidenceFloor` in `src/manifest/hatchJson.ts`; an explicit
+ * persisted floor always wins over the tier default.
  */
 export const CONFIDENCE_FLOORS = ["any", "medium", "high"] as const;
 export type ConfidenceFloor = (typeof CONFIDENCE_FLOORS)[number];
@@ -61,21 +70,39 @@ export interface ModelConfig {
   agents?: Record<string, string>;
 }
 
+/**
+ * Claude Code Agent Teams teammate display modes.
+ *
+ * GA values: "auto" (default), "in-process", "tmux".
+ * Deprecated values (pre-GA): "tool-using", "full-trust", "manual-approval".
+ * #264 (D9-9.35): Legacy values are still accepted for backward compatibility
+ * but map to "auto" at runtime. Use GA values in new configurations.
+ *
+ * Single source of truth for {@link ClaudeConfig.teammateMode} and the
+ * persistence-boundary membership check in
+ * `src/manifest/hatchJson.ts::collectManifestErrors` (D1-23).
+ */
+export const TEAMMATE_MODES = ["auto", "in-process", "tmux", "tool-using", "full-trust", "manual-approval"] as const;
+export type TeammateMode = (typeof TEAMMATE_MODES)[number];
+export const VALID_TEAMMATE_MODES = new Set<string>(TEAMMATE_MODES);
+
 export interface ClaudeConfig {
   permissions?: {
     allow?: string[];
     deny?: string[];
   };
-  /**
-   * Claude Code Agent Teams teammate display mode.
-   *
-   * GA values: "auto" (default), "in-process", "tmux".
-   * Deprecated values (pre-GA): "tool-using", "full-trust", "manual-approval".
-   * #264 (D9-9.35): Legacy values are still accepted for backward compatibility
-   * but map to "auto" at runtime. Use GA values in new configurations.
-   */
-  teammateMode?: "auto" | "in-process" | "tmux" | "tool-using" | "full-trust" | "manual-approval";
+  /** Claude Code Agent Teams teammate display mode. See {@link TEAMMATE_MODES}. */
+  teammateMode?: TeammateMode;
   agentTeams?: boolean | "ga";
+  /**
+   * D9-12 (D9, P3): opt-in AGENTS.md interop. When `true` AND a repo-root
+   * `AGENTS.md` exists, the Claude adapter prepends an `@AGENTS.md` import line
+   * inside the CLAUDE.md managed block so Claude Code pulls the cross-vendor
+   * AGENTS.md into memory (native `@path` import, code.claude.com/docs/en/memory).
+   * Default-off: absent/`false` emits no import (the 1.9.0 hard-cut removed the
+   * root AGENTS.md bridge, so most hatch3r repos have no AGENTS.md to import).
+   */
+  agentsMdInterop?: boolean;
 }
 
 /** Controls how adapter output is generated (verbosity), not what content is selected. */
@@ -165,11 +192,13 @@ export interface HatchManifest {
   /** Content selection from init. undefined = legacy "full" (backward compat). */
   content?: ContentSelection;
   /**
-   * Project maturity tier (Decision 4 / #16). Gates content admission in
-   * `resolveSelection`: higher tiers admit broader sets, lower tiers drop
-   * `floor:enterprise-only` items. Absence is treated as `"solo"` by
-   * consumers — see `readMaturityTier` in `src/manifest/hatchJson.ts`.
-   * Set via `hatch3r config maturity=<tier>`.
+   * Project maturity tier (Decision 4 / #16). An investment-calibration dial,
+   * NOT a content-admission gate (Decision 16): selection is tier-invariant —
+   * every tier resolves the identical artifact set. The tier calibrates the
+   * adapter header's right-sizing directive and the user-content gate strictness
+   * (gentle at `solo`, strict at `team`+); see `docs/maturity-tiers.md`. Absence
+   * is treated as `"solo"` by consumers — see `readMaturityTier` in
+   * `src/manifest/hatchJson.ts`. Set via `hatch3r config maturity=<tier>`.
    */
   maturity?: MaturityTier;
   /**
@@ -182,6 +211,16 @@ export interface HatchManifest {
   confidenceFloor?: ConfidenceFloor;
   /** Detected project languages from repo analysis. */
   languages?: string[];
+  /**
+   * D14-M7 (Cycle 11): detected package manager persisted from `analyzeRepo`
+   * at init time (`RepoInfo.packageManager`). Forwarded to
+   * `resolveVerificationGates` by `verificationGatesFromManifest` so the
+   * `${HATCH3R:VERIFY_GATE_*}` tokens render `pnpm run test` / `yarn test` /
+   * `bun run test` for non-npm JS projects instead of always `npm run test`.
+   * Absence (pre-Cycle-11 manifests) collapses to the npm default in
+   * `resolveVerificationGates` — no behavioral regression for npm projects.
+   */
+  packageManager?: "npm" | "yarn" | "pnpm" | "bun" | "unknown";
   /**
    * C9-H47 (D14-SA14.4-H01): detected toolchain context persisted from
    * `analyzeRepo` at init time. Used by the adapter pipeline to substitute
@@ -196,6 +235,17 @@ export interface HatchManifest {
     testFrameworks?: string[];
     ciProviders?: string[];
   };
+  /**
+   * D14-13 (D14-SA14.4-F3, P1/P4): mutually-exclusive convention conflicts
+   * (e.g. both `vitest` and `jest`, or two linters) detected from the
+   * `detected` toolchain lists at init time via
+   * `detectConventionConflicts`. Persisted so a later `hatch3r status` /
+   * `verify` can re-surface that generated single-toolchain guidance may
+   * contradict a second config a mid-migration repo still carries, without
+   * re-running `analyzeRepo`. Omitted when no conflicts were detected (keeps
+   * the written manifest byte-identical for unambiguous repos).
+   */
+  conflicts?: ConventionConflict[];
   /** Git worktree file-isolation settings. */
   worktree?: WorktreeConfig;
   /** Tracks project specs generated by /project-spec or /api-spec commands. */
@@ -278,8 +328,39 @@ export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
 
-/** Tools that support git worktree file isolation. Shared across init, update, and config. */
-export const WORKTREE_CAPABLE_TOOLS = new Set<string>(["claude", "cursor", "copilot"]);
+/**
+ * D2-17 (Cycle 11 Wave 3, D2, P4): per-`Tool` worktree-isolation support, the
+ * single typed source of truth from which {@link WORKTREE_CAPABLE_TOOLS} is
+ * derived. Declared as `Record<Tool, boolean>` so adding a tool to
+ * {@link TOOLS} forces a compile error here until its worktree support is
+ * stated — the prior `WORKTREE_CAPABLE_TOOLS` hand-listed string literal had
+ * no `Tool` exhaustiveness, so a future 4th adapter could be forgotten in the
+ * Set and drift silently (the finding's failure mode). All three retained
+ * adapters (claude/cursor/copilot) materialise content under a single repo
+ * subtree that survives a `git worktree`, so each is `true` today.
+ *
+ * `ADAPTER_CAPABILITIES.worktree` (src/adapters/index.ts) is in turn derived
+ * from {@link WORKTREE_CAPABLE_TOOLS}, and the `capabilityMatrixDrift` test
+ * pins that column to the Set — so this one map flows to the matrix column in
+ * lockstep. The derive direction stays types.ts → adapters (not the reverse)
+ * because `WORKTREE_CAPABLE_TOOLS` is read by init/config/update/manifest and
+ * cannot import from `src/adapters/index.ts` without a module cycle.
+ */
+export const TOOL_WORKTREE_SUPPORT: Record<Tool, boolean> = {
+  cursor: true,
+  copilot: true,
+  claude: true,
+};
+
+/**
+ * Tools that support git worktree file isolation. Shared across init, update,
+ * and config. Derived from {@link TOOL_WORKTREE_SUPPORT} so the membership set
+ * stays `Tool`-exhaustive (no hand-listed string literal to drift). Retains the
+ * `Set<string>` runtime shape every reader already calls `.has()` on.
+ */
+export const WORKTREE_CAPABLE_TOOLS = new Set<string>(
+  TOOLS.filter((tool) => TOOL_WORKTREE_SUPPORT[tool]),
+);
 
 export interface BoardConfig {
   owner: string;
@@ -320,25 +401,41 @@ export interface Features {
   agents: boolean;
   skills: boolean;
   rules: boolean;
+  /**
+   * Controls whether adapters emit prompt-file outputs (e.g. Copilot
+   * `.github/prompts/*.prompt.md`) from a `prompts/` content source.
+   *
+   * Cycle 11 D2-3 (Pillar P1/P4): defaults to `false` in
+   * {@link DEFAULT_FEATURES}. Canonical hatch3r ships no `prompts/` content
+   * (the class is reserved for pack supply per
+   * `governance/pack-trust-model.md`) and all 3 adapters set
+   * `ADAPTER_CAPABILITIES.*.prompts = false`, so a default of `true` made the
+   * happy-path sync/update fire a spurious unsupported-feature warning via
+   * {@link getUnsupportedFeatureWarnings}. Packs that supply prompts content
+   * set this to `true` explicitly, which still warns on adapters that cannot
+   * emit prompt files (intended capability-gap surfacing).
+   */
   prompts: boolean;
   commands: boolean;
   mcp: boolean;
   githubAgents: boolean;
   hooks: boolean;
   /**
-   * Intended to control whether adapter outputs surface active handoff
-   * documents from `.hatch3r/handoffs/active/` in their primary tool-context
-   * file. Default `true`. Absent on pre-1.8.0 manifests; consumers treat
-   * absence as `true`.
+   * Controls whether each adapter's bridge-orchestration file references the
+   * shared `.hatch3r/handoffs/` directory in its "Canonical Structure" section.
+   * Default `true`. Absent on pre-1.8.0 manifests; consumers treat absence as
+   * `true`.
    *
-   * Cycle 10 D11-SA11.1-05 (Pillar P4): no adapter (`claude.ts`/`cursor.ts`/
-   * `copilot.ts`) reads this flag — the actual handoff-directory listing is
-   * emitted unconditionally by the bridge-orchestration prep in
-   * `src/cli/shared/agentsContent.ts`, not gated here. Setting `false` has no
-   * effect today. Wiring the flag into the bridge prep (or relocating it to a
-   * `Manifest.handoffs.enabled` field matching the real control surface) is a
-   * tracked follow-up; the field is retained for manifest back-compat until
-   * then.
+   * D1-30 (Cycle 11 Wave 3, D1 / CQ8 Maintainability): this flag is now a live
+   * control surface. `BaseAdapter.bridgeOrchestration` threads
+   * `ctx.features.handoffs` into `generateBridgeOrchestration` →
+   * `buildBridgeOrchestration` (`src/cli/shared/bridgeOrchestration.ts`); when
+   * `false`, the `Handoffs: .hatch3r/handoffs/` segment is dropped from the
+   * Canonical Structure line so a project that does not use the handoff
+   * subsystem stops advertising the directory. Before this wave no adapter read
+   * the flag and the segment emitted unconditionally, so setting `false` had no
+   * effect (a dead control surface). The static `BRIDGE_ORCHESTRATION` export
+   * still defaults to `true` (segment shown) for back-compatible output.
    */
   handoffs: boolean;
 }
@@ -346,14 +443,18 @@ export interface Features {
 export interface McpConfig {
   servers: string[];
   /**
-   * Optional MCP protocol version emitted into generated client config
-   * (`.mcp.json` `protocolVersion` field for Claude Code; cursor/copilot
-   * mirror it). Defaults to the most-recent stable spec revision
-   * (`MCP_DEFAULT_PROTOCOL_VERSION` in `src/adapters/mcp-utils.ts`) when
-   * absent. Operators override via `.hatch3r/hatch.json` to pin a server
-   * fleet to a specific revision ahead of the 2026-07-28 RC GA
-   * (blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate,
-   * accessed 2026-05-27). F17.2.3 (Cycle 10, D17, P3).
+   * Optional MCP protocol-revision string emitted as an ADVISORY top-level
+   * `protocolVersion` marker in the Claude Code `.mcp.json` only. It is NOT a
+   * loader-consumed field — the documented `.mcp.json` top-level schema is
+   * `mcpServers` only, and revision negotiation happens per-server at
+   * `initialize` time (code.claude.com/docs/en/mcp, accessed 2026-06-09). The
+   * Cursor and Copilot adapters omit it because their top-level schemas reject
+   * unknown keys (D15-27; see `MCP_DEFAULT_PROTOCOL_VERSION` in
+   * `src/adapters/mcp-utils.ts`). Defaults to the most-recent stable spec
+   * revision when absent. Operators override via `.hatch3r/hatch.json` to record
+   * the revision a server fleet targets while staging the 2026-07-28 RC ahead of
+   * GA (blog.modelcontextprotocol.io/posts/2026-07-28-release-candidate, accessed
+   * 2026-05-27). F17.2.3 (Cycle 10, D17, P3); D9-9 (Cycle 11, D9, P3).
    */
   protocolVersion?: string;
 }
@@ -411,7 +512,33 @@ export interface CanonicalFile {
    */
   frontmatterType?: string;
   description: string;
+  /**
+   * Canonical rule activation scope. Three sanctioned keyword values plus a
+   * legacy inline-CSV form:
+   *   - `"always"`          — load unconditionally (Cursor `alwaysApply: true`).
+   *   - `"agent-requested"` — Cursor Apply-Intelligently mode: a description-only
+   *     `.mdc` (`alwaysApply: false`, no `globs`) the agent pulls in by its
+   *     `description`. For large optional rules with no natural file glob, so they
+   *     are not forced always-on (D5-28). Claude/Copilot have no agent-requested
+   *     primitive → those adapters load the rule unconditionally.
+   *   - `"conditional"`     — auto-attach on matching files; the patterns live in
+   *     the separate {@link globs} field, never in `scope`.
+   *   - `"<csv>"` (legacy)  — inline comma-separated glob list carried in `scope`.
+   */
   scope?: string;
+  /**
+   * Raw comma-separated glob list declared in the canonical rule frontmatter
+   * `globs:` field. Carries the actual file patterns for `scope: conditional`
+   * rules. Distinct from {@link scope}: when `scope === "conditional"`, the
+   * glob patterns live here, not in `scope`. Adapters MUST resolve the
+   * effective glob set via `resolveRuleGlobs` in `src/adapters/canonical.ts`
+   * rather than deriving globs from `scope` alone — deriving from `scope`
+   * emits the literal token `"conditional"` as a glob and drops the real
+   * patterns (X4/CD4 GLOBS DROP). Absent on `scope: always`, unscoped rules,
+   * and legacy inline-CSV `scope: "<csv>"` rules (those carry the CSV in
+   * `scope`).
+   */
+  globs?: string;
   model?: string;
   protected?: boolean;
   /** Agent runs with restricted write permissions (Cursor v2.5+ subagents). */
@@ -456,6 +583,62 @@ export interface CanonicalFile {
    * not document `allowed-tools`.
    */
   allowedTools?: string[];
+  /**
+   * D20-1 (X5/CD5): structured agent tool-grant categories parsed from the
+   * `tools: { allowed: [...], denied: [...] }` frontmatter emitted by
+   * `src/content/userContent.ts::composeArtifactFile` for user-authored
+   * agents. Each entry is a canonical category from `ALL_TOOL_CATEGORIES`
+   * (`src/pipeline/agentToolAllowlist.ts`). Consumed by the Claude adapter
+   * to derive a runtime AGENT_TOOL_POLICIES entry for the re-prefixed user
+   * agent id, so the PreToolUse hook governs the user agent WITH its authored
+   * grant instead of NO_POLICY-denying every call (the agent is otherwise
+   * bricked: a user slug cannot use the `hatch3r-` prefix, the Claude adapter
+   * re-prefixes it to `hatch3r-foo`, and `hatch3r-foo` matches no canonical
+   * policy). Absent on canonical agents and on user agents that declared no
+   * `tools` field. Both arrays are independent; `toolsDenied` subtracts from
+   * `toolsAllowed` at policy-derivation time (deny-by-default floor).
+   */
+  toolsAllowed?: string[];
+  /** D20-1: see {@link toolsAllowed} — the denied counterpart. */
+  toolsDenied?: string[];
+  /**
+   * D15-3 (Cycle 11, Pillar P6 / ASI02-03): literal fine-grained tool-name
+   * grant parsed from the canonical short-form `tools: { allow: [...], deny:
+   * [...] }` frontmatter authored on canonical agents (e.g. `hatch3r-devops`,
+   * `hatch3r-dependency-drafter`, `hatch3r-pack-installer`). Entries are raw
+   * tool-name tokens — top-level Claude tools (`Write`, `Edit`, `MultiEdit`,
+   * `Bash`) and granular `Bash:<subcommand>` strings (`"Bash:git commit"`,
+   * `"Bash:git push"`) — NOT canonical categories. Distinct from
+   * {@link toolsAllowed} / {@link toolsDenied}, which carry category strings
+   * validated against `ALL_TOOL_CATEGORIES`. Pre-D15-3 these short-form lists
+   * were dropped at parse time (only the long-form `allowed`/`denied` was
+   * read), so the per-agent deny envelope never reached the generated Claude
+   * agent file. The Claude adapter now re-emits the top-level denies as a
+   * native `disallowedTools:` frontmatter field and surfaces the granular
+   * `Bash:<subcommand>` denies as a `## Tool Restrictions` constraint block so
+   * the trust delegation survives into the runtime. Absent unless the agent
+   * authored the short-form `tools.allow` / `tools.deny`.
+   */
+  toolsAllowRaw?: string[];
+  /** D15-3: see {@link toolsAllowRaw} — the literal deny counterpart. */
+  toolsDenyRaw?: string[];
+  /**
+   * D5-29 (Cycle 11 Wave 3, D5, P6): optional Copilot agent-scope opt-out
+   * parsed from the canonical rule frontmatter `copilot_exclude_agent:`
+   * field. When present on a glob-scoped rule, the Copilot adapter renders an
+   * `excludeAgent: "<value>"` line in the generated
+   * `.github/instructions/*.instructions.md` frontmatter so the named Copilot
+   * agent skips that instruction file — the only Copilot-native mechanism for
+   * a path-scoped instruction file to opt out of an agent's scope
+   * (https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot,
+   * accessed 2026-06-06: accepted values `"code-review"` and `"coding-agent"`
+   * / `"cloud-agent"`; omission means every agent uses the file). Absent on
+   * every canonical rule today (default off → no `excludeAgent` line, current
+   * behaviour preserved); the field exists so a rule CAN opt a path-scope out
+   * of code-review or coding-agent scope without an adapter code change. Other
+   * adapters (cursor/claude) ignore it.
+   */
+  copilotExcludeAgent?: string;
 }
 
 export interface CanonicalMetadata {
@@ -493,6 +676,29 @@ export interface CanonicalMetadata {
    * {@link CanonicalFile.allowedTools}; see that field for emission semantics.
    */
   allowedTools?: string[];
+  /**
+   * D20-1: structured agent tool-grant categories parsed from the
+   * `tools: { allowed: [...], denied: [...] }` frontmatter. Mirrors
+   * {@link CanonicalFile.toolsAllowed} / {@link CanonicalFile.toolsDenied};
+   * see those fields for derivation semantics.
+   */
+  toolsAllowed?: string[];
+  toolsDenied?: string[];
+  /**
+   * D15-3: literal fine-grained tool-name grant parsed from the canonical
+   * short-form `tools: { allow, deny }`. Mirrors
+   * {@link CanonicalFile.toolsAllowRaw} / {@link CanonicalFile.toolsDenyRaw};
+   * see those fields for emission semantics.
+   */
+  toolsAllowRaw?: string[];
+  toolsDenyRaw?: string[];
+  /**
+   * D5-29: optional Copilot agent-scope opt-out parsed from the rule
+   * frontmatter `copilot_exclude_agent:` field. Mirrors
+   * {@link CanonicalFile.copilotExcludeAgent}; see that field for emission
+   * semantics.
+   */
+  copilotExcludeAgent?: string;
 }
 
 export interface ContentSelection {
@@ -588,6 +794,31 @@ export type Framework =
   | "phoenix"
   | "axum"
   | "actix";
+
+/**
+ * A detected convention dimension that admits at most one tool per project
+ * (D14.4 / F14.4-H3). Defined here (the canonical type home) rather than in
+ * `src/detect/conventionConflict.ts` so `HatchManifest.conflicts` can reference
+ * it without a `types.ts` -> detect import cycle (`conventionConflict.ts`
+ * already imports `RepoInfo` from this file).
+ */
+export type ConventionDimension = "linter" | "formatter" | "testFramework" | "ciProvider";
+
+/**
+ * A surfaced convention conflict: two or more detected tools that occupy the
+ * same mutually-exclusive role within one project (D14.4 / F14.4-H3).
+ */
+export interface ConventionConflict {
+  /** The role the conflicting tools compete for. */
+  dimension: ConventionDimension;
+  /**
+   * The conflicting tool names, sorted for deterministic output. Length is
+   * always >= 2 (a single tool is never a conflict).
+   */
+  tools: string[];
+  /** One-line human-readable explanation of the conflict. */
+  message: string;
+}
 
 export interface RepoInfo {
   languages: string[];
@@ -734,6 +965,22 @@ export type HatchErrorCode =
  * on the legacy behavior can grep stderr for the `errorCode` string (still
  * surfaced via `HatchError.errorCode`) or branch on the structured JSON
  * mode emitted by `validate --format json`.
+ *
+ * D8-7 (Cycle 11 Wave 3, D8, P1): this map is the single source of truth for
+ * the exit-code contract — `.claude/rules/cli-ux-standards.md` item 6 and the
+ * published `docs/troubleshooting.md` "Exit Codes" table both cite it by name
+ * and mirror it row-for-row. The Commander parse-usage exit code `2` is a
+ * DELIBERATELY distinct code from `64 EX_USAGE` (VALIDATION_ERROR), not an
+ * unreconciled drift: `2` means "Commander rejected the flags/arguments before
+ * a command ran" (emitted by the `CommanderError` branch of the top-level catch
+ * in `src/cli/index.ts` and the `usage`-classified path in
+ * `src/cli/shared/errors.ts`), whereas `64 EX_USAGE` means "the command ran and
+ * found the project content/config structurally invalid" (e.g. `validate`
+ * exits via `exitCodeForErrorCode("VALIDATION_ERROR")`). The two input-error
+ * sub-classes carry different operator next-steps (fix your command line vs fix
+ * your repo content), so they stay separate codes under this one SSOT. Changing
+ * either code is a paired source + governance-rule edit (cli-ux-standards.md is
+ * framework-dev-only via the capability-lifecycle / re-envision presets).
  */
 export const ERROR_CODE_TO_EXIT_CODE: Record<HatchErrorCode, number> = {
   VALIDATION_ERROR: 64,
@@ -796,7 +1043,13 @@ export const DEFAULT_FEATURES: Features = {
   agents: true,
   skills: true,
   rules: true,
-  prompts: true,
+  // Cycle 11 D2-3 (P1/P4): default OFF. No adapter emits prompt files
+  // (ADAPTER_CAPABILITIES.*.prompts === false) and canonical hatch3r ships no
+  // `prompts/` content (class reserved for pack supply per
+  // governance/pack-trust-model.md), so a `true` default made the happy-path
+  // sync/update fire a spurious unsupported-feature warning. See the `prompts`
+  // field JSDoc on the Features interface.
+  prompts: false,
   commands: true,
   mcp: true,
   githubAgents: true,

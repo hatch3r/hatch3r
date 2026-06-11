@@ -22,10 +22,15 @@ describe("buildOneLiner", () => {
     expect(buildOneLiner(plan)).toBe(expected);
   });
 
-  it("linux ripgrep + sd groups apt + cargo (two prefix groups)", () => {
+  it("linux ripgrep + sd groups apt then appends the cargo-binstall standalone", () => {
+    // Cycle 11 D21-6: sd's linux recipe is `cargo binstall sd` (fetches the
+    // v1.1.0 GitHub-release binary; `cargo install` would pin crates.io 1.0.0).
+    // `binstall` is not the `<manager> install <pkg>` shape parseGroupable
+    // matches, so sd lands as a standalone after the apt group rather than
+    // grouping under a `cargo install` prefix.
     const plan = buildInstallPlan(["ripgrep", "sd"], "linux");
     const expected =
-      "sudo apt install ripgrep \\\n  && cargo install sd";
+      "sudo apt install ripgrep \\\n  && cargo binstall sd";
     expect(buildOneLiner(plan)).toBe(expected);
   });
 
@@ -33,10 +38,12 @@ describe("buildOneLiner", () => {
     // qsv ships with `cargo install qsv --locked --features all_features`
     // (the `--features all_features` flag is required to land the full
     // 80+ command set). The grouping regex rejects multi-token tails, so
-    // qsv lands as a standalone chunk after any groupable cargo bucket.
+    // qsv lands as a standalone chunk. sd's `cargo binstall sd` (Cycle 11
+    // D21-6) is likewise standalone — `binstall` is not the `install <pkg>`
+    // shape parseGroupable matches — so both render as separate chunks.
     const plan = buildInstallPlan(["sd", "qsv"], "linux");
     const result = buildOneLiner(plan);
-    expect(result).toContain("cargo install sd");
+    expect(result).toContain("cargo binstall sd");
     expect(result).toContain("cargo install qsv --locked --features all_features");
   });
 

@@ -48,7 +48,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
@@ -85,11 +85,31 @@ jobs:
             exit 1
           fi
 
-      - name: Security audit (production)
+      # Cycle 11 M D4-10 (D4): dev-tier severity policy. Three layered audit
+      # gates with distinct severity floors so no (severity, dependency-class)
+      # cell is unguarded:
+      #   1. production deps  — block at >=high  (a high CVE on a shipped dep
+      #      reaches end users, so it fails the PR fast and focused)
+      #   2. all deps         — block at >=high  (closes the prior blind spot:
+      #      the all-deps gate was --audit-level=critical, so a high-severity
+      #      dev-only CVE — severity in {high} AND dev:true — slipped past both
+      #      the production gate (--omit=dev) and this one. high includes dev
+      #      now, so a high dev CVE reds CI)
+      #   3. all deps         — report at >=moderate (informational): surfaces
+      #      the moderate-dev tier (e.g. brace-expansion GHSA-jxxr-4gwj-5jf2,
+      #      D4-9) in the log without failing the build, because a moderate
+      #      dev-tool CVE is remediated via a tracked package.json override
+      #      rather than blocking unrelated PRs on the pre-existing baseline.
+      #      continue-on-error keeps it visible-but-non-blocking.
+      - name: Security audit (production deps, fail >=high)
         run: npm audit --audit-level=high --omit=dev
 
-      - name: Security audit (all dependencies)
-        run: npm audit --audit-level=critical
+      - name: Security audit (all deps, fail >=high)
+        run: npm audit --audit-level=high
+
+      - name: Security audit (all deps, report >=moderate)
+        continue-on-error: true
+        run: npm audit --audit-level=moderate
 
       # Cycle 8 C8-D4-M1: `npm audit` only flags packages that already
       # have a published advisory; it misses the malicious-install class
@@ -158,6 +178,17 @@ jobs:
         with:
           socket-token: ${{ secrets.SOCKET_API_KEY }}
 
+      # Cycle 11 H D4-3 (D4): resolve every SHA-pinned `uses:` back to its tag
+      # via `git ls-remote` and fail if the trailing `# <version>` comment names
+      # a version the SHA does not resolve to. Catches the dependabot-advances-
+      # -digest-across-majors-without-rewriting-the-comment drift (checkout v4
+      # comment on a v6.0.2 SHA) that no prior gate saw. A `git ls-remote`
+      # transport failure surfaces as a warning, not a gate failure (network
+      # policy mirrors mcp:cve-check / cli-tools:cve-check above), so a transient
+      # github.com outage cannot red an unrelated PR.
+      - name: Action pin comment vs SHA
+        run: npm run validate:action-pins
+
   build:
     runs-on: ${{ matrix.os }}
     # Windows runners are I/O-slow and variable: the full suite (npm ci + build
@@ -192,7 +223,7 @@ jobs:
           egress-policy: audit
 
       - name: Checkout
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v4
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           persist-credentials: false
 
@@ -232,9 +263,21 @@ jobs:
       # pass CI. `vitest run` already fails on mismatch by default; the explicit
       # flag removes the ambiguity and is the byte-validation gate for the
       # committed snapshot artifact.
+      # Cycle 11 H D3-4 (D3): assert the coverage step's exit code AND that
+      # coverage was actually produced. `run:` already fails the job on a
+      # non-zero exit, but the vitest v8 provider had a `forks`-pool race
+      # (#5903/#4943/#5521) that could leave collection broken; pinning
+      # `reportsDirectory` to an absolute path + `coverage.clean: false` in
+      # vitest.config.ts fixes the race at root cause. This guard is the CI
+      # tripwire: it fails loudly if `coverage/coverage-summary.json` (the
+      # json-summary reporter output) is absent — a silent collection failure
+      # can no longer pass green.
       - name: Test with coverage
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npx vitest run --coverage --no-update
+        run: |
+          npx vitest run --coverage --no-update
+          test -f coverage/coverage-summary.json \
+            || { echo "::error::coverage run produced no coverage/coverage-summary.json (collection failed)"; exit 1; }
 
       - name: Test without coverage
         if: matrix.os != 'ubuntu-latest' || matrix.node-version != 22
@@ -257,36 +300,46 @@ jobs:
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
         run: npm run inventory:check-docs
 
-      # Cycle 7 H12: every `rules/hatch3r-*.md` must have a `.mdc` Cursor
-      # counterpart whose body content matches (frontmatter format may differ).
-      # Per .claude/rules/content-authoring.md the two variants are the
-      # single-source-of-truth pairing for editor and CLI consumers.
-      - name: Rule parity drift check
+      # Cycle 11 D16-1 (Critical, CI enforcement keystone): package.json
+      # `validate` chains 10 content/governance gates (rule-parity, efficiency,
+      # cli-skills, wiring, control-reachability, anti-slop, specialist-roster,
+      # severity-vocabulary, canonical, adapter-parity), but only 3 of them
+      # (rule-parity, wiring, specialist-roster) previously ran in this workflow —
+      # the rest ran in no CI step, so content and governance enforcement was
+      # honor-system on PRs. This single umbrella step runs the full `npm run
+      # validate` chain and supersedes the former standalone validator steps (no
+      # double-running). control-reachability (Cycle 11 D16-3) parses each
+      # control-status doc's Enforcement column and fails CI when a module
+      # labelled runtime-CLI is not reachable from the CLI entry point — the
+      # doc-honesty gate for the "documented-but-unwired control" pattern. Each
+      # gate runs via `tsx` against source, so no built dist/ is required; the
+      # step is gated to the canonical Linux/Node-22 matrix entry like the other
+      # single-run content gates. Branch-protection note: making this a required
+      # PR status check on main is the human-only follow-up (settings -> branches
+      # -> require-status-check on the build job for the canonical matrix entry).
+      - name: Content + governance validation gates
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npm run validate:rule-parity
+        run: npm run validate
 
-      # Cycle 9 C9-H75 (D18-F18.2.4 -> D16-F16.1.1 wiring sweep): every `*.ts`
-      # module under `src/pipeline/` and `src/integrity/` must be imported by
-      # at least one non-test file in `src/`, or declare the JSDoc tag
-      # `@library_export_only` in its leading block comment. Blocks the
-      # implemented-but-unwired pattern (D6/D7/D8/D12 cross-cut) from reaching
-      # main. Validator: `scripts/validate-wiring.ts`.
-      - name: Wiring drift check
+      # Cycle 11 H D13-9 (D13-SA13.5-F2): the `npm run validate` umbrella above
+      # runs the scripts/validate-*.ts chain (including validate:efficiency ->
+      # validate-fanout-emission.ts, the P8 B2 fan-out gate), but it does NOT
+      # invoke the `hatch3r validate` CLI command. The P8 B1 §0 ambiguity-gate
+      # floor lives only in that command (src/cli/commands/validate.ts
+      # requiresAmbiguityGate/checkAmbiguityGate): a published agent/command/skill
+      # that drops its §0 gate is a hard error there but was invisible at merge,
+      # so the B1 100%-coverage invariant was honor-system on PRs. This step runs
+      # the CLI (default mode: missing-gate = error, exit 64; anti-slop + pillar
+      # findings stay warnings, so the 379-warning canonical baseline does not red
+      # the gate) via tsx against source — no built dist/ needed, matching the
+      # content-gate pattern above. program.ts validate help text already states
+      # "CI should run BOTH `hatch3r validate` AND `npm run validate`"; this closes
+      # that gap. Escalating the §0-present-no-protocol warning to error is a
+      # follow-up validate.ts change, deferred so the current warning does not
+      # block this gate. Gated to the canonical Linux/Node-22 matrix entry.
+      - name: Canonical content B1 gate (hatch3r validate)
         if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npm run validate:wiring
-
-      # Cycle 10 H F7.3-H3 (D7): the Phase 4 specialist roster
-      # (src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE, the single
-      # source of truth) must stay in lock-step with every prose/frontmatter
-      # dispatch surface: the orchestration rule's Phase 4 table, the
-      # implementer + reviewer Phase 4 enumerations, each full-pipeline
-      # command's agentPipeline, and an agents/<id>.md file per specialist.
-      # F-1's root cause was adding 9 specialists to the constant while leaving
-      # 0 dispatch surfaces updated; this gate fails the PR when the SSOT and a
-      # surface diverge. Validator: scripts/validate-specialist-roster.ts.
-      - name: Specialist roster drift check
-        if: matrix.os == 'ubuntu-latest' && matrix.node-version == 22
-        run: npm run validate:specialist-roster
+        run: npx tsx src/cli/index.ts validate
 
       # Audit-state hygiene: finding-registry shape + invariants 1-7 from
       # AUDIT-EXECUTE.md §Finding Registry. Blocking once Phase 3 archival
@@ -299,3 +352,42 @@ jobs:
           else
             echo "finding-registry absent — skipping"
           fi
+
+  # Cycle 11 M D4-12 (D4): stable required-check aggregator. The `build` job is
+  # a matrix (os x node-version), and GitHub names each leg with its matrix
+  # values — `build (ubuntu-latest, 22)`, `build (windows-latest, 26)`, etc. The
+  # Node lane set rotates every cycle (currently [22, 24, 26]; see the build
+  # matrix rationale), so any branch-protection rule that requires a specific
+  # leg name silently un-gates main the moment that lane is dropped, or blocks
+  # every PR on a check name that no longer exists. This job has a single static
+  # name that never changes; it depends on every other job in the workflow and
+  # fails unless all of them succeeded. `if: always()` makes it run even when a
+  # dependency failed or was cancelled, so it cannot be skipped (a skipped
+  # required check counts as not-run and blocks the PR).
+  #
+  # Branch-protection required-check list (human-only follow-up — settings ->
+  # branches -> require status checks on main):
+  #   ci.yml         -> "All CI checks"   (this job; covers supply-chain + the
+  #                                         full build matrix transitively)
+  #   pr-checks.yml  -> "Validate PR title (conventional commits)",
+  #                     "DCO sign-off check", "Bundle size gate"
+  # Require ONLY "All CI checks" from this workflow — never an individual
+  # `build (...)` leg, whose name rotates with the matrix.
+  ci-success:
+    name: All CI checks
+    if: always()
+    needs: [supply-chain, build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: Verify all required jobs succeeded
+        env:
+          SUPPLY_CHAIN_RESULT: ${{ needs.supply-chain.result }}
+          BUILD_RESULT: ${{ needs.build.result }}
+        run: |
+          echo "supply-chain=$SUPPLY_CHAIN_RESULT build=$BUILD_RESULT"
+          if [ "$SUPPLY_CHAIN_RESULT" != "success" ] || [ "$BUILD_RESULT" != "success" ]; then
+            echo "::error::One or more required CI jobs did not succeed (supply-chain=$SUPPLY_CHAIN_RESULT, build=$BUILD_RESULT)."
+            exit 1
+          fi
+          echo "All required CI jobs succeeded."

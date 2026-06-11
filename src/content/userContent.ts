@@ -39,8 +39,9 @@ import { fileURLToPath } from "node:url";
 import { stringify as yamlStringify } from "yaml";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
+import { parseFrontmatter } from "../adapters/canonical.js";
 import { sanitizePipelineInput } from "../pipeline/promptGuard.js";
-import { isValidHookEvent } from "../hooks/types.js";
+import { isValidHookEvent, VALID_HOOK_EVENTS } from "../hooks/types.js";
 import { ALL_TOOL_CATEGORIES } from "../pipeline/agentToolAllowlist.js";
 import {
   buildContentIndex,
@@ -177,17 +178,28 @@ const LEAN_LINE_THRESHOLD_DEFAULT = 120;
 const SLUG_REGEX = /^[a-z][a-z0-9-]*$/;
 
 /**
- * §0 ambiguity-gate detection for orchestrator commands (F20.1.B1, CONSTITUTION
- * §2 P8 B1). An `orchestrator: true` user command delegates to sub-agents, so it
- * must open with the clarification-first gate the canonical
- * `agents/shared/user-content-templates.md` §0 skeleton models: a `## §0` /
- * `## 0` / `## Step 0` heading OR a verbatim reference to
- * `agents/shared/user-question-protocol.md`. The audit (D20-F20.1.B1) flagged
- * that `agents/shared/user-content-templates.md:242` claimed this was a strict
- * gate while `runUserContentGates` never enforced it — a hand-written
- * orchestrator command missing the §0 block rode to disk unchallenged. This
- * pattern closes that gap; the matching strict push lives in the command branch
- * of {@link runUserContentGates}.
+ * §0 ambiguity-gate detection (F20.1.B1, D13-10, CONSTITUTION §2 P8 B1). A user
+ * artifact that drives an agentic workflow must open with the clarification-first
+ * gate the canonical `agents/shared/user-content-templates.md` §0 skeleton
+ * models: a `## §0` / `## 0` / `## Step 0` heading OR a verbatim reference to
+ * `agents/shared/user-question-protocol.md`.
+ *
+ * Scope (CONSTITUTION §2 P5 row "Ambiguity-detection gate coverage
+ * (agents/skills/commands)" at 100%): the gate is evaluated for THREE user
+ * artifact classes, not just orchestrator commands —
+ *   - `type==="command"` with `isOrchestrator===true`: strict at every tier
+ *     (an orchestrator command delegating to sub-agents always needs the gate).
+ *   - `type==="agent"` and `type==="skill"`: gentle warning at `solo`, promoted
+ *     to a strict failure at `team`+ (D13-10 — the gate previously covered ~1
+ *     class while the §2 P5 invariant names all three, leaving user agents and
+ *     skills able to ship without a clarification block).
+ *
+ * The audit (D20-F20.1.B1) first flagged that `user-content-templates.md`
+ * claimed a strict gate the runtime never enforced for commands; D13-10 then
+ * found the residual scope gap for agents and skills. The matching pushes live
+ * in the command/agent/skill branches of {@link runUserContentGates}. The
+ * `ORCHESTRATOR_` name predates the scope extension and is retained for blame
+ * stability — the pattern itself is type-agnostic.
  */
 const ORCHESTRATOR_SECTION_ZERO_PATTERN =
   /^\s*##\s*(?:§\s*0|0\b|step\s*0)|user-question-protocol/im;
@@ -211,6 +223,39 @@ const SECURITY_BASELINE_PATTERNS: readonly RegExp[] = [
   /hatch3r-security-patterns/i,
   /\*\*Security baseline:\*\*/i,
 ];
+
+/**
+ * Shared decision for the agent tool-grant security baseline (F20.2.A3, D20.2
+ * item 2, D20-2). Returns the over-threshold allowlist width when the grant is
+ * wide AND the body cites no security baseline — `undefined` otherwise. Both the
+ * in-memory funnel ({@link runUserContentGates}) and the on-disk pre-flight
+ * ({@link validateContentBody}) route through this so the width threshold and the
+ * citation patterns stay single-source (P4); previously only the funnel —
+ * reachable solely via the LLM-mediated `/hatch3r-create` path — enforced it, so
+ * a hand-authored unbounded grant (`create.md` invites direct editing) shipped
+ * unflagged by the deterministic CLI gates at every tier (D20-2 / SA20.2-F5).
+ */
+function agentToolGrantOverBaseline(
+  allowed: readonly string[] | undefined,
+  body: string,
+): number | undefined {
+  const allowedWidth = Array.isArray(allowed) ? allowed.length : 0;
+  if (allowedWidth <= AGENT_TOOL_BASELINE_THRESHOLD) return undefined;
+  const hasBaseline = SECURITY_BASELINE_PATTERNS.some((re) => re.test(body));
+  return hasBaseline ? undefined : allowedWidth;
+}
+
+/**
+ * Shared message for the agent tool-grant security-baseline violation (D20-2).
+ * Single-source so the in-memory funnel and the on-disk pre-flight emit the same
+ * remediation text; callers append a tier or path qualifier as needed.
+ */
+function agentToolGrantBaselineMessage(allowedWidth: number): string {
+  return (
+    `Agent declares ${allowedWidth} tool categories (> ${AGENT_TOOL_BASELINE_THRESHOLD}) without a security baseline — ` +
+    "cite `hatch3r-security-patterns` or add a `**Security baseline:**` line scoping the grant"
+  );
+}
 
 /**
  * Valid pillar identifiers for a user artifact's `pillars` frontmatter array
@@ -486,6 +531,14 @@ export interface ContentBodyViolation {
  *   - Returns an empty list when `.hatch3r/overrides/` does not exist.
  *   - Treats deny-pattern hits and injection-scan violations as `severity: "error"`.
  *   - Reads the file body (post-frontmatter) and surfaces every match.
+ *   - D20-2: for `type: agent` files, parses the structured `tools.allowed`
+ *     grant and flags a wide allowlist (> {@link AGENT_TOOL_BASELINE_THRESHOLD}
+ *     categories) that cites no security baseline as `severity: "error"`. This
+ *     is the deterministic CLI floor for the unbounded-grant scenario: the same
+ *     check ran only inside {@link runUserContentGates}, reachable solely via the
+ *     LLM-mediated `/hatch3r-create` path, so a hand-authored grant rode in
+ *     unflagged at every tier (SA20.2-F5). Mirrors the in-memory funnel via the
+ *     shared {@link agentToolGrantOverBaseline} helper.
  *   - Tolerates I/O errors on individual files (logs a warning entry, continues
  *     scanning siblings) — a malformed user file never halts the pre-flight.
  */
@@ -537,6 +590,34 @@ export async function validateContentBody(
         severity: "error",
         message: "body exceeds pipeline input cap and was truncated by sanitizePipelineInput",
       });
+    }
+
+    // D20-2: agent tool-grant security baseline. The funnel
+    // (`runUserContentGates`) enforces this only on the `/hatch3r-create` path;
+    // a hand-edited agent file (`create.md` invites direct editing) reaches the
+    // adapters via this deterministic pre-flight, so the width+citation check
+    // runs here too. Parse the on-disk frontmatter for the structured
+    // `tools.allowed` grant and the author-declared type — discovery buckets by
+    // directory, so we confirm `type: agent` before reading the grant. The
+    // citation patterns scan the already-stripped `body`, matching the funnel.
+    if (artifact.type === "agent") {
+      let toolsAllowed: string[] | undefined;
+      try {
+        toolsAllowed = parseFrontmatter(raw).metadata.toolsAllowed;
+      } catch {
+        // A YAML-malformed frontmatter is already surfaced by the canonical
+        // index / save funnel; here we only need the grant width, so an
+        // unparseable header simply skips the baseline check (no false error).
+        toolsAllowed = undefined;
+      }
+      const overWidth = agentToolGrantOverBaseline(toolsAllowed, body);
+      if (overWidth !== undefined) {
+        violations.push({
+          relativePath,
+          severity: "error",
+          message: agentToolGrantBaselineMessage(overWidth),
+        });
+      }
     }
   }
 
@@ -708,10 +789,33 @@ async function runUserContentGates(
       }
     }
   }
+  // §0 ambiguity gate for user agents and skills (D13-10, CONSTITUTION §2 P5
+  // "Ambiguity-detection gate coverage (agents/skills/commands)" at 100%, P8
+  // B1). The orchestrator-command branch above covered only ~1 of the three
+  // classes the invariant names; agents and skills drive agentic workflows too,
+  // so they must open with the same clarification-first §0 block. Tier-aware
+  // per F20.2.A1 / Decision 4: a gentle nudge at `solo` (the Cycle-9 baseline
+  // stays permissive), promoted to a strict failure at `team`+ where the
+  // closed-loop floor mandates are enforced.
+  if (artifact.type === "agent" || artifact.type === "skill") {
+    if (!ORCHESTRATOR_SECTION_ZERO_PATTERN.test(artifact.body)) {
+      const message =
+        `User ${artifact.type} is missing a §0 ambiguity-detection block — add a ` +
+        "`## §0 Detect Ambiguity` section that references " +
+        "`agents/shared/user-question-protocol.md` (CONSTITUTION §2 P5 ambiguity-gate coverage, P8 B1)";
+      if (isTeamPlus) {
+        strict.push(`${message} (required at maturity tier '${maturityTier}')`);
+      } else {
+        gentle.push(message);
+      }
+    }
+  }
   if (artifact.type === "hook") {
     if (!artifact.hookEvent || !isValidHookEvent(artifact.hookEvent)) {
+      // Build the enumerated list from the single source of truth so a future
+      // shrink/expand of VALID_HOOK_EVENTS can never drift the error text (D20-6).
       strict.push(
-        `Hook event missing or invalid: expected one of pre-commit, post-merge, ci-failure, file-save, session-start, pre-push, worktree-create, worktree-remove (got ${JSON.stringify(artifact.hookEvent)})`,
+        `Hook event missing or invalid: expected one of ${[...VALID_HOOK_EVENTS].join(", ")} (got ${JSON.stringify(artifact.hookEvent)})`,
       );
     }
   }
@@ -945,24 +1049,18 @@ async function runUserContentGates(
   // citation requirement closes the gap the membership/overlap check left
   // open. Gentle at `solo`; promoted to strict at `team`+ per F20.2.A1.
   if (artifact.type === "agent") {
-    const allowedWidth = Array.isArray(artifact.tools?.allowed)
-      ? artifact.tools.allowed.length
-      : 0;
-    if (allowedWidth > AGENT_TOOL_BASELINE_THRESHOLD) {
-      const hasBaseline = SECURITY_BASELINE_PATTERNS.some((re) =>
-        re.test(artifact.body),
-      );
-      if (!hasBaseline) {
-        const message =
-          `Agent declares ${allowedWidth} tool categories (> ${AGENT_TOOL_BASELINE_THRESHOLD}) without a security baseline — ` +
-          "cite `hatch3r-security-patterns` or add a `**Security baseline:**` line scoping the grant";
-        if (isTeamPlus) {
-          strict.push(
-            `${message} (required at maturity tier '${maturityTier}')`,
-          );
-        } else {
-          gentle.push(message);
-        }
+    const allowedWidth = agentToolGrantOverBaseline(
+      artifact.tools?.allowed,
+      artifact.body,
+    );
+    if (allowedWidth !== undefined) {
+      const message = agentToolGrantBaselineMessage(allowedWidth);
+      if (isTeamPlus) {
+        strict.push(
+          `${message} (required at maturity tier '${maturityTier}')`,
+        );
+      } else {
+        gentle.push(message);
       }
     }
   }
@@ -1177,10 +1275,19 @@ async function writeArtifactFiles(
       const mdTarget = join(dir, `${artifact.name}.md`);
       await atomicWriteFile(mdTarget, composed);
       written.push(mdTarget);
-      // Generate paired .mdc companion via the canonical helper.
+      // Generate paired .mdc companion via the canonical helper. When the
+      // author used the canonical two-line form (`ruleScope: conditional` plus
+      // a separate `globs:` in frontmatter), thread that CSV through so the
+      // `.mdc` carries the same auto-attach glob set as the `.md` — otherwise a
+      // conditional rule would silently emit `alwaysApply: false` (D2-18).
+      const ruleGlobs =
+        typeof artifact.frontmatter.globs === "string"
+          ? artifact.frontmatter.globs
+          : undefined;
       const mdcFrontmatter = cursorCompanionFrontmatter(
         artifact.description,
         artifact.ruleScope,
+        ruleGlobs,
       );
       const mdcContent = `${mdcFrontmatter}\n${artifact.body.startsWith("\n") ? artifact.body : `\n${artifact.body}`}`;
       const mdcTarget = join(dir, `${artifact.name}.mdc`);

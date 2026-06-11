@@ -1,4 +1,4 @@
-import { HatchError, type HatchManifest, type Tool } from "../types.js";
+import { HatchError, WORKTREE_CAPABLE_TOOLS, type HatchManifest, type Tool } from "../types.js";
 import type { Adapter } from "./base.js";
 import { ClaudeAdapter } from "./claude.js";
 import { CopilotAdapter } from "./copilot.js";
@@ -83,9 +83,23 @@ interface AdapterCapability {
 // Review this matrix when adding new adapters, removing adapters, or when
 // an existing tool gains/loses support for a feature (e.g. a tool ships
 // native hook support). Each row must match the adapter's doGenerate() output.
+//
+// D2-16 (Cycle 11 Wave 3, D2, P2): the `worktree` column is DERIVED from the
+// single load-bearing source `WORKTREE_CAPABLE_TOOLS` (src/types.ts), the Set
+// that init/config/update/manifest actually read to decide whether to enable
+// worktree isolation for a tool. Before this wave `worktree` was a hand-typed
+// `true` literal that no runtime path consumed, so flipping it changed no
+// behaviour and failed no test — a column that could silently lie. Deriving it
+// here collapses the two parallel sources into one: changing membership in
+// WORKTREE_CAPABLE_TOOLS now flips the matrix column in lockstep, and the
+// `capabilityMatrixDrift` test pins it to that source. The `customization` and
+// `modelOverride` columns are likewise unread by runtime selection — they are
+// facts about every adapter's `doGenerate` calling `applyCustomization` /
+// `resolveAgentModel` unconditionally, so they are `true` for all 3 adapters
+// and pinned to that behavioural source by the same drift test.
 export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
-  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },
+  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: WORKTREE_CAPABLE_TOOLS.has("cursor"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: WORKTREE_CAPABLE_TOOLS.has("claude"),  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },
   // D9-H-5 (Cycle 10 D9, Pillar P4): `prompts: false`. hatch3r ships no
   // canonical `prompts/` content, so the Copilot adapter emits no
   // `.github/prompts/*.prompt.md` from a prompts source — the prior
@@ -94,7 +108,21 @@ export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   // Copilot's commands still route to `.github/prompts/` under the `commands`
   // flag; Copilot's *native* prompts-file picker support is recorded as an
   // unutilized enhancement surface in src/adapters/capabilityMatrix.ts.
-  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  worktree: true,  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  //
+  // D9-17 (Cycle 11 Wave 3, D9, P3 currency): `hooks: false` for copilot stays
+  // false because it tracks what the adapter EMITS (no hook file) and the
+  // stable github.com surface. As of 2026-06-09 the VS Code surface DOES expose
+  // an agent-customization PreToolUse hook (Preview) that returns
+  // `permissionDecision: "deny"` to block a single tool call, plus an
+  // agent-scoped `hooks:` frontmatter field — so the addendum's prior absolute
+  // "cannot block server-side" claim is now Preview-qualified, not universal.
+  // hatch3r does not yet emit that deny-gate (tracked as a CL-2 content-gap
+  // candidate: a Preview-gated PreToolUse deny-gate for the Phase-2/3 code-write
+  // tools). Until emission lands the boolean is unchanged; the drift test keeps
+  // it pinned to the no-hook-file output. Sources (accessed 2026-06-09):
+  // https://code.visualstudio.com/docs/agent-customization/hooks
+  // https://code.visualstudio.com/docs/agent-customization/custom-agents
+  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  worktree: WORKTREE_CAPABLE_TOOLS.has("copilot"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
 };
 
 /**

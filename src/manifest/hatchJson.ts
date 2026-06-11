@@ -6,8 +6,10 @@ import {
   HATCH3R_DIR,
   HatchError,
   MANIFEST_FILE,
+  MATURITY_TIER_RANK,
   VALID_CONFIDENCE_FLOORS,
   VALID_MATURITY_TIERS,
+  VALID_TEAMMATE_MODES,
   VALID_TOOLS,
   WORKTREE_CAPABLE_TOOLS,
   DEFAULT_FEATURES,
@@ -16,6 +18,7 @@ import {
   type CliToolsConfig,
   type ConfidenceFloor,
   type ContentSelection,
+  type ConventionConflict,
   type CostTrackingConfig,
   type CustomizationManifest,
   type HatchManifest,
@@ -93,6 +96,15 @@ export function createManifest(options: {
   content?: ContentSelection;
   languages?: string[];
   /**
+   * D14-M7 (Cycle 11): detected package manager from `analyzeRepo`
+   * (`RepoInfo.packageManager`). Persisted so `verificationGatesFromManifest`
+   * can forward it to `resolveVerificationGates` at sync time and render
+   * `pnpm run test` / `yarn test` / `bun run test` for non-npm JS projects.
+   * Omitted when absent or `"unknown"` so npm projects and pre-Cycle-11
+   * fixtures stay byte-identical.
+   */
+  packageManager?: "npm" | "yarn" | "pnpm" | "bun" | "unknown";
+  /**
    * C9-H47 (D14-SA14.4-H01): detected toolchain results from
    * `analyzeRepo`. Persisted on the manifest so adapter sync — which does
    * not re-run `analyzeRepo` — can resolve `${HATCH3R:LINTER}` etc.
@@ -124,6 +136,14 @@ export function createManifest(options: {
    * repos).
    */
   packages?: PackageEntry[];
+  /**
+   * D14-13 (D14-SA14.4-F3, P1/P4): mutually-exclusive convention conflicts
+   * detected from the toolchain lists at init time (e.g. both `vitest` and
+   * `jest`). Persisted so `status`/`verify` can re-surface that generated
+   * single-toolchain guidance may contradict a second config. Empty/absent
+   * writes no field (preserves manifest byte-identity for unambiguous repos).
+   */
+  conflicts?: ConventionConflict[];
 }): HatchManifest {
   const platform = options.platform ?? "github";
   const owner = options.owner ?? "";
@@ -166,6 +186,13 @@ export function createManifest(options: {
   if (options.languages && options.languages.length > 0 && options.languages[0] !== "unknown") {
     manifest.languages = options.languages;
   }
+  // D14-M7 (Cycle 11): persist the detected package manager so sync-time
+  // gate resolution renders the project's native run command. Omit `"unknown"`
+  // and absence so the written manifest stays byte-identical for npm projects
+  // (npm is the resolver default) and pre-Cycle-11 fixtures.
+  if (options.packageManager && options.packageManager !== "unknown") {
+    manifest.packageManager = options.packageManager;
+  }
   // C9-H47: persist detection results when at least one axis has content.
   // Empty arrays collapse to omission so the written manifest stays
   // byte-identical to pre-1.8.0 fixtures when detection found nothing
@@ -180,6 +207,12 @@ export function createManifest(options: {
       if (testFrameworks.length > 0) manifest.detected.testFrameworks = testFrameworks;
       if (ciProviders.length > 0) manifest.detected.ciProviders = ciProviders;
     }
+  }
+  // D14-13 (D14-SA14.4-F3): persist convention conflicts when any were
+  // detected. Empty/absent collapses to omission so the written manifest
+  // stays byte-identical for repos with unambiguous toolchains.
+  if (options.conflicts && options.conflicts.length > 0) {
+    manifest.conflicts = options.conflicts;
   }
   if (options.defaultBranch) {
     manifest.board = createMinimalBoardConfig(owner, repo, options.defaultBranch);
@@ -520,6 +553,21 @@ function collectManifestErrors(data: unknown): string[] {
     }
   }
 
+  // D14-M7 (Cycle 11): package manager (optional). A hand-edited manifest
+  // with an out-of-enum value fails closed here rather than silently rendering
+  // an npm command at sync time (the resolver only honors npm/yarn/pnpm/bun).
+  if (obj.packageManager !== undefined) {
+    const validPackageManagers = ["npm", "yarn", "pnpm", "bun", "unknown"];
+    if (
+      typeof obj.packageManager !== "string" ||
+      !validPackageManagers.includes(obj.packageManager)
+    ) {
+      errors.push(
+        `\`packageManager\` is not one of ${validPackageManagers.join(", ")}`,
+      );
+    }
+  }
+
   // C9-H47: detected toolchain context (optional).
   if (obj.detected !== undefined) {
     if (typeof obj.detected !== "object" || obj.detected === null) {
@@ -539,6 +587,35 @@ function collectManifestErrors(data: unknown): string[] {
     }
   }
 
+  // D14-13 (D14-SA14.4-F3): convention conflicts (optional). Each entry must
+  // carry a string `dimension`, a `string[]` `tools`, and a string `message`
+  // so a hand-edited manifest fails closed with HatchError rather than a
+  // downstream TypeError when `status`/`verify` re-render the warning.
+  if (obj.conflicts !== undefined) {
+    if (!Array.isArray(obj.conflicts)) {
+      errors.push("`conflicts` is not an array");
+    } else {
+      (obj.conflicts as unknown[]).forEach((c, i) => {
+        if (typeof c !== "object" || c === null || Array.isArray(c)) {
+          errors.push(`\`conflicts[${i}]\` is not an object`);
+          return;
+        }
+        const conflict = c as Record<string, unknown>;
+        if (typeof conflict.dimension !== "string") {
+          errors.push(`\`conflicts[${i}].dimension\` is not a string`);
+        }
+        if (typeof conflict.message !== "string") {
+          errors.push(`\`conflicts[${i}].message\` is not a string`);
+        }
+        if (!Array.isArray(conflict.tools)) {
+          errors.push(`\`conflicts[${i}].tools\` is not an array`);
+        } else if (!(conflict.tools as unknown[]).every((t) => typeof t === "string")) {
+          errors.push(`\`conflicts[${i}].tools\` contains non-string entries`);
+        }
+      });
+    }
+  }
+
   // D20 user-content counters (optional).
   if (obj.userContent !== undefined) {
     if (typeof obj.userContent !== "object" || obj.userContent === null) {
@@ -555,6 +632,178 @@ function collectManifestErrors(data: unknown): string[] {
             errors.push("`userContent.types` has a non-string key");
           } else if (typeof v !== "number") {
             errors.push(`\`userContent.types.${k}\` is not a number`);
+          }
+        }
+      }
+    }
+  }
+
+  // D1-23 (Cycle 11 Wave 3, D1, P2/P6): the eight remaining optional
+  // HatchManifest fields below were unchecked, so a hand-edited
+  // `models.agents.<id>=42` survived the persistence boundary and reached
+  // `resolveAgentModel` (src/models/resolve.ts), which passes the raw value to
+  // `resolveModelAlias` and stamps it into adapter output (cursor.ts:235). Each
+  // check mirrors the field's `src/types.ts` shape so a malformed value fails
+  // closed with a named-field diagnostic rather than corrupting generated
+  // config. `models` mirrors `validateModels` (src/cli/commands/validate.ts).
+
+  // versionConstraint (optional string — npm semver expression).
+  if (obj.versionConstraint !== undefined && typeof obj.versionConstraint !== "string") {
+    errors.push("`versionConstraint` is not a string");
+  }
+
+  // languages (optional string[]).
+  if (obj.languages !== undefined) {
+    if (!Array.isArray(obj.languages)) {
+      errors.push("`languages` is not an array");
+    } else if (!(obj.languages as unknown[]).every((v) => typeof v === "string")) {
+      errors.push("`languages` contains non-string entries");
+    }
+  }
+
+  // repos (optional RepoEntry[]: { owner: string; repo: string; name?: string }).
+  if (obj.repos !== undefined) {
+    if (!Array.isArray(obj.repos)) {
+      errors.push("`repos` is not an array");
+    } else {
+      (obj.repos as unknown[]).forEach((r, i) => {
+        if (typeof r !== "object" || r === null || Array.isArray(r)) {
+          errors.push(`\`repos[${i}]\` is not an object`);
+          return;
+        }
+        const repo = r as Record<string, unknown>;
+        if (typeof repo.owner !== "string") errors.push(`\`repos[${i}].owner\` is not a string`);
+        if (typeof repo.repo !== "string") errors.push(`\`repos[${i}].repo\` is not a string`);
+        if (repo.name !== undefined && typeof repo.name !== "string") {
+          errors.push(`\`repos[${i}].name\` is not a string`);
+        }
+      });
+    }
+  }
+
+  // packages (optional PackageEntry[]: { name: string; path: string }).
+  if (obj.packages !== undefined) {
+    if (!Array.isArray(obj.packages)) {
+      errors.push("`packages` is not an array");
+    } else {
+      (obj.packages as unknown[]).forEach((p, i) => {
+        if (typeof p !== "object" || p === null || Array.isArray(p)) {
+          errors.push(`\`packages[${i}]\` is not an object`);
+          return;
+        }
+        const pkg = p as Record<string, unknown>;
+        if (typeof pkg.name !== "string") errors.push(`\`packages[${i}].name\` is not a string`);
+        if (typeof pkg.path !== "string") errors.push(`\`packages[${i}].path\` is not a string`);
+      });
+    }
+  }
+
+  // hooks (optional HooksConfig: { enabled: boolean }).
+  if (obj.hooks !== undefined) {
+    if (typeof obj.hooks !== "object" || obj.hooks === null || Array.isArray(obj.hooks)) {
+      errors.push("`hooks` is not an object");
+    } else if (typeof (obj.hooks as Record<string, unknown>).enabled !== "boolean") {
+      errors.push("`hooks.enabled` is not a boolean");
+    }
+  }
+
+  // models (optional ModelConfig: { default?: string; agents?: Record<string,string> }).
+  // Mirrors `validateModels` in src/cli/commands/validate.ts so the value
+  // resolved by `resolveAgentModel` is a string at every adapter call site.
+  if (obj.models !== undefined) {
+    if (typeof obj.models !== "object" || obj.models === null || Array.isArray(obj.models)) {
+      errors.push("`models` is not an object");
+    } else {
+      const models = obj.models as Record<string, unknown>;
+      if (models.default !== undefined && typeof models.default !== "string") {
+        errors.push("`models.default` is not a string");
+      }
+      if (models.agents !== undefined) {
+        if (typeof models.agents !== "object" || models.agents === null || Array.isArray(models.agents)) {
+          errors.push("`models.agents` is not an object");
+        } else {
+          for (const [agentId, model] of Object.entries(models.agents as Record<string, unknown>)) {
+            if (typeof model !== "string") {
+              errors.push(`\`models.agents.${agentId}\` is not a string`);
+            }
+          }
+        }
+      }
+    }
+  }
+
+  // claude (optional ClaudeConfig). Validate the scalar/enum fields adapters
+  // read; `permissions.{allow,deny}` must be string[] when present.
+  if (obj.claude !== undefined) {
+    if (typeof obj.claude !== "object" || obj.claude === null || Array.isArray(obj.claude)) {
+      errors.push("`claude` is not an object");
+    } else {
+      const claude = obj.claude as Record<string, unknown>;
+      if (claude.permissions !== undefined) {
+        if (typeof claude.permissions !== "object" || claude.permissions === null || Array.isArray(claude.permissions)) {
+          errors.push("`claude.permissions` is not an object");
+        } else {
+          const perms = claude.permissions as Record<string, unknown>;
+          for (const key of ["allow", "deny"] as const) {
+            const v = perms[key];
+            if (v === undefined) continue;
+            if (!Array.isArray(v)) {
+              errors.push(`\`claude.permissions.${key}\` is not an array`);
+            } else if (!(v as unknown[]).every((s) => typeof s === "string")) {
+              errors.push(`\`claude.permissions.${key}\` contains non-string entries`);
+            }
+          }
+        }
+      }
+      validateStringUnion(
+        claude.teammateMode,
+        VALID_TEAMMATE_MODES,
+        "claude.teammateMode",
+        errors,
+      );
+      if (
+        claude.agentTeams !== undefined &&
+        typeof claude.agentTeams !== "boolean" &&
+        claude.agentTeams !== "ga"
+      ) {
+        errors.push("`claude.agentTeams` is not a boolean or \"ga\"");
+      }
+      // D9-12 (D9, P3): opt-in AGENTS.md interop flag — boolean only.
+      if (claude.agentsMdInterop !== undefined && typeof claude.agentsMdInterop !== "boolean") {
+        errors.push("`claude.agentsMdInterop` is not a boolean");
+      }
+    }
+  }
+
+  // cliTools (optional CliToolsConfig: { enabled: boolean; selected: string[];
+  // overrides?: Record<string, { disabled?: boolean; note?: string }> }).
+  if (obj.cliTools !== undefined) {
+    if (typeof obj.cliTools !== "object" || obj.cliTools === null || Array.isArray(obj.cliTools)) {
+      errors.push("`cliTools` is not an object");
+    } else {
+      const ct = obj.cliTools as Record<string, unknown>;
+      if (typeof ct.enabled !== "boolean") errors.push("`cliTools.enabled` is not a boolean");
+      if (!Array.isArray(ct.selected)) {
+        errors.push("`cliTools.selected` is not an array");
+      } else if (!(ct.selected as unknown[]).every((s) => typeof s === "string")) {
+        errors.push("`cliTools.selected` contains non-string entries");
+      }
+      if (ct.overrides !== undefined) {
+        if (typeof ct.overrides !== "object" || ct.overrides === null || Array.isArray(ct.overrides)) {
+          errors.push("`cliTools.overrides` is not an object");
+        } else {
+          for (const [id, ov] of Object.entries(ct.overrides as Record<string, unknown>)) {
+            if (typeof ov !== "object" || ov === null || Array.isArray(ov)) {
+              errors.push(`\`cliTools.overrides.${id}\` is not an object`);
+              continue;
+            }
+            const override = ov as Record<string, unknown>;
+            if (override.disabled !== undefined && typeof override.disabled !== "boolean") {
+              errors.push(`\`cliTools.overrides.${id}.disabled\` is not a boolean`);
+            }
+            if (override.note !== undefined && typeof override.note !== "string") {
+              errors.push(`\`cliTools.overrides.${id}.note\` is not a string`);
+            }
           }
         }
       }
@@ -885,17 +1134,92 @@ export function readMaturityTier(m: HatchManifest | null | undefined): MaturityT
 }
 
 /**
- * D13-SA13.3-F13.3.3 (Pillar P1): read the persisted agent-assertiveness floor.
- * Absence collapses to `DEFAULT_CONFIDENCE_FLOOR` ("any" — current behavior) so
- * pre-2.0 manifests stay valid without a schema version bump. An out-of-enum
- * persisted value is already rejected at the persistence boundary by
- * `validateManifest`; the membership re-check here is defense-in-depth for the
- * `null`/`undefined` and absent-field callers, mirroring `readMaturityTier`.
+ * D6-29 (Cycle 11 Wave 3, D6, P3/P7): single-source maturity-marker directive
+ * payload shared by all three adapters (claude/cursor/copilot). Before this,
+ * each adapter inlined its own directive string and they had drifted — copilot
+ * said "The universal floor", "accessibility basics", and "baseline tests on
+ * changed surfaces" with a backtick-wrapped rule path, while claude/cursor said
+ * "Universal floor", "a11y basics", and "baseline tests" with a bare rule path.
+ * The maturity-marker contract is the directive PAYLOAD (this string), applied
+ * identically across adapters; each adapter keeps its native wrapper (claude and
+ * cursor wrap it in an HTML comment so it renders invisibly while staying
+ * greppable; copilot emits it as a blockquote line in copilot-instructions.md).
+ * `efficiencyParity.test.ts` asserts the three adapters emit this exact payload
+ * for the same canonical input. The per-adapter tests assert the interpolated
+ * `right-size to maturity=<tier>` substring + the `rules/hatch3r-right-sizing.md`
+ * pointer, both of which this string carries.
+ */
+export function maturityDirective(tier: MaturityTier): string {
+  return `hatch3r: right-size to maturity=${tier}. Invest only as deep as this tier needs; never default to enterprise-grade. Universal floor (security, correctness, a11y basics, baseline tests on changed surfaces) always binds. See rules/hatch3r-right-sizing.md.`;
+}
+
+/**
+ * Lowest maturity rank that defaults the agent-assertiveness floor to `"high"`
+ * when the manifest carries no explicit `confidenceFloor` (D13-SA13.3-F2). Ranks
+ * come from {@link MATURITY_TIER_RANK}: solo=0, team=1, scaleup=2, enterprise=3.
+ * `scaleup`+`enterprise` (rank >= 2) default `high`; `solo`+`team` default
+ * `DEFAULT_CONFIDENCE_FLOOR` ("any"). This wires the calibration the orchestrator
+ * docs already promised ("solo defaults any, enterprise defaults high").
+ */
+const HIGH_FLOOR_MATURITY_RANK = MATURITY_TIER_RANK.scaleup;
+
+/**
+ * D13-SA13.3-F13.3.3 / -F2 (Pillar P1): resolve the agent-assertiveness floor.
+ *
+ * Precedence:
+ * 1. An explicit, in-enum `confidenceFloor` on the manifest wins unconditionally
+ *    — the per-repo override the user set via `hatch3r config confidence_floor`.
+ * 2. On absence, the default is maturity-aware (D13-SA13.3-F2): `scaleup` and
+ *    `enterprise` (rank >= {@link HIGH_FLOOR_MATURITY_RANK}) default `"high"`;
+ *    `solo` and `team` default `DEFAULT_CONFIDENCE_FLOOR` ("any"). A `null` /
+ *    `undefined` manifest resolves to `"solo"` via {@link readMaturityTier} and
+ *    so keeps the "any" default — preserving pre-2.0 behavior on unread
+ *    manifests.
+ *
+ * An out-of-enum persisted floor is already rejected at the persistence boundary
+ * by `validateManifest`; the membership re-check here is defense-in-depth for the
+ * `null`/`undefined` and corrupt-manifest callers, mirroring `readMaturityTier`.
  */
 export function readConfidenceFloor(m: HatchManifest | null | undefined): ConfidenceFloor {
   const value = m?.confidenceFloor;
   if (value && VALID_CONFIDENCE_FLOORS.has(value)) {
     return value;
   }
-  return DEFAULT_CONFIDENCE_FLOOR;
+  return MATURITY_TIER_RANK[readMaturityTier(m)] >= HIGH_FLOOR_MATURITY_RANK
+    ? "high"
+    : DEFAULT_CONFIDENCE_FLOOR;
+}
+
+/**
+ * D1-17 (Cycle 11 Wave 3, D1, P1): single-source confidence-floor marker
+ * directive, the agent-assertiveness analog of {@link maturityDirective}.
+ *
+ * Pre-fix the persisted `confidenceFloor` (set via `hatch3r config
+ * confidence_floor=<floor>` and resolved by {@link readConfidenceFloor}) was
+ * validated and stored but NEVER reached any adapter output: no generated
+ * `.cursor/` / `.claude/` / `.github/` artifact carried the value, so an agent
+ * reading the generated content could not know which review-gate floor the user
+ * configured (in contrast to the maturity tier, which every adapter stamps via
+ * {@link maturityDirective}). This payload carries the resolved floor and its
+ * second-pass effect into the same per-adapter marker surface, so the four core
+ * orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`,
+ * `hatch3r-quick-change`, `hatch3r-revision`) read the configured floor from the
+ * artifact they already load instead of it being a write-only config key.
+ *
+ * The effect text mirrors the per-floor semantics documented on `ConfidenceFloor`
+ * in `src/types.ts` and applied by `evaluateReviewGate` in
+ * `src/pipeline/reviewLoop.ts`: `high` forces a second pass on any verdict that
+ * is not `high` confidence; `medium` forces a second pass on `low`; `any` (the
+ * default) only forces a second pass on a top-level `low` finding. Like
+ * `maturityDirective`, each adapter keeps its native wrapper (claude/cursor wrap
+ * it in an HTML comment so it renders invisibly while staying greppable; copilot
+ * emits it as a blockquote line).
+ */
+export function confidenceFloorDirective(floor: ConfidenceFloor): string {
+  const effect: Record<ConfidenceFloor, string> = {
+    any: "force a second review pass only on a top-level low-confidence finding",
+    medium: "force a second review pass on any low-confidence finding",
+    high: "force a second review pass on any verdict below high confidence",
+  };
+  return `hatch3r: confidence floor=${floor}. Core orchestrators ${effect[floor]} before a clean verdict; the floor never relaxes the Critical/Warning fail gates. Set via \`hatch3r config confidence_floor=<any|medium|high>\`.`;
 }

@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 # Board Pickup -- Develop Issues from the Project Board
 
@@ -114,21 +114,17 @@ Post-execution actuals + delta land in the Step 7 / post-impl iteration summary'
 
 ### Effort Override (Decision 17)
 
-Auto-tiering can misclassify — an isolated sub-issue scored as Deep, or a cross-cutting epic scored as Light. The user override is the recovery path mandated by hatch3r's universal `--effort` override contract ("User overridable via `--effort` flag"):
-
-- `--effort=light|standard|deep` forces the named tier, bypassing the Step 0 auto-classification.
-- The override wins over the auto-detected tier; record both the auto-detected tier and the override in the run context so the Cost estimate block reports the budget delta.
-- No override passed → the Step 0 auto-classification stands.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Effort Override (Decision 17). Misclassification example: an isolated sub-issue scored as Deep, or a cross-cutting epic scored as Light.
 
 ### Confidence Floor (Decision 16 / D13-SA13.3-F13.3.3)
 
-`--effort` calibrates work-effort depth; `--confidence-floor` calibrates the confidence threshold at which the Step 7 review gate (`commands/board/pickup-delegation.md` confidence-aware gate) blocks. They are orthogonal. This is the user's pre-flight assertiveness knob — the forced-second-pass on low confidence is post-hoc; the floor sets the bar before the run:
+`--effort` calibrates work-effort depth; `--confidence-floor` calibrates the confidence threshold at which the Step 7 review gate (the canonical **Confidence-Aware Review Gate** in `agents/shared/confidence-gate.md`, run by `commands/board/pickup-delegation.md` / `pickup-delegation-multi.md`) blocks. They are orthogonal. This is the user's pre-flight assertiveness knob — the forced-second-pass on low confidence is post-hoc; the floor sets the bar before the run:
 
 - `--confidence-floor=any|medium|high` (default `any`). Resolution order: explicit flag wins over the persisted `hatch3r config confidence_floor=...` default, which wins over the built-in `any`.
 - **`any`** (current behavior): force a second reviewer pass only when reviewer confidence `== low` with 0 Critical + 0 Warning.
 - **`medium`**: force a second pass on ANY finding rated `confidence == low`, even with 0 Critical + 0 Warning.
 - **`high`**: force a second pass on any finding rated `confidence != high`, AND ASK the user on every low-confidence finding regardless of severity.
-- Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`. Pass the resolved floor verbatim into the Step 7 review-gate evaluation alongside the confidence value sourced from the upstream reviewer (Confidence Propagation Contract). The floor never relaxes a Safety Guardrail.
+- Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`. Pass the resolved floor verbatim into the Step 7 review-gate evaluation (`agents/shared/confidence-gate.md`, which the delegation sub-files run) alongside the confidence value sourced from the upstream reviewer (Confidence Propagation Contract). The floor never relaxes a Safety Guardrail.
 
 ---
 
@@ -365,40 +361,17 @@ Execute Steps 7-10 in order after all implementation completes:
 
 board-pickup is long-running — a Tier 3 batch picks up multiple epics/sub-issues, branches, delegates parallel implementers per dependency level (Step 6), runs the reviewer ↔ fixer review loop (Step 7a), and fans out the Phase 4 specialist batch (Step 7b–7c) across 11 sub-agents in `agentPipeline`. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-claiming issues, re-creating branches, or repeating implementer work that already wrote code.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.board-pickup-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 10 progression), `wave` (dependency-level batch index when parallel implementers run), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, branchName, claimedIssueIds, batchMode }`.
-2. **Write points:** after Step 1 work selection ASK, after Step 2 scope + dependency lock, after Step 3 collision detection, after Step 4 board-status update (issues moved to In Progress), after Step 5 branch creation (atomic with `branchName` persistence), after each Step 6 implementer batch returns per dependency level (so completed implementations survive a crash and are not re-implemented on resume), after each Step 7a review-loop iteration, after each Step 7b/7c parallel-specialist batch completes, after Step 8 git commit, and after Step 9 PR-readiness gate.
-3. **`--resume` invocation:** `hatch3r board-pickup --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the board state / claimed-issue status / branch HEAD changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming; mid-implementer-batch crashes preserve already-merged implementer changes (no re-implementation) but re-spawn implementers for unfinished batch items.
-4. **Snapshot rollback:** pre-mutation snapshots of `.hatch3r/handoffs/` entries written by `hatch3r-handoff` and pre-commit working-tree state land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations (board status remains a manual revert via the platform CLI, as documented in the Auto-Advance section). Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.board-pickup-workspace/`; step range the Step 0 → Step 10 progression; `wave` = dependency-level batch index when parallel implementers run; snapshot/rollback paths `.hatch3r/handoffs/` entries written by `hatch3r-handoff` and pre-commit working-tree state. Write points: after Step 1 work selection ASK, after Step 2 scope + dependency lock, after Step 3 collision detection, after Step 4 board-status update (issues moved to In Progress), after Step 5 branch creation (atomic with `branchName` persistence), after each Step 6 implementer batch returns per dependency level (so completed implementations survive a crash and are not re-implemented on resume), after each Step 7a review-loop iteration, after each Step 7b/7c parallel-specialist batch completes, after Step 8 git commit, and after Step 9 PR-readiness gate.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for board-pickup: `1` = ready-queue selection + branch checkout, `2` = researcher + implementer dispatch, `3` = reviewer/fixer review-loop + Phase 4 specialists, `4` = PR creation + board sync + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for board-pickup: `1` = ready-queue selection + branch checkout, `2` = researcher + implementer dispatch, `3` = reviewer/fixer review-loop + Phase 4 specialists, `4` = PR creation + board sync + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (implementer code changes, test additions, fixer corrections) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via hatch3r-{implementer|fixer} (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: implementer code changes, test additions, fixer corrections.
 
 ## Iteration Summary (mandatory output)
 
@@ -418,18 +391,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

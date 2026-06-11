@@ -180,7 +180,7 @@ Skip this step if the issue has no user-facing UI changes.
 
 ### 5c. UI/UX Verification Gate (if UI)
 
-**Trigger:** any file in `filesChanged` matching `**/*.{tsx,jsx,vue,svelte}` or any path under `**/components/**`. Skip when no path in the change set matches. Measurement criteria are defined in `agents/shared/quality-charter.md` lines 137-148 (Charter section "UI/UX quality (for agent-produced output in end-user projects)") — that section is binding via this agent's `quality_charter` frontmatter field.
+**Trigger:** any file in `filesChanged` matching `**/*.{tsx,jsx,vue,svelte}` or any path under `**/components/**`. Skip when no path in the change set matches. Measurement criteria are defined in `agents/shared/quality-charter.md` §UI/UX quality (Charter section "UI/UX quality (for agent-produced output in end-user projects)") — that section is binding via this agent's `quality_charter` frontmatter field.
 
 This gate is mandatory when triggered; passing Step 5b screenshot verification does not substitute for it. Step 5b confirms visual presence; Step 5c confirms the 2026 UI/UX floor (WCAG 2.2 AA conformance, design-token reuse, four-state surface contract, microcopy and tone, AI-UX patterns when applicable, Core Web Vitals).
 
@@ -192,8 +192,18 @@ This gate is mandatory when triggered; passing Step 5b screenshot verification d
 **Before returning the structured result:**
 
 3. Invoke `skills/hatch3r-ui-ux-verify/SKILL.md` against every changed UI surface (route, component, async view). The skill runs 9 gates: axe-core (0 serious/critical violations), keyboard trace (every interactive element reachable + visible focus ring), a11y-tree snapshot (landmarks + labels), four-state coverage (loading + empty + error + partial), visual regression, microcopy lint, Core Web Vitals (LCP <=2.5s, INP <=200ms, CLS <=0.1 per CONSTITUTION §2B CQ7), AI-UX checks when applicable, and one human screen-reader pass per release.
-4. Record per-gate verdicts in the structured result under `**UI/UX verification gate:**` as `GATE_1: PASS|FAIL|DEFERRED-TO-RELEASE` through `GATE_9: PASS|FAIL|DEFERRED-TO-RELEASE`. For any `FAIL`, include the failing assertion message verbatim so the reviewer can reproduce. Gate 9 (human screen-reader pass) defaults to `DEFERRED-TO-RELEASE` on per-feature work and is required only at the release-cut boundary.
-5. Step 5c is `PASS` only when every gate that ran reports `PASS` (Gate 9 `DEFERRED-TO-RELEASE` is acceptable on per-feature work). Any non-deferred gate at `FAIL` blocks sign-off — see the Boundaries `Never:` rule.
+4. Record per-gate verdicts in the structured result under `**UI/UX verification gate:**` using the per-gate token set defined in the Return Structured Result schema below — each gate carries only the tokens valid for it, not a uniform `PASS|FAIL|DEFERRED-TO-RELEASE` across all nine. For any `FAIL`, include the failing assertion message verbatim so the reviewer can reproduce. The token vocabulary:
+   - `PASS` / `FAIL` — the gate ran and the assertion passed / failed.
+   - `DEFERRED-TO-RELEASE` — valid only on the release-only gates G5 (visual regression), G7 (Core Web Vitals), and G9 (human screen-reader pass): on per-feature work a meaningful baseline / field measurement / human pass is taken at the release-cut boundary, not per PR. Defaulting one of these to deferred on per-feature work is acceptable; deferring a per-PR gate is not.
+   - `BLOCKED_MISSING_TOOL` — the gate's required tool is absent and no degraded path applies. This is the canonical escalation token from `agents/shared/quality-charter.md` §17, reused here at gate granularity. Use it when a browser-rendering gate (G1/G2/G3/G5/G7/G8 axe step) cannot run because the target does not render to a DOM (React Native, Flutter, SwiftUI) or no browser/Playwright is available AND the documented degraded path below also cannot run. A `BLOCKED_MISSING_TOOL` gate is unmeasured — it never silently becomes `PASS`; the orchestrator routes it per `quality-charter.md` §17 (downgrade scope or set up the tool).
+   - `N/A` — the gate does not apply to this surface (G8 when there is no AI surface).
+
+   **Degraded (non-browser) paths — run before emitting `BLOCKED_MISSING_TOOL`:** when a live browser is unavailable (`--no-browser`, CI without Playwright) or the target is non-DOM, attempt the degraded path first and record the gate as `PASS`/`FAIL` from it (annotate the path used in the verbatim evidence):
+   - **G1 axe-core:** render the component under `jsdom` and run `jest-axe` (`axe(container)` + `toHaveNoViolations`) for serious/critical violations. Native targets: run the framework's accessibility linter (RN `eslint-plugin-react-native-a11y`; Flutter `flutter test` semantics matchers) as the degraded equivalent.
+   - **G2 keyboard trace:** drop to a component-test focus-order assertion (Testing Library `userEvent.tab()` + assert `document.activeElement` walks the expected order) instead of a full-route Playwright trace.
+   - **G3 a11y-tree snapshot:** assert landmark roles and accessible names from the rendered `jsdom` tree (Testing Library `getByRole`) rather than `page.accessibility.snapshot()`.
+   When even the degraded path cannot run (no `jsdom`/test harness, or a native target with no a11y linter wired), the gate is `BLOCKED_MISSING_TOOL`.
+5. Step 5c is `PASS` only when every gate that ran reports `PASS`. `DEFERRED-TO-RELEASE` on G5/G7/G9 and `N/A` on G8 are acceptable on per-feature work. Any non-deferred gate at `FAIL` blocks sign-off — see the Boundaries `Never:` rule. A `BLOCKED_MISSING_TOOL` gate does not block sign-off but does prevent a `PASS` verdict: Step 5c is `PARTIAL` until the tool is set up or the orchestrator downgrades scope, so a browser-absent gate is never laundered into an unmeasured `PASS`.
 
 The Step 5c verdict is a first-class field in the Return Structured Result block below alongside Browser verification.
 
@@ -225,17 +235,18 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 - (screenshots or observations if verified)
 
 **UI/UX verification gate (Step 5c):**
-- VERDICT: PASS | FAIL | SKIPPED (non-UI)
-- GATE_1 axe-core: PASS | FAIL
-- GATE_2 keyboard trace: PASS | FAIL
-- GATE_3 a11y-tree snapshot: PASS | FAIL
+- VERDICT: PASS | PARTIAL | FAIL | SKIPPED (non-UI)
+- GATE_1 axe-core: PASS | FAIL | BLOCKED_MISSING_TOOL
+- GATE_2 keyboard trace: PASS | FAIL | BLOCKED_MISSING_TOOL
+- GATE_3 a11y-tree snapshot: PASS | FAIL | BLOCKED_MISSING_TOOL
 - GATE_4 four-state coverage: PASS | FAIL
-- GATE_5 visual regression: PASS | FAIL
+- GATE_5 visual regression: PASS | FAIL | DEFERRED-TO-RELEASE | BLOCKED_MISSING_TOOL
 - GATE_6 microcopy lint: PASS | FAIL
-- GATE_7 Core Web Vitals: PASS | FAIL
-- GATE_8 AI-UX checks: PASS | FAIL | N/A (no AI surface)
+- GATE_7 Core Web Vitals: PASS | FAIL | DEFERRED-TO-RELEASE | BLOCKED_MISSING_TOOL
+- GATE_8 AI-UX checks: PASS | FAIL | BLOCKED_MISSING_TOOL | N/A (no AI surface)
 - GATE_9 human screen-reader pass: PASS | DEFERRED-TO-RELEASE
-- (FAIL details: failing assertion verbatim, route, component, repro command)
+- (per-gate token meanings + degraded non-browser paths for G1/G2/G3: Step 5c item 4. VERDICT is PARTIAL when a gate is BLOCKED_MISSING_TOOL and no gate FAILs.)
+- (FAIL details: failing assertion verbatim, route, component, repro command. BLOCKED_MISSING_TOOL details: which tool is absent + whether the degraded path was attempted.)
 
 **Consulted Learnings:**
 - (learning IDs matched in Step 0b, or "none available" / "none matched")
@@ -297,9 +308,9 @@ Apply this format whenever the implementation involves choosing between approach
 
 ## Review Loop Awareness
 
-After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 3 iterations). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
+After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 4 iterations (matches `DEFAULT_MAX_REVIEW_ITERATIONS`)). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
-After the review loop, Phase 4 specialists run bounded by `max_phase4_parallel` (default `8`, env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ9) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
+After the review loop, Phase 4 specialists run bounded by the orchestrator-honored `max_phase4_parallel` width (default `8` — LLM-honored guidance, not a code-enforced cap). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ9) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
 
 **Phase 4 specialist enumeration** — 9 CQ floor specialists + 4 SSOT specialists (`hatch3r-docs-writer`, `hatch3r-lint-fixer`, `hatch3r-architect`, `hatch3r-devops`) dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9), KDD #22, and `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` (always/evaluate/conditional modes). The pre-2.0.0 legacy meta-agents were retired in 2.0.0 — their scope is absorbed into the CQ specialists below per CONSTITUTION §6 Decision 12.
 
@@ -324,21 +335,7 @@ When the implementer's `filesChanged` list crosses any CQ trigger glob above, em
 
 ## Specialist Delegation
 
-At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the implementation touches a CQ-axis surface. Trigger conditions and the specialist roster (CONSTITUTION §6 Decision 13 wiring):
-
-| CQ Pillar | Specialist | Trigger |
-|-----------|------------|---------|
-| CQ1 UI | `hatch3r-ui` | Files matching `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` |
-| CQ2 UX | `hatch3r-ux` | Route handlers, page components, form components, navigation, empty/error/loading states |
-| CQ3 Security | `hatch3r-security` | `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline, dependency manifest/lockfile, DB rules/data flows/privacy invariants |
-| CQ4 Reliability | `hatch3r-reliability` | Service handlers, OTel instrumentation, SLO files, RFC 9457 error responses |
-| CQ5 Testability | `hatch3r-testability` | Parsers, payment flows, RPC contracts, AI feature handlers, test files |
-| CQ6 Scalability | `hatch3r-scalability` | Stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, connection-pool config |
-| CQ7 Performance | `hatch3r-performance` | LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size imports, N+1 query candidates |
-| CQ8 Maintainability | `hatch3r-maintainability` | Expand-contract migrations, API breaking-change candidates, duplication-risk patterns, high cyclomatic-complexity branches |
-| CQ9 Enhancability | `hatch3r-enhancability` | Feature flags, externalized config, versioned APIs, extension-point definitions |
-
-Surface matched specialist names in the structured result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
+At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the implementation touches a CQ-axis surface. The 9-row CQ1-CQ9 trigger roster (pillar → specialist → trigger glob) lives in the single source `agents/shared/cq-specialist-roster.md`; CONSTITUTION §6 Decision 13 wiring. Match the implementer's `filesChanged` against that roster, then surface the matched specialist names in the structured result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
 
 ## Error Handling During Implementation
 

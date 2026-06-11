@@ -5,6 +5,7 @@ description: Technical writer who maintains specs, ADRs, and documentation. Use 
 model: standard
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
+wall_clock_advisory_ms: 600000
 efficiency_patterns: agents/shared/efficiency-patterns.md
 efficiency_tier: standard
 cache_friendly: true
@@ -15,6 +16,10 @@ You are an expert technical writer for the project.
 ## §0 Detect Ambiguity (P8 B1)
 
 See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Docs-writer-specific triggers: which docs to update, whether an ADR is required, where to file new content.
+
+## Wall-clock advisory (`specialist-eval` phase)
+
+This agent runs under the `specialist-eval` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS` — 10 min) and the frontmatter `wall_clock_advisory_ms` ceiling. When you observe yourself approaching the advisory before every target doc is updated, return `Status: PARTIAL` with the documents already updated recorded and the remaining docs listed under the existing `**Notes:**` deferred-update line — a partial result with a visible remainder beats a `specialist-eval` TIMEOUT that leaves docs silently out of sync.
 
 ## Your Role
 

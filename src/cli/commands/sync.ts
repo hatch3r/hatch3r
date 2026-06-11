@@ -9,16 +9,19 @@ import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 // SA12.4-F1 / F2.7-F5 (D12/D2): the provenance writer records an emit-time
 // content hash per output so `hatch3r status` can later attribute drift
-// direction (user edit vs outdated canonical). `hashEmittedContent` is the
-// single normalization both the writer (here) and the reader (status.ts)
+// direction (user edit vs outdated canonical). D12-4 (Cycle 11 Wave 2): the
+// writer body now lives in `src/manifest/provenance.ts::writeProvenance`
+// (single source of truth — `init`/`update` call the same helper so they
+// populate the first-run trace + refresh the baseline). `hashEmittedContent`
+// is the single normalization both the writer and the reader (status.ts)
 // share, so the hash computed at emit time matches the hash status.ts derives
 // from the on-disk managed block.
-import { hashEmittedContent } from "./status.js";
+import { writeProvenance } from "../../manifest/provenance.js";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
 import { rehydrateCustomization } from "../../manifest/rehydrate.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextBudget.js";
-import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
+import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic, detectConcurrentWriteRisk } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
@@ -67,6 +70,7 @@ import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import { discoverUserContent, validateContentBody } from "../../content/userContent.js";
 import { scanOrphanFiles, formatOrphanScanDiagnostic } from "../../content/orphanScan.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
+import { validateHandoffsDirectory, pruneHandoffs } from "../../content/handoffs/index.js";
 import { loadValidatedLearnings } from "../../content/learningsLoader.js";
 import {
   printBanner,
@@ -83,7 +87,7 @@ import {
 } from "../shared/ui.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import { getRunId } from "../shared/runId.js";
-import { buildCustomizationSummary } from "../../adapters/customizationSummary.js";
+import { buildCustomizationSummary, selectionSetFromManifest } from "../../adapters/customizationSummary.js";
 
 /**
  * Check if docs/specs/ exists and whether spec files are older than
@@ -157,10 +161,17 @@ async function checkSpecFreshness(rootDir: string): Promise<void> {
  * wrapper routes the warning through the `warn()` UI helper so a failing audit
  * trail (EACCES, ENOSPC, read-only mount) is visible in the command output,
  * not silently swallowed. Failure logging still never breaks the sync.
+ *
+ * D12-7 (Cycle 11 Wave 2, D12, P1): threads the per-run `correlationId` so
+ * every CLI-written entry carries the same `HATCH3R_RUN_ID` the error funnel
+ * prints to stderr (`src/cli/shared/errors.ts`, `src/cli/index.ts`). Without
+ * it the entry had no run id and the "grep the failure log by this run id"
+ * guidance in those funnels resolved to a key that was never present.
  */
 async function appendFailure(agentsDir: string, phase: string, error: unknown, tool?: string): Promise<void> {
   const result = await writeFailureLog(agentsDir, phase, error, {
     tool,
+    correlationId: getRunId(),
     version: HATCH3R_VERSION,
   });
   if (result.warning) warn(`[hatch3r sync] ${result.warning}`);
@@ -290,6 +301,19 @@ export async function syncCommand(
       if (tmpDiag) warn(tmpDiag);
     } catch (err) {
       verbose(`sync: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
+    // D11-14 (Cycle 11 Wave 3, P6): after the aged-orphan sweep (which removes
+    // crash leftovers), check for a YOUNG `.tmp.<8hex>` — the signal of another
+    // hatch3r write in flight RIGHT NOW. The single-repo default takes no lock,
+    // so two concurrent `hatch3r sync` runs clobber managed files
+    // last-writer-wins; warn the operator to pass HATCH3R_LOCK=1 on both runs.
+    // Returns null (no warning) when locking is already active. Best-effort,
+    // never aborts the sync.
+    try {
+      const concurrencyWarning = await detectConcurrentWriteRisk(rootDir, { recursive: true });
+      if (concurrencyWarning) warn(concurrencyWarning);
+    } catch (err) {
+      verbose(`sync: concurrency-risk check skipped — ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
@@ -462,58 +486,138 @@ export async function syncCommand(
   }
 
   // F6.4-H1 (D6, OWASP ASI06 Memory & Context Poisoning): materialization-time
-  // learnings gate. Adapters pour `.hatch3r/learnings/` into the per-tool
-  // context file (CLAUDE.md / `.cursor/rules/*` / copilot-instructions). The
-  // loader agent's "invoke sanitizeUserContent" prose is unenforceable — the
-  // LLM is the very actor being hijacked and has no JS runtime. We run the
-  // deterministic `validateLearningsDirectory` pass HERE, in the CLI write
-  // path, BEFORE any adapter materializes the context file. `validate.ts`
-  // already runs this at `validate` time; this closes the runtime-write gap.
-  // Errors (oversized / binary / malformed-name files) refuse the sync unless
-  // `--force`; warnings (denied-pattern matches) are surfaced as a quarantine
-  // notice and never block (the loader's instruction-hierarchy markers keep
-  // them user-tier). Missing `.hatch3r/learnings/` is a valid clean state
-  // (the function returns valid+empty on ENOENT).
+  // learnings + handoffs gate.
+  //
+  // D15-13 (Cycle 11 Wave 3, D15, ASI06): accuracy correction. No CLI adapter
+  // (claude/cursor/copilot) reads the `learning` type into a context file —
+  // `src/adapters/canonical.ts` registers `learnings` in `canonicalReadMap` but
+  // no `doGenerate` consumes it. `.hatch3r/learnings/` is materialized into a
+  // session by the RUNTIME `hatch3r-learnings-loader` agent (Claude SessionStart
+  // hook, see `src/adapters/claude.ts`), not by a deterministic adapter sink. So
+  // the ASI06 attack surface for learnings is the loader LLM — which has no JS
+  // runtime, making its "invoke sanitizeUserContent" prose unenforceable at run
+  // time. The two deterministic passes below are therefore a DEFENSE-IN-DEPTH
+  // pre-flight (CLI-write boundary), NOT the primary enforcement of a non-
+  // existent adapter materialization sink: they hard-fail the run before a
+  // poisoned learning can be loaded by that runtime agent on the next session.
+  // `.hatch3r/handoffs/` ARE user-tier state consumed by resuming agents; the
+  // same deterministic pass refuses a poisoned handoff before the next agent
+  // reads it. `validate.ts` runs these at `validate` time; this is the auto-run
+  // that closes the runtime-load gap (D6-7 — the deterministic gate was opt-in,
+  // never on the write path).
+  //
+  // D6-7 (Cycle 11 Wave 2, D6, ASI06): a learnings injection-pattern hit now
+  // BLOCKS the sync (override with `--force`), matching the handoffs validator
+  // which already treats P-LEARN-01..05 matches as hard errors. Previously such
+  // hits were non-blocking warnings, so a poisoned learning was poured into
+  // every adapter context file behind an advisory. Structural errors
+  // (oversized / binary / malformed-name) still block; benign advisories
+  // (non-.md files) stay warnings. Missing dirs are a valid clean state (both
+  // validators return valid+empty on ENOENT).
   try {
     const learnings = await validateLearningsDirectory(join(rootDir, HATCH3R_DIR, "learnings"));
-    if (learnings.warnings.length > 0) {
-      warn(`Learnings content scan: ${learnings.warnings.length} suspicious pattern(s) quarantined (loaded with user-tier markers, not as instructions):`);
-      for (const w of learnings.warnings) warn(`  ${w}`);
+    // Surface every advisory; inject-pattern hits are also listed in
+    // `injectionHits` and gated below.
+    const benignWarnings = learnings.warnings.filter((w) => !learnings.injectionHits.includes(w));
+    if (benignWarnings.length > 0) {
+      warn(`Learnings content scan: ${benignWarnings.length} advisory(ies):`);
+      for (const w of benignWarnings) warn(`  ${w}`);
     }
-    if (!learnings.valid) {
-      warn(`Learnings validation: ${learnings.errors.length} error(s) detected`);
-      for (const e of learnings.errors) warn(`  ${e}`);
+    if (learnings.injectionHits.length > 0) {
+      logError(`Learnings injection scan: ${learnings.injectionHits.length} prompt-injection / context-poisoning hit(s) detected (ASI06):`);
+      for (const h of learnings.injectionHits) logError(`  ${h}`);
+    }
+    // D6-7: block on either structural errors OR injection hits.
+    if (!learnings.valid || learnings.injectionHits.length > 0) {
+      if (!learnings.valid) {
+        warn(`Learnings validation: ${learnings.errors.length} structural error(s) detected`);
+        for (const e of learnings.errors) warn(`  ${e}`);
+      }
       if (!opts.force) {
         logError(
-          "Refusing to materialize tool context files with invalid learnings. " +
+          "Refusing to materialize tool context files with invalid or poisoned learnings. " +
           "Fix the offending file(s) under .hatch3r/learnings/, or re-run with --force.",
         );
         throw new HatchError(
           "Learnings pre-flight scan failed (use --force to override)",
           undefined,
           "VALIDATION_ERROR",
-          "Fix the offending learning file(s) listed above (oversized, binary, or invalid name), or re-run with `--force` to materialize them as-is.",
+          "Fix the offending learning file(s) listed above (oversized, binary, invalid name, or matching an injection pattern), or re-run with `--force` to materialize them as-is.",
         );
       }
-      warn("Continuing with --force: invalid learnings will be materialized into tool context.");
+      warn("Continuing with --force: invalid/poisoned learnings will be materialized into tool context.");
+      console.log();
+    }
+
+    // D6-26 (Cycle 11 Wave 3, D6, ASI06): auto-quarantine past-expiry handoffs
+    // BEFORE the validation gate. Expiry was advisory-only — an expired handoff
+    // stayed in `active/` and a resuming agent read stale, possibly long-
+    // superseded state. `pruneHandoffs` atomically moves each past-expiry active
+    // handoff to `archived/` (write-new + rename, tagged `archived:expired`), so
+    // the active read path holds only unexpired entries. This runs on every sync
+    // including `--force` (quarantine is non-destructive — the file survives in
+    // `archived/`, it is just off the resume path). Failures stay warnings; a
+    // handoff that cannot be moved is still caught by the validator below.
+    const pruned = await pruneHandoffs(join(rootDir, HATCH3R_DIR));
+    if (pruned.archived.length > 0) {
+      warn(
+        `Handoffs: quarantined ${pruned.archived.length} past-expiry handoff(s) to ` +
+          `${HATCH3R_DIR}/handoffs/archived/ (off the resume read path): ` +
+          `${pruned.archived.join(", ")}`,
+      );
+    }
+    for (const w of pruned.warnings) warn(`  ${w}`);
+
+    // D6-7: auto-run the handoffs validator on the materialization path. The
+    // handoffs validator already classifies injection-pattern hits + integrity
+    // mismatches + malformed frontmatter as blocking `errors`; running it here
+    // refuses a sync that would otherwise leave a poisoned handoff readable by
+    // the next resuming agent. Drift advisories (expiry / git_ref) stay
+    // warnings. `--force` overrides, mirroring the learnings gate.
+    const handoffs = await validateHandoffsDirectory(
+      join(rootDir, HATCH3R_DIR, "handoffs", "active"),
+      { archivedDir: join(rootDir, HATCH3R_DIR, "handoffs", "archived") },
+    );
+    if (handoffs.warnings.length > 0) {
+      warn(`Handoffs content scan: ${handoffs.warnings.length} advisory(ies):`);
+      for (const w of handoffs.warnings) warn(`  ${w}`);
+    }
+    if (!handoffs.valid) {
+      logError(`Handoffs validation: ${handoffs.errors.length} blocking error(s) detected (injection / integrity / schema):`);
+      for (const e of handoffs.errors) logError(`  ${e}`);
+      if (!opts.force) {
+        throw new HatchError(
+          "Handoffs pre-flight scan failed (use --force to override)",
+          undefined,
+          "VALIDATION_ERROR",
+          "Fix the offending handoff file(s) under .hatch3r/handoffs/active/ (injection pattern, integrity mismatch, or malformed frontmatter), or re-run with `--force`.",
+        );
+      }
+      warn("Continuing with --force: invalid/poisoned handoffs remain on disk for resuming agents.");
       console.log();
     }
   } catch (err) {
     if (err instanceof HatchError) throw err;
-    verbose(`Learnings pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
+    verbose(`Learnings/handoffs pre-flight scan skipped: ${err instanceof Error ? err.message : String(err)}`);
   }
 
-  // F6.4-H1 (D6, OWASP ASI06): runtime materialization-time per-file loader
-  // hook. The directory-level scan above is the hard pre-flight that refuses
-  // the run; this is the defense-in-depth per-file gate that runs even
-  // under `--force` — invalid individual files are silently skipped from
-  // adapter materialization, with the skip routed through the
-  // `.failure-log.jsonl` channel (Silent Failure Contract — CONSTITUTION
-  // §2 P5). The loader is a read-only enumeration; adapters consuming the
-  // canonical learnings type still go through their existing reader, so
-  // this hook acts as an audit-visible counter that mirrors the same gates
-  // and surfaces them via observability. Skipping a single bad file does
-  // not poison the rest of the sync.
+  // F6.4-H1 (D6, OWASP ASI06): per-file learnings loader gate. The directory-
+  // level scan above is the hard pre-flight that refuses the run; this is the
+  // defense-in-depth per-file gate that runs even under `--force` — invalid
+  // individual files are skipped from the loadable set, with the skip routed
+  // through the `.failure-log.jsonl` channel (Silent Failure Contract —
+  // CONSTITUTION §2 P5).
+  //
+  // D15-13 (Cycle 11 Wave 3, D15, ASI06): the loader is a read-only enumeration
+  // that mirrors the same gates the runtime `hatch3r-learnings-loader` agent is
+  // instructed to apply when it loads `.hatch3r/learnings/` into a session (no
+  // CLI adapter reads the `learning` type — see the directory-gate comment
+  // above). It acts as an audit-visible counter over BOTH dispositions:
+  // `skipped` (fail-closed) AND `loaded` (the files that survive every gate and
+  // will be available to that runtime agent). The prior code discarded
+  // `loaded`, so the count of learnings actually cleared for runtime load was
+  // never observable — surface it under --verbose. Skipping a single bad file
+  // does not poison the rest of the sync.
   try {
     const loaderResult = await loadValidatedLearnings(rootDir, {
       onWarn: (msg) => warn(msg),
@@ -521,8 +625,16 @@ export async function syncCommand(
     });
     if (loaderResult.skipped.length > 0) {
       warn(
-        `Learnings loader skipped ${loaderResult.skipped.length} file(s) at materialization — ` +
-          `audit detail in ${HATCH3R_DIR}/${FAILURE_LOG_FILE}`,
+        `Learnings loader skipped ${loaderResult.skipped.length} file(s) — ` +
+          `fail-closed, not available for runtime load; audit detail in ` +
+          `${HATCH3R_DIR}/${FAILURE_LOG_FILE}`,
+      );
+    }
+    if (loaderResult.loaded.length > 0) {
+      verbose(
+        `Learnings loader: ${loaderResult.loaded.length} file(s) passed every gate and ` +
+          `are available to the runtime hatch3r-learnings-loader agent ` +
+          `(${loaderResult.loaded.reduce((n, l) => n + l.byteLength, 0)} bytes total).`,
       );
     }
   } catch (err) {
@@ -696,7 +808,18 @@ export async function syncCommand(
       // wall-clock breach aborts the phase controller too.
       executeWithPhaseTimeout(
         "adapter",
-        async () => {
+        // D8-10 (Cycle 11 Wave 3, D8, P-CQ4): the phase fn receives the phase
+        // AbortSignal — `executeWithPhaseTimeout` aborts it on either the
+        // phase-timeout timer OR the chained `deadmanSignal` (parentSignal,
+        // below). Threading it into `generateWithTimeout`'s parentSignal slot
+        // is what makes the abort reach the in-flight adapter:
+        // `BaseAdapter.throwIfSignalAborted(signal)` then fires on the next
+        // await. Before this fix the fn took no argument and passed `undefined`
+        // in that slot, so the C9-H20 deadman→phase→adapter chain was severed
+        // at the phase→adapter hop — a hang inside `adapter.generate` never saw
+        // the abort and `runWithPipelineDeadman` could only reject AFTER the
+        // adapter eventually returned (defeating the wall-clock budget).
+        async (phaseSignal) => {
           for (const tool of m.tools) {
     const s = createSpinner(step(++currentStep, totalSteps, `Generating ${tool} output...`));
     s.start();
@@ -733,7 +856,11 @@ export async function syncCommand(
             m,
             generationMode,
             undefined,
-            undefined,
+            // D8-10: parentSignal — the phase signal carries the deadman abort
+            // (deadman → phase controller → adapter). `generateWithTimeout`
+            // chains it into its own per-adapter controller, so a wall-clock
+            // breach surfaces as an AbortError on the adapter's next await.
+            phaseSignal,
             rootDir,
           ),
         // D8-SA8.4-F8.4.6 (Cycle 10 Wave 4, D8, P-CQ4): the call-site walks
@@ -881,6 +1008,19 @@ export async function syncCommand(
         }
       }
 
+      // D14-4 (Cycle 11 Wave 2, D14, CQ6): seed `newManagedByAdapter[tool]`
+      // with the root output paths BEFORE the per-package block so the
+      // per-package append below extends this list instead of being clobbered.
+      // Previously the `= currentPaths` assignment ran AFTER the per-package
+      // block (which appended per-package paths), discarding every per-package
+      // entry — the persisted manifest then omitted them and
+      // `sweepOrphansForAdapter` could never reclaim a removed package's
+      // outputs. A COPY is stored (not the `currentPaths` reference) so the
+      // per-package `arr.push` does not also mutate the root-only `currentPaths`
+      // the orphan sweep below compares against.
+      const currentPaths = outputs.map((o) => o.path);
+      newManagedByAdapter[tool] = [...currentPaths];
+
       // F14.2-H1 (D14): per-package emission for monorepo roots. When
       // `m.packages` is non-empty we additionally write each adapter's
       // output into every `<package>/.hatch3r/<rel>`. The root emission
@@ -890,7 +1030,10 @@ export async function syncCommand(
       // permissions issue does not abort the sync (Silent Failure
       // Contract — CONSTITUTION §2 P5).
       if (m.packages && m.packages.length > 0) {
-        const perPackage = planPerPackageOutputs(m.packages, outputs);
+        // D14-6: planPerPackageOutputs re-targets only for tools whose load
+        // model reads per-directory files (cursor); claude/copilot get [] so a
+        // sync never writes copies they would not read.
+        const perPackage = planPerPackageOutputs(tool, m.packages, outputs);
         for (const p of perPackage) {
           if (opts.dryRun) {
             // D11-SA11.2-F9: marker-aware would-be action for per-package
@@ -929,9 +1072,11 @@ export async function syncCommand(
               action: renderAction(result.action, isManagedMerge),
             });
             addManagedFile(m, p.output.path);
-            // Append to the new managed-by-adapter list so a future sync
-            // can orphan-cleanup stale per-package files when packages get
-            // removed from the workspace globs.
+            // D14-4: extend the seeded managed-by-adapter list (root paths,
+            // assigned before this block) with each per-package path so a
+            // future sync can orphan-cleanup stale per-package files when
+            // packages are removed from the workspace globs. The `??` keeps a
+            // defensive fallback in case the seeding ever regresses.
             const arr = newManagedByAdapter[tool] ?? (newManagedByAdapter[tool] = []);
             if (!arr.includes(p.output.path)) arr.push(p.output.path);
             if (opts.diff) {
@@ -953,16 +1098,32 @@ export async function syncCommand(
       // not contribute stale attribution; the outputs already carry their
       // BaseAdapter-populated `sourceFiles`.
       perAdapterOutputs.push({ adapter: tool, outputs });
-      // Task #11 orphan-cleanup: record the paths this adapter emitted in
-      // the in-memory manifest snapshot, then sweep paths the prior run
-      // wrote but this run did not re-emit. Skipped entirely on dry-run
-      // and when no prior history exists for the adapter (first-run).
-      const currentPaths = outputs.map((o) => o.path);
-      newManagedByAdapter[tool] = currentPaths;
+      // Task #11 orphan-cleanup: sweep paths the prior run wrote but this run
+      // did not re-emit. Skipped entirely on dry-run and when no prior history
+      // exists for the adapter (first-run).
+      //
+      // D14-5: the diff baseline is the FULL current set
+      // (`newManagedByAdapter[tool]` = root paths seeded above + per-package
+      // paths appended in the block above), NOT root-only `currentPaths`. With
+      // root-only the diff would flag every still-emitted per-package file as an
+      // orphan; per-package roots are now accepted by the containment check, so
+      // those false candidates would be deleted on every sync. Comparing against
+      // the full set leaves live per-package files out of the candidate list and
+      // surfaces only the paths a removed package no longer re-emits. The
+      // `m.packages` paths are passed as `packageRoots` so a removed package's
+      // `<pkg>/<adapter-root>/…` orphan passes containment and is reclaimed.
       if (!opts.dryRun) {
         const priorPaths = previousManagedByAdapter[tool];
         if (priorPaths && priorPaths.length > 0) {
-          const entries = await sweepOrphansForAdapter(tool, rootDir, priorPaths, currentPaths);
+          const currentForDiff = newManagedByAdapter[tool] ?? currentPaths;
+          const packageRoots = m.packages?.map((p) => p.path);
+          const entries = await sweepOrphansForAdapter(
+            tool,
+            rootDir,
+            priorPaths,
+            currentForDiff,
+            packageRoots,
+          );
           orphanEntries.push(...entries);
         }
       }
@@ -1074,7 +1235,7 @@ export async function syncCommand(
       const exitCode = budgetGateFailed ? 2 : undefined;
       const allTransient = classifiedFailures.every((c) => c.failType === "transient");
       const aggregateGuidance = budgetGateFailed
-        ? "Re-run without --strict-budget, or reduce output size with `hatch3r sync --minimal` / `hatch3r config`."
+        ? "Re-run without --strict-budget, or shrink the always-on slice: disable the largest rules via `.hatch3r/rules/<id>.customize.yaml` (`enabled: false`) or deselect content with `hatch3r config`. (`--minimal` only strips formatting from the same corpus and will not clear the gate.)"
         : allTransient
           ? "All failures appear transient. Retry `hatch3r sync`, or run `hatch3r update --offline` to refresh from canonical content."
           : "One or more failures are substantive. Inspect the per-adapter messages above and resolve before retrying.";
@@ -1183,142 +1344,32 @@ export async function syncCommand(
       partialFailureLines.push(`Otherwise: resolve the failed adapter(s) and re-run hatch3r sync.`);
     }
 
-    // SA12.4-F1 (D12): Restore a minimal on-disk provenance manifest at
-    // `.hatch3r/provenance.json`. Wave 7 (1.9.0) removed the old
-    // `.agents/.provenance.json` writer alongside the integrity
-    // subsystem, leaving operators unable to trace a generated adapter
-    // file back to the canonical content that shaped it. We persist a
-    // ≤200-bytes-per-entry record built from the per-adapter outputs
-    // collected during the loop above; each entry pairs the output
-    // path with the adapter that produced it and the sorted
-    // `sourceFiles[]` set populated by `BaseAdapter.generate()`.
-    //
-    // Out of lock scope for this work unit (`src/cli/commands/sync.ts`):
-    // mirroring the writer into init.ts/update.ts and adding the
-    // `hatch3r explain --source` reader flag. Those landings belong to
-    // their respective work units; the writer here makes the file
-    // available for any consumer to read once those land.
-    try {
-      const provenancePath = join(rootDir, HATCH3R_DIR, "provenance.json");
-      // F2.7-F5 idempotency contract: sort `successfulOutputs` by
-      // `[adapter, path]` to match the on-disk sort applied to `outputs` below
-      // (line ~1218). Without this, the `.every((p, i) => …)` index-by-index
-      // comparison against the previous (already-sorted) manifest fails on the
-      // first row even when both runs emit byte-identical adapter output —
-      // forcing a fresh `generatedAt` / `lastRunId` on every re-sync and
-      // breaking the sync-idempotency lifecycle test.
-      const successfulOutputs = perAdapterOutputs
-        .flatMap((entry) =>
-          entry.outputs.map((out) => ({
-            path: out.path,
-            adapter: entry.adapter,
-            sourceFiles: [...(out.sourceFiles ?? [])].sort(),
-            // F2.7-F5 (D2): emit-time hash of the normalized managed block (or
-            // full content when the output has no block). `status` re-derives
-            // this from the on-disk file to tell a user edit (on-disk differs
-            // from this baseline) from an outdated canonical block (a fresh
-            // regeneration differs from this baseline).
-            contentHash: hashEmittedContent(out.content, out.managedContent),
-          })),
-        )
-        .sort((a, b) => {
-          const byAdapter = a.adapter.localeCompare(b.adapter);
-          if (byAdapter !== 0) return byAdapter;
-          return a.path.localeCompare(b.path);
-        });
-      // Read previous manifest for idempotency comparison and for D11-M2
-      // partial-sync provenance merge (see comment on `outputs` below).
-      let previousGeneratedAt: string | null = null;
-      let previousLastRunId: string | null = null;
-      let previousEntries: Array<{
-        path: string;
-        adapter: string;
-        sourceFiles: string[];
-        contentHash?: string;
-      }> = [];
-      try {
-        const prevRaw = await readFile(provenancePath, "utf-8");
-        const prev = JSON.parse(prevRaw) as {
-          schemaVersion?: number;
-          hatch3rVersion?: string;
-          generatedAt?: string;
-          lastRunId?: string;
-          outputs?: Array<{ path: string; adapter: string; sourceFiles: string[]; contentHash?: string }>;
-        };
-        if (prev.schemaVersion === 1 && Array.isArray(prev.outputs)) {
-          previousEntries = prev.outputs;
-        }
-        if (
-          prev.schemaVersion === 1 &&
-          prev.hatch3rVersion === HATCH3R_VERSION &&
-          Array.isArray(prev.outputs) &&
-          prev.outputs.length === successfulOutputs.length &&
-          prev.outputs.every((p, i) => {
-            const c = successfulOutputs[i];
-            return (
-              p.adapter === c.adapter &&
-              p.path === c.path &&
-              // F2.7-F5: the emit-time hash participates in the idempotency
-              // check so a content change refreshes both the baseline hash and
-              // the timestamp; identical re-syncs stay byte-identical.
-              p.contentHash === c.contentHash &&
-              p.sourceFiles.length === c.sourceFiles.length &&
-              p.sourceFiles.every((s, j) => s === c.sourceFiles[j])
-            );
-          })
-        ) {
-          previousGeneratedAt = typeof prev.generatedAt === "string" ? prev.generatedAt : null;
-          previousLastRunId = typeof prev.lastRunId === "string" ? prev.lastRunId : null;
-        }
-      } catch (err) {
-        const message = err instanceof Error ? err.message : String(err);
-        verbose(`sync: provenance idempotency read skipped — ${message}`);
-      }
-      // D11-M2 (Cycle 10 Wave-3 Medium, P2): split-brain repair after partial
-      // sync. The non-transactional adapter loop leaves failed adapters' prior
-      // outputs on disk untouched, so the failed adapter still owns real
-      // files. Writing only the successful-adapter outputs into provenance.json
-      // would drop those rows; `hatch3r status` then loses the baseline hash
-      // for every failed-adapter output and degrades drift attribution to
-      // `unknown`. Carry the prior provenance entries for FAILED adapters
-      // forward so the half-state on disk stays attributable. Successful
-      // adapters' entries are always refreshed from this run.
-      const failedAdapterSet = new Set(adapterFailures.map((f) => f.tool));
-      const carriedEntries = previousEntries.filter((p) => failedAdapterSet.has(p.adapter));
-      const outputs = [...successfulOutputs, ...carriedEntries].sort((a, b) => {
-        const byAdapter = a.adapter.localeCompare(b.adapter);
-        if (byAdapter !== 0) return byAdapter;
-        return a.path.localeCompare(b.path);
-      });
-      // SA12.1-F-D12-M4 (D12, P1): record which CLI command produced this
-      // provenance manifest and under which per-run correlation id. Operators
-      // tracing a stale provenance entry back to a run can grep .failures.log
-      // by `lastRunId`, and CI consumers can branch on `lastCommand` to
-      // distinguish a sync-emitted manifest from an update-emitted one.
-      const provenance = {
-        schemaVersion: 1 as const,
-        hatch3rVersion: HATCH3R_VERSION,
-        generatedAt: previousGeneratedAt ?? new Date().toISOString(),
-        lastCommand: "sync" as const,
-        lastRunId: previousLastRunId ?? getRunId(),
-        outputs,
-      };
-      await safeWriteFile(
-        provenancePath,
-        JSON.stringify(provenance, null, 2) + "\n",
-        { force: true },
-      );
-    } catch (err) {
-      // Silent Failure Contract (P5): a provenance write failure must
-      // not break sync. Surface via warn() so operators see the gap;
-      // the per-output `sourceFiles` field remains available in-memory
-      // to any caller that re-runs sync.
-      warn(
-        `Failed to write .hatch3r/provenance.json: ` +
-        `${err instanceof Error ? err.message : String(err)}. ` +
-        `Source-file attribution will not be available for this run.`,
-      );
-    }
+    // D12-3 (D12, P6): the `writeProvenance` call below writes
+    // `.hatch3r/provenance.json` unconditionally, but the only
+    // `ensureGitignoreEntry` call earlier in sync is gated behind
+    // `features.mcp`. A no-MCP sync would leave the machine-local provenance
+    // manifest stageable by the next `git add .`. Register the gitignore
+    // carve-out unconditionally before writing it (idempotent — the MCP-gated
+    // call above is a harmless redundant cover), mirroring the same decoupling
+    // init.ts applies for snapshots/handoffs.
+    await ensureGitignoreEntry(rootDir);
+
+    // SA12.4-F1 (D12) / D12-4 (Cycle 11 Wave 2, D12, P2): persist the on-disk
+    // provenance manifest at `.hatch3r/provenance.json` via the shared
+    // `writeProvenance` helper so `hatch3r explain --source` can trace a
+    // generated adapter file back to the canonical content that shaped it, and
+    // `hatch3r status` has the emit-time hash baseline for drift attribution.
+    // The same helper is called from `init` and `update` (D12-4) so the
+    // first-run trace is populated at init and the baseline is refreshed at
+    // update — the writer is no longer sync-only. `lastCommand: "sync"` records
+    // the originating command; `failedAdapters` drives the D11-M2 split-brain
+    // carry-forward (failed adapters keep their prior provenance rows so the
+    // half-state on disk stays attributable). A write failure is surfaced via
+    // `warn()` and never breaks the sync (Silent Failure Contract, P5).
+    await writeProvenance(rootDir, perAdapterOutputs, "sync", {
+      failedAdapters: adapterFailures.map((f) => f.tool),
+      onWarn: warn,
+    });
 
     // Task #11 orphan-cleanup: emit an aggregated diagnostic for every
     // orphan candidate we inspected this run. `unlinked` entries are
@@ -1560,7 +1611,13 @@ export async function syncCommand(
     // the operator can see "yes, my overrides were applied". Skipped when no
     // customization files exist so the chrome stays compact for fresh installs.
     try {
-      const customizationSummary = await buildCustomizationSummary(rootDir);
+      // D10-29: pass the manifest selection so an override on a deselected
+      // artifact is reported `inert` (no adapter emitted it on this run) rather
+      // than counted as applied.
+      const customizationSummary = await buildCustomizationSummary(
+        rootDir,
+        selectionSetFromManifest(m.content),
+      );
       if (customizationSummary.entries.length > 0) {
         const c = customizationSummary.counts;
         const activeIds = customizationSummary.entries
@@ -1572,13 +1629,15 @@ export async function syncCommand(
           info(
             `Customizations applied: ${chalk.bold(String(c.active))} active (${head}${tail})` +
               (c.skipped > 0 ? `, ${c.skipped} skipped` : "") +
-              (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : ""),
+              (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "") +
+              (c.inert > 0 ? `, ${chalk.yellow(String(c.inert))} inert` : ""),
           );
-        } else if (c.skipped > 0 || c.failed > 0) {
+        } else if (c.skipped > 0 || c.failed > 0 || c.inert > 0) {
           info(
             `Customizations: 0 active` +
               (c.skipped > 0 ? `, ${c.skipped} skipped` : "") +
               (c.failed > 0 ? `, ${chalk.red(String(c.failed))} failed` : "") +
+              (c.inert > 0 ? `, ${chalk.yellow(String(c.inert))} inert` : "") +
               ` (run \`hatch3r explain --customizations\` for detail).`,
           );
         }

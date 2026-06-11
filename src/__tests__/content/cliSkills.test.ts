@@ -104,6 +104,108 @@ describe("CLI skills registry-vs-filesystem parity (v1.9.0 toolbox)", () => {
   });
 });
 
+/**
+ * Mirror of `scripts/validate-cli-skills.ts::checkToolbox` security-parity
+ * branch (D15-10, SA15.7-F2). Returns the `### {id}` toolbox section body, or
+ * null when the heading is absent. Terminates at the next level-2 (`## `) or
+ * level-3 (`### `) heading; level-4 (`#### `) sub-headings belong to the tool.
+ */
+function toolboxSection(toolboxBody: string, id: string): string | null {
+  const lines = toolboxBody.split("\n");
+  const esc = id.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const startRe = new RegExp(`^###\\s+${esc}\\b`);
+  const startIdx = lines.findIndex((line) => startRe.test(line));
+  if (startIdx === -1) return null;
+  const collected: string[] = [];
+  for (let j = startIdx + 1; j < lines.length; j++) {
+    if (/^###\s+/.test(lines[j]) || /^##\s+/.test(lines[j])) break;
+    collected.push(lines[j]);
+  }
+  return collected.join("\n");
+}
+
+function bareVersion(minVersion: string): string {
+  return minVersion.replace(/^[><=~^\s]+/, "").trim();
+}
+
+function securityNoteIdentifiers(note: string): string[] {
+  const matches =
+    note.match(/\b(?:CVE-\d{4}-\d+|GHSA-[a-z0-9]{4}-[a-z0-9]{4}-[a-z0-9]{4})\b/gi) ?? [];
+  return [...new Set(matches.map((s) => s.toUpperCase()))];
+}
+
+const SECURITY_MARKER_KEYWORDS = [
+  "unsigned",
+  "signed channel",
+  "signed brew",
+  "signed winget",
+  "signed apt",
+  "caveat",
+  "peer-dep",
+  "peer dep",
+] as const;
+
+function sectionSurfacesSecurityMarker(sectionLower: string, securityNote: string): boolean {
+  const ids = securityNoteIdentifiers(securityNote);
+  const hasId = ids.some((id) => sectionLower.includes(id.toLowerCase()));
+  const hasKeyword = SECURITY_MARKER_KEYWORDS.some((kw) => sectionLower.includes(kw));
+  return hasId || hasKeyword;
+}
+
+describe("Toolbox security-parity with registry (D15-10)", () => {
+  it("every non-standalone tool with minVersion surfaces the version floor in its section", async () => {
+    const parsed = await readSkillFile(TOOLBOX_DIR);
+    expect(parsed).not.toBeNull();
+    for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
+      if (STANDALONE_TOOLS.has(meta.id) || !meta.minVersion) continue;
+      const section = toolboxSection(parsed!.body, meta.id);
+      expect(section, `missing "### ${meta.id}" section`).not.toBeNull();
+      const floor = bareVersion(meta.minVersion);
+      expect(
+        section!.toLowerCase().includes(floor.toLowerCase()),
+        `toolbox "### ${meta.id}" section must surface version floor "${floor}" (registry minVersion=${meta.minVersion})`,
+      ).toBe(true);
+    }
+  });
+
+  it("every non-standalone tool with a securityNote surfaces a security marker in its section", async () => {
+    const parsed = await readSkillFile(TOOLBOX_DIR);
+    expect(parsed).not.toBeNull();
+    for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
+      if (STANDALONE_TOOLS.has(meta.id) || !meta.securityNote) continue;
+      const section = toolboxSection(parsed!.body, meta.id);
+      expect(section, `missing "### ${meta.id}" section`).not.toBeNull();
+      expect(
+        sectionSurfacesSecurityMarker(section!.toLowerCase(), meta.securityNote),
+        `toolbox "### ${meta.id}" section must surface a CVE/GHSA id or unsigned-channel marker from its registry securityNote`,
+      ).toBe(true);
+    }
+  });
+
+  it("parity assertion catches a section that drops the floor and marker", () => {
+    // Synthetic deficient section: no version number, no CVE/GHSA id, no
+    // unsigned/signed keyword — proves the gate logic is not vacuous.
+    const deficient = "- **When to use:** something.\n- **Recipe:** `tool run`.\n";
+    expect(deficient.toLowerCase().includes("29.5.2")).toBe(false);
+    expect(
+      sectionSurfacesSecurityMarker(
+        deficient.toLowerCase(),
+        "CVE-2026-32288: crafted manifest DoS; unsigned install channel.",
+      ),
+    ).toBe(false);
+    // And a compliant section passes both checks.
+    const compliant =
+      "- **Version floor:** >=29.5.2 — earlier engines carry CVE-2026-32288. Unsigned install channel on linux.\n";
+    expect(compliant.toLowerCase().includes("29.5.2")).toBe(true);
+    expect(
+      sectionSurfacesSecurityMarker(
+        compliant.toLowerCase(),
+        "CVE-2026-32288: crafted manifest DoS; unsigned install channel.",
+      ),
+    ).toBe(true);
+  });
+});
+
 describe("Standalone CLI skill frontmatter contract", () => {
   it("standalone skill frontmatter id matches the directory name", async () => {
     for (const id of STANDALONE_TOOLS) {

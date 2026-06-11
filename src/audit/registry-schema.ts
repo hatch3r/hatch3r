@@ -113,8 +113,21 @@ export interface Finding {
   false_positive?: boolean;
 
   // Phase 5/7 closed-loop.
+  // `cl1_status`  — Phase 5 PRD-evolution disposition (none|candidate then a
+  //                 terminal applied|deferred|rejected|declined|superseded).
+  // `sdr_status`  — strategic-decision-register disposition (none baseline).
+  // `cl3_status`  — Phase 7 audit-self-evolution disposition. CL-3 was tracked
+  //                 only as ad-hoc top-level cycle keys (cycle10_re_envision_*),
+  //                 so per-proposal cross-cycle disposition was not queryable
+  //                 (D16-16 / D18-15). This field makes it a sibling of
+  //                 cl1_status: none|queued_for_cycle_<N>_phase_7 then a
+  //                 terminal applied|deferred|rejected|declined|superseded,
+  //                 written by closed-loop-agents.md Phase 7 at apply-time and
+  //                 surfaced by scripts/audit-closed-loop-report.ts. Free-form
+  //                 string (no enum gate) to match cl1_status/sdr_status.
   cl1_status?: string | null;
   sdr_status?: string | null;
+  cl3_status?: string | null;
 
   // Misc / cross-cutting.
   pillar?: ReadonlyArray<string>;
@@ -219,6 +232,23 @@ const ROLLOVER_SUMMARY_DISPOSITIONS: ReadonlySet<string> = new Set([
 const AGGREGATE_SEVERITY_RE = /^[A-Z][a-z]+(\+[A-Z][a-z]+)+$/;
 
 /**
+ * Wiring-verb subset (D16-7): a finding whose recommended fix is to connect an
+ * artifact into a live code path — `wire`, `import`, `call`, `register`, `emit`,
+ * the phrase "add … gate", or the negative diagnosis "no production/runtime
+ * callers". For these, "fix landed" (commit_sha present) is not the same as "fix
+ * works" (the new caller/importer actually exists). D10-SA10.8-F1 (SPACE
+ * telemetry, 0 importers) and D16-6 (adoption-tracker closed by a commit that
+ * never built it) both closed `done` with a commit yet zero wiring. The closing
+ * reviewer must therefore record a `reviewer_notes` line citing the new
+ * caller/importer (grep-checkable), and a `done` row whose `reviewer_notes` is
+ * empty fails the strict gate. Matched against `description` (the field carrying
+ * the finding's recommended fix). Each alternative is bounded by a word/phrase
+ * boundary so substrings like "recall" or "preregister" do not false-positive.
+ */
+const WIRING_VERB_RE =
+  /\b(wir(?:e|ed|es|ing)|import(?:ed|s|ing)?|call(?:ed|s|ing)?|register(?:ed|s|ing)?|emit(?:ted|s|ting)?)\b|add[^.]{0,40}?\bgate\b|\bno (?:production|runtime) callers\b/i;
+
+/**
  * Parse a raw JSON value into either v2 envelope or v1 legacy array.
  * Throws RegistryParseError on shapes neither matches.
  */
@@ -291,8 +321,10 @@ export interface ValidateOptions {
 /**
  * Validate a parsed registry against AUDIT-EXECUTE.md §Finding Registry
  * Invariants 1-7 (excluding 6 — Registry Anchor — which is checked by a
- * separate anchor-log validator). Returns drift reports; empty array means
- * no drift.
+ * separate anchor-log validator) plus the terminal-evidence contract
+ * (D16-6: strict-mode `done`-needs-evidence) and the effectiveness leg
+ * (D16-7: strict-mode wiring-verb `done` needs a `reviewer_notes` line citing
+ * the new caller/importer). Returns drift reports; empty array means no drift.
  */
 export function validateRegistry(
   parsed: ParsedRegistry,
@@ -449,6 +481,49 @@ function validateEntry(
         finding_id: id,
         reason: "targeted finding parked at cycle close",
         detail: `Finding ${id}: disposition 'targeted' may not hold execution_status '${f.execution_status}' at cycle close (Cycle Drain Contract — AUDIT-EXECUTE.md)`,
+      });
+    }
+
+    // Terminal-evidence contract (D16-6 / F16.2-C1): a targeted finding marked
+    // `done` must carry closure evidence — a `commit_sha` OR a `disposition_note`
+    // recording why no commit landed. F16.2-C1 was closed `done` with a
+    // commit_sha whose diff never built the recommended artifact; the broader
+    // failure mode is a `done` row with neither pointer, which is closure by
+    // assertion. Strict-only (forward contract): the legacy corpus carries
+    // pre-rigor `done` rows lacking both fields, grandfathered exactly like the
+    // execution_tier strict gate below. New closures must satisfy it.
+    if (
+      opts.strict &&
+      f.execution_status === "done" &&
+      !(typeof f.commit_sha === "string" && f.commit_sha.length > 0) &&
+      !(typeof f.disposition_note === "string" && f.disposition_note.length > 0)
+    ) {
+      reports.push({
+        finding_id: id,
+        reason: "done without closure evidence",
+        detail: `Finding ${id}: disposition 'targeted' marked 'done' carries neither commit_sha nor disposition_note (terminal-evidence contract — AUDIT-EXECUTE.md / F16.2-C1)`,
+      });
+    }
+
+    // Effectiveness leg (D16-7): the terminal-evidence check above proves a
+    // commit landed, not that the fix is wired. For the wiring-verb subset
+    // (WIRING_VERB_RE on `description`), closure-by-completion and
+    // closure-by-effectiveness diverge: a commit can land while the prescribed
+    // caller/importer/gate never materializes (D10-SA10.8-F1, D16-6). So a
+    // `done` wiring-verb finding must carry a non-empty `reviewer_notes`
+    // citing the new caller/importer (grep-checkable). Strict-only forward
+    // contract, paired with the terminal-evidence gate above (same validator).
+    if (
+      opts.strict &&
+      f.execution_status === "done" &&
+      typeof f.description === "string" &&
+      WIRING_VERB_RE.test(f.description) &&
+      !(typeof f.reviewer_notes === "string" && f.reviewer_notes.trim().length > 0)
+    ) {
+      reports.push({
+        finding_id: id,
+        reason: "wiring-verb done without effectiveness note",
+        detail: `Finding ${id}: a 'done' finding whose recommended fix is a wiring verb (wire/import/call/register/emit/add-gate/no-callers) must carry a reviewer_notes line citing the new caller/importer (effectiveness leg — AUDIT-EXECUTE.md / D16-7)`,
       });
     }
   }

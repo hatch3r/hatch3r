@@ -8,13 +8,18 @@ cache_friendly: true
 
 ## §0 Detect Ambiguity (P8 B1)
 
-> Last updated: 2026-05-28
+> Last updated: 2026-06-09
 
 This is the canonical body of the §0 Detect Ambiguity block referenced by every `agents/hatch3r-*.md`. Each agent's body cites this file via a one-line pointer plus a one-line domain-specific trigger list. The shared protocol is the constant; the trigger list is the variable.
 
 ### Protocol (constant across all agents)
 
-Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for residual ambiguity discovered mid-execution.
+Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, surface the question per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for residual ambiguity discovered mid-execution. When an ASK goes unanswered, the gate never deadlocks: apply the declared `Default if no response:` option and log it (orchestrator path) OR, if no default line was emitted, return Status `BLOCKED_AMBIGUITY` (sub-agent path) — never silent-pick, per `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response.
+
+How you surface the question depends on your execution context — these agents run as Task-tool sub-agents, not in the main conversation:
+
+- **Sub-agent (this file's consumers, spawned via the Task tool).** Do NOT attempt to call the platform-native question tool. On Claude Code the `AskUserQuestion` tool is filtered out of every sub-agent context (foreground and background) regardless of the agent's `tools` declaration — see `src/pipeline/adapterToolTranslator.ts::ASK_USER_TOOLS` (`claude` entry) for the upstream-confirmed exclusion. Instead RETURN the canonical Status `BLOCKED_AMBIGUITY` (`agents/shared/quality-charter.md` §17) with the question rendered in the structured result using the Plain-Text Fallback Template from `agents/shared/user-question-protocol.md` (numbered options + mandatory `Default if no response:` line). The orchestrator owns the live ASK — it reads the `BLOCKED_AMBIGUITY` status and routes the rendered question to the user (`quality-charter.md` §17 → "orchestrator routes to ASK checkpoint").
+- **Orchestrator command (`commands/hatch3r-*.md`, running in the main conversation).** Invoke the platform-native question tool directly per `agents/shared/user-question-protocol.md`; the native ASK path is available only here.
 
 CONSTITUTION §2 P8 establishes the B1 directive verbatim:
 
@@ -22,36 +27,13 @@ CONSTITUTION §2 P8 establishes the B1 directive verbatim:
 
 ### Domain-specific trigger lists (variable per agent)
 
-Each consuming agent enumerates its own ambiguity triggers in a single line at the citation site. Reference shapes (one per consuming agent):
-
-| Agent | Domain-specific trigger phrase |
-|-------|--------------------------------|
-| `hatch3r-implementer` | contradictory criteria, missing API contract, unknown convention |
-| `hatch3r-architect` | load targets, consistency model, migration window, new infrastructure dependencies |
-| `hatch3r-fixer` | finding contradicts acceptance criteria, suggested fix is unclear, blast radius missing for shared-interface fix |
-| `hatch3r-reviewer` | which files, which severity bar, whether prior reviewer findings apply |
-| `hatch3r-researcher` | multi-interpretation subject, missing mode selection, contradictory specs |
-| `hatch3r-creator` | which artifact type, which preset, which pillar mapping |
-| `hatch3r-devops` | which target environment, which provider, which release window |
-| `hatch3r-docs-writer` | which audience tier, which source-of-truth doc, scope (page / section / line) |
-| `hatch3r-handoff-loader` | which branch context, ranking weights, output size budget |
-| `hatch3r-handoff-preparer` | which work-item id, which session boundary, which status to record |
-| `hatch3r-learnings-loader` | which scope glob, which depth, which staleness tolerance |
-| `hatch3r-brownfield-spec` | which existing module to align with, which migration path |
-| `hatch3r-greenfield-spec` | which architecture style, which feature set scope, which deployment target |
-| `hatch3r-ci-watcher` | which workflow run, which failure window, which retry budget |
-| `hatch3r-context-rules` | which precedence axis (cosmetic, gate, floor), which scope (always, conditional) |
-| `hatch3r-lint-fixer` | which lint rules to apply, which severity threshold |
-| `hatch3r-pack-installer` | which trust tier the pack claims (canonical vs marketplace), which signing method applies (npm-provenance vs cosign-keyless), whether the declared capability set is authorized, whether an `--allow-untrusted` override was explicitly passed |
-| `hatch3r-incident-responder` | user-facing vs internal-only impact, known vs unknown blast radius, rollback-safety verified vs unverified, stakeholder-notification scope, mitigation writes data (irreversible) vs flips a flag (reversible) |
-| `hatch3r-dependency-drafter` | upgrade scope (one dependency / group / full manifest), upgrade target band (patch / minor / major), driver (routine currency / CVE advisory / new direct dependency), success acceptance criterion |
-| 9 CQ specialists (`hatch3r-ui`, `hatch3r-ux`, `hatch3r-security`, `hatch3r-reliability`, `hatch3r-testability`, `hatch3r-scalability`, `hatch3r-performance`, `hatch3r-maintainability`, `hatch3r-enhancability`) | See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity; each CQ specialist names CQ-vector-specific triggers |
+Each consuming agent enumerates its own ambiguity triggers in a single line at the citation site (for example, `hatch3r-implementer` names "contradictory criteria, missing API contract, unknown convention"). The inline trigger line in each `agents/hatch3r-*.md` is the single source of truth for that agent's triggers — this shared file deliberately keeps no parallel per-agent table (D5-23, Cycle 11 Wave 3): a shadow table drifted from 7+ agents' inline lines because nothing kept the two copies in sync, so the duplicate copy was deleted at root cause. To read an agent's triggers, read that agent's `§0` citation line, not this file.
 
 ### Authoring rules
 
 1. Citing this file with the canonical pointer (`See agents/shared/clarification-default-block.md → §0 Detect Ambiguity (P8 B1)`) plus the agent's own one-line trigger list satisfies the B1 directive. Re-wording the protocol body inline is forbidden — duplication is the failure mode this file exists to eliminate.
-2. The 9 CQ specialists continue to incorporate the protocol via `agents/shared/quality-specialist-frame.md` (which references this file transitively); they do not need a separate direct pointer.
-3. When a new agent is added, append one row to the trigger-list table above. The CI gate `npm run validate` parses for the pointer phrase; a missing pointer in an agent body is a P8 B1 violation.
+2. The 9 CQ specialists continue to incorporate the protocol via `agents/shared/quality-specialist-frame.md` (which references this file transitively); they do not need a separate direct pointer. Like this file, that frame names two example triggers and declares the per-specialist list the variable — it keeps no parallel table either.
+3. When a new agent is added, give it an inline trigger line at its `§0` citation site; do not register the line anywhere else. The CI gate `npm run validate` parses for the pointer phrase; a missing pointer in an agent body is a P8 B1 violation. The regression guard `src/__tests__/cli/validate.test.ts` ("no per-agent trigger table") asserts this file stays table-free so the drift cannot reappear.
 
 ### Related references
 

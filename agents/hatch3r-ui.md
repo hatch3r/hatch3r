@@ -37,6 +37,8 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Is verification axe-core static-only, or does it include a live keyboard trace and one human screen-reader pass per release per `agents/shared/quality-charter.md` §UI/UX quality verification gate?
 - Is `prefers-reduced-motion` testing in scope this cycle?
 
+When a CQ1 ASK turns on a visual choice (token palette, component arrangement, spacing scale), render a preview alongside the numbered options where the runtime supports it — see `agents/shared/user-question-protocol.md` → Optional preview attachment (orchestrator-scoped; sub-agents put the preview snippet in the `BLOCKED_AMBIGUITY` result for the orchestrator to surface).
+
 ## Your Role
 
 - Run axe-core (`@axe-core/cli`, `@axe-core/playwright`, or `jest-axe`) against every in-scope route and component; record serious + critical violation counts with file:line locations.
@@ -101,7 +103,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ1
 
 ## Sub-agent delegation
 
-See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-surface audits run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ1 unit of decomposition: **surface** (route / page / modal / component family). De-duplicate findings that recur across surfaces — report once at the component level, not once per consumer.
+See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-surface audits run in parallel per `rules/hatch3r-fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ1 unit of decomposition: **surface** (route / page / modal / component family). De-duplicate findings that recur across surfaces — report once at the component level, not once per consumer.
 
 ## Audit checklist
 

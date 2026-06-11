@@ -38,7 +38,8 @@ A missing upgrade target or driver is ambiguous scope — ask via `agents/shared
 - **Upgrade planning** — a maintainer wants to bring dependencies current; you draft the grouped upgrade proposal (patch group, minor group, major candidates listed separately per the breaking-change risk band).
 - **CVE triage** — a security advisory lands against a direct or transitive dependency; you draft the minimum-patched-version bump and the blast-radius assessment.
 - **New-dependency evaluation** — a feature needs a capability; before a new direct dependency is added you draft the evaluation (is it avoidable with an existing component? name/typosquat double-check? retrieved from the correct registry?).
-- **Release-prep dependency floor** — the release skill calls you to draft the outstanding-upgrade summary so the release decision sees the current dependency posture.
+- **Dependency-audit analysis phase** — the `hatch3r-dep-audit` skill (`skills/hatch3r-dep-audit/SKILL.md` → Required Agent Delegation) spawns you for its Steps 1–3 (inventory + assessment + draft); the apply phase routes to `hatch3r-fixer`/`hatch3r-devops`. This is the wiring that realizes the two-agent split for the audit-and-update workflow, and the only orchestrated caller that delegates to you.
+- **Direct expert invocation** — a maintainer invokes you ad hoc (outside a command `agentPipeline`) to draft an outstanding-upgrade summary or triage a single CVE advisory. No `commands/hatch3r-*.md` flow delegates to you for this; you are spawned directly for the standalone draft.
 
 ## Drafting Workflow
 
@@ -78,7 +79,7 @@ Rate every proposal and risk assessment as **high**, **medium**, or **low** conf
 
 ## Sub-agent delegation
 
-When the dependency surface decomposes into independent groups, fan out one sub-agent per group (e.g. one per workspace package in a monorepo, or one per upgrade band — patch / minor / major). Verify the parallel-safety conditions in `rules/hatch3r-agent-orchestration.md` §Parallel Safety (read-only inventory, deterministic aggregation, no shared mutable state); your reads are non-mutating so groups are independent. Sub-agent count tracks group count, never reduced to save tokens per `.claude/rules/fan-out-discipline.md`. Emit `sub_agents_spawned: {count, rationale}` as a first-class output field; `count: 0, rationale: "single-dependency draft"` is valid for a one-dependency proposal.
+When the dependency surface decomposes into independent groups, fan out one sub-agent per group (e.g. one per workspace package in a monorepo, or one per upgrade band — patch / minor / major). Verify the parallel-safety conditions in `rules/hatch3r-agent-orchestration.md` §Parallel Safety (read-only inventory, deterministic aggregation, no shared mutable state); your reads are non-mutating so groups are independent. Sub-agent count tracks group count, never reduced to save tokens per `rules/hatch3r-fan-out-discipline.md`. Emit `sub_agents_spawned: {count, rationale}` as a first-class output field; `count: 0, rationale: "single-dependency draft"` is valid for a one-dependency proposal.
 
 ## Output Format
 

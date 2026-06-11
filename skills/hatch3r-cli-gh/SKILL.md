@@ -33,7 +33,7 @@ Before invoking `gh`, resolve these via `agents/shared/user-question-protocol.md
 
 ## Fan-out Discipline (P8 B2)
 
-Tier 1 reference card — no fan-out. This skill is a single-tool usage reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+Tier 1 reference card — no fan-out. This skill is a single-tool usage reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `rules/hatch3r-fan-out-discipline.md` (P8 B2).
 
 ## When to Use
 
@@ -123,6 +123,17 @@ Homepage: https://cli.github.com/
 
 ## Security
 
-Minimum recommended version: `>=2.92.0`. Builds below this floor carry known unpatched advisories — upgrade before relying on the tool.
+Minimum recommended version: `>=2.93.0`. Builds below this floor carry known unpatched advisories — upgrade before relying on the tool.
 
-GHSA-crc3-h8v6-qh57: gh CLI before 2.92.0 may leak authentication tokens via auxiliary host extension calls. Upgrade to 2.92.0 or later before using gh against untrusted GitHub Enterprise hosts.
+GHSA-8xvp-7hj6-mcj9 (CVE-2026-48501, High): gh CLI 2.92.0 and earlier attach the Authorization header to TUF repository-mirror requests issued by `gh attestation`, `gh release verify`, and `gh release verify-asset` — sending the github.com token (or `GH_ENTERPRISE_TOKEN` / `GITHUB_ENTERPRISE_TOKEN`) to hosts that are not GitHub API endpoints (`tuf-repo.github.com`, `tuf-repo-cdn.sigstore.dev`, and an Azure blob host). Any token previously used with those commands should be treated as exposed and rotated. Fixed in 2.93.0 — upgrade before running attestation or release-verify flows.
+
+GHSA-crc3-h8v6-qh57 (CVE-2026-45803, Low): `gh run view --log` and `gh run view --log-failed` stream GitHub Actions workflow log lines to stdout or the pager without sanitizing terminal control sequences, so a malicious workflow can embed escape sequences that execute when a maintainer views the log (altered window titles, manipulated output, command execution in emulators such as `screen`). This is an escape-sequence-injection issue, not a token leak. Fixed in 2.92.0 — upgrade before viewing logs from untrusted workflows.
+
+GHSA-55v3-xh23-96gh (token-leak note, `cli/go-gh` library): inside a codespace, `auth.TokenForHost` could source `GITHUB_TOKEN` for a non-`github.com`/`ghe.com` host, sending the token to an unintended host. Fixed in go-gh 2.11.1, vendored into gh ≥ 2.42.0; the `>=2.93.0` floor already clears it. Relevant when running gh against untrusted GitHub Enterprise hosts from a codespace.
+
+## References
+
+- GHSA-8xvp-7hj6-mcj9 / CVE-2026-48501 — https://github.com/cli/cli/security/advisories/GHSA-8xvp-7hj6-mcj9 (accessed 2026-06-06; tier: vendor advisory — GitHub CLI maintainers)
+- GHSA-crc3-h8v6-qh57 / CVE-2026-45803 — https://github.com/cli/cli/security/advisories/GHSA-crc3-h8v6-qh57 (accessed 2026-06-05; tier: vendor advisory — GitHub CLI maintainers)
+- GHSA-55v3-xh23-96gh — https://github.com/cli/go-gh/security/advisories/GHSA-55v3-xh23-96gh (accessed 2026-06-05; tier: vendor advisory — GitHub CLI maintainers)
+- GitHub Advisory Database (queried via `gh api /repos/cli/cli/security-advisories`, accessed 2026-06-05; tier: official advisory feed)

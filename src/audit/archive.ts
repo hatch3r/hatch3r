@@ -32,7 +32,7 @@ import {
 import { gzipSync, gunzipSync } from "node:zlib";
 import { dirname, join, basename } from "node:path";
 import { atomicWriteFile } from "../merge/safeWrite.js";
-import { promoteToHistory } from "./insights.js";
+import { promoteToHistory, readInsights } from "./insights.js";
 import {
   CURRENT_REGISTRY_VERSION,
   parseRegistry,
@@ -435,6 +435,15 @@ export async function archiveCycle(
         currentFile: paths.currentInsightsFile,
       });
       result.insightsPromoted = promo.promoted;
+      // Soft gaps from accumulator validation (e.g. an absent
+      // cl2_artifact_closure) propagate as archive warnings — surfaced, not
+      // swallowed (Silent Failure Contract, P5).
+      if (promo.warnings.length > 0) {
+        result.warnings = [
+          ...(result.warnings ?? []),
+          ...promo.warnings.map((w) => `insights accumulator: ${w}`),
+        ];
+      }
     } catch (err) {
       result.insightsPromoted = false;
       const msg = err instanceof Error ? err.message : String(err);
@@ -746,6 +755,79 @@ export async function rotateAnchorLog(
   await atomicWriteFile(paths.anchorLog, liveContent);
 
   return { rotatedTo, keptCount: kept.filter((l) => l.length > 0).length };
+}
+
+export interface HistoryCurrencyResult {
+  /** True when `history[last].cycle_number === currentCycle - 1`. */
+  current: boolean;
+  /** The cycle number on the newest history entry, or null when history is empty / un-numbered. */
+  lastCycle: number | null;
+  /** The cycle number this close expected on the newest history entry (currentCycle - 1). */
+  expectedCycle: number;
+  /** Human-readable reason when `current === false`; empty string when current. */
+  reason: string;
+}
+
+/**
+ * Cycle-close gate (D16-8 / SA16.2-F3): assert the insights ring's newest
+ * history entry belongs to the cycle that just closed, i.e.
+ * `history[last].cycle_number === currentCycle - 1`.
+ *
+ * The promotion step (`promoteToHistory`, driven by `archiveCycle`) appends the
+ * finished cycle's accumulator to `history[]` before the NEXT cycle starts —
+ * so at the close of cycle N (which seeds cycle N+1), the newest entry must be
+ * cycle N. When promotion silently no-ops (missing accumulator) or never ran,
+ * the ring goes stale and the next cycle's Phase-1 / Phase-6 reads operate on
+ * an old or single-entry buffer (the failure this finding records: a
+ * cycle-7-only ring after cycles 9 and 10 had executed). This gate makes that
+ * drift a hard, loud failure at cycle close instead of a 2-cycle-late
+ * discovery.
+ *
+ * Pure read — never mutates the ring. Returns a structured result; the CLI
+ * wrapper turns `current === false` into a non-zero exit.
+ */
+export async function assertHistoryCurrent(
+  insightsFile: string,
+  currentCycle: number,
+): Promise<HistoryCurrencyResult> {
+  const expectedCycle = currentCycle - 1;
+  const ring = await readInsights({
+    insightsFile,
+    // currentFile is unused by readInsights; supply the same path to satisfy
+    // the InsightsPaths shape without reading an ephemeral accumulator here.
+    currentFile: insightsFile,
+  });
+
+  if (ring.history.length === 0) {
+    return {
+      current: false,
+      lastCycle: null,
+      expectedCycle,
+      reason: `insights history is empty; expected newest entry cycle_number ${expectedCycle} after cycle ${currentCycle} close`,
+    };
+  }
+
+  const last = ring.history[ring.history.length - 1];
+  const lastCycle = coerceCycle(last.cycle_number);
+  if (!Number.isFinite(lastCycle)) {
+    return {
+      current: false,
+      lastCycle: null,
+      expectedCycle,
+      reason: `newest insights history entry has no numeric cycle_number (got ${JSON.stringify(last.cycle_number)}); expected ${expectedCycle}`,
+    };
+  }
+
+  if (lastCycle !== expectedCycle) {
+    return {
+      current: false,
+      lastCycle,
+      expectedCycle,
+      reason: `insights history is stale: newest entry is cycle ${lastCycle}, expected ${expectedCycle} after cycle ${currentCycle} close — run \`npm run audit:archive -- --cycle ${currentCycle} --in-place\` to promote the accumulator`,
+    };
+  }
+
+  return { current: true, lastCycle, expectedCycle, reason: "" };
 }
 
 /** Internal export used by tests + the CLI for sane error message derivation. */

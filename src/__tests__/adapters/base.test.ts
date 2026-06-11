@@ -1,8 +1,15 @@
 import { describe, it, expect } from "vitest";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { join } from "node:path";
+import { tmpdir } from "node:os";
 import { BaseAdapter, output } from "../../adapters/base.js";
 import type { AdapterContext } from "../../adapters/base.js";
 import type { AdapterOutput, HatchManifest } from "../../types.js";
 import { createManifest } from "../../manifest/hatchJson.js";
+import { ClaudeAdapter } from "../../adapters/claude.js";
+import { CursorAdapter } from "../../adapters/cursor.js";
+import { CopilotAdapter } from "../../adapters/copilot.js";
+import { PLATFORM_TOOL_MARKER } from "../../pipeline/adapterToolTranslator.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -334,22 +341,63 @@ describe("BaseAdapter", () => {
       expect(sources).toEqual(sorted);
     });
 
-    it("populates sourceFiles for every output an adapter emits (shared tracked set)", async () => {
-      class MultiOutputAdapter extends BaseAdapter {
-        readonly name = "multi-output";
+    it("attributes each per-file output to its single canonical source (D12-1)", async () => {
+      // D12-1 (Cycle 11 Wave 2, D12, P2): per-FILE emission paths
+      // (processCommandsRaw / processSkillsRaw) emit one output per canonical
+      // file, each derived from exactly one source. Before D12-1 the base
+      // class over-attributed every such output with the whole adapter-wide
+      // read set; now each output's sourceFiles is the single file it came
+      // from. The commands fixture has test-command.md; the skills fixture has
+      // test-skill + the hatch3r-cli-* skills, so multiple per-file outputs
+      // are emitted and each must carry its own one-element sourceFiles.
+      class PerFileAdapter extends BaseAdapter {
+        readonly name = "per-file";
         protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
-          await this.inlineRules(ctx);
-          // Emit two output files; both should receive the tracked sourceFiles.
-          return [
-            output("first.md", "first"),
-            output("second.md", "second"),
-          ];
+          const commands = await this.processCommandsRaw(ctx, (id) => `cmd/${id}.md`);
+          const skills = await this.processSkillsRaw(ctx, (id) => `skill/${id}.md`);
+          return [...commands, ...skills];
         }
       }
-      const adapter = new MultiOutputAdapter();
+      const adapter = new PerFileAdapter();
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      // At least the test-command + test-skill outputs are present.
+      expect(outputs.length).toBeGreaterThanOrEqual(2);
+      const cmd = outputs.find((o) => o.path === "cmd/test-command.md");
+      const skill = outputs.find((o) => o.path === "skill/test-skill.md");
+      expect(cmd?.sourceFiles).toHaveLength(1);
+      expect(cmd?.sourceFiles?.[0]).toMatch(/test-command\.md$/);
+      expect(skill?.sourceFiles).toHaveLength(1);
+      expect(skill?.sourceFiles?.[0]).toMatch(/test-skill[/\\]SKILL\.md$/);
+      // Cross-attribution regression guard: the command output must NOT carry
+      // the skill's source (the old shared-set behavior would have stamped
+      // every read file onto every output).
+      expect(cmd?.sourceFiles?.some((s) => /test-skill/.test(s))).toBe(false);
+      // Each per-file output's source set is its own singleton, so distinct
+      // per-file outputs do not share a sourceFiles array.
+      expect(skill?.sourceFiles).not.toEqual(cmd?.sourceFiles);
+    });
+
+    it("fills the adapter-wide tracked set on aggregate outputs that do not self-attribute (C8-D12-M3)", async () => {
+      // The broad-set fill is RESERVED for aggregate outputs (CLAUDE.md, the
+      // Cursor bridge, copilot-instructions.md): an output that reads canonical
+      // files via a helper but leaves sourceFiles unset still inherits the
+      // whole tracked read set. Two such outputs share the identical set.
+      class AggregateAdapter extends BaseAdapter {
+        readonly name = "aggregate";
+        protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+          await this.inlineRules(ctx); // reads rules into the tracked set
+          // Neither output self-declares sourceFiles → both get the broad set.
+          return [output("first.md", "first"), output("second.md", "second")];
+        }
+      }
+      const adapter = new AggregateAdapter();
       const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
       expect(outputs.length).toBe(2);
       expect(outputs[0]?.sourceFiles?.length).toBeGreaterThan(0);
+      // Both rules fixtures contributed; the aggregate output carries both.
+      expect(outputs[0]?.sourceFiles?.some((s) => s.endsWith("test-rule.md"))).toBe(true);
+      expect(outputs[0]?.sourceFiles?.some((s) => s.endsWith("scoped-rule.md"))).toBe(true);
+      // Both aggregate outputs receive the identical adapter-wide set.
       expect(outputs[1]?.sourceFiles).toEqual(outputs[0]?.sourceFiles);
     });
 
@@ -633,6 +681,72 @@ describe("BaseAdapter", () => {
     });
   });
 
+  // ── D11-3: intra-adapter output-path collision guard (P5) ──────────
+  //
+  // The sync-side collision check only fires across adapters; two outputs
+  // from the SAME adapter at one path previously slipped through as silent
+  // last-writer-wins (e.g. Copilot's regular-agent + github-agent both
+  // emitting `.github/agents/{id}.agent.md`). `BaseAdapter.generate` now
+  // dedupes by path, keeps the LAST occurrence, and warns per colliding path.
+  describe("intra-adapter output-path collisions (D11-3)", () => {
+    class CollidingAdapter extends BaseAdapter {
+      readonly name = "colliding";
+      constructor(private readonly outs: AdapterOutput[]) {
+        super();
+      }
+      protected async doGenerate(): Promise<AdapterOutput[]> {
+        return this.outs;
+      }
+    }
+
+    it("dedupes two outputs at one path, keeping the last and warning", async () => {
+      const adapter = new CollidingAdapter([
+        output(".github/agents/x.agent.md", "FIRST regular-agent body"),
+        output(".github/agents/x.agent.md", "SECOND github-agent body"),
+      ]);
+      const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      // Only one output survives for the shared path.
+      const collided = outs.filter((o) => o.path === ".github/agents/x.agent.md");
+      expect(collided).toHaveLength(1);
+      // Last writer wins (matches the on-disk last-writer-wins reality).
+      expect(collided[0].content).toBe("SECOND github-agent body");
+      // The clash is audit-visible, not silent.
+      expect(
+        adapter.warnings.some(
+          (w) =>
+            w.includes("Output path collision") &&
+            w.includes(".github/agents/x.agent.md"),
+        ),
+      ).toBe(true);
+    });
+
+    it("preserves first-seen order and leaves non-colliding paths untouched", async () => {
+      const adapter = new CollidingAdapter([
+        output("a.md", "a1"),
+        output("b.md", "b"),
+        output("a.md", "a2"),
+        output("c.md", "c"),
+      ]);
+      const outs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      // a.md retained at its first-seen position with the last body; b/c intact.
+      expect(outs.map((o) => o.path)).toEqual(["a.md", "b.md", "c.md"]);
+      expect(outs.find((o) => o.path === "a.md")?.content).toBe("a2");
+      const collisionWarnings = adapter.warnings.filter((w) =>
+        w.includes("Output path collision"),
+      );
+      expect(collisionWarnings).toHaveLength(1);
+    });
+
+    it("emits no collision warning when every path is unique", async () => {
+      const adapter = new CollidingAdapter([
+        output("one.md", "1"),
+        output("two.md", "2"),
+      ]);
+      await adapter.generate(FIXTURES_DIR, makeManifest());
+      expect(adapter.warnings.some((w) => w.includes("Output path collision"))).toBe(false);
+    });
+  });
+
   // ── C9-H20 (D8-H8.3.1): AbortSignal threading ─────────────────────
   //
   // Verifies the optional `signal?: AbortSignal` parameter on `generate`
@@ -806,4 +920,239 @@ describe("BaseAdapter", () => {
       ).rejects.toMatchObject({ name: "AbortError" });
     });
   });
+});
+
+/**
+ * D2-8 (Cycle 11 Wave 3, D2, P4/P5): processCompanionSubdir must not emit a
+ * self-excluded `type: documentation` companion file (e.g. `checks/README.md`)
+ * as a real artifact. The fix parses each companion file's frontmatter and
+ * skips documentation-typed entries (and any README.md by name), so the
+ * emission set mirrors the canonical-content reader's documentation exclusion
+ * across all 3 adapters.
+ */
+describe("processCompanionSubdir documentation-type exclusion (D2-8)", () => {
+  // Each real adapter and the native checks/ path it maps a checks/ file to.
+  const adapterCases: ReadonlyArray<{
+    name: string;
+    make: () => BaseAdapter;
+    readmePath: string;
+    realCheckPath: string;
+  }> = [
+    {
+      name: "claude",
+      make: () => new ClaudeAdapter(),
+      readmePath: ".claude/checks/README.md",
+      realCheckPath: ".claude/checks/real-check.md",
+    },
+    {
+      name: "cursor",
+      make: () => new CursorAdapter(),
+      readmePath: ".cursor/checks/README.md",
+      realCheckPath: ".cursor/checks/real-check.md",
+    },
+    {
+      name: "copilot",
+      make: () => new CopilotAdapter(),
+      readmePath: ".github/checks/README.md",
+      realCheckPath: ".github/checks/real-check.md",
+    },
+  ];
+
+  async function writeChecksFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-companion-doc-"));
+    const checksDir = join(root, "checks");
+    await mkdir(checksDir, { recursive: true });
+    // A self-excluded authoring guide — must NOT be emitted.
+    await writeFile(
+      join(checksDir, "README.md"),
+      `---\nid: checks-readme\ntype: documentation\ndescription: Authoring guide for the checks/ directory. Not a check.\n---\n# Checks\n\nAuthoring guide body.\n`,
+      "utf-8",
+    );
+    // A real check — MUST be emitted.
+    await writeFile(
+      join(checksDir, "real-check.md"),
+      `---\nid: real-check\ntype: check\ndescription: A real review-criteria check.\n---\n# Real Check\n\nPass/fail criteria body.\n`,
+      "utf-8",
+    );
+    return root;
+  }
+
+  for (const tc of adapterCases) {
+    it(`${tc.name}: drops checks/README.md (type: documentation) but emits the real check`, async () => {
+      const root = await writeChecksFixture();
+      try {
+        const adapter = tc.make();
+        const manifest = createManifest({ tools: [tc.name as never] });
+        const outputs = await adapter.generate(root, manifest);
+        const paths = new Set(outputs.map((o) => o.path));
+        expect(paths.has(tc.readmePath)).toBe(false);
+        expect(paths.has(tc.realCheckPath)).toBe(true);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+/**
+ * D11-16 (Cycle 11 Wave 3, D11, P5/SA11.3-F4): MCP validation warnings are
+ * scoped to the SELECTED + enabled servers, not the whole bundle. A 2-server
+ * selection must not surface validation warnings about the other servers
+ * (including a disabled one). The fix runs validateMcpEntry/scanMcpServers
+ * AFTER the selection + `_disabled` filter inside readFilteredMcp.
+ */
+describe("MCP validation warning scope (D11-16)", () => {
+  class McpProbeAdapter extends ClaudeAdapter {}
+
+  async function writeMultiServerFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-mcp-scope-"));
+    await mkdir(join(root, "mcp"), { recursive: true });
+    await writeFile(
+      join(root, "mcp", "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          // Selected + valid.
+          github: { _trust_bypass: true, url: "https://api.githubcopilot.com/mcp/" },
+          // Selected + valid stdio.
+          "brave-search": {
+            command: "npx",
+            args: ["-y", "@modelcontextprotocol/server-brave-search"],
+          },
+          // Disabled — must never produce a warning even though it would fail
+          // the HTTP-pin policy (no pin, no trust_bypass).
+          gitlab: { _disabled: true, url: "https://gitlab.example.com/mcp" },
+          // Unselected + would warn (unrecognized command). Must stay silent.
+          "noisy-bash": { command: "bash", args: ["-c", "echo hi"] },
+          // Unselected + would warn (unpinned http). Must stay silent.
+          "noisy-http": { url: "https://untrusted.example.com/mcp" },
+          // Unselected + would warn (unpinned npx package). Must stay silent.
+          "noisy-npx": { command: "npx", args: ["-y", "some-unpinned-pkg"] },
+        },
+      }),
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("emits no validation warnings about unselected or disabled servers", async () => {
+    const root = await writeMultiServerFixture();
+    try {
+      const adapter = new McpProbeAdapter();
+      const manifest = createManifest({
+        tools: ["claude"],
+        mcpServers: ["github", "brave-search"],
+      });
+      await adapter.generate(root, manifest);
+
+      // No warning may name any unselected or disabled server.
+      for (const silent of ["gitlab", "noisy-bash", "noisy-http", "noisy-npx"]) {
+        expect(
+          adapter.warnings.some((w) => w.includes(`"${silent}"`)),
+          `expected no warning mentioning unselected/disabled server "${silent}", got: ${JSON.stringify(adapter.warnings)}`,
+        ).toBe(false);
+      }
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("still surfaces a validation warning for a SELECTED server with an issue", async () => {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-mcp-scope-sel-"));
+    try {
+      await mkdir(join(root, "mcp"), { recursive: true });
+      await writeFile(
+        join(root, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            // Selected but unpinned npx — validateMcpEntry warns; the server
+            // still emits (warn-only), so the warning must reach the operator.
+            "selected-noisy": { command: "npx", args: ["-y", "some-unpinned-pkg"] },
+          },
+        }),
+        "utf-8",
+      );
+      const adapter = new McpProbeAdapter();
+      const manifest = createManifest({
+        tools: ["claude"],
+        mcpServers: ["selected-noisy"],
+      });
+      await adapter.generate(root, manifest);
+      expect(
+        adapter.warnings.some(
+          (w) => w.includes('"selected-noisy"') && w.includes("unpinned"),
+        ),
+      ).toBe(true);
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+/**
+ * D3-8 (Cycle 11 Wave 3, D2/D3, P8 B1): the `<!-- HATCH3R:PLATFORM-TOOL -->`
+ * marker substitution is verified THROUGH real adapter output, not only at the
+ * helper layer. A shared `agents/shared/` companion body carrying the marker is
+ * run through all 3 adapters; each emission must contain the native platform
+ * note AND must NOT leak the raw marker comment. A marker-spelling drift (the
+ * helper no longer matching the canonical token) would fail this gate instead
+ * of silently shipping the raw comment to every adapter.
+ */
+describe("PLATFORM-TOOL marker substitution through adapter output (D3-8)", () => {
+  const adapterCases: ReadonlyArray<{
+    name: string;
+    make: () => BaseAdapter;
+    emittedPath: string;
+    // A substring of the substituted native note unique to this adapter.
+    nativeNote: string;
+  }> = [
+    {
+      name: "claude",
+      make: () => new ClaudeAdapter(),
+      emittedPath: ".claude/agents/shared/marker-fixture.md",
+      // claude has a documented native tool (AskUserQuestion).
+      nativeNote: "AskUserQuestion",
+    },
+    {
+      name: "cursor",
+      make: () => new CursorAdapter(),
+      emittedPath: ".cursor/agents/shared/marker-fixture.md",
+      // cursor has no native tool — falls back to the plain-text note.
+      nativeNote: "No documented native question tool for `cursor`",
+    },
+    {
+      name: "copilot",
+      make: () => new CopilotAdapter(),
+      emittedPath: ".github/agents/shared/marker-fixture.md",
+      nativeNote: "No documented native question tool for `copilot`",
+    },
+  ];
+
+  async function writeMarkerFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-platform-marker-"));
+    const sharedDir = join(root, "agents", "shared");
+    await mkdir(sharedDir, { recursive: true });
+    await writeFile(
+      join(sharedDir, "marker-fixture.md"),
+      `---\nid: marker-fixture\ntype: reference\ndescription: Companion fixture carrying the platform-tool marker.\n---\n# Marker Fixture\n\nAsk the user using the platform-native tool.\n\n${PLATFORM_TOOL_MARKER}\n\nThen continue.\n`,
+      "utf-8",
+    );
+    return root;
+  }
+
+  for (const tc of adapterCases) {
+    it(`${tc.name}: substitutes the native note and leaks no raw marker`, async () => {
+      const root = await writeMarkerFixture();
+      try {
+        const adapter = tc.make();
+        const manifest = createManifest({ tools: [tc.name as never] });
+        const outputs = await adapter.generate(root, manifest);
+        const emitted = outputs.find((o) => o.path === tc.emittedPath);
+        expect(emitted, `expected companion output at ${tc.emittedPath}`).toBeDefined();
+        expect(emitted!.content).toContain(tc.nativeNote);
+        expect(emitted!.content).not.toContain("HATCH3R:PLATFORM-TOOL");
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
 });

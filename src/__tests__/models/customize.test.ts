@@ -8,6 +8,7 @@ import {
   readCustomization,
   readCustomizationMarkdown,
   readCustomizationSnapshot,
+  readCustomizationWithWarnings,
 } from "../../models/customize.js";
 
 describe("readCustomization", () => {
@@ -123,6 +124,61 @@ describe("readCustomization", () => {
     );
     const result = await readCustomization(projectRoot, "agents", "test");
     expect(result).toBeUndefined();
+  });
+
+  // D2-12 (Cycle 11 Wave 3): a YAML parse error must surface a warning instead
+  // of silently dropping the override (Silent Failure Contract, CONSTITUTION
+  // §2 P5). The bare `readCustomization` wrapper discards warnings, so assert
+  // through `readCustomizationWithWarnings` that the value is undefined AND a
+  // warning naming the file and the parse reason is emitted.
+  it("warns (not silently) when YAML fails to parse", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "rules");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-testing.customize.yaml"),
+      "enabled: false\nbroken: [unterminated",
+      "utf-8",
+    );
+    const { value, warnings } = await readCustomizationWithWarnings(
+      projectRoot,
+      "rules",
+      "hatch3r-testing",
+    );
+    expect(value).toBeUndefined();
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain("failed to parse");
+    expect(warnings[0]).toContain("hatch3r-testing");
+    expect(warnings[0]).toContain(".hatch3r/rules/hatch3r-testing.customize.yaml");
+  });
+
+  // D2-12: the parse-error warning must propagate through the snapshot reader
+  // so init/sync/update — which read via readCustomizationSnapshot — see it.
+  it("propagates the YAML-parse-error warning through readCustomizationSnapshot", async () => {
+    const projectRoot = await createProjectRoot();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.yaml"),
+      "model: [opus",
+      "utf-8",
+    );
+    const result = await readCustomizationSnapshot(projectRoot, "agents", "hatch3r-reviewer");
+    expect(result.yaml).toBeUndefined();
+    expect(result.warnings.some((w) => w.includes("failed to parse"))).toBe(true);
+  });
+
+  // D2-12: ENOENT (no customization file at all) must remain a clean no-op —
+  // the warning is for present-but-unparseable files, not absent ones.
+  it("does not warn when the customization file is absent (ENOENT)", async () => {
+    const projectRoot = await createProjectRoot();
+    const { value, warnings } = await readCustomizationWithWarnings(
+      projectRoot,
+      "agents",
+      "no-such-id",
+    );
+    expect(value).toBeUndefined();
+    expect(warnings).toEqual([]);
   });
 });
 

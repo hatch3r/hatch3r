@@ -9,9 +9,7 @@ alwaysApply: false
 
 ## A. Platform MCP-First (when available)
 
-**Prefer platform MCP tools over the platform CLI** when the MCP server provides typed tools with structured input/output. Use them as the primary interface for issue tracker and repository operations.
-
-Read `platform` from `.hatch3r/hatch.json` to determine which platform tools to use.
+**Prefer platform MCP tools over the platform CLI** when the MCP server provides typed tools with structured input/output. Use them as the primary interface for issue tracker and repository operations. Read `platform` from `.hatch3r/hatch.json` to determine which platform tools to use.
 
 ### Prerequisites
 
@@ -23,11 +21,7 @@ Read `platform` from `.hatch3r/hatch.json` to determine which platform tools to 
 
 ### Platform CLI Fallback Reference
 
-**Fallback to the platform CLI only when:**
-- The MCP tool catalog lacks the specific capability.
-- An MCP call fails repeatedly and the CLI provides a viable alternative.
-
-**Never** use the platform CLI for operations that have a direct MCP equivalent (issue CRUD, PR/MR CRUD, search, labels).
+**Fallback to the platform CLI only when** the MCP tool catalog lacks the capability, or an MCP call fails repeatedly and the CLI provides a viable alternative. **Never** use the CLI for operations that have a direct MCP equivalent (issue CRUD, PR/MR CRUD, search, labels).
 
 | Action | GitHub | Azure DevOps | GitLab |
 |--------|--------|--------------|--------|
@@ -52,16 +46,20 @@ Read `platform` from `.hatch3r/hatch.json` to determine which platform tools to 
 Use documentation MCP (e.g., Context7) to retrieve up-to-date, version-specific documentation for external libraries and frameworks. This prevents hallucinated APIs and outdated patterns.
 
 **When to use:**
-- Working with any external dependency.
+- Working with any external dependency, or reviewing code that uses third-party libraries.
 - Verifying API signatures, configuration options, or migration paths.
-- Reviewing code that uses third-party libraries.
-- Writing tests with external test frameworks.
-- Debugging errors from external libraries.
+- Writing tests with external test frameworks, or debugging errors from external libraries.
 
 **When NOT to use:**
 - Internal project specs — use project docs.
 - Internal codebase patterns — use Grep, SemanticSearch, or exploration tools.
 - General programming concepts not tied to a specific library.
+
+**Fallback when documentation MCP is unavailable:**
+If no documentation MCP server (e.g., Context7) is in `mcp.servers` in `.hatch3r/hatch.json`:
+- Fall back to web research (§C) for the library's official docs, then read the installed version's type definitions in `node_modules` (or the language equivalent).
+- Note in your output when a version-specific lookup would have been valuable (e.g., "Context7 lookup recommended for the express@5 migration but not available").
+- Do NOT assert API signatures from memory — flag any unverified third-party API as needing confirmation.
 
 ## C. Web Research for External Context
 
@@ -70,20 +68,17 @@ Use web search to retrieve current, real-world information not available in proj
 **When to use:**
 - Latest security advisories, CVEs, or vulnerability disclosures for dependencies.
 - Breaking changes or deprecations in upcoming dependency versions.
-- Current best practices for architecture patterns, deployment strategies, or tooling.
+- Current best practices for architecture, deployment, or tooling, including comparing alternatives against current community consensus.
 - Novel problems with no match in docs (e.g., obscure error messages, platform-specific quirks).
-- Comparing alternative approaches or tools with current community consensus.
 
 **When NOT to use:**
 - Questions answerable from project specs or codebase exploration.
-- Standard library API questions (use documentation MCP instead).
-- Internal project decisions (use project ADRs).
+- Standard library API questions (use documentation MCP instead), or internal project decisions (use project ADRs).
 
 **Fallback when web search is unavailable:**
-If no web search MCP server is configured (e.g., `brave-search` is not in `mcp.servers` in `.hatch3r/hatch.json`), web research cannot be performed. In this case:
-- Note in your output when web research would have been valuable (e.g., "Web research recommended for CVE verification but not available").
+If no web search MCP server (e.g., `brave-search`) is in `mcp.servers` in `.hatch3r/hatch.json`:
+- Note in your output when web research would have been valuable (e.g., "Web research recommended for CVE verification but not available"), and flag security-sensitive decisions that would benefit from current advisory data.
 - Rely more heavily on Context7 documentation MCP and codebase exploration.
-- Flag security-sensitive decisions that would benefit from current advisory data.
 - Do NOT silently skip web research — surface the limitation so the user can decide whether to enable it.
 
 ## D. Browser Verification for UI Changes
@@ -94,26 +89,26 @@ Use browser automation MCP tools to visually verify UI changes after automated t
 - Verifying UI component changes render as specified in the design or acceptance criteria.
 - Reproducing and confirming fixes for visually observable bugs.
 - Accessibility auditing (keyboard nav, contrast, focus indicators).
-- Frontend performance profiling (CPU, frame rate, memory).
-- Capturing screenshot evidence for PRs.
+- Frontend performance profiling (CPU, frame rate, memory), and capturing screenshot evidence for PRs.
 
 **When NOT to use:**
 - Pure backend or API changes with no visual impact.
 - Configuration or infrastructure changes.
 - Code refactors that do not alter rendered output.
 
-**Available tools:**
-- IDE-native browser MCP (e.g., `cursor-ide-browser` in Cursor).
-- Playwright MCP (`@anthropic/mcp-playwright`) for cross-editor browser automation.
+**Fallback when browser MCP is unavailable:**
+If no browser automation MCP server is configured, defer interactive verification:
+- For accessibility, run an in-process axe-core check (`@axe-core/playwright`, `jest-axe`, or `axe-core` in a jsdom test) in the test suite to catch violations without a live browser.
+- Note in your output that visual/UI confirmation was skipped and recommend manual review before merge — do NOT silently skip it.
+
+**Available tools:** IDE-native browser MCP (e.g., `cursor-ide-browser` in Cursor); Playwright MCP (`@anthropic/mcp-playwright`) for cross-editor browser automation.
 
 ## E. Knowledge Augmentation Priority
 
-When seeking information, follow this priority order:
+When seeking information, follow this priority order, combining sources when valuable (e.g., read the spec, then verify external API usage with docs MCP, then check for recent advisories via web research):
 
 1. **Project specs and ADRs** — authoritative for project-specific behavior, constraints, and decisions.
-2. **Codebase exploration** (code search tools, semantic code search) — ground truth for current implementation.
-3. **Documentation MCP** — authoritative for external library/framework APIs and patterns.
+2. **Codebase exploration** (code search, semantic code search) — ground truth for current implementation.
+3. **Documentation MCP** — authoritative for external library/framework APIs and patterns. Falls back to web research + installed type definitions when unavailable (§B).
 4. **Web research** — current events, best practices, security advisories, novel problems.
-5. **Browser verification** — visual confirmation of UI changes after automated tests pass.
-
-Combine sources when valuable: read the spec first, then verify external API usage with docs MCP, then check for recent advisories via web research.
+5. **Browser verification** — visual confirmation of UI changes after automated tests pass; falls back to in-process axe-core for a11y when unavailable (§D).

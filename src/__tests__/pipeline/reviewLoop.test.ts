@@ -9,14 +9,20 @@ import {
   reviewLoopSummary,
   reviewLoopConfidence,
   detectOscillation,
+  detectSuppressionPatterns,
   enforceReviewIteration,
   assertReviewIterationAllowed,
   evaluateReviewGate,
+  confidenceExplanation,
   CALIBRATION,
   DEFAULT_MAX_REVIEW_ITERATIONS,
   HARD_MAX_REVIEW_ITERATIONS,
   MIN_MAX_REVIEW_ITERATIONS,
-  type ReviewVerdict,
+  MIN_DIVERGENCE_HISTORY,
+  DIVERGENCE_MESSAGE,
+  iterationVerdictToHandoffVerdict,
+  type ReviewConfidenceLevel,
+  type ReviewIterationVerdict,
 } from "../../pipeline/reviewLoop.js";
 import { HatchError } from "../../types.js";
 
@@ -266,51 +272,301 @@ describe("reviewLoop", () => {
       );
     });
 
-    it("rules/hatch3r-agent-orchestration.{md,mdc} declare the same default as DEFAULT_MAX_REVIEW_ITERATIONS", () => {
-      // Finding C9-M48 (D16-F16.1, Medium): the code constant and the rule
-      // directive at rules/hatch3r-agent-orchestration.md Phase 3 step 3
-      // must reference the same iteration cap. Without this assertion, the
-      // rule and the code drift silently (the original rule said "max 3"
-      // while the code default was 4 after C7.5-W2B2-H26 raised it).
-      // The regex is anchored to the Phase 3 step-3 line which is the
-      // canonical statement of the default, and matches both the .md
-      // canonical and the .mdc Cursor parity copy.
+    // Finding D7-3 (Cycle 11, High): the convergence-contract parity guard
+    // previously covered only 4 of the ~12 cap-stating surfaces — the
+    // orchestration rule (.md/.mdc) and the reviewer/fixer agent prompts.
+    // Green CI therefore hid the contradiction the module header asserts:
+    // "the iteration cap is enforced by the prompt directive" while the six
+    // "max 3" command bodies, bug-pipeline's two "max 4" statements,
+    // board-fill's two spec-class "4" statements, and the detail rule's two
+    // "3" statements went unchecked and could drift freely.
+    //
+    // CAP_SURFACE_REGISTRY below is the single enumerated source of every
+    // file that states the review-loop iteration cap. Each entry declares its
+    // loop class; the cap integer is derived from DEFAULT_MAX_REVIEW_ITERATIONS
+    // so a future change to the code constant forces every prose surface to be
+    // updated in the same change (or the parity test fails):
+    //   - "default" / "spec" classes equal DEFAULT_MAX_REVIEW_ITERATIONS (4).
+    //     The board-fill spec-class loop matches the default because issue-spec
+    //     reviews converge slowly (commands/hatch3r-board-fill.md §7.9d rationale).
+    //   - "code" class equals DEFAULT_MAX_REVIEW_ITERATIONS - 1 (3). Code
+    //     reviews diverge faster, so the code-class loops cap one below the
+    //     default (commands/hatch3r-workflow.md §3a rationale).
+    // `occurrences` pins how many times the cap phrase appears per file, so
+    // adding or deleting a cap statement (not just changing its integer) also
+    // trips the guard — the registry is exhaustive, not best-effort.
+    const CODE_CLASS_CAP = DEFAULT_MAX_REVIEW_ITERATIONS - 1;
+    const capForClass = (loopClass: "default" | "spec" | "code"): number =>
+      loopClass === "code" ? CODE_CLASS_CAP : DEFAULT_MAX_REVIEW_ITERATIONS;
+
+    interface CapSurface {
+      /** Repo-root-relative path to the cap-stating file. */
+      path: string;
+      /** Human label for assertion messages. */
+      label: string;
+      /** Loop class that fixes the expected integer. */
+      loopClass: "default" | "spec" | "code";
+      /** Global regex whose first capture group is the stated cap integer. */
+      regex: RegExp;
+      /** Exact number of times the regex must match in the file. */
+      occurrences: number;
+    }
+
+    const CAP_SURFACE_REGISTRY: readonly CapSurface[] = [
+      // ── default class (== DEFAULT_MAX_REVIEW_ITERATIONS) ──────────────
+      {
+        path: "rules/hatch3r-agent-orchestration.md",
+        label: "orchestration rule (canonical) Phase 3 step 3",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration.mdc",
+        label: "orchestration rule (Cursor parity) Phase 3 step 3",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      {
+        path: "agents/hatch3r-reviewer.md",
+        label: "reviewer agent Review Loop Termination",
+        loopClass: "default",
+        regex: /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
+        occurrences: 1,
+      },
+      {
+        path: "agents/hatch3r-fixer.md",
+        label: "fixer agent Review Loop Termination",
+        loopClass: "default",
+        regex: /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-bug-pipeline.md",
+        label: "bug-pipeline root-cause-depth review loop (table row)",
+        loopClass: "default",
+        regex: /\(max\s+(\d+)\s+iterations\)\s+\|\s+No \(sequential\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-bug-pipeline.md",
+        label: "bug-pipeline review-loop body (matching DEFAULT_MAX_REVIEW_ITERATIONS)",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations,\s+matching\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      {
+        // Finding D5-20: the implementer agent's Review Loop Awareness section
+        // states the orchestrator's default-class Phase-3 cap but was absent
+        // from the registry, so its prior "max 3" drifted from the code
+        // constant (4) and the reviewer/fixer surfaces. Pin it as default-class.
+        path: "agents/hatch3r-implementer.md",
+        label: "implementer agent Review Loop Awareness (default-class cap)",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      // ── spec class (== DEFAULT_MAX_REVIEW_ITERATIONS) ─────────────────
+      {
+        path: "commands/hatch3r-board-fill.md",
+        label: "board-fill per-issue spec-class loop",
+        loopClass: "spec",
+        regex: /max\s+(\d+)\s+iterations\s+\(spec-class cap\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-board-fill.md",
+        label: "board-fill spec-class rationale (matching DEFAULT_MAX_REVIEW_ITERATIONS)",
+        loopClass: "spec",
+        regex: /caps at\s+(\d+)\s+\(matching\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
+        occurrences: 1,
+      },
+      // ── code class (== DEFAULT_MAX_REVIEW_ITERATIONS - 1) ─────────────
+      {
+        path: "commands/hatch3r-quick-change.md",
+        label: "quick-change review loop (table row + Step 6a body)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 2,
+      },
+      {
+        path: "commands/hatch3r-revision.md",
+        label: "revision review loop (table row + Stage 1 body)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 2,
+      },
+      {
+        path: "commands/hatch3r-board-pickup.md",
+        label: "board-pickup review loop (table row)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-workflow.md",
+        label: "workflow review loop (table row)",
+        loopClass: "code",
+        regex: /\(max\s+(\d+)\s+iterations until clean\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-workflow.md",
+        label: "workflow Step 4a repeat directive (code-class cap)",
+        loopClass: "code",
+        regex: /maximum of \*\*(\d+) iterations\*\*\s+\(code-class cap\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule PipelineContext reviewResult.iterations comment (canonical)",
+        loopClass: "code",
+        regex: /1 to code-class cap \(DEFAULT_MAX_REVIEW_ITERATIONS - 1 = (\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule failure-mode table (canonical)",
+        loopClass: "code",
+        regex: /Max iterations \((\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule retry-policy (canonical)",
+        loopClass: "code",
+        regex: /review loop retries up to\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule PipelineContext reviewResult.iterations comment (Cursor parity)",
+        loopClass: "code",
+        regex: /1 to code-class cap \(DEFAULT_MAX_REVIEW_ITERATIONS - 1 = (\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule failure-mode table (Cursor parity)",
+        loopClass: "code",
+        regex: /Max iterations \((\d+)\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule retry-policy (Cursor parity)",
+        loopClass: "code",
+        regex: /review loop retries up to\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      // Finding D7-1: four code-class loop directives that stated a numeric cap
+      // but were absent from the registry — they could drift freely while green
+      // CI hid it (the exact gap the self-check claim at line "11 distinct
+      // files" asserted was closed). Pin each loop-termination directive.
+      {
+        path: "commands/hatch3r-release.md",
+        label: "release Step 7a review-loop termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /for a maximum of \*\*(\d+) iterations\*\* \(code-class cap per/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-debug.md",
+        label: "debug Stage 5c review-loop termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /Run a review-fix loop, maximum (\d+) iterations, until the reviewer/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/board/pickup-delegation.md",
+        label: "board-pickup delegation review-loop termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /Repeat steps 2-3 for a maximum of \*\*(\d+) iterations\*\* until the confidence-aware gate/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/board/pickup-delegation-multi.md",
+        label: "board-pickup delegation-multi review-loop termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /Repeat steps 2-3 for a maximum of \*\*(\d+) iterations\*\* until the confidence-aware gate/g,
+        occurrences: 1,
+      },
+    ];
+
+    it("every review-loop cap surface in CAP_SURFACE_REGISTRY matches its loop class (Finding D7-3)", () => {
+      // Finding C9-M48 / D15-SA15.2-F15.2-06 / D5-SA5.1-F1 are subsumed here:
+      // the rule (.md/.mdc) and reviewer/fixer surfaces remain covered, now as
+      // registry entries alongside the previously-uncovered command + detail
+      // surfaces. The registry is the enumerated single source — extend it
+      // when a new cap-stating surface is authored.
       const repoRoot = process.cwd();
-      const pattern = /max\s+(\d+)\s+iterations\s+\(matches\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/;
-      for (const relPath of [
-        "rules/hatch3r-agent-orchestration.md",
-        "rules/hatch3r-agent-orchestration.mdc",
-      ]) {
-        const body = readFileSync(join(repoRoot, relPath), "utf-8");
-        const match = body.match(pattern);
-        expect(match, `${relPath} must contain "max <N> iterations (matches \`DEFAULT_MAX_REVIEW_ITERATIONS\`...)" at Phase 3 step 3`).not.toBeNull();
-        const declared = Number(match![1]);
-        expect(declared, `${relPath} declared "max ${declared} iterations" but code has DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+      // Self-check: the registry must enumerate every file that states a cap.
+      // 16 distinct files carry cap statements (rule, rule.mdc, reviewer,
+      // fixer, implementer, bug-pipeline, board-fill, quick-change, revision,
+      // board-pickup, workflow, detail.md, detail.mdc, release, debug,
+      // pickup-delegation, pickup-delegation-multi). detail.md/.mdc each state
+      // the code-class cap three times (Finding D7-2: reviewResult.iterations
+      // comment, failure-mode table, retry-policy); release/debug/delegation×2
+      // add one code-class directive each (Finding D7-1); the implementer adds
+      // one default-class surface (Finding D5-20) => 23 entries. Guard against a
+      // future edit that silently empties the registry.
+      expect(
+        CAP_SURFACE_REGISTRY.length,
+        "CAP_SURFACE_REGISTRY must remain populated — it is the single enumerated source of review-loop cap surfaces",
+      ).toBeGreaterThanOrEqual(20);
+
+      for (const surface of CAP_SURFACE_REGISTRY) {
+        const body = readFileSync(join(repoRoot, surface.path), "utf-8");
+        const matches = [...body.matchAll(surface.regex)];
+        expect(
+          matches.length,
+          `${surface.path} [${surface.label}] — expected ${surface.occurrences} cap statement(s) matching ${surface.regex} but found ${matches.length}. If the cap phrasing changed, update CAP_SURFACE_REGISTRY (the enumerated single source).`,
+        ).toBe(surface.occurrences);
+
+        const expectedCap = capForClass(surface.loopClass);
+        for (const m of matches) {
+          // First capture group is always the stated cap integer.
+          const declared = Number(m[1]);
+          expect(
+            declared,
+            `${surface.path} [${surface.label}] declared "${m[0]}" (cap ${declared}) but loop class "${surface.loopClass}" must equal ${expectedCap} (DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}, code-class=${CODE_CLASS_CAP}).`,
+          ).toBe(expectedCap);
+          // The reviewer/fixer surfaces additionally inline the constant
+          // (DEFAULT_MAX_REVIEW_ITERATIONS=<N>) as a second capture group;
+          // assert it tracks the code constant when present.
+          if (m[2] !== undefined) {
+            const inlineConstant = Number(m[2]);
+            expect(
+              inlineConstant,
+              `${surface.path} [${surface.label}] inline DEFAULT_MAX_REVIEW_ITERATIONS=${inlineConstant} must match code constant ${DEFAULT_MAX_REVIEW_ITERATIONS}`,
+            ).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+          }
+        }
       }
     });
 
-    it("agents/hatch3r-{reviewer,fixer}.md Review Loop Termination cap matches DEFAULT_MAX_REVIEW_ITERATIONS", () => {
-      // Finding D15-SA15.2-F15.2-06 / D5-SA5.1-F1 (Cycle 10, Low/Medium): the
-      // reviewer and fixer agent prompts previously hard-coded "max 3
-      // review-fix cycles" while the code default was 4 (raised in
-      // C7.5-W2B2-H26). The prompt text was realigned to 4, but the parity
-      // test only covered the orchestration rule — leaving the agent prompts
-      // free to drift again. This assertion extends the guard to both
-      // code-mutating-loop agent files so the prompt-stated cap cannot
-      // silently diverge from the code constant + the rule.
+    // Finding D7-2 (Cycle 11, High): the detail rule's cross-command Pipeline
+    // Pattern table states the default-class Phase-3 cap symbolically
+    // (`max \`DEFAULT_MAX_REVIEW_ITERATIONS\``), NOT as a bare integer. That is
+    // the correct full-default cap (4), distinct from the code-class cap (3)
+    // the three code-class surfaces above carry. Pin it to stay symbolic so a
+    // future edit cannot re-introduce a third drifting integer answer for the
+    // cap (the "three answers for one cap" the finding flagged).
+    it("detail rule default-class Phase-3 row references DEFAULT_MAX_REVIEW_ITERATIONS symbolically, not a bare integer (Finding D7-2)", () => {
       const repoRoot = process.cwd();
-      const pattern = /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/;
-      for (const relPath of [
-        "agents/hatch3r-reviewer.md",
-        "agents/hatch3r-fixer.md",
+      for (const path of [
+        "rules/hatch3r-agent-orchestration-detail.md",
+        "rules/hatch3r-agent-orchestration-detail.mdc",
       ]) {
-        const body = readFileSync(join(repoRoot, relPath), "utf-8");
-        const match = body.match(pattern);
-        expect(match, `${relPath} must contain "After <N> review-fix cycles (default \`DEFAULT_MAX_REVIEW_ITERATIONS=<N>\`...)" in Review Loop Termination Conditions`).not.toBeNull();
-        const declaredCycles = Number(match![1]);
-        const declaredConstant = Number(match![2]);
-        expect(declaredCycles, `${relPath} declared "After ${declaredCycles} review-fix cycles" but code has DEFAULT_MAX_REVIEW_ITERATIONS=${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
-        expect(declaredConstant, `${relPath} inline DEFAULT_MAX_REVIEW_ITERATIONS=${declaredConstant} must match code constant ${DEFAULT_MAX_REVIEW_ITERATIONS}`).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+        const body = readFileSync(join(repoRoot, path), "utf-8");
+        const symbolicRow =
+          /Phase 3 Review Loop \| `hatch3r-reviewer` ↔ `hatch3r-fixer` \(max `DEFAULT_MAX_REVIEW_ITERATIONS`\)/g;
+        const matches = [...body.matchAll(symbolicRow)];
+        expect(
+          matches.length,
+          `${path} — the cross-command Pipeline Pattern Phase-3 row must reference DEFAULT_MAX_REVIEW_ITERATIONS symbolically (default-class cap). A bare integer here re-opens the cap-drift gap (Finding D7-2).`,
+        ).toBe(1);
       }
     });
   });
@@ -432,14 +688,17 @@ describe("reviewLoop", () => {
       expect(result.oscillating).toBe(false);
     });
 
-    it("should report no oscillation for a single direction change", () => {
+    it("should detect oscillation on a single direction change (Finding D7-16 re-threshold)", () => {
       let state = createReviewLoop(5);
-      // Findings: 5 -> 2 -> 4 (down, up = 1 direction change, threshold is 2)
+      // Findings: 5 -> 2 -> 4 (down, up = 1 direction change). Cycle 11 lowered
+      // the threshold from 2 changes to 1 (Finding D7-16) so a fix-break cycle
+      // is caught on the first reversal within a 3-entry default-reachable history.
       state = recordReviewIteration(state, "warning", 5);
       state = recordReviewIteration(state, "warning", 2);
       state = recordReviewIteration(state, "warning", 4);
       const result = detectOscillation(state);
-      expect(result.oscillating).toBe(false);
+      expect(result.oscillating).toBe(true);
+      expect(result.description).toContain("oscillation detected");
     });
 
     it("should fire in default configuration (Finding C7.5-W2B2-H26)", () => {
@@ -457,6 +716,181 @@ describe("reviewLoop", () => {
       const result = detectOscillation(state);
       expect(result.oscillating).toBe(true);
       expect(result.description).toContain("oscillation detected");
+    });
+  });
+
+  describe("detectSuppressionPatterns (Finding D7-15)", () => {
+    it("returns not-found for empty / non-string input", () => {
+      expect(detectSuppressionPatterns("").found).toBe(false);
+      // @ts-expect-error — defensive: callers may pass undefined from a missing diff
+      expect(detectSuppressionPatterns(undefined).found).toBe(false);
+      expect(detectSuppressionPatterns("   \n  \n").found).toBe(false);
+    });
+
+    it("flags an `as any` cast on an added line", () => {
+      const diff = ["+const x = payload as any;"].join("\n");
+      const result = detectSuppressionPatterns(diff);
+      expect(result.found).toBe(true);
+      expect(result.hits.map((h) => h.kind)).toContain("as_any");
+      expect(result.hits[0].line).toBe("const x = payload as any;");
+      expect(result.description).toContain("as_any=1");
+    });
+
+    it("flags an angle-bracket `<any>` cast", () => {
+      const result = detectSuppressionPatterns("+const y = <any>raw;");
+      expect(result.found).toBe(true);
+      expect(result.hits.map((h) => h.kind)).toContain("as_any");
+    });
+
+    it("does NOT flag identifiers that merely contain 'any' (e.g. anything, Many)", () => {
+      const result = detectSuppressionPatterns("+const anything = manyValues.asString();");
+      expect(result.found).toBe(false);
+    });
+
+    it("flags an eslint-disable directive with no issue reference", () => {
+      const result = detectSuppressionPatterns("+// eslint-disable-next-line no-explicit-any");
+      expect(result.found).toBe(true);
+      expect(result.hits.map((h) => h.kind)).toContain("eslint_disable");
+    });
+
+    it("does NOT flag an eslint-disable that carries an issue reference", () => {
+      const withIssue = detectSuppressionPatterns(
+        "+// eslint-disable-next-line no-console -- see #1234 tracked",
+      );
+      expect(withIssue.found).toBe(false);
+      const withUrl = detectSuppressionPatterns(
+        "+/* eslint-disable no-console */ // https://example.com/issues/9",
+      );
+      expect(withUrl.found).toBe(false);
+    });
+
+    it("flags test.skip / it.skip / describe.skip with no linked issue", () => {
+      expect(detectSuppressionPatterns("+test.skip('flaky', () => {});").found).toBe(true);
+      expect(detectSuppressionPatterns("+  it.skip('todo', () => {});").found).toBe(true);
+      expect(detectSuppressionPatterns("+describe.skip('suite', () => {});").found).toBe(true);
+      expect(detectSuppressionPatterns("+xit('later', () => {});").found).toBe(true);
+      expect(
+        detectSuppressionPatterns("+test.skip('x', () => {});").hits.map((h) => h.kind),
+      ).toContain("test_skip");
+    });
+
+    it("does NOT flag a skipped test that links an issue reference", () => {
+      const result = detectSuppressionPatterns(
+        "+test.skip('blocked on #42', () => {}); // see https://tracker/42",
+      );
+      expect(result.found).toBe(false);
+    });
+
+    it("scans only added lines in a unified diff (ignores context + removed lines)", () => {
+      const diff = [
+        "@@ -1,3 +1,3 @@",
+        " const keep = value as string;",
+        "-const old = value as any;",
+        "+const next = value as number;",
+      ].join("\n");
+      // The only `as any` is on a removed line; the added line is a clean cast.
+      const result = detectSuppressionPatterns(diff);
+      expect(result.found).toBe(false);
+    });
+
+    it("treats a non-diff code snippet as fully added code", () => {
+      const snippet = "function f() {\n  return x as any;\n}";
+      const result = detectSuppressionPatterns(snippet);
+      expect(result.found).toBe(true);
+      expect(result.hits.map((h) => h.kind)).toContain("as_any");
+    });
+
+    it("does not flag the `+++` file header as an added line", () => {
+      const diff = ["+++ b/src/foo.ts", "+const ok = value as number;"].join("\n");
+      expect(detectSuppressionPatterns(diff).found).toBe(false);
+    });
+
+    it("aggregates multiple distinct suppression kinds in one diff", () => {
+      const diff = [
+        "+const a = x as any;",
+        "+// eslint-disable-next-line no-unused-vars",
+        "+it.skip('wip', () => {});",
+      ].join("\n");
+      const result = detectSuppressionPatterns(diff);
+      expect(result.found).toBe(true);
+      const kinds = new Set(result.hits.map((h) => h.kind));
+      expect(kinds).toEqual(new Set(["as_any", "eslint_disable", "test_skip"]));
+      expect(result.hits).toHaveLength(3);
+    });
+  });
+
+  describe("monotonic_divergence escape (Finding D7-17)", () => {
+    it("terminates with 'divergence' on a strictly-increasing findings series", () => {
+      // Findings: 2 -> 3 -> 4 (fixer strictly worsening every pass). The
+      // oscillation detector cannot see this (0 direction changes); the trend
+      // escape must catch it before the iteration cap.
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "warning", 4);
+      expect(state.terminated).toBe(true);
+      expect(state.terminationReason).toBe("divergence");
+      expect(state.unresolvedFindings).toBe(4);
+      // confidence on a diverging loop is the weakest signal.
+      expect(state.confidence).toBe("low");
+      // detectOscillation still reports no oscillation for the monotone series.
+      expect(detectOscillation(state).oscillating).toBe(false);
+    });
+
+    it("the strictly-diverging [2,3,4,5] case the detail rule flags is caught", () => {
+      // Mirrors the detail-rule failure-mode row: increasing Critical count
+      // across passes => complexity underestimate. The loop must not run to the
+      // cap; it halts on the third strictly-worse pass.
+      let state = createReviewLoop(10);
+      state = recordReviewIteration(state, "critical", 2);
+      state = recordReviewIteration(state, "critical", 3);
+      expect(state.terminated).toBe(false); // two entries: not yet divergent
+      state = recordReviewIteration(state, "critical", 4);
+      expect(state.terminated).toBe(true);
+      expect(state.terminationReason).toBe("divergence");
+      // currentIteration stopped at 3, well below the cap of 10.
+      expect(state.currentIteration).toBe(3);
+    });
+
+    it("requires MIN_DIVERGENCE_HISTORY entries before firing", () => {
+      // A single uptick after one pass (2 -> 3) must NOT abort the loop — only a
+      // persistent strictly-increasing run of MIN_DIVERGENCE_HISTORY does.
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 3);
+      expect(MIN_DIVERGENCE_HISTORY).toBe(3);
+      expect(state.terminated).toBe(false);
+      expect(state.terminationReason).toBeUndefined();
+    });
+
+    it("does not fire when an early decrease breaks the monotone run", () => {
+      // 5 -> 2 -> 6 is not strictly increasing over the last 3 entries (2 < 5),
+      // so divergence does not fire; the loop continues.
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 5);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 6);
+      expect(state.terminated).toBe(false);
+    });
+
+    it("a clean verdict still wins over divergence on the same pass", () => {
+      // Even if the prior two passes were rising, a clean verdict (0 findings)
+      // is a decrease, breaks the monotone run, and terminates as 'clean'.
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "clean", 0);
+      expect(state.terminationReason).toBe("clean");
+    });
+
+    it("reviewLoopSummary surfaces the complexity-underestimate recommendation", () => {
+      let state = createReviewLoop(6);
+      state = recordReviewIteration(state, "warning", 2);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "warning", 4);
+      const summary = reviewLoopSummary(state);
+      expect(summary).toContain(DIVERGENCE_MESSAGE);
+      expect(summary).toContain("confidence: low");
     });
   });
 
@@ -610,7 +1044,7 @@ describe("reviewLoop", () => {
       // function at every iteration. The loop must terminate within
       // maxIterations without any external bookkeeping.
       let state = createReviewLoop(3);
-      const verdicts: Array<{ verdict: ReviewVerdict; findings: number }> = [
+      const verdicts: Array<{ verdict: ReviewIterationVerdict; findings: number }> = [
         { verdict: "critical", findings: 8 },
         { verdict: "warning", findings: 4 },
         { verdict: "warning", findings: 3 },
@@ -727,5 +1161,309 @@ describe("evaluateReviewGate (C8-D13-M1)", () => {
       const r = evaluateReviewGate({ severityCount: clean, confidence: "high", iterationBudgetRemaining: 2 });
       expect(r.reason).toContain("verdict independence not declared");
     });
+  });
+
+  describe("D13-3: confidence floor (D13-SA13.3-F13.3.3)", () => {
+    // The four core orchestrators document a `--confidence-floor` knob that
+    // tightens the clean-verdict gate; before D13-3 `ReviewGateInput` carried
+    // no `confidenceFloor` field so the gate could not express the behaviour
+    // the command bodies describe. This matrix pins the decision for every
+    // floor × confidence cell with iteration budget remaining (so the
+    // below-floor path resolves to second_pass, not escalate).
+    type Floor = "any" | "medium" | "high";
+    type Conf = "high" | "medium" | "low" | "unknown";
+    const cell = (floor: Floor, confidence: Conf) =>
+      evaluateReviewGate({
+        severityCount: clean,
+        confidence,
+        iterationBudgetRemaining: 2,
+        confidenceFloor: floor,
+      });
+
+    // [floor, confidence, expected decision with budget remaining]
+    const MATRIX: ReadonlyArray<[Floor, Conf, "pass" | "second_pass"]> = [
+      // floor "any" — pre-D13-3 behaviour: high/medium pass, low/unknown retry
+      ["any", "high", "pass"],
+      ["any", "medium", "pass"],
+      ["any", "low", "second_pass"],
+      ["any", "unknown", "second_pass"],
+      // floor "medium" — same decision surface as "any" at the aggregate input
+      ["medium", "high", "pass"],
+      ["medium", "medium", "pass"],
+      ["medium", "low", "second_pass"],
+      ["medium", "unknown", "second_pass"],
+      // floor "high" — medium no longer passes; only high passes
+      ["high", "high", "pass"],
+      ["high", "medium", "second_pass"],
+      ["high", "low", "second_pass"],
+      ["high", "unknown", "second_pass"],
+    ];
+
+    for (const [floor, confidence, expected] of MATRIX) {
+      it(`floor "${floor}" + confidence "${confidence}" -> ${expected}`, () => {
+        const r = cell(floor, confidence);
+        expect(r.decision).toBe(expected);
+        // Every gate result echoes the floor it evaluated under.
+        expect(r.reason).toContain(`floor "${floor}"`);
+      });
+    }
+
+    it("defaults to floor 'any' when confidenceFloor is omitted (backward compatible)", () => {
+      // medium confidence passes under the default floor exactly as it did
+      // before D13-3 added the field.
+      const omitted = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "medium",
+        iterationBudgetRemaining: 2,
+      });
+      const explicitAny = cell("any", "medium");
+      expect(omitted.decision).toBe("pass");
+      expect(omitted.decision).toBe(explicitAny.decision);
+      expect(omitted.reason).toContain('floor "any"');
+    });
+
+    it("floor 'high' tightens medium to second_pass — the distinct D13-3 behaviour", () => {
+      // The single cell that differs between floor "any"/"medium" and "high":
+      // a clean verdict at medium confidence is acceptable under the looser
+      // floors but forces another reviewer pass under "high".
+      expect(cell("any", "medium").decision).toBe("pass");
+      expect(cell("medium", "medium").decision).toBe("pass");
+      expect(cell("high", "medium").decision).toBe("second_pass");
+    });
+
+    it("floor 'high' + medium confidence escalates when iteration budget is exhausted", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "medium",
+        iterationBudgetRemaining: 0,
+        confidenceFloor: "high",
+      });
+      expect(r.decision).toBe("escalate");
+      expect(r.reason).toContain('floor "high"');
+    });
+
+    it("the floor never relaxes the Critical/Warning fail gates", () => {
+      // Even at the loosest floor, a Warning still fails; the floor only adds
+      // second-pass pressure on otherwise-clean verdicts.
+      const r = evaluateReviewGate({
+        severityCount: { critical: 0, warning: 1, suggestion: 0 },
+        confidence: "high",
+        iterationBudgetRemaining: 5,
+        confidenceFloor: "any",
+      });
+      expect(r.decision).toBe("fail");
+      expect(r.reason).toContain("Warning");
+    });
+  });
+
+  describe("D13-21: confidence reconciliation (min(reviewLoopConfidence, selfAssigned))", () => {
+    it("caps an over-confident self-rating with the lower deterministic signal", () => {
+      // self-assigned "high" but the iteration-derived signal is "low" — the
+      // floor must evaluate against "low", forcing a second pass.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        reviewLoopConfidence: "low",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.effectiveConfidence).toBe("low");
+      expect(r.reason).toContain("min(reviewLoopConfidence");
+    });
+
+    it("does not raise confidence above the self-assigned value", () => {
+      // self-assigned "low", deterministic "high" — the worse (low) still wins,
+      // so an under-confident reviewer is never overridden upward.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "low",
+        reviewLoopConfidence: "high",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.effectiveConfidence).toBe("low");
+    });
+
+    it("passes when both signals agree on high", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        reviewLoopConfidence: "high",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.decision).toBe("pass");
+      expect(r.effectiveConfidence).toBe("high");
+    });
+
+    it("uses the self-assigned value unchanged when reviewLoopConfidence is omitted (pre-D13-21)", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.decision).toBe("pass");
+      expect(r.effectiveConfidence).toBe("high");
+      expect(r.reason).not.toContain("min(reviewLoopConfidence");
+    });
+
+    it("the reconciled signal interacts with the high floor", () => {
+      // deterministic "medium" caps self-assigned "high" to "medium"; under the
+      // "high" floor medium no longer passes.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        reviewLoopConfidence: "medium",
+        confidenceFloor: "high",
+        iterationBudgetRemaining: 2,
+      });
+      expect(r.effectiveConfidence).toBe("medium");
+      expect(r.decision).toBe("second_pass");
+    });
+  });
+
+  describe("D7-18 / D13-16 / D15-20: provider-independence gating on security diffs", () => {
+    it("forces second_pass on a clean same_family verdict for a security-touching diff", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.reason).toContain("security-touching diff");
+      expect(r.reason).toContain("not provider-independent");
+    });
+
+    it("forces second_pass on a clean unknown-independence verdict for a security-touching diff", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        // verdictIndependence omitted -> "unknown"
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.verdictIndependence).toBe("unknown");
+    });
+
+    it("escalates when a security-touching non-independent verdict has no iteration budget", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 0,
+        verdictIndependence: "same_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("escalate");
+      expect(r.reason).toContain("security-touching diff");
+    });
+
+    it("passes a clean different_family verdict on a security-touching diff (already independent)", () => {
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "different_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("pass");
+    });
+
+    it("leaves non-security same_family verdicts as pass (everyday-review path unchanged)", () => {
+      // securityTouchingDiff defaults to false -> the pre-Cycle-11 advisory-only
+      // behaviour for same_family is preserved.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+      });
+      expect(r.decision).toBe("pass");
+      expect(r.reason).toContain("share a model family");
+    });
+
+    it("Critical findings still fail regardless of securityTouchingDiff", () => {
+      const r = evaluateReviewGate({
+        severityCount: { critical: 1, warning: 0, suggestion: 0 },
+        confidence: "high",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("fail");
+    });
+
+    it("combines with reconciliation: a low effective confidence below floor takes the standard second_pass path", () => {
+      // When the verdict is already below floor, the standard below-floor
+      // second_pass fires; the security-independence branch only applies to
+      // otherwise-passing verdicts.
+      const r = evaluateReviewGate({
+        severityCount: clean,
+        confidence: "high",
+        reviewLoopConfidence: "low",
+        iterationBudgetRemaining: 2,
+        verdictIndependence: "same_family",
+        securityTouchingDiff: true,
+      });
+      expect(r.decision).toBe("second_pass");
+      expect(r.effectiveConfidence).toBe("low");
+      // below-floor reason, not the security-independence reason
+      expect(r.reason).toContain("below floor");
+    });
+  });
+});
+
+describe("confidenceExplanation rule parity (Finding D13-2 / D13-SA13.2-F2)", () => {
+  // Before D13-2 the three confidence-to-action strings were reachable only
+  // from a unit test — referenced by zero prompt artifacts, emitted to no user.
+  // The fix moved the canonical text into the user-facing iteration-summary
+  // rule (the §5 Confidence-line guidance every orchestrator appends). This
+  // guard asserts the typed accessor stays byte-identical to the rule body, so
+  // the strings can never silently drift apart or fall back to test-only reach.
+  const repoRoot = process.cwd();
+  const levels: ReviewConfidenceLevel[] = ["high", "medium", "low"];
+
+  it.each(["rules/hatch3r-iteration-summary.md", "rules/hatch3r-iteration-summary.mdc"])(
+    "%s contains every confidenceExplanation string verbatim under the Confidence-to-Action Mapping section",
+    (rulePath) => {
+      const body = readFileSync(join(repoRoot, rulePath), "utf-8");
+      expect(
+        body,
+        `${rulePath} must carry the canonical confidence-to-action mapping (D13-2)`,
+      ).toContain("Confidence-to-Action Mapping (D13)");
+      for (const level of levels) {
+        const text = confidenceExplanation(level);
+        expect(
+          body,
+          `${rulePath} is missing the ${level} confidence-to-action string "${text}" — the rule and confidenceExplanation() have drifted (D13-2).`,
+        ).toContain(text);
+      }
+    },
+  );
+
+  it("confidenceExplanation returns a distinct non-empty string per level", () => {
+    const seen = new Set(levels.map((l) => confidenceExplanation(l)));
+    expect(seen.size).toBe(levels.length);
+    for (const text of seen) expect(text.length).toBeGreaterThan(0);
+  });
+});
+
+describe("iterationVerdictToHandoffVerdict (Finding D7-12)", () => {
+  it("maps a clean iteration verdict to the CLEAN handoff verdict", () => {
+    expect(iterationVerdictToHandoffVerdict("clean")).toBe("CLEAN");
+  });
+
+  it("maps warning and critical iteration verdicts to UNRESOLVED (fail-closed)", () => {
+    expect(iterationVerdictToHandoffVerdict("warning")).toBe("UNRESOLVED");
+    expect(iterationVerdictToHandoffVerdict("critical")).toBe("UNRESOLVED");
+  });
+
+  it("only ever returns a handoff-scale value, never an iteration-scale value", () => {
+    const handoffValues = new Set(["CLEAN", "UNRESOLVED"]);
+    const iterationVerdicts: ReviewIterationVerdict[] = ["clean", "warning", "critical"];
+    for (const v of iterationVerdicts) {
+      expect(handoffValues.has(iterationVerdictToHandoffVerdict(v))).toBe(true);
+    }
   });
 });

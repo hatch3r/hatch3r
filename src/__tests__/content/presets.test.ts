@@ -5,12 +5,21 @@ import {
   omittedCapabilityClusters,
   composePresets,
   resolvePresetArg,
+  capabilityLabel,
+  FULL_CAPABILITY_SUPERSET,
   KNOWN_PRESET_IDS,
+  type CapabilityTag,
   type ContentPreset,
   type PresetId,
 } from "../../content/presets.js";
+import {
+  resolveSelection,
+  getAllContentIds,
+  type CatalogItem,
+  type ContentIndex,
+} from "../../content/index.js";
 import { HatchError } from "../../types.js";
-import { TAG_AI, TAG_PERFORMANCE } from "../../content/tags.js";
+import { TAG_AI, TAG_PERFORMANCE, TAG_FLOOR_CONTENT_QUALITY } from "../../content/tags.js";
 
 // D10 F10.6-1 / F10.6-10: preset descriptions named what was INCLUDED but
 // never what was EXCLUDED, so a user picking "Standard (recommended)" silently
@@ -92,17 +101,185 @@ describe("omittedCapabilityClusters derivation (D10 anti-drift invariant)", () =
   });
 });
 
-describe("preset descriptions name exclusions (D10 F10.6-10)", () => {
-  it("standard description names the AI omission instead of inclusion-only framing", () => {
-    const desc = getPreset("standard").description;
-    expect(desc).toContain("AI feature engineering");
-    // The old inclusion-only wording opened with "including board, customize"
-    // and never said what Standard dropped — guard against regressing to it.
-    expect(desc).toContain("Drops");
+// D10-34 (Cycle 11 Wave 3): the `omits` ⇄ `omittedCapabilityClusters` checks
+// above are a tautology over the `capabilities` arrays — both sides derive from
+// the same `capabilities` vs `full.capabilities` diff, so neither resolves a
+// selection. That left the labels unverified against `resolveSelection`'s actual
+// output: a floor-expansion change (re-tagging a capability cluster `floor:*`)
+// would keep `omits` listing it while the realized selection still shipped every
+// member, and no test would fail. This block closes the gap by wiring each
+// `omits` label to the realized `resolveSelection(full) \ resolveSelection(preset)`
+// id-set delta.
+describe("omits labels match the realized resolveSelection delta (D10-34)", () => {
+  // One genuinely-droppable agent per capability tag: a single capability tag,
+  // no floor tag, not protected, not customize. Under this index a cluster is
+  // dropped by a preset iff that capability is absent from preset.capabilities —
+  // so the realized post-floor delta equals the intent gap exactly, and the
+  // `omits` labels must reproduce it through `resolveSelection`.
+  function makeIndex(items: CatalogItem[]): ContentIndex {
+    const byType: Record<string, CatalogItem[]> = {};
+    const byId = new Map<string, CatalogItem>();
+    const byTypeAndId = new Map<string, CatalogItem>();
+    for (const item of items) {
+      (byType[item.type] ??= []).push(item);
+      byId.set(item.id, item);
+      byTypeAndId.set(`${item.type}:${item.id}`, item);
+    }
+    return { items, byType, byId, byTypeAndId, collisions: [] };
+  }
+
+  const perCapabilityItem = (cap: CapabilityTag): CatalogItem => ({
+    id: `cap-${cap}-agent`,
+    type: "agent",
+    description: `Sole-${cap} agent`,
+    tags: [cap],
+    relativePath: `agents/cap-${cap}-agent.md`,
+    source: "canonical",
+  });
+  const capabilityIndex = makeIndex(FULL_CAPABILITY_SUPERSET.map(perCapabilityItem));
+  // `omits` is the capability/floor dial, independent of project-type and
+  // team-size context filtering — resolve both ends with those filters off so
+  // the delta isolates the dial (mirrors content/index.ts::presetOmittedClusters).
+  const SKIP_CTX = { skipContextFilters: true } as const;
+  const capForId = new Map<string, CapabilityTag>(
+    FULL_CAPABILITY_SUPERSET.map((cap) => [`cap-${cap}-agent`, cap]),
+  );
+
+  const realizedOmitLabels = (preset: ContentPreset): string[] => {
+    const fullIds = getAllContentIds(
+      resolveSelection(getPreset("full"), "brownfield", "team", capabilityIndex, undefined, undefined, SKIP_CTX),
+    );
+    const presetIds = getAllContentIds(
+      resolveSelection(preset, "brownfield", "team", capabilityIndex, undefined, undefined, SKIP_CTX),
+    );
+    const dropped = new Set<CapabilityTag>();
+    for (const id of fullIds) {
+      if (presetIds.has(id)) continue;
+      const cap = capForId.get(id);
+      if (cap) dropped.add(cap);
+    }
+    return FULL_CAPABILITY_SUPERSET.filter((cap) => dropped.has(cap)).map(capabilityLabel);
+  };
+
+  it("full resolves the whole capability superset (delta baseline is complete)", () => {
+    const fullIds = getAllContentIds(
+      resolveSelection(getPreset("full"), "brownfield", "team", capabilityIndex, undefined, undefined, SKIP_CTX),
+    );
+    for (const cap of FULL_CAPABILITY_SUPERSET) {
+      expect(fullIds.has(`cap-${cap}-agent`), `full must admit the ${cap} item`).toBe(true);
+    }
   });
 
-  it("minimal description names what it drops", () => {
-    expect(getPreset("minimal").description).toContain("Drops");
+  it("each non-custom preset's omits labels equal the resolveSelection(full) \\ resolveSelection(preset) cluster set", () => {
+    for (const preset of PRESETS) {
+      if (preset.id === "custom") continue;
+      const realized = realizedOmitLabels(preset).sort();
+      expect(
+        [...preset.omits].sort(),
+        `${preset.id}: declared omits must equal the realized resolveSelection delta`,
+      ).toEqual(realized);
+    }
+  });
+
+  it("every omits label names a cluster actually absent from the resolved selection", () => {
+    // The directional half of the finding: each omits label's cluster item must
+    // be present under full and removed under the preset — not merely a label.
+    for (const preset of PRESETS) {
+      if (preset.id === "custom") continue;
+      const labelToCap = new Map(FULL_CAPABILITY_SUPERSET.map((c) => [capabilityLabel(c), c]));
+      const fullIds = getAllContentIds(
+        resolveSelection(getPreset("full"), "brownfield", "team", capabilityIndex, undefined, undefined, SKIP_CTX),
+      );
+      const presetIds = getAllContentIds(
+        resolveSelection(preset, "brownfield", "team", capabilityIndex, undefined, undefined, SKIP_CTX),
+      );
+      for (const label of preset.omits) {
+        const cap = labelToCap.get(label);
+        expect(cap, `${preset.id}: omits label "${label}" maps to a capability tag`).toBeDefined();
+        const itemId = `cap-${cap}-agent`;
+        expect(fullIds.has(itemId), `${preset.id}: full ships the ${cap} item`).toBe(true);
+        expect(
+          presetIds.has(itemId),
+          `${preset.id}: omits "${label}" ⇒ the ${cap} item is absent from the resolved selection`,
+        ).toBe(false);
+      }
+    }
+  });
+
+  it("a cluster shipped via a floor tag is NOT a realized omit even when the capability dial is off (floor-expansion guard)", () => {
+    // The exact regression the finding flagged: if a capability cluster is also
+    // floor-tagged, floor admission ships it for every preset, so the cluster is
+    // NOT in the realized delta. minimal's intent-omits include "review"; here a
+    // review item ALSO carrying floor:content-quality must survive minimal, so
+    // "review" must NOT appear in the realized-omit labels even though it is in
+    // minimal.omits — proving this delta-based check is what catches a label that
+    // a floor expansion would silently invalidate.
+    const reviewCap = "review" as CapabilityTag;
+    const floorReviewItem: CatalogItem = {
+      id: "cap-review-floor-agent",
+      type: "agent",
+      description: "Review agent that also carries the content-quality floor",
+      tags: [reviewCap, TAG_FLOOR_CONTENT_QUALITY],
+      relativePath: "agents/cap-review-floor-agent.md",
+      source: "canonical",
+    };
+    // Only this floor-tagged review item carries the `review` capability in this
+    // index, so floor admission is the sole reason it could ship.
+    const floorIndex = makeIndex(
+      FULL_CAPABILITY_SUPERSET.filter((c) => c !== reviewCap).map(perCapabilityItem).concat(floorReviewItem),
+    );
+    const minimal = getPreset("minimal");
+    const fullIds = getAllContentIds(
+      resolveSelection(getPreset("full"), "brownfield", "team", floorIndex, undefined, undefined, SKIP_CTX),
+    );
+    const minimalIds = getAllContentIds(
+      resolveSelection(minimal, "brownfield", "team", floorIndex, undefined, undefined, SKIP_CTX),
+    );
+    // The floor-tagged review item ships under BOTH full and minimal.
+    expect(fullIds.has("cap-review-floor-agent")).toBe(true);
+    expect(minimalIds.has("cap-review-floor-agent")).toBe(true);
+    // So `review` is NOT in the realized delta, even though it IS in minimal.omits.
+    const droppedCaps = new Set<string>();
+    for (const id of fullIds) {
+      if (minimalIds.has(id)) continue;
+      const item = floorIndex.byId.get(id);
+      for (const tag of item?.tags ?? []) {
+        if ((FULL_CAPABILITY_SUPERSET as ReadonlyArray<string>).includes(tag)) droppedCaps.add(tag);
+      }
+    }
+    expect(droppedCaps.has(reviewCap)).toBe(false);
+    expect(minimal.omits).toContain("review");
+  });
+});
+
+describe("preset descriptions name exclusions (D10 F10.6-10)", () => {
+  it("standard description names the AI dial-off instead of inclusion-only framing", () => {
+    const desc = getPreset("standard").description;
+    // D10-12 (Cycle 11): standard does NOT genuinely omit AI content — most AI
+    // artifacts carry floor tags and ship at every tier, so the picker's
+    // realized omit line would not list "AI feature engineering". The honest
+    // framing names the AI *dial* being off, not an AI content omission. The
+    // old inclusion-only wording opened with "including board, customize" and
+    // never said what Standard narrowed — guard against regressing to it.
+    expect(desc).toMatch(/AI/);
+    expect(desc).toMatch(/dial/i);
+  });
+
+  it("minimal description names the capability dial it narrows to", () => {
+    expect(getPreset("minimal").description).toMatch(/dial/i);
+  });
+
+  // D10-12 (Cycle 11 Wave 2): the picker prose previously claimed "the security
+  // & UI/UX floor"; the floor also ships the content-quality specialists, so
+  // every non-custom preset's description must name the content-quality floor.
+  it("every non-custom preset description names the content-quality floor", () => {
+    for (const p of PRESETS) {
+      if (p.id === "custom") continue;
+      expect(
+        p.description,
+        `${p.id} description should mention the content-quality floor`,
+      ).toContain("content-quality");
+    }
   });
 });
 

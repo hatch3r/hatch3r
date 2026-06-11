@@ -2,7 +2,7 @@
 id: hatch3r-feedback
 name: hatch3r-feedback
 type: skill
-description: Capture user feedback on an agent recommendation or workflow outcome, classify it, sanitize it, and route it to the right destination — a local feedback record, a GitHub issue from the agent-recommendation-feedback template, or a learning. Use after an agent gives advice the user wants to rate, correct, or escalate.
+description: Captures user feedback on an agent recommendation or workflow outcome, classify it, sanitize it, and route it to the right destination — a local feedback record, a GitHub issue from the agent-recommendation-feedback template, or a learning. Use after an agent gives advice the user wants to rate, correct, or escalate.
 tags: [maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

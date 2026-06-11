@@ -11,7 +11,7 @@ import { resolveModelAlias } from "./aliases.js";
  * 3. Agent frontmatter model field
  * 4. Manifest default model (models.default)
  *
- * The resolved value is passed through alias expansion (e.g. "opus" -> "claude-opus-4-6").
+ * The resolved value is passed through alias expansion (e.g. "opus" -> "claude-opus-4-8").
  */
 export function resolveAgentModel(
   agentId: string,

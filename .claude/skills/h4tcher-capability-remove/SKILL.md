@@ -9,7 +9,7 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-06
 
 # Capability Remove (Maintainer)
 
@@ -63,6 +63,8 @@ T1 stays inline (single scrub + one CHANGELOG line). T2/T3 dispatch parallel `Ta
 | refs-code-docs | Scrubs references in `src/`, `tests/`, `governance/`, `docs/`, `docs-site/`, `CLAUDE.md`, `README.md` |
 
 Every sub-agent prompt MUST carry: (1) the Step 2 discovery slice (paths + ref counts), (2) the verbatim h4tcher-development context block from `.claude/skills/h4tcher-pr-resolve/SKILL.md` Step 2 (pillar test, lean thresholds, anti-slop wordlist reference, commit format), (3) the confidence-with-basis requirement from the rigor contract, (4) the "no branches, no commits, no PRs" guardrail, (5) the workspace write target above.
+
+Fan-out is task-derived (P8 B2): 0 sub-agents on T1 (inline), 1-3 on T2, >=3 on T3 across the migration-notes / refs-canonical / refs-code-docs slots above. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 7 summary).
 
 ## Step 5: Cross-Skill Delegation
 
@@ -120,6 +122,7 @@ Gates:
   Anti-slop hits                  <count — 0 required>
 
 Pillars served:     P<n>, P<n>
+Sub-agents:         count=<0|1-3|>=3>, rationale=<one-line task-decomposition justification>
 Sources (web):      <list, or "none — no empirical claim">
 Confidence:         high | medium | low
 

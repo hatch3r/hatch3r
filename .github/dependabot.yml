@@ -9,6 +9,16 @@ updates:
         dependency-type: "production"
       development:
         dependency-type: "development"
+  # Cycle 11 H D4-3 (D4): GitHub Actions are SHA-pinned with a trailing
+  # `# <version>` comment. dependabot rewrites the digest on a bump but mirrors
+  # the existing comment granularity verbatim — a coarse `# v4` comment that was
+  # bumped across majors (v4 -> v6.0.2) stays `# v4`, lying about the pinned
+  # code. dependabot exposes no config key to force a precise-semver comment,
+  # so the enforcement backstop is the `validate:action-pins` CI gate
+  # (.github/workflows/ci.yml, supply-chain job): it resolves each pinned SHA
+  # to its tag and fails on a comment that names a version the SHA does not
+  # resolve to. When merging a dependabot Actions PR, confirm that gate is green
+  # and rewrite any coarse `# vN` comment to the precise `# vX.Y.Z` it bumped to.
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:

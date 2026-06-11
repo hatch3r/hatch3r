@@ -2,6 +2,7 @@
 description: Progressive delivery — canary, blue-green, feature-flag rollout with auto-rollback on SLO burn; staged rollout to prevent CrowdStrike-class incidents
 globs: ["**/.github/workflows/**", "**/deploy/**", "**/k8s/**", "**/manifests/**", "**/argo/**", "**/flagger/**", "**/spinnaker/**", "**/rollout*"]
 alwaysApply: false
+precedence: high
 ---
 # Progressive Delivery
 

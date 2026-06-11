@@ -2,13 +2,23 @@
 id: hatch3r-incident-response
 name: hatch3r-incident-response
 type: skill
-description: Handle production incidents with structured triage, mitigation, and post-mortem. Use when responding to production issues, outages, or security incidents.
+description: Handles production incidents with structured triage, mitigation, and post-mortem. Use when responding to production issues, outages, or security incidents.
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
 ---
 # Incident Response Workflow
+
+## Relationship to `commands/hatch3r-incident-response.md` (Decision 13 handoff)
+
+This skill shares the `id: hatch3r-incident-response` with the orchestrator command `commands/hatch3r-incident-response.md`. The two are NOT duplicates — they split the incident workflow by execution model per CONSTITUTION §6 Decision 13:
+
+- **`commands/hatch3r-incident-response.md` (orchestrator entry):** the delegated live-incident pipeline — a hatch3r-incident-responder specialist drives triage → bounded-autonomy mitigation → communication → blameless post-mortem, and a hatch3r-reliability specialist runs the post-incident telemetry/SLO reconstruction in parallel once stabilized (`agentPipeline: [hatch3r-incident-responder, hatch3r-reliability]`). Use the command for a live production incident that warrants specialist fan-out (parallel mitigation + reliability reconstruction); a security-suspected incident adds hatch3r-security.
+- **This skill (inline procedure):** the single-pass reference body the responder follows for the classify → topology → triage → mitigate → root-cause → post-mortem sequence. Use the skill directly for a Tier 1 single-service incident where no fan-out is needed, OR as the step-by-step procedure the command's incident-responder stage executes.
+- **Unique to this skill:** the Bounded Autonomy & Escalation matrix (auto-action vs human-gate threshold by severity) and the Telemetry Sources adapter (signal-by-capability-class) are the inline-procedure detail the command references rather than restates.
+
+The merge-candidate review (F16.3-H3) flagged the shared id; this handoff documentation is the explicit workflow-split declaration that disambiguates the pair, enforced by the Decision-13 command↔skill gate in `src/cli/commands/validate.ts`. A future collapse into a single command appendix requires coordinated edits to the command body, the bundled content inventory (skills count), and that gate.
 
 ## Quick Start
 
@@ -32,12 +42,7 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (trivial single-file): inline execution acceptable.
-- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
-- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
-
-Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Bounded Autonomy & Escalation
 

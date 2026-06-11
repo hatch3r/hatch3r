@@ -95,8 +95,10 @@ Skip TDD and use the standard flow (Steps 3→4) when:
 ## Step 5: Verify
 
 ```bash
-npm run lint && npm run typecheck && npm run test
+${HATCH3R:VERIFY_GATE_ALL}
 ```
+
+Resolved to the project's language-aware gate at sync time (fallback when detection is unknown: `npm run lint && npm run typecheck && npm run test`).
 
 ## Step 5b: Browser Verification (if UI Bug)
 
@@ -119,12 +121,12 @@ Use the project's PR template. Include:
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (trivial single-file fix): inline execution acceptable.
-- Tier 2 (multi-file or multi-concern fix): spawn parallel sub-agents per concern (researcher, implementer, reviewer, test-writer) via the Task tool.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Tier boundaries for THIS skill:
+- Tier 1 (trivial single-file fix): inline.
+- Tier 2 (multi-file or multi-concern fix): spawn parallel sub-agents per concern (researcher, implementer, reviewer, hatch3r-testability) via the Task tool.
 - Tier 3 (multi-module / high-risk fix): one fresh sub-agent per independent module or gate; orchestrator integrates only.
 
-Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
+Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Required Agent Delegation
 

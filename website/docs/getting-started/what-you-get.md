@@ -1,5 +1,5 @@
 ---
-sidebar_position: 3
+sidebar_position: 4
 title: What You Get
 ---
 
@@ -9,7 +9,7 @@ hatch3r ships a full agentic setup out of the box. During `hatch3r init`, you ch
 
 | Category | Count | Highlights |
 |----------|-------|-----------|
-| **Agents** | 29 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, nine quality-vector specialists (UI, UX, security, reliability, testability, scalability, performance, maintainability, enhancability), and more |
+| **Agents** | 29 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, nine quality-vector specialists (UI, UX, security, reliability, testability, scalability, performance, maintainability, enhancability), and more |
 | **Skills** | 53 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills + a 24-tool `cli-toolbox`, and more |
 | **Rules** | 65 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context, handoff readiness, and more |
 | **Commands** | 30 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, bug-pipeline, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
@@ -31,14 +31,14 @@ Specialized agents that handle distinct responsibilities in your development wor
 | **reviewer** | `core`, `review` | Senior reviewer -- correctness, security, privacy, performance, accessibility |
 | **researcher** | `core`, `planning` | Deep investigation sub-agent used by planning commands |
 | **fixer** | `core`, `implementation` | Targeted fixes for reviewer findings in the review loop |
-| **test-writer** | `core`, `review` | QA engineer -- unit, integration, E2E, security rules, contract tests |
+| **testability** | `review`, `testing`, `floor:content-quality` | Testability specialist -- per-feature test-class mandate, real-deal-first testing, coverage thresholds, AI feature eval coverage |
 | **lint-fixer** | `core`, `implementation` | Code quality enforcer -- ESLint, Prettier, TypeScript strict, dead code removal |
 | **learnings-loader** | `core`, `maintenance` | Load and apply project learnings from the knowledge base |
 | **context-rules** | `core`, `maintenance` | Dynamic context rule generation from project patterns |
 | **architect** | `planning` | Architecture design, trade-off analysis, ADR production |
 | **docs-writer** | `maintenance` | Technical writer -- specs, ADRs, glossary, process docs |
 | **dependency-auditor** | `maintenance`, `security` | Supply chain analyst -- CVE scanning, upgrade paths, lockfile integrity |
-| **security-auditor** | `review`, `security` | Security analyst -- DB rules, cloud functions, data flows, privacy |
+| **security** | `review`, `security`, `floor:security` | Security specialist -- OAuth 2.1 / OIDC / DPoP / WebAuthn, supply-chain integrity (SBOM, provenance, SHA-pin, cosign), OWASP ASI controls |
 | **ci-watcher** | `devops` | CI/CD specialist -- monitors GitHub Actions, reads failure logs |
 | **devops** | `devops` | CI/CD and deployment operations specialist |
 | **a11y-auditor** | `review`, `a11y` | Accessibility specialist -- WCAG AA compliance, ARIA, color contrast |

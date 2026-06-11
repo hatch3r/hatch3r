@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
 import { mkdtemp, mkdir, writeFile, readdir, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { join, posix } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 
@@ -70,7 +70,12 @@ describe("status command", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    // Hardened teardown (matches lifecycle/sync/config/update tests): under the
+    // full-suite `forks` pool, /tmp is saturated with thousands of concurrent
+    // temp dirs; a bare rm of this test's own root can hit a transient FS race
+    // (ENOTEMPTY/ENOENT mid-walk). maxRetries+retryDelay absorbs it so cleanup
+    // of one test never fails the suite.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
   it("should exit with error when no manifest exists", async () => {
@@ -104,6 +109,91 @@ describe("status command", () => {
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(output).toContain("In sync:");
     expect(output).toContain("Status");
+  });
+
+  // D10-17 (D10, P1): status is the reporting surface that reads the SPACE
+  // telemetry JSONL written by `init.ts::recordFirstRunSuccess`. Seeding a
+  // firstRunSuccessRate record and asserting the "Developer productivity
+  // (SPACE)" box renders proves the read path is wired (not a dead module).
+  it("renders the SPACE developer-productivity box from persisted telemetry", async () => {
+    await createTestProject(tempDir);
+
+    // Seed two success + one failure firstRunSuccessRate records for today.
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryDir = join(tempDir, HATCH3R_DIR, "telemetry");
+    await mkdir(telemetryDir, { recursive: true });
+    const ts = `${today}T12:00:00.000Z`;
+    const lines = [
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts, source: "hatch3r-init" },
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts, source: "hatch3r-init" },
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 0, timestamp: ts, source: "hatch3r-init" },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n");
+    await writeFile(join(telemetryDir, `space-${today}.jsonl`), lines + "\n");
+
+    consoleSpy.mockClear();
+    const { statusCommand } = await import("../../cli/commands/status.js");
+    await statusCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Developer productivity (SPACE)");
+    // 2 of 3 success -> 67% first-run success, 3 runs.
+    expect(output).toContain("First-run success");
+    expect(output).toContain("67%");
+    expect(output).toContain("3 runs");
+  });
+
+  it("omits the SPACE box when no telemetry exists", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+    consoleSpy.mockClear();
+
+    const { statusCommand } = await import("../../cli/commands/status.js");
+    await statusCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).not.toContain("Developer productivity (SPACE)");
+  });
+
+  it("emits spaceTelemetry in the --json payload", async () => {
+    await createTestProject(tempDir);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryDir = join(tempDir, HATCH3R_DIR, "telemetry");
+    await mkdir(telemetryDir, { recursive: true });
+    const ts = `${today}T12:00:00.000Z`;
+    await writeFile(
+      join(telemetryDir, `space-${today}.jsonl`),
+      JSON.stringify({ metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts }) + "\n",
+    );
+
+    // emitJson writes via process.stdout.write, not console.log — spy on it.
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+
+    try {
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand({ format: "json" });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const combined = stdoutChunks.join("");
+    const start = combined.indexOf("{");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const payload = JSON.parse(combined.slice(start).trim()) as {
+      spaceTelemetry: { recordCount: number; firstRunSuccessRate: number | null };
+    };
+    expect(payload.spaceTelemetry.recordCount).toBe(1);
+    expect(payload.spaceTelemetry.firstRunSuccessRate).toBe(1);
   });
 
   it("should report drifted when a generated file differs", async () => {
@@ -227,7 +317,10 @@ describe("status command", () => {
       const entries = await readdir(cursorRulesDir);
       const ruleFile = entries.find((f) => f.endsWith(".mdc"));
       expect(ruleFile).toBeDefined();
-      const targetPath = join(".cursor", "rules", ruleFile!);
+      // `e.path` is the adapter's POSIX-separator output path (always `/`), so
+      // the comparison target must be POSIX too — `join` would emit `\` on
+      // Windows and never match (`posix.join` keeps `/` on every OS).
+      const targetPath = posix.join(".cursor", "rules", ruleFile!);
       await rm(join(cursorRulesDir, ruleFile!));
 
       const afterDelete = await computeAdapterDrift(tempDir, manifest!);
@@ -237,6 +330,80 @@ describe("status command", () => {
       expect(matching).toBeDefined();
       expect(matching!.status).toBe("missing");
       expect(afterDelete.counts.missing).toBeGreaterThanOrEqual(1);
+    });
+  });
+
+  // D14-1 (Cycle 11 Wave 1, Critical): monorepo per-package outputs must not be
+  // reported as `unexpected` orphans. init/sync write each adapter output into
+  // every `<package>/.hatch3r/<rel>` and stamp those paths into
+  // `manifest.managedFiles`; before the fix `computeAdapterDrift` only added the
+  // root `adapter.generate()` paths to `seenPaths`, so the orphan loop flagged
+  // every per-package copy as `unexpected` — ~(root-output-count x N) false
+  // orphans for an N-package x M-adapter repo on every status/verify call.
+  // Test-robustness (not a logic change): this is the heaviest test in the file
+  // — a real sync of 2 adapters x 2 monorepo packages emits the largest batch of
+  // tmp+rename atomic writes (root + per-package x per-adapter). It used to flake
+  // under the full-suite parallel `forks` pool when its FS batch raced the rest
+  // of the suite's concurrent fork-worker filesystem churn (a just-created
+  // parent dir intermittently invisible to a following mkdir/rename/open — a
+  // contention ENOENT, NOT a product bug; it passes 22/22 in isolation). The fix
+  // is in vitest.config.ts: status.test.ts + verify.test.ts run in a separate
+  // "heavy-fs" project at a later sequence.groupOrder, so they execute ALONE
+  // after the parallel "main" group drains — no concurrent FS churn. The prior
+  // per-test `retry` is gone (the contention it papered over no longer occurs);
+  // `timeout` stays as a margin for the genuinely-large FS batch. Assertions
+  // (0 false orphans / in-sync) are unchanged.
+  describe("monorepo per-package drift (D14-1)", { timeout: 30_000 }, () => {
+    it("reports a 2-package monorepo in-sync with 0 false orphans", async () => {
+      // Two-package workspace fixture. The package directories do not need to
+      // pre-exist — sync's safeWriteFile creates `<package>/...` parents
+      // recursively. Configure cursor (emits per-package copies per D14-6) plus
+      // claude (root-only, no per-package copies) so the orphan loop is
+      // exercised against a mixed adapter set, not a single-adapter corner case.
+      await createTestProject(tempDir, {
+        tools: ["cursor", "claude"],
+        packages: [
+          { name: "@scope/alpha", path: "packages/alpha" },
+          { name: "@scope/beta", path: "packages/beta" },
+        ],
+      });
+
+      // Real sync writes the root outputs AND the per-package copies, and
+      // persists every emitted path into manifest.managedFiles.
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+
+      // Sanity guard: the fixture actually produced per-package managed files.
+      // Without this, a regression that stops emitting per-package outputs
+      // could make the 0-orphan assertion below pass vacuously.
+      const perPackageTracked = (manifest!.managedFiles ?? []).filter(
+        (p) => p.startsWith("packages/alpha/") || p.startsWith("packages/beta/"),
+      );
+      expect(perPackageTracked.length).toBeGreaterThan(0);
+      // And they are on disk (so the pre-fix `access()` orphan probe would have
+      // resolved and classified each as `unexpected`).
+      const { access } = await import("node:fs/promises");
+      await expect(access(join(tempDir, perPackageTracked[0]))).resolves.toBeUndefined();
+
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+
+      // Core assertion: zero per-package files are misclassified as orphans.
+      expect(report.counts.unexpected).toBe(0);
+      const unexpectedEntries = report.entries.filter((e) => e.status === "unexpected");
+      expect(unexpectedEntries).toEqual([]);
+      // Each per-package file the manifest tracks must be accounted for as a
+      // seen path (in-sync), never surfaced as an orphan entry.
+      for (const tracked of perPackageTracked) {
+        const orphan = report.entries.find(
+          (e) => e.path === tracked && e.status === "unexpected",
+        );
+        expect(orphan).toBeUndefined();
+      }
     });
   });
 
@@ -341,6 +508,93 @@ describe("status command", () => {
       expect(drifted).toBeDefined();
       expect(drifted!.driftKind).toBe("unknown");
       expect(report.driftKindCounts.unknown).toBeGreaterThanOrEqual(1);
+    });
+
+    // D12-5 (Cycle 11 Wave 2, High): `update` must advance the emit-time
+    // drift-attribution baseline. Before D12-4 wired the shared `writeProvenance`
+    // writer into `runRegenerate`, only `sync` wrote `provenance.json`, so the
+    // baseline went stale after an `update` that changed on-disk content. A
+    // subsequent single user edit was then scored `both` (on-disk != stale
+    // baseline AND a fresh regeneration != stale baseline) instead of
+    // `user-modified` — directly corrupting the "safe to sync vs back up first"
+    // guidance (SA12.2-F2). This lifecycle test models the stale baseline by
+    // corrupting one output's contentHash post-sync, proves the bug still
+    // reproduces against that stale baseline (negative control: `both === 1`),
+    // then runs `update` and asserts it refreshed the baseline so the same single
+    // edit now scores `userModified === 1`, `both === 0`.
+    it("advances the drift baseline on update so a later user edit scores user-modified, not both", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Pick a stable single-source per-rule output to drive the lifecycle on.
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      const ruleEntries = await readdir(cursorRulesDir);
+      const ruleFile = ruleEntries.find((f) => f.endsWith(".mdc"));
+      expect(ruleFile).toBeDefined();
+      // `targetRel` is matched against POSIX-separator paths from both surfaces:
+      // provenance `o.path` (written as the adapter's `/`-path) and drift entry
+      // `e.path` (the same adapter output path). Build it with `posix.join` so it
+      // stays `/`-based — a plain `join` emits `\` on Windows, the lookups miss,
+      // and `staleEntry`/`staleDrifted` come back `undefined` (the reported
+      // "undefined to be defined" Windows failure). `targetAbs` stays `join`
+      // because it is a real on-disk path the test reads/writes.
+      const targetRel = posix.join(".cursor", "rules", ruleFile!);
+      const targetAbs = join(cursorRulesDir, ruleFile!);
+
+      const provenancePath = join(tempDir, HATCH3R_DIR, "provenance.json");
+      const { readFile: read, writeFile: write } = await import("node:fs/promises");
+
+      // Corrupt this output's emit-time hash so the on-disk file no longer
+      // matches the recorded baseline — the exact stale-baseline condition that
+      // existed after an `update` before D12-4 advanced it.
+      const staleManifest = JSON.parse(await read(provenancePath, "utf-8")) as {
+        outputs: { path: string; contentHash?: string }[];
+      };
+      const staleEntry = staleManifest.outputs.find((o) => o.path === targetRel);
+      expect(staleEntry).toBeDefined();
+      staleEntry!.contentHash = "0".repeat(64); // sha256-shaped sentinel, never a real block hash
+      await write(provenancePath, JSON.stringify(staleManifest, null, 2) + "\n");
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+
+      // Negative control: with the stale baseline, a single user edit is
+      // mis-scored `both` — the pre-fix pathology this finding targets.
+      await write(targetAbs, "user hand edit (pre-update baseline is stale)");
+      const stale = await computeAdapterDrift(tempDir, (await readManifest(tempDir))!);
+      const staleDrifted = stale.entries.find((e) => e.path === targetRel);
+      expect(staleDrifted?.driftKind).toBe("both");
+      expect(stale.driftKindCounts.both).toBe(1);
+      expect(stale.driftKindCounts.userModified).toBe(0);
+
+      // Run `update` (network-free regenerate). D12-4's `writeProvenance(...,
+      // "update", ...)` rewrites the baseline with the correct emit-time hash,
+      // overwriting both the stale sentinel and the user's edit on disk.
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const regen = await runRegenerate(tempDir, (await readManifest(tempDir))!);
+      expect(regen.failedTools).toBe(0);
+
+      // The refreshed manifest must record `lastCommand: "update"` and drop the
+      // sentinel hash for the target output.
+      const refreshed = JSON.parse(await read(provenancePath, "utf-8")) as {
+        lastCommand: string;
+        outputs: { path: string; contentHash?: string }[];
+      };
+      expect(refreshed.lastCommand).toBe("update");
+      const refreshedEntry = refreshed.outputs.find((o) => o.path === targetRel);
+      expect(refreshedEntry?.contentHash).not.toBe("0".repeat(64));
+
+      // Now make exactly one user edit on top of the freshly-regenerated output.
+      // Against the advanced baseline this is unambiguously `user-modified`.
+      await write(targetAbs, "user hand edit (post-update baseline is fresh)");
+      const fresh = await computeAdapterDrift(tempDir, (await readManifest(tempDir))!);
+      const freshDrifted = fresh.entries.find((e) => e.path === targetRel);
+      expect(freshDrifted?.status).toBe("modified");
+      expect(freshDrifted?.driftKind).toBe("user-modified");
+      expect(fresh.driftKindCounts.userModified).toBe(1);
+      expect(fresh.driftKindCounts.both).toBe(0);
     });
 
     it("classifies a manifest-tracked-but-unowned file as `unexpected`", async () => {

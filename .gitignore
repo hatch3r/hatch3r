@@ -41,6 +41,20 @@ governance/*
 .claude/skills/h4tcher-scoped-audit/
 .claude/rules/audit-cycle-awareness.md
 
+# Dogfood adapter output (D24-2). `hatch3r init` against this framework-dev repo
+# would write the Claude adapter's per-file emissions into the dev `.claude/`,
+# burying the 12 tracked dev rules under ~66 numbered rule files and untracked
+# agents/commands/checks. Ignore every adapter-emitted path so the dogfood can
+# never be committed or pollute the tracked tree. Tracked dev rules carry no
+# numeric prefix, so the `[0-9]*-hatch3r-*.md` glob leaves them untouched.
+.claude/rules/[0-9]*-hatch3r-*.md
+.claude/agents/
+.claude/commands/
+.claude/checks/
+.claude/hooks/hatch3r-hooks.json
+.claude/hooks/agent-tool-policies.json
+.claude/hooks/pretooluse-allowlist.mjs
+
 # Local overlay repo that version-controls the private IP above to
 # github.com/hatch3r/hatch3r-governance — see scripts/gov. The public repo ignores it.
 .governance.git/

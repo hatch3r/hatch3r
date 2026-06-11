@@ -131,6 +131,54 @@ describe("init command", () => {
     expect(content).toContain("frontmatter");
   });
 
+  // D14-SA13.4-H1 (D13): the shipped learnings seed must teach the canonical
+  // frontmatter schema (`id`/`topic`/`applies-to`/`confidence`/`created` per
+  // rules/hatch3r-learning-system.md), NOT the deprecated keys the loader
+  // downgrades to confidence:low. Assert every learning frontmatter block
+  // embedded in the seed README (the copy-paste examples) carries only keys
+  // that are a subset of the canonical schema and emits none of the deprecated
+  // match keys.
+  it("seed learnings README teaches the canonical frontmatter schema (no deprecated keys)", async () => {
+    await initCommand({ yes: true });
+
+    const content = await readFile(
+      join(tempDir, AGENTS_DIR, "learnings", "README.md"),
+      "utf-8",
+    );
+
+    // Canonical schema (rules/hatch3r-learning-system.md → Structured Frontmatter).
+    const CANONICAL_KEYS = new Set(["id", "topic", "applies-to", "confidence", "supersedes", "created"]);
+    // Deprecated match keys the loader penalizes (hatch3r-learnings-loader.md).
+    const DEPRECATED_KEYS = ["category", "area", "recorded", "source", "author", "date", "tags"];
+
+    // Extract every fenced code block, then keep those that open with a YAML
+    // frontmatter fence (`---`) — these are the learning examples a user copies.
+    const fenceRe = /```(?:yaml|markdown)?\n([\s\S]*?)```/g;
+    const frontmatterBlocks: string[] = [];
+    for (const m of content.matchAll(fenceRe)) {
+      const body = m[1];
+      const fm = body.match(/^---\n([\s\S]*?)\n---/);
+      if (fm) frontmatterBlocks.push(fm[1]);
+    }
+    // At least the Format example + the Recommended First Learning block.
+    expect(frontmatterBlocks.length).toBeGreaterThanOrEqual(2);
+
+    for (const block of frontmatterBlocks) {
+      const keys = block
+        .split("\n")
+        .map((line) => line.match(/^([A-Za-z0-9-]+):/)?.[1])
+        .filter((k): k is string => Boolean(k));
+      // Every declared key is part of the canonical schema.
+      for (const key of keys) {
+        expect(CANONICAL_KEYS.has(key)).toBe(true);
+      }
+      // None of the deprecated keys leak into the seed.
+      for (const dep of DEPRECATED_KEYS) {
+        expect(keys).not.toContain(dep);
+      }
+    }
+  });
+
   it("should preserve a user-edited learnings README on re-init", async () => {
     await initCommand({ yes: true });
 
@@ -209,7 +257,10 @@ describe("init command", () => {
     expect(manifest.features.agents).toBe(true);
     expect(manifest.features.skills).toBe(true);
     expect(manifest.features.rules).toBe(true);
-    expect(manifest.features.prompts).toBe(true);
+    // Cycle 11 D2-3: prompts defaults OFF — no adapter emits prompt files and
+    // canonical ships no `prompts/` content, so defaulting it on fired a
+    // spurious unsupported-feature warning on the happy path.
+    expect(manifest.features.prompts).toBe(false);
     expect(manifest.features.commands).toBe(true);
     expect(manifest.features.mcp).toBe(true);
     expect(manifest.features.githubAgents).toBe(true);
@@ -274,6 +325,32 @@ describe("init command", () => {
     expect(output).toContain("Features");
   });
 
+  // D10-17 (D10, P1): init wires `recordFirstRunSuccess` at its success
+  // terminus, persisting the primary SPACE metric `firstRunSuccessRate` to
+  // `.hatch3r/telemetry/space-<date>.jsonl`. This proves the SPACE-telemetry
+  // module is an invoked runtime feature (closing the F10.8-1 integration gap),
+  // not a tested-but-uncalled library.
+  it("records firstRunSuccessRate=1 SPACE telemetry on a successful init", async () => {
+    await initCommand({ yes: true });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryPath = join(tempDir, AGENTS_DIR, "telemetry", `space-${today}.jsonl`);
+    const content = await readFile(telemetryPath, "utf-8");
+    const records = content
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { metricId: string; axis: string; value: number; source?: string; tags?: Record<string, string> });
+
+    const firstRun = records.find((r) => r.metricId === "firstRunSuccessRate");
+    expect(firstRun).toBeDefined();
+    expect(firstRun?.axis).toBe("performance");
+    expect(firstRun?.value).toBe(1);
+    expect(firstRun?.source).toBe("hatch3r-init");
+    // A clean (non-partial) init tags the record so the aggregator can segment
+    // partial-failure runs.
+    expect(firstRun?.tags?.partialAdapterFailure).toBe("false");
+  });
+
   it("should display sourcing hint in success box when --mcp is passed", async () => {
     // Wave 3: the .env.mcp hint only shows when an MCP setup is generated;
     // pass --mcp to re-opt-in so this assertion remains meaningful.
@@ -297,6 +374,70 @@ describe("init command", () => {
 
     const manifest = JSON.parse(await readFile(join(agentsDir, "hatch.json"), "utf-8"));
     expect(manifest.hatch3rVersion).toBe(HATCH3R_VERSION);
+  });
+
+  // D12-4 (Cycle 11 Wave 2, D12, P2): init writes `.hatch3r/provenance.json`
+  // (lastCommand: "init") so `hatch3r explain --source` resolves immediately
+  // after a fresh init — previously only `sync` wrote it, leaving post-init
+  // explain with "No provenance manifest found".
+  it("writes .hatch3r/provenance.json with lastCommand=init after init", async () => {
+    await initCommand({ yes: true, tools: "cursor" });
+
+    const provenancePath = join(tempDir, AGENTS_DIR, "provenance.json");
+    const provenance = JSON.parse(await readFile(provenancePath, "utf-8")) as {
+      schemaVersion: number;
+      lastCommand: string;
+      outputs: Array<{ path: string; adapter: string; sourceFiles: string[] }>;
+    };
+    expect(provenance.schemaVersion).toBe(1);
+    expect(provenance.lastCommand).toBe("init");
+    expect(provenance.outputs.length).toBeGreaterThan(0);
+    expect(provenance.outputs.every((o) => o.adapter === "cursor")).toBe(true);
+  });
+
+  // D12-2 (Cycle 11 Wave 2, D12, P4): size guard for the standard-preset
+  // provenance manifest. Before D12-1 every output carried an identical
+  // 232-file `sourceFiles` array, so a standard init+sync produced a 12.4 MB
+  // provenance.json (~26 KB/entry, largest entry 24,215 bytes). D12-1 made
+  // per-rule/per-agent/per-skill outputs single-source; only a handful of
+  // aggregate outputs (CLAUDE.md, the cursor bridge, the policy/hook docs)
+  // still legitimately reference the whole canonical read set. This guard
+  // asserts the per-entry breadth stays near the post-D12-1 single-source mean
+  // and is a regression alarm against re-introducing the all-outputs-232
+  // attribution: that regression would push the mean back to ~232 sources /
+  // ~26 KB per entry — over 5x past both bounds below.
+  it("keeps provenance.json entry breadth bounded for the standard preset (D12-2)", async () => {
+    await initCommand({ yes: true, tools: "cursor" });
+
+    const provenancePath = join(tempDir, AGENTS_DIR, "provenance.json");
+    const raw = await readFile(provenancePath, "utf-8");
+    const provenance = JSON.parse(raw) as {
+      outputs: Array<{ path: string; adapter: string; sourceFiles: string[] }>;
+    };
+    const n = provenance.outputs.length;
+    expect(n).toBeGreaterThan(0);
+
+    // Mean bytes per entry: the metric the (now-corrected) old sync.ts:1191
+    // comment falsely claimed ("≤200-bytes-per-entry") but never enforced.
+    // Post-D12-1 the cursor standard preset measures ~1.7 KB/entry; the
+    // pathological all-232 state was ~26 KB/entry. Bound at 4 KB → ~2.3x
+    // headroom over the real mean, ~6x below the pathology.
+    const meanBytesPerEntry = Buffer.byteLength(raw, "utf-8") / n;
+    expect(meanBytesPerEntry).toBeLessThan(4096);
+
+    // Mean sourceFiles per output: ~13 post-D12-1 (95%+ are single-source; a
+    // few aggregates carry the full read set). The pathology was 232 for
+    // every output. Bound at 64 → catches a regression to the all-232 fill
+    // while leaving the legitimate aggregate outputs room.
+    const totalSources = provenance.outputs.reduce((s, o) => s + o.sourceFiles.length, 0);
+    const meanSourcesPerOutput = totalSources / n;
+    expect(meanSourcesPerOutput).toBeLessThan(64);
+
+    // At least 80% of outputs must be single-source — the direct, structural
+    // signature of D12-1's per-output attribution. A re-broadening regression
+    // collapses this fraction first.
+    const singleSource = provenance.outputs.filter((o) => o.sourceFiles.length === 1).length;
+    expect(singleSource / n).toBeGreaterThan(0.8);
   });
 
   // 1.7.1: re-init over an existing `.agents/hatch.json` must defensively
@@ -595,6 +736,21 @@ describe("init command", () => {
         // C7-H8: hatch.json must NOT exist when all adapters failed
         const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
         await expect(access(manifestPath)).rejects.toThrow();
+
+        // D10-39 (D10, P1): the all-adapters-failed terminus records the primary
+        // SPACE metric `firstRunSuccessRate=0` before throwing, so the metric is
+        // not survivorship-biased to 1. Telemetry honours the Silent Failure
+        // Contract and writes independently of the (absent) manifest.
+        const today = new Date().toISOString().slice(0, 10);
+        const telemetryPath = join(tempDir, AGENTS_DIR, "telemetry", `space-${today}.jsonl`);
+        const records = (await readFile(telemetryPath, "utf-8"))
+          .trim()
+          .split("\n")
+          .map((line) => JSON.parse(line) as { metricId: string; axis: string; value: number; tags?: Record<string, string> });
+        const firstRun = records.find((r) => r.metricId === "firstRunSuccessRate");
+        expect(firstRun?.axis).toBe("performance");
+        expect(firstRun?.value).toBe(0);
+        expect(firstRun?.tags?.failure).toBe("content");
       } finally {
         getAdapterSpy.mockRestore();
       }
@@ -2416,6 +2572,58 @@ describe("init multi-CTA post-init hint (C9-H29)", () => {
   });
 });
 
+// ── D14-15 (D14-SA14.1-F4): post-init stack-support pointer ───────────
+describe("init stack-support pointer (D14-15)", () => {
+  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-stack-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("surfaces the matrix pointer for a detected partial stack (angular)", async () => {
+    // angular.json triggers the angular framework probe — a partial stack
+    // (cross-cutting rules only, no dedicated rule).
+    await writeFile(join(tempDir, "angular.json"), JSON.stringify({}));
+    await initCommand({ yes: true });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("Stack support: angular");
+    expect(stdout).toContain("docs/stack-support-matrix.md");
+  });
+
+  it("omits the pointer for a fully-supported stack (rust)", async () => {
+    // Cargo.toml -> rust language (full tier, dedicated rust-patterns rule).
+    await writeFile(join(tempDir, "Cargo.toml"), "[package]\nname = \"x\"\n");
+    await initCommand({ yes: true });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Stack support:");
+  });
+});
+
 // ── C9-H32 (D10-SA10.5-F2): TOOL_SECRET_NOTES surface at tool-selection time ─
 describe("init tool-secret-notes ordering (C9-H32)", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
@@ -2527,6 +2735,243 @@ describe("init shared-bridge-file ownership (C9-H31)", () => {
     // CLAUDE.md is an adapter-owned file → under claude, never under any
     // shared/global bucket.
     expect(manifest.managedFilesByAdapter.claude).toContain("CLAUDE.md");
+  });
+});
+
+// ── D14-SA14.2-H1: per-package emission is opt-in, capped, and .gitignore'd ─
+describe("init per-package emission gate (D14-SA14.2-H1)", () => {
+  let initCommand: (opts?: { yes?: boolean; tools?: string; perPackage?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  // Build a 2-package npm-workspace monorepo so analyzeRepo populates
+  // manifest.packages (each package dir carries a package.json — the
+  // qualifier in detectMonorepoPackages → addPackageIfPresent).
+  async function makeMonorepo(root: string, packageNames: string[]): Promise<void> {
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ name: "root", private: true, workspaces: ["packages/*"] }),
+    );
+    for (const name of packageNames) {
+      const dir = join(root, "packages", name);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, "package.json"), JSON.stringify({ name: `@scope/${name}` }));
+    }
+  }
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-perpkg-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi
+      .spyOn(process, "exit")
+      .mockImplementation((() => {
+        throw new Error("process.exit called");
+      }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("does NOT write per-package copies by default (opt-out-by-default)", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await initCommand({ yes: true, tools: "cursor" });
+
+    // Root emission still happens.
+    await expect(access(join(tempDir, ".cursor"))).resolves.toBeUndefined();
+    // No per-package copies without --per-package.
+    let aExists = false;
+    try {
+      await access(join(tempDir, "packages", "a", ".cursor"));
+      aExists = true;
+    } catch (err) {
+      void err;
+    }
+    expect(aExists).toBe(false);
+  });
+
+  it("writes outputs × packages per-package copies for cursor with --per-package and .gitignore's them", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await initCommand({ yes: true, tools: "cursor", perPackage: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+    const cursorManaged = manifest.managedFilesByAdapter.cursor as string[];
+    const rootOutputs = cursorManaged.filter((p) => !p.startsWith("packages/"));
+    const pkgA = cursorManaged.filter((p) => p.startsWith("packages/a/"));
+    const pkgB = cursorManaged.filter((p) => p.startsWith("packages/b/"));
+
+    // Cursor reads `.cursor/rules/*.mdc` from the nearest ancestor, so each
+    // package receives a full copy of the root output set (the copy count
+    // scales as outputs × packages — the exact behaviour the cap + bounded
+    // batch guard against at scale).
+    expect(rootOutputs.length).toBeGreaterThan(0);
+    expect(pkgA.length).toBe(rootOutputs.length);
+    expect(pkgB.length).toBe(rootOutputs.length);
+    // A `.cursor/rules/*.mdc` file specifically lands under each package.
+    expect(pkgA.some((p) => p.startsWith("packages/a/.cursor/"))).toBe(true);
+    expect(pkgB.some((p) => p.startsWith("packages/b/.cursor/"))).toBe(true);
+    await expect(access(join(tempDir, "packages", "a", ".cursor"))).resolves.toBeUndefined();
+    await expect(access(join(tempDir, "packages", "b", ".cursor"))).resolves.toBeUndefined();
+
+    // Every generated copy is git-ignored (anchored, leading-slash entries).
+    const gitignore = await readFile(join(tempDir, ".gitignore"), "utf-8");
+    const ignored = new Set(gitignore.split("\n").map((l) => l.trim()));
+    for (const p of [...pkgA, ...pkgB]) {
+      expect(ignored.has(`/${p}`)).toBe(true);
+    }
+  });
+
+  // D14-6: per-package copying fights the load model of claude (ancestor-loads
+  // root CLAUDE.md → double-load) and copilot (root-only
+  // .github/copilot-instructions.md → never read). Even WITH --per-package they
+  // emit nothing per-package; only the root output is written.
+  it("D14-6: emits NO per-package copies for claude even with --per-package", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await initCommand({ yes: true, tools: "claude", perPackage: true });
+
+    // Root CLAUDE.md is still written.
+    await expect(access(join(tempDir, "CLAUDE.md"))).resolves.toBeUndefined();
+
+    const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+    const claudeManaged = (manifest.managedFilesByAdapter.claude as string[]) ?? [];
+    expect(claudeManaged.some((p) => p.startsWith("packages/"))).toBe(false);
+    await expect(access(join(tempDir, "packages", "a", "CLAUDE.md"))).rejects.toThrow();
+    await expect(access(join(tempDir, "packages", "b", "CLAUDE.md"))).rejects.toThrow();
+  });
+
+  it("D14-6: emits NO per-package copies for copilot even with --per-package", async () => {
+    await makeMonorepo(tempDir, ["a", "b"]);
+    await initCommand({ yes: true, tools: "copilot", perPackage: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, HATCH3R_DIR, "hatch.json"), "utf-8"));
+    const copilotManaged = (manifest.managedFilesByAdapter.copilot as string[]) ?? [];
+    expect(copilotManaged.some((p) => p.startsWith("packages/"))).toBe(false);
+    await expect(
+      access(join(tempDir, "packages", "a", ".github", "copilot-instructions.md")),
+    ).rejects.toThrow();
+  });
+});
+
+// ── Cycle-11 Wave-3 Medium fixes (init.ts) ────────────────────────────
+describe("init Wave-3 Medium fixes (D10-37, D14-17, D1-15, D6-12)", () => {
+  let initCommand: (opts?: {
+    tools?: string;
+    yes?: boolean;
+    preset?: string;
+    teamSize?: string;
+    maturity?: string;
+    json?: boolean;
+    resume?: boolean;
+  }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-w3-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // D10-37: the solo+full disclosure must state team-scoped workflows are
+  // EXCLUDED for solo (not the inverted "included even on solo"), and name
+  // `--team-size team` (not the no-op `--preset=standard`) as the lever.
+  it("D10-37: solo+full success box says team-scoped workflows are excluded and points at --team-size team", async () => {
+    await initCommand({ yes: true, tools: "claude", preset: "full", teamSize: "solo" });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("excluded for solo");
+    // `boxen` word-wraps the Note line, so the multi-word `--team-size team`
+    // phrase can split across box rows; assert the load-bearing flag token
+    // (which survives wrapping) rather than the full phrase.
+    expect(stdout).toContain("--team-size");
+    // The inverted prior wording must be gone.
+    expect(stdout).not.toContain("includes team-only workflows even on solo");
+    expect(stdout).not.toContain("--preset=standard");
+  });
+
+  // D14-17: the resolved maturity tier must be surfaced in the success box so
+  // it is discoverable rather than a silent default.
+  it("D14-17: success box surfaces the resolved Maturity tier with a change command", async () => {
+    await initCommand({ yes: true, tools: "claude", maturity: "team" });
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("Maturity");
+    expect(stdout).toContain("team");
+    expect(stdout).toContain("hatch3r config maturity=");
+    // The persisted manifest carries the same tier.
+    const manifest = JSON.parse(
+      await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"),
+    );
+    expect(manifest.maturity).toBe("team");
+  });
+
+  // D1-15: a `--resume --json` short-circuit (after a prior completed init)
+  // must emit a structured `{"status":"resumed",...}` line, not empty output.
+  it("D1-15: --resume --json on a completed checkpoint emits a resumed JSON line", async () => {
+    // First run writes a `passed` checkpoint.
+    await initCommand({ yes: true, tools: "claude" });
+    consoleSpy.mockClear();
+    consoleErrorSpy.mockClear();
+
+    // Resume with --json: short-circuits and must print one JSON line.
+    await initCommand({ yes: true, tools: "claude", resume: true, json: true });
+
+    const jsonLines = consoleSpy.mock.calls
+      .map((c) => String(c[0]))
+      .filter((line) => line.trim().startsWith("{") && line.trim().endsWith("}"));
+    expect(jsonLines.length).toBe(1);
+    const payload = JSON.parse(jsonLines[0]);
+    expect(payload.status).toBe("resumed");
+    expect(payload.version).toBe(HATCH3R_VERSION);
+    expect(payload.phase).toBe("init");
+    // No success box (json implies quiet; the short-circuit returns early).
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Hatch complete");
+  });
+
+  // D6-12: the first-run path now routes through the shared context-budget
+  // assessment, but WARN-ONLY — a highest-output (full, all-adapters) install
+  // must still complete (P1 first-run success), never abort like sync
+  // --strict-budget. Locks the non-fatal invariant of the new gate.
+  it("D6-12: full-preset all-adapter init runs the budget gate without aborting", async () => {
+    await expect(
+      initCommand({ yes: true, tools: "claude,cursor,copilot", preset: "full" }),
+    ).resolves.toBeUndefined();
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // Install completed despite the budget assessment running on every adapter.
+    expect(stdout).toContain("Hatch complete");
+    // Output was actually written (manifest present).
+    await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
   });
 });
 

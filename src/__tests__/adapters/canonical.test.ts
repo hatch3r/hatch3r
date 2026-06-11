@@ -481,6 +481,63 @@ describe("readCanonicalFiles", () => {
       expect(results.length).toBe(1);
       expect(results[0]!.id).toBe("ok");
     });
+
+    // D2-10 (Cycle 11 Wave 3): the reader decodes with a fatal UTF-8 decoder.
+    // Pre-fix, `readFile(..., "utf-8")` substituted U+FFFD for invalid bytes
+    // and never threw, so the UTF8_DECODE_ERROR classification branch was
+    // unreachable dead code and a wrong-encoding file loaded with mangled
+    // content and zero signal. A file containing an invalid UTF-8 lead byte
+    // (0xFF) now surfaces UTF8_DECODE_ERROR and does NOT load.
+    it("should classify UTF8_DECODE_ERROR for a file with invalid UTF-8 bytes", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      // 0xFF is never a valid UTF-8 byte; 0x80 is a stray continuation byte.
+      // Bracket them in otherwise-valid frontmatter so only the encoding is bad.
+      const badBytes = Buffer.concat([
+        Buffer.from("---\nid: bad-bytes\ntype: rule\ndescription: ", "utf-8"),
+        Buffer.from([0xff, 0x80]),
+        Buffer.from("\n---\n# Body\n", "utf-8"),
+      ]);
+      await writeFile(join(dir, "rules", "bad-bytes.md"), badBytes);
+      await writeFile(
+        join(dir, "rules", "good.md"),
+        "---\nid: good\ntype: rule\ndescription: ok\n---\n# OK",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+      const detailed = await readCanonicalFilesDetailed(dir, "rules");
+
+      // The valid neighbor still loads; the bad-bytes file does not.
+      expect(results.map((r) => r.id)).toContain("good");
+      expect(results.map((r) => r.id)).not.toContain("bad-bytes");
+      // The decode failure is classified and surfaced (no U+FFFD coercion).
+      const failed = detailed.find((r) => r.file.endsWith("bad-bytes.md"));
+      expect(failed).toBeDefined();
+      expect(failed!.error!.code).toBe("UTF8_DECODE_ERROR");
+      expect(failed!.canonical).toBeUndefined();
+      expect(warnings.some((w) => w.includes("UTF8_DECODE_ERROR"))).toBe(true);
+      expect(warnings.some((w) => w.includes("bad-bytes.md"))).toBe(true);
+    });
+
+    // D2-10 companion: a clean UTF-8 file with multibyte content must still
+    // load unchanged under the fatal decoder (no false positive).
+    it("should load valid multibyte UTF-8 content unchanged under the fatal decoder", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "unicode.md"),
+        "---\nid: unicode-rule\ntype: rule\ndescription: café résumé 日本語\n---\n# Héllo 🌍\n",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+      expect(results.length).toBe(1);
+      expect(results[0]!.id).toBe("unicode-rule");
+      expect(results[0]!.description).toBe("café résumé 日本語");
+      expect(results[0]!.content).toContain("Héllo 🌍");
+      expect(warnings).toEqual([]);
+    });
   });
 
   // C7.5-W2B2-H8 (D2-SA2.2-2): frontmatter type-mismatch surfacing.
@@ -798,8 +855,9 @@ describe("readCanonicalFiles", () => {
         join(dir, "hooks", "real.md"),
         "---\nid: real-hook\ntype: hook\ndescription: Real hook\n---\n# Real\n",
       );
-      // Symlink pointing at the real file — should be skipped by the existing
-      // lstat-gate in readSingleMd (no infinite-recursion risk, no duplicate).
+      // Symlinked FILE pointing at the real file. Dropped twice over: the
+      // `isFile() && !isSymbolicLink()` filter in readGlobMd drops the Dirent,
+      // and the per-file lstat gate in readSingleMd would skip it too.
       await symlink(join(dir, "hooks", "real.md"), join(dir, "hooks", "link.md"));
 
       const results = await readCanonicalFiles(dir, "hooks");
@@ -808,6 +866,52 @@ describe("readCanonicalFiles", () => {
       // The symlink path is skipped — not duplicated.
       expect(ids.filter((id) => id === "real-hook").length).toBe(1);
     });
+
+    // D2-9 (Cycle 11 Wave 3): a symlinked *directory* is the real regression.
+    // `readdir(baseDir, { recursive: true })` (string form) follows symlinked
+    // directories and emits the real `.md` files a second time under the
+    // symlinked-directory path. Those second-copy entries are regular files,
+    // not symlinks, so the per-file lstat gate in readSingleMd never catches
+    // them — yielding silent N× id duplication (16× under nested symlinks).
+    // The Dirent recursive walk does not descend into symlinked directories,
+    // so each id appears exactly once. POSIX-only (Windows directory symlinks
+    // need elevation in CI).
+    it.skipIf(process.platform === "win32")(
+      "does not duplicate ids when a symlinked directory points back into the tree",
+      async () => {
+        const dir = await createTempAgentsDir();
+        const { symlink } = await import("node:fs/promises");
+        await mkdir(join(dir, "rules", "real", "nested"), { recursive: true });
+        await writeFile(
+          join(dir, "rules", "top.md"),
+          "---\nid: top-rule\ntype: rule\ndescription: Top\n---\n# Top\n",
+        );
+        await writeFile(
+          join(dir, "rules", "real", "a.md"),
+          "---\nid: alpha-rule\ntype: rule\ndescription: Alpha\n---\n# Alpha\n",
+        );
+        await writeFile(
+          join(dir, "rules", "real", "nested", "b.md"),
+          "---\nid: beta-rule\ntype: rule\ndescription: Beta\n---\n# Beta\n",
+        );
+        // linkdir -> real/ : the string-form recursive readdir would re-emit
+        // real/a.md and real/nested/b.md under linkdir/, duplicating both ids.
+        await symlink(join(dir, "rules", "real"), join(dir, "rules", "linkdir"));
+
+        const warnings: string[] = [];
+        const results = await readCanonicalFiles(dir, "rules", warnings);
+        const ids = results.map((r) => r.id).sort();
+
+        // Each real file loads exactly once; the symlinked directory is not
+        // descended into, so no `*-via-linkdir` duplicate appears.
+        expect(ids).toEqual(["alpha-rule", "beta-rule", "top-rule"]);
+        expect(ids.filter((id) => id === "alpha-rule").length).toBe(1);
+        expect(ids.filter((id) => id === "beta-rule").length).toBe(1);
+        // The skip is structural (directory boundary), not an error, so no
+        // warning is emitted for the symlinked directory.
+        expect(warnings).toEqual([]);
+      },
+    );
   });
 
   // F2.2-F7 (Cycle 10 Wave 4): opt-in strict mode promotes the soft-warning

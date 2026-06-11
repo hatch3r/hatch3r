@@ -7,6 +7,13 @@
  * (`validateOrchestrationDependencies` in `src/content/index.ts`) but never
  * surfaced — operators had to grep canonical content by hand.
  *
+ * D12-10 (Cycle 11 Wave 3, D12, P1): the frontmatter view only captures
+ * agent->agent orchestration edges. Skills, rules, and MCP servers are
+ * referenced in body prose, so the command also runs a best-effort,
+ * non-authoritative `scanBodyReferences` pass over the artifact body and
+ * prints those references in a separate clearly-labelled section — replacing
+ * the misleading "(none declared)" empty state for prose-heavy agents.
+ *
  * Pillar service: P1 (CLI affordance for orchestration topology),
  * P5 (delegates to `buildContentIndex` + frontmatter parser; no separate
  * dependency graph to drift out of sync).
@@ -46,6 +53,65 @@ function parseFrontmatter(raw: string, sourcePath?: string): DepsFrontmatter {
     );
     return {};
   }
+}
+
+/** Strip the YAML frontmatter block so the body scan never reports an id that
+ * only appears in `agentPipeline`/`delegates` (those are the authoritative
+ * downstream list, not prose references). */
+function stripFrontmatter(raw: string): string {
+  const match = raw.match(FRONTMATTER_REGEX);
+  return match ? match[2] : raw;
+}
+
+/**
+ * D12-10 (Cycle 11 Wave 3, D12, P1): the authoritative downstream list is
+ * frontmatter-only (`agentPipeline`/`delegates`). Agents routinely reference
+ * skills, rules, and MCP servers in prose that the frontmatter never declares,
+ * so a bare "(none declared in frontmatter)" misleads the operator. This
+ * best-effort scan surfaces those prose references, labelled non-authoritative.
+ *
+ * Skill/rule ids are confirmed against the content index (`knownIds`) so an
+ * arbitrary `skills/foo` mention that is not a real artifact never appears —
+ * zero false positives on the id facet. MCP server names are pattern-derived
+ * and therefore advisory only.
+ */
+function scanBodyReferences(
+  body: string,
+  selfId: string,
+  knownIds: ReadonlySet<string>,
+): { skills: string[]; rules: string[]; mcpServers: string[] } {
+  const skills = new Set<string>();
+  const rules = new Set<string>();
+
+  // Match `skills/<id>` and `rules/<id>` path references (backtick path,
+  // markdown link, or bare); the leading class segment disambiguates type.
+  const pathRefs = body.matchAll(/\b(skills|rules)\/(hatch3r-[a-z0-9-]+)/g);
+  for (const m of pathRefs) {
+    const cls = m[1];
+    const id = m[2];
+    if (id === selfId || !knownIds.has(id)) continue;
+    (cls === "skills" ? skills : rules).add(id);
+  }
+
+  // MCP server names: best-effort, advisory. Two recognizable forms appear in
+  // canonical prose: tool ids (`mcp__<server>__<tool>`) and the "<Name> MCP"
+  // shorthand (e.g. "Context7 MCP"). Lowercase the set key for dedup, but keep
+  // the first-seen surface form for display.
+  const mcpServers = new Map<string, string>();
+  for (const m of body.matchAll(/\bmcp__([a-z0-9_]+?)__/gi)) {
+    const name = m[1];
+    mcpServers.set(name.toLowerCase(), name);
+  }
+  for (const m of body.matchAll(/\b([A-Z][A-Za-z0-9]+)\s+MCP\b/g)) {
+    const name = m[1];
+    mcpServers.set(name.toLowerCase(), name);
+  }
+
+  return {
+    skills: [...skills].sort(),
+    rules: [...rules].sort(),
+    mcpServers: [...mcpServers.values()].sort((a, b) => a.localeCompare(b)),
+  };
 }
 
 export async function depsCommand(idArg: string | undefined): Promise<void> {
@@ -92,9 +158,11 @@ export async function depsCommand(idArg: string | undefined): Promise<void> {
       ? join(fileRoot, item.relativePath, "SKILL.md")
       : join(fileRoot, item.relativePath);
   let frontmatter: DepsFrontmatter = {};
+  let body = "";
   try {
     const raw = await readFile(filePath, "utf-8");
     frontmatter = parseFrontmatter(raw);
+    body = stripFrontmatter(raw);
   } catch (err) {
     logError(`Could not read ${filePath}: ${err instanceof Error ? err.message : String(err)}`);
     throw new HatchError(
@@ -156,15 +224,43 @@ export async function depsCommand(idArg: string | undefined): Promise<void> {
   }
   printBox(`Dependencies: ${item.id}`, headerLines, "info");
 
-  console.log(chalk.bold("Downstream (this artifact delegates to):"));
+  console.log(chalk.bold("Downstream (this artifact delegates to, from frontmatter):"));
   if (downstream.length === 0) {
-    console.log(chalk.dim("  (none declared in frontmatter)"));
+    console.log(chalk.dim("  (no agentPipeline / delegates entries in frontmatter)"));
   } else {
     for (let i = 0; i < downstream.length; i++) {
       const { id, resolved } = downstream[i];
       const status = resolved ? chalk.green("✓") : chalk.red("✗");
       const tag = resolved ? "" : chalk.red(" [not in content index]");
       console.log(`  ${status} ${id}${tag} ${chalk.dim(`(${sources[i]})`)}`);
+    }
+  }
+  console.log();
+
+  // D12-10: best-effort prose scan. The frontmatter block above is the only
+  // authoritative downstream declaration; skills, rules, and MCP servers are
+  // referenced in prose and would otherwise be invisible. Skill/rule ids are
+  // index-confirmed; MCP names are pattern-derived (advisory).
+  const knownSkillRuleIds = new Set<string>([
+    ...(index.byType.skill ?? []).map((c) => c.id),
+    ...(index.byType.rule ?? []).map((c) => c.id),
+  ]);
+  const refs = scanBodyReferences(body, item.id, knownSkillRuleIds);
+  const refCount = refs.skills.length + refs.rules.length + refs.mcpServers.length;
+  console.log(
+    chalk.bold("References (best-effort, prose-derived — not authoritative):"),
+  );
+  if (refCount === 0) {
+    console.log(chalk.dim("  (no skill / rule / MCP references found in body prose)"));
+  } else {
+    for (const id of refs.skills) {
+      console.log(`  ${chalk.cyan("•")} ${id} ${chalk.dim("(skill)")}`);
+    }
+    for (const id of refs.rules) {
+      console.log(`  ${chalk.cyan("•")} ${id} ${chalk.dim("(rule)")}`);
+    }
+    for (const name of refs.mcpServers) {
+      console.log(`  ${chalk.cyan("•")} ${name} ${chalk.dim("(MCP server, name-matched)")}`);
     }
   }
   console.log();

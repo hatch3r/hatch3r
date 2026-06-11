@@ -23,6 +23,57 @@ function toPosixPath(p: string): string {
 
 // ARCHIVE_DIR imported from types.ts
 
+/**
+ * D2-23 (D2 Medium, Cycle 11 Wave 3): process-local monotonic counter that
+ * disambiguates two archive runs of the SAME tool inside one millisecond. The
+ * archive directory was derived solely from `new Date().toISOString()`
+ * (millisecond resolution), so back-to-back `archiveToolOutputs(root, tool)`
+ * calls in the same tick produced an identical `archiveBase`; the subsequent
+ * `cp(absPath, archiveDest)` (overwrite-by-default) silently clobbered the
+ * first run's stashed bytes. The suffix appends `-<pid>-<counter>` so each call
+ * lands in its own directory even when timestamps collide. `pid` guards against
+ * two concurrent processes archiving the same tool into a shared repo within
+ * the same millisecond (each process has its own counter starting at 0).
+ */
+let archiveRunCounter = 0;
+
+/**
+ * Recursively sum the byte size of every regular file under `dir`. Returns 0
+ * when the directory is absent. D2-22: used by {@link pruneArchives} to enforce
+ * the {@link MAX_ARCHIVE_BYTES} per-tool ceiling. Symlinks are not followed —
+ * only entries reported as regular files by `withFileTypes` are `stat`-ed, so a
+ * symlink cannot inflate the count or escape the archive root. A file vanishing
+ * mid-walk (concurrent prune / external cleanup) is skipped rather than aborting
+ * the sweep, because a size estimate must not be downgraded to a hard failure.
+ * Mirrors the snapshot store's `dirSizeBytes` (src/pipeline/snapshot.ts), kept
+ * local rather than exported to avoid widening that module's public surface.
+ */
+async function archiveDirSizeBytes(dir: string): Promise<number> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(dir, { withFileTypes: true });
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return 0;
+    throw err;
+  }
+  let total = 0;
+  for (const entry of entries) {
+    const full = join(dir, entry.name);
+    if (entry.isDirectory()) {
+      total += await archiveDirSizeBytes(full);
+    } else if (entry.isFile()) {
+      try {
+        total += (await stat(full)).size;
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT") throw err;
+      }
+    }
+  }
+  return total;
+}
+
 export interface MigrationNotice {
   from: string;
   to: string;
@@ -50,6 +101,16 @@ export const TOOL_PATH_PREFIXES: Record<Tool, string[]> = {
     ".github/agents/",
     ".github/prompts/",
     ".github/skills/",
+    // D10-11 (Cycle 11 Wave 2, D10, P1): copilot.ts:442 emits the `checks/`
+    // companion subdir to `.github/checks/{name}.md`, but this prefix list
+    // omitted it — so config tool-removal (which previews from
+    // `managedFilesByAdapter` yet archives via `collectToolFiles`/these
+    // prefixes) left the 6 canonical checks/ files orphaned on disk after a
+    // copilot removal. Adding the prefix lets `collectToolFiles` sweep them.
+    // The structural test in archive.test.ts asserts no adapter omits a
+    // top-level output dir from its prefix entry, so a future emit gap fails
+    // CI instead of leaking files.
+    ".github/checks/",
   ],
 };
 
@@ -86,7 +147,17 @@ function stripFrontmatter(content: string): string {
   return content.trim();
 }
 
-function fileMatchesTool(filePath: string, tool: Tool): boolean {
+/**
+ * True when `filePath` (repo-relative, posix-style) is covered by `tool`'s
+ * {@link TOOL_PATH_PREFIXES} entry — a directory prefix (`endsWith("/")`)
+ * matches by `startsWith`, an exact-file prefix matches by equality. This is
+ * the same coverage predicate {@link collectToolFiles} archives against, so
+ * any adapter output path it returns `false` for would be orphaned on tool
+ * removal (the D10-11 leak). Exported so the archive structural test in
+ * `src/__tests__/archive/archive.test.ts` can assert every adapter's emitted
+ * output path is covered by its prefix entry.
+ */
+export function fileMatchesTool(filePath: string, tool: Tool): boolean {
   const prefixes = TOOL_PATH_PREFIXES[tool];
   if (!prefixes) return false;
   return prefixes.some((prefix) =>
@@ -181,7 +252,12 @@ export async function archiveToolOutputs(
   }
 
   const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
-  const archiveBase = join(rootDir, ARCHIVE_DIR, tool, timestamp);
+  // D2-23: suffix the millisecond timestamp with `-<pid>-<counter>` so two
+  // same-tool runs in the same tick get distinct directories; without it the
+  // overwrite-by-default `cp` below would silently clobber the earlier run's
+  // bytes. `pid` separates concurrent processes sharing one repo.
+  const runId = `${process.pid}-${archiveRunCounter++}`;
+  const archiveBase = join(rootDir, ARCHIVE_DIR, tool, `${timestamp}-${runId}`);
 
   const archivedFiles: string[] = [];
   const migrations: MigrationNotice[] = [];
@@ -197,8 +273,8 @@ export async function archiveToolOutputs(
       continue;
     }
 
-    if (hasManagedBlock(content)) {
-      const customContent = stripFrontmatter(extractCustomContent(content));
+    if (hasManagedBlock(content, absPath)) {
+      const customContent = stripFrontmatter(extractCustomContent(content, absPath));
       if (customContent.length > 0) {
         const parsed = parseOutputPath(relPath);
         if (parsed) {
@@ -322,24 +398,64 @@ export function getManagedFilesForTool(
 }
 
 /**
+ * Hard upper bound on the per-tool entry count, regardless of the
+ * HATCH3R_MAX_ARCHIVE_ENTRIES override.
+ *
+ * D2-22 (D2 Medium, Cycle 11 Wave 3): the override accepted any positive
+ * integer, so `HATCH3R_MAX_ARCHIVE_ENTRIES=100000` effectively disabled
+ * pruning (`entries.slice(MAX_ARCHIVE_ENTRIES)` in pruneArchives yields an
+ * empty slice) and `.hatch3r-archive/` grew without bound — unlike the
+ * snapshot store, which carries both a count cap (MAX_SNAPSHOT_COUNT=50) and a
+ * byte ceiling (MAX_SNAPSHOT_BYTES). Mirror the snapshot count cap here so the
+ * override can lower retention but never lift it past 50.
+ */
+export const MAX_ARCHIVE_ENTRIES_CEILING = 50;
+
+/**
+ * Aggregate-byte ceiling for a single tool's archive directory.
+ *
+ * D2-22: count alone does not bound disk footprint — a handful of entries each
+ * holding a large generated corpus can still grow `.hatch3r-archive/<tool>/`
+ * past acceptable size. Mirror the snapshot store's 100 MB byte cap
+ * (MAX_SNAPSHOT_BYTES, src/pipeline/snapshot.ts) so pruneArchives evicts oldest
+ * entries until the per-tool total fits, even when the count is under the
+ * entry cap. The single most-recent entry is never evicted (it is the rollback
+ * a sync run just promised), matching pruneSnapshots' last-entry guarantee.
+ */
+export const MAX_ARCHIVE_BYTES = 100_000_000;
+
+/**
  * Maximum archive entries retained per tool before pruning.
  *
  * Source: D2-SA2.7 retention contract — five entries balances local
  * rollback coverage (one entry per recent sync run) against disk-footprint
  * growth on long-lived projects. Override with HATCH3R_MAX_ARCHIVE_ENTRIES
- * env var (positive integer; default: 5).
+ * env var (positive integer; default: 5). D2-22: the override is clamped to
+ * {@link MAX_ARCHIVE_ENTRIES_CEILING} (50) so it can only lower retention.
  */
 const MAX_ARCHIVE_ENTRIES = ((): number => {
   const envVal = process.env.HATCH3R_MAX_ARCHIVE_ENTRIES;
   if (envVal) {
     const parsed = parseInt(envVal, 10);
-    if (!Number.isNaN(parsed) && parsed > 0) return parsed;
+    if (!Number.isNaN(parsed) && parsed > 0) {
+      return Math.min(parsed, MAX_ARCHIVE_ENTRIES_CEILING);
+    }
   }
   return 5;
 })();
 
 /**
- * Prune old archive entries, keeping only the most recent MAX_ARCHIVE_ENTRIES per tool.
+ * Prune old archive entries per tool. Enforces two retention caps, mirroring
+ * the snapshot store (src/pipeline/snapshot.ts → pruneSnapshots):
+ *
+ * 1. Count cap — keep at most {@link MAX_ARCHIVE_ENTRIES} newest entries.
+ * 2. Byte ceiling (D2-22) — after the count cap, evict remaining oldest entries
+ *    until the per-tool directory total fits under {@link MAX_ARCHIVE_BYTES}.
+ *
+ * The single most-recent entry per tool is never evicted by either cap: it is
+ * the rollback the latest sync run just produced, so dropping it would silently
+ * void the recovery the user was promised — even if that one entry alone
+ * exceeds the byte ceiling. This matches pruneSnapshots' last-session guard.
  */
 export async function pruneArchives(rootDir: string): Promise<string[]> {
   const archiveRoot = join(rootDir, ARCHIVE_DIR);
@@ -367,10 +483,34 @@ export async function pruneArchives(rootDir: string): Promise<string[]> {
     // Sort descending (newest first) — timestamps are ISO-formatted
     entries.sort((a, b) => b.localeCompare(a));
 
-    for (const entry of entries.slice(MAX_ARCHIVE_ENTRIES)) {
-      const entryPath = join(toolPath, entry);
-      await rm(entryPath, { recursive: true, force: true });
+    const evict = async (entry: string): Promise<void> => {
+      await rm(join(toolPath, entry), { recursive: true, force: true });
       pruned.push(`${toolDir}/${entry}`);
+    };
+
+    // Cap 1: count. Remove everything past the Nth-newest entry.
+    for (const entry of entries.slice(MAX_ARCHIVE_ENTRIES)) {
+      await evict(entry);
+    }
+
+    // Cap 2: aggregate bytes (D2-22). Walk the survivors oldest→newest and
+    // evict until the per-tool total is under the ceiling, but always keep the
+    // single newest entry (index 0 after the descending sort).
+    const survivors = entries.slice(0, MAX_ARCHIVE_ENTRIES);
+    if (survivors.length > 1) {
+      const sized = await Promise.all(
+        survivors.map(async (entry) => ({
+          entry,
+          bytes: await archiveDirSizeBytes(join(toolPath, entry)),
+        })),
+      );
+      let total = sized.reduce((sum, s) => sum + s.bytes, 0);
+      // Oldest is the last element (descending sort); stop before index 0 so the
+      // newest survivor is never evicted by the byte cap.
+      for (let i = sized.length - 1; i >= 1 && total > MAX_ARCHIVE_BYTES; i--) {
+        await evict(sized[i].entry);
+        total -= sized[i].bytes;
+      }
     }
   }
 

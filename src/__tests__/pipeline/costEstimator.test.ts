@@ -22,10 +22,19 @@ vi.mock("node:fs", async (importOriginal) => {
 
 import {
   appendTelemetrySnapshot,
+  CACHE_READ_MULTIPLIER,
   computeDelta,
+  countTrackedFiles,
+  DEFAULT_INPUT_COST_PER_1M,
+  DEFAULT_OUTPUT_COST_PER_1M,
   estimateCost,
+  estimateUsdCost,
   formatCostBlock,
+  MODEL_RATES,
   recordActuals,
+  REPO_SIZE_ROWS,
+  resolveModelRate,
+  resolveRepoSizeRow,
   TELEMETRY_DIR_RELATIVE,
   TIER_BASELINES,
   VARIANCE_THRESHOLD_PERCENT,
@@ -33,6 +42,7 @@ import {
   type CostEstimate,
   type TriageTier,
 } from "../../pipeline/costEstimator.js";
+import type { PipelineTokenSummary } from "../../pipeline/observability.js";
 
 // ── estimateCost ────────────────────────────────────────────────
 
@@ -108,6 +118,112 @@ describe("estimateCost", () => {
     // Force-pass an invalid tier; in practice TypeScript blocks this.
     const est = estimateCost({ triageTier: "bogus" as unknown as TriageTier });
     expect(est.triage_tier).toBe("standard");
+  });
+
+  // ── D6-20: repository-size scaling ─────────────────────────────
+  it("omits repo_size_row and leaves the static-frame estimate unscaled when no repoFileCount is passed", () => {
+    const est = estimateCost({ triageTier: "standard" });
+    const b = TIER_BASELINES.standard;
+    // Byte-identical to the pre-D6-20 estimate: midpoint, no band field.
+    expect(est.estimated_input_tokens_static_frame).toBe(
+      Math.round((b.staticFrameTokensMin + b.staticFrameTokensMax) / 2),
+    );
+    expect(est.repo_size_row).toBeUndefined();
+  });
+
+  it("scales the static-frame component by the resolved band factor and surfaces the row (D6-20)", () => {
+    const b = TIER_BASELINES.standard;
+    const baseMidpoint = Math.round((b.staticFrameTokensMin + b.staticFrameTokensMax) / 2);
+    // 30,000 tracked files -> "large" band (>20k, <=50k), factor 1.6.
+    const est = estimateCost({ triageTier: "standard", repoFileCount: 30_000 });
+    expect(est.repo_size_row).toEqual({ band: "large", tracked_files: 30_000, factor: 1.6 });
+    expect(est.estimated_input_tokens_static_frame).toBe(Math.round(baseMidpoint * 1.6));
+    // Repo-size scaling must be strictly larger than the unscaled midpoint here.
+    expect(est.estimated_input_tokens_static_frame).toBeGreaterThan(baseMidpoint);
+  });
+
+  it("leaves the static-frame estimate unchanged for a tiny repo (factor 1.0) but still surfaces the band", () => {
+    const b = TIER_BASELINES.light;
+    const baseMidpoint = Math.round((b.staticFrameTokensMin + b.staticFrameTokensMax) / 2);
+    const est = estimateCost({ triageTier: "light", repoFileCount: 50 });
+    expect(est.repo_size_row).toEqual({ band: "tiny", tracked_files: 50, factor: 1.0 });
+    expect(est.estimated_input_tokens_static_frame).toBe(baseMidpoint);
+  });
+
+  it("scales an explicit inputTokensDeclared override by the band factor too (D6-20)", () => {
+    // 60,000 files -> "huge" band, factor 1.9; the override is the scaling base.
+    const est = estimateCost({
+      triageTier: "deep",
+      inputTokensDeclared: 100_000,
+      repoFileCount: 60_000,
+    });
+    expect(est.repo_size_row?.band).toBe("huge");
+    expect(est.estimated_input_tokens_static_frame).toBe(Math.round(100_000 * 1.9));
+  });
+
+  it("treats a negative/non-finite repoFileCount as the tiny band, factor 1.0 (defensive)", () => {
+    const neg = estimateCost({ triageTier: "standard", repoFileCount: -10 });
+    expect(neg.repo_size_row).toEqual({ band: "tiny", tracked_files: 0, factor: 1.0 });
+    const b = TIER_BASELINES.standard;
+    expect(neg.estimated_input_tokens_static_frame).toBe(
+      Math.round((b.staticFrameTokensMin + b.staticFrameTokensMax) / 2),
+    );
+  });
+});
+
+// ── resolveRepoSizeRow (D6-20) ───────────────────────────────────
+
+describe("resolveRepoSizeRow", () => {
+  it("maps a count to the correct band across every boundary", () => {
+    expect(resolveRepoSizeRow(0).band).toBe("tiny");
+    expect(resolveRepoSizeRow(200).band).toBe("tiny"); // inclusive upper bound
+    expect(resolveRepoSizeRow(201).band).toBe("small");
+    expect(resolveRepoSizeRow(2_000).band).toBe("small");
+    expect(resolveRepoSizeRow(2_001).band).toBe("medium");
+    expect(resolveRepoSizeRow(20_000).band).toBe("medium");
+    expect(resolveRepoSizeRow(20_001).band).toBe("large");
+    expect(resolveRepoSizeRow(50_000).band).toBe("large");
+    expect(resolveRepoSizeRow(50_001).band).toBe("huge");
+    expect(resolveRepoSizeRow(5_000_000).band).toBe("huge");
+  });
+
+  it("clamps negative / NaN / Infinity inputs to the tiny band", () => {
+    expect(resolveRepoSizeRow(-5).band).toBe("tiny");
+    expect(resolveRepoSizeRow(Number.NaN).band).toBe("tiny");
+    // +Infinity is finite-false, so it clamps to 0 -> tiny (not "huge").
+    expect(resolveRepoSizeRow(Number.POSITIVE_INFINITY).band).toBe("tiny");
+  });
+
+  it("exposes a monotonically non-decreasing factor ramp anchored at 1.0", () => {
+    expect(REPO_SIZE_ROWS[0].factor).toBe(1.0);
+    for (let i = 1; i < REPO_SIZE_ROWS.length; i++) {
+      expect(REPO_SIZE_ROWS[i].factor).toBeGreaterThanOrEqual(REPO_SIZE_ROWS[i - 1].factor);
+    }
+    // The largest band's bound is open-ended.
+    expect(REPO_SIZE_ROWS[REPO_SIZE_ROWS.length - 1].maxFiles).toBe(Number.POSITIVE_INFINITY);
+  });
+});
+
+// ── countTrackedFiles (D6-20) ────────────────────────────────────
+
+describe("countTrackedFiles", () => {
+  it("returns null (Silent Failure Contract) for a non-git directory", () => {
+    const tmp = mkdtempSync(join(tmpdir(), "hatch3r-nongit-"));
+    try {
+      // A fresh tmp dir is outside any git tree -> git ls-files exits non-zero.
+      expect(countTrackedFiles(tmp)).toBeNull();
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("returns a positive count for this repository's own working tree", () => {
+    // The test runs inside the hatch3r git repo; ls-files must report >0 files
+    // and the result must be a finite integer (the in-process NUL counter).
+    const n = countTrackedFiles(process.cwd());
+    expect(n).not.toBeNull();
+    expect(Number.isInteger(n!)).toBe(true);
+    expect(n!).toBeGreaterThan(0);
   });
 });
 
@@ -427,5 +543,124 @@ describe("formatCostBlock", () => {
     const out = formatCostBlock(estimate, actuals);
     expect(out).toContain("over_variance: false");
     expect(out).not.toContain("flagged_fields:");
+  });
+
+  it("omits the repo_size_row block when the estimate carries no band (D6-20)", () => {
+    // The shared `estimate` fixture has no repo_size_row -> block must be absent.
+    expect(formatCostBlock(estimate)).not.toContain("repo_size_row:");
+  });
+
+  it("emits the repo_size_row block when the estimate was repo-size-scaled (D6-20)", () => {
+    const scaled = estimateCost({ triageTier: "standard", repoFileCount: 30_000 });
+    const out = formatCostBlock(scaled);
+    expect(out).toContain("repo_size_row:");
+    expect(out).toContain("band: large");
+    expect(out).toContain("tracked_files: 30000");
+    expect(out).toContain("factor: 1.6");
+  });
+});
+
+// ── resolveModelRate (D6-18) ─────────────────────────────────────
+
+describe("resolveModelRate", () => {
+  it("resolves tier aliases to a model rate (case-insensitive)", () => {
+    expect(resolveModelRate("opus")).toEqual(MODEL_RATES["claude-opus-4-8"]);
+    expect(resolveModelRate("Sonnet")).toEqual(MODEL_RATES["claude-sonnet-4-6"]);
+    expect(resolveModelRate("  HAIKU  ")).toEqual(MODEL_RATES["claude-haiku-4-5"]);
+  });
+
+  it("resolves exact model ids", () => {
+    expect(resolveModelRate("claude-opus-4-8")).toEqual(MODEL_RATES["claude-opus-4-8"]);
+    expect(resolveModelRate("claude-haiku-4-5")).toEqual(MODEL_RATES["claude-haiku-4-5"]);
+  });
+
+  it("returns null for an unknown selector", () => {
+    expect(resolveModelRate("gpt-4")).toBeNull();
+    expect(resolveModelRate("")).toBeNull();
+  });
+
+  it("prices Opus higher than the Sonnet-biased default (the D6-18 bug)", () => {
+    const opus = resolveModelRate("opus")!;
+    // Opus input is $5/1M vs the $3/1M Sonnet default — ~67% higher.
+    expect(opus.inputCostPer1M).toBe(5.0);
+    expect(opus.inputCostPer1M / DEFAULT_INPUT_COST_PER_1M).toBeCloseTo(5 / 3, 5);
+    expect(opus.outputCostPer1M).toBe(25.0);
+  });
+
+  it("every rate row carries an accessed date", () => {
+    for (const rate of Object.values(MODEL_RATES)) {
+      expect(rate.accessed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+    }
+  });
+});
+
+// ── estimateUsdCost — model rates + cache discount (D6-18 / D6-19) ─
+
+describe("estimateUsdCost cache + model rates", () => {
+  function summaryOf(input: number, output: number): PipelineTokenSummary {
+    return {
+      phases: [{ phase: "generation", inputTokens: input, outputTokens: output, totalTokens: input + output }],
+      totalInputTokens: input,
+      totalOutputTokens: output,
+      grandTotal: input + output,
+    };
+  }
+
+  it("defaults to the Sonnet-biased rates when no rate is supplied", () => {
+    const cost = estimateUsdCost(summaryOf(1_000_000, 0));
+    expect(cost.inputCost).toBeCloseTo(DEFAULT_INPUT_COST_PER_1M, 6);
+  });
+
+  it("uses a resolved Opus rate to cost input correctly (D6-18)", () => {
+    const opus = resolveModelRate("opus")!;
+    const cost = estimateUsdCost(summaryOf(1_000_000, 1_000_000), {
+      inputCostPer1M: opus.inputCostPer1M,
+      outputCostPer1M: opus.outputCostPer1M,
+    });
+    expect(cost.inputCost).toBeCloseTo(5.0, 6);
+    expect(cost.outputCost).toBeCloseTo(25.0, 6);
+    expect(cost.totalCost).toBeCloseTo(30.0, 6);
+  });
+
+  it("bills cached input at CACHE_READ_MULTIPLIER and leaves output full (D6-19)", () => {
+    // 1M input @ $3/1M, 90% cache hit: 100k uncached @ full + 900k @ 0.1x.
+    const cost = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: 0.9 });
+    const expected = 0.1 * 3.0 + 0.9 * 3.0 * CACHE_READ_MULTIPLIER;
+    expect(cost.inputCost).toBeCloseTo(expected, 6);
+    // 90% hit ≈ a 1 − (0.1 + 0.9·0.1) = 81% reduction vs the uncached figure.
+    expect(cost.inputCost).toBeCloseTo(3.0 * (0.1 + 0.9 * 0.1), 6);
+  });
+
+  it("does not discount output tokens for a cache hit", () => {
+    const uncached = estimateUsdCost(summaryOf(0, 1_000_000));
+    const cached = estimateUsdCost(summaryOf(0, 1_000_000), { cacheHitRatio: 1 });
+    expect(cached.outputCost).toBeCloseTo(uncached.outputCost, 6);
+  });
+
+  it("full cache hit bills input at exactly 0.1x base", () => {
+    const cost = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: 1 });
+    expect(cost.inputCost).toBeCloseTo(3.0 * CACHE_READ_MULTIPLIER, 6);
+  });
+
+  it("clamps an out-of-range or non-finite cacheHitRatio to [0,1]", () => {
+    const over = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: 5 });
+    expect(over.inputCost).toBeCloseTo(3.0 * CACHE_READ_MULTIPLIER, 6); // clamped to 1
+    const under = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: -1 });
+    expect(under.inputCost).toBeCloseTo(3.0, 6); // clamped to 0
+    const nan = estimateUsdCost(summaryOf(1_000_000, 0), { cacheHitRatio: Number.NaN });
+    expect(nan.inputCost).toBeCloseTo(3.0, 6); // treated as 0
+  });
+
+  it("zero cacheHitRatio matches the no-cache path exactly", () => {
+    const a = estimateUsdCost(summaryOf(500_000, 200_000), { cacheHitRatio: 0 });
+    const b = estimateUsdCost(summaryOf(500_000, 200_000));
+    expect(a.totalCost).toBeCloseTo(b.totalCost, 9);
+  });
+
+  it("keeps DEFAULT_OUTPUT_COST_PER_1M usable as the Sonnet output rate", () => {
+    const cost = estimateUsdCost(summaryOf(0, 1_000_000), {
+      outputCostPer1M: DEFAULT_OUTPUT_COST_PER_1M,
+    });
+    expect(cost.outputCost).toBeCloseTo(15.0, 6);
   });
 });

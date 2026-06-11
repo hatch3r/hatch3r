@@ -325,15 +325,23 @@ export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
 }
 
 /**
- * Reports counts of modified, untracked, and stashed entries inside a worktree.
- * Used by `worktree-cleanup` to badge candidates so the user knows what they're
- * about to destroy with `git worktree remove --force`.
+ * Reports counts of modified and untracked entries inside a worktree from
+ * `git -C <wt> status --porcelain`. Used by `worktree-cleanup` to badge
+ * candidates so the user knows what they're about to destroy with
+ * `git worktree remove --force`.
+ *
+ * Stash count is intentionally not reported: `git stash` writes to a single
+ * repo-global `refs/stash`, so `git -C <wt> stash list` returns the SAME shared
+ * stack from every linked worktree. Git exposes no reliable per-worktree stash
+ * ownership, so counting it here mis-badged every worktree as dirty whenever a
+ * stash existed anywhere and produced a false destruction-confirm prompt
+ * (D1-32, Cycle 11 Wave 3). See {@link WorktreeStatus}.
  *
  * Returns zeros (with no throw) when git can't read the path — the caller
  * already knows the path exists from `listWorktrees`; this is a soft probe.
  */
 export function getWorktreeStatus(worktreePath: string): WorktreeStatus {
-  let status: WorktreeStatus = { modified: 0, untracked: 0, stashes: 0 };
+  let status: WorktreeStatus = { modified: 0, untracked: 0 };
   try {
     const out = execFileSync("git", ["-C", worktreePath, "status", "--porcelain"], {
       encoding: "utf-8",
@@ -348,20 +356,7 @@ export function getWorktreeStatus(worktreePath: string): WorktreeStatus {
     // Soft probe: a missing or broken worktree returns zero counts so the caller
     // can still render the badge; the subsequent `git worktree remove` will
     // surface the real error.
-    status = { modified: 0, untracked: 0, stashes: 0 };
-  }
-  try {
-    const out = execFileSync("git", ["-C", worktreePath, "stash", "list"], {
-      encoding: "utf-8",
-      maxBuffer: 10 * 1024 * 1024,
-    });
-    status.stashes = out.split("\n").filter((l) => l.length > 0).length;
-  } catch {
-    // Soft probe: a failed `git stash list` is masked because the destructive
-    // path (`removeGitWorktree`) surfaces the real git error with stderr when
-    // it runs. Status badges are advisory only — assigning to 0 keeps the
-    // catch body non-empty per the silent-failure contract.
-    status.stashes = 0;
+    status = { modified: 0, untracked: 0 };
   }
   return status;
 }

@@ -10,6 +10,7 @@
  * 2. Scope transform (H16): the `.mdc` frontmatter is the deterministic
  *    transform of the `.md` scope per .claude/rules/content-authoring.md:
  *    - `scope: always`                       -> `alwaysApply: true`, no `globs`
+ *    - `scope: agent-requested`              -> `alwaysApply: false`, no `globs`
  *    - `scope: "<csv>"`                      -> `globs: [...]`, `alwaysApply: false`
  *    - `scope: conditional` + `globs: <csv>` -> `globs: [...]`, `alwaysApply: false`
  *    - `scope: conditional` (no globs)       -> `alwaysApply: false`, no `globs`
@@ -181,6 +182,12 @@ function checkScopeTransform(
   let expectedGlobs: Set<string>;
   if (scope === "always") {
     expectedApply = true;
+    expectedGlobs = new Set();
+  } else if (scope === "agent-requested") {
+    // D5-28: Cursor Apply-Intelligently mode — `description:` only, no globs,
+    // `alwaysApply: false`. Short-circuit before the legacy-CSV branch so the
+    // literal "agent-requested" token is not derived as an expected glob.
+    expectedApply = false;
     expectedGlobs = new Set();
   } else if (scope === "conditional") {
     expectedApply = false;

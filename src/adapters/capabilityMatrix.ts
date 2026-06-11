@@ -245,26 +245,30 @@ export function enumerateAdapterCapabilities(
  * Built-in seed: per-adapter native capability list rendered when the
  * reference doc is missing or unparseable.
  *
- * Source notes (web-research, access date 2026-05-20 per
+ * Source notes (web-research, access/re-verify date 2026-06-06 per
  * `docs/adapter-capability-matrix.md` header):
- *   - Claude Code: hooks (PreToolUse/PostToolUse/SessionStart/TaskCompleted/
- *     TeammateIdle/WorktreeCreate/WorktreeRemove), settings.json (permissions,
- *     teammateMode, env, hooks), MCP servers (.mcp.json), slash commands
- *     (.claude/commands/), sub-agents (.claude/agents/), skills
- *     (.claude/skills/), CLAUDE.md project instructions, AskUserQuestion
- *     native question tool.
+ *   - Claude Code: hooks (~30-event catalogue: PreToolUse/PostToolUse/
+ *     PostToolUseFailure/SessionStart/SubagentStart/SubagentStop/Stop/
+ *     StopFailure/TaskCreated/InstructionsLoaded/…; see mapToClaudeEvent in
+ *     claude.ts), settings.json (permissions, teammateMode, env, hooks), MCP
+ *     servers (.mcp.json), slash commands (.claude/commands/), sub-agents
+ *     (.claude/agents/), skills (.claude/skills/), CLAUDE.md project
+ *     instructions, AskUserQuestion native question tool.
  *   - Cursor: rules (.cursor/rules/*.mdc), MCP (.cursor/mcp.json), commands
  *     (.cursor/commands/), modes / subagents (.cursor/agents/*.md with
  *     readonly + background + model), plugin system (Team Marketplaces v2.6),
  *     indexing (codebase-aware, not adapter-emitted), environment.json,
- *     Cursor 3.0 /worktree and /best-of-n workflows.
+ *     Cursor 3.0 /worktree and /best-of-n workflows, .cursor/hooks.json
+ *     (preToolUse + subagentStart — both adapter-emitted, see cursor.ts).
  *   - Copilot: instructions (.github/copilot-instructions.md), prompts
  *     (.github/prompts/), agent definitions (.github/agents/*.agent.md),
- *     chat participants (community-extensible), MCP via .vscode/mcp.json.
+ *     chat participants (community-extensible), MCP via .vscode/mcp.json,
+ *     VS Code Preview PreToolUse hook + agent handoffs (GA) — neither
+ *     adapter-emitted yet (CL-2 candidates per D9-17/D9-18).
  */
 const PLATFORM_CAPABILITY_SEED: Record<AuditedAdapter, PlatformCapability[]> = {
   claude: [
-    { id: "hooks", name: "Hooks (PreToolUse/PostToolUse/Session/Worktree)", status: "supported", detail: "v2.1.x event catalogue" },
+    { id: "hooks", name: "Hooks (PreToolUse/PostToolUse/Session/Worktree)", status: "supported", detail: "~30-event catalogue incl. PreToolUse/PostToolUse/PostToolUseFailure/SessionStart/SubagentStart/SubagentStop/Stop/StopFailure/TaskCreated/InstructionsLoaded (re-verified 2026-06-09 against code.claude.com/docs/en/hooks; see mapToClaudeEvent in claude.ts, D9-10)" },
     { id: "settings-json", name: "settings.json (permissions, teammateMode, env)", status: "supported" },
     { id: "mcp-servers", name: "MCP servers (.mcp.json)", status: "supported", detail: "stdio + http transports" },
     { id: "slash-commands", name: "Slash commands (.claude/commands/)", status: "supported" },
@@ -284,7 +288,8 @@ const PLATFORM_CAPABILITY_SEED: Record<AuditedAdapter, PlatformCapability[]> = {
     { id: "plugin-system", name: "Plugins / Team Marketplaces (v2.6)", status: "partial", detail: "no per-repo manifest emitted" },
     { id: "indexing", name: "Codebase indexing", status: "unsupported", detail: "platform-managed, no adapter surface" },
     { id: "environment-json", name: "environment.json (run context)", status: "supported" },
-    { id: "hooks", name: "PreToolUse hooks", status: "unsupported", detail: "rule-delegated via allowlist .mdc" },
+    { id: "pre-tool-use", name: "preToolUse hook (.cursor/hooks.json)", status: "supported", detail: "tool_name/tool_input payload, no agent-identity field (cursor.com/docs/agent/hooks, verified 2026-06-06)" },
+    { id: "subagent-start", name: "subagentStart hook (.cursor/hooks.json)", status: "supported", detail: "subagent_type/subagent_id payload; returns {permission:'deny'} — hatch3r emits subagent-guard.mjs (verified 2026-06-06)" },
     { id: "native-question-tool", name: "Native AskUserQuestion equivalent", status: "unsupported", detail: "pending official tool" },
     { id: "worktree-workflows", name: "/worktree + /best-of-n (v3.0)", status: "partial", detail: "documented in bridge body, not native config" },
   ],
@@ -303,9 +308,21 @@ const PLATFORM_CAPABILITY_SEED: Record<AuditedAdapter, PlatformCapability[]> = {
     { id: "mcp-vscode", name: "MCP (.vscode/mcp.json)", status: "supported" },
     { id: "chat-participants", name: "Chat participants (community extensions)", status: "unsupported", detail: "VS Code extension surface; no adapter file" },
     { id: "skills", name: "Skills (.github/skills/)", status: "supported", detail: "SKILL.md format" },
-    { id: "hooks", name: "Hooks / PreToolUse equivalent", status: "unsupported", detail: "no documented hook surface (#73)" },
+    // D9-17 / D9-20 (Cycle 11 D9, P3): VS Code documents a Preview PreToolUse
+    // hook with permissionDecision:"deny" + an agent-scoped `hooks:` field, so
+    // the prior absolute "no hook surface" is now false on VS Code. Status is
+    // `partial` (Preview, VS-Code-only — not GA, not on github.com) and
+    // hatch3r emits no copilot PreToolUse hook yet (ADAPTER_CAPABILITIES
+    // copilot.hooks = false), so computeUtilization classifies this row
+    // `unutilized` — the enhancement-surface signal CL-2 should action.
+    { id: "hooks", name: "PreToolUse hook (VS Code, Preview)", status: "partial", detail: "permissionDecision:'deny' + agent-scoped hooks: field; VS Code Preview only, not github.com (verified 2026-06-06, #73)" },
     { id: "native-question-tool", name: "Native AskUserQuestion equivalent", status: "unsupported" },
     { id: "github-agents", name: "GitHub-side agents (.github/agents/*.agent.md)", status: "supported" },
+    // D9-18 (Cycle 11 D9, P3/CQ9): VS Code documents agent handoffs (GA) —
+    // declarative routing between agents. hatch3r emits no native handoffs:
+    // block yet, so this row classifies `unutilized`; CL-2 candidate to link
+    // the Phase 1→2→3 pipeline via native handoffs.
+    { id: "handoffs", name: "Agent handoffs (VS Code)", status: "supported", detail: "declarative agent-to-agent routing, GA; no adapter emission yet (verified 2026-06-06)" },
     { id: "workflow-setup-steps", name: "copilot-setup-steps workflow", status: "supported", detail: "build/install steps for hosted agents" },
   ],
 };
@@ -339,7 +356,8 @@ const PLATFORM_TO_DECLARED_KEY: Record<AuditedAdapter, Record<string, string | n
     "plugin-system": null,
     indexing: null,
     "environment-json": null,
-    hooks: "hooks",
+    "pre-tool-use": "hooks",
+    "subagent-start": "hooks",
     "native-question-tool": "nativeQuestionTool",
     "worktree-workflows": "worktree",
   },
@@ -354,6 +372,7 @@ const PLATFORM_TO_DECLARED_KEY: Record<AuditedAdapter, Record<string, string | n
     hooks: "hooks",
     "native-question-tool": "nativeQuestionTool",
     "github-agents": "githubAgents",
+    handoffs: null, // no declared boolean — VS Code handoffs (GA) not yet adapter-emitted (D9-18); CL-2 candidate
     "workflow-setup-steps": null,
   },
 };
@@ -548,7 +567,7 @@ function severityFor(capabilityId: string): FindingSeverity {
  * keep this map in sync when re-verifying.
  */
 function sourcesFor(adapter: AuditedAdapter): FindingSource[] {
-  const ACCESS_DATE = "2026-05-20"; // docs/adapter-capability-matrix.md last-verified
+  const ACCESS_DATE = "2026-06-06"; // docs/adapter-capability-matrix.md last-verified
   switch (adapter) {
     case "claude":
       return [
@@ -592,6 +611,15 @@ function sourcesFor(adapter: AuditedAdapter): FindingSource[] {
           url: "https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills",
           accessed: ACCESS_DATE,
           author: "GitHub",
+          trust_tier: "official-docs",
+        },
+        {
+          // D9-17 / D9-18 (Cycle 11 D9, P3): VS Code agent-customization surface
+          // — documents the Preview PreToolUse hook (permissionDecision:"deny" +
+          // agent-scoped hooks:) and agent handoffs the copilot seed now cites.
+          url: "https://code.visualstudio.com/docs/copilot/customization/custom-agents",
+          accessed: ACCESS_DATE,
+          author: "Microsoft",
           trust_tier: "official-docs",
         },
       ];

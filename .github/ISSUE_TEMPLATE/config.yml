@@ -5,4 +5,4 @@ contact_links:
     about: Browse the hatch3r docs first — most usage questions are answered there.
   - name: Report a security vulnerability (private)
     url: https://github.com/hatch3r/hatch3r/security/policy
-    about: Do not file a public issue for security reports. Follow the disclosure process in SECURITY.md (email security@hatch3r.dev).
+    about: Do not file a public issue for security reports. Follow the disclosure process in SECURITY.md (email security@hatch3r.com).

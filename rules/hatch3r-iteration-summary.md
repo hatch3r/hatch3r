@@ -38,7 +38,7 @@ Calibrate the fields to the triage tier (see `rules/hatch3r-deep-context`); sour
 5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist
 6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per Decision 17
 7. **Verification Commands** — exact commands run with exit codes + key output lines (≤200 chars)
-8. **Open Questions / Blockers** — explicit None if fully closed
+8. **Open Questions / Blockers** — explicit None if fully closed. When an ASK gate's default-if-no-response was exercised this run, this section MUST carry one `Default applied: <question summary> → option <N> (<one-line reason>)` line per default taken (the operational counterpart to `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response step 3); absence of the line when a default was applied is a P8 B1 gate failure
 9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run; cross-reference `rules/hatch3r-learning-system.md`
 
 ## Required Fields per quality-charter §11
@@ -49,9 +49,19 @@ Calibrate the fields to the triage tier (see `rules/hatch3r-deep-context`); sour
 - **Confidence + basis:** one of direct measurement | sampled observation | inference from analogue
 - **Consulted Learnings:** IDs of `.hatch3r/learnings/` entries the bound agents (implementer / reviewer / researcher / fixer) read this run per the `rules/hatch3r-learning-system.md` Mandatory Consultation Gate; `none` when INDEX.md is absent or zero `applies-to` rows matched. Distinct from §9 Learnings Captured (entries written this run). Citing zero when `applies-to` matched is a gate failure.
 
-## Optional Pattern Rationale (D13 in-flow teaching)
+## Confidence-to-Action Mapping (D13)
 
-Orchestrators MAY emit a `## Pattern Rationale` block before the Iteration Summary to teach the user the framework pattern applied — closing the knowledge-transfer gap surfaced by D13 SA13.4 F5. One line per pattern with rule citation + pillar served + plain-language reason:
+When a review loop ran this turn, the §5 Confidence line MUST append the action guidance for the loop's terminal confidence level (`reviewLoopConfidence` in `src/pipeline/reviewLoop.ts`). This is the canonical confidence-to-action text — `confidenceExplanation` in `src/pipeline/reviewLoop.ts` returns these exact three strings, so the typed helper and this user-facing rule stay byte-identical (the strings are no longer reachable only from a unit test, closing D13-SA13.2-F2):
+
+- **high** — The fix was correct on the first attempt. Human review is optional but recommended for critical code paths.
+- **medium** — The fix required one round of corrections, which is normal for moderately complex changes. A brief human review is recommended.
+- **low** — The fix required multiple attempts or was interrupted. A thorough human review is strongly recommended before merging.
+
+Omit the mapping when no review loop ran (e.g. a Tier 1 typo edit with no reviewer pass) — no confidence level is derived, so no action line applies.
+
+## Pattern Rationale (D13 in-flow teaching — default-ON at Tier ≥ 2)
+
+In-flow teaching is the default, not opt-in: at Tier ≥ 2 (non-trivial / novel orchestrations) the orchestrator MUST emit a `## Pattern Rationale` block before the Iteration Summary, teaching the user each framework pattern applied this turn — closing the knowledge-transfer gap surfaced by D13 SA13.4 (F5/F6: sub-agent reasoning is summarized away before it reaches the user, so the user learns nothing unless the orchestrator teaches at its own surface). One SHORT line per applied pattern with rule citation + pillar served + plain-language reason:
 
 ```
 pattern_rationale:
@@ -61,7 +71,12 @@ pattern_rationale:
     why: <≤1 sentence plain language>
 ```
 
-Default omission policy: emit when at least one mutated file applies a named rule the user did not request explicitly. Skip on trivial edits (typo, frontmatter-only). When omitted entirely, no field appears — this preserves token budget for Tier 1 runs.
+Emission policy:
+
+- **Default-ON at Tier ≥ 2:** emit one line for each mutated file that applies a named rule the user did not request explicitly. A Tier ≥ 2 turn that applied at least one such pattern and omits the block is a P5 gate failure (same enforcement class as the §9 Validation Gate).
+- **Tier 1 exemption:** Tier 1 trivial edits (typo, frontmatter-only, single-line clarification) skip the block — no pattern is taught, so no field appears, preserving token budget. This mirrors the Tier-1 exemption in `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header).
+- **No-pattern case:** when a Tier ≥ 2 turn applied no named rule beyond what the user requested, emit `pattern_rationale: none (no implicit pattern applied)` rather than dropping the field, so the block's absence is never ambiguous.
+- **`--quiet` opt-out:** the `--quiet` CLI flag suppresses the block at the user surface (same precedent as cost data in `rules/hatch3r-cost-visibility.md` → "appears in user-facing iteration summaries by default … suppressing via the `--quiet` CLI flag"). Suppression is user-surface only; it does not weaken the Tier ≥ 2 emission contract for default (non-`--quiet`) runs.
 
 ## User-Accepted Bypass Record (D13)
 
@@ -80,9 +95,13 @@ Schema: `ts` ISO-8601 UTC timestamp; `command` the orchestrator command id; `ver
 
 A skill or command that omits the 9-section block fails the lifecycle gate (`.claude/rules/capability-lifecycle.md`). Prose substitution is rejected. The orchestrator catches the omission before declaring SUCCESS.
 
-## Emission-Rate Telemetry
+## Emission-Rate Telemetry (current status: per-run gate only; cross-run rate not yet wired)
 
-The validation gate above asserts the block is present per run; it does not measure the emission rate across runs. The SPACE-class telemetry pipeline (`src/pipeline/spaceTelemetry.ts`, Decision 24 sibling of cost-visibility) records that rate: each orchestrator/meaningful-skill run emits one `activity`-axis metric `iterationSummaryEmitted` (value `1` when the 9-section block was produced, `0` when skipped) via `recordSpaceMetric`, persisted to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl` and aggregated by `getSpaceSummary`. The audit cycle reads the aggregate to verify the CONSTITUTION §2 P5 "Sub-agent count emission on delegating artifacts: 100%" target is met in practice rather than only mandated (D10-SA10.8-F-6). Persistence honours the Silent Failure Contract — telemetry I/O never throws.
+The validation gate above asserts the 9-section block is present per run. It does NOT measure the emission rate across runs, and no automated cross-run measurement exists today.
+
+The SPACE-shaped activity/performance instrumentation (`src/pipeline/spaceTelemetry.ts`, Decision 24 sibling of cost-visibility) provides the recording primitive `recordSpaceMetric`, the in-process aggregator `getSpaceSummary`, and the across-runs reader `loadSpaceMetricsFromDisk`, but they are not invoked on the iteration-summary path: orchestrator commands and skills are LLM-interpreted markdown with no binding to compiled `src/`, and no command, skill, hook, or `src/` code emits an `iterationSummaryEmitted` metric. The cross-run emission-rate loop is therefore unwired — a future capability, not a live measurement (origin: D10-SA10.8-F-6; gap corrected D10-18). The module records on the `activity` and `performance` axes only; its `satisfaction` and `communication` axes are reserved with no feeder, so "SPACE" names the data shape, not full five-axis coverage (D10-40).
+
+To wire it, a host-runtime bridge (a Claude Code / Cursor / Copilot post-turn hook or an MCP shim) would need to call `recordSpaceMetric({ metricId: "iterationSummaryEmitted", axis: "activity", value: <1 if the 9-section block was produced else 0> })` after each orchestrator/meaningful-skill turn, persisting one JSONL line per run to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl`; the audit cycle could then read the persisted JSONL across runs via `loadSpaceMetricsFromDisk` + `summarizeSpaceMetricRecords` (NOT `getSpaceSummary`, which sees only the current process's ring buffer) to check the CONSTITUTION §2 P5 "Sub-agent count emission on delegating artifacts: 100%" target against observed runs instead of only mandating it. `recordSpaceMetric` already honours the Silent Failure Contract (telemetry I/O routes through `src/pipeline/failureLog.ts` and never throws), so building the bridge adds no failure surface. Until that bridge ships, P5 emission compliance is enforced by the per-run validation gate above plus audit-cycle spot checks, not by an aggregate metric.
 
 ## Pillar Service
 - P5 — standardised reporting prevents drift across orchestrators

@@ -12,14 +12,16 @@ import { resolveAgentModel } from "../models/resolve.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { resolveUserContentRoot } from "../content/index.js";
-import { filterUserFacing, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
+import { filterUserFacing, parseFrontmatter, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import {
   readMcpConfig,
   transformEnvVarSyntax,
+  validateMcpEntry,
   validateMcpHttpEndpoint,
   type McpServerEntry,
 } from "./mcp-utils.js";
+import { scanMcpServers } from "../pipeline/mcpDescriptionScan.js";
 import { readHookDefinitions } from "../hooks/index.js";
 import { PLATFORM_TOOL_MARKER, toAskUserPlatformNote } from "../pipeline/adapterToolTranslator.js";
 import {
@@ -59,13 +61,25 @@ export interface Adapter {
   getOutputPaths(canonicalRoot: string, manifest: HatchManifest): Promise<string[]>;
 }
 
-/** Convenience factory for creating an AdapterOutput with `action: "create"`. */
+/**
+ * Convenience factory for creating an AdapterOutput with `action: "create"`.
+ *
+ * D12-1 (Cycle 11 Wave 2, D12, P2): the optional `sourceFiles` argument lets a
+ * per-file emission path declare the SINGLE canonical file that shaped this
+ * output (e.g. one rule `.mdc` derives from one `rules/*.md`). When set, it
+ * survives the adapter-wide tracked-set fill in {@link BaseAdapter.generate}
+ * (which only stamps the broad read set onto outputs that left the field
+ * `undefined`). Aggregated outputs (CLAUDE.md, the Cursor bridge,
+ * copilot-instructions.md) omit the argument and inherit the adapter-wide set,
+ * which is the accurate attribution for a many-source artifact.
+ */
 export function output(
   path: string,
   content: string,
   managedContent?: string,
+  sourceFiles?: string[],
 ): AdapterOutput {
-  return { path, content, managedContent, action: "create" };
+  return { path, content, managedContent, action: "create", sourceFiles };
 }
 
 export interface AdapterContext {
@@ -269,11 +283,41 @@ export abstract class BaseAdapter implements Adapter {
       }
       filteredOutputs.push(out);
     }
+
+    // D11-3 (Cycle 11 Wave 2, D11, P5): intra-adapter output-path collision
+    // guard. The sync-side collision check (`sync.ts`) only fires across
+    // adapters (`existingOwner !== tool`); two outputs from the SAME adapter at
+    // one path slipped through as silent last-writer-wins. Copilot's
+    // regular-agent path (`.github/agents/{id}.agent.md`) and github-agent path
+    // share that template, so an id shared between `agents/` and
+    // `github-agents/` would emit twice to one path with no warning — the merge
+    // phase would then write one body over the other unattributed (Silent
+    // Failure Contract violation). Centralised here so all 3 adapters inherit
+    // the guard. We keep the LAST occurrence (the on-disk last-writer-wins
+    // reality) but surface a warning per colliding path so the clash is
+    // audit-visible. Deterministic: `dedupedByPath` preserves first-seen order
+    // and overwrites the retained entry in place on a later collision.
+    const dedupedByPath: AdapterOutput[] = [];
+    const pathIndex = new Map<string, number>();
+    for (const out of filteredOutputs) {
+      const existingIdx = pathIndex.get(out.path);
+      if (existingIdx === undefined) {
+        pathIndex.set(out.path, dedupedByPath.length);
+        dedupedByPath.push(out);
+      } else {
+        this.warnings.push(
+          `[${this.name}] Output path collision: "${out.path}" emitted more than once by this adapter — ` +
+            `keeping the last and dropping the earlier copy (would otherwise be a silent last-writer-wins overwrite at the merge phase).`,
+        );
+        dedupedByPath[existingIdx] = out;
+      }
+    }
+
     // Reassign so the rest of this method works against the surviving set.
     // Local mutation only — adapters do not retain references to the
     // returned array between calls.
     outputs.length = 0;
-    outputs.push(...filteredOutputs);
+    outputs.push(...dedupedByPath);
 
     // C8-D12-M3: Attach per-output source provenance. Adapters that already
     // set `sourceFiles` explicitly (e.g. a single-canonical-file output path
@@ -281,6 +325,16 @@ export abstract class BaseAdapter implements Adapter {
     // retain their value — we only fill the default tracked set for outputs
     // that left the field unset. The tracked list is deterministic (sorted)
     // so downstream diffs over `.provenance.json` stay stable across runs.
+    //
+    // D12-1 (Cycle 11 Wave 2, D12, P2): per-FILE emission paths (one rule
+    // `.mdc`, one agent `.md`, one skill `SKILL.md`, one command, one
+    // companion file) now self-declare `sourceFiles: [thisFile.sourcePath]`
+    // via the {@link output} factory's 4th argument, so this broad fill no
+    // longer over-attributes them with the whole read set. Only AGGREGATED
+    // outputs (CLAUDE.md, the Cursor bridge, copilot-instructions.md — each
+    // assembled from many canonical files) leave the field unset and inherit
+    // the adapter-wide `trackedList`, which is the accurate many-source
+    // attribution for those artifacts.
     //
     // SA12.1-F-D12-M5 (Cycle 10 Wave 3, D12, P1): when an adapter produced
     // outputs without using `readTrackedCanonicalFiles` AND without setting
@@ -509,6 +563,9 @@ export abstract class BaseAdapter implements Adapter {
       ctx.canonicalRoot,
       ctx.manifest.content?.preset,
       this.name,
+      // D1-30: thread the manifest handoffs flag so `false` drops the
+      // `.hatch3r/handoffs/` segment from the Canonical Structure line.
+      ctx.features.handoffs,
     );
     return this.isMinimal(ctx) ? this.stripMinimal(orchestration) : orchestration;
   }
@@ -627,6 +684,19 @@ export abstract class BaseAdapter implements Adapter {
     return lines;
   }
 
+  /**
+   * D12-1 (Cycle 11 Wave 2, D12, P2): the single-canonical-source attribution
+   * for a per-file output. Each skill/command/agent/rule file emits exactly
+   * one adapter output derived from exactly one canonical file, so its
+   * `sourceFiles` must be `[thisFile.sourcePath]` — not the adapter-wide read
+   * set. Returns `undefined` for the rare synthesised fixture whose
+   * `sourcePath` is empty, so the output falls back to the broad tracked set
+   * rather than carrying a `[""]` row.
+   */
+  private singleSource(file: Pick<CanonicalFile, "sourcePath">): string[] | undefined {
+    return file.sourcePath ? [file.sourcePath] : undefined;
+  }
+
   /** Process skills and output each as a raw managed-block file at the path returned by `pathFn`. */
   protected async processSkillsRaw(
     ctx: AdapterContext,
@@ -641,7 +711,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content));
+      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content, this.singleSource(skill)));
     }
     return results;
   }
@@ -662,7 +732,7 @@ export abstract class BaseAdapter implements Adapter {
       const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
       const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
-      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content));
+      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content, this.singleSource(skill)));
     }
     return results;
   }
@@ -714,7 +784,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content));
+      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content, this.singleSource(skill)));
     }
     return results;
   }
@@ -761,7 +831,7 @@ export abstract class BaseAdapter implements Adapter {
         fmLines.push(`allowed-tools: [${skill.allowedTools.map((t) => `"${t}"`).join(", ")}]`);
       }
       const fm = `---\n${fmLines.join("\n")}\n---`;
-      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content));
+      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content, this.singleSource(skill)));
     }
     return results;
   }
@@ -783,7 +853,7 @@ export abstract class BaseAdapter implements Adapter {
       this.warnings.push(...warnings);
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(cmd.id), wrapManagedFor(pathFn(cmd.id), content), content));
+      results.push(output(pathFn(cmd.id), wrapManagedFor(pathFn(cmd.id), content), content, this.singleSource(cmd)));
     }
     return results;
   }
@@ -861,10 +931,26 @@ export abstract class BaseAdapter implements Adapter {
         continue;
       }
 
+      // D2-8 (Cycle 11 Wave 3, D2, P4/P5): a companion subdir is filtered by
+      // `.md` extension alone, so a self-excluded authoring guide such as
+      // `checks/README.md` (frontmatter `type: documentation`) was emitted as
+      // a real artifact to `.claude/checks/`, `.cursor/checks/`,
+      // `.github/checks/`. Parse the frontmatter and skip non-content types so
+      // the emission set mirrors the canonical-content reader's documentation
+      // exclusion. README.md is also hard-excluded by name to cover an
+      // untyped/frontmatter-less README dropped into a companion dir.
+      const { rawType } = parseFrontmatter(raw);
+      if (rawType === "documentation" || entry.name.toLowerCase() === "readme.md") {
+        continue;
+      }
+
       const substituted = this.substituteCanonicalContent(raw, ctx);
       const body = minimal ? this.stripMinimal(substituted) : substituted;
       this._trackedSourceFiles.add(src);
-      results.push(output(pathFn(entry.name), wrapManagedFor(pathFn(entry.name), body), body));
+      // D12-1: a companion file is single-source — its only canonical input is
+      // `src` (the absolute path just read), so attribute it directly rather
+      // than letting the adapter-wide fill stamp the broad read set.
+      results.push(output(pathFn(entry.name), wrapManagedFor(pathFn(entry.name), body), body, [src]));
     }
     return results;
   }
@@ -887,12 +973,28 @@ export abstract class BaseAdapter implements Adapter {
    *      endpoint. The drop is auditable: the policy reason is appended to
    *      `this.warnings` (Silent Failure Contract, CONSTITUTION §2 P5) so the
    *      operator sees which server was withheld and why.
+   *
+   * D11-16 (Cycle 11 Wave 3, D11, P5/SA11.3-F4): warn-only per-entry
+   * validation ({@link validateMcpEntry} + {@link scanMcpServers}) is SCOPED to
+   * the post-selection survivors. {@link readMcpConfig} is called with
+   * `validateEntries: false` so the bundle-wide validation pass does not run;
+   * the refusal-grade drop gates (server-name reject, dangerous-arg scan) still
+   * fire there. Each surviving server is then re-validated below after the
+   * `_disabled` + selection + HTTP-pin filter, so a 2-server selection surfaces
+   * warnings only about those 2 servers — not the other (e.g. disabled gitlab)
+   * entries the repo never emits. Full-bundle validation remains available via
+   * the default `readMcpConfig` mode for `hatch3r validate`.
    */
   protected async readFilteredMcp(
     ctx: AdapterContext,
   ): Promise<Record<string, CleanMcpEntry> | null> {
     if (!ctx.features.mcp || ctx.manifest.mcp.servers.length === 0) return null;
-    const { servers: mcpServers, warnings } = await readMcpConfig(ctx.canonicalRoot);
+    // D11-16: skip the bundle-wide warn-only validation; it is re-run below on
+    // the selected survivors only. Drop gates inside readMcpConfig still apply.
+    const { servers: mcpServers, warnings } = await readMcpConfig(
+      ctx.canonicalRoot,
+      { validateEntries: false },
+    );
     this.warnings.push(...warnings);
     if (Object.keys(mcpServers).length === 0) return null;
     const selectedSet = new Set(ctx.manifest.mcp.servers);
@@ -916,6 +1018,12 @@ export abstract class BaseAdapter implements Adapter {
       }
     }
     const filtered: Record<string, CleanMcpEntry> = {};
+    // D11-16: survivors of the _disabled + selection + HTTP-pin filter, keyed
+    // by name, in their raw form (the warn-only validators read private
+    // `_pinned_sha256`/`_trust_bypass`/`_timeout` markers). Per-entry
+    // validateMcpEntry runs inside the loop on each survivor; scanMcpServers
+    // runs once after the loop over the whole survivor set.
+    const survivors: Record<string, McpServerEntry> = {};
     for (const [name, entry] of Object.entries(mcpServers)) {
       if (entry._disabled) continue;
       if (!selectedSet.has(name)) continue;
@@ -930,8 +1038,16 @@ export abstract class BaseAdapter implements Adapter {
         );
         continue;
       }
+      // D11-16: warn-only per-entry validation, scoped to this survivor.
+      this.warnings.push(...validateMcpEntry(name, entry));
+      survivors[name] = entry;
       const { _disabled, _description, ...clean } = entry;
       filtered[name] = clean;
+    }
+    // D11-16: description/tool-poisoning scan, scoped to the emitted survivors
+    // only — never the unselected or disabled remainder of the bundle.
+    if (Object.keys(survivors).length > 0) {
+      this.warnings.push(...scanMcpServers(survivors));
     }
     return Object.keys(filtered).length > 0 ? filtered : null;
   }

@@ -60,7 +60,7 @@ All adapters that support MCP emit tool-specific configuration during `npx hatch
 |------|-------------|--------|-------|
 | Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
 | Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions |
-| Copilot / VS Code | `.vscode/mcp.json` | JSON with `env` object | Env vars passed via `env` object per server |
+| Copilot / VS Code | `.vscode/mcp.json` | JSON, `envFile` + `${input}` | STDIO env via `envFile` (`.env.mcp`); HTTP header secrets via `${input:NAME}` prompts |
 
 ## Connecting MCP Servers
 
@@ -98,7 +98,7 @@ When you add new MCP servers and run `hatch3r init` or `hatch3r sync`, any new v
 
 ### How secrets are loaded per editor
 
-**VS Code / Copilot** -- Env vars are passed via the `env` object in `.vscode/mcp.json`. Source `.env.mcp` before launching or configure vars in VS Code settings.
+**VS Code / Copilot** -- STDIO servers auto-load env from `.env.mcp` via each entry's `envFile` field (VS Code does not shell-expand an inline `env` object). HTTP-transport servers (e.g. the remote GitHub server) send their secret in a header; VS Code does not read header secrets from `.env.mcp`, so those are prompted via `${input:NAME}` variables on first use and cached by VS Code.
 
 **Cursor** -- Source `.env.mcp` before launching:
 
@@ -241,7 +241,7 @@ The adapter capability matrix determines which adapters emit MCP config:
 |---------|-----------|-------------|--------------|
 | Cursor | Yes | `.cursor/mcp.json` | Direct JSON copy |
 | Claude Code | Yes | `.mcp.json` | Direct JSON copy |
-| Copilot / VS Code | Yes | `.vscode/mcp.json` | Env vars via `env` object per server |
+| Copilot / VS Code | Yes | `.vscode/mcp.json` | STDIO env via `envFile`; HTTP header secrets via `${input:NAME}` |
 
 All 3 supported adapters emit MCP config. When you run `hatch3r sync` or `hatch3r config`, every adapter MCP config is regenerated from the resolved source, producing identical server sets across tools.
 

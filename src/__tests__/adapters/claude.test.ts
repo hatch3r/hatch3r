@@ -72,7 +72,10 @@ describe("ClaudeAdapter", () => {
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     const rules = outputs.filter((o) => o.path.startsWith(".claude/rules/"));
-    expect(rules.length).toBe(2);
+    // 2 canonical rule files + 1 D9-2 advisory-hooks rule (FIXTURES_DIR ships a
+    // ci-failure hook, which has no native Claude event and is surfaced as a
+    // `.claude/rules/` advisory note).
+    expect(rules.length).toBe(3);
 
     for (const rule of rules) {
       expect(rule.path).toContain("hatch3r-");
@@ -139,6 +142,47 @@ Applies to API code and protobufs.`,
       expect(rule!.content).toMatch(
         /^---\npaths: \["src\/api\/\*\*", "\*\*\/\*\.proto"\]\n---\n/,
       );
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // D9-6 (P2): canonical `scope: conditional` + `globs:` two-line form (the
+  // companion to the inline-CSV test above). This exercises the
+  // `resolveRuleGlobs` `scope === "conditional"` branch — the path the X4/CD4
+  // GLOBS-DROP regression broke, where every conditional rule (incl.
+  // `floor:security` `hatch3r-security-patterns`) emitted `paths: ["conditional"]`
+  // and the real patterns in the `globs:` field were dropped, so no
+  // `.claude/rules/` rule auto-loaded on its target files. Pins the exact
+  // rendered `paths:` array and asserts the scope keyword never leaks.
+  it("resolves conditional-scoped globs into the paths: array, never the scope keyword", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-conditional-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "conditional-rule.md"),
+        `---
+id: conditional-rule
+type: rule
+description: A conditional-scoped rule
+scope: conditional
+globs: "src/api/**,**/*.proto"
+---
+# Conditional Rule
+
+Applies to API code and protobufs.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const rule = outputs.find((o) => o.path.includes("conditional-rule"));
+      expect(rule).toBeDefined();
+      expect(rule!.content).toMatch(
+        /^---\npaths: \["src\/api\/\*\*", "\*\*\/\*\.proto"\]\n---\n/,
+      );
+      // The scope keyword must not survive into the resolved glob array.
+      expect(rule!.content).not.toContain('"conditional"');
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -216,6 +260,87 @@ Applies to API code and protobufs.`,
     const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
     expect(claudeMd!.content).toContain("## Agent Teams");
     expect(claudeMd!.content).toContain("CLAUDE.local.md");
+  });
+
+  // D9-12 (D9, P3): opt-in AGENTS.md interop — `@AGENTS.md` import line in the
+  // CLAUDE.md managed block when claude.agentsMdInterop is on AND a repo-root
+  // AGENTS.md exists.
+  describe("AGENTS.md interop (D9-12)", () => {
+    async function withTempRepo(
+      files: Record<string, string>,
+      run: (repoRoot: string) => Promise<void>,
+    ): Promise<void> {
+      const repoRoot = await mkdtemp(join(tmpdir(), "hatch3r-agentsmd-"));
+      try {
+        for (const [rel, body] of Object.entries(files)) {
+          const abs = join(repoRoot, rel);
+          await mkdir(dirname(abs), { recursive: true });
+          await writeFile(abs, body, "utf8");
+        }
+        await run(repoRoot);
+      } finally {
+        await rm(repoRoot, { recursive: true, force: true });
+      }
+    }
+
+    function claudeMdContent(outputs: Awaited<ReturnType<typeof adapter.generate>>): string {
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd).toBeDefined();
+      return claudeMd!.content;
+    }
+
+    it("emits @AGENTS.md import when interop is on and AGENTS.md exists", async () => {
+      await withTempRepo({ "AGENTS.md": "# Cross-vendor agent rules\n" }, async (repoRoot) => {
+        const manifest = makeManifest({ claude: { agentsMdInterop: true } });
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot);
+        const content = claudeMdContent(outputs);
+        // The bare import directive is on its own line so Claude Code parses it.
+        expect(content).toMatch(/^@AGENTS\.md$/m);
+        expect(content).toContain("AGENTS.md interop");
+        // Import sits inside the managed block (between the markers).
+        const start = content.indexOf(MANAGED_BLOCK_START);
+        const importIdx = content.indexOf("@AGENTS.md");
+        const end = content.indexOf(MANAGED_BLOCK_END);
+        expect(start).toBeGreaterThanOrEqual(0);
+        expect(importIdx).toBeGreaterThan(start);
+        expect(importIdx).toBeLessThan(end);
+      });
+    });
+
+    it("emits no import when interop is on but no AGENTS.md exists", async () => {
+      await withTempRepo({ "README.md": "no agents file here\n" }, async (repoRoot) => {
+        const manifest = makeManifest({ claude: { agentsMdInterop: true } });
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot);
+        const content = claudeMdContent(outputs);
+        expect(content).not.toContain("@AGENTS.md");
+        expect(content).not.toContain("AGENTS.md interop");
+      });
+    });
+
+    it("emits no import when interop flag is absent even if AGENTS.md exists", async () => {
+      await withTempRepo({ "AGENTS.md": "# present but interop off\n" }, async (repoRoot) => {
+        const manifest = makeManifest(); // no claude.agentsMdInterop
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot);
+        const content = claudeMdContent(outputs);
+        expect(content).not.toContain("@AGENTS.md");
+      });
+    });
+
+    it("emits no import when interop flag is explicitly false", async () => {
+      await withTempRepo({ "AGENTS.md": "# present\n" }, async (repoRoot) => {
+        const manifest = makeManifest({ claude: { agentsMdInterop: false } });
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot);
+        expect(claudeMdContent(outputs)).not.toContain("@AGENTS.md");
+      });
+    });
+
+    it("emits the import in minimal mode too", async () => {
+      await withTempRepo({ "AGENTS.md": "# minimal-mode import\n" }, async (repoRoot) => {
+        const manifest = makeManifest({ claude: { agentsMdInterop: true } });
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, repoRoot, "minimal");
+        expect(claudeMdContent(outputs)).toMatch(/^@AGENTS\.md$/m);
+      });
+    });
   });
 
   it("generates .claude/settings.json with permissions", async () => {
@@ -413,6 +538,147 @@ Applies to API code and protobufs.`,
     expect(pluginEventKeys).toEqual(settingsEventKeys);
   });
 
+  // D5-13 / D5-14 / D9-2 / D11-10 (Cycle 11, P3 + P5): hook event→matcher
+  // mapping correctness. Claude Code matchers are event-specific
+  // (code.claude.com/docs/en/hooks, accessed 2026-06-05): SessionStart matches
+  // the session source; SubagentStart matches agent types; Stop ignores its
+  // matcher; PostToolUse matches tool names. The FIXTURES_DIR ships ci-failure,
+  // post-merge, and session-start hooks, so these assertions exercise the real
+  // emission path.
+  describe("hook event/matcher correctness (D5-13/D5-14/D9-2/D11-10)", () => {
+    it("emits the SessionStart hook with a session-source matcher (startup), not a tool matcher", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      const parsed = JSON.parse(settings!.content);
+      expect(parsed.hooks.SessionStart).toBeDefined();
+      // D5-13: SessionStart honors startup|resume|clear|compact — NOT ".*".
+      const matchers = parsed.hooks.SessionStart.map((e: { matcher: string }) => e.matcher);
+      expect(matchers).toContain("startup");
+      expect(matchers).not.toContain(".*");
+    });
+
+    it("does NOT emit a SubagentStart hook for ci-failure (no native CI event); surfaces it as an advisory rule instead", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      const parsed = JSON.parse(settings!.content);
+      // D11-10/D9-2: the dead SubagentStart+"Bash" mapping is gone. SubagentStart
+      // must not be emitted at all from the ci-failure fixture.
+      expect(parsed.hooks.SubagentStart).toBeUndefined();
+      // The ci-failure hook is re-surfaced as a managed advisory rule.
+      const advisory = outputs.find(
+        (o) => o.path === ".claude/rules/50-hatch3r-advisory-hooks.md",
+      );
+      expect(advisory).toBeDefined();
+      expect(advisory!.content).toContain("ci-failure");
+      expect(advisory!.content).toContain("no native Claude Code event");
+    });
+
+    it("gates the post-merge PostToolUse hook on a `git merge` detection, not every Bash call", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const settings = outputs.find((o) => o.path === ".claude/settings.json");
+      const parsed = JSON.parse(settings!.content);
+      expect(parsed.hooks.PostToolUse).toBeDefined();
+      // D5-14: the post-merge entry's command must guard on a `git merge`
+      // substring so it does not fire on every shell command. The fixture's
+      // post-merge agent is `deploy-agent`.
+      const postMergeEntry = parsed.hooks.PostToolUse.find(
+        (e: { matcher: string; hooks: Array<{ command: string }> }) =>
+          e.matcher === "Bash" && e.hooks[0]!.command.includes("deploy-agent"),
+      );
+      expect(postMergeEntry).toBeDefined();
+      expect(postMergeEntry.hooks[0].command).toContain('grep -q "git merge"');
+    });
+
+    // D5-40 (Cycle 11 Wave 3, D5, P3): the `file-save` hook's `globs` scope must
+    // reach Claude. The matcher field is tool-name-only, so the scope is carried
+    // by the per-handler `if` predicate (Claude Code v2.1.85+, permission-rule
+    // syntax `Write(<glob>)` / `Edit(<glob>)`). Pre-fix the activation fired on
+    // every Write regardless of file type. Isolated temp dir with a file-save
+    // hook so the shared FIXTURES_DIR (no file-save hook) is untouched.
+    it("scopes the file-save hook to its globs via per-handler `if` predicates", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-filesave-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "hooks"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "hooks", "file-save-ctx.md"),
+          `---
+id: file-save-ctx
+type: hook
+event: file-save
+agent: context-rules
+description: Activate context rules on save
+globs: "**/*.ts, **/*.tsx"
+---
+# Hook: file-save
+
+Body.`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        const settings = outputs.find((o) => o.path === ".claude/settings.json");
+        expect(settings).toBeDefined();
+        const parsed = JSON.parse(settings!.content);
+        expect(parsed.hooks.PostToolUse).toBeDefined();
+        // The file-save entry widens the matcher to both file-modifying tools and
+        // carries one `if`-scoped handler per (tool × glob). Find it by agent.
+        const fileSaveEntry = parsed.hooks.PostToolUse.find(
+          (e: { matcher: string; hooks: Array<{ command: string; if?: string }> }) =>
+            e.matcher === "Write|Edit" &&
+            e.hooks.some((h) => h.command.includes("context-rules")),
+        );
+        expect(fileSaveEntry).toBeDefined();
+        const predicates = fileSaveEntry.hooks.map((h: { if?: string }) => h.if);
+        // Both tools × both globs, scoped — never an unscoped (if-less) handler.
+        expect(predicates).toContain("Write(**/*.ts)");
+        expect(predicates).toContain("Edit(**/*.ts)");
+        expect(predicates).toContain("Write(**/*.tsx)");
+        expect(predicates).toContain("Edit(**/*.tsx)");
+        expect(predicates).not.toContain(undefined);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    // D5-40 regression sentinel: a file-save hook with NO globs keeps the
+    // single unscoped Write handler (no `if`, no matcher widening) — the
+    // `if`-translation only triggers when a glob scope is declared.
+    it("file-save hook without globs emits a single unscoped Write handler", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-filesave-noglob-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "hooks"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "hooks", "file-save-bare.md"),
+          `---
+id: file-save-bare
+type: hook
+event: file-save
+agent: context-rules
+description: Activate context rules on save
+---
+# Hook: file-save
+
+Body.`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        const settings = outputs.find((o) => o.path === ".claude/settings.json");
+        const parsed = JSON.parse(settings!.content);
+        const bareEntry = parsed.hooks.PostToolUse.find(
+          (e: { matcher: string; hooks: Array<{ command: string; if?: string }> }) =>
+            e.matcher === "Write" &&
+            e.hooks.some((h) => h.command.includes("context-rules")),
+        );
+        expect(bareEntry).toBeDefined();
+        expect(bareEntry.hooks).toHaveLength(1);
+        expect(bareEntry.hooks[0].if).toBeUndefined();
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   it("generates skill files in .claude/skills/", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -438,10 +704,12 @@ Applies to API code and protobufs.`,
     expect(parsed.mcpServers.github).toBeDefined();
   });
 
-  // F17.2.3 (D17, P3): generated .mcp.json declares an explicit MCP protocol
-  // version (most-recent stable revision by default) so the config pins to a
-  // known revision ahead of the 2026-07-28 RC GA, instead of leaving the
-  // field absent.
+  // F17.2.3 (D17, P3) / D9-9 (Cycle 11, D9, P3): generated .mcp.json carries a
+  // top-level `protocolVersion` ADVISORY marker (most-recent stable revision by
+  // default) recording the revision the operator targets. It is not consumed by
+  // the Claude MCP loader (top-level schema is `mcpServers` only,
+  // code.claude.com/docs/en/mcp accessed 2026-06-09) — these tests pin that the
+  // marker is emitted and honors the manifest override, not a handshake effect.
   it("emits protocolVersion (default stable revision) in .mcp.json", async () => {
     const manifest = makeManifest({ mcpServers: ["github"] });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -768,7 +1036,13 @@ Applies to API code and protobufs.`,
     expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=claude-sonnet-4-6");
   });
 
-  it("emits model as recommended model guidance when configured via manifest", async () => {
+  it("omits native model: frontmatter for a non-Claude model, keeping only advisory prose", async () => {
+    // D9-3 (Cycle 11, P3 + P5): Claude Code's subagent `model:` field accepts
+    // ONLY a Claude-recognizable value (sonnet/opus/haiku, a `claude-*` ID, or
+    // inherit). A non-Claude model (here `gpt-4`) MUST NOT be written into the
+    // native field — Claude rejects an unknown ID (hard error or silent
+    // default fallback). The preference is surfaced as `## Recommended Model`
+    // prose only.
     const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-model-"));
     try {
       const agentsDir = join(tempDir, "agents");
@@ -792,11 +1066,38 @@ You are a test agent.`,
 
       const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
       expect(agentFile).toBeDefined();
-      // D9-H-1: native `model:` frontmatter from the manifest per-agent model.
-      expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: gpt-4\n[\s\S]*?---/);
+      // The native `model:` field must be ABSENT for a non-Claude model.
+      const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      expect(fmMatch![1]).not.toMatch(/^model:/m);
+      // Advisory prose still documents the preference + override path.
       expect(agentFile!.content).toContain("## Recommended Model");
       expect(agentFile!.content).toContain("Preferred: `gpt-4`");
       expect(agentFile!.content).toContain("CLAUDE_CODE_SUBAGENT_MODEL=gpt-4");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("emits native model: frontmatter for a Claude alias / claude-* ID", async () => {
+    // D9-3 (Cycle 11): the complement of the non-Claude case — a recognizable
+    // value (alias `opus` or a `claude-*` ID) IS written into the native field.
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-model-ok-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "test-agent.md"),
+        `---\nid: test-agent\ntype: agent\ndescription: A test agent\n---\n# Test Agent\n\nYou are a test agent.`,
+        "utf-8",
+      );
+      // `opus` is a Claude alias → expands to `claude-opus-4-8` (a `claude-*` ID).
+      const manifest = makeManifest({ models: { agents: { "test-agent": "opus" } } });
+      const outputs = await adapter.generate(agentsDir, manifest);
+      const agentFile = outputs.find((o) => o.path === ".claude/agents/hatch3r-test-agent.md");
+      expect(agentFile).toBeDefined();
+      expect(agentFile!.content).toMatch(/^---\n[\s\S]*\nmodel: claude-opus-4-8\n[\s\S]*?---/);
+      expect(agentFile!.content).toContain("Preferred: `claude-opus-4-8`");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -1065,6 +1366,129 @@ Low priority rule body.
       const fm = fmMatch![1];
       expect(fm).not.toContain("tools:");
       expect(fm).toContain("description:");
+    });
+
+    // D9-11 (Cycle 11 Wave 3, D9, P3): a read-only-role agent (policy lacks
+    // write+execute) emits `permissionMode: plan` — the Claude analog of the
+    // Cursor `readonly: true` primitive. Producer agents (write/execute) and
+    // user agents (no policy) omit the field and inherit the parent mode.
+    it("emits permissionMode: plan for the read-only hatch3r-reviewer", async () => {
+      const outputs = await runWithAgent("reviewer", "# Reviewer");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-reviewer.md",
+      );
+      expect(file).toBeDefined();
+      const fm = file!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).toContain("permissionMode: plan");
+    });
+
+    it("omits permissionMode for the writer hatch3r-implementer", async () => {
+      const outputs = await runWithAgent("implementer", "# Implementer");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-implementer.md",
+      );
+      expect(file).toBeDefined();
+      const fm = file!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).not.toContain("permissionMode");
+    });
+
+    it("omits permissionMode for a custom agent without a registered policy", async () => {
+      const outputs = await runWithAgent("custom-agent", "# Custom");
+      const file = outputs.find(
+        (o) => o.path === ".claude/agents/hatch3r-custom-agent.md",
+      );
+      expect(file).toBeDefined();
+      const fm = file!.content.match(/^---\n([\s\S]*?)\n---/)![1];
+      expect(fm).not.toContain("permissionMode");
+    });
+  });
+
+  // D15-3 (Cycle 11, P6 / ASI02-03): a canonical agent's short-form
+  // `tools: { allow, deny }` deny envelope must SURVIVE into the generated
+  // Claude agent file. Pre-fix the list was parsed and dropped — the file
+  // rebuilt frontmatter from the coarse policy allowlist only (SA15.3-F1).
+  // Top-level denies (Write/Edit/MultiEdit) → native `disallowedTools:`;
+  // granular `Bash:<subcommand>` denies → `## Tool Restrictions` body block
+  // (Claude subagent frontmatter cannot express per-subcommand Bash scope).
+  describe("D15-3 short-form tools.deny round-trip", () => {
+    async function runWithToolsAgent(): Promise<
+      Awaited<ReturnType<typeof adapter.generate>>
+    > {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-deny-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      // Mirror the dependency-drafter shape: top-level + granular Bash denies.
+      await writeFile(
+        join(agentsDir, "agents", "drafter.md"),
+        [
+          "---",
+          "id: drafter",
+          "type: agent",
+          "description: A drafter agent",
+          "tools:",
+          '  allow: [Read, Grep, Glob, "Bash:git status", "Bash:git log"]',
+          '  deny: [Write, Edit, MultiEdit, "Bash:git commit", "Bash:git push"]',
+          "---",
+          "# Drafter",
+          "",
+          "You draft proposals.",
+          "",
+        ].join("\n"),
+        "utf-8",
+      );
+      try {
+        return await adapter.generate(agentsDir, makeManifest());
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("re-emits top-level denies as native disallowedTools: frontmatter", async () => {
+      const outputs = await runWithToolsAgent();
+      const file = outputs.find((o) => o.path === ".claude/agents/hatch3r-drafter.md");
+      expect(file).toBeDefined();
+      const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const fm = fmMatch![1];
+      expect(fm).toMatch(/^disallowedTools:/m);
+      // Every top-level deny survives into the native denylist field.
+      expect(fm).toContain("Write");
+      expect(fm).toContain("Edit");
+      expect(fm).toContain("MultiEdit");
+    });
+
+    it("re-emits granular Bash subcommand denies as a Tool Restrictions block", async () => {
+      const outputs = await runWithToolsAgent();
+      const file = outputs.find((o) => o.path === ".claude/agents/hatch3r-drafter.md");
+      expect(file).toBeDefined();
+      expect(file!.content).toContain("## Tool Restrictions");
+      // Every granular Bash:git* deny survives into the body block.
+      expect(file!.content).toContain("Bash:git commit");
+      expect(file!.content).toContain("Bash:git push");
+      // The granular allows are documented too.
+      expect(file!.content).toContain("Bash:git status");
+    });
+
+    it("does not emit disallowedTools or a restrictions block for an agent without a tools grant", async () => {
+      // Regression guard: agents with no short-form tools.deny stay unchanged.
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-noden-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "plain-agent.md"),
+        `---\nid: plain-agent\ntype: agent\ndescription: A plain agent\n---\n# Plain\n\nPlain body.`,
+        "utf-8",
+      );
+      try {
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        const file = outputs.find((o) => o.path === ".claude/agents/hatch3r-plain-agent.md");
+        expect(file).toBeDefined();
+        const fmMatch = file!.content.match(/^---\n([\s\S]*?)\n---/);
+        expect(fmMatch![1]).not.toContain("disallowedTools:");
+        expect(file!.content).not.toContain("## Tool Restrictions");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
     });
   });
 
@@ -1546,6 +1970,108 @@ Low priority rule body.
   // AbortSignal; `BaseAdapter.throwIfSignalAborted` is the documented
   // contract (see src/adapters/base.ts:321). Pin the contract here so any
   // future change that silently swallows the signal cannot regress.
+  // D14-9 (D14, P3 / Decision 16): `claudeMaturityHeader` stamps the resolved
+  // maturity tier atop the CLAUDE.md managed block. Pre-fix CLAUDE.md was
+  // byte-identical across tiers (an enterprise install matched a solo install),
+  // so the declared tier never reached the agent that reads CLAUDE.md as
+  // memory. The directive is delivered at EVERY tier (solo→enterprise), in both
+  // standard and minimal modes, and always points at
+  // `rules/hatch3r-right-sizing.md` — parity with cursor.ts/copilot.ts.
+  describe("maturity right-sizing header (D14-9)", () => {
+    const tiers = ["solo", "team", "scaleup", "enterprise"] as const;
+
+    for (const tier of tiers) {
+      it(`stamps right-size to maturity=${tier} + rule pointer atop CLAUDE.md`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), maturity: tier };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+        expect(claudeMd).toBeDefined();
+        expect(claudeMd!.content).toContain(`right-size to maturity=${tier}`);
+        expect(claudeMd!.content).toContain("rules/hatch3r-right-sizing.md");
+        // The stamp lives inside the hatch3r-managed block.
+        const startIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_START);
+        const stampIdx = claudeMd!.content.indexOf(`right-size to maturity=${tier}`);
+        const endIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_END);
+        expect(startIdx).toBeLessThan(stampIdx);
+        expect(stampIdx).toBeLessThan(endIdx);
+      });
+    }
+
+    it("collapses an absent maturity field to solo (DEFAULT_MATURITY_TIER)", async () => {
+      const manifest = makeManifest();
+      expect(manifest.maturity).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("right-size to maturity=solo");
+    });
+
+    it("stamps the tier in minimal mode too", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "minimal");
+
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("right-size to maturity=enterprise");
+      expect(claudeMd!.content).toContain("rules/hatch3r-right-sizing.md");
+    });
+  });
+
+  // D1-17 (Cycle 11 Wave 3, D1, P1): `claudeConfidenceFloorHeader` stamps the
+  // resolved confidence floor atop CLAUDE.md alongside the maturity marker.
+  // Pre-fix the persisted `confidenceFloor` config key reached no adapter output
+  // (write-only key). An explicit floor wins; an absent floor resolves to the
+  // maturity-aware default (solo/team → any, scaleup/enterprise → high).
+  describe("confidence-floor header (D1-17)", () => {
+    for (const floor of ["any", "medium", "high"] as const) {
+      it(`stamps an explicit confidence floor=${floor} inside the managed block`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: floor };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+        expect(claudeMd).toBeDefined();
+        expect(claudeMd!.content).toContain(`confidence floor=${floor}`);
+        const startIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_START);
+        const stampIdx = claudeMd!.content.indexOf(`confidence floor=${floor}`);
+        const endIdx = claudeMd!.content.indexOf(MANAGED_BLOCK_END);
+        expect(startIdx).toBeLessThan(stampIdx);
+        expect(stampIdx).toBeLessThan(endIdx);
+      });
+    }
+
+    it("an explicit floor overrides the maturity-derived default", async () => {
+      // enterprise would default to "high"; explicit "any" must win.
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise", confidenceFloor: "any" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("confidence floor=any");
+      expect(claudeMd!.content).not.toContain("confidence floor=high");
+    });
+
+    it("resolves an absent floor to the maturity-aware default (enterprise → high)", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+      expect(manifest.confidenceFloor).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("confidence floor=high");
+    });
+
+    it("resolves an absent floor to any on solo (the default tier)", async () => {
+      const manifest = makeManifest();
+      expect(manifest.confidenceFloor).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("confidence floor=any");
+    });
+
+    it("stamps the floor in minimal mode too", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: "high" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "minimal");
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      expect(claudeMd!.content).toContain("confidence floor=high");
+    });
+  });
+
   describe("error paths", () => {
     it("rejects with the abort reason when the signal is pre-aborted", async () => {
       const manifest = makeManifest();

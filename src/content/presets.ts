@@ -27,6 +27,32 @@ export type PresetId =
  * Capability tags admitted as preset positive-list entries. Floor tags
  * (`floor:*`) are deliberately NOT included here — floor admission is a
  * structural invariant of `resolveSelection` and bypasses preset config.
+ *
+ * Deliberate narrowing (D2-20, Cycle 11 Wave 3): `tags.ts::TAG_REGISTRY` marks
+ * 44 distinct tag values as facet `"capability"`, but this union — and every
+ * `preset.capabilities` array below — lists only 9 of them (the lifecycle
+ * clusters: planning, implementation, review, devops, maintenance,
+ * orchestration, board, performance, ai). The other 35 capability-facet tags
+ * (e.g. `security`, `reliability`, `testing`, `accessibility`, `spec`,
+ * `migration`, `telemetry`, `proof`, `playwright`, …) are sub-facet refinements
+ * that describe WHAT a content-quality or work-type artifact does within a
+ * cluster; canonical artifacts carrying them ALSO carry either a `floor:*` tag
+ * (the CQ specialists are `floor:content-quality`; security artifacts are
+ * `floor:security`) or one of the 9 primary capability tags, so they are
+ * admitted via floor admission (stage 2) or the 9-tag capability gate (stage 3)
+ * regardless of the 35 refinement tags. Adding a refinement tag to this union
+ * is therefore unnecessary AND would over-admit: a refinement-only preset would
+ * shape a non-lifecycle slice the picker has no concept of.
+ *
+ * The unguarded risk this narrowing creates: an artifact whose ONLY capability
+ * tags fall in the 35-tag refinement set, with no `floor:*` tag and
+ * `protected !== true`, intersects no preset's `capabilities` and is dropped by
+ * EVERY preset including `full` (a silent corpus hole — `full` is meant to ship
+ * everything). The corpus currently has 0 such orphans. The
+ * "every canonical artifact is admitted by `full` OR floor-tagged OR protected"
+ * guard in `src/__tests__/content/compound.test.ts` fails the build the moment
+ * one is introduced, converting the silent drop into a CI failure that names the
+ * offending file.
  */
 export type CapabilityTag =
   | typeof TAG_PLANNING
@@ -81,13 +107,19 @@ export interface ContentPreset {
    */
   excludeIds?: ReadonlyArray<string>;
   /**
-   * Human-readable names of the capability clusters this preset OMITS relative
-   * to `full` (the capability superset). Lets the prompt renderer name what a
-   * preset drops — e.g. "AI feature engineering", "performance" — instead of
-   * only emitting a `(excludes N of M)` count (D10 F10.6-1 / F10.6-10). Empty
-   * for `full` (omits nothing) and `custom` (user picks; nothing is implied).
+   * Human-readable names of the capability clusters this preset's positive
+   * `capabilities` list does NOT request relative to `full` — the capability
+   * *intent* gap (e.g. "AI feature engineering", "performance"). Empty for
+   * `full` (requests everything) and `custom` (user picks; nothing implied).
    * Derived from the gap between this preset's `capabilities` and `full`'s; see
    * `omittedCapabilityClusters` for the audited invariant tying the two.
+   *
+   * D10-12 (Cycle 11 Wave 2): this is intent, not realized exclusion. Floor
+   * admission ships every `floor:*` item regardless of preset, so a cluster
+   * named here can still ship most of its members. The picker's user-facing
+   * "omits:" line is computed from the realized post-floor delta by
+   * `presetOmittedClusters` (`content/index.ts`), NOT from this field. Kept for
+   * the dial/intent view and the anti-drift length invariant.
    */
   omits: ReadonlyArray<string>;
 }
@@ -97,9 +129,10 @@ export const PRESETS: ContentPreset[] = [
     id: "minimal",
     name: "Minimal",
     description:
-      "Core orchestration pipeline plus the security & UI/UX floor. " +
-      "Drops planning, review, devops, maintenance, board, AI, and " +
-      "performance — pick Standard or Full to add them.",
+      "Capability dial set to the core orchestration pipeline, plus the " +
+      "security, UI/UX & content-quality floor (ships at every tier). " +
+      "Non-floor planning/review/devops/board helpers are off — pick " +
+      "Standard or Full to dial them in.",
     capabilities: [TAG_ORCHESTRATION, TAG_IMPLEMENTATION],
     includeCustomize: false,
     omits: [
@@ -117,8 +150,9 @@ export const PRESETS: ContentPreset[] = [
     name: "Standard (recommended)",
     description:
       "Full development lifecycle (planning, implementation, review, devops, " +
-      "maintenance, board, customize) plus the security & UI/UX floor. Drops " +
-      "AI feature engineering + performance — pick Full if you need those.",
+      "maintenance, board, customize) plus the security, UI/UX & " +
+      "content-quality floor. The performance and AI feature-engineering dials " +
+      "are off — pick Full to turn them on.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_PLANNING,
@@ -136,7 +170,8 @@ export const PRESETS: ContentPreset[] = [
     name: "Full",
     description:
       "Everything — every capability including AI feature engineering and " +
-      "performance, plus floor and customize.",
+      "performance, plus the security, UI/UX & content-quality floor and " +
+      "customize.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_PLANNING,
@@ -168,7 +203,8 @@ export const PRESETS: ContentPreset[] = [
     name: "Web App",
     description:
       "Full-stack web archetype — the whole lifecycle including board + " +
-      "performance, plus the floor. Drops AI feature engineering vs Full.",
+      "performance, plus the security, UI/UX & content-quality floor. The AI " +
+      "feature-engineering dial is off vs Full.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_PLANNING,
@@ -187,7 +223,8 @@ export const PRESETS: ContentPreset[] = [
     name: "API Service",
     description:
       "Backend-service archetype — lifecycle with performance, plus the " +
-      "floor. Drops board + AI feature engineering vs Full.",
+      "security, UI/UX & content-quality floor. The board and AI " +
+      "feature-engineering dials are off vs Full.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_PLANNING,
@@ -205,7 +242,8 @@ export const PRESETS: ContentPreset[] = [
     name: "CLI Tool",
     description:
       "Command-line-tool archetype — planning through devops + maintenance, " +
-      "plus the floor. Drops board + performance + AI feature engineering vs Full.",
+      "plus the security, UI/UX & content-quality floor. The board, " +
+      "performance, and AI feature-engineering dials are off vs Full.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_PLANNING,
@@ -222,7 +260,8 @@ export const PRESETS: ContentPreset[] = [
     name: "Monorepo",
     description:
       "Multi-package-workspace archetype — every capability (the Full " +
-      "superset) plus the floor. Drops nothing vs Full.",
+      "superset) plus the security, UI/UX & content-quality floor. Drops " +
+      "nothing vs Full.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_PLANNING,
@@ -243,8 +282,9 @@ export const PRESETS: ContentPreset[] = [
     name: "Legacy / Brownfield",
     description:
       "Brownfield-maintenance archetype — implementation through devops + " +
-      "maintenance, plus the floor. Drops planning + board + performance + " +
-      "AI feature engineering vs Full.",
+      "maintenance, plus the security, UI/UX & content-quality floor. The " +
+      "planning, board, performance, and AI feature-engineering dials are off " +
+      "vs Full.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_IMPLEMENTATION,
@@ -260,8 +300,9 @@ export const PRESETS: ContentPreset[] = [
     name: "Security-Focused",
     description:
       "Security review + hardening archetype — implementation, review, " +
-      "maintenance, plus the floor:security + content-quality specialists. " +
-      "Drops planning + devops + board + performance + AI feature engineering vs Full.",
+      "maintenance, plus the security, UI/UX & content-quality floor. The " +
+      "planning, devops, board, performance, and AI feature-engineering dials " +
+      "are off vs Full.",
     capabilities: [
       TAG_ORCHESTRATION,
       TAG_IMPLEMENTATION,
@@ -328,16 +369,30 @@ export function resolvePresetArg(arg: string): ContentPreset {
  * Capability tags carried by `full` — the capability superset every other
  * preset is measured against. `custom` is excluded from the comparison set
  * because it carries no implied capabilities (the user picks explicitly).
+ * Exported so the realized-exclusion derivation in `content/index.ts`
+ * (`presetOmittedClusters`) can order its cluster labels in the same
+ * superset order without redefining the list (P4 single-source-of-truth).
  */
-const FULL_CAPABILITY_SUPERSET: ReadonlyArray<CapabilityTag> =
+export const FULL_CAPABILITY_SUPERSET: ReadonlyArray<CapabilityTag> =
   PRESETS.find((p) => p.id === "full")?.capabilities ?? [];
 
 /**
- * Capability tags this preset drops relative to `full`. The single source of
- * truth tying the human-readable `omits` labels to the actual `capabilities`
- * arrays so the two cannot silently diverge (D10 F10.6-1: exclusion data must
- * be derivable, not implicit). `full` returns `[]`; `custom` returns `[]`
- * (no implied capabilities to omit). Verified against `omits` length in
+ * Capability *intent* tags this preset drops relative to `full` — the
+ * capability clusters absent from the preset's positive `capabilities` list.
+ * The single source of truth tying the human-readable `omits` labels to the
+ * actual `capabilities` arrays so the two cannot silently diverge (D10 F10.6-1:
+ * exclusion data must be derivable). `full` returns `[]`; `custom` returns `[]`.
+ *
+ * D10-12 (Cycle 11 Wave 2): this is the capability *intent* gap, NOT the set of
+ * clusters whose items are actually dropped from a generated repo. Floor
+ * admission (`resolveSelection` stage 2) ships every `floor:*`-tagged item for
+ * every preset, so a cluster listed here (e.g. "review" under `minimal`) can
+ * still have most of its members shipped via floor — making this an over-count
+ * of realized exclusion. The user-facing picker line is driven by
+ * `presetOmittedClusters(preset, index)` in `content/index.ts`, which computes
+ * the realized post-floor selection delta. Keep this function for the
+ * intent/dial view + the anti-drift `omits`-length invariant; do not render it
+ * to users as "what gets dropped". Verified in
  * `src/__tests__/content/presets.test.ts`.
  */
 export function omittedCapabilityClusters(
@@ -353,10 +408,11 @@ export function omittedCapabilityClusters(
  * arrays and prompt-renderer exclusion text. Every capability is its own
  * label except `TAG_AI`, which expands to "AI feature engineering" (the bare
  * tag value "ai" reads as an acronym in the picker). Single source of truth so
- * the hand-written `omits` labels and `composePresets`-derived labels stay in
- * lockstep with `omittedCapabilityClusters`.
+ * the hand-written `omits` labels, `composePresets`-derived labels, and the
+ * realized-exclusion labels in `content/index.ts` (`presetOmittedClusters`)
+ * stay in lockstep. Exported (not file-private) for that third consumer.
  */
-function capabilityLabel(cap: CapabilityTag): string {
+export function capabilityLabel(cap: CapabilityTag): string {
   return cap === TAG_AI ? "AI feature engineering" : cap;
 }
 

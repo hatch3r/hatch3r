@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 ## Agent Pipeline
 
@@ -449,6 +449,35 @@ Confirm, or tell me what to adjust."
 
 ---
 
+### Step 7.5: Deterministic Plan-Lint (Evaluator gate before write)
+
+Steps 3-4 are the Planner (researchers) and Steps 5-7 are the Generator (spec/ADR/todo drafting). Before any file is written in Step 8, run an Evaluator pass over the drafted plan — the third role of Anthropic's Planner/Generator/Evaluator pattern (the gather-context → take-action → verify-work loop in `agents/shared/quality-charter.md`). The human ASK checkpoints in Steps 4-7 catch judgment-level disagreements; this gate catches structural defects the human eye skips on a long spec. It is rules-based (string/reference assertions over the drafted artifacts), not LLM-as-judge — the `rules-based > visual > LLM-as-judge` hierarchy applies, so each assertion below either passes or names the offending row.
+
+Run all three assertions against the drafted spec (Step 5), ADR(s) (Step 6), and todo entries (Step 7). Each is a binary predicate over text already drafted; none require re-invoking a sub-agent.
+
+| # | Assertion | Pass condition | Fail action |
+|---|-----------|----------------|-------------|
+| L1 | **Acceptance criteria are testable predicates.** Every cell in the Sub-Features `Acceptance Criteria` column (Step 5) and every acceptance-criteria summary in a todo entry (Step 7) states an observable subject plus a verifiable condition. | No criterion is a bare adjective or unfalsifiable phrase (`works`, `is fast`, `handles errors`, `looks good`, `as expected`) with no measurable subject + condition. A criterion phrased as a checklist item with a concrete trigger and outcome passes. | List each non-testable criterion by sub-feature title; rewrite it as `given <state>, when <action>, then <observable outcome>` (or a measurable threshold) before proceeding. |
+| L2 | **Every `Depends On` resolves to a listed prerequisite.** Each entry in the spec Dependencies table `Depends On` column (Step 5) and each "depends on N" reference in the Implementation Order maps to either another sub-feature/sub-task listed in this spec, an entry in the same Dependencies table, or a named existing artifact marked `Status: Exists`. | Zero dangling dependencies — no `Depends On` value that names nothing in the spec and is not flagged `Needs building` or `Exists`. | Name each unresolved dependency and its source row; add the missing prerequisite to the Dependencies table (with `Type` + `Status`) or correct the reference before proceeding. |
+| L3 | **Edge Cases carry zero empty `expected behavior`.** Every row in the spec `## Edge Cases` section (Step 5) and every row of an Edge-Case Ledger carried from `hatch3r-architect` / `agents/hatch3r-edge-case-analyst.md` has a non-empty `expected behavior` value. | No edge case is listed with a blank, `{expected behavior}` placeholder, or `TBD`/`TODO` expected-behavior cell. | List each edge case with a missing `expected behavior`; fill it from the risk-assessment researcher output, or move the row to `Out of Scope` with a one-line justification before proceeding. |
+
+Emit the lint verdict with the spec-readiness confidence rating per the Confidence Propagation Contract:
+
+```
+plan_lint:
+  L1_testable_acceptance_criteria: pass | fail (<N> non-testable: <titles>)
+  L2_dependencies_resolve:         pass | fail (<N> dangling: <names>)
+  L3_edge_cases_have_expected:     pass | fail (<N> empty: <ids>)
+  verdict: pass | fail
+  confidence: high | medium | low   # sourced from upstream researcher confidence per the Confidence Propagation Contract
+```
+
+**On `fail`:** do not advance to Step 8. Apply the per-assertion Fail action above to repair the drafted content in place, re-present the corrected rows under the relevant Step 5-7 ASK, then re-run this gate. A failing plan-lint is never written to disk — the gate is the last checkpoint before mutation, so structural defects cannot reach the implementer.
+
+**On `pass`:** proceed to Step 8.
+
+---
+
 ### Step 8: Write All Files
 
 After all content is confirmed:
@@ -484,40 +513,17 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 
 feature-plan is long-running — a Tier 3 cross-cutting feature fans out four parallel hatch3r-researcher modes (codebase-impact, feature-design, architecture, risk-pitfalls) in Step 3, then assembles the spec via docs-writer with the 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) advising pre-write on the measurable floors the spec must encode. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the four-researcher + nine-specialist fan-out.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.feature-plan-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 8 progression), `wave` (researcher-batch index, then CQ-specialist-batch index), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, featureSlug }`.
-2. **Write points:** after Step 1 feature-brief context locks, after Step 2 scope ASK, after the Step 3 four-researcher fan-out returns, after the CQ-specialist advisory batch returns, after Step 4 spec synthesis is confirmed by ASK, after each Step 5 file write (`docs/specs/`, `docs/adr/`), after Step 6 todo.md epic + sub-item generation, and after the optional Step 7 chain-to-`hatch3r-board-fill` handoff.
-3. **`--resume` invocation:** `hatch3r-feature-plan --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / `docs/specs/` / `docs/adr/` / `todo.md` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of `docs/specs/`, `docs/adr/`, and `todo.md` land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.feature-plan-workspace/`; step range Step 0 → Step 8; `wave` = researcher-batch index, then CQ-specialist-batch index; doc dirs `docs/specs/`, `docs/adr/`, `todo.md`; `meta` adds `featureSlug`. Write points: after Step 1 feature-brief context locks, after Step 2 scope ASK, after the Step 3 four-researcher fan-out returns, after the CQ-specialist advisory batch returns, after Step 4 spec synthesis is confirmed by ASK, after each Step 5 file write, after Step 6 todo.md epic + sub-item generation, and after the optional Step 7 chain-to-`hatch3r-board-fill` handoff.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for feature-plan: `1` = feature intake + scope decomposition, `2` = researcher/spec sub-agent dispatch, `3` = plan synthesis + acceptance-criteria drafting, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for feature-plan: `1` = feature intake + scope decomposition, `2` = researcher/spec sub-agent dispatch, `3` = plan synthesis + acceptance-criteria drafting + Step 7.5 deterministic plan-lint (Evaluator gate), `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (plan document, sub-plan files, criteria spec) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path>: via <hatch3r-agent-name> (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: plan document, sub-plan files, criteria spec.
 
 ## Iteration Summary (mandatory output)
 
@@ -537,18 +543,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 
@@ -558,6 +553,12 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Post-execution `cost_actuals` + `delta`** — appended to the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
 
 Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 13` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 2 (reduced researcher set + docs-writer); Tier 2 ≈ 6; Tier 3 up to 13 (4-5 parallel researcher modes + docs-writer + the 9 CQ vector specialists advising pre-write). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+
+---
+
+## References
+
+- Anthropic. "Building agents with the Claude Agent SDK." `https://www.anthropic.com/engineering/building-agents-with-the-claude-agent-sdk` (accessed 2026-06-06, Anthropic engineering, official-vendor). Source for the Planner/Generator/Evaluator decomposition and the gather-context → take-action → verify-work loop behind Step 7.5: the Evaluator role evaluates the drafted plan before execution, and the `rules-based > visual > LLM-as-judge` hierarchy is why the Step 7.5 plan-lint is binary string/reference assertions rather than an LLM critique.
 
 ---
 
@@ -574,6 +575,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 - **Never skip ASK checkpoints.** Every step with an ASK must pause for user confirmation.
 - **Never write files without user review and confirmation.** All generated content is presented first.
+- **Never write files on a failing Step 7.5 plan-lint.** The Evaluator gate (acceptance criteria testable, dependencies resolve, edge cases carry expected behavior) must report `verdict: pass` before Step 8 — repair the drafted content and re-run the gate; a failing plan never reaches the implementer.
 - **Always delegate research to the hatch3r-researcher agent protocol.** Researcher sub-agents handle Context7 MCP, web research, and the tooling hierarchy internally.
 - **Stay within the feature scope** defined by the user in Step 1. Do not invent sub-features the user did not describe or imply. Flag scope expansion opportunities but do not act on them without explicit approval.
 - **todo.md must be compatible with board-fill format** — markdown checklist with bold titles, grouped by priority, referencing source specs.

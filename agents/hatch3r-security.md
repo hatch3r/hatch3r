@@ -105,6 +105,8 @@ See `agents/shared/quality-specialist-frame.md` → §External Knowledge.
 
 **Web research focus:** CVE feeds (GitHub Security Advisories, OSV, npm advisory database) ≤90 days per CONSTITUTION §2 P3; OWASP ASI current revision; vendor security advisories (Auth0, Okta, Microsoft Entra, AWS Cognito, Cloudflare); IETF/W3C standards (OAuth 2.1 `draft-ietf-oauth-v2-1-15`, WebAuthn Level 3, RFC 9449 DPoP, RFC 8725 JWT BCP, RFC 9745); CycloneDX 1.6/1.7 schema changes including CBOM.
 
+**Per-cycle web-research line (checklist item 9, refresh each audit cycle):** re-fetch the OWASP Agentic Skills Top 10 (Dec 2025 baseline) for revision changes, and re-check the AST02 config-as-execution-layer CVE class — CVE-2025-59536 and CVE-2026-21852 (Claude Code) — plus any newer skill/MCP/config-execution advisory ≤90 days, recording each with its access date in `## References`.
+
 ## Confidence Expression
 
 See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ3-specific basis:
@@ -115,7 +117,7 @@ See `agents/shared/quality-specialist-frame.md` → §Confidence Expression. CQ3
 
 ## Sub-agent delegation
 
-See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-domain audits run in parallel per `.claude/rules/fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ3 unit of decomposition: **security domain**. Default decomposition: (a) authentication flows (OAuth 2.1 + OIDC + DPoP + JWT BCP + cookies), (b) WebAuthn server ceremony, (c) supply-chain floor (SBOM + provenance + SHA-pin + cosign + license allow-list), (d) OWASP ASI01-10 control coverage on agent-produced code, (e) CVE advisory acknowledgement. Cross-cutting analysis (session-fixation spanning auth + cookie + WebAuthn) runs after per-domain audits complete.
+See `agents/shared/quality-specialist-frame.md` → §Sub-agent delegation (cost-dominance, wall-clock advisory, attestation included). Independent per-domain audits run in parallel per `rules/hatch3r-fan-out-discipline.md` (P8 B2); token cost is never a serialization justification. CQ3 unit of decomposition: **security domain**. Default decomposition: (a) authentication flows (OAuth 2.1 + OIDC + DPoP + JWT BCP + cookies), (b) WebAuthn server ceremony, (c) supply-chain floor (SBOM + provenance + SHA-pin + cosign + license allow-list), (d) OWASP ASI01-10 control coverage on agent-produced code, (e) CVE advisory acknowledgement. Cross-cutting analysis (session-fixation spanning auth + cookie + WebAuthn) runs after per-domain audits complete.
 
 ## Audit checklist
 
@@ -129,6 +131,7 @@ Each item produces `pass | fail | n/a` plus an evidence row in `findings[]`. Ref
 6. **WebAuthn server ceremony.** Challenge cached server-side with TTL ≤300 s and single-use marker; `origin` allowlist verified at assertion; RP-ID hash matched against expected value; signature validated against credential public key; signature counter strictly greater than stored value (replay guard); `user.id` is a server-side opaque identifier (NOT email or username). Reference: W3C WebAuthn Level 3 §7.
 7. **Cookie security flags.** Every auth cookie carries `__Host-` prefix + `HttpOnly` + `Secure` + `SameSite=Strict|Lax`; `SameSite=None` paired with `Partitioned` (CHIPS) only when the cross-site context is documented. Reference: RFC 6265bis + CHIPS draft.
 8. **OWASP ASI01-10 + CVE acknowledgement.** Every agent-produced module passes the current OWASP ASI revision check (100% control coverage); CVE advisories ≤90 days old that match any project dependency are acknowledged in the finding registry with a `mitigated` OR `accepted` verdict and an evidence URL. Reference: OWASP Foundation + GitHub Security Advisories + OSV.
+9. **OWASP Agentic Skills Top 10 — distributed-skill provenance + config-as-code execution.** This is the attack class hatch3r-produced artifacts (skills, hooks, MCP entries, slash commands) themselves belong to, so it gates both reviewed code and any pack the project installs. **AST01 (Malicious Skills):** every installed skill/pack carries a verified provenance chain — npm provenance (`npm audit signatures`) or Sigstore `cosign verify-blob` — at the declared trust tier per `governance/pack-trust-model.md` §1 (trust-tier table); an unsigned skill from an unverified source is a `fail`. **AST02 (config-as-execution-layer):** no skill, hook, MCP-server entry, or slash command performs pre-consent shell execution — no `npm` lifecycle script in a pack `package.json` (`preinstall`/`install`/`postinstall`/`prepare`, the §4 lifecycle-script ban in `pack-trust-model.md`), no curl-pipe-shell in a body, and every MCP `command`/`npx`/`uvx` entry resolves to a currently-published package (no unpublished/hijackable coordinate). Reference: OWASP Agentic Skills Top 10 (Dec 2025); CVE-2025-59536, CVE-2026-21852 (Claude Code config-as-execution-layer RCE).
 
 ## Verification commands
 
@@ -138,10 +141,12 @@ The agent runs these commands to produce `proof_trace` blocks. Each row maps a c
 |---|---|---|
 | 1. OAuth PKCE | `rg -n "response_type=code" src/auth/ \| rg -v "code_challenge"` | any match (auth-code flow without PKCE) |
 | 1. OAuth grant hygiene | `rg -n "grant_type=(implicit\|password)" src/auth/` | any match |
+| 1. Refresh-token rotation + reuse detection (CRITICAL trigger) | `rg -n "grant_type=refresh_token\|refresh_token" src/auth/ \| rg -v "rotat\|reuse\|revoke.*family\|family.*revoke"` | any match — static starter; High confidence requires a full flow trace confirming rotation issues a new token AND reuse revokes the family |
+| 1. redirect_uri exact-string allowlist (CRITICAL trigger) | `rg -n "redirect_uris?\b" src/auth/ \| rg -F "*"` | any wildcard in a redirect_uri allowlist — static starter; High confidence requires a full flow trace confirming the matcher is exact-string, not prefix/substring |
 | 2. OIDC validation | `rg -n "jwt\.(verify\|decode)" src/auth/ \| rg -v "audience\|issuer"` | any match (validator missing `aud` or `iss`) |
 | 3. DPoP / mTLS | `rg -n "Bearer " src/ \| rg -v "DPoP\|mTLS\|cnf\.jkt"` | any browser-issued bearer without sender constraint |
 | 4. JWT BCP | `rg -n "alg.*none\|jwt\.verify\([^,]+,[^,)]+\)$" src/` | any match (`alg: none` accepted OR no `algorithms` option pinned) |
-| 5. SHA-pinned actions | `rg -nE "uses: [^@]+@v?[0-9]+(\.[0-9]+)*$" .github/workflows/` | any match (tag instead of 40-char SHA) |
+| 5. SHA-pinned actions | `rg -nP 'uses:\s+[\w.-]+/[\w.-]+@(?![0-9a-f]{40}\b)\S+' .github/workflows/` | any match — an action ref pinned to anything other than a 40-char lowercase-hex commit SHA (tag `@v6.0.2`, branch `@main` per CVE-2025-30066, or abbreviated SHA `@8f4b7f8`) |
 | 5. SBOM presence | `gh release view --json assets --jq '.assets[].name' \| rg -i "(cyclonedx\|spdx)"` | empty output on tagged release |
 | 5. npm provenance | `npm view <pkg> --json \| jq '.dist.attestations'` | `null` on published package |
 | 6. WebAuthn counter | `rg -n "signCount" src/ \| rg -v "[><]"` | any match (counter stored without strict-monotonic check) |
@@ -149,6 +154,8 @@ The agent runs these commands to produce `proof_trace` blocks. Each row maps a c
 | 8. CVE acknowledgement | `gh api repos/{owner}/{repo}/dependabot/alerts --jq '.[] \| select(.state=="open")'` | any unacknowledged alert ≤90 days old |
 
 Run lint and typecheck alongside (`npm run lint`, `npx tsc --noEmit`) when the change set is in `src/`; an unrelated type error in an auth file is a blocking finding (the agent cannot trace the flow if the file does not compile).
+
+**Item-5 SHA-pin regex — fixture-backed exemptions.** The `[\w.-]+/[\w.-]+@` coordinate matches only marketplace action refs (`org/repo@ref`), so two ref classes are exempt by construction and must NOT be reported as findings: local/composite actions (`uses: ./.github/actions/<name>`) carry no marketplace ref to pin, and `docker://<image>:<tag>` refs are digest-pinned under checklist item 5's container clause, not the action-SHA clause. Verify both exemptions before trusting the gate — run the regex against a fixture containing one good 40-hex ref (`actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd`), each false-negative class the old `@v?[0-9]+(\.[0-9]+)*$` form silently passed (`@v6.0.2`, `@main`, `@8f4b7f8`), and one `./` plus one `docker://` ref; expect the three non-SHA refs flagged and the good SHA + both exempt refs clean.
 
 ## Status discipline
 
@@ -164,6 +171,7 @@ Run lint and typecheck alongside (`npm run lint`, `npx tsc --noEmit`) when the c
 | Item 7 `fail` (`__Host-` prefix absent OR `Secure` missing) | High (cookie poisoning vector) |
 | Item 2 `fail` (single missing claim verification) | High (token-injection vector) |
 | Item 8 `fail` (open CVE alert ≤90 days, unacknowledged) | Medium → escalate to High when exploitable |
+| Item 9 `fail` (unsigned/unverified skill installed [AST01] OR pre-consent shell-exec in a pack/hook/MCP entry [AST02]) | CRITICAL (config-as-execution-layer RCE on consumer machine) |
 
 Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
@@ -185,3 +193,5 @@ See `agents/shared/quality-specialist-frame.md` → §Output Contract (yaml sche
 - [Implementing Passwordless and Phishing-Resistant Logins with Keycloak, Passkeys, and DPoP](https://prepare.sh/articles/the-future-of-authentication-is-now-implementing-passwordless-and-phishing-resistant-logins-with-keycloak-passkeys-and-dpop) (accessed 2026-05-26, prepare.sh, independent-analysis) — DPoP layered onto WebAuthn-issued sessions to defend against token theft; references RFC 9449 in the canonical role.
 - [OWASP CycloneDX (ECMA-424)](https://owasp.org/www-project-cyclonedx/) (accessed 2026-05-26, OWASP Foundation, official-docs) — formal ECMA-424 SBOM standard; CycloneDX 1.6 added Cryptographic Bill of Materials (CBOM); 1.7 published October 2025.
 - [Software supply chain security tools guide (2026)](https://www.minimus.io/post/software-supply-chain-security-tools) (accessed 2026-05-26, Minimus, independent-analysis) — synthesises CycloneDX + sigstore/cosign + SLSA L3 floor for 2026 release pipelines.
+- [OWASP Agentic Skills Top 10](https://owasp.org/www-project-agentic-skills-top-10/) (accessed 2026-06-05, OWASP Foundation, official-docs) — Dec 2025 risk catalog for distributed agent skills; AST01 Malicious Skills + AST02 config-as-execution-layer back checklist item 9. Re-fetch each audit cycle for revision changes.
+- [CVE-2025-59536 (NVD)](https://nvd.nist.gov/vuln/detail/CVE-2025-59536) and [CVE-2026-21852 (NVD)](https://nvd.nist.gov/vuln/detail/CVE-2026-21852) (accessed 2026-06-05, NIST NVD, official-docs) — Claude Code config-as-execution-layer RCE advisories; the concrete AST02 exploit class checklist item 9 scans for.

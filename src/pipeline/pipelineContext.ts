@@ -105,6 +105,17 @@ export interface SpecialistResult {
   status: AgentStatus;
   findingsCount: number;
   summary: string;
+  /**
+   * Critical-severity findings this specialist surfaced that remain unresolved
+   * after its fixer pass (Finding D7-19). Optional/backward-compatible: absent →
+   * treated as 0. `evaluatePhase4Completion` sums this field across specialists
+   * to derive `unresolvedCriticalFindings` when the caller does not pass an
+   * explicit override, so the completion gate no longer depends on a severity
+   * count threaded through a separate options argument that the typed
+   * `SpecialistResult` record did not carry. The severity-descending Phase 4
+   * batch scheduler reads the same field as its typed input.
+   */
+  criticalCount?: number;
 }
 
 export interface ValidationPass {
@@ -234,6 +245,9 @@ export interface QualityResults {
  *    findings trigger a single fixer pass).
  * 5. `unresolvedCriticalFindings === 0` (no Phase-4 specialist surfaced
  *    Critical-severity findings that were not resolved by the fixer pass).
+ *    Derived by default from `qualityResults.specialists` (sum of each
+ *    `SpecialistResult.criticalCount`) per Finding D7-19; an explicit
+ *    `options.unresolvedCriticalFindings` overrides the derived sum.
  */
 export interface Phase4CompletionContract {
   complete: boolean;
@@ -265,6 +279,17 @@ export interface Phase4CompletionContract {
  * read-only contexts. Returns `complete: false` with `incompletionReason`
  * naming the first failing clause so callers can surface the gap to the user
  * without re-implementing the clause set.
+ *
+ * Finding D16-5 (D16, High): this predicate is the fail-closed authority the
+ * `rules/hatch3r-agent-orchestration-detail.md` → "Phase Failure Protocols"
+ * mandatory-CQ3/CQ5 row mirrors in prose. A mandatory always-mode floor
+ * specialist (`hatch3r-security` CQ3, `hatch3r-testability` CQ5) that did not
+ * return SUCCESS — including the TIMEOUT / crash / no-output case — sets
+ * `mandatoryFloorsSatisfied: false`, which forces `complete: false`. Absence of
+ * a floor specialist's `SpecialistResult` is treated identically (the `find`
+ * returns `undefined`, never an implicit pass), so a security gate that times
+ * out can never be reported as complete. The detail rule cites this function by
+ * name so the prose and the typed gate are one authority, not two.
  */
 export function evaluatePhase4Completion(
   qualityResults: QualityResults,
@@ -275,7 +300,15 @@ export function evaluatePhase4Completion(
   } = {},
 ): Phase4CompletionContract {
   const reReviewIterations = options.reReviewIterations ?? 0;
-  const unresolvedCriticalFindings = options.unresolvedCriticalFindings ?? 0;
+  // Finding D7-19: derive the unresolved-Critical count from the typed
+  // SpecialistResult records by default (sum of each specialist's criticalCount,
+  // absent → 0). An explicit options.unresolvedCriticalFindings still wins so
+  // callers holding a count from outside the SpecialistResult set can override,
+  // but the gate no longer silently reports 0 when the specialists themselves
+  // recorded Critical findings.
+  const unresolvedCriticalFindings =
+    options.unresolvedCriticalFindings ??
+    qualityResults.specialists.reduce((sum, s) => sum + (s.criticalCount ?? 0), 0);
   const codeMutatingSpecialists = options.codeMutatingSpecialists ?? [];
 
   const securitySpec = qualityResults.specialists.find(
@@ -384,21 +417,25 @@ export interface ProjectTypeContext {
 /**
  * Variance budget for opt-in non-determinism handling.
  *
+ * NOT-YET-AVAILABLE (Finding D7-22): this is a typed contract only. No runtime
+ * reads it, the `varianceTracker.ts` reconciliation module it references does
+ * not exist, and `--variance-runs=N` is NOT a registered CLI flag on any
+ * command in `src/cli/commands/` — it names the intended opt-in surface for the
+ * future module, not a flag a user can pass today. The N=3 sampling rule in
+ * `agents/shared/quality-charter.md` §Non-Determinism Budget and the
+ * `rules/hatch3r-agent-orchestration.md` Tier-to-Phase-4 mapping describe the
+ * same not-yet-shipped control. Treat any `varianceBudget` value as inert until
+ * `varianceTracker.ts` lands and a `--variance-runs` flag is registered.
+ *
  * Finding D7-M10 / D7-SA7.4-3 (CL-2 spec for `varianceTracker.ts`). The audit
  * prompt (`governance/AUDIT.md` §Reproducibility) acknowledges LLM sampling
  * variance for findings; framework runtime orchestrators inherit no analogous
- * posture. This typed record is the CL-2 stub that future implementations
- * read — `N` is the sample count (`1` = single-pass default at Tier 1/2),
+ * posture yet. This record is the CL-2 stub a future implementation will read —
+ * `N` is the intended sample count (`1` = single-pass default at Tier 1/2),
  * `majorityVoteUsed` records whether the orchestrator already reached a
- * majority verdict and can short-circuit further runs. Tier 3 with
- * `floor:security` items defaults to `N=3` on Phase 4 security-auditor per
- * `agents/shared/quality-charter.md` §Non-Determinism Budget; lower-stakes
- * orchestrators set `N=1`. Opt-in via `--variance-runs=N` flag on any
- * orchestrator command. When `N > 1`, downstream specialist agents emit
- * structured per-run verdicts and the orchestrator reconciles via the
- * reconciliation rule documented alongside the (future) `varianceTracker.ts`
- * module. Until that module lands, the field acts as a typed contract for
- * downstream pack integrators.
+ * majority verdict and can short-circuit further runs. When the module ships,
+ * Tier 3 with `floor:security` items will default to `N=3` on the always-mode
+ * specialists per the quality charter; lower-stakes orchestrators stay `N=1`.
  */
 export interface VarianceBudget {
   /** Sample count for variance reduction. `1` = single-pass default. */
@@ -462,6 +499,38 @@ export interface PendingUserInput {
 }
 
 /**
+ * Mid-run tier upgrade carrier (Finding D7-14).
+ *
+ * `deepContextTier` is a single pre-Phase-1 value. The Complexity-Driven
+ * Adaptation table in `rules/hatch3r-agent-orchestration-detail.md` mandates
+ * upgrading the tier mid-run when execution surfaces complexity the initial
+ * score missed (e.g. Phase 1 research finds >10 affected files when the initial
+ * estimate was <5). Without a typed carrier the upgraded tier lived only in the
+ * orchestrator's prose reasoning and never reached the Tier→Phase-4-depth
+ * mapping in `rules/hatch3r-agent-orchestration.md` (Deep Context Integration),
+ * so Phase 4 specialist depth stayed pinned to the stale initial tier. This
+ * record is that carrier: the orchestrator populates it when it adapts the tier,
+ * `resolveEffectiveTier` reads it so downstream depth selection uses the
+ * upgraded value, and `formatTierUpgradeNote` renders the one-line iteration-
+ * summary surfacing so the adaptation is visible, not silent.
+ */
+export interface TierUpgrade {
+  /** Tier the run started at (the pre-Phase-1 `deepContextTier`). */
+  from: DeepContextTier;
+  /** Tier the run was upgraded to mid-execution. */
+  to: DeepContextTier;
+  /**
+   * Adaptation trigger naming the observed complexity signal, cited per
+   * Charter directive 20 (never adapt silently). Matches a Complexity-Driven
+   * Adaptation table row, e.g. "Phase 1 research found 12 affected files
+   * (initial estimate <5)".
+   */
+  reason: string;
+  /** Phase at which the upgrade was applied. */
+  atPhase: 1 | 2 | 3 | 4;
+}
+
+/**
  * The PipelineContext is the canonical handoff object passed between
  * all four pipeline phases. Each phase populates its section.
  */
@@ -471,8 +540,18 @@ export interface PipelineContext {
   taskType: TaskType;
   /** Issue number or null for plain chat. */
   issueRef: string | null;
-  /** From hatch3r-deep-context scoring. */
+  /** From hatch3r-deep-context scoring (the pre-Phase-1 baseline tier). */
   deepContextTier: DeepContextTier;
+
+  /**
+   * Mid-run tier upgrade applied by the orchestrator when execution surfaced
+   * complexity the initial `deepContextTier` missed (Finding D7-14). Absent →
+   * no adaptation occurred and `deepContextTier` is authoritative. When present,
+   * `resolveEffectiveTier(context)` returns `tierUpgrade.to` so the Tier→
+   * Phase-4-depth mapping uses the upgraded tier; `formatTierUpgradeNote` renders
+   * the one-line iteration-summary surfacing.
+   */
+  tierUpgrade?: TierUpgrade;
 
   /** Detected project type for specialist selection (Finding #56). */
   projectType?: ProjectTypeContext;
@@ -522,6 +601,60 @@ export interface PipelineContext {
   completedAt: string | null;
   /** Total duration in milliseconds. */
   totalDuration: number | null;
+}
+
+// ── Mid-run tier upgrade resolution (Finding D7-14) ──────────────
+
+/**
+ * Resolve the tier the orchestrator should drive downstream depth from.
+ *
+ * Finding D7-14: returns `tierUpgrade.to` when a mid-run upgrade is recorded,
+ * else the baseline `deepContextTier`. The Tier→Phase-4-depth mapping in
+ * `rules/hatch3r-agent-orchestration.md` (Deep Context Integration) MUST read
+ * the effective tier via this function rather than `context.deepContextTier`
+ * directly, so an upgrade applied at Phase 1 (e.g. research found >10 affected
+ * files) actually raises Phase 4 specialist depth instead of leaving it pinned
+ * to the stale initial score.
+ *
+ * Defensive: a malformed upgrade whose `to` is not a smaller-blast-radius
+ * escalation above `from` (i.e. `to <= from`) is ignored — the carrier only
+ * ever raises the tier, never silently lowers it, so a bad record cannot
+ * downgrade quality coverage. Pure function with no I/O; safe to call from
+ * read-only orchestrator paths.
+ */
+export function resolveEffectiveTier(
+  context: Pick<PipelineContext, "deepContextTier" | "tierUpgrade">,
+): DeepContextTier {
+  const upgrade = context.tierUpgrade;
+  if (upgrade && upgrade.to > context.deepContextTier) {
+    return upgrade.to;
+  }
+  return context.deepContextTier;
+}
+
+/**
+ * Render the one-line iteration-summary surfacing for a mid-run tier upgrade,
+ * or `null` when no upgrade is recorded (Finding D7-14).
+ *
+ * The orchestrator appends the returned string to its iteration summary when a
+ * tier upgrade occurred, so the adaptation is visible to the user rather than
+ * silent. Mirrors the `formatPhaseHandoffWarning` surfacing pattern in
+ * `src/pipeline/observability.ts`. A recorded-but-non-escalating upgrade
+ * (`to <= from`, the same case `resolveEffectiveTier` ignores) returns `null`
+ * so the two helpers agree on what counts as an effective upgrade. Pure
+ * function; never throws.
+ */
+export function formatTierUpgradeNote(
+  context: Pick<PipelineContext, "deepContextTier" | "tierUpgrade">,
+): string | null {
+  const upgrade = context.tierUpgrade;
+  if (!upgrade || upgrade.to <= context.deepContextTier) {
+    return null;
+  }
+  return (
+    `Tier upgraded ${upgrade.from}→${upgrade.to} at Phase ${upgrade.atPhase}: ` +
+    `${upgrade.reason} — Phase 4 specialist depth now scales to Tier ${upgrade.to}.`
+  );
 }
 
 // ── Phase Skip Criteria (Finding #53) ────────────────────────────
@@ -618,9 +751,64 @@ export interface SpecialistTrigger {
   mode: "always" | "evaluate" | "conditional";
   /** File patterns or conditions that trigger this specialist. */
   triggerConditions: string[];
-  /** Dependency file patterns (e.g., for CQ3 security specialist's supply-chain checks). */
+  /**
+   * Basename file patterns: either `*.<ext>` (matched against a file's
+   * basename suffix) or an exact basename (e.g. `package.json`). Used for the
+   * CQ3 security specialist's supply-chain manifests and the front-end CQ
+   * specialists' component extensions.
+   */
   triggerFilePatterns?: string[];
+  /**
+   * Path-segment globs that trigger this specialist when a changed file's path
+   * contains the segment (Finding D7-20). A glob `seg/` matches any changed file
+   * whose path has `seg` as a directory segment (e.g. `routes/` matches
+   * `src/server/routes/auth.ts` and `app/routes.ts`). Backend specialists
+   * (`hatch3r-reliability` CQ4, `hatch3r-scalability` CQ6, plus the backend
+   * portions of CQ7/CQ8/CQ9) carry these so their `## Specialist Delegation`
+   * agent-table triggers ("Service handlers", "Stateful handlers", connection
+   * pools, migrations) actually fire on backend `.ts`/`.go`/`.py` surfaces —
+   * which the basename-only `triggerFilePatterns` (`*.tsx`/`*.jsx`/`*.vue`/
+   * `*.svelte`) could not reach. Matched by `shouldTriggerSpecialist` via a
+   * directory-segment test, no external glob dependency.
+   *
+   * `readonly` so the shared `BACKEND_PATH_GLOBS` constant can be assigned
+   * directly without a defensive copy; the matcher only ever reads it.
+   */
+  triggerPathGlobs?: readonly string[];
 }
+
+/**
+ * Backend directory-segment globs shared by the CQ4/CQ6 (and backend CQ7-CQ9)
+ * specialists (Finding D7-20). Each entry is a `<segment>/` glob the
+ * {@link shouldTriggerSpecialist} path-segment matcher tests against a changed
+ * file's directory segments. Kept as one named constant so the backend
+ * specialists stay aligned and a future segment addition lands in one place.
+ * Conservative by construction: only paths whose directory structure names a
+ * server/data-tier concern match, so a pure front-end change does not trigger
+ * a backend specialist.
+ */
+const BACKEND_PATH_GLOBS: readonly string[] = [
+  "routes/",
+  "route/",
+  "handlers/",
+  "controllers/",
+  "controller/",
+  "services/",
+  "service/",
+  "api/",
+  "server/",
+  "middleware/",
+  "db/",
+  "database/",
+  "migrations/",
+  "migration/",
+  "repositories/",
+  "queue/",
+  "queues/",
+  "workers/",
+  "worker/",
+  "jobs/",
+];
 
 export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
   {
@@ -741,6 +929,10 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
       "Retry / circuit-breaker / error-format code modified",
       "Kubernetes probe / health-check manifests modified",
     ],
+    // Finding D7-20: CQ4 owns service/request handlers — path-shaped surfaces
+    // the basename patterns could not reach. Triggers on backend `.ts`/`.go`/
+    // `.py` files under server/route/handler/service directory segments.
+    triggerPathGlobs: BACKEND_PATH_GLOBS,
   },
   {
     specialist: "hatch3r-testability",
@@ -761,6 +953,9 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
       "Session storage / cache layer modified",
       "Background-job / horizontally-scaled tier code modified",
     ],
+    // Finding D7-20: CQ6 owns stateful handlers, queue producers/consumers, and
+    // connection pools — backend path-shaped surfaces. Same segment set as CQ4.
+    triggerPathGlobs: BACKEND_PATH_GLOBS,
   },
   {
     specialist: "hatch3r-performance",
@@ -777,6 +972,10 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
       "*.vue",
       "*.svelte",
     ],
+    // Finding D7-20: CQ7 covers p95/p99-affecting backend code + N+1 / ORM
+    // queries, not only LCP/INP/CLS front-end render paths. The frontend
+    // basename patterns above stay; these reach the backend data-access tier.
+    triggerPathGlobs: BACKEND_PATH_GLOBS,
   },
   {
     specialist: "hatch3r-maintainability",
@@ -792,6 +991,10 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
       "openapi.json",
       "schema.graphql",
     ],
+    // Finding D7-20: CQ8 expand-contract-migration scope is path-shaped — a
+    // migration lives under a migrations/ directory regardless of basename, so
+    // the basename API-spec patterns above could not reach it.
+    triggerPathGlobs: ["migrations/", "migration/", "db/migrate/"],
   },
   {
     specialist: "hatch3r-enhancability",
@@ -944,17 +1147,49 @@ export interface ValidationError {
 }
 
 /**
+ * Optional advance-gate signals for {@link validatePhaseTransition}.
+ *
+ * Finding D7-10 / D7-11: the Phase 3 → 4 gate has two documented carve-outs the
+ * field-presence checks alone could not express.
+ */
+export interface PhaseTransitionOptions {
+  /**
+   * Finding D7-10: when `reviewResult.finalVerdict === "UNRESOLVED"`, the
+   * Phase 3 → 4 gate rejects the advance unless this is `true`. Mirrors the
+   * `PHASE_SKIP_CRITERIA` Phase 4 skip condition "Review loop (Phase 3) did not
+   * produce a clean verdict AND user chose to proceed manually": an unresolved
+   * review is only allowed past the gate on an explicit user decision, so an
+   * un-reviewed context can never pass the gate advertised as authoritative by
+   * default.
+   */
+  allowUnresolvedAdvance?: boolean;
+  /**
+   * Finding D7-11: Phase 3 (Review) is skippable for documentation-only /
+   * trivial changes per {@link PHASE_SKIP_CRITERIA} — no reviewer ran, so there
+   * is no `reviewResult` and `iterations` is 0. When `true`, the Phase 3 → 4
+   * gate accepts an absent `reviewResult` (and `iterations: 0` when a synthetic
+   * SKIPPED result is supplied), the same carve-out the Phase 2 → 3 gate gives
+   * research via `researchGaps`. Without this signal the gate continues to
+   * require a reviewed context, so a skip is never granted implicitly.
+   */
+  phase3Skipped?: boolean;
+}
+
+/**
  * Validate that required PipelineContext fields are present for a given phase.
  *
  * Phase transitions require specific fields to be populated:
  * - Phase 1 -> 2: correlationId, taskType, deepContextTier, startedAt
  * - Phase 2 -> 3: researchFindings (unless research was skipped per skip criteria)
- * - Phase 3 -> 4: implementationResult, reviewResult
+ * - Phase 3 -> 4: implementationResult, reviewResult (unless Phase 3 was skipped
+ *   per `options.phase3Skipped` — Finding D7-11). An UNRESOLVED review verdict is
+ *   rejected unless `options.allowUnresolvedAdvance` is set (Finding D7-10).
  * - Phase 4 -> completion: qualityResults
  */
 export function validatePhaseTransition(
   context: Partial<PipelineContext>,
   targetPhase: 1 | 2 | 3 | 4 | "completion",
+  options: PhaseTransitionOptions = {},
 ): ValidationError[] {
   const errors: ValidationError[] = [];
 
@@ -995,13 +1230,51 @@ export function validatePhaseTransition(
 
   if (targetPhase === 4 || targetPhase === "completion") {
     if (!context.reviewResult) {
-      errors.push({ field: "reviewResult", message: "reviewResult must be populated before Phase 4" });
+      // Finding D7-11: Phase 3 is skippable for documentation-only / trivial
+      // changes (no reviewer ran ⇒ no reviewResult). Accept an absent
+      // reviewResult only under the explicit phase3Skipped signal — the same
+      // carve-out the Phase 2 → 3 gate gives research via researchGaps.
+      if (!options.phase3Skipped) {
+        errors.push({
+          field: "reviewResult",
+          message:
+            "reviewResult must be populated before Phase 4 (or pass phase3Skipped when Phase 3 was skipped per PHASE_SKIP_CRITERIA)",
+        });
+      }
     } else {
-      if (typeof context.reviewResult.iterations !== "number" || context.reviewResult.iterations < 1) {
-        errors.push({ field: "reviewResult.iterations", message: "reviewResult.iterations must be a positive number" });
+      // Finding D7-11: when Phase 3 was skipped, a synthetic reviewResult may
+      // carry iterations: 0 (no review loop ran). Require iterations >= 1 only
+      // when Phase 3 actually ran.
+      const minIterations = options.phase3Skipped ? 0 : 1;
+      if (
+        typeof context.reviewResult.iterations !== "number" ||
+        context.reviewResult.iterations < minIterations
+      ) {
+        errors.push({
+          field: "reviewResult.iterations",
+          message: options.phase3Skipped
+            ? "reviewResult.iterations must be a non-negative number (0 when Phase 3 was skipped)"
+            : "reviewResult.iterations must be a positive number",
+        });
       }
       if (!["CLEAN", "UNRESOLVED"].includes(context.reviewResult.finalVerdict)) {
         errors.push({ field: "reviewResult.finalVerdict", message: 'reviewResult.finalVerdict must be "CLEAN" or "UNRESOLVED"' });
+      }
+      // Finding D7-10: the Phase 3 → 4 advance gate (targetPhase === 4) must
+      // reject an UNRESOLVED verdict unless the caller passes
+      // allowUnresolvedAdvance, so an un-reviewed-clean context cannot pass the
+      // gate the orchestration rule advertises as authoritative. The check is
+      // scoped to targetPhase === 4 (the advance decision), not "completion".
+      if (
+        targetPhase === 4 &&
+        context.reviewResult.finalVerdict === "UNRESOLVED" &&
+        !options.allowUnresolvedAdvance
+      ) {
+        errors.push({
+          field: "reviewResult.finalVerdict",
+          message:
+            'reviewResult.finalVerdict is "UNRESOLVED"; pass allowUnresolvedAdvance to advance to Phase 4 manually (PHASE_SKIP_CRITERIA Phase 4: review unresolved AND user chose to proceed)',
+        });
       }
     }
   }
@@ -1023,11 +1296,55 @@ export function validatePhaseTransition(
 }
 
 /**
+ * Source-file extensions a backend path-glob trigger applies to (Finding D7-20).
+ * A path-segment match (e.g. `routes/`) only fires for a source file, so a
+ * non-source artifact that happens to live under a backend directory (a README
+ * in `routes/`, a fixture JSON, a snapshot) does not spuriously trigger a
+ * backend specialist. Conservative toward NOT triggering on non-code.
+ */
+const BACKEND_SOURCE_SUFFIXES: readonly string[] = [
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".go",
+  ".py",
+  ".rb",
+  ".java",
+  ".kt",
+  ".rs",
+  ".php",
+  ".cs",
+  ".scala",
+  ".ex",
+  ".exs",
+  ".sql",
+];
+
+/**
+ * True when `file`'s path contains `glob` as a directory segment (Finding
+ * D7-20). `glob` is a `<segment>/` form; the match is on a normalized,
+ * lower-cased path so `routes/` matches `src/server/routes/auth.ts`,
+ * `app/Routes/Index.ts`, and a leading `routes/auth.ts`, but not a basename
+ * substring like `myroutesfile.ts`. Pure helper, no I/O.
+ */
+function pathMatchesSegmentGlob(file: string, glob: string): boolean {
+  const normalized = file.replace(/\\/g, "/").toLowerCase();
+  const segment = glob.toLowerCase();
+  return normalized.startsWith(segment) || normalized.includes(`/${segment}`);
+}
+
+/**
  * Check whether a specialist should be triggered based on changed files
  * and project type context.
  *
  * Finding #55: dependency-auditor triggers on dependency file changes.
  * Finding #56: project-type-aware specialist selection.
+ * Finding D7-20: backend specialists trigger on path-segment globs
+ * (`triggerPathGlobs`) for source files under server/data-tier directories,
+ * which the basename-only `triggerFilePatterns` could not reach.
  */
 export function shouldTriggerSpecialist(
   specialist: string,
@@ -1072,6 +1389,22 @@ export function shouldTriggerSpecialist(
           ? "Dependency files modified"
           : "Trigger files modified";
       reasons.push(`${label}: ${matchedFiles.join(", ")}`);
+    }
+  }
+
+  // Path-segment trigger globs (Finding D7-20). A backend source file under a
+  // matched directory segment (e.g. src/server/routes/auth.ts) triggers the
+  // backend specialists (reliability/scalability/performance/maintainability)
+  // their basename-only triggerFilePatterns could not reach.
+  if (trigger.triggerPathGlobs) {
+    const matchedPaths = changedFiles.filter((file) => {
+      const normalized = file.replace(/\\/g, "/").toLowerCase();
+      const isSource = BACKEND_SOURCE_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
+      if (!isSource) return false;
+      return trigger.triggerPathGlobs!.some((glob) => pathMatchesSegmentGlob(file, glob));
+    });
+    if (matchedPaths.length > 0) {
+      reasons.push(`Backend path-glob trigger: ${matchedPaths.join(", ")}`);
     }
   }
 

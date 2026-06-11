@@ -20,6 +20,7 @@
  * does not invoke these.
  */
 
+import { execFileSync } from "node:child_process";
 import { appendFileSync, mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -113,6 +114,18 @@ export interface CostEstimate {
   estimated_web_research_queries: number;
   /** Estimated wall-clock duration in minutes (tier midpoint). */
   estimated_duration_min: number;
+  /**
+   * D6-20: the repository-size band the static-frame estimate was scaled by, and
+   * the tracked-file count that resolved it. Present ONLY when the caller passed
+   * `repoFileCount` to {@link estimateCost}; absent otherwise (the estimate then
+   * carries no repo-size dependency — the documented exclusion). When present,
+   * `estimated_input_tokens_static_frame` already includes the band factor.
+   */
+  repo_size_row?: {
+    band: RepoSizeBand;
+    tracked_files: number;
+    factor: number;
+  };
 }
 
 /**
@@ -160,6 +173,78 @@ export const VARIANCE_THRESHOLD_PERCENT = 25;
 /** Telemetry directory under the project root. */
 export const TELEMETRY_DIR_RELATIVE = ".hatch3r/telemetry";
 
+// ── Repository-size scaling (D6-20) ──────────────────────────────
+// The pre-fix cost estimate returned fixed tier midpoints with ZERO dependency
+// on repository size, so "cost scaling with project size" was unaddressed. A
+// sub-agent operating in a 50k-file monorepo loads more grep/read context per
+// task than one in a 200-file starter, even at the same triage tier. This model
+// resolves a coarse size band from the tracked-file count (`git ls-files | wc -l`)
+// and multiplies the per-sub-agent static-frame token component by the band's
+// factor. The bands are wide on purpose — this is a directional scalar, not a
+// per-token measurement. When the caller supplies no file count the factor is
+// 1.0 (no `repo_size_row` field, byte-identical to the pre-D6-20 estimate),
+// which documents the exclusion rather than silently scaling.
+
+/** Repository-size band derived from the tracked-file count (D6-20). */
+export type RepoSizeBand = "tiny" | "small" | "medium" | "large" | "huge";
+
+/**
+ * One row of the {@link REPO_SIZE_ROWS} table. `maxFiles` is the inclusive upper
+ * bound of the band (the largest band uses `Number.POSITIVE_INFINITY`); `factor`
+ * multiplies the per-sub-agent static-frame token estimate.
+ */
+export interface RepoSizeRow {
+  band: RepoSizeBand;
+  /** Inclusive upper tracked-file count for this band. */
+  maxFiles: number;
+  /** Multiplier applied to the per-sub-agent static-frame token component. */
+  factor: number;
+}
+
+/**
+ * Repo-size → context-scaling factor table (D6-20). Bands are wide because this
+ * is a directional cost scalar, not a measurement: a larger working tree means a
+ * sub-agent's grep/read sweeps return more context per task, inflating the
+ * static-frame input it actually pays for. The `tiny` row anchors the factor at
+ * 1.0 so a small repo's estimate is unchanged from the pre-D6-20 midpoint, and
+ * each step up roughly tracks an order of magnitude of tracked files.
+ *
+ * Boundaries (200 / 2k / 20k / 50k tracked files) bracket the common project
+ * scales the framework targets per `governance/CONSTITUTION.md` §2 P4 lean-
+ * coverage scale targets (repos up to ~500 canonical files) and the larger
+ * brownfield monorepos `ctx:brownfield-only` artifacts address. Factors are a
+ * conservative geometric ramp (1.0 → 1.15 → 1.35 → 1.6 → 1.9): a 50k-file
+ * monorepo sub-agent is modeled as paying ~1.9× the static-frame context a
+ * sub-agent in a sub-200-file repo pays, not a raw file-count ratio (which would
+ * over-count, since a sub-agent reads a task-scoped slice, not the whole tree).
+ */
+export const REPO_SIZE_ROWS: readonly RepoSizeRow[] = [
+  { band: "tiny", maxFiles: 200, factor: 1.0 },
+  { band: "small", maxFiles: 2_000, factor: 1.15 },
+  { band: "medium", maxFiles: 20_000, factor: 1.35 },
+  { band: "large", maxFiles: 50_000, factor: 1.6 },
+  { band: "huge", maxFiles: Number.POSITIVE_INFINITY, factor: 1.9 },
+] as const;
+
+/**
+ * Resolve a tracked-file count to its {@link RepoSizeRow} (D6-20). A negative or
+ * non-finite count is treated as 0 (the `tiny` band, factor 1.0). The table is
+ * scanned low-to-high and the first row whose `maxFiles` bound is not exceeded
+ * wins; the `huge` row's infinite bound makes the scan total.
+ *
+ * Pure function — no I/O, never throws. The impure tracked-file count is
+ * supplied by {@link countTrackedFiles} at the call site.
+ */
+export function resolveRepoSizeRow(fileCount: number): RepoSizeRow {
+  const n = Number.isFinite(fileCount) && fileCount > 0 ? Math.floor(fileCount) : 0;
+  for (const row of REPO_SIZE_ROWS) {
+    if (n <= row.maxFiles) return row;
+  }
+  // Unreachable while the last row's bound is +Infinity, but keep a total return
+  // so the function never falls through to `undefined`.
+  return REPO_SIZE_ROWS[REPO_SIZE_ROWS.length - 1];
+}
+
 // ── Input options ────────────────────────────────────────────────
 
 /**
@@ -178,6 +263,15 @@ export interface EstimateCostOptions {
   inputTokensDeclared?: number;
   /** Override the tier midpoint for duration in minutes. */
   durationMinDeclared?: number;
+  /**
+   * D6-20: tracked-file count of the target repository (typically from
+   * {@link countTrackedFiles}, i.e. `git ls-files | wc -l`). When supplied, the
+   * resolved {@link RepoSizeRow} factor scales the static-frame token component
+   * and the band is surfaced on {@link CostEstimate.repo_size_row}. Omit it to
+   * keep the pre-D6-20 repo-size-independent estimate (no scaling, no band
+   * field). A negative/non-finite value resolves to the `tiny` band (factor 1.0).
+   */
+  repoFileCount?: number;
 }
 
 // ── Core helpers ─────────────────────────────────────────────────
@@ -194,8 +288,15 @@ function midpoint(minVal: number, maxVal: number): number {
  * - Uses explicit `*Declared` overrides when provided; otherwise emits the
  *   tier midpoint for each field.
  * - Negative overrides are clamped to 0 (a sub-agent count cannot be < 0).
+ * - D6-20: when `repoFileCount` is supplied, scales the static-frame token
+ *   component by the resolved {@link RepoSizeRow} factor (a larger working tree
+ *   means each sub-agent's grep/read sweeps return more context per task) and
+ *   surfaces the band on `repo_size_row`. Omitting `repoFileCount` leaves the
+ *   estimate repo-size-independent (factor 1.0, no band field) — the documented
+ *   exclusion, so the existing repo-agnostic callers are byte-identical.
  *
- * Pure function — no I/O, never throws.
+ * Pure function — no I/O, never throws. The impure tracked-file count is the
+ * caller's responsibility (see {@link countTrackedFiles}).
  */
 export function estimateCost(opts: EstimateCostOptions): CostEstimate {
   const baseline = TIER_BASELINES[opts.triageTier];
@@ -211,16 +312,30 @@ export function estimateCost(opts: EstimateCostOptions): CostEstimate {
     return Math.max(0, Math.round(n));
   };
 
-  return {
+  const baseStaticFrameTokens = clamp(
+    opts.inputTokensDeclared,
+    midpoint(baseline.staticFrameTokensMin, baseline.staticFrameTokensMax),
+  );
+
+  // D6-20: scale the per-sub-agent static-frame component by the repo-size band
+  // factor ONLY when the caller supplied a file count. `repoFileCount === undefined`
+  // (the historical call shape) leaves the factor at 1.0 and omits the band field,
+  // so the estimate stays repo-size-independent and prior outputs are unchanged.
+  const repoRow =
+    typeof opts.repoFileCount === "number"
+      ? resolveRepoSizeRow(opts.repoFileCount)
+      : null;
+  const scaledStaticFrameTokens = repoRow
+    ? Math.round(baseStaticFrameTokens * repoRow.factor)
+    : baseStaticFrameTokens;
+
+  const estimate: CostEstimate = {
     triage_tier: opts.triageTier,
     expected_sa_count: clamp(
       opts.subAgentDeclared,
       midpoint(baseline.subAgentMin, baseline.subAgentMax),
     ),
-    estimated_input_tokens_static_frame: clamp(
-      opts.inputTokensDeclared,
-      midpoint(baseline.staticFrameTokensMin, baseline.staticFrameTokensMax),
-    ),
+    estimated_input_tokens_static_frame: scaledStaticFrameTokens,
     estimated_web_research_queries: clamp(
       opts.webResearchDeclared,
       midpoint(baseline.webResearchQueriesMin, baseline.webResearchQueriesMax),
@@ -230,6 +345,63 @@ export function estimateCost(opts: EstimateCostOptions): CostEstimate {
       midpoint(baseline.durationMinMin, baseline.durationMinMax),
     ),
   };
+
+  if (repoRow) {
+    estimate.repo_size_row = {
+      band: repoRow.band,
+      tracked_files:
+        Number.isFinite(opts.repoFileCount!) && opts.repoFileCount! > 0
+          ? Math.floor(opts.repoFileCount!)
+          : 0,
+      factor: repoRow.factor,
+    };
+  }
+
+  return estimate;
+}
+
+/**
+ * Count tracked files in `projectRoot` via `git ls-files` (D6-20) — the impure
+ * companion to {@link estimateCost}'s pure `repoFileCount` input. Pass the
+ * returned count into {@link estimateCost} (or {@link EstimateCostOptions}) so
+ * the static-frame estimate scales with repository size.
+ *
+ * Silent Failure Contract (CONSTITUTION §2 P5): non-git directories, missing
+ * git, and any spawn error return `null` (caller then omits `repoFileCount`,
+ * keeping the repo-size-independent estimate) rather than throwing. The git
+ * invocation is `execFileSync` with a fixed argv (no shell, no user-interpolated
+ * string) so there is no command-injection surface; `wc -l` is computed in-process
+ * by counting NUL-delimited records to avoid a shell pipe and to count filenames
+ * containing newlines correctly.
+ *
+ * @param projectRoot  Repository working-tree root; defaults to `process.cwd()`.
+ * @returns the tracked-file count, or `null` when it cannot be determined.
+ */
+export function countTrackedFiles(projectRoot: string = process.cwd()): number | null {
+  try {
+    // `-z` NUL-delimits records so a filename containing a newline is one record;
+    // counting NULs is the in-process equivalent of the finding's `git ls-files | wc -l`.
+    const out = execFileSync("git", ["-C", projectRoot, "ls-files", "-z"], {
+      stdio: ["ignore", "pipe", "ignore"],
+      encoding: "utf8",
+      maxBuffer: 64 * 1024 * 1024,
+    });
+    if (out.length === 0) return 0;
+    let count = 0;
+    for (let i = 0; i < out.length; i++) {
+      if (out.charCodeAt(i) === 0) count++;
+    }
+    // A non-empty output with no trailing NUL (defensive: should not happen with
+    // `-z`) still has one unterminated record — count it.
+    if (out.charCodeAt(out.length - 1) !== 0) count++;
+    return count;
+    // Non-git dir, missing git binary, or spawn failure: the repo-size signal is
+    // simply unavailable. Per the Silent Failure Contract the estimate falls back
+    // to repo-size-independent (caller omits repoFileCount) rather than aborting.
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return null;
+  }
 }
 
 /**
@@ -622,6 +794,18 @@ export function formatCostBlock(estimate: CostEstimate, actuals?: CostActuals): 
     `  estimated_duration_min: ${estimate.estimated_duration_min}`,
   ];
 
+  // D6-20: surface the repo-size band that scaled the static-frame estimate, but
+  // only when it was resolved — a repo-size-independent estimate (no file count
+  // supplied) keeps the established field set byte-identical.
+  if (estimate.repo_size_row) {
+    lines.push(
+      `  repo_size_row:`,
+      `    band: ${estimate.repo_size_row.band}`,
+      `    tracked_files: ${estimate.repo_size_row.tracked_files}`,
+      `    factor: ${estimate.repo_size_row.factor}`,
+    );
+  }
+
   if (actuals) {
     const delta = computeDelta(estimate, actuals);
     lines.push(
@@ -712,20 +896,123 @@ export interface UsdCostEstimate {
   warningMessage?: string;
 }
 
-/** Default cost per 1M input tokens in USD. */
+/**
+ * Default cost per 1M input tokens in USD.
+ *
+ * BIAS WARNING (D6-18): this default is the **Sonnet** input rate ($3/1M). It
+ * is NOT model-agnostic — an Opus run costs $5/1M input and is undercosted by
+ * ~67% (5/3) when this default is used, and a Haiku run ($1/1M) is overcosted
+ * by 3×. Callers that know the target model MUST resolve the rate from
+ * {@link MODEL_RATES} via {@link resolveModelRate} (or pass `inputCostPer1M`
+ * explicitly) rather than relying on this default. The constant is retained at
+ * the Sonnet rate only to preserve the historical `observability.estimateCost`
+ * public API contract (F3.4-F2).
+ */
 export const DEFAULT_INPUT_COST_PER_1M = 3.0;
 
-/** Default cost per 1M output tokens in USD. */
+/**
+ * Default cost per 1M output tokens in USD.
+ *
+ * BIAS WARNING (D6-18): this default is the **Sonnet** output rate ($15/1M).
+ * See {@link DEFAULT_INPUT_COST_PER_1M} — resolve from {@link MODEL_RATES} when
+ * the model is known. Opus output is $25/1M (undercosted ~40% at this default);
+ * Haiku output is $5/1M (overcosted 3×).
+ */
 export const DEFAULT_OUTPUT_COST_PER_1M = 15.0;
+
+/**
+ * Cache-read multiplier for prompt-cached input tokens (D6-19). Anthropic bills
+ * `cache_read_input_tokens` at ~0.1× the model's base input rate. The framework
+ * ships a large static prompt frame to every sub-agent specifically so it is
+ * cache-eligible (CONSTITUTION §2 P7 static-first prompt frame), so a run with a
+ * high cache-hit ratio costs far less on input than the uncached figure implies
+ * — counting cached input at full rate overstates cost by up to ~90%.
+ *
+ * Source: Anthropic prompt-caching pricing — cache reads cost ~0.1× base input
+ * (https://platform.claude.com/docs/en/build-with-claude/prompt-caching,
+ * accessed 2026-06-06).
+ */
+export const CACHE_READ_MULTIPLIER = 0.1;
+
+/**
+ * Per-1M-token USD rates for a named Claude model (D6-18). `accessed` records
+ * when the row was last verified against the vendor's published pricing so a
+ * currency gate can flag stale rows.
+ */
+export interface ModelRate {
+  /** USD per 1M input tokens. */
+  inputCostPer1M: number;
+  /** USD per 1M output tokens. */
+  outputCostPer1M: number;
+  /** ISO-8601 date (YYYY-MM-DD) the rate row was last verified. */
+  accessed: string;
+}
+
+/**
+ * Versioned named-model rate map (D6-18, shared with D6-6's cost-tracking
+ * skill). Keys are the canonical model ids; tier aliases (`opus`/`sonnet`/
+ * `haiku`) resolve to the current model in each tier via {@link resolveModelRate}.
+ *
+ * Source: Anthropic published pricing (https://www.anthropic.com/pricing,
+ * accessed 2026-06-06). Re-fetch and update `accessed` before a release when any
+ * row is older than 30 days — rates drift between model releases.
+ */
+export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {
+  "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
+  "claude-opus-4-7": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
+  "claude-opus-4-6": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },
+  "claude-sonnet-4-6": { inputCostPer1M: 3.0, outputCostPer1M: 15.0, accessed: "2026-06-06" },
+  "claude-haiku-4-5": { inputCostPer1M: 1.0, outputCostPer1M: 5.0, accessed: "2026-06-06" },
+} as const;
+
+/**
+ * Tier-alias → canonical-model-id map for {@link resolveModelRate}. Each alias
+ * points at the current default model in that tier; bump these when a new model
+ * version ships. Kept separate from {@link MODEL_RATES} so the rate map stays a
+ * pure id→rate table.
+ */
+const TIER_ALIASES: Readonly<Record<string, keyof typeof MODEL_RATES>> = {
+  opus: "claude-opus-4-8",
+  sonnet: "claude-sonnet-4-6",
+  haiku: "claude-haiku-4-5",
+} as const;
+
+/**
+ * Resolve a model selector to its {@link ModelRate} (D6-18). Accepts a tier
+ * alias (`opus`/`sonnet`/`haiku`, case-insensitive) or an exact model id from
+ * {@link MODEL_RATES}. Returns `null` for an unknown selector so the caller can
+ * surface an actionable error listing the valid selectors.
+ *
+ * Pure function — no I/O, never throws.
+ */
+export function resolveModelRate(selector: string): ModelRate | null {
+  const key = selector.trim().toLowerCase();
+  const aliased = TIER_ALIASES[key];
+  if (aliased) return MODEL_RATES[aliased];
+  return MODEL_RATES[key] ?? null;
+}
 
 /**
  * Convert a token summary to a USD cost estimate using configurable per-1M
  * rates, optionally flagging budget-threshold breaches. Pure function — no
  * I/O, never throws.
  *
- * Behaviour is identical to the former `observability.estimateCost`: input and
- * output costs are `tokens * rate / 1_000_000`; when `budgetLimit` is supplied
- * the highest crossed threshold (default 0.5/0.75/0.9) sets `budgetWarning`.
+ * Behaviour matches the former `observability.estimateCost` for the uncached
+ * case: input and output costs are `tokens * rate / 1_000_000`; when
+ * `budgetLimit` is supplied the highest crossed threshold (default
+ * 0.5/0.75/0.9) sets `budgetWarning`.
+ *
+ * RATE DEFAULTS ARE SONNET-BIASED (D6-18): when `inputCostPer1M` /
+ * `outputCostPer1M` are omitted the Sonnet rates ($3/$15) apply — see
+ * {@link DEFAULT_INPUT_COST_PER_1M}. Pass rates resolved from
+ * {@link resolveModelRate} to cost a specific model correctly.
+ *
+ * CACHE-AWARE INPUT BILLING (D6-19): `cacheHitRatio` (0–1, default 0) is the
+ * fraction of input tokens served from the prompt cache. Input cost becomes
+ * `inputTokens·(1−r)·rate + inputTokens·r·rate·CACHE_READ_MULTIPLIER`, i.e. the
+ * cached fraction bills at 0.1× the base input rate. Output tokens are never
+ * cache-discounted. The ratio is clamped to [0, 1]; a non-finite ratio is
+ * treated as 0 (no caching).
  */
 export function estimateUsdCost(
   summary: PipelineTokenSummary,
@@ -735,13 +1022,25 @@ export function estimateUsdCost(
     currency?: string;
     budgetLimit?: number;
     warningThresholds?: number[];
+    cacheHitRatio?: number;
   },
 ): UsdCostEstimate {
   const inputRate = (options?.inputCostPer1M ?? DEFAULT_INPUT_COST_PER_1M) / 1_000_000;
   const outputRate = (options?.outputCostPer1M ?? DEFAULT_OUTPUT_COST_PER_1M) / 1_000_000;
   const currency = options?.currency ?? "USD";
 
-  const inputCost = summary.totalInputTokens * inputRate;
+  // Clamp the cache-hit ratio to [0, 1]; a non-finite value disables caching.
+  const rawRatio = options?.cacheHitRatio;
+  const cacheHitRatio =
+    typeof rawRatio === "number" && Number.isFinite(rawRatio)
+      ? Math.min(1, Math.max(0, rawRatio))
+      : 0;
+
+  // Cached input tokens bill at CACHE_READ_MULTIPLIER × base; uncached at full.
+  const cachedInput = summary.totalInputTokens * cacheHitRatio;
+  const uncachedInput = summary.totalInputTokens - cachedInput;
+  const inputCost =
+    uncachedInput * inputRate + cachedInput * inputRate * CACHE_READ_MULTIPLIER;
   const outputCost = summary.totalOutputTokens * outputRate;
   const totalCost = inputCost + outputCost;
 

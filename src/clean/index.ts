@@ -29,7 +29,10 @@ function recordCleanProbeFailure(operation: string, err: unknown): void {
  *   - strip managed blocks from every adapter-output file the manifest
  *     tracks (preserving any user-authored content outside the markers);
  *   - delete `.hatch3r/hatch.json`;
- *   - delete `.hatch3r-archive/` (rollback snapshots);
+ *   - delete `.hatch3r-archive/` (tool-output archive — the copies of a
+ *     removed tool's adapter outputs that `archiveToolOutputs` stashes
+ *     before deleting the originals; NOT the rollback snapshots, which live
+ *     under `.hatch3r/snapshots/` and are out of scope for `clean`);
  *   - preserve user state under `.hatch3r/`:
  *       learnings/, handoffs/, overrides/ (Wave 5), mcp/, plus any
  *       `.customize.yaml` / `.customize.md` files alongside.
@@ -123,8 +126,8 @@ export async function inventoryArtifacts(rootDir: string): Promise<CleanInventor
   if (await fileExists(agentsMdPath)) {
     try {
       const content = await readFile(agentsMdPath, "utf-8");
-      if (hasManagedBlock(content)) {
-        const userContent = extractCustomContent(content).trim();
+      if (hasManagedBlock(content, agentsMdPath)) {
+        const userContent = extractCustomContent(content, agentsMdPath).trim();
         agentsMdHasUserContent = userContent.length > 0;
       }
     } catch (err) {
@@ -187,8 +190,8 @@ export async function executeClean(
       let stripped = false;
       try {
         const content = await readFile(absPath, "utf-8");
-        if (hasManagedBlock(content)) {
-          const userContent = extractCustomContent(content).trim();
+        if (hasManagedBlock(content, absPath)) {
+          const userContent = extractCustomContent(content, absPath).trim();
           if (userContent.length > 0) {
             await writeFile(absPath, userContent + "\n");
             kept.push(`${f} (user content preserved, managed block stripped)`);
@@ -221,8 +224,8 @@ export async function executeClean(
   if (await fileExists(agentsMdPath)) {
     try {
       const content = await readFile(agentsMdPath, "utf-8");
-      if (hasManagedBlock(content)) {
-        const userContent = extractCustomContent(content).trim();
+      if (hasManagedBlock(content, agentsMdPath)) {
+        const userContent = extractCustomContent(content, agentsMdPath).trim();
         if (userContent.length > 0) {
           await writeFile(agentsMdPath, userContent + "\n");
           kept.push("AGENTS.md (user content preserved, managed block stripped)");
@@ -260,7 +263,10 @@ export async function executeClean(
     }
   }
 
-  // 5. `.hatch3r-archive/` (rollback snapshots — safe to remove on clean).
+  // 5. `.hatch3r-archive/` (tool-output archive — stashed copies of removed
+  //    tools' adapter outputs, retention MAX_ARCHIVE_ENTRIES=5 per tool;
+  //    distinct from the `.hatch3r/snapshots/` rollback store, which `clean`
+  //    leaves untouched). Safe to remove on clean.
   if (inventory.archiveDir) {
     try {
       await rm(join(rootDir, ARCHIVE_DIR), { recursive: true, force: true });

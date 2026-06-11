@@ -134,6 +134,8 @@ Authentication and authorization patterns (auth middleware, token validation, se
 
 ## OWASP Top 10 2025 (Web Application Security)
 
+Subsection order and titles follow the official OWASP Top 10:2025 release (https://owasp.org/Top10/2025/, accessed 2026-06-05). The 2025 list reorders the 2021 set: Security Misconfiguration rises to A02, A03 becomes Software Supply Chain Failures (an expansion of 2021's Vulnerable and Outdated Components), and Injection moves to A05.
+
 ### A01 — Broken Access Control
 
 - Enforce access control server-side. Client-side checks are UX, not security.
@@ -143,32 +145,7 @@ Authentication and authorization patterns (auth middleware, token validation, se
 - Rate-limit API access to minimize automated IDOR scanning and credential stuffing.
 - Log access control failures and alert on repeated violations from the same identity.
 
-### A02 — Cryptographic Failures
-
-- Classify data by sensitivity (PII, financial, health, credentials). Apply encryption requirements per classification.
-- Encrypt data in transit (TLS 1.2+ mandatory, prefer 1.3) and at rest (AES-256 or equivalent).
-- Never use deprecated algorithms: MD5, SHA-1, DES, RC4, ECB mode. Use SHA-256+ for hashing, AES-GCM for symmetric encryption, RSA-OAEP or ECDSA for asymmetric.
-- Hash passwords with bcrypt, scrypt, or Argon2id with appropriate work factors. Never use raw SHA/MD5 for passwords.
-- Generate cryptographic keys with secure random sources (`crypto.randomBytes`, not `Math.random`). Never hard-code keys or IVs.
-- Disable caching for responses containing sensitive data (`Cache-Control: no-store`).
-
-### A03 — Injection
-
-- Use parameterized queries or prepared statements for all database operations. Zero tolerance for string concatenation with user input in queries.
-- Apply context-aware output encoding: HTML entities, URL encoding, JavaScript escaping, CSS escaping, LDAP escaping — matched to the output context.
-- Validate and sanitize all external input with allowlist validation. Limit input length, character sets, and format.
-- Use `LIMIT` and pagination in queries to prevent mass data disclosure via injection.
-- For OS command execution: avoid entirely if possible. If necessary, use parameterized APIs (not shell interpolation) with strict input validation.
-
-### A04 — Insecure Design
-
-- Use threat modeling during design phase (STRIDE, attack trees, or equivalent). Identify trust boundaries and abuse cases before writing code.
-- Establish and enforce secure design patterns: separation of concerns, defense in depth, least privilege, fail-closed.
-- Write abuse-case user stories alongside feature user stories: "As an attacker, I want to..."
-- Design rate limiting, resource quotas, and cost controls into the architecture — not as afterthoughts.
-- Establish secure development lifecycle (SDL) practices: security requirements, design review, code review, testing.
-
-### A05 — Security Misconfiguration
+### A02 — Security Misconfiguration
 
 - Harden all environments: remove default accounts, disable unused features/ports/services, remove sample applications.
 - Use identical security configuration across development, staging, and production. Differences in security settings between environments mask vulnerabilities.
@@ -177,7 +154,9 @@ Authentication and authorization patterns (auth middleware, token validation, se
 - Review cloud permissions quarterly. Remove unused IAM roles, security groups, and service accounts.
 - Disable detailed error messages in production. Use generic error responses with correlation IDs for debugging.
 
-### A06 — Vulnerable and Outdated Components
+### A03 — Software Supply Chain Failures
+
+Expands 2021's Vulnerable and Outdated Components to cover the full dependency, build, and distribution chain — third-party code, build tools, CI/CD systems, and package registries.
 
 - Maintain a software bill of materials (SBOM) for all direct and transitive dependencies.
 - Run `npm audit` (or equivalent) in CI on every build. Block merges with critical or high vulnerabilities.
@@ -187,9 +166,36 @@ Authentication and authorization patterns (auth middleware, token validation, se
   - **GitLab:** GitLab Dependency Scanning CI template, or Snyk integration
 - Remove unused dependencies. Unused code with known vulnerabilities is still a risk.
 - Pin dependency versions in lockfiles. Review lockfile changes in PRs with the same scrutiny as code changes.
+- Verify package provenance: prefer signed packages, scoped registries, and `npm ci` over `npm install`. Reject `npx -y` on untrusted names (typosquatting / dependency confusion).
+- Harden the build pipeline itself: pin CI actions by commit SHA, restrict who can modify pipeline config, and treat build secrets as production credentials.
 - Establish SLAs for vulnerability remediation: critical within 24 hours, high within 1 week, moderate within 1 sprint.
 
-### A07 — Identification and Authentication Failures
+### A04 — Cryptographic Failures
+
+- Classify data by sensitivity (PII, financial, health, credentials). Apply encryption requirements per classification.
+- Encrypt data in transit (TLS 1.2+ mandatory, prefer 1.3) and at rest (AES-256 or equivalent).
+- Never use deprecated algorithms: MD5, SHA-1, DES, RC4, ECB mode. Use SHA-256+ for hashing, AES-GCM for symmetric encryption, RSA-OAEP or ECDSA for asymmetric.
+- Hash passwords with bcrypt, scrypt, or Argon2id with appropriate work factors. Never use raw SHA/MD5 for passwords.
+- Generate cryptographic keys with secure random sources (`crypto.randomBytes`, not `Math.random`). Never hard-code keys or IVs.
+- Disable caching for responses containing sensitive data (`Cache-Control: no-store`).
+
+### A05 — Injection
+
+- Use parameterized queries or prepared statements for all database operations. Zero tolerance for string concatenation with user input in queries.
+- Apply context-aware output encoding: HTML entities, URL encoding, JavaScript escaping, CSS escaping, LDAP escaping — matched to the output context.
+- Validate and sanitize all external input with allowlist validation. Limit input length, character sets, and format.
+- Use `LIMIT` and pagination in queries to prevent mass data disclosure via injection.
+- For OS command execution: avoid entirely if possible. If necessary, use parameterized APIs (not shell interpolation) with strict input validation.
+
+### A06 — Insecure Design
+
+- Use threat modeling during design phase (STRIDE, attack trees, or equivalent). Identify trust boundaries and abuse cases before writing code.
+- Establish and enforce secure design patterns: separation of concerns, defense in depth, least privilege, fail-closed.
+- Write abuse-case user stories alongside feature user stories: "As an attacker, I want to..."
+- Design rate limiting, resource quotas, and cost controls into the architecture — not as afterthoughts.
+- Establish secure development lifecycle (SDL) practices: security requirements, design review, code review, testing.
+
+### A07 — Authentication Failures
 
 - Implement multi-factor authentication for privileged accounts and sensitive operations.
 - Enforce password complexity requirements: minimum 8 characters, check against breached password databases (Have I Been Pwned API).
@@ -198,7 +204,7 @@ Authentication and authorization patterns (auth middleware, token validation, se
 - Never expose session IDs in URLs. Use secure, HttpOnly, SameSite cookies.
 - Implement account lockout with notification after repeated failed attempts.
 
-### A08 — Software and Data Integrity Failures
+### A08 — Software or Data Integrity Failures
 
 - Verify integrity of all software updates, dependencies, and CI/CD pipeline artifacts using digital signatures or checksums.
 - Use lockfiles and verify their integrity. `npm ci` (not `npm install`) in CI for deterministic builds that fail on lockfile drift.
@@ -210,7 +216,7 @@ Authentication and authorization patterns (auth middleware, token validation, se
   - **Azure DevOps:** Pin pipeline tasks by exact version (e.g., `task@2`)
   - **GitLab CI:** Pin included templates by SHA or tag reference
 
-### A09 — Security Logging and Monitoring Failures
+### A09 — Security Logging and Alerting Failures
 
 - Log all authentication events (success, failure, lockout), access control failures, input validation failures, and security-relevant business events.
 - Use structured logging with correlation IDs. Include: timestamp, severity, event type, user identity (if available), source IP, resource accessed, outcome.

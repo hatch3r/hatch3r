@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-security, hatch3r-pack-installer]
 description: "Walk the user through the pack trust-model gate (tier + signature + body-scan + capability declaration), confirm the trust posture, then delegate the verified install to hatch3r-pack-installer."
+argument-hint: "<pack-source>"
 tags: [devops, supply-chain, ctx:brownfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -215,34 +216,17 @@ Status decision rules:
 
 ## Sub-agent fan-out contract
 
-This command emits the `sub_agents_spawned` field declared in frontmatter (`count: 2`) per `.claude/rules/fan-out-discipline.md`. The two sub-agents (`hatch3r-security` verification, then `hatch3r-pack-installer` install) run on a dependency edge — the install consumes the verification verdict — so serialization here is dependency-driven, not cost-driven. Per CONSTITUTION §2 P8 B2, token cost is never a valid reason to serialize independent work; this serialization is valid only because a true dependency exists.
+This command emits the `sub_agents_spawned` field declared in frontmatter (`count: 2`) per `rules/hatch3r-fan-out-discipline.md`. The two sub-agents (`hatch3r-security` verification, then `hatch3r-pack-installer` install) run on a dependency edge — the install consumes the verification verdict — so serialization here is dependency-driven, not cost-driven. Per CONSTITUTION §2 P8 B2, token cost is never a valid reason to serialize independent work; this serialization is valid only because a true dependency exists.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (pack content written to the repo) emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` → End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by `hatch3r-pack-installer` verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <adapter path or .hatch3r/overrides path>: via hatch3r-pack-installer (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: pack content written to the repo.
 
 ## Resumability (Decision 27/30)
 
 pack-install is checkpoint-light: Steps 1-3 (resolve, verify, trust gate) are read-only, and Step 4 is a single atomic install. The temp+rename write set (`src/merge/safeWrite.ts`) is itself the resumability unit — a SIGKILL mid-install leaves the repo at its pre-install state with no partial pack — so a resumed run re-runs from the trust gate.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.pack-install-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`). Schema (`schemaVersion: 1`): `phase` (the Step 1 → Step 5 progression), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, packRef, signatureVerdict, userTrustDecision, installerProofId }`.
-2. **Write points:** after Step 1 resolution, after the Step 2 verification verdict, after the Step 3 trust decision, and after the Step 4 installer return. Recording the trust decision means a resume does not re-prompt for a confirmed posture.
-3. **`--resume` invocation:** `hatch3r add --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed — re-run the trust gate from scratch, since a stale signature must not gate a fresh write (time-of-check/time-of-use). A `failed` status halts for operator triage.
-4. **Snapshot rollback:** the installer snapshots every touched path into `.hatch3r/snapshots/<session-id>/` before writing; `hatch3r rollback --session=<id>` reverts an applied pack. The Step 4 dry-run is the diff preview that precedes every mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.pack-install-workspace/`; step range the Step 1 → Step 5 progression; `wave` = the fan-out batch index; snapshot/rollback paths the command's output paths. Write points: after Step 1 resolution, after the Step 2 verification verdict, after the Step 3 trust decision, and after the Step 4 installer return. Recording the trust decision means a resume does not re-prompt for a confirmed posture.
 
 ## Guardrails
 

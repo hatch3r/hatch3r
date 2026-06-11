@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, vi } from "vitest";
 import {
   clampTimeout,
   getDefaultPhaseTimeout,
@@ -81,22 +81,37 @@ describe("phaseTimeout", () => {
       expect(result.error).toBeUndefined();
     });
 
-    it("should return timeout result for slow operations", async () => {
-      const result = await executeWithPhaseTimeout(
-        "merge",
-        async () => {
-          await new Promise((resolve) => setTimeout(resolve, 5000));
-          return "never";
-        },
-        { timeoutMs: MIN_PHASE_TIMEOUT_MS },
-      );
+    it("should return a non-completed timeout result when the phase exceeds its budget", async () => {
+      // Fake timers fire the 10s clamp floor deterministically and instantly,
+      // and also advance Date.now() so elapsedMs is exact. Without them this
+      // test either waits 10s of real time or (with a sub-floor task) never
+      // exercises the timeout branch at all. Pattern mirrors
+      // pipelineTimeout.test.ts "rejects with PipelineTimeoutError ...".
+      vi.useFakeTimers();
+      try {
+        const promise = executeWithPhaseTimeout(
+          "merge",
+          // Never resolves on its own — only the deadman timer can end it.
+          () => new Promise<string>(() => {}),
+          { timeoutMs: MIN_PHASE_TIMEOUT_MS },
+        );
+        // Cross the 10s clamp floor so the internal timer fires.
+        await vi.advanceTimersByTimeAsync(MIN_PHASE_TIMEOUT_MS + 1);
+        const result = await promise;
 
-      // Timeout fires at MIN_PHASE_TIMEOUT_MS (10s) which is too slow for a test.
-      // Instead, test with a smaller timeout that gets clamped.
-      // Since MIN is 10s, this test verifies the mechanism works with fast completion.
-      // The actual timeout behavior is tested by the next test with explicit timing.
-      expect(result.phase).toBe("merge");
-    }, 15_000);
+        // The completed:false branch (phaseTimeout.ts:158) is now exercised.
+        expect(result.completed).toBe(false);
+        expect(result.result).toBeUndefined();
+        expect(result.phase).toBe("merge");
+        // PhaseTimeoutError message names the phase and reports elapsed time.
+        expect(result.error).toContain("merge");
+        expect(result.error).toMatch(/elapsed: \d+s/);
+        // Date.now() advanced under fake timers → elapsed reaches the budget.
+        expect(result.elapsedMs).toBeGreaterThanOrEqual(MIN_PHASE_TIMEOUT_MS);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
     it("should propagate non-timeout errors", async () => {
       await expect(
@@ -134,27 +149,42 @@ describe("phaseTimeout", () => {
       expect(result.elapsedMs).toBeGreaterThanOrEqual(40);
     });
 
-    it("should abort signal when timeout occurs", async () => {
-      // Use a long-running task that checks the signal
-      const promise = executeWithPhaseTimeout(
-        "adapter",
-        async (signal) => {
-          return new Promise<string>((resolve) => {
-            const check = setInterval(() => {
-              if (signal.aborted) {
-                clearInterval(check);
-                resolve("aborted");
-              }
-            }, 10);
-          });
-        },
-        { timeoutMs: MIN_PHASE_TIMEOUT_MS },
-      );
+    it("should abort the phase signal when the timeout fires", async () => {
+      // Fake timers fire the 10s clamp floor instantly. The previous version
+      // ran a real 10s setInterval and asserted only `phase`, so it never
+      // checked that the signal actually aborted. The source aborts the inner
+      // controller (phaseTimeout.ts:135) before rejecting; assert that abort
+      // contract here. The completed:false timeout RESULT is covered by the
+      // "non-completed timeout result" test above with a body that never
+      // resolves — a body that resolves on abort can race the rejection, which
+      // is why this test does not re-assert `completed`.
+      vi.useFakeTimers();
+      try {
+        let observedAbort = false;
+        // Hang forever so the only thing that touches the signal is the
+        // timeout-driven abort; record it synchronously when it fires.
+        const promise = executeWithPhaseTimeout(
+          "adapter",
+          (signal) =>
+            new Promise<string>(() => {
+              signal.addEventListener("abort", () => {
+                observedAbort = true;
+              });
+            }),
+          { timeoutMs: MIN_PHASE_TIMEOUT_MS },
+        );
+        await vi.advanceTimersByTimeAsync(MIN_PHASE_TIMEOUT_MS + 1);
+        const result = await promise;
 
-      const result = await promise;
-      // The operation should be marked as timed out or the signal was aborted
-      expect(result.phase).toBe("adapter");
-    }, 15_000);
+        expect(observedAbort).toBe(true);
+        expect(result.completed).toBe(false);
+        expect(result.phase).toBe("adapter");
+        expect(result.error).toContain("adapter");
+        expect(result.elapsedMs).toBeGreaterThanOrEqual(MIN_PHASE_TIMEOUT_MS);
+      } finally {
+        vi.useRealTimers();
+      }
+    });
 
     // ── C9-H20 (D8-H8.3.1): parentSignal threading ─────────────────
     it("aborts the inner signal when an external parentSignal fires mid-execution", async () => {

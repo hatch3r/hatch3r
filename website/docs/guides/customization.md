@@ -55,34 +55,33 @@ hatch3r provides `.customize.yaml` files for fine-grained overrides without modi
 
 ### Agents
 
-Create `.hatch3r/agents/{agent-id}.customize.yaml`:
+Create `.hatch3r/agents/{agent-id}.customize.yaml` (the file is keyed by id via its filename, so set only the override fields — `model` for agents):
 
 ```yaml
-agent: hatch3r-reviewer
 model: codex
 ```
 
-Use the `agent-customize` command for interactive setup.
+Run the `/hatch3r-customize` skill (an AI-tool slash command inside Cursor or Claude Code) for interactive setup across every artifact type.
 
 ### Skills
 
-Create `.hatch3r/skills/{skill-id}.customize.yaml`:
+Create `.hatch3r/skills/{skill-id}.customize.yaml`. Skills accept `description` and `enabled`:
 
 ```yaml
-skill: hatch3r-feature
+description: Feature workflow tuned for our service conventions
 ```
 
-Use the `skill-customize` command for interactive setup.
+The `/hatch3r-customize` skill handles skills too — pass the skill id when it asks what to customize.
 
 ### Rules
 
-Create `.hatch3r/rules/{rule-id}.customize.yaml`:
+Create `.hatch3r/rules/{rule-id}.customize.yaml`. Rules accept `scope` (when the rule applies) plus `description` and `enabled`:
 
 ```yaml
-rule: hatch3r-code-standards
+scope: always
 ```
 
-Use the `rule-customize` command for interactive setup.
+The `/hatch3r-customize` skill handles rules too — pass the rule id when it asks what to customize.
 
 ### Rule precedence and generated filenames
 
@@ -92,17 +91,17 @@ Validate with `npx hatch3r validate`. Parity between `.md` and `.mdc` variants i
 
 ### Commands
 
-Create `.hatch3r/commands/{command-id}.customize.yaml`:
+Create `.hatch3r/commands/{command-id}.customize.yaml`. Commands accept `description` and `enabled`:
 
 ```yaml
-command: hatch3r-board-fill
+enabled: false
 ```
 
-Use the `command-customize` command for interactive setup.
+The `/hatch3r-customize` skill handles commands too — pass the command id when it asks what to customize.
 
 ## Authoring New User-Tier Artifacts
 
-The `*-customize` commands above adjust hatch3r's stock content. To author a brand-new project-specific artifact that hatch3r does not ship, use the `create` command.
+The `/hatch3r-customize` skill above adjusts hatch3r's stock content. To author a brand-new project-specific artifact that hatch3r does not ship, use the `create` command.
 
 `/hatch3r-create` walks you through type selection (agent, skill, rule, command, or hook), name, description, tags, adapter scope, and type-specific fields. It then delegates to the `hatch3r-creator` sub-agent, which composes the frontmatter and body skeleton, runs the same strict frontmatter/security/structural gates the framework uses on canonical content (block on failure) plus style/lean checks as warnings, and atomic-writes the file.
 

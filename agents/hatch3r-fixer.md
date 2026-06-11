@@ -161,7 +161,7 @@ Report back to the parent orchestrator with:
 
 The `Delegation proof ID` field below is a short identifier the orchestrator quotes verbatim in its closing End-of-Turn Delegation Attestation (defined in `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation). Set it to a memorable token derived from the review iteration or task (e.g., `fix-#34-pr-iter2` or `fix-feat-followup-stream-1`); the orchestrator cannot fabricate a plausible value without spawning this agent first, so the field functions as a forgery-resistant attribution token for files mutated by Phase 3 (closes the gap previously left by emitting no analogue to the implementer's proof field — audit Cycle 10 F5.1-H1).
 
-The `Reviewer re-run required` field is a structured signal to the parent orchestrator: when `true`, the orchestrator MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. Set `false` ONLY when no files were modified (e.g., all findings reported BLOCKED). This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by carrying an explicit reviewer-loop continuation signal in the structured result rather than relying solely on the orchestrator-LLM to remember the protocol.
+The `Reviewer re-run required` field is an **advisory** signal to the parent orchestrator; its authoritative value is **derived**, not self-asserted. The single source of truth is the `Files changed` list below (itself attested by the `Delegation proof ID`): the orchestrator computes `reRunRequired = (Files changed is non-empty)` and MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean whenever that derivation is `true` — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. The orchestrator honor-rule that performs this derivation and overrides a contradictory self-report lives at `rules/hatch3r-agent-orchestration.md` -> Post-Implementation Quality Pipeline -> Phase 3 step 2. Set the advisory boolean to match: `false` ONLY when `Files changed` is empty (e.g., all findings reported BLOCKED); a `false` printed alongside a non-empty `Files changed` is a self-declared protocol violation the orchestrator overrides to `true`. This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by binding the reviewer-loop continuation signal to the SSOT `Files changed` list rather than relying on a free-standing self-asserted boolean or the orchestrator-LLM to remember the protocol.
 
 ```
 ## Fix Result
@@ -170,7 +170,7 @@ The `Reviewer re-run required` field is a structured signal to the parent orches
 
 **Delegation proof ID:** <short identifier — orchestrator quotes this verbatim in its End-of-Turn Delegation Attestation>
 
-**Reviewer re-run required:** true | false (default true when Status = SUCCESS | PARTIAL; false only when no files were modified)
+**Reviewer re-run required:** true | false (advisory — orchestrator derives the authoritative value as `Files changed` non-empty; print `true` whenever the `Files changed` list below has ≥1 entry, `false` only when it is empty)
 
 **Findings addressed:**
 - [CRITICAL #1] file:line -- description of fix applied
@@ -207,21 +207,7 @@ See [Tooling Hierarchy](../rules/hatch3r-tooling-hierarchy.md) for the canonical
 
 ## Specialist Delegation
 
-At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the fix touches a CQ-axis surface. Trigger conditions and the specialist roster (CONSTITUTION §6 Decision 13 wiring):
-
-| CQ Pillar | Specialist | Trigger |
-|-----------|------------|---------|
-| CQ1 UI | `hatch3r-ui` | Files matching `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` |
-| CQ2 UX | `hatch3r-ux` | Route handlers, page components, form components, navigation, empty/error/loading states |
-| CQ3 Security | `hatch3r-security` | `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline, dependency manifest/lockfile, DB rules/data flows/privacy invariants |
-| CQ4 Reliability | `hatch3r-reliability` | Service handlers, OTel instrumentation, SLO files, RFC 9457 error responses |
-| CQ5 Testability | `hatch3r-testability` | Parsers, payment flows, RPC contracts, AI feature handlers, test files |
-| CQ6 Scalability | `hatch3r-scalability` | Stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, connection-pool config |
-| CQ7 Performance | `hatch3r-performance` | LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size imports, N+1 query candidates |
-| CQ8 Maintainability | `hatch3r-maintainability` | Expand-contract migrations, API breaking-change candidates, duplication-risk patterns, high cyclomatic-complexity branches |
-| CQ9 Enhancability | `hatch3r-enhancability` | Feature flags, externalized config, versioned APIs, extension-point definitions |
-
-Surface matched specialist names in the fix result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching after the review loop exits clean. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
+At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the fix touches a CQ-axis surface. The 9-row CQ1-CQ9 trigger roster (pillar → specialist → trigger glob) lives in the single source `agents/shared/cq-specialist-roster.md`; CONSTITUTION §6 Decision 13 wiring. Match the fix's changed files against that roster, then surface the matched specialist names in the fix result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching after the review loop exits clean. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
 
 ## Review Loop Termination Conditions
 

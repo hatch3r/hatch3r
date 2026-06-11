@@ -26,7 +26,8 @@ Review criteria for evaluating accessibility in pull requests.
 - `[CRITICAL]` Focus is not trapped in a component unless it is a modal dialog with an explicit close mechanism.
 - `[CRITICAL]` Custom keyboard shortcuts do not conflict with screen reader or browser shortcuts.
 - `[RECOMMENDED]` Focus order follows the visual reading order (logical DOM order). No use of positive `tabindex` values.
-- `[CRITICAL]` WCAG 2.2 SC 2.4.11 Focus Appearance (Minimum): the focus indicator has a contrast ratio of at least 3:1 against adjacent colors and a minimum area equal to a 1px-thick perimeter (or 4px-thick along the shortest side). No `outline: none` without a conforming custom focus style.
+- `[CRITICAL]` WCAG 2.2 SC 2.4.7 Focus Visible (AA): the keyboard focus indicator is visible on every operable element. No `outline: none` without a conforming custom focus style.
+- `[CRITICAL]` WCAG 2.2 SC 2.4.11 Focus Not Obscured (Minimum) (AA): the focused element is not entirely hidden by author-created content (sticky headers, footers, cookie banners, overlays). `[RECOMMENDED]` SC 2.4.13 Focus Appearance (AAA) as the enhanced target: the focus indicator has a contrast ratio of at least 3:1 against adjacent colors and a minimum area equal to a 1px-thick perimeter (or 4px-thick along the shortest side).
 
 ## Visual Design and Color
 

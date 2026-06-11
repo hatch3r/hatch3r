@@ -18,7 +18,7 @@ All adapters that support MCP emit tool-specific configuration during `npx hatch
 |------|-------------|--------|-------|
 | Cursor | `.cursor/mcp.json` | JSON (direct copy) | Also reads `mcp.json` at project root if using the Cursor plugin |
 | Claude Code | `.mcp.json` | JSON (direct copy) | Also generates `.claude/settings.json` with opinionated permissions (see [Claude Code Permissions](#claude-code-permissions)) |
-| Copilot / VS Code | `.vscode/mcp.json` | JSON with `env` object | Env vars passed via `env` object per server |
+| Copilot / VS Code | `.vscode/mcp.json` | JSON, `envFile` + `${input}` | STDIO env via `envFile` (`.env.mcp`); HTTP header secrets via `${input:NAME}` prompts |
 
 ## Connecting MCP Servers
 
@@ -38,7 +38,7 @@ Config goes to `.mcp.json`. Claude Code reads it from the project root. Fill in 
 
 ### Copilot / VS Code
 
-Config goes to `.vscode/mcp.json`. Env vars are passed via the `env` object per server entry. Source `.env.mcp` before launching or set vars in VS Code settings.
+Config goes to `.vscode/mcp.json`. STDIO server env auto-loads from `.env.mcp` via each entry's `envFile` field (VS Code does not shell-expand an `env` object). HTTP-transport servers (e.g. the remote GitHub server) carry their secret in a header, which VS Code does not read from `.env.mcp` — those are prompted via `${input:NAME}` variables on first use.
 
 All three supported adapters (Claude Code, Cursor, Copilot) emit MCP configuration natively. See [adapter-capability-matrix.md](adapter-capability-matrix.md) for the full per-tool capability breakdown.
 
@@ -82,7 +82,7 @@ When you add new MCP servers and run `hatch3r init` or `hatch3r sync`, any new v
 
 ### How secrets are loaded per editor
 
-**VS Code / Copilot** — Env vars are passed via the `env` object in `.vscode/mcp.json`. Source `.env.mcp` before launching or configure vars in VS Code settings.
+**VS Code / Copilot** — STDIO servers auto-load env from `.env.mcp` via each entry's `envFile` field (VS Code does not shell-expand an inline `env` object). HTTP-transport servers (e.g. the remote GitHub server) send their secret in a header; VS Code does not read header secrets from `.env.mcp`, so those are prompted via `${input:NAME}` variables on first use and cached by VS Code.
 
 **Cursor** — Source `.env.mcp` before launching:
 
@@ -204,7 +204,7 @@ For least-privilege automation, see Microsoft's guidance on [reducing PAT usage]
 
 ### GitLab token scopes
 
-For the GitLab MCP server (`glab mcp`):
+For the GitLab MCP server (`glab mcp serve`):
 
 1. Go to Settings → Access Tokens → [Personal Access Tokens](https://gitlab.com/-/user_settings/personal_access_tokens)
 2. Create a token with the `api` scope (grants full API access including issues, merge requests, and boards)
@@ -238,7 +238,7 @@ GITLAB_HOST=https://gitlab.example.com
 
 - **GitHub** — Remote server at `https://api.githubcopilot.com/mcp/`. Uses `X-MCP-Toolsets` for repos, issues, pull_requests, projects.
 - **Azure DevOps** — STDIO server via `@tiberriver256/mcp-server-azure-devops`. Requires `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_ORG`.
-- **GitLab** — STDIO server via `glab mcp`. Requires `GITLAB_TOKEN`. Supports self-hosted instances via `GITLAB_HOST`.
+- **GitLab** — STDIO server via `glab mcp serve` (requires the GitLab CLI; `glab mcp` alone prints help). Requires `GITLAB_TOKEN`. Supports self-hosted instances via `GITLAB_HOST`.
 - **Context7** — No secrets. Fetches up-to-date library docs.
 - **Filesystem** — No secrets. Uses `.` (project root) as the allowed directory.
 - **Playwright** — No secrets. Browser automation.

@@ -1,21 +1,35 @@
 // Last updated: 2026-05-19 (P3 platform-currency anchor; per-claim Anthropic
 // docs access dates inside this file remain authoritative for individual
 // assertions).
-import type { AdapterOutput } from "../types.js";
+import type { AdapterOutput, CanonicalFile } from "../types.js";
 import { toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
-import { sortByPrecedence, precedenceRank } from "./canonical.js";
+import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
+import {
+  readMaturityTier,
+  maturityDirective,
+  readConfidenceFloor,
+  confidenceFloorDirective,
+} from "../manifest/hatchJson.js";
 import { applyCustomization } from "./customization.js";
-import { transformEnvVarSyntax, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
-import { toClaudeToolsFrontmatter } from "../pipeline/adapterToolTranslator.js";
+import { transformEnvVarSyntax, stripPrivateMcpFields, MCP_DEFAULT_PROTOCOL_VERSION } from "./mcp-utils.js";
+import {
+  toClaudeToolsFrontmatter,
+  toClaudeToolsFrontmatterFromCategories,
+  toCursorReadonlyFrontmatter,
+} from "../pipeline/adapterToolTranslator.js";
 import {
   buildAgentToolPoliciesJson,
   buildClaudePreToolUseHookScript,
+  deriveUserAgentPolicy,
+  type AgentToolPolicy,
 } from "../pipeline/agentToolAllowlist.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
+import { stat } from "node:fs/promises";
+import { join } from "node:path";
 
 /**
  * C9-M47 (D6-SA6.4, P7 Speed & Token Efficiency): cache-breakpoint sentinel.
@@ -68,21 +82,37 @@ export const CACHE_BREAKPOINT_SENTINEL_END = "<!-- HATCH3R-CACHE-BREAKPOINT-END 
  * without a `paths` field are loaded unconditionally."
  *
  * Mapping mirrors the cursor `globs:` / copilot `applyTo:` scope transform
- * already in `cursor.ts::cursorRuleFrontmatter` and `copilot.ts`:
- *   - `scope: always`              -> "" (omit `paths:`; load unconditionally)
- *   - `scope: "<csv>"` (glob CSV)  -> `paths: ["g1", "g2", ...]` (flow array)
- *   - `scope: conditional`/absent  -> "" (no glob shape; load unconditionally)
+ * already in `cursor.ts::cursorRuleFrontmatter` and `copilot.ts`, resolved
+ * through the shared `resolveRuleGlobs` helper:
+ *   - `scope: always`                          -> "" (omit `paths:`; load unconditionally)
+ *   - `scope: agent-requested`                 -> "" (no Claude agent-requested
+ *                                                 primitive; loads unconditionally —
+ *                                                 the Cursor-only win lives in
+ *                                                 `cursorRuleFrontmatter`. D5-28)
+ *   - `scope: conditional` + `globs: "<csv>"`  -> `paths: ["g1", "g2", ...]` (flow array)
+ *   - `scope: "<csv>"` (legacy inline CSV)     -> `paths: ["g1", "g2", ...]`
+ *   - `scope: conditional` with no `globs:`    -> "" (no patterns; load unconditionally)
+ *   - absent / empty                           -> "" (no glob shape; load unconditionally)
+ *
+ * X4/CD4 (D6-1/D9-1/D11-1 — GLOBS DROP): the previous implementation returned
+ * "" for `scope === "conditional"` outright, so every canonical
+ * `scope: conditional` rule (52/65 of them, incl. `floor:security` /
+ * `precedence: critical` `hatch3r-security-patterns`) emitted NO `paths:`
+ * frontmatter and loaded unconditionally at session start — the real patterns
+ * in the `globs:` field were never read. Routing through `resolveRuleGlobs`
+ * pulls those patterns so the rule lazy-loads only on matching file reads, per
+ * Claude Code's documented `paths` primitive.
  *
  * Returns the frontmatter block (including the `---` fences and a trailing
  * newline) ready to prepend to the rule body, or "" when no `paths:` applies.
  * The flow-sequence form (`["a", "b"]`) is valid YAML and matches the
  * single-line frontmatter rendering the cursor/copilot adapters already use.
  */
-function claudeRulePathsFrontmatter(scope: string | undefined): string {
-  if (!scope || scope === "always" || scope === "conditional") return "";
-  const globs = scope.includes(",")
-    ? scope.split(",").map((g) => g.trim()).filter((g) => g.length > 0)
-    : [scope.trim()];
+function claudeRulePathsFrontmatter(
+  rule: Pick<CanonicalFile, "scope" | "globs">,
+  scopeOverride?: string,
+): string {
+  const globs = resolveRuleGlobs(rule, { scope: scopeOverride });
   if (globs.length === 0) return "";
   const arr = globs.map((g) => `"${g}"`).join(", ");
   return `---\npaths: [${arr}]\n---\n`;
@@ -286,62 +316,364 @@ Each quality teammate owns distinct files to avoid conflicts.
 
 // Claude Code hooks use an event+matcher pattern, not direct git hook names.
 // Each hook fires on a Claude event (e.g. PreToolUse, PostToolUse, SessionStart)
-// paired with a tool matcher regex that scopes when the hook triggers.
+// paired with a matcher whose meaning is EVENT-SPECIFIC: PreToolUse/PostToolUse
+// match tool names; SessionStart matches the session source; SubagentStart
+// matches the agent type; Stop ignores its matcher entirely
+// (code.claude.com/docs/en/hooks → "What the matcher filters", accessed
+// 2026-06-05).
 //
-// Mapping from hatch3r canonical hook events to Claude Code hook semantics
-// (Claude Code v2.1.x schema per code.claude.com/docs/en/plugins-reference#hooks,
-// accessed 2026-04-19):
-//   pre-commit    -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
-//   post-merge    -> PostToolUse + matcher "Bash"   (react after shell commands)
-//   ci-failure    -> SubagentStart + matcher "Bash" (trigger on sub-agent launch)
-//   file-save     -> PostToolUse + matcher "Write"  (react after file writes)
-//   session-start -> SessionStart + matcher ".*"   (fire on every session start)
-//   pre-push      -> PreToolUse  + matcher "Bash"   (intercept before shell commands)
-//   worktree-create -> WorktreeCreate + matcher ".*"  (native v2.1.x worktree lifecycle event)
-//   worktree-remove -> WorktreeRemove + matcher ".*"  (native v2.1.x worktree lifecycle event)
-// The two worktree events were added in Claude Code v2.1.x alongside isolation:
-// "worktree" agent frontmatter. Emitting them on the native events lets
-// WorktreeCreate hooks replace default git behavior (per docs) and lets
-// WorktreeRemove hooks fire on session exit or subagent finish.
-function mapToClaudeEvent(event: HookEvent): string {
-  const mapping: Record<HookEvent, string> = {
+// D9-10 (Cycle 11 Wave 3, D9, P3): every entry in the two maps below
+// (mapToClaudeEvent, getClaudeToolMatcher) was re-verified 2026-06-09 against
+// code.claude.com/docs/en/hooks. The live ~30-event catalogue
+// (PreToolUse/PostToolUse/PostToolUseFailure/SessionStart/SubagentStart/
+// SubagentStop/Stop/StopFailure/TaskCreated/InstructionsLoaded/WorktreeCreate/
+// WorktreeRemove/…) confirms each mapped target still exists with the same
+// trigger semantics; the Stop-vs-StopFailure choice for review-loop-cap is
+// recorded inline at its mapping line. The capability-seed detail string in
+// capabilityMatrix.ts (PLATFORM_CAPABILITY_SEED.claude hooks row) mirrors the
+// same re-verification date.
+//
+// Events with no native Claude hook surface (ADVISORY_ONLY_EVENTS below) are
+// NOT emitted into settings.json — they would either never fire or fire on
+// every occurrence of an unrelated trigger. They are surfaced as advisory
+// CLAUDE.md notes instead (parity with Cursor's .mdc-only and Copilot's
+// no-hook-surface paths for the same events).
+//
+// Mapping from hatch3r canonical hook events to Claude Code hook semantics:
+//   pre-commit    -> PreToolUse  + matcher "Bash"    (intercept before shell commands)
+//   post-merge    -> PostToolUse + matcher "Bash"    (the activation command gates on a
+//                                                      `git merge` substring in the tool
+//                                                      input, so it fires only on a real
+//                                                      merge — not on every Bash call;
+//                                                      D5-14)
+//   file-save     -> PostToolUse + matcher "Write"   (react after file writes)
+//   session-start -> SessionStart + matcher "startup" (session-SOURCE matcher per the
+//                                                      SessionStart table; "startup" =
+//                                                      new session. A tool matcher like
+//                                                      ".*" was a no-op here; D5-13)
+//   pre-push      -> PreToolUse  + matcher "Bash"    (intercept before shell commands)
+//   worktree-create -> WorktreeCreate (no matcher support — always fires)
+//   worktree-remove -> WorktreeRemove (no matcher support — always fires)
+//   review-loop-cap -> Stop          (Stop ignores its matcher; the scope lives in the
+//                                      hook command, which reads the `.review-loop.json`
+//                                      counter — D5-13)
+// ci-failure is advisory-only: Claude Code has NO native event for an external
+// CI pipeline failure (code.claude.com/docs/en/hooks, accessed 2026-06-05 —
+// "No native events exist for external CI pipeline failures"). The prior
+// SubagentStart+"Bash" mapping was DEAD: SubagentStart matches AGENT TYPES, not
+// tool names, so "Bash" matched nothing and the ci-watcher never activated
+// (D5-14, D9-2, D11-10). The closest native event, StopFailure, fires on a
+// Claude API error — not external CI — so re-mapping there would mislead;
+// ci-failure is emitted as guidance instead.
+
+/** Canonical hook events with no native Claude Code hook surface (D9-2). */
+const ADVISORY_ONLY_EVENTS: ReadonlySet<HookEvent> = new Set<HookEvent>(["ci-failure"]);
+
+/** Events that DO map to a native Claude Code hook (the complement of {@link ADVISORY_ONLY_EVENTS}). */
+type NativeHookEvent = Exclude<HookEvent, "ci-failure">;
+
+function mapToClaudeEvent(event: NativeHookEvent): string {
+  const mapping: Record<NativeHookEvent, string> = {
     "pre-commit": "PreToolUse",
     "post-merge": "PostToolUse",
-    "ci-failure": "SubagentStart",
     "file-save": "PostToolUse",
     "session-start": "SessionStart",
     "pre-push": "PreToolUse",
     "worktree-create": "WorktreeCreate",
     "worktree-remove": "WorktreeRemove",
+    // D9-10 (Cycle 11 Wave 3, D9, P3): Stop-vs-StopFailure re-evaluation.
+    // `Stop` = "When Claude finishes responding"; `StopFailure` = "When the
+    // turn ends due to an API error" (code.claude.com/docs/en/hooks, re-verified
+    // 2026-06-09). The review-loop cap must fire when a normal turn completes so
+    // the `.review-loop.json` counter advances on every reviewer/fixer round —
+    // NOT on a transport-layer API error. `Stop` is therefore correct;
+    // re-mapping to `StopFailure` would only fire the cap on API failures and
+    // never on a clean review round. `Stop` ignores its matcher (same source),
+    // so the loop scope stays in the hook command, not the matcher.
     "review-loop-cap": "Stop",
   };
   // D9-L-3 (Cycle 10, P5): no `|| event` fallback. `mapping` is typed
-  // Record<HookEvent, string>, so a future HookEvent added to the closed
-  // union (src/hooks/types.ts) without a branch here fails the Record-literal
-  // completeness check at compile time — fail-loud rather than silently
-  // emitting an unmapped canonical event name Claude Code would not recognise.
+  // Record<NativeHookEvent, string>, so a future native HookEvent added to the
+  // closed union (src/hooks/types.ts) without a branch here fails the
+  // Record-literal completeness check at compile time — fail-loud rather than
+  // silently emitting an unmapped canonical event name Claude Code would not
+  // recognise. Advisory-only events (ci-failure) are filtered out before this
+  // function is reached, so the narrowed key set is exhaustive.
   return mapping[event];
 }
 
-function getClaudeToolMatcher(hook: HookDefinition): string {
-  const eventToolMap: Record<HookEvent, string> = {
+function getClaudeToolMatcher(hook: HookDefinition & { event: NativeHookEvent }): string {
+  const eventToolMap: Record<NativeHookEvent, string> = {
     "pre-commit": "Bash",
     "post-merge": "Bash",
     "file-save": "Write",
-    "session-start": ".*",
+    // SessionStart honors a session-SOURCE matcher, not a tool matcher
+    // (code.claude.com/docs/en/hooks: startup | resume | clear | compact).
+    // "startup" fires the learnings-loader on a new session; the prior ".*"
+    // tool matcher was meaningless for this event (D5-13).
+    "session-start": "startup",
     "pre-push": "Bash",
-    "ci-failure": "Bash",
-    // Worktree events are lifecycle-scoped, not tool-scoped; match any context.
+    // Worktree events have no matcher support (always fire); ".*" is a
+    // harmless placeholder the runtime ignores.
     "worktree-create": ".*",
     "worktree-remove": ".*",
-    // review-loop-cap maps to Claude Code Stop event; no tool matcher needed.
+    // Stop ignores its matcher entirely (code.claude.com/docs/en/hooks:
+    // "no matcher support — always fires"). The fixer-spawn scope lives in the
+    // review-loop-cap hook command (reads `.review-loop.json`), not here.
     "review-loop-cap": ".*",
   };
-  // D9-L-3 (Cycle 10, P5): no `|| ".*"` fallback — Record<HookEvent, string>
-  // completeness is the fail-loud gate (see mapToClaudeEvent above). A new
-  // HookEvent without a matcher here breaks the build instead of silently
-  // matching every tool.
+  // D9-L-3 (Cycle 10, P5): no `|| ".*"` fallback — Record<NativeHookEvent,
+  // string> completeness is the fail-loud gate (see mapToClaudeEvent above).
   return eventToolMap[hook.event];
+}
+
+/**
+ * D15-3 (Cycle 11, P6 / ASI02-03): re-emit a canonical agent's literal
+ * short-form `tools.deny` envelope into the generated Claude subagent file.
+ *
+ * The canonical agents `hatch3r-devops`, `hatch3r-dependency-drafter`, and
+ * `hatch3r-pack-installer` author a fine-grained `tools: { allow, deny }`
+ * grant whose deny list mixes two shapes:
+ *   - Top-level Claude tool names (`Write`, `Edit`, `MultiEdit`, `Bash`).
+ *   - Granular `Bash:<subcommand>` strings (`"Bash:git commit"`,
+ *     `"Bash:git push"`, `"Bash:terraform apply"`).
+ *
+ * Pre-fix this list was parsed and then dropped — the Claude agent file
+ * rebuilt its frontmatter from the coarse policy-derived `tools:` allowlist
+ * only, so the per-agent deny was never honored (SA15.3-F1). Claude Code's
+ * subagent frontmatter exposes two enforcement surfaces
+ * (code.claude.com/docs/en/sub-agents, accessed 2026-06-05):
+ *   - `disallowedTools:` — a denylist of TOP-LEVEL tool names removed from the
+ *     inherited/allowed set. This is the native, enforced home for the bare
+ *     `Write`/`Edit`/`MultiEdit` denies.
+ *   - The subagent `tools:`/`disallowedTools:` fields take top-level tool
+ *     names ONLY; granular `Bash(<subcommand>:*)` rules are a settings.json
+ *     `permissions` primitive (code.claude.com/docs/en/settings, accessed
+ *     2026-06-05), which is session-global, not per-subagent. To scope the
+ *     deny to THIS agent only (not every session) and avoid a global blast
+ *     radius, the granular `Bash:<subcommand>` denies are surfaced as a `## Tool
+ *     Restrictions` constraint block in the agent body (the subagent reads
+ *     its own definition; the model honors the documented boundary — parity
+ *     with how Cursor carries the same restriction as `readonly` + prose).
+ *
+ * Returns the top-level `disallowedTools` list and the rendered constraint
+ * block. Either may be empty: an agent with only granular denies yields no
+ * `disallowedTools`; an agent with only top-level denies yields no block.
+ */
+function deriveAgentDenyEmission(
+  agent: Pick<CanonicalFile, "toolsAllowRaw" | "toolsDenyRaw">,
+): { disallowedTools: string[]; restrictionsBlock: string } {
+  const deny = agent.toolsDenyRaw ?? [];
+  const allow = agent.toolsAllowRaw ?? [];
+  // Top-level tokens carry no `:` scope; granular tokens are `Bash:<sub>`.
+  const topLevelDeny = deny.filter((t) => !t.includes(":"));
+  const granularDeny = deny.filter((t) => t.includes(":"));
+  const granularAllow = allow.filter((t) => t.includes(":"));
+
+  let restrictionsBlock = "";
+  if (granularDeny.length > 0 || granularAllow.length > 0) {
+    const lines = [
+      "## Tool Restrictions",
+      "",
+      "This agent's `tools.allow`/`tools.deny` grant scopes shell access to specific",
+      "subcommands. Claude Code subagent frontmatter `tools:`/`disallowedTools:` accept",
+      "top-level tool names only, so the per-subcommand boundary below is honored at the",
+      "model layer — do not run a denied command even when `Bash` is otherwise available.",
+      "",
+    ];
+    if (granularAllow.length > 0) {
+      lines.push("**Allowed shell subcommands:**", "");
+      for (const t of granularAllow) lines.push(`- \`${t}\``);
+      lines.push("");
+    }
+    if (granularDeny.length > 0) {
+      lines.push("**Denied shell subcommands (never run):**", "");
+      for (const t of granularDeny) lines.push(`- \`${t}\``);
+      lines.push("");
+    }
+    restrictionsBlock = lines.join("\n").trimEnd();
+  }
+
+  return { disallowedTools: topLevelDeny, restrictionsBlock };
+}
+
+/**
+ * D9-3 (Cycle 11, P3 model resolution + P5 silent-failure): the Claude Code
+ * subagent `model:` frontmatter field accepts ONLY a Claude-recognizable
+ * value — one of the aliases `sonnet | opus | haiku`, a full `claude-` model
+ * ID, or `inherit` (code.claude.com/docs/en/sub-agents#choose-a-model,
+ * accessed 2026-06-05: "Model to use: `sonnet`, `opus`, `haiku`, a full model
+ * ID (for example, `claude-opus-4-8`), or `inherit`. Defaults to `inherit`").
+ *
+ * Pre-fix the adapter wrote ANY resolved model string into the native field,
+ * including cross-provider IDs (`gpt-4`, `gemini-3-flash`, or an alias-expanded
+ * `gpt-5.3-codex` from `models.default: codex`). Claude Code rejects an
+ * unknown model ID — it either hard-errors on subagent spawn or silently falls
+ * back to the default (real issues anthropics/claude-code#31069 / #1434 /
+ * #5108) — so the field was a silent-failure surface, not an authoritative
+ * preference. Gate native emission to recognizable values; a non-Claude model
+ * is surfaced only as advisory `## Recommended Model` prose (the operator can
+ * still wire it via env/`/model` if their session targets a non-Anthropic
+ * gateway), never as the native field Claude would reject.
+ */
+function isClaudeRecognizableModel(model: string): boolean {
+  return (
+    model === "sonnet" ||
+    model === "opus" ||
+    model === "haiku" ||
+    model === "inherit" ||
+    /^claude-/.test(model)
+  );
+}
+
+/**
+ * D9-11 (Cycle 11 Wave 3, D9, P3): map the existing read-only-role policy
+ * semantic to Claude Code's native subagent `permissionMode:` frontmatter,
+ * closing one leg of the Decision-21 native-field gap (the Claude subagent
+ * frontmatter previously emitted only `description`/`tools`/`disallowedTools`/
+ * `model`, leaving `permissionMode`/`mcpServers`/`maxTurns`/`skills`/`memory`
+ * documented-but-unused).
+ *
+ * Source semantic (NOT a new judgment call): an agent whose AGENT_TOOL_POLICIES
+ * grant lacks both `write` and `execute` is already a read-only role — the same
+ * condition the Cursor adapter uses to emit `readonly: true`
+ * (`adapterToolTranslator.ts::toCursorReadonlyFrontmatter`, consumed at
+ * cursor.ts). Claude Code's analog is `permissionMode: plan` — "Plan mode
+ * (read-only exploration)" (code.claude.com/docs/en/sub-agents#permission-modes,
+ * accessed 2026-06-09) — so a readonly policy on Cursor and a plan-mode subagent
+ * on Claude express the same restriction. This covers `hatch3r-researcher`,
+ * `hatch3r-reviewer`, the 9 CQ specialists + `hatch3r-edge-case-analyst`,
+ * `hatch3r-context-rules`, `hatch3r-learnings-loader`, and `hatch3r-handoff-loader`
+ * (all `read`+`search` only).
+ *
+ * Returns `"plan"` for a readonly canonical policy, else `undefined` (field
+ * omitted → the subagent inherits the parent permission mode). `undefined` is
+ * also returned for a user agent (no canonical policy row) and for any agent the
+ * policy grants `write` or `execute` (`hatch3r-implementer`, `hatch3r-fixer`,
+ * `hatch3r-architect`, the spec/devops/pack/incident/dependency agents): forcing
+ * `plan` on a writer would block the file edits its policy authorizes, a
+ * regression — so this stays gated on the readonly signal only.
+ *
+ * The field is honored because hatch3r ships subagents into the project
+ * `.claude/agents/` directory; `permissionMode` is ignored ONLY for plugin
+ * subagents (same source), which is not the emission path here.
+ *
+ * Deferred to a CL-2 content-gap candidate (per the D9-11 fix's "spawn as a
+ * CL-2 candidate" directive): the remaining native fields need per-agent design
+ * rather than a one-line policy derivation — `mcpServers:` scoping for
+ * `hatch3r-researcher` (which servers, and whether to inline vs reference),
+ * `memory: project` for `hatch3r-learnings-loader` (which also auto-enables
+ * Write/Edit, in tension with that agent's readonly policy + the plan mode set
+ * here — the conflict is the design question), `maxTurns` ceilings, and `skills:`
+ * preload lists. Those are intentionally NOT emitted in this wave.
+ */
+function claudePermissionMode(agentId: string): "plan" | undefined {
+  return toCursorReadonlyFrontmatter(agentId) === true ? "plan" : undefined;
+}
+
+/**
+ * D12-1 (Cycle 11 Wave 2, D12, P2): single-canonical-source attribution for a
+ * per-file Claude output (one rule `.md`, one agent `.md`). Returns
+ * `[file.sourcePath]` so the output self-attributes to its one canonical input
+ * instead of inheriting the adapter-wide read set; `undefined` for a
+ * synthesised fixture whose `sourcePath` is empty.
+ */
+function claudeSingleSource(file: CanonicalFile): string[] | undefined {
+  return file.sourcePath ? [file.sourcePath] : undefined;
+}
+
+/**
+ * D14-9 (D14, P3 / Decision 16): per-tier maturity header for the Claude
+ * adapter, closing the parity gap with `cursor.ts::cursorMaturityHeader` and
+ * `copilot.ts`'s `> hatch3r: right-size to maturity=<tier>` blockquote.
+ *
+ * Pre-fix the Claude adapter emitted no maturity signal: a CLAUDE.md generated
+ * at `enterprise` was byte-identical to one generated at `solo`, so the
+ * declared tier never reached the agent that reads CLAUDE.md as memory. The
+ * tier resolves through {@link readMaturityTier} (absence collapses to
+ * `"solo"`) and is stamped once at the top of the CLAUDE.md managed-block
+ * payload — the most authoritative runtime surface, mirroring the Copilot
+ * instructions-file placement rather than Cursor's per-rule-body placement.
+ *
+ * The marker is a markdown HTML comment (like the cache-breakpoint sentinels
+ * in this same file) so it renders invisibly in Claude Code's memory view
+ * while remaining greppable for drift checks. The directive text matches the
+ * Cursor/Copilot wording (right-sizing instruction + universal-floor caveat +
+ * `rules/hatch3r-right-sizing.md` pointer) so the calibration signal is
+ * identical across all three adapters.
+ */
+function claudeMaturityHeader(ctx: AdapterContext): string {
+  // D6-29 (Cycle 11 Wave 3): wrap the shared directive payload (single source in
+  // hatchJson.ts::maturityDirective) in an HTML comment so it renders invisibly
+  // in Claude Code's memory view while staying greppable for drift checks.
+  return `<!-- ${maturityDirective(readMaturityTier(ctx.manifest))} -->`;
+}
+
+/**
+ * D1-17 (Cycle 11 Wave 3, D1, P1): confidence-floor marker for CLAUDE.md, the
+ * agent-assertiveness analog of {@link claudeMaturityHeader}. Wraps the shared
+ * `confidenceFloorDirective` payload (single source in hatchJson.ts) in an HTML
+ * comment so the resolved floor ({@link readConfidenceFloor}) renders invisibly
+ * in Claude Code's memory view while staying greppable. Pre-fix the persisted
+ * `confidenceFloor` config key reached no adapter output.
+ */
+function claudeConfidenceFloorHeader(ctx: AdapterContext): string {
+  return `<!-- ${confidenceFloorDirective(readConfidenceFloor(ctx.manifest))} -->`;
+}
+
+/**
+ * D9-12 (D9, P3): AGENTS.md interop for the Claude adapter. When the operator
+ * opts in via `claude.agentsMdInterop: true` AND a repo-root `AGENTS.md` exists,
+ * emit a Claude Code `@AGENTS.md` import line inside the CLAUDE.md managed block
+ * so Claude Code pulls the cross-vendor AGENTS.md file (Linux-Foundation
+ * agents.md standard) into its memory context.
+ *
+ * Mechanism (code.claude.com/docs/en/memory, accessed 2026-06-09 →
+ * "Import additional files using @path syntax"): a line of the form `@path`
+ * inside CLAUDE.md instructs Claude Code to read that file's contents into the
+ * memory tree, recursively (the docs cap import recursion at a max depth of 5
+ * hops). Emitting `@AGENTS.md` therefore hydrates the repo-root AGENTS.md
+ * exactly as the pre-1.9.0 root bridge did, without hatch3r re-materialising or
+ * managing the AGENTS.md body — the import is a one-line pointer, the file stays
+ * the user's.
+ *
+ * Gated three ways so it is inert by default:
+ *   1. `claude.agentsMdInterop !== true` → "" (opt-in; the 1.9.0 hard-cut
+ *      removed the root AGENTS.md bridge, so most hatch3r repos have none).
+ *   2. No `ctx.userRepoRoot` (direct test/library invocation without a repo
+ *      root) → "" (cannot probe for the file).
+ *   3. No `AGENTS.md` at the repo root → "" (nothing to import; emitting a dead
+ *      `@AGENTS.md` would make Claude Code log a missing-import warning).
+ *
+ * The leading `<!-- ... -->` line is a greppable, render-invisible marker
+ * (parity with the maturity / confidence-floor headers in this file); the bare
+ * `@AGENTS.md` line below it is the load-bearing import directive.
+ *
+ * Note (CL-1, orchestrator-managed): the finding flags this interop as a CL-1
+ * PRD-evolution candidate. This adapter emission is the implementation; the
+ * registry/CL-1 bookkeeping is handled outside this file.
+ */
+async function claudeAgentsMdImport(ctx: AdapterContext): Promise<string> {
+  if (ctx.manifest.claude?.agentsMdInterop !== true) return "";
+  if (!ctx.userRepoRoot) return "";
+  const agentsMdPath = join(ctx.userRepoRoot, "AGENTS.md");
+  try {
+    const st = await stat(agentsMdPath);
+    if (!st.isFile()) return "";
+  } catch (err) {
+    // A missing AGENTS.md (ENOENT) is the expected default — the 1.9.0 hard-cut
+    // removed the root bridge, so most repos have none. Treat that as "no import"
+    // silently. Any OTHER stat error (EACCES, EIO, ...) is unexpected and is
+    // re-thrown rather than swallowed (CONSTITUTION.md §2 P5 silent-failure
+    // contract): the operator opted in, so a probe that fails for a non-absence
+    // reason must surface, not vanish.
+    if ((err as NodeJS.ErrnoException)?.code === "ENOENT") return "";
+    throw err;
+  }
+  return [
+    "<!-- hatch3r: AGENTS.md interop (claude.agentsMdInterop) — imports the repo-root agents.md standard file -->",
+    "@AGENTS.md",
+  ].join("\n");
 }
 
 export class ClaudeAdapter extends BaseAdapter {
@@ -353,8 +685,27 @@ export class ClaudeAdapter extends BaseAdapter {
 
     const bridgeOrchestration = await this.bridgeOrchestration(ctx);
     const teamsSection = minimal ? AGENT_TEAMS_SECTION_MINIMAL : AGENT_TEAMS_SECTION;
+    // D14-9 (D14, P3 / Decision 16): stamp the resolved maturity tier at the
+    // top of the CLAUDE.md payload (both minimal and standard) so the declared
+    // tier travels with the artifact — pre-fix CLAUDE.md was byte-identical
+    // across tiers. Parity with cursor.ts/copilot.ts maturity headers.
+    const maturityHeader = claudeMaturityHeader(ctx);
+    // D1-17 (D1, P1): stamp the resolved confidence floor next to the maturity
+    // marker so the configured agent-assertiveness floor travels with CLAUDE.md
+    // (was a write-only config key that reached no adapter output).
+    const confidenceFloorHeader = claudeConfidenceFloorHeader(ctx);
+    // D9-12 (D9, P3): opt-in `@AGENTS.md` import line (empty unless the operator
+    // set `claude.agentsMdInterop: true` AND a repo-root AGENTS.md exists). The
+    // conditional spread keeps the default-off CLAUDE.md byte-identical to the
+    // pre-fix output — no stray blank line when interop is inert.
+    const agentsMdImport = await claudeAgentsMdImport(ctx);
+    const agentsMdImportParts = agentsMdImport ? [agentsMdImport, ""] : [];
     const innerParts = minimal
       ? [
+          "",
+          maturityHeader,
+          confidenceFloorHeader,
+          ...agentsMdImportParts,
           "",
           "# Hatch3r Project Instructions",
           "",
@@ -366,6 +717,10 @@ export class ClaudeAdapter extends BaseAdapter {
           "",
         ]
       : [
+          "",
+          maturityHeader,
+          confidenceFloorHeader,
+          ...agentsMdImportParts,
           "",
           "# Hatch3r Project Instructions",
           "",
@@ -433,17 +788,28 @@ export class ClaudeAdapter extends BaseAdapter {
         // unscoped rules emit no frontmatter (load unconditionally), matching
         // Claude Code's documented default. Customization-layer scope override
         // takes precedence over canonical scope (parity with cursor.ts).
-        const pathsFm = claudeRulePathsFrontmatter(overrides.scope ?? rule.scope);
+        const pathsFm = claudeRulePathsFrontmatter(rule, overrides.scope);
         const rulePath = `.claude/rules/${nn}-${toPrefixedId(rule.id)}.md`;
         results.push(
           output(
             rulePath,
             `${pathsFm}${wrapManagedFor(rulePath, body)}`,
             body,
+            claudeSingleSource(rule),
           ),
         );
       }
     }
+
+    // D20-1 (X5/CD5): runtime AGENT_TOOL_POLICIES rows for user-authored
+    // agents. A user agent slug cannot use the `hatch3r-` prefix, so it is
+    // re-prefixed to `hatch3r-<slug>` on emission (toPrefixedId below) and
+    // matches no canonical policy — without a derived row the PreToolUse hook
+    // NO_POLICY-denies its every tool call. We collect a derived policy per
+    // user agent (keyed by the emitted id, grant = authored tools.allowed minus
+    // tools.denied) and append them to the emitted agent-tool-policies.json so
+    // the hook governs each user agent with its authored grant.
+    const userAgentPolicies: AgentToolPolicy[] = [];
 
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
@@ -464,34 +830,94 @@ export class ClaudeAdapter extends BaseAdapter {
         // the policy is absent (non-canonical agent), we omit the
         // field so Claude Code inherits from the parent — matching the
         // upstream default documented at code.claude.com/docs/en/sub-agents.
-        const toolsFm = toClaudeToolsFrontmatter(agentId);
+        //
+        // D20-1 (X5/CD5): for user-authored agents the canonical registry has
+        // no policy under the re-prefixed id, so the registry lookup returns
+        // null and (pre-fix) BOTH the `tools:` frontmatter AND the
+        // agent-tool-policies.json row were absent — the PreToolUse hook then
+        // NO_POLICY-denied every call. We derive a policy from the agent's
+        // authored `tools.allowed`/`tools.denied` grant: register it for the
+        // emitted policy doc (so the hook governs the agent) and render the
+        // `tools:` frontmatter from the same grant (so Claude's per-agent
+        // tool field reflects the authored envelope). An empty grant yields a
+        // null frontmatter (field omitted → Claude inherits all tools) while
+        // the derived policy still denies at the hook layer.
+        let toolsFm: string | null;
+        if (agent.source === "user") {
+          const grant = {
+            allowed: agent.toolsAllowed ?? [],
+            denied: agent.toolsDenied ?? [],
+          };
+          const derived = deriveUserAgentPolicy(agentId, grant);
+          userAgentPolicies.push(derived);
+          toolsFm = toClaudeToolsFrontmatterFromCategories(derived.allowedTools);
+        } else {
+          toolsFm = toClaudeToolsFrontmatter(agentId);
+        }
         const fmLines = [`description: ${desc}`];
         if (toolsFm) fmLines.push(`tools: ${toolsFm}`);
+        // D15-3 (Cycle 11, P6 / ASI02-03): re-emit the canonical agent's
+        // short-form `tools.deny` envelope. Top-level denies (`Write`, `Edit`,
+        // `MultiEdit`, `Bash`) become a native `disallowedTools:` frontmatter
+        // field (Claude removes them from the inherited/allowed set); granular
+        // `Bash:<subcommand>` denies become a `## Tool Restrictions` body
+        // block (subagent frontmatter cannot express per-subcommand Bash
+        // scope). Without this the per-agent deny was silently dropped — the
+        // file rebuilt frontmatter from the coarse `tools:` allowlist only
+        // (SA15.3-F1). The runtime PreToolUse allowlist hook still gates at the
+        // category layer; this restores the subcommand-level boundary the hook
+        // cannot enforce.
+        const { disallowedTools, restrictionsBlock } = deriveAgentDenyEmission(agent);
+        if (disallowedTools.length > 0) {
+          fmLines.push(`disallowedTools: ${disallowedTools.join(", ")}`);
+        }
+        // D9-11 (Cycle 11 Wave 3, D9, P3): emit `permissionMode: plan` for a
+        // read-only-role agent (policy lacks write+execute) — the Claude analog
+        // of the Cursor `readonly: true` primitive. Producer agents (write/
+        // execute grant) and user agents (no canonical policy) get no field and
+        // inherit the parent mode. See {@link claudePermissionMode} for the
+        // CL-2-deferred remaining native fields (mcpServers/memory/maxTurns/skills).
+        const permissionMode = claudePermissionMode(agentId);
+        if (permissionMode) fmLines.push(`permissionMode: ${permissionMode}`);
         // D9-H-1 (D9, P3): emit Claude Code's native `model:` subagent
         // frontmatter when a model resolves, so per-agent model preferences
         // are authoritative rather than advisory prose. Claude Code resolves
         // the subagent model as CLAUDE_CODE_SUBAGENT_MODEL > per-invocation
         // param > definition frontmatter `model:` > main conversation
         // (code.claude.com/docs/en/sub-agents#choose-a-model, accessed
-        // 2026-05-27). The `## Recommended Model` prose below is retained in
-        // non-minimal mode so the env-var/`/model` override path stays
-        // documented for operators who want a different model per session.
-        if (model) fmLines.push(`model: ${model}`);
+        // 2026-05-27).
+        //
+        // D9-3 (Cycle 11, P3 + P5): gate the native field to a
+        // Claude-recognizable value (alias / `claude-*` ID / `inherit`).
+        // A non-Claude resolved model (e.g. `gpt-4`, `gemini-3-flash`) is
+        // surfaced only as `## Recommended Model` prose below — Claude Code
+        // rejects an unknown `model:` ID (hard error or silent default
+        // fallback), so writing it into the native field is a silent-failure
+        // surface, not an authoritative preference.
+        const nativeModel = model && isClaudeRecognizableModel(model) ? model : undefined;
+        if (nativeModel) fmLines.push(`model: ${nativeModel}`);
         const fm = `---\n${fmLines.join("\n")}\n---`;
         // C9-M47 (P7): cache-breakpoint sentinels wrap every agent body so the
         // emitted managed block fingerprints stably across syncs.
+        const restrictionsSuffix = restrictionsBlock ? `\n\n${restrictionsBlock}` : "";
         if (minimal) {
+          // Minimal mode keeps body lean: the model note and tool-restriction
+          // block ride along so the deny envelope is not lost at low verbosity.
           const modelNote = model ? `\nModel: \`${model}\`` : "";
-          const body = withCacheBreakpoints(`${this.stripMinimal(content)}${modelNote}`);
+          const body = withCacheBreakpoints(`${this.stripMinimal(content)}${modelNote}${restrictionsSuffix}`);
           const agentPath = `.claude/agents/${agentId}.md`;
-          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body));
+          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body, claudeSingleSource(agent)));
         } else {
+          // The `## Recommended Model` prose is retained for EVERY resolved
+          // model (Claude or not) so the env-var/`/model` override path stays
+          // documented — for a non-Claude model it is the ONLY surface, since
+          // the native `model:` field above is gated to Claude values.
           const modelGuidance = model
             ? `\n\n## Recommended Model\n\nPreferred: \`${model}\`. Set via \`/model ${model}\` or env \`CLAUDE_CODE_SUBAGENT_MODEL=${model}\`.`
             : "";
-          const body = withCacheBreakpoints(`${content}${modelGuidance}`);
+          const body = withCacheBreakpoints(`${content}${modelGuidance}${restrictionsSuffix}`);
           const agentPath = `.claude/agents/${agentId}.md`;
-          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body));
+          results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, body)}`, body, claudeSingleSource(agent)));
         }
       }
     }
@@ -531,16 +957,104 @@ export class ClaudeAdapter extends BaseAdapter {
     // (code.claude.com/docs/en/hooks, accessed 2026-05-26).
     const hooksConfig: Record<
       string,
-      Array<{ matcher: string; hooks: Array<{ type: string; command: string; args?: string[] }> }>
+      Array<{ matcher: string; hooks: Array<{ type: string; command: string; args?: string[]; if?: string }> }>
     > = {};
     const hooks = await this.readHooks(ctx);
+    // D9-2 (Cycle 11, P3 + P5): advisory-only hooks (events with no native
+    // Claude hook surface, e.g. ci-failure) are collected here and rendered as
+    // CLAUDE.md guidance below instead of being emitted into settings.json —
+    // the prior native emission was dead (fired on the wrong trigger or never).
+    const advisoryHooks: HookDefinition[] = [];
     for (const hook of hooks) {
-      const claudeEvent = mapToClaudeEvent(hook.event);
+      if (ADVISORY_ONLY_EVENTS.has(hook.event)) {
+        advisoryHooks.push(hook);
+        continue;
+      }
+      // Narrowed: not an advisory-only event, so the event is a NativeHookEvent.
+      const nativeHook = hook as HookDefinition & { event: NativeHookEvent };
+      const claudeEvent = mapToClaudeEvent(nativeHook.event);
       if (!hooksConfig[claudeEvent]) hooksConfig[claudeEvent] = [];
-      hooksConfig[claudeEvent].push({
-        matcher: getClaudeToolMatcher(hook),
-        hooks: [{ type: "command", command: `echo "HATCH3R_HOOK_ACTIVATED: Spawn the ${hook.agent} agent now. Follow the ${hook.agent} agent protocol in .claude/agents/${toPrefixedId(hook.agent)}.md. Event: ${hook.event}. Hook ID: ${hook.id}."` }],
-      });
+      // The activation echo tells the agent which sub-agent to spawn. Every
+      // event prints it unconditionally EXCEPT post-merge, which gates on a
+      // `git merge` substring in $TOOL_INPUT so the ci-watcher activates only
+      // when a merge actually ran — PostToolUse+"Bash" otherwise fires on
+      // every shell command (D5-14). This mirrors the worktree PostToolUse+Bash
+      // git-detection hook below; the matcher is tool-name-only, so the
+      // subcommand gate must live in the command.
+      const activation = `HATCH3R_HOOK_ACTIVATED: Spawn the ${hook.agent} agent now. Follow the ${hook.agent} agent protocol in .claude/agents/${toPrefixedId(hook.agent)}.md. Event: ${hook.event}. Hook ID: ${hook.id}.`;
+      const command =
+        nativeHook.event === "post-merge"
+          ? `bash -c 'CMD="\${TOOL_INPUT:-}"; if echo "$CMD" | grep -q "git merge"; then echo "${activation}"; fi'`
+          : `echo "${activation}"`;
+
+      // D5-40 (Cycle 11 Wave 3, D5, P3): honor the `file-save` hook's
+      // `condition.globs` scope on Claude Code. The matcher field is tool-name-
+      // only (code.claude.com/docs/en/hooks → "What the matcher filters",
+      // accessed 2026-06-06), so the prior PostToolUse+"Write" entry fired the
+      // context-rules activation on EVERY file write — the canonical hook's
+      // `**/*.ts,**/*.tsx,...` glob scope (parity with Cursor's `afterFileEdit`
+      // glob narrowing) was dropped. Claude Code v2.1.85+ adds an `if` field on
+      // individual hook handlers that uses permission-rule syntax to match the
+      // tool name AND its arguments together, e.g. `Edit(*.ts)` /
+      // `Write(*.ts)` (code.claude.com/docs/en/hooks → common fields). Translate
+      // each glob into one `if`-scoped handler per write tool so the activation
+      // fires only when the saved file matches the scope. `file-save` is the only
+      // path-scoped native event (pre-commit/pre-push/post-merge gate on a Bash
+      // subcommand, not a file path); other events keep the single unscoped
+      // handler. Empty/absent globs fall through to the unscoped handler too.
+      const fileSaveGlobs =
+        nativeHook.event === "file-save" ? nativeHook.condition?.globs ?? [] : [];
+      if (fileSaveGlobs.length > 0) {
+        // Widen the matcher to both file-modifying tools (the doc example pairs
+        // `Edit|Write`); the per-handler `if` then restricts to the tool+path.
+        const ifHandlers = fileSaveGlobs.flatMap((glob) =>
+          (["Write", "Edit"] as const).map((tool) => ({
+            type: "command",
+            command,
+            if: `${tool}(${glob})`,
+          })),
+        );
+        hooksConfig[claudeEvent].push({ matcher: "Write|Edit", hooks: ifHandlers });
+      } else {
+        hooksConfig[claudeEvent].push({
+          matcher: getClaudeToolMatcher(nativeHook),
+          hooks: [{ type: "command", command }],
+        });
+      }
+    }
+
+    // D9-2 (Cycle 11, P3 + P5): render advisory-only hooks (no native Claude
+    // hook surface) as a managed `.claude/rules/` note so the operator still
+    // learns the intended trigger + agent, rather than the hook silently
+    // vanishing. Parity with Cursor's `.mdc`-only path and Copilot's
+    // no-hook-surface path for the same events. Emitted only when BOTH the
+    // hooks and rules features are on AND at least one advisory hook exists —
+    // the note is a `.claude/rules/` artifact, so it rides the rules channel
+    // gate (a project that suppressed rules gets no rules-surface output).
+    if (ctx.features.hooks && ctx.features.rules && advisoryHooks.length > 0) {
+      const noteLines = [
+        "# hatch3r Advisory Hooks (no native Claude Code event)",
+        "",
+        "These hatch3r hook events have no native Claude Code hook surface, so they are",
+        "documented here instead of wired into `.claude/settings.json`. Claude Code has no",
+        "event that fires on an external CI pipeline failure",
+        "(code.claude.com/docs/en/hooks, accessed 2026-06-05). Activate the agent manually,",
+        "or run the matching `/hatch3r-*` command, when the described trigger occurs.",
+        "",
+      ];
+      for (const hook of advisoryHooks) {
+        noteLines.push(
+          `## ${hook.event} -> ${hook.agent}`,
+          "",
+          `- Trigger: ${hook.description}`,
+          `- Agent protocol: \`.claude/agents/${toPrefixedId(hook.agent)}.md\``,
+          `- Hook ID: \`${hook.id}\``,
+          "",
+        );
+      }
+      const noteBody = withCacheBreakpoints(noteLines.join("\n").trimEnd());
+      const notePath = ".claude/rules/50-hatch3r-advisory-hooks.md";
+      results.push(output(notePath, wrapManagedFor(notePath, noteBody), noteBody));
     }
 
     // C9-H49 (D15-SA15.2, P6): per-adapter PreToolUse allowlist hook.
@@ -688,9 +1202,14 @@ export class ClaudeAdapter extends BaseAdapter {
     // The hook script is plain Node ESM with zero runtime dependencies;
     // the JSON document is the SECURITY.md Allowlist Hybrid Contract
     // source-of-truth payload.
+    // D20-1 (X5/CD5): append the derived user-agent policies so the emitted
+    // policy doc the PreToolUse hook reads carries a row for every emitted
+    // user agent — closing the NO_POLICY deny-all path for re-prefixed user
+    // agents. Canonical ids always win inside buildAgentToolPoliciesJson, so a
+    // user agent can never widen a canonical agent's grant.
     results.push(output(
       ".claude/hooks/agent-tool-policies.json",
-      buildAgentToolPoliciesJson(),
+      buildAgentToolPoliciesJson(userAgentPolicies),
     ));
     results.push(output(
       ".claude/hooks/pretooluse-allowlist.mjs",
@@ -760,23 +1279,22 @@ export class ClaudeAdapter extends BaseAdapter {
         // Code ignores unknown underscore-prefixed keys), with the
         // server falling back to the runtime default.
         //
-        // Other private-prefixed fields preserved by `readFilteredMcp`
-        // (`_pinned_sha256`, `_trust_bypass`) are framework-internal
-        // policy markers consumed by `validateMcpHttpEndpoint` at
-        // generation time; they have no Claude Code runtime meaning
-        // and are stripped here so they do not surface in the emitted
-        // `.mcp.json`. `_description` and `_disabled` are already
-        // stripped upstream by `readFilteredMcp` (see
-        // `BaseAdapter.readFilteredMcp` in `base.ts`).
-        const { _timeout, _pinned_sha256, _trust_bypass, ...publicEntry } = entry;
+        // D2-13 (Cycle 11 Wave 3, D2, P6): strip every `_`-prefixed framework
+        // marker via the shared {@link stripPrivateMcpFields} helper rather
+        // than a hand-maintained destructure list. `_pinned_sha256` and
+        // `_trust_bypass` are policy markers consumed by
+        // `validateMcpHttpEndpoint` at generation time; they have no Claude
+        // Code runtime meaning and must not surface in the emitted `.mcp.json`.
+        // `_timeout` is read first below for the public `timeout` translation,
+        // then dropped by the strip. `_description`/`_disabled` are already
+        // removed upstream by `readFilteredMcp`. A future `_`-field is stripped
+        // automatically, so this path can never re-leak a private marker.
+        const publicEntry = stripPrivateMcpFields(entry);
         const type = entry.command ? "stdio" : entry.url ? "http" : undefined;
         const timeout =
-          typeof _timeout === "number" && _timeout > 0 ? _timeout : undefined;
-        // Suppress unused-binding lint for the stripped policy markers
-        // — referencing them here documents that the destructure is
-        // intentional rather than dead code.
-        void _pinned_sha256;
-        void _trust_bypass;
+          typeof entry._timeout === "number" && entry._timeout > 0
+            ? entry._timeout
+            : undefined;
         const withType: Record<string, unknown> = {
           ...(type !== undefined ? { type } : {}),
           ...(timeout !== undefined ? { timeout } : {}),
@@ -784,13 +1302,21 @@ export class ClaudeAdapter extends BaseAdapter {
         };
         claudeMcp[name] = transformEnvVarSyntax(withType, "claude");
       }
-      // F17.2.3 (D17, P3): declare an explicit MCP protocol version so
-      // hatch3r-generated `.mcp.json` pins to a known revision rather than
-      // inheriting whatever the client/server negotiate by default. Defaults
-      // to the most-recent stable spec revision; operators override via
-      // `.hatch3r/hatch.json::mcp.protocolVersion` to track the 2026-07-28 RC
-      // ahead of its Q3 2026 GA (see MCP_DEFAULT_PROTOCOL_VERSION and
-      // docs/MIGRATION-mcp-2026-07-28.md).
+      // F17.2.3 (D17, P3) / D9-9 (Cycle 11 Wave 3, D9, P3): emit a top-level
+      // `protocolVersion` as an ADVISORY forward-pin marker, NOT a field the
+      // Claude Code MCP loader consumes. The documented `.mcp.json` top-level
+      // schema is `mcpServers` only (per-server `type`/`command`/`args`/`env`/
+      // `url`/`headers`/`timeout`/`oauth`; code.claude.com/docs/en/mcp accessed
+      // 2026-06-09 lists no top-level `protocolVersion`), so this key does not
+      // change the client/server handshake — that negotiation is per-server at
+      // `initialize` time. It is a human-/tooling-readable record of the revision
+      // the operator targets and the override seam (`.hatch3r/hatch.json::
+      // mcp.protocolVersion`) for staging the 2026-07-28 RC ahead of its Q3 2026
+      // GA (see MCP_DEFAULT_PROTOCOL_VERSION and docs/MIGRATION-mcp-2026-07-28.md).
+      // Retained rather than dropped because the per-server `_timeout`→`timeout`
+      // translation above (a documented, loader-consumed field per the same
+      // source) rides the same emission path, and the override seam is the
+      // documented forward-pin staging surface.
       const protocolVersion =
         ctx.manifest.mcp.protocolVersion ?? MCP_DEFAULT_PROTOCOL_VERSION;
       results.push(

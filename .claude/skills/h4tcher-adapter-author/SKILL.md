@@ -5,7 +5,7 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit WebSearch WebFetch
 ---
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-09
 
 # Adapter Author
 
@@ -29,7 +29,7 @@ If any trigger fires, ask via the platform-native question tool per `agents/shar
    - `warnings: string[]` — user-facing warnings
    - `doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]>` — core generation logic
    - `getOutputPaths(agentsDir, manifest): Promise<string[]>` — files this adapter creates
-2. Read `src/adapters/canonical.ts` — `readCanonicalFiles()` reads `.agents/` content
+2. Read `src/adapters/canonical.ts` — `readCanonicalFiles(canonicalRoot, type, warnings)` reads frontmatter-bearing markdown from the bundled content root resolved by `resolveBundledContentRoot()` (`src/content/contentRoot.ts`), not a user-repo `.agents/` mirror (the legacy `.agents/` materialisation no longer exists; `canonical.ts:1020-1024`)
 3. Read `src/adapters/customization.ts` — `applyCustomization()` applies user overrides
 4. Read `src/adapters/mcp-utils.ts` — MCP server config transformation
 

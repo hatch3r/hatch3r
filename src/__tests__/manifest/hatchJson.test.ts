@@ -41,7 +41,10 @@ describe("hatchJson", () => {
       expect(manifest.features.agents).toBe(true);
       expect(manifest.features.skills).toBe(true);
       expect(manifest.features.rules).toBe(true);
-      expect(manifest.features.prompts).toBe(true);
+      // Cycle 11 D2-3: prompts defaults OFF (no adapter emits prompt files;
+      // canonical ships no `prompts/` content) to stop a spurious happy-path
+      // unsupported-feature warning.
+      expect(manifest.features.prompts).toBe(false);
       expect(manifest.features.commands).toBe(true);
       expect(manifest.features.mcp).toBe(true);
       expect(manifest.features.githubAgents).toBe(true);
@@ -130,6 +133,41 @@ describe("hatchJson", () => {
       });
       expect(manifest.namespace).toBe("acme");
       expect(manifest.project).toBe("webapp");
+    });
+
+    // D14-13 (D14-SA14.4-F3): convention conflicts persist on the manifest so
+    // status/verify can re-surface the single-toolchain-guidance warning.
+    it("persists detected convention conflicts", () => {
+      const manifest = createManifest({
+        tools: ["cursor"],
+        conflicts: [
+          {
+            dimension: "testFramework",
+            tools: ["jest", "vitest"],
+            message: "Detected 2 competing test frameworks (jest, vitest); pick one.",
+          },
+        ],
+      });
+      expect(manifest.conflicts).toHaveLength(1);
+      expect(manifest.conflicts![0]!.dimension).toBe("testFramework");
+      expect(manifest.conflicts![0]!.tools).toEqual(["jest", "vitest"]);
+    });
+
+    it("omits the conflicts field when none are detected", () => {
+      expect(createManifest({ tools: ["cursor"] }).conflicts).toBeUndefined();
+      expect(createManifest({ tools: ["cursor"], conflicts: [] }).conflicts).toBeUndefined();
+    });
+
+    it("persists a non-npm package manager (D14-M7)", () => {
+      const manifest = createManifest({ tools: ["cursor"], packageManager: "pnpm" });
+      expect(manifest.packageManager).toBe("pnpm");
+    });
+
+    it("omits packageManager when 'unknown' or absent (byte-identity for npm projects)", () => {
+      expect(createManifest({ tools: ["cursor"] }).packageManager).toBeUndefined();
+      expect(
+        createManifest({ tools: ["cursor"], packageManager: "unknown" }).packageManager,
+      ).toBeUndefined();
     });
   });
 
@@ -672,6 +710,51 @@ describe("hatchJson", () => {
       );
     });
 
+    it("rejects an out-of-enum packageManager value (D14-M7) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        packageManager: "deno",
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on invalid packageManager");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/packageManager/);
+      }
+    });
+
+    it("round-trips a persisted packageManager through write + read (D14-M7)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        languages: ["typescript"],
+        packageManager: "pnpm",
+      });
+      const manifest = await readManifest(rootDir);
+      expect(manifest?.packageManager).toBe("pnpm");
+    });
+
     it("accepts a valid maturity tier", async () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {
@@ -1118,6 +1201,314 @@ describe("hatchJson", () => {
       expect(result).not.toBeNull();
       expect(result!.worktree?.extraPatterns).toEqual([".custom-dir/"]);
     });
+
+    // D3-15 (Cycle 11 Wave 3, D1, Medium): the `board.defaultBranch` guard at
+    // hatchJson.ts (isValidGitBranchName) was only exercised through the unit
+    // `isValidGitBranchName` tests; the board negative manifest test only fed
+    // `board.owner:123`, so the guard's integration through readManifest was
+    // unexercised and a validator refactor could drop it silently. These pin
+    // the readManifest -> HatchError(CONFIG_ERROR) path for an invalid branch.
+    it("rejects an invalid board.defaultBranch (`foo..bar`) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        board: { owner: "a", repo: "b", defaultBranch: "foo..bar" },
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on invalid board.defaultBranch");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/board\.defaultBranch/);
+      }
+    });
+
+    it.each(["@", "x.lock", "/x", "x/"])(
+      "rejects board.defaultBranch %j as an invalid git branch name with CONFIG_ERROR",
+      async (badBranch) => {
+        const rootDir = await setup();
+        await writeManifestJson(rootDir, {
+          version: "3.0.0",
+          hatch3rVersion: "2.0.0",
+          owner: "acme",
+          repo: "app",
+          namespace: "acme",
+          project: "app",
+          tools: ["cursor"],
+          features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+          mcp: { servers: [] },
+          managedFiles: [],
+          board: { owner: "a", repo: "b", defaultBranch: badBranch },
+        });
+        try {
+          await readManifest(rootDir);
+          throw new Error(`expected readManifest to throw on board.defaultBranch=${badBranch}`);
+        } catch (e) {
+          expect(e).toBeInstanceOf(HatchError);
+          expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+          expect((e as Error).message).toMatch(/board\.defaultBranch/);
+        }
+      },
+    );
+
+    it("accepts a valid board.defaultBranch through readManifest", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        board: { owner: "a", repo: "b", defaultBranch: "feature/x" },
+      });
+      const result = await readManifest(rootDir);
+      expect(result?.board?.defaultBranch).toBe("feature/x");
+    });
+
+    // D1-23 (Cycle 11 Wave 3, D1, Medium): collectManifestErrors previously
+    // skipped 8 optional fields (models/cliTools/claude/repos/packages/hooks/
+    // languages/versionConstraint), so a hand-edited `models.agents.<id>=42`
+    // reached resolveAgentModel and stamped a non-string model into adapter
+    // output. These pin the persistence-boundary rejection per field.
+    it("rejects a non-string models.agents.<id> (42) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        models: { agents: { "hatch3r-researcher": 42 } },
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on non-string models.agents entry");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/models\.agents\.hatch3r-researcher/);
+      }
+    });
+
+    it("rejects a non-string models.default with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        models: { default: 7 },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/models\.default/);
+    });
+
+    it("rejects an unknown claude.teammateMode with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        claude: { teammateMode: "bogus-mode" },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/claude\.teammateMode/);
+    });
+
+    it("rejects non-string claude.permissions.allow entries with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        claude: { permissions: { allow: ["Read", 1] } },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/claude\.permissions\.allow/);
+    });
+
+    it("rejects a non-boolean hooks.enabled with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        hooks: { enabled: "yes" },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/hooks\.enabled/);
+    });
+
+    it("rejects a non-string languages entry with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        languages: ["typescript", 99],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/languages/);
+    });
+
+    it("rejects a malformed repos entry (missing repo) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        repos: [{ owner: "acme" }],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/repos\[0\]\.repo/);
+    });
+
+    it("rejects a malformed packages entry (non-string path) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        packages: [{ name: "web", path: 3 }],
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/packages\[0\]\.path/);
+    });
+
+    it("rejects a non-string versionConstraint with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        versionConstraint: 2,
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/versionConstraint/);
+    });
+
+    it("rejects a non-object cliTools with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        cliTools: { enabled: true, selected: ["ripgrep", 5] },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/cliTools\.selected/);
+    });
+
+    it("round-trips all 8 newly-validated optional fields through write + read (D1-23)", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor", "claude"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        versionConstraint: "^2.0.0",
+        languages: ["typescript", "python"],
+        repos: [{ owner: "acme", repo: "app", name: "app" }],
+        packages: [{ name: "web", path: "packages/web" }],
+        hooks: { enabled: true },
+        models: { default: "opus", agents: { "hatch3r-researcher": "sonnet" } },
+        claude: {
+          permissions: { allow: ["Read", "Edit"], deny: ["Bash"] },
+          teammateMode: "in-process",
+          agentTeams: "ga",
+        },
+        cliTools: { enabled: true, selected: ["ripgrep", "jq"], overrides: { jq: { disabled: true, note: "duplicate" } } },
+      });
+      const result = await readManifest(rootDir);
+      expect(result).not.toBeNull();
+      expect(result!.models?.agents?.["hatch3r-researcher"]).toBe("sonnet");
+      expect(result!.claude?.teammateMode).toBe("in-process");
+      expect(result!.cliTools?.selected).toEqual(["ripgrep", "jq"]);
+      expect(result!.repos).toEqual([{ owner: "acme", repo: "app", name: "app" }]);
+      expect(result!.packages).toEqual([{ name: "web", path: "packages/web" }]);
+      expect(result!.hooks?.enabled).toBe(true);
+      expect(result!.languages).toEqual(["typescript", "python"]);
+      expect(result!.versionConstraint).toBe("^2.0.0");
+    });
   });
 
   // F3.3-C1 (Cycle 10 Wave 1 Critical): validateManifest previously accepted
@@ -1333,6 +1724,13 @@ describe("hatchJson", () => {
       ["detected is not an object", "detected", "x"],
       ["detected.linters is not an array", "detected", { linters: "eslint" }],
       ["detected.linters has a non-string entry", "detected", { linters: [1] }],
+      // conflicts (D14-13)
+      ["conflicts is not an array", "conflicts", { dimension: "testFramework" }],
+      ["conflicts[0] is not an object", "conflicts", ["nope"]],
+      ["conflicts[0].dimension is not a string", "conflicts", [{ dimension: 1, tools: [], message: "x" }]],
+      ["conflicts[0].message is not a string", "conflicts", [{ dimension: "testFramework", tools: [], message: 9 }]],
+      ["conflicts[0].tools is not an array", "conflicts", [{ dimension: "testFramework", tools: "vitest", message: "x" }]],
+      ["conflicts[0].tools has a non-string entry", "conflicts", [{ dimension: "testFramework", tools: [1], message: "x" }]],
       // userContent (hatchJson.ts:393-404)
       ["userContent is not an object", "userContent", 9],
       ["userContent.count is not a number", "userContent", { count: "1", lastModified: "x", types: {} }],
@@ -1373,6 +1771,7 @@ describe("hatchJson", () => {
       data.workspace = { rootPath: "/repo", lastSync: "2026-05-27T00:00:00.000Z", syncVersion: "3.0.0", workspaceChecksum: "abc", excludedContent: ["x"] };
       data.managedFilesByAdapter = { cursor: [".cursor/rules/a.mdc"] };
       data.detected = { linters: ["eslint"], testFrameworks: ["vitest"], ciProviders: ["github-actions"] };
+      data.conflicts = [{ dimension: "testFramework", tools: ["jest", "vitest"], message: "two runners" }];
       data.userContent = { count: 2, lastModified: "2026-05-27T00:00:00.000Z", types: { agents: 1, rules: 1 } };
       await writeFile(
         join(rootDir, ".hatch3r", "hatch.json"),
@@ -1383,6 +1782,7 @@ describe("hatchJson", () => {
       expect(result).not.toBeNull();
       expect(result!.costTracking?.sessionBudget).toBe(5);
       expect(result!.detected?.linters).toEqual(["eslint"]);
+      expect(result!.conflicts?.[0]!.tools).toEqual(["jest", "vitest"]);
     });
   });
 
@@ -1718,20 +2118,50 @@ describe("hatchJson", () => {
     });
   });
 
-  // D13-SA13.3-F13.3.3 (Cycle 10 Wave 4): readConfidenceFloor mirrors
-  // readMaturityTier — absence / null / undefined / out-of-enum all collapse to
-  // DEFAULT_CONFIDENCE_FLOOR ("any") so the orchestrator assertiveness gate keeps
-  // its current default behavior on pre-2.0 and corrupt manifests.
+  // D13-SA13.3-F13.3.3 / -F2: readConfidenceFloor resolves an explicit persisted
+  // floor first (override wins), then a maturity-aware default — scaleup +
+  // enterprise default "high", solo + team (and null/undefined manifests, which
+  // resolve to "solo") default DEFAULT_CONFIDENCE_FLOOR ("any"). This implements
+  // the calibration the orchestrator docs already promised; an out-of-enum
+  // persisted value collapses to the tier default (defense-in-depth).
   describe("readConfidenceFloor", () => {
-    it("returns DEFAULT_CONFIDENCE_FLOOR when manifest is null or undefined", () => {
+    function withMaturity(tier: string): HatchManifest {
+      const manifest = createManifest({ tools: ["cursor"] });
+      (manifest as unknown as { maturity: string }).maturity = tier;
+      return manifest;
+    }
+
+    it("defaults null / undefined manifests to DEFAULT_CONFIDENCE_FLOOR (solo tier)", () => {
       expect(readConfidenceFloor(null)).toBe(DEFAULT_CONFIDENCE_FLOOR);
       expect(readConfidenceFloor(undefined)).toBe(DEFAULT_CONFIDENCE_FLOOR);
     });
 
-    it("returns DEFAULT_CONFIDENCE_FLOOR when the field is absent", () => {
-      const manifest = createManifest({ tools: ["cursor"] });
-      expect(manifest.confidenceFloor).toBeUndefined();
-      expect(readConfidenceFloor(manifest)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+    it("defaults solo + team tiers to DEFAULT_CONFIDENCE_FLOOR when the field is absent", () => {
+      const solo = createManifest({ tools: ["cursor"] });
+      expect(solo.confidenceFloor).toBeUndefined();
+      expect(solo.maturity).toBeUndefined(); // absent → readMaturityTier → "solo"
+      expect(readConfidenceFloor(solo)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+      expect(readConfidenceFloor(withMaturity("solo"))).toBe("any");
+      expect(readConfidenceFloor(withMaturity("team"))).toBe("any");
+    });
+
+    it("defaults scaleup + enterprise tiers to 'high' when the field is absent", () => {
+      const scaleup = withMaturity("scaleup");
+      const enterprise = withMaturity("enterprise");
+      expect(scaleup.confidenceFloor).toBeUndefined();
+      expect(enterprise.confidenceFloor).toBeUndefined();
+      expect(readConfidenceFloor(scaleup)).toBe("high");
+      expect(readConfidenceFloor(enterprise)).toBe("high");
+    });
+
+    it("honors an explicit persisted floor over the maturity-aware default", () => {
+      const floors: ConfidenceFloor[] = ["any", "medium", "high"];
+      for (const floor of floors) {
+        // An enterprise tier would default to "high"; an explicit floor wins.
+        const manifest = withMaturity("enterprise");
+        manifest.confidenceFloor = floor;
+        expect(readConfidenceFloor(manifest)).toBe(floor);
+      }
     });
 
     it("returns the manifest floor when set to a valid value", () => {
@@ -1743,10 +2173,14 @@ describe("hatchJson", () => {
       }
     });
 
-    it("falls back to the default when a corrupt manifest carries an out-of-enum floor", () => {
-      const manifest = createManifest({ tools: ["cursor"] });
-      (manifest as unknown as { confidenceFloor: string }).confidenceFloor = "paranoid";
-      expect(readConfidenceFloor(manifest)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+    it("falls back to the tier default when a corrupt manifest carries an out-of-enum floor", () => {
+      const solo = createManifest({ tools: ["cursor"] });
+      (solo as unknown as { confidenceFloor: string }).confidenceFloor = "paranoid";
+      expect(readConfidenceFloor(solo)).toBe(DEFAULT_CONFIDENCE_FLOOR);
+
+      const enterprise = withMaturity("enterprise");
+      (enterprise as unknown as { confidenceFloor: string }).confidenceFloor = "paranoid";
+      expect(readConfidenceFloor(enterprise)).toBe("high");
     });
   });
 

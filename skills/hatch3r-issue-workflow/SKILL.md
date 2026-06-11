@@ -125,12 +125,12 @@ Skip this step if the issue has no user-facing UI changes.
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size (see Step 4b):
-- Tier 1 (trivial single-file issue): inline execution acceptable.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Tier boundaries for THIS skill:
+- Tier 1 (trivial single-file issue): inline.
 - Tier 2 (multi-file or multi-concern issue): spawn parallel sub-agents per concern (researcher, implementer, reviewer) via the Task tool.
 - Tier 3 (multi-module / high-risk issue): one fresh sub-agent per independent module or gate; orchestrator integrates only.
 
-Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
+Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Error Handling
 

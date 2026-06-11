@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 ## Agent Pipeline
 
@@ -232,7 +232,7 @@ Pass the collected slots as a structured input:
 }
 ```
 
-The sub-agent composes frontmatter + body, calls `saveUserContent` from `src/content/userContent.ts` (the canonical strict + gentle gate funnel), and atomic-writes the file via `src/merge/safeWrite.ts`. For rule artifacts, `saveUserContent` also generates the paired `.mdc` companion using the `.md → .mdc` scope transform documented in `rules/hatch3r-content-authoring.md`. For skill artifacts, it creates the `{name}/` subdirectory and writes `SKILL.md` inside.
+The sub-agent composes frontmatter + body, calls `saveUserContent` from `src/content/userContent.ts` (the canonical strict + gentle gate funnel), and atomic-writes the file via `src/merge/safeWrite.ts`. For rule artifacts, `saveUserContent` also generates the paired `.mdc` companion using the `.md → .mdc` scope transform implemented in that same `src/content/userContent.ts` module. For skill artifacts, it creates the `{name}/` subdirectory and writes `SKILL.md` inside.
 
 Wait for the sub-agent's structured return:
 
@@ -282,40 +282,17 @@ Edit your artifact directly anytime — `.hatch3r/overrides/` is preserved acros
 
 create is long-running in multi-artifact mode — Phase 1 collects every artifact's frontmatter inputs upfront, Phase 2 delegates one `hatch3r-creator` Task per artifact (parallel when artifacts are independent), and Phase 3 runs `hatch3r validate` plus the strict + gentle gate funnel. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-prompting collected inputs or re-running already-completed creator delegations.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.create-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (Phase 1 input collection → Phase 2 creator fan-out → Phase 3 validation), `wave` (creator-batch index in multi-artifact mode), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, artifactPlan }` where `artifactPlan` is the per-artifact `{type, name, hookEvent?, agentPipeline?}` tuples collected in Phase 1.
-2. **Write points:** after each Phase 1 ASK is confirmed and `artifactPlan` is fully assembled, after the plan-summary ASK in Step 1.7, after each Phase 2 creator delegation returns (one checkpoint per artifact so already-saved overrides under `.hatch3r/overrides/{type}/` survive a crash and are not re-authored on resume), after Phase 3 strict-gate funnel passes, and after the optional adapter sync.
-3. **`--resume` invocation:** `hatch3r-create --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the repo / `.hatch3r/overrides/{type}/` changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming; mid-Phase-2 crashes preserve already-saved artifacts but re-delegate creators for unfinished items.
-4. **Snapshot rollback:** pre-mutation snapshots of `.hatch3r/overrides/{type}/` and adapter sync targets land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's writes. Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.create-workspace/`; step range the command's step progression; `wave` = creator-batch index in multi-artifact mode; snapshot/rollback paths `.hatch3r/overrides/{type}/` and adapter sync targets. Write points: after each Phase 1 ASK is confirmed and `artifactPlan` is fully assembled, after the plan-summary ASK in Step 1.7, after each Phase 2 creator delegation returns (one checkpoint per artifact so already-saved overrides under `.hatch3r/overrides/{type}/` survive a crash and are not re-authored on resume), after Phase 3 strict-gate funnel passes, and after the optional adapter sync.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for create: `1` = type + name detection + collision scan, `2` = creator sub-agent dispatch (artifact composition + gate funnel), `3` = validation + override verification, `4` = post-write reporting + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for create: `1` = type + name detection + collision scan, `2` = creator sub-agent dispatch (artifact composition + gate funnel), `3` = validation + override verification, `4` = post-write reporting + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (user-tier artifact written under `.hatch3r/overrides/`) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by the creator sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - .hatch3r/overrides/<type>/<name>.md: via hatch3r-creator (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: user-tier artifact written under `.hatch3r/overrides/`.
 
 ## Iteration Summary (mandatory output)
 
@@ -335,18 +312,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

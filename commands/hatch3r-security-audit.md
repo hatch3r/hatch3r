@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 ## Agent Pipeline
 
@@ -430,40 +430,17 @@ All issue and epic operations in this command MUST follow the Projects v2 Enforc
 
 security-audit is long-running — a Tier 2/3 audit fans out across N module sub-issues plus cross-cutting OWASP ASI controls, creates a security epic + sub-issues on the board, and synchronizes Projects v2 state. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-creating already-created issues or re-running the module scan.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.security-audit-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 7 progression), `wave` (per-module sub-issue batch index for Step 4), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, epicNumber, createdIssueNumbers }`. Per-module created issue numbers persist so a resume does not duplicate them.
-2. **Write points:** after Step 2 module enumeration locks, after Step 3 epic creation returns the epic issue number, after each Step 4 module sub-issue is created (one write per sub-issue so a mid-batch crash preserves prior issue numbers), after each Step 5 cross-cutting sub-issue is created, after Step 6 dependency linking, and after Step 7 Projects v2 sync.
-3. **`--resume` invocation:** `hatch3r-security-audit --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (the module list / board state changed since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline. A `failed` status halts for operator triage before resuming. Re-creating an issue with the same title is suppressed by quoting `createdIssueNumbers` from the checkpoint.
-4. **Snapshot rollback:** pre-mutation snapshots of board-touching state land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's mutations. Diff preview precedes every board mutation per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.security-audit-workspace/`; step range the Step 0 → Step 7 progression; `wave` = per-module sub-issue batch index for Step 4; snapshot/rollback paths board-touching state. Write points: after Step 2 module enumeration locks, after Step 3 epic creation returns the epic issue number, after each Step 4 module sub-issue is created (one write per sub-issue so a mid-batch crash preserves prior issue numbers), after each Step 5 cross-cutting sub-issue is created, after Step 6 dependency linking, and after Step 7 Projects v2 sync.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for security-audit: `1` = scope + threat-model intake, `2` = hatch3r-security sub-agent dispatch across security domains (auth / webauthn / supply-chain / OWASP ASI / CVE), `3` = severity-graded aggregation + finding-registry update, `4` = findings-epic write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for security-audit: `1` = scope + threat-model intake, `2` = hatch3r-security sub-agent dispatch across security domains (auth / webauthn / supply-chain / OWASP ASI / CVE), `3` = severity-graded aggregation + finding-registry update, `4` = findings-epic write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (findings epic, child issues, registry updates, security advisories) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path or issue ref>: via hatch3r-security (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: findings epic, child issues, registry updates, security advisories.
 
 ## Iteration Summary (mandatory output)
 
@@ -483,18 +460,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 

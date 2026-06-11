@@ -240,6 +240,100 @@ describe("pipeline/snapshot", () => {
         expect(result.warnings).toEqual([]);
       });
     });
+
+    // D8-9 (Cycle 11 Wave 3): a cross-call mirror collision must not desync the
+    // `paths` / `relativePaths` index pairing. Two distinct absolute paths that
+    // collapse to the same `_external/` mirror — the cross-drive Windows
+    // scenario, reproduced platform-independently here by a backslash that POSIX
+    // treats as a literal filename char but `mirrorRelativePath` normalises to
+    // `/` — were previously deduped by two INDEPENDENT Sets (one on `paths`, one
+    // on `relativePaths`). When the two inputs arrived in SEPARATE same-session
+    // `createSnapshot` calls the per-call `seen` guard could not see the prior
+    // call, so the manifest ended up with `paths.length === 2` but
+    // `relativePaths.length === 1`, corrupting `applyRollback`'s index pairing.
+    describe("cross-call mirror collision index alignment (D8-9)", () => {
+      // Two distinct stored absolute paths whose `_external/` mirrors collide.
+      const collidingA = "/data/x/file.txt";
+      const collidingB = "/data\\x/file.txt"; // distinct abs, same mirror after \\ -> /
+
+      it("keeps paths/relativePaths index-aligned across two same-session calls", async () => {
+        // Call 1 captures the first colliding input.
+        await createSnapshot("sess-xcall", [collidingA], { projectRoot });
+        // Call 2 (same session) passes the OTHER input that maps to the same
+        // mirror. Pre-fix this silently desynced the arrays; post-fix the
+        // seeded guard detects it, skips the second capture, and warns.
+        const warns: string[] = [];
+        const result = await createSnapshot("sess-xcall", [collidingB], {
+          projectRoot,
+          onWarn: (m) => warns.push(m),
+        });
+
+        const meta = JSON.parse(
+          await readFile(join(result.snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
+        );
+        // The invariant applyRollback relies on: equal lengths, paired by index.
+        expect(meta.paths.length).toBe(meta.relativePaths.length);
+        // Built with `join` so the expected separator matches the host (the
+        // source composes the mirror via `join("_external", safe)`).
+        expect(meta.relativePaths).toEqual([join("_external", "data", "x", "file.txt")]);
+        expect(meta.paths).toEqual([collidingA]);
+        // The cross-call collision is surfaced, not swallowed.
+        expect(warns).toHaveLength(1);
+        expect(warns[0]).toContain("mirror collision");
+        expect(result.count).toBe(1);
+      });
+
+      it("is idempotent when the SAME path is re-passed in a later same-session call (no spurious warning)", async () => {
+        const fileA = join(projectRoot, "repeat.txt");
+        await writeFile(fileA, "original");
+        await createSnapshot("sess-idem", [fileA], { projectRoot });
+        // Re-passing the identical path in a follow-up call is the documented
+        // "extend a session incrementally" contract — it must not be reported as
+        // a collision (the prior capture already holds the correct pre-run bytes).
+        const warns: string[] = [];
+        const result = await createSnapshot("sess-idem", [fileA], {
+          projectRoot,
+          onWarn: (m) => warns.push(m),
+        });
+        expect(warns).toEqual([]);
+        expect(result.warnings).toEqual([]);
+        expect(result.count).toBe(1);
+        const meta = JSON.parse(
+          await readFile(join(result.snapshotPath, SNAPSHOT_META_FILE), "utf-8"),
+        );
+        expect(meta.paths.length).toBe(meta.relativePaths.length);
+        expect(meta.paths).toEqual([fileA]);
+      });
+
+      it("applyRollback pairs a real file correctly when a later call collides", async () => {
+        // Call 1 captures a real in-project file AND the first external input.
+        const realA = join(projectRoot, "real-a.txt");
+        await writeFile(realA, "orig A");
+        await createSnapshot("sess-xroll", [realA, collidingA], { projectRoot });
+        // Call 2 passes collidingB, which maps to the SAME mirror as collidingA.
+        // The seeded guard must skip it so it never shifts realA's (abs, rel)
+        // index pairing — the desync this fix prevents.
+        await createSnapshot("sess-xroll", [collidingB], { projectRoot });
+
+        const meta = JSON.parse(
+          await readFile(
+            join(sessionDir("sess-xroll", projectRoot), SNAPSHOT_META_FILE),
+            "utf-8",
+          ),
+        );
+        // Index alignment preserved (realA + collidingA survive; collidingB skipped).
+        expect(meta.paths.length).toBe(meta.relativePaths.length);
+        expect(meta.paths).toContain(realA);
+        expect(meta.paths).not.toContain(collidingB);
+
+        // Round-trip: realA must restore to its captured pre-run bytes, proving
+        // its index slot was not corrupted by the skipped collision.
+        await writeFile(realA, "mut A");
+        const result = await applyRollback("sess-xroll", { projectRoot });
+        expect(result.errors).toEqual([]);
+        expect(await readFile(realA, "utf-8")).toBe("orig A");
+      });
+    });
   });
 
   describe("listSnapshots", () => {
@@ -317,6 +411,33 @@ describe("pipeline/snapshot", () => {
       expect(result.filesRestored).toBe(1);
       const after = await readFile(fileA, "utf-8");
       expect(after).toBe("original A");
+    });
+
+    it("restores non-UTF-8 content byte-for-byte (no U+FFFD corruption)", async () => {
+      // D8-3 (Cycle 11 Wave 2, CQ4): the commit-phase restore previously did
+      // `(sourceContent).toString("utf-8")`, which round-trips bytes >= 0x80
+      // through the replacement char. 0xe9 is a lone, non-UTF-8 byte (é in
+      // Latin-1); a lossy re-encode would replace it with the 3-byte U+FFFD
+      // sequence (ef bf bd) and change the file length. The fix passes the
+      // captured Buffer to atomicWriteFile verbatim, so the bytes survive.
+      const binFile = join(projectRoot, "data.bin");
+      const original = Buffer.from([0x68, 0x69, 0x20, 0xe9, 0x21]); // "hi " + 0xe9 + "!"
+      await writeFile(binFile, original);
+      await createSnapshot("sess-binary", [binFile], { projectRoot });
+
+      // Mutate with different bytes.
+      await writeFile(binFile, Buffer.from([0x00, 0x01, 0x02]));
+
+      const result = await applyRollback("sess-binary", { projectRoot });
+      expect(result.errors).toEqual([]);
+      expect(result.filesRestored).toBe(1);
+
+      const after = await readFile(binFile); // Buffer, not utf-8 decode
+      expect(after.equals(original)).toBe(true);
+      // Guard against the specific corruption mode: a lossy utf-8 round-trip
+      // would have grown the 5-byte file to 7 bytes (0xe9 -> ef bf bd).
+      expect(after.length).toBe(5);
+      expect(after.includes(Buffer.from([0xef, 0xbf, 0xbd]))).toBe(false);
     });
 
     it("deletes a file that was created during the run via tombstone restore", async () => {

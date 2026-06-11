@@ -20,12 +20,7 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (trivial single-file): inline execution acceptable.
-- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
-- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
-
-Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Invoked by
 
@@ -73,7 +68,7 @@ No duplication: the agent decides WHEN, this skill defines HOW. The agent bodies
   - **loading** (skeleton)
   - **empty** (with CTA)
   - **error** (cause + retry)
-  - **partial** (banner + degraded data)
+  - **partial** (banner + degraded data) — the only state needing two concurrent requests at opposite outcomes; fixture it via the partial-state recipe (MSW 200+500 in one worker, or `Promise.allSettled` with a forced rejection) in `rules/hatch3r-ux-states-and-flows.md` -> Partial-state fixture recipe.
 - Missing snapshot = blocker.
 - Convention: `src/__tests__/states/<feature>.<state>.spec.ts`.
 - Discovery (reviewer-driven; no shipped script): grep the project for async data hooks — `rg -l 'useQuery|useSWR|\bfetch\(|axios'` — and list the surfaces that read remote data. Each listed surface must have all four state files under the convention path above. The reviewer flags any surface missing a state file as a Gate-4 failure. Projects that want this enforced pre-test author their own discovery check wired into CI; hatch3r ships the pattern, not the script (the framework does not own the project's data-fetch taxonomy).

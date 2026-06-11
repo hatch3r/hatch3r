@@ -73,8 +73,58 @@ describe("CopilotAdapter", () => {
     const scoped = scopedInstructions[0]!;
     expect(scoped.path).toContain("hatch3r-scoped-rule");
     expect(scoped.path).toMatch(/\.instructions\.md$/);
-    expect(scoped.content).toContain("applyTo:");
-    expect(scoped.content).toContain("**/*.ts");
+    // D9-6 (P2): exact-value `applyTo`, not a value-blind `.toContain("applyTo:")`.
+    // The legacy inline-CSV fixture `scope: "**/*.ts"` renders to a single-glob
+    // CSV string. A value-blind substring passed even when the X4/CD4 GLOBS-DROP
+    // bug emitted `applyTo: "conditional"`; pinning the rendered line closes it.
+    expect(scoped.content).toContain('applyTo: "**/*.ts"');
+    // Regression sentinel: the scope keyword must never leak into `applyTo`.
+    // Target the exact bug signature (the X4/CD4 GLOBS-DROP form) rather than a
+    // bare "conditional" substring, which a rule body could legitimately contain.
+    expect(scoped.content).not.toContain('applyTo: "conditional"');
+  });
+
+  // D9-6 (P2): second scoped fixture in the canonical `scope: conditional` +
+  // `globs:` two-line form (distinct from the legacy inline-CSV `scoped-rule.md`
+  // fixture). Exercises the `resolveRuleGlobs` `scope === "conditional"` branch
+  // the X4/CD4 GLOBS-DROP regression broke, which emitted `applyTo: "conditional"`
+  // and silently never auto-attached the rule. VS Code `applyTo` is a single
+  // comma-separated glob string per
+  // https://code.visualstudio.com/docs/copilot/copilot-customization — pins the
+  // exact rendered value and asserts the scope keyword never leaks. Isolated
+  // temp dir keeps the shared `FIXTURES_DIR` scoped-count assertion untouched.
+  it("emits the real conditional glob set in applyTo, never the scope keyword", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-conditional-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "conditional-rule.md"),
+        `---
+id: conditional-rule
+type: rule
+description: A conditional-scoped rule
+scope: conditional
+globs: "src/api/**,**/*.proto"
+---
+# Conditional Rule
+
+Applies to API code and protobufs.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const scoped = outputs.find((o) =>
+        o.path.startsWith(".github/instructions/") && o.path.includes("conditional-rule"),
+      );
+      expect(scoped).toBeDefined();
+      expect(scoped!.content).toContain('applyTo: "src/api/**, **/*.proto"');
+      // The fixture body contains "conditional" (heading/id), so assert the
+      // exact bug-signature frontmatter line rather than a bare substring.
+      expect(scoped!.content).not.toContain('applyTo: "conditional"');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("does not generate AGENTS.md (handled centrally by init/sync)", async () => {
@@ -157,26 +207,104 @@ describe("CopilotAdapter", () => {
     expect(promptFromCommands!.managedContent).toBeDefined();
   });
 
-  it("generates agent files from agents and github-agents", async () => {
+  it("generates regular agent files from the agents path", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     // Top-level picker entries — companion subtrees (`.github/agents/modes/`,
     // `.github/agents/shared/`) are emitted but excluded from this count.
     const agentFiles = outputs.filter((o) => /^\.github\/agents\/[^/]+\.(agent\.md|md)$/.test(o.path));
-    expect(agentFiles.length).toBe(3);
 
     const regularAgent = agentFiles.find((a) => a.path.includes("test-agent"));
     expect(regularAgent).toBeDefined();
     expect(regularAgent!.content).toContain("name: test-agent");
     expect(regularAgent!.managedContent).toBeDefined();
+  });
 
-    const ghAgentFiles = agentFiles.filter((a) => a.path.includes("test-gh-agent"));
+  // D5-41 (Cycle 11 Wave 3, D5, P4 / D16.3 add-vs-remove bias): github-agents
+  // (`type: github-agent`) are simplified twins of regular agents and emit to
+  // the SAME `.github/agents/` picker. When the full regular-agent path is
+  // active (`features.agents = true`, the default) the weaker github-agent twin
+  // is suppressed so the picker carries only the stronger regular variant — no
+  // duplicate (`hatch3r-security` + `hatch3r-security-agent`) pairs.
+  it("suppresses github-agent picker entries when the regular-agent path is active (D5-41)", async () => {
+    const manifest = makeManifest(); // features.agents = true, githubAgents = true
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const ghAgent = outputs.find(
+      (o) =>
+        /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path) && o.path.includes("test-gh-agent"),
+    );
+    expect(ghAgent).toBeUndefined();
+    // The regular-agent path is unaffected — it still populates the picker.
+    const regularAgent = outputs.find((o) => o.path === ".github/agents/hatch3r-test-agent.agent.md");
+    expect(regularAgent).toBeDefined();
+  });
+
+  // D5-41: github-agents are NOT removed — they remain the sole agent surface
+  // when the regular-agent path is off (the Copilot-cloud-only / pack case).
+  it("emits github-agent picker entries when the regular-agent path is off (D5-41)", async () => {
+    const manifest = makeManifest({ features: { agents: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const ghAgentFiles = outputs.filter(
+      (o) =>
+        /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path) && o.path.includes("test-gh-agent"),
+    );
     expect(ghAgentFiles.length).toBe(1);
-    const ghAgent = ghAgentFiles[0];
+    expect(ghAgentFiles[0]!.content).toContain("test-gh-agent");
+    expect(ghAgentFiles[0]!.managedContent).toBeDefined();
+    // The regular agent is gone (features.agents = false); only the twin ships.
+    const regularAgent = outputs.find((o) => o.path === ".github/agents/test-agent.agent.md");
+    expect(regularAgent).toBeUndefined();
+  });
+
+  // D9-5 (Cycle 11 D9, P3) + D5-39 (Cycle 11 Wave 3, D5, P6): the github-agent
+  // frontmatter must stay at byte 0 so GitHub Copilot's
+  // `.github/agents/*.agent.md` loader parses it — AND it must be NORMALIZED to
+  // Copilot-recognized fields. D9-5 fixed the byte-0 placement (the prior
+  // emission wrapped the whole `rawContent`, demoting frontmatter into the
+  // body); D5-39 then re-serialized the fence to drop fields Copilot ignores
+  // (`id`/`type`/`tags`/`quality_charter`/`efficiency_patterns`/`cache_friendly`)
+  // and add the previously-missing `tools:` allowlist.
+  it("emits NORMALIZED github-agent frontmatter at byte 0, body wrapped in the managed block (D9-5 + D5-39)", async () => {
+    // D5-41: github-agents only emit when the regular-agent path is off.
+    const manifest = makeManifest({ features: { agents: false } });
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const ghAgent = outputs.find(
+      (o) =>
+        /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path) &&
+        o.path.includes("test-gh-agent"),
+    );
     expect(ghAgent).toBeDefined();
-    expect(ghAgent!.content).toContain("test-gh-agent");
-    expect(ghAgent!.managedContent).toBeDefined();
+
+    // Frontmatter fence opens on byte 0 — not the managed-block marker.
+    expect(ghAgent!.content.startsWith("---")).toBe(true);
+    expect(ghAgent!.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+
+    // The frontmatter block precedes the managed block; the body (not the
+    // YAML) is what gets wrapped.
+    const fmEnd = ghAgent!.content.indexOf("\n---", 3);
+    const markerStart = ghAgent!.content.indexOf(MANAGED_BLOCK_START);
+    expect(fmEnd).toBeGreaterThan(0);
+    expect(markerStart).toBeGreaterThan(fmEnd);
+    expect(ghAgent!.content).toContain(MANAGED_BLOCK_END);
+
+    // D5-39: the normalized frontmatter carries Copilot-recognized fields only.
+    const frontmatter = ghAgent!.content.slice(0, markerStart);
+    expect(frontmatter).toContain("name: test-gh-agent");
+    expect(frontmatter).toContain("description: A test GitHub agent");
+    // Default read-only allowlist (the fixture id is not in the role map).
+    expect(frontmatter).toContain('tools: ["read", "search"]');
+    // Unrecognized canonical fields are NOT shipped to Copilot.
+    expect(frontmatter).not.toContain("id: test-gh-agent");
+    expect(frontmatter).not.toContain("type: github-agent");
+    expect(frontmatter).not.toContain(MANAGED_BLOCK_START);
+    // managedContent is the body only (frontmatter stripped), matching the
+    // regular-agent path's third `output()` arg.
+    expect(ghAgent!.managedContent).not.toContain("type: github-agent");
+    expect(ghAgent!.managedContent).toContain("Test GitHub Agent");
   });
 
   it("emits companion subtree files under `.github/` so canonical references resolve", async () => {
@@ -290,6 +418,106 @@ describe("CopilotAdapter", () => {
     }
   });
 
+  // D10-32 (Cycle 11 Wave 3, D10, P6/CQ4): a VS-Code-unexpandable bare
+  // `$`-prefixed secret (e.g. `Bearer $GITHUB_PAT`) must never reach a header
+  // value in `.vscode/mcp.json` — VS Code does not shell-expand `$VAR` in
+  // header values, so it would authenticate with the literal string. The
+  // adapter rewrites `${env:NAME}` to a VS Code `${input:NAME}` reference and
+  // declares a matching top-level `inputs[]` entry. This regression test
+  // asserts no bare `$`-prefixed token survives in any header value.
+  it("rejects bare `$`-prefixed secrets in HTTP-transport headers, emits ${input:NAME} (D10-32)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-mcp-hdr-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            github: {
+              _trust_bypass: true,
+              url: "https://api.githubcopilot.com/mcp/",
+              headers: {
+                Authorization: "Bearer ${env:GITHUB_PAT}",
+                "X-Static": "literal-value",
+              },
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({ mcpServers: ["github"] });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".vscode/mcp.json");
+      expect(mcp).toBeDefined();
+      const parsed = JSON.parse(mcp!.content);
+
+      const auth = parsed.servers.github.headers.Authorization as string;
+      // The secret rides as a VS Code input reference, not a bare `$VAR`.
+      expect(auth).toBe("Bearer ${input:GITHUB_PAT}");
+      // No bare `$`-prefixed token (e.g. `$GITHUB_PAT`) anywhere in the file.
+      // `${input:...}` / `${workspaceFolder}` use `${` and are not bare.
+      expect(/(?<!\{)\$[A-Za-z_]/.test(mcp!.content)).toBe(false);
+      // Static (non-secret) headers pass through unchanged.
+      expect(parsed.servers.github.headers["X-Static"]).toBe("literal-value");
+      // A matching top-level input variable is declared.
+      const inputs = parsed.inputs as Array<Record<string, unknown>>;
+      expect(inputs.some((i) => i.id === "GITHUB_PAT" && i.password === true)).toBe(true);
+
+      // D15-28 (Cycle 11 Wave 3, D15, P6, SA15.5-F7): the Silent Failure
+      // Contract requires an adapter warning when a secret-bearing HTTP header
+      // is generated for Copilot — VS Code prompts for `${input:...}` at first
+      // use rather than reading `.env.mcp`, so the operator must be told the
+      // header is NOT resolved transparently like a STDIO env-file secret.
+      const hdrWarning = adapter.warnings.find(
+        (w) => w.includes("HTTP header secret") && w.includes("GITHUB_PAT"),
+      );
+      expect(hdrWarning).toBeDefined();
+      expect(hdrWarning).toContain("does NOT expand");
+      expect(hdrWarning).toContain(".env.mcp");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // D15-28 (Cycle 11 Wave 3, D15, P6): the inverse — an HTTP MCP server with NO
+  // secret-bearing header generates NO `inputs[]` and therefore NO warning, so
+  // the Silent Failure Contract warning fires only on the actual secret-header
+  // case (no false-positive noise for static-header or env-file-secret servers).
+  it("emits no HTTP-header-secret warning when no header carries a secret (D15-28)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-mcp-nosecret-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "mcp"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "mcp", "mcp.json"),
+        JSON.stringify({
+          mcpServers: {
+            github: {
+              _trust_bypass: true,
+              url: "https://api.githubcopilot.com/mcp/",
+              headers: { "X-Static": "literal-value" },
+            },
+          },
+        }),
+        "utf-8",
+      );
+      const manifest = makeManifest({ mcpServers: ["github"] });
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const mcp = outputs.find((o) => o.path === ".vscode/mcp.json");
+      expect(mcp).toBeDefined();
+      const parsed = JSON.parse(mcp!.content);
+      // No inputs[] without a secret header.
+      expect(parsed.inputs).toBeUndefined();
+      // And no D15-28 warning.
+      expect(adapter.warnings.some((w) => w.includes("HTTP header secret"))).toBe(false);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
   it("does not generate MCP config when no servers configured", async () => {
     const manifest = makeManifest({ mcpServers: [] });
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
@@ -384,6 +612,141 @@ You are a test agent.`,
       const agentFile = outputs.find((o) => o.path === ".github/agents/hatch3r-test-agent.agent.md");
       expect(agentFile).toBeDefined();
       expect(agentFile!.content).toContain("model: gpt-4");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // D9-16 (Cycle 11 Wave 3, D9, P3/P5): the hatch3r-internal capacity tiers
+  // `standard`/`fast` are not Copilot picker names — Copilot silently falls back
+  // to its default and the emitted `model:` is a dead field. The adapter omits
+  // `model:` for these tier words and keeps it only for a Copilot-recognizable
+  // value (provider-dated ID or `(copilot)` display name).
+  it("omits model: for the hatch3r tier words standard/fast (D9-16)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-tier-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      for (const [slug, tier] of [["std-agent", "standard"], ["fast-agent", "fast"]]) {
+        await writeFile(
+          join(agentsDir, "agents", `${slug}.md`),
+          `---\nid: ${slug}\ntype: agent\ndescription: A ${tier}-tier agent\nmodel: ${tier}\n---\n# ${slug}\n\nYou are a ${tier}-tier agent.`,
+          "utf-8",
+        );
+      }
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(agentsDir, manifest);
+
+      const agentFiles = outputs.filter((o) => /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path));
+      expect(agentFiles.length).toBeGreaterThanOrEqual(2);
+      // The finding's required assertion: NO emitted .agent.md carries the tier
+      // word as a `model:` value.
+      for (const f of agentFiles) {
+        const fm = f.content.slice(0, f.content.indexOf(MANAGED_BLOCK_START));
+        expect(fm).not.toMatch(/^model:\s*(standard|fast)\s*$/m);
+      }
+      const std = agentFiles.find((o) => o.path.includes("std-agent"));
+      expect(std!.content.slice(0, std!.content.indexOf(MANAGED_BLOCK_START))).not.toContain("model:");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps model: for a Copilot-recognizable provider-dated value (D9-16)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-ok-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", "ok-agent.md"),
+        `---\nid: ok-agent\ntype: agent\ndescription: A pinned-model agent\nmodel: claude-sonnet-4-6\n---\n# ok-agent\n\nYou are a pinned-model agent.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+      const agentFile = outputs.find((o) => o.path === ".github/agents/hatch3r-ok-agent.agent.md");
+      expect(agentFile).toBeDefined();
+      const fm = agentFile!.content.slice(0, agentFile!.content.indexOf(MANAGED_BLOCK_START));
+      expect(fm).toContain("model: claude-sonnet-4-6");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // D5-39 (Cycle 11 Wave 3, D5, P6): github-agents carry a per-role `tools:`
+  // allowlist (they had none before — the security/lint cloud agents inherited
+  // every tool). The role map keys on the emitted prefixed id; an unlisted
+  // github-agent gets the read-only baseline.
+  it("emits a per-role tools: allowlist on github-agents (D5-39)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-gh-tools-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "github-agents"), { recursive: true });
+      // Use the canonical prefixed ids so the role map matches after toPrefixedId.
+      await writeFile(
+        join(agentsDir, "github-agents", "hatch3r-security-agent.md"),
+        `---\nname: hatch3r-security-agent\ntype: github-agent\ndescription: Security analyst\n---\nYou audit code.`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "github-agents", "hatch3r-lint-agent.md"),
+        `---\nname: hatch3r-lint-agent\ntype: github-agent\ndescription: Lint fixer\n---\nYou fix style.`,
+        "utf-8",
+      );
+      // D5-41: github-agents only emit when the regular-agent path is off.
+      const outputs = await adapter.generate(agentsDir, makeManifest({ features: { agents: false } }));
+
+      const sec = outputs.find((o) => o.path === ".github/agents/hatch3r-security-agent.agent.md");
+      expect(sec).toBeDefined();
+      const secFm = sec!.content.slice(0, sec!.content.indexOf(MANAGED_BLOCK_START));
+      // Read-only audit role.
+      expect(secFm).toContain('tools: ["read", "search"]');
+      expect(secFm).not.toContain('"edit"');
+      expect(secFm).not.toContain('"execute"');
+
+      const lint = outputs.find((o) => o.path === ".github/agents/hatch3r-lint-agent.agent.md");
+      expect(lint).toBeDefined();
+      const lintFm = lint!.content.slice(0, lint!.content.indexOf(MANAGED_BLOCK_START));
+      // Lint fixer writes + runs linters.
+      expect(lintFm).toContain('"read"');
+      expect(lintFm).toContain('"edit"');
+      expect(lintFm).toContain('"execute"');
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  // D5-29 (Cycle 11 Wave 3, D5, P6): a glob-scoped rule that declares
+  // `copilot_exclude_agent:` renders an `excludeAgent:` line on its
+  // `.instructions.md` so the named Copilot agent skips the path scope; a rule
+  // without the field emits no such line (default = every agent uses the file).
+  it("renders excludeAgent: on a scoped instruction file when copilot_exclude_agent is set (D5-29)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-exclude-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "rules"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "rules", "excluded-rule.md"),
+        `---\nid: excluded-rule\ntype: rule\ndescription: A code-review-excluded rule\nscope: conditional\nglobs: "**/*.ts"\ncopilot_exclude_agent: "code-review"\n---\nThis rule scopes to TypeScript.`,
+        "utf-8",
+      );
+      await writeFile(
+        join(agentsDir, "rules", "plain-rule.md"),
+        `---\nid: plain-rule\ntype: rule\ndescription: A plain scoped rule\nscope: conditional\nglobs: "**/*.js"\n---\nThis rule scopes to JavaScript.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const excluded = outputs.find((o) => o.path.endsWith("excluded-rule.instructions.md"));
+      expect(excluded).toBeDefined();
+      const exFm = excluded!.content.slice(0, excluded!.content.indexOf(MANAGED_BLOCK_START));
+      expect(exFm).toContain('applyTo: "**/*.ts"');
+      expect(exFm).toContain('excludeAgent: "code-review"');
+
+      const plain = outputs.find((o) => o.path.endsWith("plain-rule.instructions.md"));
+      expect(plain).toBeDefined();
+      const plFm = plain!.content.slice(0, plain!.content.indexOf(MANAGED_BLOCK_START));
+      expect(plFm).toContain('applyTo: "**/*.js"');
+      expect(plFm).not.toContain("excludeAgent");
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
@@ -637,5 +1000,38 @@ You are a test agent.`,
         expect(instructions!.content).toContain("rules/hatch3r-right-sizing.md");
       });
     }
+  });
+
+  // D1-17 (Cycle 11 Wave 3, D1, P1): the copilot-instructions.md blockquote also
+  // carries the resolved confidence floor. Pre-fix the persisted `confidenceFloor`
+  // config key reached no adapter output. Explicit floor wins; absence resolves
+  // to the maturity-aware default.
+  describe("confidence-floor header (D1-17)", () => {
+    for (const floor of ["any", "medium", "high"] as const) {
+      it(`emits confidence floor=${floor} when set explicitly`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: floor };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+        const instructions = outputs.find((o) => o.path === ".github/copilot-instructions.md");
+        expect(instructions).toBeDefined();
+        expect(instructions!.content).toContain(`confidence floor=${floor}`);
+      });
+    }
+
+    it("resolves an absent floor to the maturity-aware default (enterprise → high)", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+      expect(manifest.confidenceFloor).toBeUndefined();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const instructions = outputs.find((o) => o.path === ".github/copilot-instructions.md");
+      expect(instructions!.content).toContain("confidence floor=high");
+    });
+
+    it("an explicit floor overrides the maturity-derived default", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise", confidenceFloor: "any" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const instructions = outputs.find((o) => o.path === ".github/copilot-instructions.md");
+      expect(instructions!.content).toContain("confidence floor=any");
+      expect(instructions!.content).not.toContain("confidence floor=high");
+    });
   });
 });

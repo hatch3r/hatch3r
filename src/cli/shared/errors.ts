@@ -1,9 +1,16 @@
 /**
  * C9-M17 (D10-SA10.2-F2 extension): central funnel for top-level CLI
- * error formatting. All 14 hatch3r CLI commands surface failures through
- * `formatActionableError(err)` so the user-facing error contract is
- * consistent across init/sync/status/update/validate/verify/config/clean
- * /add/worktree-setup/worktree-cleanup/mcp/cli-tools/explain.
+ * error formatting. The single top-level `parseAsync()` catch in
+ * `src/cli/index.ts` routes every caught command failure through
+ * `formatActionableError(err)` (D8-1, Cycle 11 Wave 2), so the user-facing
+ * error contract is consistent across all 18 commands without each command
+ * calling the funnel itself — any uncaught throw from init/sync/status/update
+ * /validate/verify/config/clean/add/worktree-setup/worktree-cleanup/mcp
+ * /cli-tools/explain/rollback/provenance/show/deps lands in that one catch.
+ * Three paths are routed deliberately AROUND the funnel and documented at
+ * their call sites in `src/cli/index.ts`: the `CommanderError` parse-error
+ * branch (commander already wrote its own message + help pointer), the
+ * `uncaughtException` handler, and the `unhandledRejection` handler.
  *
  * The funnel reads the structured `recoveryHint` populated by C9-H27 on
  * HatchError and:
@@ -31,9 +38,10 @@ import { getRunId } from "./runId.js";
  * instantiations (28 of 53) omit an explicit `recoveryHint`, so those
  * failures previously surfaced through the funnel with no actionable next
  * step (violating P1 CLI UX, `.claude/rules/cli-ux-standards.md:6`). Adding
- * the fallback HERE — at the single centralized funnel all 14 commands flow
- * through — closes the gap systemically without editing 28 call sites
- * (each of which is owned by a concurrent Wave-2 file-lock work unit).
+ * the fallback HERE — at the single centralized funnel the top-level
+ * `src/cli/index.ts` catch routes every command failure through — closes the
+ * gap systemically without editing 28 call sites (each of which is owned by a
+ * concurrent Wave-2 file-lock work unit).
  *
  * An explicit per-call-site `recoveryHint` always wins; this map is the
  * floor, not a ceiling. Each hint is a single-line imperative next step that
@@ -78,7 +86,15 @@ export interface FormattedCliError {
   lines: string[];
   /** Optional boxen block to write to stderr instead of `lines` (when a hint is present). */
   box?: string;
-  /** POSIX exit code: 0 = clean cancel, 2 = usage error, 1 = anything else. */
+  /**
+   * POSIX exit code. For a {@link HatchError} this is its `exitCode`, which
+   * defaults to the sysexits-derived code from `ERROR_CODE_TO_EXIT_CODE` in
+   * `src/types.ts` (64/65/69/70/73/74/75) unless an explicit code was passed.
+   * For a non-HatchError: 0 = clean cancel, 130 = SIGINT, 2 = usage error,
+   * 1 = unexpected error. Published table: `docs/troubleshooting.md` → Exit
+   * Codes. NOTE: command failures never collapse to 1 — do not branch CI on
+   * `[ $? -eq 1 ]`.
+   */
   exitCode: number;
   /** Classification of the error (useful for callers/tests). */
   kind: CliErrorKind | "hatch-error" | "hatch-cancel";
@@ -116,7 +132,7 @@ export function formatActionableError(
       return { lines: [], exitCode: 0, kind: "hatch-cancel" };
     }
     // SA12.1-F-D12-M3 (D12, P1): per-run correlation id embedded on every
-    // fatal HatchError so the operator can grep `.hatch3r/.failures.log`
+    // fatal HatchError so the operator can grep `.hatch3r/.failure-log.jsonl`
     // by this id to find every entry recorded during the same run.
     const runId = getRunId();
     // SA12.1-F01: resolve the explicit per-call-site hint OR the

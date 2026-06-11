@@ -1,6 +1,6 @@
 ---
 description: Data classification standards covering PII handling, encryption, retention policies, and regulatory compliance
-globs: ["**/models/**", "**/schemas/**", "**/schema*", "**/database/**", "**/db/**", "**/*model*", "**/*entity*", "**/prisma/**", "**/drizzle/**", "**/*migration*"]
+globs: ["**/models/**", "**/schemas/**", "**/schema*", "**/database/**", "**/db/**", "**/*model*", "**/*entity*", "**/prisma/**", "**/drizzle/**", "**/*migration*", "**/log*", "**/*logger*", "**/analytics/**", "**/*analytics*", "**/events/**", "**/*telemetry*", "**/export*", "**/*export*"]
 alwaysApply: false
 precedence: high
 ---
@@ -23,6 +23,7 @@ precedence: high
 - Never log PII. Use structured logging with PII fields explicitly excluded or masked.
 - Pseudonymize PII in analytics and reporting. Use irreversible hashing for identifiers.
 - Provide data export and deletion endpoints for data subject requests (GDPR Article 15/17, CCPA).
+- This rule's PII review applies wherever PII can leave the data model — not just schemas and migrations, but log statements, loggers, analytics/telemetry emitters, event payloads, and export paths. Before merging a change to any of these surfaces, confirm no Level 3+ field is logged, emitted, or exported unmasked.
 
 ## Encryption
 

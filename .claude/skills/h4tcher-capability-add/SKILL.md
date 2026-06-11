@@ -9,7 +9,7 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-06
 
 # Capability Add (Maintainer)
 
@@ -71,6 +71,8 @@ For T1: inline authoring — skip to Step 5. For T2/T3: dispatch parallel `Task`
 4. Explicit guardrail: "no branches, no commits, no PRs".
 5. Workspace write target: `.audit-workspace/capability-add-{slot}.md`.
 
+Fan-out is task-derived (P8 B2): 0 sub-agents on T1 (inline), 1-3 on T2, >=3 on T3 — one per artifact-type slot. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 7 summary).
+
 ## Step 5: Cross-Skill Delegation (load-bearing)
 
 The orchestrator sets up context only. Body authoring delegates to the matching author skill via `Task`:
@@ -83,6 +85,8 @@ The orchestrator sets up context only. Body authoring delegates to the matching 
 | pipeline module (`src/merge/`, `src/content/`, `src/pipeline/`) | Inline — no canonical author skill exists; flag in Step 7 summary for a future skill |
 
 Delegation prompts pass: target path, frontmatter shape, pillar(s) served, Step 2 overlap report, Step 3 sources.
+
+**Author-skill delegation is the implementer-mandate equivalent for this lane** — see the "Orchestrator-Self-Discipline boundary" section below. The author skills above (`h4tcher-content-author`, `h4tcher-adapter-author`, `h4tcher-domain-author`) are the delegated authoring agents that write `src/` and canonical content; the pipeline-module row's `Inline` path is a carve-out scoped there, not a license for the orchestrator to author other artifact types inline.
 
 ## Step 6: Governance Gates
 
@@ -118,6 +122,7 @@ Sources:             <url> (<access-date>, <org>, <trust-tier>) x N
 Inventory delta:     +<n> artifacts (<types>)
 Pillar(s) served:    P<n>, P<n>
 Lean deltas:         <file: before -> after / limit>
+Sub-agents:          count=<0|1-3|>=3>, rationale=<one-line task-decomposition justification>
 
 Gates:
   npm run validate              <PASS|FAIL>
@@ -145,6 +150,16 @@ Next action (run manually):
   git add <files>
   git commit -s -m "<suggested message>"
 ```
+
+## Orchestrator-Self-Discipline boundary (implementer-mandate carve-out)
+
+CLAUDE.md → "Orchestrator Self-Discipline (Bypass Protection)" requires every mutating orchestrator-style turn to spawn `hatch3r-implementer` for code mutation and emit an End-of-Turn Delegation Attestation citing each file's `delegation_proof_id`. That contract governs the **product pipeline** (research → implement → review → final-quality on end-user-facing code and `src/` features). The capability-lifecycle presets are a **separate framework-authoring lane** and carry an explicit carve-out from the `hatch3r-implementer` + attestation requirement, on these grounds:
+
+1. **Author skills are the delegated authoring agents for this lane.** Step 5 already delegates body authoring away from the orchestrator to `h4tcher-content-author` (canonical artifacts), `h4tcher-adapter-author` (`src/adapters/*.ts`), and `h4tcher-domain-author` (audit domains). These author skills occupy the same no-inline-authoring role `hatch3r-implementer` occupies in the product pipeline. Routing `src/` writes through `hatch3r-implementer` *underneath* an author skill would add a redundant second delegation hop without new verification.
+2. **The Step 6 gate table is this lane's verification surface**, not `delegation_proof_id` attestation: `npm run validate`, `npm test`, `npx tsc --noEmit`, `npm run lint`, `npm run build`, `npm run inventory[:check-docs]`, anti-slop, and the Pillar Compliance Test all run before the stop-before-commit summary.
+3. **`hatch3r-implementer` targets product code under a board/issue pipeline** (browser-verification gates, UI/UX gate vocabulary per `agents/hatch3r-implementer.md` → Return Structured Result) — its gate model does not map onto governance-doc or adapter-class authoring.
+
+Scope of the carve-out: it covers the three author-skill delegations in Step 5 plus the pipeline-module `Inline` row (`src/merge/`, `src/content/`, `src/pipeline/` — flagged in Step 7 for future author-skill coverage). It does **not** authorize the orchestrator to author agents/skills/rules/commands/hooks/adapters/domains inline — those MUST go through the matching author skill per Step 5. This carve-out is named in CLAUDE.md → "Orchestrator Self-Discipline" by the same heading; keep the two in sync if either changes.
 
 ## Constraints
 

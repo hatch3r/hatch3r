@@ -5,6 +5,7 @@ description: Progressive delivery — canary, blue-green, feature-flag rollout w
 scope: conditional
 globs: "**/.github/workflows/**,**/deploy/**,**/k8s/**,**/manifests/**,**/argo/**,**/flagger/**,**/spinnaker/**,**/rollout*"
 tags: [devops]
+precedence: high
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---

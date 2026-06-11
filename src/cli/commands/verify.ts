@@ -8,6 +8,7 @@ import {
   type DriftReport,
 } from "./status.js";
 import { runRegenerate } from "./update.js";
+import { scanManagedBlockTampering } from "./validate.js";
 import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
 import {
   assertManifest,
@@ -161,6 +162,29 @@ function maybePrintVerboseDrift(options: VerifyOptions, report: DriftReport): vo
 }
 
 /**
+ * D15-6 (SA15.4-F2, D15, P6): print the structural marker-tamper findings
+ * returned by {@link scanManagedBlockTampering} as a warning box. The drift
+ * comparison in {@link computeAdapterDrift} only diffs the EXTRACTED managed
+ * block, so a hand-broken HATCH3R:BEGIN/END marker (orphan, duplicate, or
+ * wrong host-comment syntax) is invisible to it — yet `docs/troubleshooting.md`
+ * advertises verify as detecting "drift or tampering". This surfaces the
+ * structural scan on the verify path so that promise holds. Findings are
+ * advisory (warnings, never a hard FAIL) per the scanner's own contract, so
+ * verify's drift-based PASS/FAIL exit code is unchanged. No-op when the scan
+ * is clean. JSON mode carries the findings in the payload instead (handled in
+ * {@link verifyCommand}), so this human-only renderer is skipped there.
+ */
+function printTamperWarnings(tamperWarnings: string[]): void {
+  if (tamperWarnings.length === 0) return;
+  const lines = tamperWarnings.map((w) => `${chalk.yellow("!")} ${w}`);
+  printBox(
+    `Managed-block structural warnings (${tamperWarnings.length})`,
+    lines,
+    "warning",
+  );
+}
+
+/**
  * Bounded regenerate→re-check loop backing `verify --fix`. Each iteration
  * regenerates adapter output from the bundled canonical content (no network)
  * and recomputes drift. Returns the final report; the caller decides PASS/FAIL.
@@ -225,6 +249,17 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     spinner?.stop();
   }
 
+  // D15-6 (SA15.4-F2, D15, P6): the drift comparison above only diffs the
+  // extracted managed block, so structural marker tampering (orphan/duplicate
+  // markers, wrong host-comment syntax) slips past it. `docs/troubleshooting.md`
+  // advertises verify as detecting "drift or tampering", so run the same
+  // structural scan `validate` runs and surface its findings here. Read-only and
+  // advisory: tamper findings are warnings, never a hard FAIL, so verify's
+  // drift-based PASS/FAIL exit code (and the CI contract) is unchanged. After
+  // `--fix` regenerates output, a re-scan reflects any markers the regeneration
+  // repaired.
+  const tamperWarnings = await scanManagedBlockTampering(rootDir);
+
   const driftCount = driftCountOf(report);
   const summaryLines = buildSummaryLines(report);
 
@@ -235,6 +270,9 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
       counts: report.counts,
       driftKindCounts: report.driftKindCounts,
       entries: report.entries,
+      // D15-6 (D15, P6): structural marker-tamper findings (advisory; do not
+      // affect `status`). Empty array when the marker structure is well-formed.
+      tamperWarnings,
       fixApplied: !!options.fix,
       hatch3rVersion: HATCH3R_VERSION,
       timestamp: new Date().toISOString(),
@@ -254,6 +292,10 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     maybePrintVerboseDrift(options, report);
     printBox("verify: PASS", summaryLines, "success");
     maybePrintDiffSummary(options, report);
+    // D15-6 (D15, P6): the managed-block CONTENT can match canonical (no drift)
+    // while the marker STRUCTURE is broken — surface the structural scan even on
+    // a drift-clean PASS so a hand-broken marker is not silently passed.
+    printTamperWarnings(tamperWarnings);
     return;
   }
 
@@ -267,6 +309,10 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   const recoveryHint = buildRecoveryHint(report);
   printBox(`verify: FAIL (${driftCount} drift(s))`, summaryLines, "error");
   maybePrintDiffSummary(options, report);
+  // D15-6 (D15, P6): structural marker warnings are advisory and orthogonal to
+  // the drift FAIL above — print them alongside so a run that both drifted AND
+  // has broken markers reports both, not just the drift.
+  printTamperWarnings(tamperWarnings);
   if (options.fix) {
     info(`--fix could not clear all drift — run ${chalk.bold("hatch3r sync")} or inspect the failing tool(s).`);
   } else {

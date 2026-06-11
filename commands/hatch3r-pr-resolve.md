@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-performance]
 description: "Read open PR comments, evaluate each against current code via the rigor contract, implement accepted findings, reply inline. Multi-platform."
+argument-hint: "[pr-number]"
 tags: [implementation, review, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -19,7 +20,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
 
 ## Agent Pipeline
 
@@ -150,7 +151,7 @@ Execute these steps in order. **Do not skip any step.** The only ASK gate is Ste
 
 Classify the run before delegating. Counts and severity come from the Step 4 evaluation, so reorder if needed — for runs with no comments at all, take the early-exit path in Step 2.
 
-- **Tier 1** (≤5 comments, all single-line nits, 0 critical, 0 architectural-discussion items): reduced pipeline — implement inline or via one specialist; skip Step 7a review loop; still run Step 7b mandatory specialists (test-writer, security-auditor).
+- **Tier 1** (≤5 comments, all single-line nits, 0 critical, 0 architectural-discussion items): reduced pipeline — implement inline or via one specialist; skip Step 7a review loop; still run Step 7b mandatory specialists (hatch3r-testability, hatch3r-security).
 - **Tier 2** (6–30 comments, mixed severity, no critical disagreements or design objections): standard pipeline — Steps 6, 7a (review loop, max 3 iterations), 7b mandatory + 7c triggered.
 - **Tier 3** (>30 comments OR any Critical-severity item OR any architectural-discussion item OR cross-cutting changes): full pipeline + merge-readiness assessment after Step 9.
 
@@ -440,7 +441,7 @@ Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify
 >
 > (accept / adjust / show N / fix all)
 
-If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-revision.md:286-310`: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
+If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-revision.md` §5b Routing ASK → Critical Deferral Protocol: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
 
 After the user accepts, the run is autonomous until Step 10.
 
@@ -471,7 +472,7 @@ Delegate every FIX NOW finding to specialist sub-agents using the delegation con
 | Dead code, unused imports, type fixes, lint errors | `hatch3r-lint-fixer` | hatch3r-lint-fixer agent protocol |
 | Missing tests, insufficient coverage | `hatch3r-testability` | hatch3r-testability agent protocol |
 
-Blast-radius rule: same-file findings → same sub-agent (priority: implementer > lint-fixer > test-writer); disjoint files → parallel sub-agents.
+Blast-radius rule: same-file findings → same sub-agent (priority: hatch3r-implementer > hatch3r-lint-fixer > hatch3r-testability); disjoint files → parallel sub-agents.
 
 #### 6b. Spawn Sub-Agents
 
@@ -490,7 +491,7 @@ Each sub-agent prompt MUST include:
 
 #### 6c. Await and Integrate
 
-Await all sub-agents. Collect structured results: files changed, tests written, findings addressed, BLOCKED / PARTIAL items. Apply cross-agent conflict resolution per `commands/revision/revision-delegation.md:85-92` (disjoint regions accept both; overlapping regions merge larger-scope; semantic conflicts surface in Step 10 Iteration Summary).
+Await all sub-agents. Collect structured results: files changed, tests written, findings addressed, BLOCKED / PARTIAL items. Apply cross-agent conflict resolution per `commands/revision/revision-delegation.md` §6c → Cross-Agent Conflict Resolution (disjoint regions accept both; overlapping regions merge larger-scope; semantic conflicts surface in Step 10 Iteration Summary).
 
 Update `run_cache.fix_results`.
 
@@ -533,7 +534,7 @@ After 7b is clean:
 - `hatch3r-performance` (CQ7) — when the diff includes hot-path changes (DB queries, API handlers, render loops).
 - `hatch3r-lint-fixer` — when residual lint/type errors surfaced after Step 6.
 
-Each specialist prompt mirrors the requirements in `commands/revision/revision-quality.md:82-89` (agent protocol, scope:always rules, diff, acceptance criteria, confidence requirement). Apply specialist outputs; re-run 7a gates if changes were made.
+Each specialist prompt mirrors the requirements in `commands/revision/revision-quality.md` §Stage 2 → Specialist Prompt Requirements (agent protocol, scope:always rules, diff, acceptance criteria, confidence requirement). Apply specialist outputs; re-run 7a gates if changes were made.
 
 ---
 
@@ -662,8 +663,8 @@ Emit the canonical Iteration Summary block from `rules/hatch3r-iteration-summary
 | typecheck | pass |
 | tests | pass ({n} passed) |
 | reviewer/fixer loop | clean after {n} iteration(s) |
-| security-auditor | pass |
-| test-writer | pass — added {n} test(s) |
+| hatch3r-security | pass |
+| hatch3r-testability | pass — added {n} test(s) |
 
 **Suggested Next Action:** {one line — e.g., "Wait for reviewer response on the 2 NEEDS_CLARIFICATION items, then re-run /hatch3r-pr-resolve."}
 ```
@@ -680,40 +681,17 @@ Status decision rules:
 
 pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the only mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), and commit + push (Step 9). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
 
-**Checkpoint contract** (`src/pipeline/checkpoint.ts`):
-
-1. **Workspace + file:** write `.pr-resolve-workspace/checkpoint.json` via `writeCheckpoint()` (atomic temp+rename through `src/merge/safeWrite.ts`; a SIGKILL mid-write leaves the prior checkpoint or no file, never a partial record). Schema (`schemaVersion: 1`): `phase` (the Step 0 → Step 10 progression), `wave` (per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a), `status` (`in-progress` | `passed` | `failed`), and `meta` `{ baselineSha, lastPassedGateN, registrySha, timestamp, prNumber, normalizedFindings, postedCommentIds, branchName }` where `postedCommentIds` is the set of comment IDs already replied to (idempotency guard for Step 8).
-2. **Write points:** after Step 1 PR identity resolves, after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (only mutation gate — confirmed routing decisions persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), and after Step 9 commit + push.
-3. **`--resume` invocation:** `hatch3r pr-resolve --resume` calls `readCheckpoint()` then `verifyResumability(workspace, currentSha)`. Baseline drift fails closed (PR head SHA / branch HEAD / new comments since the checkpoint) — re-run from scratch or rebase to the checkpoint baseline; new PR comments since the checkpoint force a cold start so the rigor-contract evaluation covers the full set. A `failed` status halts for operator triage before resuming.
-4. **Snapshot rollback:** pre-mutation snapshots of pre-commit working-tree state and the per-comment reply attempt log land in `.hatch3r/snapshots/<session-id>/`; `hatch3r rollback --session=<id>` reverts this run's filesystem mutations (posted platform replies remain a manual revert via the platform CLI — `gh pr review --dismiss`, `az repos pr update`, etc., since they are platform mutations outside the snapshot scope). Diff preview precedes every file write per Decision 30.
-
-If `--resume` is passed with no checkpoint, `verifyResumability` returns `drift: "no checkpoint found"` — treat as a cold start.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.pr-resolve-workspace/`; step range the Step 0 → Step 10 progression; `wave` = per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a; snapshot/rollback paths pre-commit working-tree state and the per-comment reply attempt log. Write points: after Step 1 PR identity resolves, after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (only mutation gate — confirmed routing decisions persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), and after Step 9 commit + push.
 
 ---
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-For Tier 2 and Tier 3 runs, emit the header at the start of every assistant turn that touches this task, per `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header. Format:
-
-```
-[hatch3r-pipeline: phase {1|2|3|4} | last: {agent} → {SUCCESS|PARTIAL|FAILED|BLOCKED|n/a} | next: {agent or "user-confirmation" or "complete"}]
-```
-
-Phase mapping for pr-resolve: `1` = comment fetch + triage classification, `2` = per-comment researcher/implementer/fixer dispatch, `3` = reply drafting + reviewer verdict, `4` = posting + Step 10 resolution-summary + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for pr-resolve: `1` = comment fetch + triage classification, `2` = per-comment researcher/implementer/fixer dispatch, `3` = reply drafting + reviewer verdict, `4` = posting + Step 10 resolution-summary + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
-Every turn that mutated files (PR file changes, reply drafts, status updates) at Tier 2 or Tier 3 emits the attestation block immediately before the Iteration Summary, per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation. Quote the per-file `delegation_proof_id` returned by each spawned sub-agent verbatim:
-
-```
-[hatch3r-delegation-attestation]
-files_mutated_this_turn:
-  - <relative path or comment ref>: via hatch3r-{implementer|fixer|reviewer} (proof: <delegation_proof_id>)
-mutating_subagent_invocations: <integer>
-inline_edits_by_orchestrator: none
-```
-
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → End-of-Turn Delegation Attestation. Per-command mutated-file slot: PR file changes, reply drafts, status updates.
 
 ## Iteration Summary (mandatory output)
 
@@ -733,18 +711,7 @@ The 9 sections:
 
 ### Cost Visibility (Decision 24)
 
-Pre-execution: emit `cost_estimate` before the first sub-agent dispatch via `src/pipeline/observability.ts::buildCostBlock` (5-field schema):
-
-```yaml
-cost_estimate:
-  expected_sa_count: <int>
-  estimated_input_tokens_static_frame: <int>
-  triage_tier: light | standard | deep
-  estimated_web_research_queries: <int>      # 0 when no research is needed
-  estimated_duration_min: <int>
-```
-
-Post-execution: call `buildCostBlock` again with actuals to emit `cost_actuals` + `delta`; both land in Section 2 above. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
 
 ## Cost estimate (Decision 24)
 
@@ -768,7 +735,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 | Sub-agent (Step 6) reports BLOCKED on a finding | Skip the finding for FIX NOW; surface in Step 10 `Not Done`; reply with "Attempted but blocked" template. |
 | Sub-agent (Step 6) returns PARTIAL | Apply partial changes; mark the unaddressed sub-findings as deferred; reply notes partial implementation. |
 | Reply POST persistently fails (Step 8c) | Continue run; record in `run_cache.reply_post_results`; surface in Step 10. |
-| Review loop hits 3 iterations with findings remaining | ASK the user per `commands/revision/revision-quality.md` line 54. |
+| Review loop hits 3 iterations with findings remaining | ASK the user per `commands/revision/revision-quality.md` §Stage 1 Review Loop step 3 (3-iteration ASK). |
 | Quality gate fails 2 retries (Step 7a) | Record in `run_cache.errors`; Step 10 `Status: PARTIAL`. |
 | `git push` rejected (e.g., upstream changed mid-run) | Halt at Step 9 with: "Remote branch changed during run. Run `git pull --rebase`, resolve conflicts, then re-run /hatch3r-pr-resolve to repost any failed replies." |
 | GraphQL `reviewThreads` query fails (GitHub resolution state) | Fall back to evaluating every inline comment (no resolution filter); record a Low-confidence note in `run_cache.errors`. |

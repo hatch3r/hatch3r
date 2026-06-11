@@ -9,7 +9,7 @@ cache_friendly: true
 quality_charter: agents/shared/quality-charter.md
 ---
 
-> Last updated: 2026-05-29
+> Last updated: 2026-06-06
 
 # Capability Refactor (Maintainer)
 
@@ -62,6 +62,8 @@ Spawn 3 parallel `Task` sub-agents. Each updates references on its disjoint surf
 | 3 | canonical artifacts — `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, `checks/`, `prompts/`, `github-agents/` | `.audit-workspace/capability-refactor-3.md` |
 
 Each sub-agent prompt MUST include: the slot's bucket from Step 2, the h4tcher-development context block (pillar test, lean thresholds, anti-slop wordlist ref, commit format) modeled on `.claude/skills/h4tcher-pr-resolve/SKILL.md`, confidence-with-basis per the rigor contract, the workspace target path, and an explicit "no branches, no commits, no PRs" guardrail.
+
+Fan-out is task-derived (P8 B2): 0 sub-agents on T1 (inline), 3 on T2/T3 across the disjoint reference-surface slices above. Token cost never serializes independent work (`.claude/rules/fan-out-discipline.md` Cost-dominance clause). Emit `sub_agents_spawned: { count, rationale }` in your output (the `Sub-agents` field of the Step 7 summary).
 
 ## Step 5: Cross-Skill Delegation
 
@@ -126,6 +128,7 @@ Gates:
 
 Pillars served: P<n>[, P<n>, ...]
 Lean threshold deltas: <file: before -> after / limit>
+Sub-agents: count=<0|3>, rationale=<one-line task-decomposition justification>
 Sources (if Step 3 ran): <per-claim citations with trust tier + recency>
 
 Suggested commit message:

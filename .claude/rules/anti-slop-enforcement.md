@@ -25,5 +25,9 @@ Zero tolerance for filler phrases in all `.md` files under `governance/`, `agent
 | "scalable" (without dimension) | Specific scale (e.g., "handles repos with up to 500 canonical files") |
 | "carefully", "thoroughly" | Remove or replace with concrete action |
 | "it is important to note", "this section describes" | Remove — state the fact directly |
+| "obviously", "clearly", "naturally", "intuitively", "without doubt", "certainly" (when not citing a source) | Cite specific source (file:line OR URL with access date) |
+| "this might affect", "could be useful" (without specific impact) | Specify measurable impact prediction OR concrete use case |
+| "successfully completed", "everything works", "works as expected" (without verification) | Cite verification command + result (e.g., "npm test exit 0, 432/432 passing") |
+| "enterprise-grade", "production-grade" (without maturity tier) | Specify maturity tier (solo/team/scaleup/enterprise) per CONSTITUTION §2 P5 + Decision 16 |
 
-This wordlist comes from `governance/AUDIT-EXECUTE.md` regression gate check 11. Any hit is a gate failure.
+This wordlist mirrors the canonical physical home `governance/CONSTITUTION.md` §2 P5 → Anti-Slop Wordlist row-for-row (the same source `governance/AUDIT-EXECUTE.md` regression gate 11 derives from). Any hit is a gate failure.

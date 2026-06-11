@@ -2,7 +2,7 @@
 id: hatch3r-board-refresh
 name: hatch3r-board-refresh
 type: skill
-description: Regenerate the living board overview dashboard from current board state. Scans all open issues, computes health metrics, and updates the meta:board-overview issue.
+description: Regenerates the living board overview dashboard from current board state. Scans all open issues, computes health metrics, and updates the meta:board-overview issue.
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -249,12 +249,12 @@ Board Refresh Complete:
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (single-board refresh, no re-scoping): inline execution acceptable.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Tier boundaries for THIS skill:
+- Tier 1 (single-board refresh, no re-scoping): inline.
 - Tier 2 (multi-lane refresh with re-scoping or reclassification): spawn parallel sub-agents per lane via the Task tool.
 - Tier 3 (cross-board reconciliation): one fresh sub-agent per board or lane; orchestrator integrates only.
 
-Source: `.claude/rules/fan-out-discipline.md` (P8 B2); `agents/shared/efficiency-patterns.md`.
+Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Error Handling
 

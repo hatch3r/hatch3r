@@ -18,6 +18,8 @@ When you configure a model, hatch3r includes it in the generated config for each
 | Manifest default | `hatch.json` → `models.default` | 4th |
 | (none) | — | Platform auto-select |
 
+> **Authoring `.customize.*` files.** No terminal command writes these files. Create `.hatch3r/{type}/{id}.customize.yaml` (settings — `model`, `scope`, `description`, `enabled`) or `.hatch3r/{type}/{id}.customize.md` (markdown appended under the managed block) by hand, or run the `/hatch3r-customize` workflow which authors them for you. `hatch3r sync` then propagates the override into the generated outputs. The `hatch.json` and frontmatter columns above ARE edited via `hatch3r config`; the `.customize.*` layer is not.
+
 ## Resolution Order
 
 1. **Customization file** — If `.hatch3r/agents/{agent-id}.customize.yaml` exists and has a `model` field, that value wins.
@@ -32,7 +34,7 @@ You can use short aliases instead of full model IDs. hatch3r resolves them befor
 
 | Alias | Resolves To |
 |-------|-------------|
-| `opus` | `claude-opus-4-6` |
+| `opus` | `claude-opus-4-8` |
 | `sonnet` | `claude-sonnet-4-6` |
 | `haiku` | `claude-haiku-4-5` |
 | `codex` | `gpt-5.3-codex` |
@@ -75,10 +77,9 @@ model: opus
 
 ### Customization YAML
 
-In `.hatch3r/agents/hatch3r-reviewer.customize.yaml`:
+In `.hatch3r/agents/hatch3r-reviewer.customize.yaml` (keyed by id via its filename, so set only override fields):
 
 ```yaml
-agent: hatch3r-reviewer
 model: codex
 ```
 

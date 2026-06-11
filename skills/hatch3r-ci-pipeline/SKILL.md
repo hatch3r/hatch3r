@@ -2,7 +2,7 @@
 id: hatch3r-ci-pipeline
 name: hatch3r-ci-pipeline
 type: skill
-description: Design and optimize CI/CD pipelines. Covers stage design, test parallelization, artifact management, and pipeline performance.
+description: Designs and optimizes CI/CD pipelines. Covers stage design, test parallelization, artifact management, and pipeline performance.
 tags: [devops]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -29,12 +29,7 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 
 ## Fan-out Discipline (P8 B2)
 
-This skill delegates per task size:
-- Tier 1 (trivial single-file): inline execution acceptable.
-- Tier 2 (multi-file or multi-concern): spawn parallel sub-agents per concern via the Task tool.
-- Tier 3 (multi-module / high-risk): one fresh sub-agent per independent module or gate; orchestrator integrates only.
-
-Never under-fan-out to save tokens. Token cost is dominated by quality and completeness gains. Emit `sub_agents_spawned: { count, rationale }` in your output.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Step 1: Audit Existing Pipeline
 
@@ -75,6 +70,15 @@ Never under-fan-out to save tokens. Token cost is dominated by quality and compl
 - Confirm parallel stages don't have hidden dependencies causing race conditions.
 - Measure pipeline duration improvement against the baseline from Step 1.
 - Document the pipeline architecture for the team.
+
+## Supply-Chain Floor
+
+A CI/CD pipeline is the supply-chain attack surface — design the floor in, do not bolt it on. The glob-scoped floor rules attach when you edit a workflow or Dockerfile; this callout surfaces them at pipeline-design time so the controls are planned, not discovered. Apply both rules as authored — this section cross-references, it does not restate:
+
+- `rules/hatch3r-dependency-management.md` — SHA-pin every GitHub Action to a 40-char commit SHA (not a tag); `npm ci` / lockfile-only installs; CVE scan gate before merge; npm Trusted Publishing via GitHub OIDC with `--provenance` (no long-lived publish token), attestations signed by Sigstore.
+- `rules/hatch3r-container-hardening.md` — pin base images by `@sha256:` digest; generate an SBOM (CycloneDX or SPDX) in the build stage; cosign-sign images and verify by digest at deploy; distroless / Wolfi runtime, non-root user.
+
+Gate releases on these the same way Step 2 gates deploys on quality checks: a release stage that publishes without provenance + SBOM, or pulls an unpinned action / untagged base image, fails the gate.
 
 ## Pipeline Performance Targets
 

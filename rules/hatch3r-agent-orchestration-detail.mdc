@@ -19,7 +19,11 @@ PipelineContext {
   correlationId: string          // UUID v4, generated before Phase 1
   taskType: "bug" | "feature" | "refactor" | "qa"
   issueRef: string | null        // Issue number or null for plain chat
-  deepContextTier: 1 | 2 | 3    // From hatch3r-deep-context scoring
+  deepContextTier: 1 | 2 | 3    // Pre-Phase-1 baseline from hatch3r-deep-context scoring
+
+  // Mid-run tier upgrade (Finding D7-14): set when execution surfaces complexity
+  // the baseline missed (see Complexity-Driven Adaptation + Tier-upgrade propagation).
+  tierUpgrade?: { from: 1|2|3; to: 1|2|3; reason: string; atPhase: 1|2|3|4 }
 
   // Detected project type for specialist selection (Finding #56)
   projectType?: {
@@ -53,7 +57,7 @@ PipelineContext {
 
   // Phase 3 outputs (Review)
   reviewResult: {
-    iterations: number           // 1-3
+    iterations: number           // 1 to code-class cap (DEFAULT_MAX_REVIEW_ITERATIONS - 1 = 3)
     finalVerdict: "CLEAN" | "UNRESOLVED"
     findings: ReviewFinding[]
     confirmationPassResult: "PASS" | "FAIL"
@@ -89,24 +93,24 @@ The TypeScript implementation of this schema with runtime validation is in `src/
 | Phase 1 (Research) | No relevant findings | Surface to user; ask whether to proceed with implementation. |
 | Phase 2 (Implementation) | Build/test failure | Attempt self-fix (max 2 iterations). Escalate to user if unresolved. |
 | Phase 2 (Implementation) | Scope creep detected | Halt. Surface deviation to user. Resume only with approval. |
-| Phase 3 (Review) | Max iterations (3) | Surface unresolved findings to user. Do not merge. |
+| Phase 3 (Review) | Max iterations (3) (code-class cap = `DEFAULT_MAX_REVIEW_ITERATIONS` - 1) | Surface unresolved findings to user. Do not merge. |
 | Phase 3 (Review) | DESIGN_OBJECTION verdict | Terminate review loop immediately. Surface the objection and alternative approaches to the user for an architectural decision. Do not spawn fixer. |
 | Phase 3 (Review) | Fixer introduces regressions | Revert fixer changes. Surface original findings + regression to user. |
-| Phase 4 (Quality) | Specialist timeout | Log timeout. Continue with available results. Flag in output. |
+| Phase 4 (Quality) | Conditional-specialist timeout | Log timeout. Continue with available results. Flag in output. |
+| Phase 4 (Quality) | Mandatory CQ3/CQ5 specialist non-completion (TIMEOUT / crash / no-output) | Fail closed. Surface `BLOCKED`. A mandatory always-mode specialist (`hatch3r-security` CQ3, `hatch3r-testability` CQ5 per `hatch3r-agent-orchestration.md` Phase 4 Specialist Trigger Table) that does not return `COMPLETE` leaves its gate absent; absence-of-finding is NOT an implicit pass. This row is the prose face of the typed gate `evaluatePhase4Completion` (`src/pipeline/pipelineContext.ts`): a non-SUCCESS floor specialist yields `mandatoryFloorsSatisfied: false` → `complete: false`. Do not merge/release. Require an explicit operator decision (re-run, accept-risk, or abort) before advancing. |
 | Phase 4 (Quality) | Validation pass fails | Spawn fixer (max 2 attempts). Surface if unresolved. |
 
 ### Subagent Error Recovery
 
-1. **Timeout:** Forward partial output. Mark status `TIMEOUT`. Continue pipeline.
-2. **Crash/no output:** Mark status `FAILED`. Log reason. Continue if non-blocking.
+1. **Timeout:** Forward partial output. Mark status `TIMEOUT`. Continue pipeline ONLY for conditional specialists. A mandatory always-mode CQ3/CQ5 specialist on TIMEOUT fails closed — surface `BLOCKED`, never treat the missing gate as a pass.
+2. **Crash/no output:** Mark status `FAILED`. Log reason. Continue if non-blocking. A mandatory always-mode CQ3/CQ5 specialist is blocking — a crash or no-output return fails closed (surface `BLOCKED`, explicit operator decision before merge/release), it is never "non-blocking".
 3. **Conflicting outputs:** When two specialists disagree (e.g., security vs performance), escalate to user with both positions.
-4. **Resource exhaustion:** If context window is exhausted, summarize prior context and continue with summary.
+4. **Resource exhaustion:** Apply the Context-Degradation Policy (this file) — compress at `>50%` window, restart at `>75%`.
 
 ### Retry Policies
 
-- Subagent retries: 0 (spawn a new agent with adjusted prompt instead).
-- Phase retries: Phase 3 review loop retries up to 3 iterations. All other phases: 0 retries (escalate to user).
-- Never retry the same failed operation identically — adjust the prompt or approach.
+- Subagent retries: 0 — never retry the same failed operation identically; spawn a new agent with an adjusted prompt/approach instead.
+- Phase retries: Phase 3 review loop retries up to 3 iterations (code-class cap = `DEFAULT_MAX_REVIEW_ITERATIONS` - 1). All other phases: 0 retries (escalate to user).
 
 ## Observability Integration
 
@@ -164,7 +168,7 @@ After each phase, validate that the output conforms to the expected PipelineCont
 Auto-mode MUST halt and surface to user when:
 1. A CRITICAL finding is detected in Phase 3.
 2. Phase 4 validation pass fails after 2 fix attempts.
-3. Any specialist reports FAILED status.
+3. Any specialist reports FAILED status, OR a mandatory always-mode CQ3/CQ5 specialist (`hatch3r-security`, `hatch3r-testability`) returns any of {FAILED, TIMEOUT, no-output} — a mandatory gate that did not return `COMPLETE` is BLOCKED, not a silent pass.
 4. Scope containment violation detected.
 5. Implementation touches more than 20 files (may indicate scope creep).
 
@@ -181,10 +185,12 @@ The pipeline should adapt its behavior based on observed task complexity, not ju
 
 | Signal During Execution | Adaptation |
 |------------------------|------------|
-| Phase 1 research finds >10 affected files (initial estimate was <5) | Upgrade tier to 3 if currently 2. Re-run `codebase-impact` at `deep` depth before Phase 2. |
+| Phase 1 research finds >10 affected files (initial estimate was <5) | Upgrade tier to 3 if currently 2. Record the upgrade in `PipelineContext.tierUpgrade` (`src/pipeline/pipelineContext.ts::TierUpgrade`: `{from, to, reason, atPhase}`) and re-run `codebase-impact` at `deep` depth before Phase 2. |
 | Phase 2 implementer reports >3 research gaps | Pause Phase 2. Run targeted researcher with gap-specific modes before continuing. |
 | Phase 3 review loop reaches iteration 2 with increasing Critical count | Classify as complexity underestimate. Surface to user with recommendation to break the task into smaller sub-tasks. |
-| Phase 4 validation pass fails on first attempt | Check whether failure is in test-writer's new tests (expected -- fix test) or in pre-existing tests (regression -- fix implementation). Route to appropriate fixer. |
+| Phase 4 validation pass fails on first attempt | Check whether failure is in hatch3r-testability's new tests (expected -- fix test) or in pre-existing tests (regression -- fix implementation). Route to appropriate fixer. |
+
+**Tier-upgrade propagation (Finding D7-14).** A mid-run upgrade is not just a log line — it MUST change downstream behavior. After populating `PipelineContext.tierUpgrade`, the orchestrator reads the tier for every subsequent depth decision via `resolveEffectiveTier(context)` (returns `tierUpgrade.to` when an upgrade is recorded, else `deepContextTier`), so the Tier→Phase-4-specialist-depth mapping in `hatch3r-agent-orchestration.md` (Deep Context Integration) scales to the upgraded tier instead of staying pinned to the stale baseline. The carrier only ever raises the tier (a recorded `to <= from` is ignored). Surface the upgrade once in the iteration summary via `formatTierUpgradeNote(context)` (one line, returns `null` when no upgrade occurred) so the adaptation is visible, not silent.
 
 ### Post-Pipeline Learning
 
@@ -196,19 +202,17 @@ After pipeline completion, the orchestrator captures lessons for future runs:
 
 ## Multi-Task and Concurrent Pipeline Support
 
-Finding D7-M13 / D7-SA7.5-3: the orchestration rule's `Task Context Protocols` paragraph documents multi-task / epic / batch handling in a single sentence; the protocol benefits from an expanded canonical schema so downstream pack integrators have a deterministic specification.
+Canonical schema for the one-sentence multi-task / epic / batch handling in the orchestration rule's `Task Context Protocols`, so pack integrators have a deterministic specification (Finding D7-M13 / D7-SA7.5-3).
 
 **Dependency-graph construction.** Multi-task input (epic, plain-chat multi-request, or board batch) is parsed into discrete units. Each unit carries its own `correlationId` (epic sub-issues get individual IDs sharing a parent epic ID; batch tasks share one ID with a sub-task index). The orchestrator builds a directed acyclic dependency graph from declared inter-unit constraints (e.g., "issue B depends on issue A's API changes"); units with no declared dependency form the root level.
 
-**Per-level parallelism.** At each dependency level, the orchestrator parallelizes researchers + implementers across all units in that level subject to the three Parallel Safety conditions in the canonical rule. The parallelism width per level is bounded by the same `max_phase4_parallel` ceiling (env-overridable via `HATCH3R_MAX_PHASE4_PARALLEL`) the Phase 4 specialists honor, plus an `HATCH3R_MAX_LEVEL_PARALLEL` ceiling (default `8`, valid range 1–16) when implementer fan-out width exceeds the Phase 4 ceiling at deeper levels.
+**Per-level parallelism.** At each dependency level, the orchestrator parallelizes researchers + implementers across all units in that level subject to the three Parallel Safety conditions in the canonical rule. The parallelism width per level is bounded by the same orchestrator-honored `max_phase4_parallel` width (default `8`) the Phase 4 specialists honor — LLM-honored guidance, not a code-enforced cap (no hatch3r module reads an env var; the host Task tool is the dispatcher and applies no platform fan-out limit, per the canonical rule's Phase 4 — Final Quality).
 
 **Concurrent primitive — `concurrent_pipeline_unit`.** Each unit in a level is a `concurrent_pipeline_unit` record: `{ unitId: string; correlationId: string; parentEpicId?: string; level: number; dependsOn: string[]; priority: "p0"|"p1"|"p2"|"p3"; status: "pending"|"running"|"complete"|"blocked"; }`. Within a level the orchestrator dispatches by priority descending (p0 first); when concurrency limits cap the level, the in-flight pool is filled with highest-priority units first and the rest queue for the next dispatch slot.
 
 **File-overlap reconciliation.** When two parallel implementers in the same level touch the same file: accept disjoint-region edits without conflict; merge overlapping regions using the larger-scope change as base (the smaller change replays onto the larger); halt on semantic conflicts for user resolution. Per Parallel Safety condition 3, NO mid-pipeline writes to shared mutable state (`.hatch3r/hatch.json`, `.hatch3r/learnings/INDEX.md`) — learnings consolidation happens at pipeline completion only.
 
-**Review loop coordination.** After all level-N implementers complete, the orchestrator runs ONE consolidated Phase 3 review loop covering the union diff produced by the level. Per-unit Phase 4 specialist dispatch then runs in parallel bounded by `max_phase4_parallel`. Level-N+1 begins only after Level-N reaches Phase 4 completion (validated by `evaluatePhase4Completion`).
-
-**Concurrent-invocation handling.** Cross-pipeline (two `hatch3r` commands in two shells against the same repo) is deferred to a future cycle pending the Decision 27 resumability work, tracked in the audit closed-loop CL-2 spec.
+**Review loop coordination.** After all level-N implementers complete, the orchestrator runs ONE consolidated Phase 3 review loop covering the union diff produced by the level. Per-unit Phase 4 specialist dispatch then runs in parallel bounded by `max_phase4_parallel`. Level-N+1 begins only after Level-N reaches Phase 4 completion (validated by `evaluatePhase4Completion`). Cross-pipeline concurrent invocation (two `hatch3r` commands in two shells against the same repo) is deferred per the cross-command note below + the audit CL-2 spec.
 
 ## Pipeline Pattern (Cross-Command Consistency)
 
@@ -222,17 +226,20 @@ Finding D7-M12 / D7-SA7.5-2: implementation-flavored orchestrators (`workflow`, 
 | Phase 4 Final Quality | CQ + SSOT specialists, batched by severity, bounded by `max_phase4_parallel` | T2/T3 | T1 — only always-mode floor (`security` + `testability`) |
 | Phase 4 Validation Pass | re-run tests/typecheck vs Phase-3 baseline; re-review on specialist code mutations | T2/T3 | — |
 
-Cross-command error-handling defaults: sub-agent failure → retry once then fall back to direct/inline implementation per command's carve-out; quality-check failure → max 2 retry loops then ASK; context-degradation threshold → 25 turns (quick-change tightens to 15 per its documented rationale). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work.
+Cross-command error-handling defaults: sub-agent failure → retry once then fall back to direct/inline implementation per command's carve-out; quality-check failure → max 2 retry loops then ASK; context degradation → the single Context-Degradation Policy below (window-fraction primary: compress `>50%`, restart `>75%`; turn counts a coarse fallback). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work.
 
-## Context Token Optimization
+## Context-Degradation Policy
 
-When pipeline context exceeds 50% of the available context window, apply these compression strategies in order:
+Single canonical policy for every pipeline command (reconciles the per-command turn bullets, Finding D7-24). **Window-fraction is the authoritative axis**; the per-command turn count is a coarse fallback for the same threshold at that command's pace, used only when the host surfaces no context-window percentage. Commands cite this policy, not restated numbers.
+
+| Window fraction (primary) | Action | Turn-count fallback (coarse) |
+|---------------------------|--------|------------------------------|
+| `> 50%` | Compress: apply the numbered strategies below in order. | implementation/review ≈ 25 turns; quick-change ≈ 15 (fast-completion scope); debug ≈ 20 |
+| `> 75%` | Restart: suggest a fresh chat / batch split carrying a progress summary of completed + remaining work; a fresh-context command (`hatch3r-revision`) just re-runs. | ≈ 1.5× the compress turn count |
 
 1. **Summarize Phase 1 output.** Replace full research findings with a structured summary: affected files (list), blast radius (count + top 3), key conventions (bullet points). Keep raw data only for the fields the current phase needs.
 2. **Prune resolved findings.** After Phase 3 review loop, remove findings that were fixed and confirmed. Only carry forward unresolved findings.
 3. **Collapse specialist results.** In the final output, summarize specialist results as a single status table rather than including full specialist reports. Full reports are available on request.
 4. **Never truncate security findings.** Security auditor output is always included in full regardless of context pressure.
 
-These strategies preserve decision-critical information while reducing token overhead for long pipelines.
-
-**Handoff loss measurement.** Compression is lossy by design, so measure it. At each phase transition the orchestrator records a `PhaseHandoffMetrics` record (`src/pipeline/observability.ts::createPhaseHandoffMetrics`) capturing input bytes, output bytes, whether summarisation was applied, and an `informationLossEstimate` (0-1 fraction of input bytes dropped). When `informationLossEstimate` exceeds `0.3`, surface the single-line warning from `formatPhaseHandoffWarning` in the iteration summary so downstream phases validate that critical context survived. This closes the gap where a downstream phase silently receives a summary when it needed the full upstream output.
+**Handoff loss measurement.** Compression is lossy, so measure it. At each phase transition the orchestrator records a `PhaseHandoffMetrics` record (`src/pipeline/observability.ts::createPhaseHandoffMetrics`) capturing input bytes, output bytes, whether summarisation was applied, and an `informationLossEstimate` (0-1 fraction of input bytes dropped). When `informationLossEstimate` exceeds `0.3`, surface the `formatPhaseHandoffWarning` line in the iteration summary so downstream phases validate that critical context survived — closing the gap where a phase silently receives a summary when it needed the full upstream output.

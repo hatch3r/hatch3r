@@ -15,6 +15,7 @@ import { rollbackCommand, rollbackListCommand } from "./commands/rollback.js";
 import { showCommand, listCommand } from "./commands/show.js";
 import { provenanceCommand } from "./commands/provenance.js";
 import { depsCommand } from "./commands/deps.js";
+import { learnCaptureCommand } from "./commands/learn.js";
 import {
   mcpSetupCommand,
   mcpListCommand,
@@ -30,6 +31,16 @@ import {
 import { HATCH3R_VERSION } from "../version.js";
 import { TOOL_CHOICES } from "../types.js";
 
+// D1-5 (Cycle 11 Wave 2, P1): single source of truth for the `verify`
+// one-liner. The legacy text described a removed SHA-256 crypto-integrity
+// manifest; `verify` has been a drift-detection wrapper over
+// `computeAdapterDrift` since the integrity subsystem was deleted in 1.9.0.
+// Sourced here so the command `.description()` and the `command:*` "Common
+// commands" hint can never drift apart again (the prior bug had two stale
+// copies).
+const VERIFY_SUMMARY =
+  "Detect drift in hatch3r-managed files by regenerating from canonical content and diffing";
+
 // Agent command names that users might try to run directly in the terminal.
 // These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.
 const AGENT_COMMAND_NAMES = new Set([
@@ -39,7 +50,13 @@ const AGENT_COMMAND_NAMES = new Set([
   "board-init", "board-pickup", "board-groom", "board-refresh", "board-fill",
   "board-shared",
   "security-audit", "dep-audit", "benchmark", "healthcheck", "context-health",
-  "learn", "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
+  // D13-5 (Cycle 11 Wave 2): `learn` is NO LONGER an editor-only redirect.
+  // `hatch3r learn capture --file <path>` is a registered terminal subcommand
+  // (the shell entry point the `/learn` LLM skill shells out to so writes run
+  // through the `persistLearning` security pipeline). The bare `/learn` slash
+  // command still lives in the editor — the registered `learn` group's bare
+  // action points the user there — so `learn` is dropped from this redirect set.
+  "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
   "command-customize", "agent-customize", "rule-customize", "skill-customize",
 ]);
 
@@ -68,6 +85,38 @@ export function createProgram(): Command {
     // truth for the runtime effect.
     .option("--no-update-check", "Skip the daily update-notifier probe for this run");
 
+  // D10-5 (Cycle 11 Wave 2, P1): route parse errors through the structured
+  // funnel. `exitOverride()` makes commander throw a `CommanderError` out of
+  // `parseAsync()` instead of calling `process.exit(1)` itself — that internal
+  // self-exit previously bypassed `formatActionableError` in `src/cli/index.ts`,
+  // so an unknown option / too-many-args / missing-required mistake exited 1
+  // with no help pointer or run-id. With the override the catch in index.ts
+  // classifies the CommanderError (`code` is `commander.*`) as a usage error
+  // (exit 2 + run-id) and `showHelpAfterError` appends a help pointer to every
+  // parse failure. Help/version requests throw a CommanderError with exitCode 0
+  // (`commander.helpDisplayed` / `commander.version`); index.ts exits 0 cleanly
+  // for those so `hatch3r --help` keeps working.
+  program.exitOverride();
+  program.showHelpAfterError("(run `hatch3r --help` for usage)");
+
+  // D11-14 (Cycle 11 Wave 3, P6): document the cross-process write-locking env
+  // var on the global help. By default a single-repo mutating command (init,
+  // sync, update, config, mcp, cli-tools, rollback) takes NO file lock, so two
+  // runs against the same repo from two shells can last-writer-wins clobber a
+  // managed file. Operators had no documented way to discover the serialization
+  // control. `HATCH3R_LOCK=1` opts every write into a `proper-lockfile` advisory
+  // lock; workspace/worktree commands already enable it by default.
+  program.addHelpText(
+    "after",
+    "\nEnvironment:\n" +
+      "  HATCH3R_LOCK=1   Serialize concurrent hatch3r runs against the same repo via a\n" +
+      "                   cross-process advisory lock. The single-repo default takes no\n" +
+      "                   lock, so two runs from two shells can clobber managed files\n" +
+      "                   last-writer-wins; set this on each run to make them wait.\n" +
+      "                   (Workspace/worktree commands enable locking by default;\n" +
+      "                   HATCH3R_LOCK=0 force-disables it there.)\n",
+  );
+
   program
     .command("init")
     .description("Install a complete agent setup into the current repo (first-run: creates .hatch3r/ state + per-tool output files)")
@@ -79,7 +128,7 @@ export function createProgram(): Command {
     .option("--quick", "Skip all prompts and use smart defaults (alias for --yes)")
     .option("--default", "Skip all prompts and use smart defaults (alias for --yes)")
     .option("--preset <preset>", "Content preset: minimal, standard, full, web-app, api-service, cli-tool, monorepo, legacy, security — or a comma-list to compose (e.g. 'api-service,security'). Default: standard")
-    .option("--import <tool>", "Import an existing tool's config into hatch3r (supported: cursor — reads .cursor/rules/*.mdc into .hatch3r/overrides/rules/ with conflict detection + .mdc companions)")
+    .option("--import <target>", "Import an existing tool's config into hatch3r (cursor, copilot, windsurf, cursorrules, or auto — converts each into .hatch3r/overrides/rules/ as .md + .mdc with cross-format conflict detection)")
     .option("--project-type <type>", "Project type: greenfield, brownfield")
     .option("--team-size <size>", "Team size: solo, team")
     .option("--worktree", "Enable git worktree file isolation (overrides tool auto-detect)")
@@ -94,13 +143,22 @@ export function createProgram(): Command {
     // even when `--mcp` is also passed, so a CI/audit config can self-document
     // "no MCP" rather than rely on the implicit default.
     .option("--no-mcp", "Explicitly disable MCP servers on --yes (default; force-off even with --mcp)")
-    .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit (C9-H26)")
-    .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet (C9-H26)")
-    .option("--no-banner", "Skip the ASCII banner at startup (C9-H26)")
-    .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json (Decision 27)")
-    .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — gates content admission (Decision 4)")
-    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role (D14-M6)")
-    .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability (D14-M9)")
+    // --quiet/--json/--no-banner provenance: C9-H26 (Cycle 9). --resume: Decision 27.
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit")
+    .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet")
+    .option("--no-banner", "Skip the ASCII banner at startup")
+    .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json")
+    // --maturity provenance: Decision 16 (gate→dial reframe). --role: D14-M6. --facets: D14-M9. --per-package: D14-SA14.2-H1.
+    // D1-16 / D14-8 (Cycle 11, P1/P5): help text was a content-admission claim
+    // citing the retired "Decision 4" gate — it contradicted Decision 16, where
+    // every tier installs the identical corpus and the tier only calibrates how
+    // deep the agents invest (see docs/maturity-tiers.md + CONSTITUTION §6
+    // Decision 16). Both the help string and this provenance cite now say
+    // Decision 16.
+    .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — calibrates investment depth; does not change which content is installed")
+    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role")
+    .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability")
+    .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd")
     .action(initCommand);
 
   program
@@ -114,19 +172,23 @@ export function createProgram(): Command {
     .option("--strict-budget", "Fail sync if any adapter's generated output exceeds its context budget (default: warn)")
     .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
     .option("--verbose", "Show detailed output for each file processed")
-    .option("--resume", "Resume from the last checkpoint in .sync-workspace/checkpoint.json (Decision 27)")
+    // --resume provenance: Decision 27.
+    .option("--resume", "Resume from the last checkpoint in .sync-workspace/checkpoint.json")
+    // --concurrency provenance: D14-SA14.2-F4.
     .option(
       "--concurrency <n>",
-      "Parallel workspace sub-repo sync limit (default: min(CPU count, 8); raise on SSD-bound runners) (D14-SA14.2-F4)",
+      "Parallel workspace sub-repo sync limit (default: min(CPU count, 8); raise on SSD-bound runners)",
     )
+    // --format provenance: SA12.1-F-D12-M2.
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
+    // --preview-tool provenance: SA12.1-F-D12-M8.
     .option(
       "--preview-tool <name>",
-      "Under --dry-run, print the full content body that the named adapter would write (SA12.1-F-D12-M8)",
+      "Under --dry-run, print the full content body that the named adapter would write",
     )
     .action(syncCommand);
 
@@ -134,11 +196,19 @@ export function createProgram(): Command {
     .command("status")
     .description("Check sync status between bundled canonical content and generated files")
     .option("--verbose", "Show detailed per-file status information")
-    .option("--deep", "Regenerate every adapter's output in-memory to compare byte-for-byte (slower; default uses integrity-manifest fast path)")
-    .option("--diff", "Show a before/after diff summary for each generated file (same box `hatch3r sync --diff` emits; D12-SA12.2-F5)")
+    // D1-6 (Cycle 11 Wave 2, P5 Silent-Failure): the prior `--deep` option was
+    // registered but never read — `statusCommand` does not destructure it and
+    // `computeAdapterDrift` always regenerates every adapter's output in memory
+    // (the integrity-manifest "fast path" it claimed to toggle was removed with
+    // the integrity subsystem in 1.9.0). A flag that documents a non-existent
+    // default and silently no-ops violates the Silent Failure Contract, so it
+    // is removed. Re-introduce only alongside a real fidelity toggle wired
+    // through statusCommand + computeAdapterDrift.
+    // --diff provenance: D12-SA12.2-F5. --format provenance: SA12.1-F-D12-M2.
+    .option("--diff", "Show a before/after diff summary for each generated file (same box `hatch3r sync --diff` emits)")
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
     // D11-SA11.2-F10 (D11, P1): document drift scope in --help so an operator
@@ -163,9 +233,22 @@ export function createProgram(): Command {
     .option("--dry-run", "Preview what would change (added/modified/unchanged per adapter) without writing files")
     .option("--skip-audit-signatures", "EMERGENCY OVERRIDE: skip `npm audit signatures` verification on the freshly-fetched package. Default is to refuse update on signature failure.")
     .option("--clean-orphans", "Remove generated adapter output files that no longer match canonical-inventory naming (no hatch3r- prefix). Default is informational only.")
+    // --no-redetect provenance: D14-16 (Cycle 11 Wave 3, D14, P3). Commander
+    // maps the negated flag to `redetect: false`; default-on re-detects project
+    // languages and refreshes `.hatch3r/hatch.json::languages` so the
+    // regenerated agents render verification-gate commands for the current
+    // language set instead of the frozen init-time one.
+    .option("--no-redetect", "Skip post-init language re-detection; keep the init-pinned language set and verification-gate commands")
+    // --pin-version provenance: F15.4-H2 (D15-SA15.4, P6). D15-5 (Cycle 11
+    // Wave 2): the option was missing from registration, so the documented
+    // supply-chain version-pinning control errored at parse — `updateCommand`
+    // already reads `pinVersion` and persists it to `versionConstraint`, and
+    // `selfUpdate` already builds the pinned `hatch3r@<semver>` install spec.
+    .option("--pin-version <semver>", "Pin `hatch3r update` to a semver range or exact version (persisted to .hatch3r/hatch.json::versionConstraint); pass `latest` to clear the pin")
+    // --format provenance: SA12.1-F-D12-M2.
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
     .action(updateCommand);
@@ -196,14 +279,21 @@ export function createProgram(): Command {
 
   program
     .command("verify")
-    .description("Check file integrity: SHA-256 hashes vs manifest (detect unauthorized modifications)")
-    .option("--fix", "Auto-fix integrity issues by running hatch3r update")
+    .description(VERIFY_SUMMARY)
+    // D1-22 (Cycle 11 Wave 3, P5 Silent-Failure): the prior help named the
+    // wrong command + wrong defect class — `--fix` does NOT run `hatch3r update`
+    // (no package fetch, no network). It calls `runRegenerate` (verify.ts), the
+    // same offline in-memory adapter regeneration `hatch3r sync` performs, up to
+    // `--max-fix-attempts` times. Wording aligned to that behavior so an
+    // operator does not expect an upstream pull.
+    .option("--fix", "Auto-repair detected drift by regenerating adapter output (offline; same regeneration as `hatch3r sync`), up to --max-fix-attempts cycles")
     .option("--max-fix-attempts <n>", "Maximum verify-fix cycles (default: 2, max: 5)", parseInt)
-    .option("--verbose", "Show the per-tool / per-file drift breakdown (same detail as `hatch3r status`) before the PASS/FAIL summary (D1-SA1.4-F11)")
-    .option("--diff", "Show a before/after diff summary for each generated file (D12-SA12.2-F5)")
+    // --verbose provenance: D1-SA1.4-F11. --diff: D12-SA12.2-F5. --format: SA12.1-F-D12-M2.
+    .option("--verbose", "Show the per-tool / per-file drift breakdown (same detail as `hatch3r status`) before the PASS/FAIL summary")
+    .option("--diff", "Show a before/after diff summary for each generated file")
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
     // D11-SA11.2-F10 (D11, P1): mirror the status --help scope note so the two
@@ -230,19 +320,35 @@ export function createProgram(): Command {
 
   program
     .command("clean")
-    .description("Remove all hatch3r artifacts from the current repo (optionally reinitialize after)")
-    .option("--yes", "Skip confirmation prompts (cleans without reinit)")
+    .description("Remove hatch3r adapter outputs + manifest from the current repo (preserves .hatch3r/ state and .env.mcp; --purge removes those too; optionally reinitialize after)")
+    .option("--yes", "Skip confirmation prompts (cleans without reinit; with --purge, also skips the purge confirmation)")
     .option("--dry-run", "Show what would be removed without modifying files")
+    // --learnings provenance: D6-M7.
     .option(
       "--learnings",
-      "Also remove .hatch3r/learnings/ and .hatch3r/handoffs/ — use for session-corruption recovery when prior context is poisoning fresh runs (D6-M7)",
+      "Also remove .hatch3r/learnings/ and .hatch3r/handoffs/ — use for session-corruption recovery when prior context is poisoning fresh runs",
+    )
+    // --purge provenance: D1-21 (Cycle 11 Wave 3). The default clean is
+    // partial-removal by design (keeps .hatch3r/ state + .env.mcp secrets);
+    // --purge is the full-uninstall surface that also deletes .hatch3r/ and
+    // .env.mcp. Irreversible — it removes .hatch3r/snapshots/, so there is no
+    // rollback session to revert it.
+    .option(
+      "--purge",
+      "Full uninstall: after the standard clean, also remove the entire .hatch3r/ directory (state, snapshots, overrides) and .env.mcp. Irreversible — no rollback snapshot survives. Prompts for a separate confirmation unless --yes",
     )
     .action(cleanCommand);
 
   program
     .command("add [pack]")
     .description("Install a community pack (coming soon)")
-    .option("--force", "Override the preflight integrity check and proceed despite drift")
+    // D1-SA1.3-F2 (Medium, P1): `--force` advertised a "preflight integrity
+    // check" override and an exit-1 "integrity drift blocked" contract. The
+    // integrity-manifest subsystem was removed in Wave 7 (1.9.0) and the body
+    // (add.ts) is a stub that always exits 0, never reading any option — so
+    // both were stale help-text claims. They are dropped here until the pack
+    // installer body lands; re-add the option + exit-1 row alongside the
+    // pack-trust-model §3/§4/§5 gates flagged in add.ts when it does.
     .addHelpText(
       "after",
       [
@@ -256,7 +362,6 @@ export function createProgram(): Command {
         "",
         "Exit codes:",
         "  0  Informational (feature pending; no action required)",
-        "  1  Integrity drift blocked the command (use --force to override; see `hatch3r verify`)",
         "",
       ].join("\n"),
     )
@@ -359,9 +464,10 @@ export function createProgram(): Command {
   program
     .command("provenance")
     .description("Inspect the .hatch3r/provenance.json manifest (header + per-adapter rollup)")
+    // --format provenance: SA12.1-F-D12-M2.
     .option(
       "--format <format>",
-      "Output format for CI consumers: human (default) or json (SA12.1-F-D12-M2)",
+      "Output format for CI consumers: human (default) or json",
       "human",
     )
     .action(provenanceCommand);
@@ -376,6 +482,39 @@ export function createProgram(): Command {
     .description("Show orchestration dependencies (downstream + upstream) declared in frontmatter")
     .action((id: string) => depsCommand(id));
 
+  // D13-5 (Cycle 11 Wave 2, ASI06): `learn` command group. The `/learn` LLM
+  // skill authors a learning file then shells out to `hatch3r learn capture
+  // --file <path>` so the write runs through the `persistLearning` security
+  // pipeline (3 injection gates + integrity verification + refuse-overwrite +
+  // atomic temp+rename) instead of a raw `Write` that bypasses all of it. The
+  // bare `learn` group prints guidance toward the editor `/learn` skill, since
+  // learning EXTRACTION (asking the user, drafting the body) is an LLM task.
+  const learnCmd = program
+    .command("learn")
+    .description("Capture learnings authored by the /learn editor skill into .hatch3r/learnings/ via the security pipeline")
+    .addHelpText(
+      "after",
+      "\nLearning extraction (drafting the body) runs in your AI editor via the /learn skill.\n" +
+        "That skill stages a file, then shells out to `hatch3r learn capture --file <path>`\n" +
+        "so the write is screened by the persistLearning gates before it reaches disk.\n",
+    )
+    .action(() => {
+      // Bare `hatch3r learn` is not the capture path — point at the subcommand
+      // and the editor skill rather than silently no-op'ing.
+      console.error(
+        "\n  `hatch3r learn` has one terminal subcommand: `hatch3r learn capture --file <path>`." +
+          "\n  To DRAFT a learning, open your AI editor and run the /learn skill — it stages a" +
+          "\n  file and invokes `hatch3r learn capture` for you.\n",
+      );
+      process.exit(2);
+    });
+  learnCmd
+    .command("capture")
+    .description("Commit a staged learning file through the persistLearning security pipeline into .hatch3r/learnings/")
+    .requiredOption("--file <path>", "Path to the staged learning file the /learn skill authored")
+    .option("--as <filename>", "Destination filename in .hatch3r/learnings/ (default: the staged file's basename)")
+    .action((opts: { file?: string; as?: string }) => learnCaptureCommand(opts));
+
   // C9-H13: surface the triage-first cost model declared in canonical
   // command frontmatter (triage_tiers + agentPipeline) so users can answer
   // "what will this command cost at each tier?" without running it.
@@ -387,14 +526,23 @@ export function createProgram(): Command {
     .description("Explain a hatch3r command's cost model, the customization-applied state, a generated file's canonical sources, OR the recorded efficiency telemetry")
     .option("--cost <command-id>", "Command id to explain (e.g. hatch3r-quick-change, quick-change)")
     .option("--customizations", "List every .customize.yaml/.customize.md pair with applied state and reasons")
-    .option("--source [output-path]", "Show the canonical source files behind a generated output (e.g. CLAUDE.md); omit the path or pass `all` to list every recorded output")
-    .option("--efficiency", "Show per-artifact + per-phase aggregate from .hatch3r/efficiency-events.jsonl (telemetry gated by HATCH3R_EFFICIENCY_TELEMETRY=1; D6-M2)")
-    .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens (--cost only)")
-    .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens (--cost only)")
+    .option("--source [output-path]", "Show the canonical source files behind a generated output (e.g. CLAUDE.md); omit the path or pass `all` for a per-output source-count summary (add --verbose for every full source list)")
+    // --efficiency provenance: D6-M2.
+    .option("--efficiency", "Show per-artifact + per-phase aggregate from .hatch3r/efficiency-events.jsonl (telemetry gated by HATCH3R_EFFICIENCY_TELEMETRY=1)")
+    .option("--model <selector>", "Cost at a named model's rates: tier alias (opus|sonnet|haiku) or model id (e.g. claude-opus-4-8); default is Sonnet rates (--cost only)")
+    .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens; takes precedence over --model (--cost only)")
+    .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens; takes precedence over --model (--cost only)")
+    .option("--cache-hit <ratio>", "Fraction 0-1 of input served from the prompt cache; cached input billed at 0.1x (--cost only)")
+    // D12-11: machine-readable trace for --source. Mirrors provenance/verify's
+    // --format json; supported only with --source (other modes stay human).
+    .option("--format <format>", "Output format for --source: human (default) or json", "human")
     .option("--verbose", "Show detailed output")
     .action(explainCommand);
 
-  // Catch-all for unknown commands -- redirect agent commands to the editor
+  // Catch-all for unknown commands -- redirect agent commands to the editor.
+  // Registering a `command:*` listener makes commander hand the unknown-command
+  // case to us instead of throwing its own error, so this handler owns the exit
+  // code for that path (commander.exitOverride() never sees it).
   program.on("command:*", (operands: string[]) => {
     const cmd = operands[0];
     if (cmd && AGENT_COMMAND_NAMES.has(cmd)) {
@@ -413,12 +561,19 @@ export function createProgram(): Command {
         `\n    hatch3r sync      Regenerate tool outputs from canonical content` +
         `\n    hatch3r status    Check sync status` +
         `\n    hatch3r validate  Check canonical content structure and safety` +
-        `\n    hatch3r verify    Check file integrity (SHA-256)` +
+        `\n    hatch3r verify    ${VERIFY_SUMMARY}` +
         `\n    hatch3r config    Reconfigure tools, features, MCP` +
         `\n    hatch3r clean     Remove hatch3r artifacts\n`,
       );
     }
-    process.exit(1);
+    // D12-8 (Cycle 11 Wave 3, P1): both branches are usage-class errors — the
+    // user invoked a name that is not a runnable terminal command. Exit 2 to
+    // honor the documented usage-error contract (`cli-ux-standards.md`: 0 ok,
+    // 1 unexpected, 2 usage) and match the unknown-OPTION path, which commander
+    // routes through exitOverride() → CommanderError → index.ts exit 2. The
+    // legacy exit 1 here aliased a usage mistake to the "unexpected error" class
+    // so CI could not branch on it.
+    process.exit(2);
   });
 
   return program;

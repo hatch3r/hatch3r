@@ -5,6 +5,7 @@ import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, isValidGitBranchName, readMaturityTier, readConfidenceFloor } from "../../manifest/hatchJson.js";
 import {
+  ARCHIVE_DIR,
   CONFIDENCE_FLOORS,
   DEFAULT_FEATURES,
   HATCH3R_DIR,
@@ -38,7 +39,7 @@ import {
   warn,
   verbose,
 } from "../shared/ui.js";
-import { runRegenerate } from "./update.js";
+import { runRegenerate, throwOnPartialAdapterFailure } from "./update.js";
 import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
@@ -67,6 +68,7 @@ import {
   validateOrchestrationDependencies,
   resolveSelection,
   countPresetExclusions,
+  presetOmittedClusters,
   estimatePresetItemCount,
   getAllContentIds,
 } from "../../content/index.js";
@@ -259,7 +261,8 @@ async function printCurrentConfig(rootDir: string, manifest: HatchManifest): Pro
  * `hatch3r config set <key> <value>`. Each entry validates its input and
  * mutates the manifest in place; the caller persists with `writeManifest`.
  *
- * - `maturity`         — Decision 4 / #16 content-admission tier.
+ * - `maturity`         — Decision 4 / #16 investment-calibration tier (does
+ *                        not gate content admission; see docs/maturity-tiers.md).
  * - `confidence_floor` — D13-SA13.3-F13.3.3 agent-assertiveness floor
  *                        consumed by the core orchestrators when no explicit
  *                        `--confidence-floor` run flag is given.
@@ -370,8 +373,10 @@ function readScalarConfigValue(manifest: HatchManifest, key: ScalarConfigKey): s
     return readMaturityTier(manifest);
   }
   if (key === "confidence_floor") {
-    // D13-SA13.3-F13.3.3: absent field reads back as the documented default
-    // ("any") rather than empty, so `config get confidence_floor` is actionable.
+    // D13-SA13.3-F13.3.3 / -F2: absent field reads back as the resolved
+    // maturity-aware default (scaleup/enterprise → "high", else "any") rather
+    // than empty, so `config get confidence_floor` is actionable and reflects
+    // the floor the orchestrators will actually apply.
     return readConfidenceFloor(manifest);
   }
   throw new HatchError(
@@ -607,6 +612,25 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   // interactive flow below.
   if (await handleScalarConfig(rootDir, manifest, arg1, arg2)) {
     return;
+  }
+
+  // D1-18 (Cycle 11 Wave 3, D1, P1): non-TTY preflight. The interactive flow
+  // below issues ~15 inquirer.prompt calls (platform, identity, branch, tools,
+  // features, worktree, preset, custom items, archive/sync confirms). Under a
+  // pipe, redirect, or CI runner stdin is not a TTY, so inquirer cannot read a
+  // response — it would hang or throw an opaque isTtyError mid-flow after the
+  // first prompt. Fail fast with a usage-code (exit 2) error that names the
+  // headless escape: the scalar `config <key>=<value>` form (handled above by
+  // handleScalarConfig) is the only non-interactive config surface. Scalar
+  // calls short-circuit before this gate, so `config maturity=team` still works
+  // headlessly; only the promptful interactive entry is rejected.
+  if (!process.stdin.isTTY) {
+    throw new HatchError(
+      "`hatch3r config` (interactive) requires a TTY — stdin is not interactive (piped, redirected, or CI).",
+      2,
+      "VALIDATION_ERROR",
+      "Use the scalar form for headless config, e.g. `hatch3r config maturity=team` or `hatch3r config confidence_floor=high`. Run the interactive flow from a terminal.",
+    );
   }
 
   // F10.4-2 (Cycle 10): Surface the selection-vs-customization distinction
@@ -934,11 +958,13 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
                 : 0;
               const countHint = estimated > 0 ? ` (~${estimated} items)` : "";
               const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
-              // F10.6-1 (D10): surface the omitted capability clusters by name
-              // (not just a count) so reconfiguring a preset is an informed choice.
-              // Optional-chain `omits` so a preset lacking the field (or a test
-              // mock that omits it) renders no omit line instead of throwing.
-              const omitLine = p.omits?.length ? `omits: ${p.omits.join(", ")}` : undefined;
+              // F10.6-1 (D10): surface the omitted clusters by name (not just a
+              // count) so reconfiguring a preset is an informed choice. D10-12
+              // (Cycle 11): derive from the realized post-floor delta via
+              // presetOmittedClusters — the static `p.omits` capability-intent
+              // field over-states drops (floor items ship regardless of preset).
+              const omittedClusters = presetOmittedClusters(p, contentIndex);
+              const omitLine = omittedClusters.length ? `omits: ${omittedClusters.join(", ")}` : undefined;
               return {
                 name: `${p.name} — ${p.description}${countHint}${suffix}`,
                 value: p.id,
@@ -1044,6 +1070,11 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
 
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
+  // D10-35 (Cycle 11 Wave 3, D10, P1): repo-relative paths of `.customize.*`
+  // overrides that content removal rescued into `.hatch3r/archive/customize/`
+  // instead of hard-deleting. Surfaced in the success summary so a preset
+  // downgrade no longer silently destroys hand-authored overrides.
+  const archivedCustomizeFiles: string[] = [];
   let contentMetadataChanged = false;
   if (manifest.content) {
     // The step-machine prelude initialised these inside the same
@@ -1168,7 +1199,8 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         const item = index.byId.get(id);
         if (item) {
           contentChanges.removed.push({ type: item.type, id: item.id });
-          await removeContentItem(agentsDirLocal, item, { rootDir });
+          const { archivedCustomizeFiles: rescued } = await removeContentItem(agentsDirLocal, item, { rootDir });
+          archivedCustomizeFiles.push(...rescued);
         }
       }
     }
@@ -1206,6 +1238,13 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   const allMigrations: MigrationNotice[] = [];
   const allArchivedFiles: string[] = [];
   const totalArchiveSteps = diff.removedTools.length;
+  // D2-7 (Cycle 11 Wave 2, D2, P2): when a tool is removed, snapshot its live
+  // outputs BEFORE the archive loop deletes them, then thread the session id
+  // into `runRegenerate` (reuseSessionId) so the single config-<ts> snapshot the
+  // success summary advertises actually restores the dropped tool on rollback.
+  // `null` keeps the pre-D2-7 behavior (runRegenerate mints its own session)
+  // whenever nothing is removed.
+  let removalSnapshotSessionId: string | null = null;
 
   if (totalArchiveSteps > 0) {
     // D10-M14 (Cycle 10): preview the file list `managedFilesByAdapter`
@@ -1239,7 +1278,20 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         {
           type: "confirm",
           name: "confirmArchive",
-          message: "Archive these files? They move to `.hatch3r/archive/<tool>/` and can be recovered.",
+          // D2-6 (Cycle 11 Wave 2, D2, P1): reference ARCHIVE_DIR so the prompt
+          // path cannot drift from the real destination. The prior literal said
+          // `.hatch3r/archive/<tool>/` but archiveToolOutputs writes to
+          // `${ARCHIVE_DIR}/<tool>/<timestamp>/` (archive/index.ts; ARCHIVE_DIR
+          // = ".hatch3r-archive").
+          // D2-5 (Cycle 11 Wave 2, D2, P1): the prior "...and can be recovered"
+          // wording pointed users at the archive as the recovery path, but
+          // `${ARCHIVE_DIR}/` is gitignored AND `hatch3r clean` deletes it
+          // (clean/index.ts) — so it is an inspection copy, not a durable
+          // restore source. The actual revert is the `config-<ts>` rollback
+          // snapshot D2-7 captures below (advertised in the success summary as
+          // `hatch3r rollback --session=<id>`). Name the supported command and
+          // demote the archive to its real role so the promise is truthful.
+          message: `Archive these files? Originals move to \`${ARCHIVE_DIR}/<tool>/<timestamp>/\` (an inspection copy; \`hatch3r clean\` removes it). To undo this removal, use the rollback snapshot named in the summary (\`hatch3r rollback --session=<id>\`).`,
           default: true,
         },
       ]);
@@ -1248,6 +1300,26 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
         return;
       }
     }
+    // D2-7 (Cycle 11 Wave 2, D2, P2): capture the removed tools' live outputs
+    // into a `config-<ts>` snapshot BEFORE the archive loop deletes them. The
+    // path set is the per-tool file list `managedFilesByAdapter` records — the
+    // same source the preview above enumerates — so the snapshot holds the
+    // original bytes. `runRegenerate` later extends this same session id (via
+    // `reuseSessionId` below), and the success summary points the operator at it,
+    // so `hatch3r rollback --session=config-<ts>` restores the dropped tool. A
+    // capture failure downgrades to a warning (Silent Failure Contract) and
+    // leaves `removalSnapshotSessionId` null, so the regenerate falls back to its
+    // own session and the summary suppresses the (now-unavailable) revert line.
+    const removalSnapshotPaths = diff.removedTools.flatMap((tool) =>
+      (manifest.managedFilesByAdapter?.[tool] ?? []).map((rel) => join(rootDir, rel)),
+    );
+    const removalSnap = await withSnapshot(
+      "config",
+      removalSnapshotPaths,
+      async (_sessionId) => undefined,
+      { projectRoot: rootDir, onWarn: warn },
+    );
+    removalSnapshotSessionId = removalSnap.sessionId;
     console.log();
     for (let i = 0; i < diff.removedTools.length; i++) {
       const tool = diff.removedTools[i];
@@ -1342,8 +1414,16 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
   // Decision 27 (Bucket 2.2): pass `snapshotCommandName: "config"` so the
   // pre-mutation snapshot captured inside `runRegenerate` is namespaced
   // `config-...` rather than `update-...`.
+  // D2-7 (Cycle 11 Wave 2): when a tool was removed, reuse the `config-<ts>`
+  // session opened before the archive deletion (above) so the removed tool's
+  // pre-deletion bytes and this regenerate's writes land in ONE advertised
+  // session. Omitted (undefined) when nothing was removed → runRegenerate mints
+  // its own session, unchanged.
   console.log();
-  const updateResult = await runRegenerate(rootDir, manifest, { snapshotCommandName: "config" });
+  const updateResult = await runRegenerate(rootDir, manifest, {
+    snapshotCommandName: "config",
+    ...(removalSnapshotSessionId ? { reuseSessionId: removalSnapshotSessionId } : {}),
+  });
 
   // --- Handle .env.mcp for new MCP servers ---
   if (features.mcp && mcpServers.length > 0) {
@@ -1421,7 +1501,47 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     summaryLines.push(label("Archived", `${allArchivedFiles.length} files to .hatch3r-archive/`));
   }
 
-  printBox("Config updated", summaryLines, "success");
+  // D10-35 (Cycle 11 Wave 3, D10, P1): name the `.customize.*` overrides that
+  // content removal rescued. Pre-fix these were hard-deleted with no preview;
+  // now they are listed here AND the bytes survive under
+  // `.hatch3r/archive/customize/` for manual restore. Cap the enumeration the
+  // same way the tool-removal preview does so the box stays readable.
+  if (archivedCustomizeFiles.length > 0) {
+    summaryLines.push("");
+    summaryLines.push(
+      label("Overrides archived", `${archivedCustomizeFiles.length} .customize file(s) → ${ARCHIVE_DIR}/customize/ (restore by moving back to .hatch3r/)`),
+    );
+    const shown = archivedCustomizeFiles.slice(0, 10);
+    for (const p of shown) summaryLines.push(`    ${chalk.dim(p)}`);
+    if (archivedCustomizeFiles.length > 10) {
+      summaryLines.push(`    ${chalk.dim(`… and ${archivedCustomizeFiles.length - 10} more`)}`);
+    }
+  }
+
+  // D1-3 (Cycle 11 Wave 2, D1, P1): honour the partial-adapter-failure contract
+  // `hatch3r update`/`sync` already enforce. `runRegenerate` logs each failed
+  // adapter inline (update.ts) but returns only a count; previously config
+  // ignored it and always rendered a green "Config updated" box at exit 0, so a
+  // run where one of several adapters failed to regenerate scored as success and
+  // left a stale tool output behind. When the failure is partial (some tools
+  // succeeded), title the box "Config updated with errors", style it as a
+  // warning, name the failed-adapter count, then throw the exit-2 ADAPTER_ERROR
+  // so a CI consumer can branch on it. (All-adapters-failed already throws
+  // inside runRegenerate; `throwOnPartialAdapterFailure` is a no-op there.)
+  const partialAdapterFailure =
+    updateResult.failedTools > 0 && updateResult.failedTools < manifest.tools.length;
+  if (partialAdapterFailure) {
+    summaryLines.push("");
+    summaryLines.push(
+      `${chalk.red("✗")} Adapters failed: ${updateResult.failedTools} of ${manifest.tools.length} (see per-adapter errors above)`,
+    );
+  }
+  printBox(
+    partialAdapterFailure ? "Config updated with errors" : "Config updated",
+    summaryLines,
+    partialAdapterFailure ? "warning" : "success",
+  );
+  throwOnPartialAdapterFailure(updateResult.failedTools, manifest.tools.length);
 
   if (allMigrations.length > 0) {
     console.log();
@@ -1437,7 +1557,18 @@ async function configCommandImpl(rootDir: string, arg1?: string, arg2?: string):
     console.log();
     info("Tool migration notes:");
     if (diff.removedTools.length > 0) {
-      info(chalk.dim(`  Removed tool output archived to .hatch3r-archive/ (recoverable).`));
+      // D2-5 (Cycle 11 Wave 2, D2, P1): the recovery path is the rollback
+      // snapshot D2-7 captures (`removalSnapshotSessionId`), NOT the archive
+      // dir — `${ARCHIVE_DIR}/` is gitignored and `hatch3r clean` deletes it.
+      // Point users at the supported `hatch3r rollback --session=<id>` revert
+      // (naming the live id when present) and describe the archive copy as the
+      // inspection-only artifact it is, so the "recoverable" claim is truthful.
+      if (removalSnapshotSessionId) {
+        info(chalk.dim(`  To undo: hatch3r rollback --session=${removalSnapshotSessionId} (restores the removed tool's files).`));
+      } else {
+        info(chalk.dim(`  To undo, use the rollback snapshot named in the summary above (hatch3r rollback --session=<id>).`));
+      }
+      info(chalk.dim(`  An inspection copy of the removed output is under ${ARCHIVE_DIR}/ — hatch3r clean reclaims it; it is not the restore source.`));
       info(chalk.dim(`  Customizations in .hatch3r/ are tool-agnostic and carry forward.`));
       // D10-SA10.5-F4 (Cycle 10 Wave 4): point users at the "Switching tools"
       // guide so they know what carries forward, what is rebuilt, and that

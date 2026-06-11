@@ -1,0 +1,6 @@
+{
+  "$schema-note": "Committed bundle-size baseline for the PR-checks size-check regression gate (governance finding D4-8). Measures ONLY the runtime CLI bundle dist/cli/index.js — dist/content/ is intentional verbatim copy and is excluded by construction. Regenerate after an intentional bundle increase with: node -e \"const{statSync}=require('fs');const b=statSync('dist/cli/index.js').size;const j={...require('./.github/bundle-size-baseline.json'),cliBundleBytes:b};require('fs').writeFileSync('.github/bundle-size-baseline.json',JSON.stringify(j,null,2)+'\\n')\" (after npm run build). The gate fails when current dist/cli/index.js exceeds cliBundleBytes * (1 + tolerancePercent/100).",
+  "artifact": "dist/cli/index.js",
+  "cliBundleBytes": 1207860,
+  "tolerancePercent": 10
+}

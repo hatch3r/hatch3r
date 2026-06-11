@@ -1,5 +1,5 @@
 ---
-sidebar_position: 2
+sidebar_position: 3
 title: Quick Start
 ---
 
@@ -58,14 +58,32 @@ npx hatch3r init --yes --preset standard --tools claude --project-type brownfiel
 
 Canonical content (agents, skills, rules, commands, hooks) is no longer materialized into `.agents/` in your repo — it's read from the bundled npm package by each adapter.
 
+### Migrating from another tool
+
+Already have a `.cursor/rules/` setup? Carry your existing rules across on the same `init` run with `--import`:
+
+```bash
+npx hatch3r init --import cursor
+```
+
+What happens:
+
+- Your existing Cursor rules are converted into hatch3r's canonical form and written under `.hatch3r/overrides/rules/` as paired `.md` + `.mdc` files — the override directory adapters prefer over bundled canonical content, so your rules survive every later `hatch3r sync` / `update`.
+- Before writing, hatch3r prints a preview and asks `Write N imported rule(s) (.md + .mdc) to .hatch3r/overrides/rules/?` (skipped under `--yes`).
+- The summary reports three counts — `converted`, `conflicts`, and `manual-review`. A **conflict** means an imported rule id collides with a shipped or already-imported rule (it is reported, not silently overwritten); a **manual-review** item is one that could not be auto-converted cleanly. Both are listed per-file so you know exactly what to reconcile by hand.
+
+`cursor` is the format wired into the CLI today. The `copilot`, `windsurf`, and `cursorrules` (legacy `.cursorrules`) parsers exist but are not yet reachable from `--import`; pass `--import cursor` for now.
+
 ### Content profiles
 
 | Profile | What's included | Best for |
 |---------|----------------|----------|
-| **Minimal** | Core orchestration + implementation, plus the security & UI/UX floor. Drops 7 capability clusters: planning, review, devops, maintenance, board, AI feature engineering, performance | Quick setup, minimal footprint |
-| **Standard** (recommended) | Full development lifecycle (planning, implementation, review, devops, maintenance, board, customize) + floor. **Drops 2 capability clusters: AI feature engineering + performance** — pick Full if you need those | Most projects |
-| **Full** | Every capability, including AI feature engineering and performance, plus floor and customize | Large teams, full coverage |
+| **Minimal** | Capability dial set to core orchestration + implementation, plus the security, UI/UX & content-quality floor. Non-floor planning/review/devops/board helpers are off — pick Standard or Full to dial them in | Quick setup, minimal footprint |
+| **Standard** (recommended) | Full development lifecycle (planning, implementation, review, devops, maintenance, board, customize) plus the security, UI/UX & content-quality floor. The performance and AI feature-engineering dials are off — pick Full to turn them on | Most projects |
+| **Full** | Every capability, including AI feature engineering and performance, plus the security, UI/UX & content-quality floor and customize | Large teams, full coverage |
 | **Custom** | Interactive picker per artifact type | Fine-grained control |
+
+The floor (security, UI/UX, content-quality specialists) ships at every profile and is never dropped — a profile narrows the *capability* dial, not the floor. Because most cluster artifacts also carry a floor tag, a profile drops fewer items than its capability list implies: the `init` / `config` picker computes the realized `omits:` line per profile so you see exactly what a profile leaves out before committing.
 
 The profile is combined with greenfield/brownfield and solo/team filters, so a `solo + greenfield + standard` install carries materially less content than `team + brownfield + full`.
 
@@ -75,15 +93,15 @@ Maturity is a separate axis. The `--maturity` dial (`solo`/`team`/`scaleup`/`ent
 
 ### Time to first value
 
-Measured on a clean macOS / Linux box with Node 22 installed and a fresh git repo on `main`:
+Only the `init` row below is instrumented and measured; the spec and PR rows are **model-dependent estimates**, not benchmarked wall-clock numbers. They scale with the agentic model you run, task complexity, and (for the PR row) human review latency, so treat them as a rough planning guide rather than a guarantee.
 
-| Milestone | Wall clock |
-|-----------|------------|
-| `npx hatch3r init` (interactive ≤5 prompts, default flags) | 1-2 min |
-| First successful spec (`/hatch3r-spec` → committed plan) | 5-10 min |
-| First PR from board pickup (`/hatch3r-board-pickup` → merged PR) | 30-60 min |
+| Milestone | Wall clock | Basis |
+|-----------|------------|-------|
+| `npx hatch3r init` (interactive ≤5 prompts, default flags) | 1-2 min | Measured: clean macOS / Linux box, Node 22, fresh git repo on `main` |
+| First successful spec (`/hatch3r-spec` → committed plan) | 5-10 min (estimate) | Model-dependent — varies with model + task scope |
+| First PR from board pickup (`/hatch3r-board-pickup` → merged PR) | 30-60 min (estimate) | Model-dependent — varies with model, task scope, and review latency |
 
-`hatch3r init` prints a `Completed in Xs` line via the `printTimingSummary` helper (D10-M9) so you can compare your local install time against the benchmark above. If your init exceeds ~3 minutes, the most common cause is npm cache cold-start — re-running `npx hatch3r init --yes` shows the typical steady-state cost.
+The `init` figure is the only one hatch3r can self-time: `hatch3r init` prints a `Completed in Xs` line via the `printTimingSummary` helper (D10-M9) so you can compare your local install time against the measured row above. If your init exceeds ~3 minutes, the most common cause is npm cache cold-start — re-running `npx hatch3r init --yes` shows the typical steady-state cost. hatch3r does not instrument the spec or PR milestones, so those two ranges are not produced by a reproducible benchmark.
 
 ---
 
@@ -183,6 +201,10 @@ If you took the tiny-change path, you are done — jump to [Step 8](#step-8--mai
 ---
 
 ## Step 5 — Set up the board
+
+:::note Board workflows are team-scoped
+Steps 5–7 (board init / fill / pickup) install only when your repo resolved to **team** size. `hatch3r init` infers team size from git history (more than one distinct commit-author email ⇒ team) and defaults a single-author or fresh repo to **solo**, where the board cluster is not installed. If you ran a solo install, `init` prints a one-line note saying so — re-run with `--team-size team` (or switch later via `hatch3r config`) to add the board chain. Solo developers who work issue-by-issue can skip to [Step 8](#step-8--maintain-canonical-state) and drive single features without a board.
+:::
 
 Invoke the `hatch3r-board-init` skill from your editor (Claude Code: `Skill: hatch3r-board-init`; Cursor: load the skill from the skills picker; Copilot: reference the skill in the chat).
 

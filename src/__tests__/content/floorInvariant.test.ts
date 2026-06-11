@@ -24,10 +24,16 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { buildContentIndex } from "../../content/index.js";
-import { isFloorTag } from "../../content/tags.js";
+import { buildContentIndex, type CatalogItem } from "../../content/index.js";
+import { isFloorTag, filterByLanguages } from "../../content/tags.js";
 import { applyCustomization } from "../../adapters/customization.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
+import { resolveRepoConfig } from "../../workspace/resolve.js";
+import { buildTagGroupedCustomContentChoices } from "../../cli/shared/customContentChoices.js";
+import { DEFAULT_FEATURES } from "../../types.js";
+import type { WorkspaceDefaults } from "../../workspace/types.js";
+import type { ContentSelection } from "../../types.js";
+import { TYPE_TO_SELECTION_KEY } from "../../content/index.js";
 
 // Mirror of the module-private TYPE_TO_DIR in `src/adapters/customization.ts`.
 // Only these types are customizable (the customization layer returns
@@ -138,5 +144,149 @@ describe("floor-admission structural invariant (F2.3-C1)", () => {
     });
 
     expect(result.skip).toBe(true);
+  });
+});
+
+// D16-2 (Cycle 11): the universal-floor invariant was enforced
+// path-dependently — `resolveSelection` honoured it, but the three other
+// content-reduction paths special-cased only `protected`, dropping the ~40+
+// floor-tagged-unprotected items. After threading the shared
+// `admitsUnconditionally` helper, this block asserts the invariant holds under
+// (1) a language mismatch, (2) a workspace exclude, and (3) the custom-content
+// picker — the structural counterpart to the single-path customization test
+// above.
+describe("floor-admission is path-independent (D16-2)", () => {
+  function syntheticFloorItem(id: string): CatalogItem {
+    return {
+      id,
+      type: "rule",
+      description: `${id} — synthetic floor:security + lang:typescript rule`,
+      tags: ["floor:security", "lang:typescript"],
+      protected: false,
+      relativePath: `rules/${id}.md`,
+      source: "canonical",
+    };
+  }
+
+  it("filterByLanguages keeps every floor item on a mismatched language (real corpus)", async () => {
+    const contentRoot = resolveBundledContentRoot();
+    const index = await buildContentIndex(contentRoot);
+    const floorItems = index.items.filter((item) => item.tags.some(isFloorTag));
+    expect(floorItems.length).toBeGreaterThan(0);
+
+    // Pick a language no canonical floor item is exclusively tagged for, then
+    // assert ALL floor items survive — including any floor item carrying a
+    // non-matching lang:* tag (the exact D2-4 fall-through).
+    const kept = filterByLanguages(floorItems, ["python"]);
+    expect(kept.length).toBe(floorItems.length);
+
+    // Plus a synthetic floor:security + lang:typescript rule (guarantees the
+    // language-mismatch arm is exercised even if the corpus has no such item).
+    const synthetic = syntheticFloorItem("synthetic-floor-ts-rule");
+    const keptSynthetic = filterByLanguages([synthetic], ["python"]);
+    expect(keptSynthetic.map((i) => i.id)).toEqual(["synthetic-floor-ts-rule"]);
+  });
+
+  it("resolveRepoConfig refuses to exclude a floor item via a workspace override", async () => {
+    const contentRoot = resolveBundledContentRoot();
+    const index = await buildContentIndex(contentRoot);
+    const floorItems = index.items.filter((item) => item.tags.some(isFloorTag));
+    expect(floorItems.length).toBeGreaterThan(0);
+    const target = floorItems[0];
+
+    // Mirror sync.ts: the not-excludable set is built from the
+    // unconditional-admission predicate (protected OR floor:*).
+    const unconditionalIds = new Set(
+      index.items
+        .filter((item) => item.protected === true || item.tags.some(isFloorTag))
+        .map((item) => item.id),
+    );
+
+    const items: ContentSelection["items"] = {
+      agents: [], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [],
+    };
+    const key = TYPE_TO_SELECTION_KEY[target.type];
+    if (key) items[key].push(target.id);
+    const baseContent: ContentSelection = {
+      preset: "standard",
+      projectType: "brownfield",
+      teamSize: "solo",
+      items,
+    };
+    const defaults: WorkspaceDefaults = {
+      platform: "github",
+      tools: ["claude"],
+      features: { ...DEFAULT_FEATURES },
+      mcp: { servers: [] },
+      content: baseContent,
+    };
+
+    const result = resolveRepoConfig(
+      defaults,
+      { contentOverrides: { exclude: [target.id] } },
+      unconditionalIds,
+    );
+    expect(result.contentIds.has(target.id)).toBe(true);
+    expect(result.excludedContent).not.toContain(target.id);
+  });
+
+  it("custom-content picker locks every floor item checked + non-removable even when isChecked returns false (D10-13)", () => {
+    // The custom picker is the deselect surface. With the floor affordance
+    // threaded in, floor items are pre-checked AND disabled (non-removable)
+    // regardless of the caller's isChecked, so a user starting from a
+    // deselect-all state cannot drop a floor item — matching resolveSelection
+    // Stage 1, which re-admits protected/floor items in the custom preset.
+    const floorItem = syntheticFloorItem("synthetic-floor-rule");
+    const protectedItem: CatalogItem = {
+      id: "synthetic-protected-agent",
+      type: "agent",
+      description: "synthetic protected (non-floor-tagged) agent",
+      tags: ["implementation"],
+      protected: true,
+      relativePath: "agents/synthetic-protected-agent.md",
+      source: "canonical",
+    };
+    const nonFloorItem: CatalogItem = {
+      id: "synthetic-plain-rule",
+      type: "rule",
+      description: "synthetic non-floor rule",
+      tags: ["implementation"],
+      protected: false,
+      relativePath: "rules/synthetic-plain-rule.md",
+      source: "canonical",
+    };
+
+    const choices = buildTagGroupedCustomContentChoices(
+      [floorItem, protectedItem, nonFloorItem],
+      () => false, // deselect-all baseline
+    );
+    const rows = choices.filter(
+      (
+        c,
+      ): c is {
+        name: string;
+        value: string;
+        checked: boolean;
+        description?: string;
+        disabled?: string;
+      } => typeof c === "object" && c !== null && "value" in c,
+    );
+    const floorRow = rows.find((r) => r.value === "synthetic-floor-rule");
+    const protectedRow = rows.find((r) => r.value === "synthetic-protected-agent");
+    const plainRow = rows.find((r) => r.value === "synthetic-plain-rule");
+
+    // Floor (tag-driven) row: pre-checked + locked with the lock label.
+    expect(floorRow?.checked).toBe(true); // floor pre-checked despite isChecked=false
+    expect(floorRow?.description).toMatch(/Floor/);
+    expect(floorRow?.disabled).toBe("Floor — always included"); // non-removable
+
+    // Protected (non-floor-tagged) row: admitsUnconditionally is also true, so
+    // it gets the same lock — covers the `protected` arm of the predicate.
+    expect(protectedRow?.checked).toBe(true);
+    expect(protectedRow?.disabled).toBe("Floor — always included");
+
+    // Optional row: honours the deselect baseline and stays toggleable.
+    expect(plainRow?.checked).toBe(false); // non-floor honours the deselect baseline
+    expect(plainRow?.disabled).toBeUndefined(); // optional rows are not locked
   });
 });

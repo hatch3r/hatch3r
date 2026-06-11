@@ -1,5 +1,6 @@
 import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
+import { parse as parseYaml, YAMLParseError } from "yaml";
 import type { Framework, PackageEntry, RepoInfo, Tool } from "../types.js";
 import { detectPackageManager } from "./packageManager.js";
 import {
@@ -79,32 +80,63 @@ export function isGreenfield(repoInfo: Pick<RepoInfo, "languages" | "existingToo
   );
 }
 
-/** Detect programming languages by probing for language-specific config files. */
-async function detectLanguages(rootDir: string): Promise<string[]> {
-  const languages: string[] = [];
-  // D14 Medium (#344-#357): Improved language detection with broader indicators
-  const indicators: Record<string, string[]> = {
-    typescript: ["tsconfig.json", "tsconfig.base.json", "tsconfig.app.json"],
-    javascript: ["jsconfig.json", ".babelrc", "babel.config.js", "babel.config.json"],
-    python: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile", "setup.cfg", "tox.ini"],
-    rust: ["Cargo.toml", "Cargo.lock"],
-    go: ["go.mod", "go.sum"],
-    java: ["pom.xml", "build.gradle"],
-    kotlin: ["build.gradle.kts"],
-    ruby: ["Gemfile", ".ruby-version"],
-    php: ["composer.json", "artisan"],
-    swift: ["Package.swift"],
-    dart: ["pubspec.yaml"],
-    elixir: ["mix.exs"],
-    scala: ["build.sbt"],
-    zig: ["build.zig"],
-    ocaml: ["dune-project"],
-    haskell: ["stack.yaml", "cabal.project"],
-    clojure: ["deps.edn", "project.clj"],
-    lua: [".luacheckrc", "rockspec"],
-  };
+/**
+ * Config-file indicators per detectable language (D14 Medium #344-#357).
+ *
+ * Single source of truth for which language names `detectLanguages` can emit
+ * via filename probing. `csharp` is detected separately by file-extension scan
+ * (`.csproj` / `.sln`) and so is appended to {@link DETECTABLE_LANGUAGES}
+ * below rather than carrying a fixed-filename indicator list here.
+ */
+export const LANGUAGE_INDICATORS: Record<string, string[]> = {
+  typescript: ["tsconfig.json", "tsconfig.base.json", "tsconfig.app.json"],
+  javascript: ["jsconfig.json", ".babelrc", "babel.config.js", "babel.config.json"],
+  python: ["pyproject.toml", "setup.py", "requirements.txt", "Pipfile", "setup.cfg", "tox.ini"],
+  rust: ["Cargo.toml", "Cargo.lock"],
+  go: ["go.mod", "go.sum"],
+  java: ["pom.xml", "build.gradle"],
+  kotlin: ["build.gradle.kts"],
+  ruby: ["Gemfile", ".ruby-version"],
+  php: ["composer.json", "artisan"],
+  swift: ["Package.swift"],
+  dart: ["pubspec.yaml"],
+  elixir: ["mix.exs"],
+  scala: ["build.sbt"],
+  zig: ["build.zig"],
+  ocaml: ["dune-project"],
+  haskell: ["stack.yaml", "cabal.project"],
+  clojure: ["deps.edn", "project.clj"],
+  lua: [".luacheckrc", "rockspec"],
+};
 
-  for (const [lang, files] of Object.entries(indicators)) {
+/**
+ * D14-3 (Cycle 11): The complete set of non-`unknown` language names
+ * `detectLanguages` can return — every {@link LANGUAGE_INDICATORS} key plus
+ * `csharp` (the extension-scanned outlier). Exported so the language ↔ tag
+ * skew invariant test (`src/__tests__/content/languageTagSkew.test.ts`) can
+ * assert that every detectable language is either mapped in
+ * `content/tags.ts::LANGUAGE_TO_TAG` or named in that test's documented
+ * unmapped allowlist — closing the silent-drift gap where a newly detected
+ * language mapped to ∅ and stripped `lang:*` content.
+ */
+export const DETECTABLE_LANGUAGES: readonly string[] = [
+  ...Object.keys(LANGUAGE_INDICATORS),
+  "csharp",
+];
+
+/**
+ * Detect programming languages by probing for language-specific config files.
+ *
+ * D14-16 (Cycle 11): exported so `hatch3r update` can re-detect languages
+ * post-init without paying for the full 12-probe {@link analyzeRepo}. Returns
+ * `["unknown"]` when no language indicator is found (same fallback `analyzeRepo`
+ * surfaces). Callers that want the manifest-shaped set (no `unknown`) filter it
+ * the way `init.ts::languagesForSelection` does.
+ */
+export async function detectLanguages(rootDir: string): Promise<string[]> {
+  const languages: string[] = [];
+
+  for (const [lang, files] of Object.entries(LANGUAGE_INDICATORS)) {
     for (const file of files) {
       if (await pathExists(join(rootDir, file))) {
         languages.push(lang);
@@ -238,12 +270,16 @@ export async function detectMonorepoPackages(rootDir: string): Promise<PackageEn
 async function collectWorkspaceGlobs(rootDir: string): Promise<string[]> {
   const globs: string[] = [];
 
-  // pnpm-workspace.yaml — minimal `packages:` list parser (no YAML dep available).
+  // pnpm-workspace.yaml — parse the `packages:` list via the `yaml` dep.
+  // A malformed YAML body is treated as "no signal" (parity with the
+  // SyntaxError-swallowing JSON branches below), so a corrupt workspace file
+  // never crashes the surrounding analyzeRepo() probe.
   try {
     const raw = await readFile(join(rootDir, "pnpm-workspace.yaml"), "utf-8");
     globs.push(...parsePnpmWorkspacePackages(raw));
   } catch (err) {
-    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    const isExpected = (err as NodeJS.ErrnoException).code === "ENOENT" || err instanceof YAMLParseError;
+    if (!isExpected) throw err;
   }
 
   // package.json workspaces (array or { packages: [...] }).
@@ -277,36 +313,33 @@ async function collectWorkspaceGlobs(rootDir: string): Promise<string[]> {
 }
 
 /**
- * Parse the `packages:` block of a `pnpm-workspace.yaml` file into a list of
- * glob strings. Handles the common shape:
+ * Parse the `packages:` list of a `pnpm-workspace.yaml` file into a list of
+ * glob strings. Uses the `yaml` dependency (same parser as the rest of the
+ * codebase, e.g. `src/adapters/canonical.ts`) so BOTH the block shape and the
+ * YAML flow shape resolve:
  *
- *   packages:
+ *   packages:            packages: ['packages/*', 'apps/*']
  *     - "packages/*"
  *     - 'apps/*'
  *
- * Stops at the next top-level key. Comments and blank lines are ignored. This
- * is a targeted parser, not a general YAML reader — non-list `packages:` shapes
- * yield nothing.
+ * D1-24 (Cycle 11): the previous hand-rolled line-regex matched only
+ * dash-prefixed block items, so a flow-style `packages: ['packages/*']` parsed
+ * to `[]` — collapsing `manifest.packages` and skipping per-package `.hatch3r/`
+ * sync. A real YAML parse handles both shapes. Non-list `packages:` values and
+ * non-string list items yield nothing (string filter mirrors the JSON branches
+ * in {@link collectWorkspaceGlobs}); a malformed YAML body throws and is caught
+ * by the caller. Other top-level keys (`catalog:`, `catalogs:`) are ignored
+ * because only the `packages` field is read.
  */
 function parsePnpmWorkspacePackages(raw: string): string[] {
-  const lines = raw.split(/\r?\n/);
-  const result: string[] = [];
-  let inPackages = false;
-  for (const line of lines) {
-    if (/^\s*#/.test(line) || line.trim().length === 0) continue;
-    if (!inPackages) {
-      if (/^packages\s*:/.test(line)) inPackages = true;
-      continue;
-    }
-    // A new top-level key (no leading whitespace, contains a colon) ends the block.
-    if (/^\S.*:/.test(line)) break;
-    const m = line.match(/^\s*-\s*(.+)\s*$/);
-    if (m) {
-      const value = m[1].trim().replace(/^["']|["']$/g, "");
-      if (value.length > 0) result.push(value);
-    }
-  }
-  return result;
+  const doc: unknown = parseYaml(raw);
+  if (!doc || typeof doc !== "object") return [];
+  const packages = (doc as { packages?: unknown }).packages;
+  if (!Array.isArray(packages)) return [];
+  return packages
+    .filter((p): p is string => typeof p === "string")
+    .map((p) => p.trim())
+    .filter((p) => p.length > 0);
 }
 
 /**
@@ -591,9 +624,38 @@ const LINTER_INDICATORS: { name: string; configs: string[] }[] = [
   { name: "deno-lint", configs: ["deno.json", "deno.jsonc"] },
 ];
 
-/** Detect linters and formatters by probing for their config files. */
+/**
+ * package.json embedded-config keys per linter (D14-21, Cycle 11).
+ *
+ * `eslint` and `prettier` officially support an in-`package.json` config block
+ * (`eslintConfig` / `prettier`) as an alternative to a dedicated rc file, so a
+ * repo that uses only the embedded key would otherwise detect as having no
+ * linter. Mapped tool name on the left, package.json key on the right.
+ */
+const LINTER_PACKAGE_JSON_KEYS: { name: string; key: string }[] = [
+  { name: "eslint", key: "eslintConfig" },
+  { name: "prettier", key: "prettier" },
+];
+
+/**
+ * package.json `scripts` whose presence implies a linter is wired even when
+ * neither a dedicated config file nor an embedded key exists (D14-21). This is
+ * a weaker fall-back signal than the config-file and embedded-key probes — the
+ * detected tool name is the generic `"lint-script"` because the script body is
+ * not parsed to identify which linter it invokes.
+ */
+const LINT_SCRIPT_FALLBACK_NAME = "lint-script";
+
+/**
+ * Detect linters and formatters. Dedicated config-file probes
+ * ({@link LINTER_INDICATORS}) are the primary signal; package.json embedded
+ * config keys ({@link LINTER_PACKAGE_JSON_KEYS}) and a `scripts.lint` fall-back
+ * (D14-21) add the officially-supported in-package.json configurations the
+ * config-file probes miss. Results are de-duplicated so a repo carrying both a
+ * dedicated rc file and the matching embedded key reports the tool once.
+ */
 export async function detectLinters(rootDir: string): Promise<string[]> {
-  const detected: string[] = [];
+  const detected = new Set<string>();
   const results = await Promise.allSettled(
     LINTER_INDICATORS.map(async ({ name, configs }) => {
       for (const cfg of configs) {
@@ -604,10 +666,26 @@ export async function detectLinters(rootDir: string): Promise<string[]> {
   );
   for (const r of results) {
     if (r.status === "fulfilled" && r.value !== null) {
-      detected.push(r.value);
+      detected.add(r.value);
     }
   }
-  return detected;
+
+  const pkg = await readPackageJson(rootDir);
+  if (pkg) {
+    for (const { name, key } of LINTER_PACKAGE_JSON_KEYS) {
+      if (pkg[key] !== undefined) detected.add(name);
+    }
+    // `scripts.lint` is a last-resort signal: only report the generic
+    // `lint-script` when no concrete linter was identified above, so a repo
+    // whose `lint` script merely runs an already-detected eslint does not trip
+    // a false two-linter convention conflict (LINTER_TOOL_DIMENSION maps the
+    // generic name to `linter` by default — see conventionConflict.ts).
+    if (detected.size === 0 && hasNonEmptyScript(pkg, "lint")) {
+      detected.add(LINT_SCRIPT_FALLBACK_NAME);
+    }
+  }
+
+  return [...detected];
 }
 
 // ── D14 Medium (#14.6): Test framework detection ─────────────────
@@ -627,9 +705,34 @@ const TEST_FRAMEWORK_INDICATORS: { name: string; configs: string[] }[] = [
   { name: "cypress", configs: ["cypress.config.ts", "cypress.config.js", "cypress.json"] },
 ];
 
-/** Detect test frameworks by probing for their config files. */
+/**
+ * package.json embedded-config keys per test framework (D14-21, Cycle 11).
+ *
+ * Jest officially supports an in-`package.json` `jest` config block as an
+ * alternative to `jest.config.*`, so a repo using only the embedded key would
+ * otherwise detect as having no test framework.
+ */
+const TEST_FRAMEWORK_PACKAGE_JSON_KEYS: { name: string; key: string }[] = [
+  { name: "jest", key: "jest" },
+];
+
+/**
+ * Generic test framework name reported when only a `scripts.test` entry exists
+ * (D14-21). Weaker than the config-file and embedded-key probes — the script
+ * body is not parsed to identify the runner.
+ */
+const TEST_SCRIPT_FALLBACK_NAME = "test-script";
+
+/**
+ * Detect test frameworks. Dedicated config-file probes
+ * ({@link TEST_FRAMEWORK_INDICATORS}) are the primary signal; the package.json
+ * embedded `jest` key ({@link TEST_FRAMEWORK_PACKAGE_JSON_KEYS}) and a
+ * `scripts.test` fall-back (D14-21) add the in-package.json configurations the
+ * config-file probes miss. Results are de-duplicated so a repo carrying both a
+ * dedicated config file and the embedded key reports the runner once.
+ */
 export async function detectTestFrameworks(rootDir: string): Promise<string[]> {
-  const detected: string[] = [];
+  const detected = new Set<string>();
   const results = await Promise.allSettled(
     TEST_FRAMEWORK_INDICATORS.map(async ({ name, configs }) => {
       for (const cfg of configs) {
@@ -640,10 +743,24 @@ export async function detectTestFrameworks(rootDir: string): Promise<string[]> {
   );
   for (const r of results) {
     if (r.status === "fulfilled" && r.value !== null) {
-      detected.push(r.value);
+      detected.add(r.value);
     }
   }
-  return detected;
+
+  const pkg = await readPackageJson(rootDir);
+  if (pkg) {
+    for (const { name, key } of TEST_FRAMEWORK_PACKAGE_JSON_KEYS) {
+      if (pkg[key] !== undefined) detected.add(name);
+    }
+    // `scripts.test` is a last-resort signal: only report the generic
+    // `test-script` when no concrete runner was identified above (a `test`
+    // script that just runs an already-detected vitest/jest adds no new info).
+    if (detected.size === 0 && hasNonEmptyScript(pkg, "test")) {
+      detected.add(TEST_SCRIPT_FALLBACK_NAME);
+    }
+  }
+
+  return [...detected];
 }
 
 // ── D14 Medium (#14.7): CI provider detection ────────────────────
@@ -748,6 +865,44 @@ async function dirExists(path: string): Promise<boolean> {
     if ((err as NodeJS.ErrnoException).code !== 'ENOENT') throw err;
     return false;
   }
+}
+
+/**
+ * Parsed shape of a root `package.json` used by the linter/test-framework
+ * embedded-config probes (D14-21). Only the keys the probes read are typed;
+ * the index signature carries the embedded config blocks (`eslintConfig`,
+ * `prettier`, `jest`) whose mere presence is the detection signal.
+ */
+type PackageJsonShape = { scripts?: Record<string, unknown> } & Record<string, unknown>;
+
+/**
+ * Read and JSON-parse the root `package.json` once (D14-21). Returns `null`
+ * when the file is absent (ENOENT) or malformed (`SyntaxError`) — a missing or
+ * broken manifest is "no signal", not a detection failure, matching the
+ * package.json branch of {@link detectFrameworks}. Other I/O errors propagate.
+ */
+async function readPackageJson(rootDir: string): Promise<PackageJsonShape | null> {
+  try {
+    const raw = await readFile(join(rootDir, "package.json"), "utf-8");
+    const parsed = JSON.parse(raw);
+    return parsed && typeof parsed === "object" ? (parsed as PackageJsonShape) : null;
+  } catch (err) {
+    const isExpected = (err as NodeJS.ErrnoException).code === "ENOENT" || err instanceof SyntaxError;
+    if (!isExpected) throw err;
+    return null;
+  }
+}
+
+/**
+ * Whether `pkg.scripts[name]` is a real (non-placeholder) script (D14-21). The
+ * `npm init` default test script (`echo "Error: no test specified" && exit 1`)
+ * is a stub, not a wired runner, so it is treated as absent to avoid a
+ * false-positive `test-script` detection on freshly-scaffolded repos.
+ */
+function hasNonEmptyScript(pkg: PackageJsonShape, name: string): boolean {
+  const script = pkg.scripts?.[name];
+  if (typeof script !== "string" || script.trim().length === 0) return false;
+  return !/no test specified/i.test(script);
 }
 
 /** Format a `RepoInfo` as a multi-line human-readable summary for CLI output. */

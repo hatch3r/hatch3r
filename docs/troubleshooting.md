@@ -96,7 +96,7 @@ This guide helps you resolve common issues with the hatch3r CLI, MCP servers, bo
 
 Run `npx hatch3r validate` to check structural correctness of the bundled canonical content and your project's `.hatch3r/hatch.json` manifest. Below are common errors and how to fix them.
 
-> **validate vs verify:** `validate` checks structural correctness (frontmatter, directories, cross-references). `verify` regenerates adapter outputs from the bundled canonical content and diffs them against the on-disk copy to detect drift or tampering. Use `validate` for content issues, `verify` for drift detection.
+> **validate vs verify:** `validate` checks structural correctness (frontmatter, directories, cross-references). `verify` regenerates adapter outputs from the bundled canonical content and diffs the managed block against the on-disk copy to detect content drift, and also scans the on-disk `HATCH3R:BEGIN`/`HATCH3R:END` marker structure for tampering (orphan/duplicate markers, wrong host-comment syntax) — reported as advisory warnings that do not change the drift PASS/FAIL exit code. Use `validate` for content issues, `verify` for drift detection.
 
 ### Missing hatch.json manifest
 
@@ -283,6 +283,37 @@ Board commands (`board-init`, `board-fill`, `board-groom`, `board-pickup`, `boar
 ### More contributor troubleshooting
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md#troubleshooting) for additional development setup and troubleshooting.
+
+---
+
+## Exit Codes
+
+hatch3r returns a differentiated POSIX exit code per failure kind so CI scripts can branch on *what* failed, not just *whether* it failed. The kind-specific codes follow the BSD `sysexits.h` convention (FreeBSD `/usr/include/sysexits.h`). Source of truth: `ERROR_CODE_TO_EXIT_CODE` in `src/types.ts` — this table mirrors it row-for-row.
+
+| Exit code | Name (`sysexits.h`) | Error kind | When it fires |
+|----------:|---------------------|------------|---------------|
+| 0 | — | success / user cancel | Command succeeded, or you cancelled an interactive prompt (Ctrl+C at a question). |
+| 2 | — | usage error | Bad flag or argument; Commander wrote the usage help. |
+| 64 | `EX_USAGE` | `VALIDATION_ERROR` | Content/structure validation failed, or an unknown `--tools` value. |
+| 65 | `EX_DATAERR` | `CONFIG_ERROR` | Manifest or config malformed / missing (`.hatch3r/hatch.json`). |
+| 69 | `EX_UNAVAILABLE` | `ADAPTER_ERROR` | An adapter failed to generate tool output. |
+| 70 | `EX_SOFTWARE` | `UNKNOWN_ERROR` | Unclassified internal error. |
+| 73 | `EX_CANTCREAT` | `INTEGRITY_ERROR` | Generated output drifted and cannot be regenerated to match canonical (`hatch3r verify`). |
+| 74 | `EX_IOERR` | `FS_ERROR`, `CLEAN_ERROR` | Filesystem read/write/clean failure. |
+| 75 | `EX_TEMPFAIL` | `NETWORK_ERROR`, `LOCK_TIMEOUT` | Retryable failure — network fetch, or another hatch3r process holds the lock. |
+| 130 | — | SIGINT | Interrupted with Ctrl+C (128 + signal 2). |
+
+**Scripting note (CI):** branch on the exact code, not `[ $? -eq 1 ]`. hatch3r does not emit exit 1 for command failures — `VALIDATION_ERROR`, `CONFIG_ERROR`, and `ADAPTER_ERROR` surface as 64/65/69, so a `-eq 1` check misses every one of them. The structured `errorCode` string also prints to stderr, and `npx hatch3r validate --format json` emits it as a machine-readable field. Example:
+
+```bash
+npx hatch3r validate
+case $? in
+  0)  echo "ok" ;;
+  64) echo "validation failed — fix listed errors" ;;
+  65) echo "config/manifest problem — run 'npx hatch3r init'" ;;
+  *)  echo "other failure (code $?)" ;;
+esac
+```
 
 ---
 

@@ -26,6 +26,8 @@ See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 
 
 ## Key Files
 
+The project's detected CI provider is `${HATCH3R:CI_PROVIDER}` (resolves to `unknown` when none was detected at setup — fall back to the `platform` field below in that case). Use it to pick the pipeline-file paths and CLI commands for this agent's run.
+
 Identify CI pipeline files based on the project's configured platform (check `platform` in `.hatch3r/hatch.json`):
 
 - **GitHub:** `.github/workflows/ci.yml`, `.github/workflows/deploy-*.yml`

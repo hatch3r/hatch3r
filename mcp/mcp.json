@@ -3,6 +3,7 @@
     "github": {
       "_description": "GitHub repository management, code review, issues, PRs, and project boards",
       "_trust_bypass": true,
+      "_trust_bypass_reason": "github-first-party",
       "url": "https://api.githubcopilot.com/mcp/",
       "headers": {
         "Authorization": "Bearer ${env:GITHUB_PAT}",
@@ -27,7 +28,7 @@
     "brave-search": {
       "_description": "Web research, fact-checking, and current information retrieval",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-brave-search@0.6.2"],
+      "args": ["-y", "@brave/brave-search-mcp-server@2.0.83", "--transport", "stdio"],
       "env": {
         "BRAVE_API_KEY": "${env:BRAVE_API_KEY}"
       }
@@ -45,7 +46,7 @@
       "_disabled": true,
       "_description": "PostgreSQL database queries and schema inspection (enable and configure with your connection string)",
       "command": "npx",
-      "args": ["-y", "@modelcontextprotocol/server-postgres@0.6.2"],
+      "args": ["-y", "@henkey/postgres-mcp-server@1.0.5"],
       "env": {
         "POSTGRES_URL": "${env:POSTGRES_URL}"
       }
@@ -72,8 +73,8 @@
     "gitlab": {
       "_disabled": true,
       "_description": "GitLab issues, merge requests, pipelines, and project management",
-      "command": "npx",
-      "args": ["-y", "glab", "mcp"],
+      "command": "glab",
+      "args": ["mcp", "serve"],
       "env": {
         "GITLAB_TOKEN": "${env:GITLAB_TOKEN}"
       }

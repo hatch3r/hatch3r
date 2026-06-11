@@ -78,7 +78,17 @@ const COPILOT_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
   mcp: [], // MCP exposure is controlled via `mcp-servers`, not `tools`.
   // Reserved categories (RESERVED_TOOL_CATEGORIES in agentToolAllowlist.ts):
   // no current policy grants these; they collapse onto execute/mcp here.
-  git: ["execute"], // Reserved. Collapses to execute semantics.
+  // D15-22 (SA15.3-F7, Cycle 11 Wave 3, P6): `git` collapses to `execute`
+  // because Copilot's `tools:` array is a tool-level allowlist only — it has no
+  // `Bash:<subcommand>` deny primitive (verified 2026-06-09 @
+  // https://docs.github.com/en/copilot/reference/custom-agents-configuration),
+  // so a source `tools.deny: ["Bash:git commit", ...]` cannot be re-emitted into
+  // a finer Copilot grant the way Claude's `Bash:git*` deny list survives. A
+  // git-restricted agent therefore receives unrestricted `execute` on Copilot,
+  // and the emitted surface installs no PreToolUse runtime gate (Copilot is the
+  // only adapter with `hooks: false` in ADAPTER_CAPABILITIES). This gap is
+  // disclosed in SECURITY.md -> Allowlist Hybrid Contract (Copilot runtime row).
+  git: ["execute"], // Reserved. Collapses to execute semantics (see SECURITY.md Copilot row).
   board: [], // Reserved. Project-board tooling is MCP-driven; no distinct token.
 };
 
@@ -111,6 +121,35 @@ export function toClaudeToolsFrontmatter(agentId: string): string | null {
 }
 
 /**
+ * D20-1 (X5/CD5): translate an explicit hatch3r category list to the Claude
+ * Code `tools:` frontmatter value (comma-separated tool names), bypassing the
+ * canonical `AGENT_TOOL_POLICIES` registry lookup.
+ *
+ * Used for user-authored agents whose emitted (re-prefixed) id has no
+ * registry entry: the categories come from the agent's authored
+ * `tools.allowed` grant (with `tools.denied` already subtracted by the caller)
+ * rather than from a registered policy. Routes through the same
+ * {@link CLAUDE_CATEGORY_MAP} as {@link toClaudeToolsFrontmatter} so the
+ * category→tool-name mapping stays single-source and the monotonic-privilege
+ * invariant is preserved.
+ *
+ * Returns `null` when the resolved set is empty (no categories, or only
+ * categories that map to no Claude tool — e.g. `mcp`/`board`), so the caller
+ * omits the frontmatter field. NOTE: an empty/`null` Claude `tools:` field
+ * means "inherit all tools" upstream; the runtime PreToolUse hook is the
+ * authoritative deny gate for these agents (it reads the derived policy from
+ * `agent-tool-policies.json`), so the omitted-field case does not widen the
+ * effective privilege envelope.
+ */
+export function toClaudeToolsFrontmatterFromCategories(
+  categories: readonly string[],
+): string | null {
+  const tools = resolveNativeTools(categories, CLAUDE_CATEGORY_MAP);
+  if (tools.length === 0) return null;
+  return tools.join(", ");
+}
+
+/**
  * Translate an agent id's hatch3r policy to a GitHub Copilot
  * `tools: [...]` YAML array value.
  *
@@ -120,6 +159,32 @@ export function toCopilotToolsFrontmatter(agentId: string): readonly string[] | 
   const policy = getAgentToolPolicy(agentId);
   if (!policy) return null;
   const tools = resolveNativeTools(policy.allowedTools, COPILOT_CATEGORY_MAP);
+  return tools.length === 0 ? null : tools;
+}
+
+/**
+ * D5-39 (Cycle 11 Wave 3, D5, P6): translate an explicit hatch3r category list
+ * to the GitHub Copilot `tools: [...]` YAML-array value, bypassing the
+ * `AGENT_TOOL_POLICIES` registry lookup.
+ *
+ * The Copilot twin of {@link toClaudeToolsFrontmatterFromCategories}. Used by
+ * the github-agent emission path in `src/adapters/copilot.ts`: github-agents
+ * (`type: github-agent`) are simplified cloud-agent definitions with ids
+ * outside the canonical `AGENT_TOOL_POLICIES` registry, so the registry-keyed
+ * {@link toCopilotToolsFrontmatter} returns `null` for them and they would
+ * otherwise ship with NO `tools:` restriction. This helper renders a default
+ * category grant the adapter supplies per github-agent role through the same
+ * {@link COPILOT_CATEGORY_MAP} so the monotonic-privilege invariant and the
+ * category→alias mapping stay single-source.
+ *
+ * Returns `null` when the resolved set is empty (no categories, or only
+ * categories that map to no Copilot alias — e.g. `mcp`/`board`), so the caller
+ * omits the frontmatter field.
+ */
+export function toCopilotToolsFrontmatterFromCategories(
+  categories: readonly string[],
+): readonly string[] | null {
+  const tools = resolveNativeTools(categories, COPILOT_CATEGORY_MAP);
   return tools.length === 0 ? null : tools;
 }
 
@@ -272,7 +337,14 @@ export interface AskUserToolEntry {
 // item "User-question tool"). Bumping a tool name without updating the
 // date stamp is a Medium finding.
 const ASK_USER_TOOLS: Readonly<Record<string, AskUserToolEntry | null>> = {
-  // verified 2026-05-28 @ https://code.claude.com/docs/en/sub-agents (AskUserQuestion native tool documented).
+  // verified 2026-06-06 @ https://code.claude.com/docs/en/sub-agents (AskUserQuestion native tool documented).
+  // Sub-agent exclusion: AskUserQuestion is the orchestrator/main-conversation question
+  // tool; Claude Code filters it out of every Task-tool sub-agent context (foreground and
+  // background) regardless of the agent's `tools` declaration, so a spawned hatch3r-* agent
+  // cannot call it. Sub-agents instead RETURN Status BLOCKED_AMBIGUITY with the rendered
+  // question and the orchestrator owns the live ASK (agents/shared/clarification-default-block.md
+  // -> Protocol; agents/shared/quality-charter.md §17). Upstream-confirmed: anthropics/claude-code
+  // issues #18721 (docs limitation), #12890, #34592 (verified 2026-06-06).
   claude: { name: "AskUserQuestion" },
   // verified 2026-05-28 @ https://cursor.com/docs/agent/subagents (no native question tool documented; plain-text fallback applies).
   cursor: null,

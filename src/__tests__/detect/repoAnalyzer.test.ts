@@ -2,7 +2,7 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages, analyzeConventionConflicts, detectDockerfile, detectDataArtifacts } from "../../detect/repoAnalyzer.js";
+import { analyzeRepo, formatRepoSummary, detectLinters, detectTestFrameworks, detectCIProviders, detectMonorepoPackages, analyzeConventionConflicts, formatConventionConflicts, detectDockerfile, detectDataArtifacts } from "../../detect/repoAnalyzer.js";
 
 describe("analyzeRepo", () => {
   let tempDir: string;
@@ -662,6 +662,41 @@ describe("analyzeRepo", () => {
       expect(info.rootDir).toBe(root);
     });
   });
+
+  // D14-13 (D14-SA14.4-F3): the live `hatch3r init` path runs
+  // `analyzeRepo` -> `analyzeConventionConflicts` -> `formatConventionConflicts`
+  // and warns the user. This fixture exercises that exact chain on a repo that
+  // carries both a vitest and a jest config (a mid-migration smell).
+  describe("convention-conflict detection (D14-13)", () => {
+    it("surfaces the conflict line for a vitest.config.ts + jest.config.js fixture", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "package.json"), "{}");
+      await writeFile(join(root, "vitest.config.ts"), "export default {};");
+      await writeFile(join(root, "jest.config.js"), "module.exports = {};");
+
+      const info = await analyzeRepo(root);
+      expect(info.testFrameworks).toContain("vitest");
+      expect(info.testFrameworks).toContain("jest");
+
+      const conflicts = analyzeConventionConflicts(info);
+      expect(conflicts).toHaveLength(1);
+      expect(conflicts[0]!.dimension).toBe("testFramework");
+
+      const block = formatConventionConflicts(conflicts);
+      expect(block).toContain("Convention conflicts detected:");
+      expect(block).toContain("jest, vitest");
+    });
+
+    it("emits no conflict line for an unambiguous single-runner fixture", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "package.json"), "{}");
+      await writeFile(join(root, "vitest.config.ts"), "export default {};");
+
+      const info = await analyzeRepo(root);
+      const block = formatConventionConflicts(analyzeConventionConflicts(info));
+      expect(block).toBe("");
+    });
+  });
 });
 
 describe("formatRepoSummary", () => {
@@ -868,6 +903,73 @@ describe("detectLinters", () => {
     const linters = await detectLinters(root);
     expect(linters).toEqual([]);
   });
+
+  // ── D14-21: package.json embedded config + script fallback ────────
+  it("detects ESLint from the package.json eslintConfig key (no rc file)", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ eslintConfig: { extends: "eslint:recommended" } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("eslint");
+  });
+
+  it("detects Prettier from the package.json prettier key (no rc file)", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ prettier: { singleQuote: true } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("prettier");
+  });
+
+  it("does not double-report a linter present as both an rc file and an embedded key", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "eslint.config.js"), "export default {};");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ eslintConfig: { extends: "eslint:recommended" } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters.filter((l) => l === "eslint")).toHaveLength(1);
+  });
+
+  it("reports the generic lint-script only when no concrete linter is detected", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { lint: "eslint ." } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("lint-script");
+  });
+
+  it("suppresses the lint-script fallback when a concrete linter is already detected", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, ".prettierrc"), "{}");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { lint: "eslint . && prettier --check ." } }),
+    );
+
+    const linters = await detectLinters(root);
+    expect(linters).toContain("prettier");
+    expect(linters).not.toContain("lint-script");
+  });
+
+  it("ignores a malformed package.json (treats it as no signal)", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "package.json"), "{ not json");
+
+    const linters = await detectLinters(root);
+    expect(linters).toEqual([]);
+  });
 });
 
 // ── D14 Medium (#14.6): Test framework detection ──────────────────
@@ -936,6 +1038,65 @@ describe("detectTestFrameworks", () => {
 
   it("returns empty array when no test frameworks found", async () => {
     const root = await createTempRepo();
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toEqual([]);
+  });
+
+  // ── D14-21: package.json embedded config + script fallback ────────
+  it("detects Jest from the package.json jest key (no config file)", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ jest: { testEnvironment: "node" } }),
+    );
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("jest");
+  });
+
+  it("does not double-report Jest present as both a config file and an embedded key", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "jest.config.js"), "module.exports = {};");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ jest: { testEnvironment: "node" } }),
+    );
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks.filter((f) => f === "jest")).toHaveLength(1);
+  });
+
+  it("reports the generic test-script only when no concrete runner is detected", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { test: "node --test" } }),
+    );
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("test-script");
+  });
+
+  it("suppresses the test-script fallback when a concrete runner is already detected", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "vitest.config.ts"), "export default {};");
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { test: "vitest run" } }),
+    );
+
+    const frameworks = await detectTestFrameworks(root);
+    expect(frameworks).toContain("vitest");
+    expect(frameworks).not.toContain("test-script");
+  });
+
+  it("ignores the npm-init default placeholder test script", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "package.json"),
+      JSON.stringify({ scripts: { test: 'echo "Error: no test specified" && exit 1' } }),
+    );
 
     const frameworks = await detectTestFrameworks(root);
     expect(frameworks).toEqual([]);
@@ -1095,6 +1256,44 @@ describe("detectMonorepoPackages", () => {
 
     const packages = await detectMonorepoPackages(root);
     expect(packages).toEqual([{ name: "only", path: "packages/only" }]);
+  });
+
+  // D1-24 (Cycle 11): YAML flow-style `packages` list. The old line-regex
+  // parser matched only dash-prefixed block items, so this yielded [] and
+  // skipped per-package sync. A real YAML parse resolves both shapes.
+  it("enumerates packages from a pnpm-workspace.yaml flow-style list", async () => {
+    const root = await createTempRepo();
+    await writeFile(
+      join(root, "pnpm-workspace.yaml"),
+      "packages: ['packages/*', \"apps/*\"]\n",
+    );
+    await makePackage(root, "packages/core", "core");
+    await makePackage(root, "apps/site", "site");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([
+      { name: "site", path: "apps/site" },
+      { name: "core", path: "packages/core" },
+    ]);
+  });
+
+  it("yields no pnpm globs for a non-list packages value", async () => {
+    const root = await createTempRepo();
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages: packages/*\n");
+    await makePackage(root, "packages/core", "core");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([]);
+  });
+
+  it("treats a malformed pnpm-workspace.yaml as no signal rather than throwing", async () => {
+    const root = await createTempRepo();
+    // Unparseable YAML body (unclosed flow sequence).
+    await writeFile(join(root, "pnpm-workspace.yaml"), "packages:\n  - [unclosed\n");
+    await makePackage(root, "packages/core", "core");
+
+    const packages = await detectMonorepoPackages(root);
+    expect(packages).toEqual([]);
   });
 
   it("enumerates packages from lerna.json packages array", async () => {

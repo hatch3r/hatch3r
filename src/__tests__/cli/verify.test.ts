@@ -72,7 +72,12 @@ describe("verify command", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    // Hardened teardown (matches lifecycle/sync/config/update tests): under the
+    // full-suite `forks` pool, /tmp is saturated with thousands of concurrent
+    // temp dirs; a bare rm of this test's own root can hit a transient FS race
+    // (ENOTEMPTY/ENOENT mid-walk). maxRetries+retryDelay absorbs it so cleanup
+    // of one test never fails the suite.
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 200 });
   });
 
   it("exits with error when no manifest exists", async () => {
@@ -296,5 +301,174 @@ describe("verify command", () => {
     expect(output).toContain("verify: PASS");
     // The in-sync breakdown lists the cursor adapter's checked outputs.
     expect(output).toContain("cursor:");
+  });
+
+  // D14-1 (Cycle 11 Wave 1, Critical): the shared `computeAdapterDrift` helper
+  // now registers monorepo per-package output paths as seen, so the orphan loop
+  // no longer flags them as `unexpected`. verify is the second front door onto
+  // that helper — confirm the fix reaches it too: a 2-package monorepo whose
+  // per-package files are all in sync must verify PASS (exit 0, no throw),
+  // where before the fix it threw INTEGRITY_ERROR on ~(outputs x packages)
+  // false orphans.
+  // Test-robustness (not a logic change): this is the heaviest test in the file
+  // — a real sync of 2 adapters x 2 monorepo packages emits the largest batch of
+  // tmp+rename atomic writes (root + per-package x per-adapter). It used to flake
+  // under the full-suite parallel `forks` pool when its FS batch raced the rest
+  // of the suite's concurrent fork-worker filesystem churn (a just-created
+  // parent dir intermittently invisible to a following mkdir/rename/open — a
+  // contention ENOENT, NOT a product bug; it passes 22/22 in isolation). The fix
+  // is in vitest.config.ts: status.test.ts + verify.test.ts run in a separate
+  // "heavy-fs" project at a later sequence.groupOrder, so they execute ALONE
+  // after the parallel "main" group drains — no concurrent FS churn. The prior
+  // per-test `retry` is gone (the contention it papered over no longer occurs);
+  // `timeout` stays as a margin for the genuinely-large FS batch. Assertions
+  // (verify PASS / 0 false orphans) are unchanged.
+  it("verifies a 2-package monorepo as PASS with no false-orphan drift (D14-1)", { timeout: 30_000 }, async () => {
+    await createTestProject(tempDir, {
+      tools: ["cursor", "claude"],
+      packages: [
+        { name: "@scope/alpha", path: "packages/alpha" },
+        { name: "@scope/beta", path: "packages/beta" },
+      ],
+    });
+
+    // sync writes root + per-package outputs and tracks every path in the
+    // manifest's managedFiles list.
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    // Guard against a vacuous pass: confirm per-package files were emitted and
+    // tracked, so the verify-PASS below is the orphan-suppression fix and not
+    // an empty manifest.
+    const { readManifest } = await import("../../manifest/hatchJson.js");
+    const manifest = await readManifest(tempDir);
+    const perPackageTracked = (manifest?.managedFiles ?? []).filter(
+      (p) => p.startsWith("packages/alpha/") || p.startsWith("packages/beta/"),
+    );
+    expect(perPackageTracked.length).toBeGreaterThan(0);
+
+    consoleSpy.mockClear();
+    consoleErrorSpy.mockClear();
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    // Must NOT throw: no false-orphan drift means a clean verify.
+    await expect(verifyCommand()).resolves.toBeUndefined();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("verify: PASS");
+    expect(output).not.toMatch(/verify: FAIL/);
+    // No "Unexpected:" summary row, since no per-package file is an orphan.
+    expect(output).not.toContain("Unexpected:");
+  });
+
+  // D15-6 (SA15.4-F2, D15, P6): verify advertised "drift or tampering"
+  // detection but only diffed the EXTRACTED managed block — a structurally
+  // broken HATCH3R:BEGIN/END marker (orphan/duplicate/wrong-syntax) was
+  // invisible because `extractManagedBlock` reads only the first BEGIN..END
+  // pair. verify now runs `scanManagedBlockTampering` (the same structural scan
+  // `validate` runs) and surfaces its findings as advisory warnings. Append an
+  // ORPHAN END marker after the real one: the extracted block is unchanged
+  // (content drift stays clean → PASS exit code unchanged), but the structural
+  // scan flags the second END. This proves the tamper path reaches verify
+  // without regressing the drift-based PASS/FAIL contract.
+  it("surfaces structural marker tampering as a warning while drift stays PASS (D15-6)", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const cursorRulesDir = join(tempDir, ".cursor", "rules");
+    const entries = await readdir(cursorRulesDir);
+    const ruleFile = entries.find((f) => f.endsWith(".mdc"));
+    expect(ruleFile).toBeDefined();
+    const rulePath = join(cursorRulesDir, ruleFile!);
+    const original = await readFile(rulePath, "utf-8");
+    // Guard: the real END marker must exist so the appended one is a genuine
+    // duplicate/orphan and not the first occurrence.
+    expect(original).toContain("<!-- HATCH3R:END -->");
+    // Append a SECOND end marker after the managed block. `extractManagedBlock`
+    // stops at the first END, so the on-disk block content still matches
+    // canonical (no drift); only the structural scan sees the orphan END.
+    await writeFile(rulePath, `${original}\n<!-- HATCH3R:END -->\n`);
+
+    // ── Human mode: PASS box + structural-warning box, no FAIL/throw. ──
+    consoleSpy.mockClear();
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    await expect(verifyCommand()).resolves.toBeUndefined();
+    const human = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(human).toContain("verify: PASS");
+    expect(human).not.toMatch(/verify: FAIL/);
+    expect(human).toContain("Managed-block structural warnings");
+    // `boxen` word-wraps the warning line across the box border, so strip the
+    // box-drawing glyphs and collapse whitespace runs before matching the full
+    // phrase (the wrap point is box-width-dependent and not load-bearing).
+    const humanFlat = human.replace(/[│╭╮╰╯─]/g, " ").replace(/\s+/g, " ");
+    expect(humanFlat).toMatch(/orphan managed-block end marker/);
+
+    // ── JSON mode: status still "pass", tamperWarnings non-empty. ──
+    // emitJson writes via process.stdout.write, not console.log — spy on it.
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      await expect(verifyCommand({ format: "json" })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    const combined = stdoutChunks.join("");
+    const start = combined.indexOf("{");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const parsed = JSON.parse(combined.slice(start).trim()) as {
+      status: string;
+      tamperWarnings: string[];
+    };
+    expect(parsed.status).toBe("pass");
+    expect(Array.isArray(parsed.tamperWarnings)).toBe(true);
+    expect(parsed.tamperWarnings.length).toBeGreaterThan(0);
+    expect(parsed.tamperWarnings.some((w) => /orphan managed-block end marker/.test(w))).toBe(true);
+  });
+
+  // D15-6: when the marker structure is well-formed, the tamper scan is silent
+  // — no structural-warning box in human mode and an empty `tamperWarnings`
+  // array in JSON mode. Guards against the box rendering on every clean run.
+  it("emits no structural-tamper warnings on a clean synced project (D15-6)", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    // emitJson writes via process.stdout.write, not console.log — spy on it.
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      await expect(verifyCommand({ format: "json" })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    const combined = stdoutChunks.join("");
+    const start = combined.indexOf("{");
+    expect(start).toBeGreaterThanOrEqual(0);
+    const parsed = JSON.parse(combined.slice(start).trim()) as {
+      status: string;
+      tamperWarnings: string[];
+    };
+    expect(parsed.status).toBe("pass");
+    expect(parsed.tamperWarnings).toEqual([]);
+
+    consoleSpy.mockClear();
+    await expect(verifyCommand()).resolves.toBeUndefined();
+    const human = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(human).toContain("verify: PASS");
+    expect(human).not.toContain("Managed-block structural warnings");
   });
 });

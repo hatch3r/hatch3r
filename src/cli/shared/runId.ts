@@ -1,7 +1,7 @@
 /**
  * SA12.1-F-D12-M3 (Cycle 10 Wave 3, D12, P1): per-run correlation ID minted
  * once at CLI startup and embedded in the top-level error block so a single
- * failing run can be traced across stdout / stderr / `.hatch3r/.failures.log`
+ * failing run can be traced across stdout / stderr / `.hatch3r/.failure-log.jsonl`
  * / CI build logs. Before this module, the error funnel emitted no per-run
  * marker — operators correlating a CI failure with a local repro had to grep
  * by timestamp.

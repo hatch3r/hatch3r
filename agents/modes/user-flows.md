@@ -11,7 +11,7 @@ cache_friendly: true
 ---
 ### Mode: `user-flows`
 
-Decompose each user story into three explicit flows before implementation: Happy Path, Alternative Paths, and Error-Recovery Path. Skipping this mode means the implementer codes from acceptance criteria alone and misses alternative paths plus error recovery. This mode runs inside `hatch3r-researcher` and gates `hatch3r-feature-plan` and `hatch3r-implementer`.
+Decompose each user story into three explicit flows before implementation: Happy Path, Alternative Paths, and Error-Recovery Path. Skipping this mode means the implementer codes from acceptance criteria alone and misses alternative paths plus error recovery. This mode runs inside `hatch3r-researcher` and is the canonical flow-decomposition template; `agents/modes/requirements-elicitation.md` (UI/UX dimension) points its user-flow sub-probe here as a sibling reference. This mode does not itself gate any downstream agent — flow-completeness enforcement (the implementer rejecting specs without flow decomposition; the reviewer walking every flow) is owned by `rules/hatch3r-ux-states-and-flows.md` -> User-Flow Decomposition, which cites this file as the template.
 
 **Inputs:**
 
@@ -73,4 +73,4 @@ Final state: {what the user sees}
 - Every story has all three flows (Happy, Alternative, Error-Recovery) populated.
 - Every async step maps to a state in the State Map.
 - Every user-visible string has a microcopy draft.
-- Missing any of the three flows or the state map blocks downstream `hatch3r-feature-plan` and `hatch3r-implementer`; this gate is enforced inside the implementer Convention Lock.
+- Missing any of the three flows or the state map produces an incomplete decomposition. The downstream gate that blocks on it is owned by `rules/hatch3r-ux-states-and-flows.md` -> User-Flow Decomposition (the implementer rejects specs lacking flow decomposition; the reviewer walks every flow against code paths), not by the implementer Convention Lock — that step (`agents/hatch3r-implementer.md` -> Step 1b) locks `similar-implementation` conventions only and carries no flow-completeness check.

@@ -1,6 +1,6 @@
 ---
-description: Lockfile discipline, CVE scanning, transitive dependency audits, major version upgrade protocol, and bundle-size impact gates for package manifests
-globs: ["**/package.json", "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/Cargo.toml", "**/Cargo.lock", "**/requirements*.txt", "**/pyproject.toml", "**/go.mod", "**/go.sum", "**/Gemfile*"]
+description: Lockfile discipline, CVE scanning, transitive dependency audits, major version upgrade protocol, bundle-size impact gates, and SHA-pinned GitHub Action enforcement for package manifests and workflow files
+globs: ["**/package.json", "**/package-lock.json", "**/yarn.lock", "**/pnpm-lock.yaml", "**/Cargo.toml", "**/Cargo.lock", "**/requirements*.txt", "**/pyproject.toml", "**/go.mod", "**/go.sum", "**/Gemfile*", "**/.github/workflows/**", "**/*.yml", "**/*.yaml"]
 alwaysApply: false
 precedence: high
 ---

@@ -4,7 +4,7 @@
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic agentic coding setup into any repository. Audited each release across 24 governance domains and generated for 3 platform adapters (Claude Code, Cursor, GitHub Copilot). One command gives you the full set of agents, skills, rules, commands, hooks, and MCP integrations -- optimized for your coding tool of choice (live counts in [`governance/inventory.json`](governance/inventory.json) <!-- counts auto-derived; see governance/inventory.json -->). Selective init installs only what you need based on your project type and team size.
+hatch3r is an open-source CLI and editor plugin (Claude Code + Cursor) that installs a tool-agnostic agentic coding setup into any repository. Audited each release across 24 governance domains and generated for 3 platform adapters (Claude Code, Cursor, GitHub Copilot). One command gives you the full set of agents, skills, rules, commands, hooks, and MCP integrations -- optimized for your coding tool of choice (live counts in [`governance/inventory.json`](governance/inventory.json) <!-- counts auto-derived; see governance/inventory.json -->). Selective init installs only what you need based on your project type and team size.
 
 > **v1.9.0 scope cut:** As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelve adapters were removed in a hard cut; canonical content is now read from the bundled npm package (no `.agents/` materialization in user repos), and the manifest moved to `.hatch3r/hatch.json`. See [CHANGELOG.md](CHANGELOG.md) for the full breaking-change list and migration notes.
 
@@ -19,13 +19,15 @@ npx hatch3r init            # interactive: customize tools, profile, and MCP (6 
 
 `--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, asks about your project context (greenfield/brownfield, solo/team), lets you choose a content profile (minimal/standard/full/custom), and generates everything. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
 
+**Already using Cursor?** Carry your existing rules across with `npx hatch3r init --import cursor` — they land under `.hatch3r/overrides/rules/` (`.md` + `.mdc`) with per-file conflict reporting. See [Migrating from another tool](https://docs.hatch3r.com/docs/getting-started/quick-start#migrating-from-another-tool).
+
 ## What You Get
 
 | Category | Count | Highlights |
 |----------|-------|-----------|
-| **Agents** | 29 | Code reviewer, test writer, security auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 9 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability), and more |
+| **Agents** | 29 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 9 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability), and more |
 | **Skills** | 53 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
-| **Rules** | 65 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
+| **Rules** | 67 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
 | **Commands** | 30 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, bug-pipeline, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
 | **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- gated behind a Yes/No prompt during `init` (default No since 1.7.5; pass `--mcp` to restore prior `--yes` behavior) |
@@ -71,7 +73,7 @@ hatch3r provides a full project lifecycle, from setup to release:
 4. **Fill the board** -- `hatch3r-board-fill` parses `todo.md`, classifies items, groups into epics, builds a dependency DAG, and marks issues `status:ready`.
 5. **Groom the backlog** -- `hatch3r-board-groom` surfaces stale items, priority imbalances, and decomposition candidates.
 6. **Pick up work** -- `hatch3r-board-pickup` auto-selects the next issue by dependency order and priority, creates a branch, delegates implementation, and opens a PR.
-7. **Review cycle** -- Reviewer + fixer agents loop (max 3 iterations) until clean, then test-writer and security-auditor run final checks.
+7. **Review cycle** -- Reviewer + fixer agents loop (max 3 iterations) until clean, then testability and security specialists run final checks.
 8. **Release** -- `hatch3r-release` determines the semver bump, generates a changelog, tags, and publishes.
 
 > **After init:** For greenfield, run `hatch3r-project-spec` then `hatch3r-roadmap`. For brownfield, run `hatch3r-codebase-map`. For a single feature, run `hatch3r-feature-plan`. For small changes, run `hatch3r-quick-change`.
@@ -145,7 +147,7 @@ A four-phase pipeline (Research, Implement, Review Loop with reviewer + fixer at
 AGENTS.md (Linux Foundation AAIF spec, 60K+ repos as of January 2026) is the greatest-common-denominator markdown standard for agent instructions; it is consumed by 20+ tools including Cursor, Copilot, Codex, and Gemini CLI. hatch3r is complementary: AGENTS.md describes one file's content; hatch3r owns the entire generation pipeline that emits tool-native configurations across 5 artifact classes (rules, skills, commands, hooks, MCP servers) for 3 supported platforms (Claude Code, Cursor, GitHub Copilot). Three measurable differences:
 
 - **Scope:** AGENTS.md is one flat instruction file per repo; hatch3r generates platform-specific structured output (`.mdc` rules with frontmatter scoping for Cursor, `CLAUDE.md` with managed blocks for Claude Code, `.github/instructions/` + `.github/prompts/` for Copilot) plus board commands, MCP server configs, and event-driven hooks.
-- **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (29 agents + 65 rules + 53 skills + 30 commands + 7 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited weekly across 24 governance domains.
+- **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (29 agents + 66 rules + 53 skills + 30 commands + 7 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited weekly across 24 governance domains.
 - **Adoption path:** AGENTS.md remains the spec hatch3r-emitted Cursor / Claude / Copilot configurations align with — the 1.9.0 hard-cut withdrew direct AGENTS.md emission per CONSTITUTION §6 Decision #12, but AAIF spec evolution feeds per-adapter feature work for the 3 supported adapters. Use AGENTS.md alone when one flat file suffices for your project; use hatch3r when you need the full content + tooling stack.
 
 ## Customization
@@ -157,9 +159,9 @@ hatch3r separates managed from custom files:
 - User-authored canonical overrides live under `.hatch3r/overrides/` (escape hatch); adapters prefer overrides over bundled content.
 - Configure preferred AI models per agent via `hatch.json` (global default + per-agent overrides), agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [Model Selection](https://docs.hatch3r.com/docs/guides/model-selection).
 
-## Cursor Plugin
+## Editor Plugin
 
-hatch3r is also available as a [Cursor plugin](https://cursor.com/marketplace). Enable it for instant access to all rules, skills, agents, and commands without running `init`.
+hatch3r ships plugin manifests for both Claude Code (`.claude-plugin/marketplace.json`) and Cursor (`.cursor-plugin/plugin.json`). Install it straight from this repo as a marketplace — in Claude Code, run `/plugin marketplace add hatch3r/hatch3r` then `/plugin install hatch3r@hatch3r` — for access to all rules, skills, agents, and commands without running `init`.
 
 ## Documentation
 

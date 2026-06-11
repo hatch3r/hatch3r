@@ -86,6 +86,10 @@ import {
   TAG_LANG_RUST,
   TAG_LANG_JAVA,
   TAG_LANG_RUBY,
+  // Role (D14-M6)
+  TAG_ROLE_REVIEWER,
+  TAG_ROLE_SECURITY_LEAD,
+  TAG_ROLE_SENIOR_ENG,
   // Helpers and registry
   ALL_TAGS,
   TAG_REGISTRY,
@@ -97,6 +101,11 @@ import {
   isCustomizeTag,
   isUiUxSpecialisation,
   isLanguageTag,
+  isRoleTag,
+  admitsUnconditionally,
+  KNOWN_ROLES,
+  KNOWN_FACETS,
+  FACET_TAG_ADMISSIONS,
   LANGUAGE_TO_TAG,
   resolveLanguageTags,
   filterByLanguages,
@@ -330,6 +339,15 @@ describe("TAG_REGISTRY consistency", () => {
     expect(facetOf(TAG_LANG_RUBY)).toBe("language");
   });
 
+  it("facetOf returns 'role' for every role tag (D14-M6 — guards mis-registration as capability)", () => {
+    // The reported gap (D3-13): a role tag silently re-registered to "capability"
+    // keeps ALL_TAGS at 80 and the role facet asserted nowhere. Pin each of the 3
+    // role tags to facet "role" directly so a facet flip fails here.
+    expect(facetOf(TAG_ROLE_REVIEWER)).toBe("role");
+    expect(facetOf(TAG_ROLE_SECURITY_LEAD)).toBe("role");
+    expect(facetOf(TAG_ROLE_SENIOR_ENG)).toBe("role");
+  });
+
   it("facetOf returns undefined for unknown / legacy tag values", () => {
     expect(facetOf("core")).toBeUndefined();
     expect(facetOf("solo")).toBeUndefined();
@@ -419,6 +437,17 @@ describe("tagsForFacet", () => {
     expect(result).toHaveLength(6);
     for (const t of result) {
       expect(t).toMatch(/^lang:/);
+    }
+  });
+
+  it("returns the 3 role tags (D14-M6), each prefixed 'role:'", () => {
+    const result = tagsForFacet("role");
+    expect(result).toHaveLength(3);
+    expect(result.sort()).toEqual(
+      [TAG_ROLE_REVIEWER, TAG_ROLE_SECURITY_LEAD, TAG_ROLE_SENIOR_ENG].sort(),
+    );
+    for (const t of result) {
+      expect(t).toMatch(/^role:/);
     }
   });
 
@@ -519,6 +548,98 @@ describe("isLanguageTag", () => {
     expect(isLanguageTag(TAG_PLANNING)).toBe(false);
     expect(isLanguageTag(TAG_FLOOR_SECURITY)).toBe(false);
     expect(isLanguageTag("")).toBe(false);
+  });
+});
+
+describe("isRoleTag (D14-M6 — the single uncovered facet predicate, 13/14 → 14/14)", () => {
+  it("returns true for role tags", () => {
+    expect(isRoleTag(TAG_ROLE_REVIEWER)).toBe(true);
+    expect(isRoleTag(TAG_ROLE_SECURITY_LEAD)).toBe(true);
+    expect(isRoleTag(TAG_ROLE_SENIOR_ENG)).toBe(true);
+  });
+
+  it("returns false for non-role tags", () => {
+    expect(isRoleTag(TAG_REVIEW)).toBe(false); // capability 'review' is not role:reviewer
+    expect(isRoleTag(TAG_SECURITY)).toBe(false); // capability 'security' is not role:security-lead
+    expect(isRoleTag(TAG_FLOOR_SECURITY)).toBe(false);
+    expect(isRoleTag(TAG_PLANNING)).toBe(false);
+    expect(isRoleTag("reviewer")).toBe(false); // bare role id, not the role:* tag
+    expect(isRoleTag("")).toBe(false);
+  });
+});
+
+// ── Role admission metadata — KNOWN_ROLES / KNOWN_FACETS / FACET_TAG_ADMISSIONS ──
+
+describe("role + facet admission metadata", () => {
+  it("KNOWN_ROLES lists the 3 role ids (role:* tags minus the prefix)", () => {
+    expect([...KNOWN_ROLES]).toEqual(["reviewer", "security-lead", "senior-eng"]);
+  });
+
+  it("each KNOWN_ROLES id prefixed with 'role:' is a registered role tag", () => {
+    for (const role of KNOWN_ROLES) {
+      expect(facetOf(`role:${role}`)).toBe("role");
+    }
+  });
+
+  it("KNOWN_ROLES is exactly the role facet's tag set, prefix-stripped (no drift)", () => {
+    const fromRegistry = tagsForFacet("role")
+      .map((t) => t.replace(/^role:/, ""))
+      .sort();
+    expect([...KNOWN_ROLES].sort()).toEqual(fromRegistry);
+  });
+
+  it("KNOWN_FACETS lists the 3 graduated customization facets (D14-M9)", () => {
+    expect([...KNOWN_FACETS]).toEqual(["a11y", "performance", "observability"]);
+  });
+
+  it("FACET_TAG_ADMISSIONS maps each KNOWN_FACETS id to its admitting tag set", () => {
+    expect(FACET_TAG_ADMISSIONS.a11y).toEqual([TAG_ACCESSIBILITY, TAG_A11Y]);
+    expect(FACET_TAG_ADMISSIONS.performance).toEqual([TAG_PERFORMANCE]);
+    expect(FACET_TAG_ADMISSIONS.observability).toEqual([TAG_OBSERVABILITY]);
+  });
+
+  it("FACET_TAG_ADMISSIONS keys equal KNOWN_FACETS (every facet has an admission entry)", () => {
+    expect(Object.keys(FACET_TAG_ADMISSIONS).sort()).toEqual([...KNOWN_FACETS].sort());
+  });
+
+  it("every tag admitted by a facet is a registered capability or ui-ux tag (live, not dangling)", () => {
+    for (const tags of Object.values(FACET_TAG_ADMISSIONS)) {
+      for (const tag of tags) {
+        expect(facetOf(tag)).toBeDefined();
+      }
+    }
+  });
+});
+
+// ── admitsUnconditionally — universal-floor admission predicate ──
+
+describe("admitsUnconditionally (D16-2)", () => {
+  it("returns true for protected items regardless of tags", () => {
+    expect(admitsUnconditionally({ tags: [], protected: true })).toBe(true);
+    expect(admitsUnconditionally({ tags: [TAG_LANG_GO], protected: true })).toBe(true);
+  });
+
+  it("returns true for items carrying any floor:* tag", () => {
+    expect(admitsUnconditionally({ tags: [TAG_FLOOR_SECURITY] })).toBe(true);
+    expect(admitsUnconditionally({ tags: [TAG_FLOOR_UI_UX] })).toBe(true);
+    expect(admitsUnconditionally({ tags: [TAG_FLOOR_PROTOCOL] })).toBe(true);
+    expect(admitsUnconditionally({ tags: [TAG_FLOOR_CONTENT_QUALITY] })).toBe(true);
+  });
+
+  it("returns true for a floor-tagged item that is NOT protected (the ~40+ fall-through set)", () => {
+    expect(
+      admitsUnconditionally({ tags: [TAG_IMPLEMENTATION, TAG_FLOOR_SECURITY], protected: false }),
+    ).toBe(true);
+  });
+
+  it("returns false for a non-floor, non-protected item", () => {
+    expect(admitsUnconditionally({ tags: [TAG_IMPLEMENTATION, TAG_LANG_TYPESCRIPT] })).toBe(false);
+    expect(admitsUnconditionally({ tags: [] })).toBe(false);
+    expect(admitsUnconditionally({ tags: [TAG_REVIEW], protected: false })).toBe(false);
+  });
+
+  it("ignores legacy/unknown tags (not floor by the registry)", () => {
+    expect(admitsUnconditionally({ tags: ["core", "security"] })).toBe(false);
   });
 });
 
@@ -671,6 +792,19 @@ describe("filterByLanguages", () => {
     expect(result.map((i) => i.id)).toEqual(["ts-only", "agnostic"]);
   });
 
+  it("treats an all-unmapped projectLanguages list as a no-op (D14-3: empty relevant set)", () => {
+    // 'php' is detectable but absent from LANGUAGE_TO_TAG, so resolveLanguageTags
+    // returns ∅. With no resolvable language signal the filter declines to
+    // narrow rather than dropping every lang:*-tagged item (the silent-strip bug).
+    const items: Item[] = [
+      item("ts-only", ["lang:typescript"]),
+      item("go-only", ["lang:go"]),
+      item("agnostic", [TAG_ORCHESTRATION]),
+    ];
+    const result = filterByLanguages(items, ["php"]);
+    expect(result.map((i) => i.id)).toEqual(["ts-only", "go-only", "agnostic"]);
+  });
+
   it("always includes protected items even when their lang tag does not match", () => {
     const items: Item[] = [
       item("ts-protected", ["lang:typescript"], { protected: true }),
@@ -678,6 +812,20 @@ describe("filterByLanguages", () => {
     ];
     const result = filterByLanguages(items, ["python"]);
     expect(result.map((i) => i.id)).toEqual(["ts-protected"]);
+  });
+
+  it("always includes floor-tagged (unprotected) items on a language mismatch (D2-4 / D16-2)", () => {
+    // The reported bug: a `floor:security`+`lang:typescript` rule was dropped
+    // from a Python project because filterByLanguages early-returned only on
+    // `protected`. The universal-floor invariant outranks language filtering.
+    const items: Item[] = [
+      item("sec-ts-floor", [TAG_IMPLEMENTATION, TAG_FLOOR_SECURITY, "lang:typescript"]),
+      item("uiux-ts-floor", [TAG_FLOOR_UI_UX, "lang:typescript"]),
+      item("plain-ts", [TAG_IMPLEMENTATION, "lang:typescript"]),
+    ];
+    const result = filterByLanguages(items, ["python"]);
+    // Both floor-tagged TS items survive on a Python repo; the plain TS rule is dropped.
+    expect(result.map((i) => i.id).sort()).toEqual(["sec-ts-floor", "uiux-ts-floor"]);
   });
 
   it("multi-language projects include items matching any of the listed languages", () => {

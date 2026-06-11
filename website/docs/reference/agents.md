@@ -11,23 +11,35 @@ Specialized agents that handle distinct responsibilities in your development wor
 
 | Agent | Description |
 |-------|-------------|
-| **a11y-auditor** | Accessibility specialist who audits WCAG AA compliance -- keyboard navigation, color contrast, ARIA attributes, and reduced motion support. |
-| **architect** | Architecture design and ADR production. Evaluates system structure, proposes changes, and produces architecture decision records. |
-| **ci-watcher** | CI/CD specialist who monitors GitHub Actions runs, reads failure logs to identify root causes, and suggests focused fixes with local verification commands. |
-| **context-rules** | Dynamic context rule generation agent. Analyzes project patterns and automatically creates context-aware rules for improved agent performance. |
-| **creator** | User-content authoring agent invoked by `/hatch3r-create`. Authors one user-tier artifact (agent, skill, rule, command, or hook) under `.hatch3r/overrides/`, runs strict and gentle quality gates via `saveUserContent`, and writes only when strict gates pass. |
-| **dependency-auditor** | Supply chain security analyst who scans for CVEs, evaluates upgrade paths, assesses bundle size impact, and verifies lockfile integrity. |
-| **devops** | CI/CD and deployment operations agent. Manages pipeline configuration, deployment scripts, infrastructure-as-code, and environment provisioning. |
-| **docs-writer** | Technical writer who maintains specs, ADRs, glossary, and process documentation, keeping them in sync with code changes. |
-| **fixer** | Targeted fix agent for reviewer findings. Receives specific critical or warning findings from `hatch3r-reviewer` and implements precise fixes without scope creep. |
-| **implementer** | Focused implementation agent for a single sub-issue. Receives issue context from a parent orchestrator, delivers code and tests, and reports structured results. Does not handle git or board operations. |
-| **learnings-loader** | Knowledge base consultation agent. Loads and indexes learnings from past issues, code reviews, and architectural decisions to inform current work. |
-| **lint-fixer** | Code quality enforcer who fixes ESLint, Prettier, and TypeScript strict mode violations without changing logic. Removes dead code and unused imports. |
-| **perf-profiler** | Performance engineer who profiles runtime performance, analyzes bundle size, identifies memory leaks, and benchmarks against defined performance budgets. |
-| **researcher** | Research specialist who performs deep investigation on assigned topics using parallel analysis. Used as a sub-agent by planning commands (`project-spec`, `feature-plan`, `bug-plan`, `refactor-plan`). |
-| **reviewer** | Senior code reviewer who checks for correctness, security, privacy invariants, performance regressions, and accessibility. Outputs structured feedback by priority (critical, warning, suggestion). |
-| **security-auditor** | Security analyst who audits database rules, cloud functions, and data flows. Verifies privacy invariants, writes security rules tests, and validates entitlement enforcement. |
-| **test-writer** | QA engineer who writes deterministic, isolated tests -- unit, integration, E2E, security rules, and contract tests. Focuses on edge cases and regression coverage. |
+| **architect** | System architect who designs architecture, creates ADRs, analyzes dependencies, designs APIs and database schemas, and evaluates architectural trade-offs. |
+| **brownfield-spec** | Brownfield spec agent -- produces a codebase map, existing-pattern detection, integration-surface analysis, and a migration-aware plan with a non-destructive-adoption check. |
+| **ci-watcher** | CI/CD specialist who monitors pipeline runs, reads failure logs to diagnose root causes, and suggests focused fixes with local verification commands. |
+| **context-rules** | Context-aware rules engine that applies coding standards based on file type, location, and project conventions, on save or during review. |
+| **creator** | User-content authoring agent invoked by `/hatch3r-create`. Authors one user-tier artifact under `.hatch3r/overrides/`, runs strict + gentle quality gates, and writes only when all strict gates pass. |
+| **dependency-drafter** | Dependency-analysis specialist who drafts version-bump and dependency-change proposals with upgrade-impact, advisory, and breaking-change assessment. Drafts only; never installs or edits a manifest. |
+| **devops** | DevOps engineer who manages CI/CD pipelines, infrastructure as code, deployment strategies, monitoring setup, container configuration, and environment management. |
+| **docs-writer** | Technical writer who maintains specs, ADRs, and documentation, keeping them in sync with code changes. |
+| **edge-case-analyst** | Domain edge-case + error-handling correctness specialist who enumerates functional edge cases (identity collisions, state transitions, null/boundary, concurrency, partial failure) and verifies none were dropped between Plan, Implement, and Review. |
+| **enhancability** | Enhancability quality specialist who reviews generated code for feature-flag adoption, config externalization, versioned APIs, forward-compatibility, and extension-point definition. |
+| **fixer** | Targeted fix agent that takes structured reviewer output and implements fixes for Critical and Warning findings. Does not handle git, branches, commits, or PRs. |
+| **greenfield-spec** | Greenfield spec agent -- produces market research, competitive analysis, user personas, tech-stack picks, PRD, acceptance criteria, risk inventory, and test plan for new projects. |
+| **handoff-loader** | Session-start agent that surfaces active handoff documents from `.hatch3r/handoffs/active/` to detect in-progress work for resumption. |
+| **handoff-preparer** | Prepares a canonical handoff document capturing mid-work session state, invoked by the on-context-switch hook and by `/hatch3r-handoff prepare`. |
+| **implementer** | Focused implementation agent for a single issue. Receives issue context, delivers code changes and tests. Does not handle git, branches, commits, PRs, or board operations. |
+| **incident-responder** | Incident-response specialist who drives a live production incident through structured triage, bounded-autonomy mitigation, stakeholder communication, and a blameless post-mortem. |
+| **learnings-loader** | Session-start agent that surfaces relevant project learnings, recent decisions, and context from previous sessions. |
+| **lint-fixer** | Code quality enforcer who fixes style, formatting, and TypeScript strict mode violations without changing logic. |
+| **maintainability** | Maintainability quality specialist who reviews generated code for duplication index, pattern reuse, cyclomatic complexity, expand-contract migrations, and API breaking-change discipline. |
+| **pack-installer** | Installs a community pack into the consumer repo after the trust-model gate clears -- verifies trust tier + signing method, dry-runs the write set, applies atomically, and rolls back on any failure. |
+| **performance** | Performance quality specialist who reviews generated code for Core Web Vitals budgets (LCP/INP/CLS), backend p95/p99 latency, bundle size, and N+1 query elimination. |
+| **reliability** | Reliability quality specialist who reviews generated services for OpenTelemetry instrumentation, SLO definition, RED+USE metrics, RFC 9457 error responses, and circuit-breaker/retry patterns. |
+| **researcher** | Composable context researcher. Receives a research brief with mode selections and depth level, gathers context following the tooling hierarchy, and returns structured findings. Does not create or modify files. |
+| **reviewer** | Expert code reviewer who checks for quality, security, privacy invariants, performance, accessibility, and adherence to specs. Outputs structured feedback by priority (critical, warning, suggestion). |
+| **scalability** | Scalability quality specialist who reviews generated services for stateless handlers, back-pressure patterns, idempotency-key adoption, queue-based offloading, and connection-pool sizing. |
+| **security** | Security quality specialist who reviews generated code for OAuth 2.1 + OIDC + DPoP + WebAuthn server-side, supply-chain integrity (SBOM + provenance + SHA-pin + cosign), and OWASP ASI controls. |
+| **testability** | Testability quality specialist who reviews generated code for the per-feature test-class mandate, real-deal-first testing, coverage thresholds, and AI feature eval coverage. |
+| **ui** | UI quality specialist who reviews generated UI for WCAG 2.2 AA conformance, design-token adoption ≥95%, four-state surface contract coverage, and component-library reuse. |
+| **ux** | UX quality specialist who reviews generated UX flows for error-recovery clarity, first-run success, decisions-per-flow discipline, focus management, and screen-reader announcement. |
 
 ## Default Model Assignments
 
@@ -70,6 +82,7 @@ Modes are orchestration-depth profiles that `hatch3r-researcher` selects per tas
 | `feature-design` | Break a subject into implementable sub-tasks with user stories, acceptance criteria, edge cases, and effort estimates. | `hatch3r-researcher` (feature-plan flows) |
 | `complexity-risk` | Identify complexity hotspots and mutation-prone areas to prioritize testing effort. | `hatch3r-researcher` (`hatch3r-test-plan` flows) |
 | `requirements-elicitation` | Detect ambiguities and generate structured user questions across 10 dimensions before implementation. | `hatch3r-researcher` (triggered by `hatch3r-deep-context` rule) |
+| `user-flows` | Decompose a user story into Happy Path, Alternative Paths, and Error-Recovery Path with four-state mapping and microcopy before implementation. | `hatch3r-researcher` (gates `hatch3r-feature-plan` and `hatch3r-implementer`) |
 | `risk-assessment` | Identify technical risks, security implications, performance concerns, and breaking changes. | `hatch3r-researcher` (planning and review flows) |
 | `coverage-analysis` | Map existing test coverage, identify gaps, and surface critical untested paths. | `hatch3r-researcher` (`hatch3r-test-plan` flows) |
 | `boundary-analysis` | Map integration boundaries, external dependencies, and data-flow seams for integration and contract test targeting. | `hatch3r-researcher` (`hatch3r-test-plan` flows) |

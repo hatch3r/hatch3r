@@ -137,13 +137,42 @@ describe("capabilityMatrix", () => {
       expect(plat.capabilities.length).toBeGreaterThan(0);
     });
 
-    it("seed for copilot marks hooks as unsupported (#73)", async () => {
+    it("seed for copilot marks hooks as partial (VS Code Preview PreToolUse, #73)", async () => {
+      // D9-17 / D9-20 (Cycle 11): VS Code documents a Preview PreToolUse deny
+      // hook, so the seed status is `partial` (Preview, VS-Code-only, not GA),
+      // no longer the absolute `unsupported`. hatch3r still emits no copilot
+      // hook (ADAPTER_CAPABILITIES.copilot.hooks=false), so computeUtilization
+      // classifies the row `unutilized` — the enhancement-surface signal.
       tempDir = await mkdtemp(join(tmpdir(), "hatch3r-capmatrix-"));
       process.env[ENV_KEY] = join(tempDir, "absent.md");
       const plat = await enumeratePlatformCapabilities("copilot");
       const hooks = plat.capabilities.find((c) => c.id === "hooks");
       expect(hooks).toBeDefined();
-      expect(hooks!.status).toBe("unsupported");
+      expect(hooks!.status).toBe("partial");
+    });
+
+    it("seed for copilot includes a handoffs row (D9-18)", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-capmatrix-"));
+      process.env[ENV_KEY] = join(tempDir, "absent.md");
+      const plat = await enumeratePlatformCapabilities("copilot");
+      const handoffs = plat.capabilities.find((c) => c.id === "handoffs");
+      expect(handoffs).toBeDefined();
+      expect(handoffs!.status).toBe("supported");
+    });
+
+    it("seed for cursor exposes preToolUse + subagentStart hook rows (D9-20)", async () => {
+      // Cursor now documents preToolUse + subagentStart hooks AND hatch3r emits
+      // both (.cursor/hooks.json) — the prior single `unsupported` hooks row was
+      // stale. Both map to the `hooks` declared flag (true for cursor).
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-capmatrix-"));
+      process.env[ENV_KEY] = join(tempDir, "absent.md");
+      const plat = await enumeratePlatformCapabilities("cursor");
+      const pre = plat.capabilities.find((c) => c.id === "pre-tool-use");
+      const sub = plat.capabilities.find((c) => c.id === "subagent-start");
+      expect(pre?.status).toBe("supported");
+      expect(sub?.status).toBe("supported");
+      // The stale `unsupported` single-hooks row must be gone.
+      expect(plat.capabilities.find((c) => c.id === "hooks")).toBeUndefined();
     });
   });
 

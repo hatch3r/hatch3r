@@ -25,7 +25,7 @@ Flow decomposition is also the contract between the feature designer and the rev
 
 ## Four-State Surface Contract
 
-Every async view renders all four states. Missing any state on an async view is a blocker — NN/g 2025 measured 92% of AI-generated dashboards omit empty state and 78% omit error state, so this is the regression bar to beat.
+Every async view renders all four states. Missing any state on an async view is a blocker: the empty, error, and partial states are each a distinct cause-and-recovery path, and dropping one strands the user with no diagnosis or next action when that path fires (an empty result reads as a broken load, a failed request reads as a hang, a partial result silently hides the failed subset). The blocker is justified by recovery-path completeness, not by an omission-frequency statistic. NN/g empty-state and error-message guidance ([empty states](https://www.nngroup.com/articles/empty-state-interface-design/), [error messages](https://www.nngroup.com/articles/error-message-guidelines/), both accessed 2026-06-05, NN/g, official-docs) anchors the per-state rendering rules below.
 
 | State | Trigger | Rendering rules |
 |-------|---------|-----------------|
@@ -37,6 +37,10 @@ Every async view renders all four states. Missing any state on an async view is 
 State machines drive these transitions — model the view as `idle | loading | success | empty | error | partial` and assert every state has a render path in the component. Snapshot every state in tests (Storybook play function or vitest + Testing Library): missing snapshots are blockers.
 
 Transitions between states have their own rules. Loading -> success swaps the skeleton for content without layout shift (the skeleton was already the final dimensions). Loading -> error replaces the skeleton with the error surface and announces it via `role="alert"`. Loading -> empty replaces the skeleton with the sub-typed empty surface (cold / filter / permission). Success -> partial overlays the banner without re-rendering the succeeded subset. Every transition has a measurable duration and an announcement strategy — never silent.
+
+### Partial-state fixture recipe
+
+Loading, empty, and error each fixture from one mocked response (delay it, return `[]`, return a 5xx). Partial is the hard case the snapshot blocker most often strands on: it requires two concurrent requests resolving to opposite outcomes in a single render. Build it one of two ways. (1) **MSW per-endpoint**: register two handlers in the same worker — `http.get('/api/widgets', () => HttpResponse.json(widgets))` and `http.get('/api/sidebar', () => HttpResponse.json(null, { status: 500 }))` — so the view mounts its 200 subset and its 500 subset together and the partial banner renders against real degraded data. (2) **`Promise.allSettled` with a forced rejection**: have the fixture's data layer resolve the succeeded fetch and reject the failed one (`Promise.allSettled([ok(widgets), Promise.reject(new Error('sidebar 500'))])`), then assert the component reads `status === 'rejected'` on the failed entry and renders the banner + retry for that subset only. Either path produces the snapshot Gate 4 (`skills/hatch3r-ui-ux-verify/SKILL.md` -> Gate 4) requires; do not stub the partial state by hand-editing the success snapshot, which never exercises the failed-subset render path.
 
 ## First-Run vs Filter vs Network — Content Structure
 
@@ -110,7 +114,7 @@ Anchored to GOV.UK Design System (error pattern, plain English) and IBM Carbon (
 ## Mobile and Touch
 
 - Touch target minimum: 44pt on iOS HIG, 48dp on Material 3. The platform minimum supersedes WCAG SC 2.5.8 (24x24 CSS px) on touch surfaces — use the stricter bound.
-- Spacing between adjacent interactive elements: >=8px to avoid mis-taps. Measure on the rendered DOM, not on the design comp — padding and margins count toward hit area only when they belong to the same interactive element.
+- Spacing between adjacent interactive elements: >=8px to avoid mis-taps. Measure on the rendered DOM (web) or the rendered native view tree (RN/Flutter/SwiftUI/Compose), not on the design comp — padding and margins count toward hit area only when they belong to the same interactive element.
 - Avoid tap-to-reveal (hover-only tooltip) on touch surfaces. Use permanent labels or long-press with a visible affordance. Hover-only tooltips fail WCAG SC 1.4.13 Content on Hover or Focus on touch.
 - Apply `env(safe-area-inset-*)` on full-bleed surfaces so primary CTAs do not sit under the iOS home indicator, notch, or Android gesture nav. Native equivalents: `safeAreaInsets` on iOS, `WindowInsets` on Android.
 - Dynamic Type on iOS (`UIFont.preferredFont(forTextStyle:)` or SwiftUI `Font.body`) and rem-based font scaling on Android/web. Never use hard-coded `px` for text — fails text-resize verification at 200% zoom (WCAG SC 1.4.4) and 400% reflow (SC 1.4.10).
@@ -118,6 +122,7 @@ Anchored to GOV.UK Design System (error pattern, plain English) and IBM Carbon (
 - Pointer-event vs touch-event: prefer pointer events (`pointerdown`, `pointermove`, `pointerup`) so the same handler covers mouse, touch, pen. Synthesize click events on tap with a 300ms tolerance only on legacy mobile browsers — modern engines emit click immediately.
 - Pinch-zoom: never disable user zoom on the viewport meta tag. WCAG SC 1.4.4 fails on disabled zoom. Use `maximum-scale=5` to allow up to 5x zoom while suppressing zoom-on-focus jitter.
 - Orientation lock: respect WCAG SC 1.3.4 — content adapts to portrait and landscape unless an essential exception applies (e.g., piano keyboard, blueprint editor). Document the exception in the spec.
+- Native verification: the touch obligations above hold for React Native, Flutter, SwiftUI/UIKit, and Android Compose/View targets, which have no DOM for axe-core to scan. Verify them with the framework-native a11y check (`eslint-plugin-react-native-a11y`; Flutter `meets_guideline` matchers; Espresso `AccessibilityChecks`; XCUITest `performAccessibilityAudit()`) per `rules/hatch3r-accessibility-standards.md` -> Mobile-native verification path; a native obligation with no such check is `BLOCKED_MISSING_TOOL`, not satisfied.
 
 ## Heuristic Verification Gate
 
@@ -135,7 +140,8 @@ Run every check below before declaring a feature done. A "done" claim without th
 ## References
 
 - WCAG 2.2 AA — new success criteria SC 2.5.8 (Target Size), SC 2.4.11 (Focus Not Obscured), SC 2.5.7 (Dragging Movements), SC 1.4.13 (Content on Hover or Focus)
-- NN/g state-omission research 2025 — empty-state and error-state omission rates in AI-generated UIs (92% empty omitted, 78% error omitted)
+- Nielsen Norman Group, "Designing Empty States in Complex Applications: 3 Guidelines" — https://www.nngroup.com/articles/empty-state-interface-design/ (accessed 2026-06-05, NN/g, official-docs)
+- Nielsen Norman Group, "Error-Message Guidelines" — https://www.nngroup.com/articles/error-message-guidelines/ (accessed 2026-06-05, NN/g, official-docs)
 - GOV.UK Design System — error message and error summary components, plain English readability guidance
 - IBM Carbon Design System — voice and tone content guidelines, error message patterns
 - Baymard Institute — inline form validation research and disabled-submit findings (top-10 form-abandonment driver)

@@ -389,6 +389,73 @@ describe("content/index — copy & disk emission", () => {
       expect(mdcContent).toContain("**/*.tsx");
     });
 
+    // D2-18 (Cycle 11 Wave 3): the canonical two-line form
+    // (`scope: conditional` + a separate `globs:` line — the form
+    // `.claude/rules/content-authoring.md` mandates for new rules) previously
+    // fell to `alwaysApply: false` with NO globs, demoting auto-attached Cursor
+    // rules to manual-only. The `.mdc` must now carry the glob set from the
+    // separate `globs:` field.
+    it("D2-18: emits globs for `scope: conditional` + separate globs field", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-cond-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-cond-rule.md"),
+        "---\nid: hatch3r-cond-rule\ntype: rule\ndescription: Conditional rule\nscope: conditional\nglobs: \"src/**/*.ts, src/**/*.tsx\"\n---\n# Cond Rule\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      await generateMdcCompanions(rulesDir);
+
+      const mdcContent = await readFile(join(rulesDir, "hatch3r-cond-rule.mdc"), "utf-8");
+      expect(mdcContent).toContain('globs: ["src/**/*.ts", "src/**/*.tsx"]');
+      expect(mdcContent).not.toContain("alwaysApply");
+    });
+
+    // D2-18: a `scope: conditional` rule with NO globs is a deprecated
+    // globs-less conditional → manual-only (alwaysApply: false), per the
+    // `.md → .mdc` transform table. It must not invent a bogus glob.
+    it("D2-18: `scope: conditional` with no globs falls to alwaysApply: false", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-cond-empty-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-cond-empty.md"),
+        "---\nid: hatch3r-cond-empty\ntype: rule\ndescription: Deprecated conditional\nscope: conditional\n---\n# Body\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      await generateMdcCompanions(rulesDir);
+
+      const mdcContent = await readFile(join(rulesDir, "hatch3r-cond-empty.mdc"), "utf-8");
+      expect(mdcContent).toContain("alwaysApply: false");
+      expect(mdcContent).not.toContain("globs:");
+    });
+
+    // D5-28: `scope: agent-requested` is the sanctioned third activation mode —
+    // Cursor's "Apply Intelligently" shape (description-only `.mdc`, no globs,
+    // alwaysApply: false). The companion emitter must short-circuit the legacy-
+    // CSV branch so the literal "agent-requested" token never becomes a glob.
+    it("D5-28: `scope: agent-requested` → alwaysApply: false, description, no globs", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-mdc-agentreq-"));
+      const rulesDir = join(tempDir, "rules");
+      await mkdir(rulesDir, { recursive: true });
+      await writeFile(
+        join(rulesDir, "hatch3r-agentreq.md"),
+        "---\nid: hatch3r-agentreq\ntype: rule\ndescription: Pulled in by description\nscope: agent-requested\n---\n# Body\n",
+      );
+
+      const { generateMdcCompanions } = await import("../../content/index.js");
+      await generateMdcCompanions(rulesDir);
+
+      const mdcContent = await readFile(join(rulesDir, "hatch3r-agentreq.mdc"), "utf-8");
+      expect(mdcContent).toContain("description: Pulled in by description");
+      expect(mdcContent).toContain("alwaysApply: false");
+      expect(mdcContent).not.toContain("globs:");
+      expect(mdcContent).not.toContain("agent-requested\n"); // never a `globs: agent-requested` line
+      expect(mdcContent).not.toContain("alwaysApply: true");
+    });
+
     it("returns empty array for nonexistent directory", async () => {
       const { generateMdcCompanions } = await import("../../content/index.js");
       const result = await generateMdcCompanions("/nonexistent/path");

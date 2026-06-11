@@ -19,24 +19,39 @@
     "inventory": "tsx scripts/inventory.ts",
     "inventory:check-docs": "tsx scripts/inventory.ts --check-docs",
     "validate:rule-parity": "tsx scripts/validate-rule-parity.ts && tsx scripts/validate-rule-pillar-currency.ts",
-    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts && tsx scripts/validate-tag-order.ts",
+    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts && tsx scripts/validate-tag-order.ts && tsx scripts/validate-modes-parity.ts && tsx scripts/validate-governance-currency.ts && tsx scripts/validate-traceability-matrix.ts && tsx scripts/validate-decision-id-consistency.ts && tsx scripts/validate-repo-token-adoption.ts && tsx scripts/validate-verify-gate-literals.ts && tsx scripts/validate-customize-doc-examples.ts && tsx scripts/validate-archive-path-currency.ts && tsx scripts/validate-references-currency.ts && tsx scripts/validate-pricing-currency.ts && tsx scripts/validate-subagent-casing.ts && tsx scripts/validate-governance-total.ts",
+    "validate:subagent-casing": "tsx scripts/validate-subagent-casing.ts",
+    "validate:references-currency": "tsx scripts/validate-references-currency.ts",
+    "validate:pricing-currency": "tsx scripts/validate-pricing-currency.ts",
     "validate:cli-skills": "tsx scripts/validate-cli-skills.ts",
     "validate:wiring": "tsx scripts/validate-wiring.ts",
+    "validate:control-reachability": "tsx scripts/validate-control-reachability.ts",
     "validate:anti-slop": "tsx scripts/validate-anti-slop.ts",
     "validate:specialist-roster": "tsx scripts/validate-specialist-roster.ts",
     "validate:severity-vocabulary": "tsx scripts/validate-severity-vocabulary.ts",
+    "validate:retired-agent-refs": "tsx scripts/validate-retired-agent-refs.ts",
+    "validate:fanout-path": "tsx scripts/validate-fanout-path-currency.ts",
+    "validate:archive-path": "tsx scripts/validate-archive-path-currency.ts",
     "validate:canonical": "tsx scripts/validate-canonical.ts",
+    "validate:adapter-parity": "tsx scripts/validate-adapter-output.ts",
+    "validate:trust-crosswalk": "tsx scripts/validate-trust-crosswalk-citations.ts",
+    "validate:id-uniqueness": "tsx scripts/validate-id-uniqueness.ts",
     "generate:cli-skills": "tsx scripts/generate-cli-skills.ts",
     "calibrate:tier-weights": "tsx scripts/calibrate-tier-weights.ts",
-    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring && npm run validate:anti-slop && npm run validate:specialist-roster && npm run validate:severity-vocabulary && npm run validate:canonical",
+    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring && npm run validate:control-reachability && npm run validate:anti-slop && npm run validate:specialist-roster && npm run validate:severity-vocabulary && npm run validate:retired-agent-refs && npm run validate:fanout-path && npm run validate:canonical && npm run validate:adapter-parity && npm run validate:trust-crosswalk && npm run validate:id-uniqueness && npm run validate:codeowners && npm run validate:content-duplication",
     "audit:validate-registry": "tsx scripts/validate-finding-registry.ts",
     "audit:migrate": "tsx scripts/migrate-finding-registry.ts",
     "audit:archive": "tsx scripts/audit-archive.ts",
     "audit:find": "tsx scripts/audit-find.ts",
+    "audit:closed-loop": "tsx scripts/audit-closed-loop-report.ts",
+    "audit:stalled": "tsx scripts/audit-stalled-strategic.ts",
     "audit:reset": "tsx scripts/clean-audit-workspace.ts",
-    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https",
+    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity --validate-package-names",
     "mcp:cve-check": "tsx scripts/check-mcp-cves.ts",
-    "cli-tools:cve-check": "tsx scripts/check-cli-cves.ts"
+    "cli-tools:cve-check": "tsx scripts/check-cli-cves.ts",
+    "validate:action-pins": "tsx scripts/validate-action-pins.ts",
+    "validate:codeowners": "tsx scripts/validate-codeowners.ts",
+    "validate:content-duplication": "tsx scripts/validate-content-duplication.ts"
   },
   "keywords": [
     "agents",
@@ -100,10 +115,12 @@
     "vitest": "^4.1.2"
   },
   "overrides": {
-    "flatted": "^3.4.2"
+    "flatted": "^3.4.2",
+    "brace-expansion": "^5.0.6"
   },
   "comments": {
     "overrides/flatted": "Pinned to >=3.4.2 to resolve security advisory in transitive eslint > flat-cache > flatted dependency",
+    "overrides/brace-expansion": "Pinned to >=5.0.6 to resolve GHSA-jxxr-4gwj-5jf2 (CWE-400, CVSS 6.5, patched 5.0.6) in transitive dev dependency minimatch@10.2.4 > brace-expansion (was 5.0.5). Surgical override preferred over `npm audit fix`, which pulls 78 new platform-binary packages.",
     "dependencies/p-limit": "Cycle 10 L D4-SA4.2-F4.2.5 (D4): p-limit held at 3.1.0 is 4 majors behind 7.3.0 (no CVE — pure P3 currency hygiene). The bump is API-compatible: the only behavioral delta across majors 4-7 is the CommonJS drop, non-applicable here (hatch3r is pure ESM, engines node >=22), and all three call sites use the stable default-export `pLimit(concurrency)` signature — src/workspace/sync.ts, src/workspace/manifest.ts, src/pipeline/complianceVerification.ts. BLOCKED for a no-network audit SA, not deferrable by hand: bumping the spec alone desyncs package-lock.json (currently pins p-limit 3.1.0 + yocto-queue ^0.1.0 at lines ~4705-4727, AND a second transitive `p-limit ^3.0.2` requirer), and `release.yml` 'Verify lockfile sync' (git diff --exit-code package-lock.json) plus every `npm ci` integrity check fail closed on a spec-only or hand-edited lockfile. p-limit 7.x drops yocto-queue for a different internal queue, so the new resolved tree + SHA-512 integrity hashes can only come from the npm resolver. Follow-up (one commit): run `npm install` to land package.json (^7.3.0) + the regenerated lockfile together, then `npm test` to confirm the three pLimit call sites still pass."
   }
 }

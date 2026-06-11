@@ -41,15 +41,17 @@ The reviewer prompt MUST include:
 - All `scope: always` rule directives from `rules/`.
 - Iteration number and previous findings (if not the first iteration).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+- `correlation_id` (UUID v4 generated per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID) — the sub-agent echoes it in logs, outputs, and status reports for cross-phase attribution.
 
 **When Tier 2/3 research was performed** (from Step 6.pre):
 - Include blast radius data so the reviewer can verify fixes preserve dependent consumers and contracts.
 - Include reference conventions so the reviewer can verify fixes follow established patterns.
 
-2. Process reviewer output (confidence-aware gate):
+2. Process reviewer output per the canonical **Confidence-Aware Review Gate** in `agents/shared/confidence-gate.md`, passing in the resolved `--confidence-floor` (`any` | `medium` | `high`) routed here from `hatch3r-revision` → Confidence Floor. At the default `any` floor:
    - If **0 Critical + 0 Warning AND reviewer confidence != low:** review loop is clean. Proceed to Stage 2.
    - If **0 Critical + 0 Warning AND reviewer confidence == low:** trigger a second reviewer pass before exiting. Do not proceed to Stage 2 until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
-   - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them. When fixes touch shared or public interfaces, include blast radius data and reference conventions in the fixer prompt. Then re-run the reviewer (next iteration).
+   - **Floor tightening:** at floor `medium` the pass surface above is unchanged; at floor `high` a `medium`-confidence clean verdict also triggers a second pass (and any low-confidence finding triggers an ASK). Apply the floor-tier branches from the shared gate — do not collapse `medium`/`high` to the `any` row.
+   - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them. The fixer prompt MUST include `correlation_id` (UUID v4 generated per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID) — the sub-agent echoes it in logs, outputs, and status reports for cross-phase attribution. When fixes touch shared or public interfaces, include blast radius data and reference conventions in the fixer prompt. Then re-run the reviewer (next iteration).
 
 3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually.
 
@@ -86,6 +88,7 @@ Each specialist sub-agent prompt MUST include:
 - The diff or file changes to review.
 - The linked issue's acceptance criteria (if available).
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
+- `correlation_id` (UUID v4 generated per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID) — the sub-agent echoes it in logs, outputs, and status reports for cross-phase attribution.
 
 Await all specialist sub-agents. Apply their feedback (fixes, additional tests, documentation updates). Re-run quality gates (7a) if changes were made.
 

@@ -58,6 +58,10 @@ export interface SecretFinding {
  * These patterns detect common secret formats in environment variable
  * values. The patterns are intentionally broad enough to catch real
  * secrets but specific enough to avoid excessive false positives.
+ *
+ * D1-27: scanValueForSecrets selects the highest-severity matching pattern,
+ * so array order no longer determines which finding is reported — it only
+ * breaks ties among equal-severity matches (earlier == more specific wins).
  */
 export const SECRET_PATTERNS: readonly SecretPattern[] = [
   // ── API Keys and Tokens ──
@@ -147,8 +151,15 @@ export const SECRET_PATTERNS: readonly SecretPattern[] = [
   },
   // D15 Medium: additional MCP and provider-specific patterns (#358-#385)
   {
+    // D1-26 (Cycle 11 Wave-3): the prior `/[a-z2-7]{52}$/` targeted the
+    // deprecated 52-char base32 Azure DevOps PAT and was unanchored at the
+    // start, so it matched the trailing 52 chars of any longer base32-shaped
+    // value. Microsoft's current Azure DevOps PAT is the 84-char mixed-case
+    // form carrying a literal `AZDO` marker at offsets 76-79 (75 chars before,
+    // 5 after). The pattern below is anchored on both ends so it matches the
+    // exact 84-char token rather than a tail substring.
     name: "Azure DevOps PAT",
-    pattern: /[a-z2-7]{52}$/,
+    pattern: /^[A-Za-z0-9]{75}AZDO[A-Za-z0-9]{5}$/,
     severity: "high",
     guidance: "Azure DevOps PATs should be stored in a secrets manager, not in env files.",
   },
@@ -196,6 +207,16 @@ function hasCredentialContext(variableName: string, value: string): boolean {
 }
 
 /**
+ * D1-27: rank a severity for highest-severity match selection.
+ * Higher number == more severe.
+ */
+const SEVERITY_RANK: Record<SecretPattern["severity"], number> = {
+  medium: 1,
+  high: 2,
+  critical: 3,
+};
+
+/**
  * Scan a single environment variable value for secret patterns.
  */
 export function scanValueForSecrets(
@@ -204,33 +225,50 @@ export function scanValueForSecrets(
 ): SecretFinding[] {
   if (!value || value.trim().length === 0) return [];
 
-  const findings: SecretFinding[] = [];
-
+  // D1-27: report the single highest-severity match rather than the first
+  // match in array order. First-match-wins routed a value that satisfied
+  // both the generic medium base64 catch-all (earlier in the array) and a
+  // provider-specific high pattern (later) to the medium finding, under-
+  // severing real high secrets and mislabelling them "Base64-encoded Secret".
+  // Selecting by severity is order-independent: it stays correct regardless
+  // of where future patterns are inserted. On a severity tie the earlier
+  // (more specific) pattern wins, since SECRET_PATTERNS is ordered most-
+  // specific-first.
+  let best: SecretPattern | undefined;
   for (const sp of SECRET_PATTERNS) {
-    if (sp.pattern.test(value)) {
-      // D1-M15: context-required patterns (e.g. generic long-base64) only
-      // flag when the variable name or value carries a credential signal.
-      if (sp.contextRequired && !hasCredentialContext(variableName, value)) continue;
-      findings.push({
-        variableName,
-        secretType: sp.name,
-        severity: sp.severity,
-        guidance: sp.guidance,
-        maskedValue: maskValue(value),
-      });
-      // Only report the most specific (first) match per value
-      break;
+    if (!sp.pattern.test(value)) continue;
+    // D1-M15: context-required patterns (e.g. generic long-base64) only
+    // flag when the variable name or value carries a credential signal.
+    if (sp.contextRequired && !hasCredentialContext(variableName, value)) continue;
+    if (best === undefined || SEVERITY_RANK[sp.severity] > SEVERITY_RANK[best.severity]) {
+      best = sp;
     }
   }
 
-  return findings;
+  if (best === undefined) return [];
+
+  return [
+    {
+      variableName,
+      secretType: best.name,
+      severity: best.severity,
+      guidance: best.guidance,
+      maskedValue: maskValue(value),
+    },
+  ];
 }
 
 /**
  * Scan all environment variables in a parsed env file for secrets.
  *
  * This is the primary API for secret detection in MCP env configuration.
- * Called during `hatch3r validate` and when writing `.env.mcp` files.
+ * Wired into `hatch3r validate` only (`src/cli/commands/validate.ts`
+ * validateEnvMcpSecrets). The `.env.mcp` writer (`src/env/mcpEnv.ts`
+ * ensureEnvMcp) does NOT call this on write, so secrets pasted during
+ * `mcp setup`/init are surfaced only on the next explicit `hatch3r validate`,
+ * not at write time (D11-SA11.3-F6, Cycle 11 Wave 4 — docstring corrected to
+ * match the actual wiring rather than claim a write-time hook that does not
+ * exist).
  */
 export function detectSecrets(
   envVars: Record<string, string>,

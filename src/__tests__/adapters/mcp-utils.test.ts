@@ -16,6 +16,9 @@ import {
   ON_DEMAND_FETCH_LAUNCHERS,
   DEFAULT_TRANSFORM_MAX_DEPTH,
   MCP_ENV_VAR_FORMAT_PARITY,
+  CANONICAL_MCP_PACKAGES,
+  MIN_HONORED_MCP_TIMEOUT_MS,
+  MAX_MCP_TIMEOUT_MS,
 } from "../../adapters/mcp-utils.js";
 import type { McpServerEntry } from "../../adapters/mcp-utils.js";
 
@@ -58,6 +61,19 @@ describe("validateMcpEntry", () => {
       args: ["-m", "mcp_server"],
     };
     expect(validateMcpEntry("py-mcp", entry)).toEqual([]);
+  });
+
+  // D11-8 (Cycle 11, P3/P6): the canonical `gitlab` MCP server launches the
+  // GitLab CLI as a local binary (`glab mcp serve`). `glab` is allowlisted as
+  // a system command, so the bundled config must not self-emit an
+  // "unrecognized command" warning.
+  it("returns no warnings for the canonical gitlab entry (glab mcp serve)", () => {
+    const entry: McpServerEntry = {
+      command: "glab",
+      args: ["mcp", "serve"],
+      env: { GITLAB_TOKEN: "${env:GITLAB_TOKEN}" },
+    };
+    expect(validateMcpEntry("gitlab", entry)).toEqual([]);
   });
 
   it("warns on unrecognized command", () => {
@@ -160,6 +176,65 @@ describe("validateMcpEntry", () => {
       args: ["server.js"],
     };
     expect(validateMcpEntry("win-node", entry)).toEqual([]);
+  });
+});
+
+describe("validateMcpEntry _timeout bounds (D9-SA9.1-L / D15-SA15.5-F8)", () => {
+  const base: McpServerEntry = { command: "npx", args: ["@scope/pkg@1.0.0"] };
+
+  it("emits no timeout warning for an in-range value (>=1000ms, <=max)", () => {
+    const warnings = validateMcpEntry("ok", { ...base, _timeout: 30_000 });
+    expect(warnings.some((w) => w.includes("timeout"))).toBe(false);
+  });
+
+  it("emits no timeout warning at the exact minimum honored value", () => {
+    // Boundary: MIN_HONORED is honored (inclusive); only strictly-below warns.
+    const warnings = validateMcpEntry("boundary", {
+      ...base,
+      _timeout: MIN_HONORED_MCP_TIMEOUT_MS,
+    });
+    expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
+      false,
+    );
+  });
+
+  it("warns when a positive _timeout is below the minimum honored value (silently ignored by Claude Code)", () => {
+    const warnings = validateMcpEntry("sub-second", { ...base, _timeout: 500 });
+    const hit = warnings.find((w) => w.includes("below the minimum honored"));
+    expect(hit).toBeDefined();
+    expect(hit).toContain("500ms");
+    expect(hit).toContain(`${MIN_HONORED_MCP_TIMEOUT_MS}ms`);
+    // Actionable: tells the operator the floor and the fall-through behavior.
+    expect(hit).toContain("MCP_TOOL_TIMEOUT");
+  });
+
+  it("warns just below the boundary (999ms) but not at it", () => {
+    const below = validateMcpEntry("just-below", {
+      ...base,
+      _timeout: MIN_HONORED_MCP_TIMEOUT_MS - 1,
+    });
+    expect(below.some((w) => w.includes("below the minimum honored"))).toBe(
+      true,
+    );
+  });
+
+  it("still flags a non-positive _timeout as invalid (not as sub-minimum)", () => {
+    const warnings = validateMcpEntry("zero", { ...base, _timeout: 0 });
+    expect(warnings.some((w) => w.includes("invalid timeout"))).toBe(true);
+    expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
+      false,
+    );
+  });
+
+  it("still caps an over-maximum _timeout", () => {
+    const warnings = validateMcpEntry("too-big", {
+      ...base,
+      _timeout: MAX_MCP_TIMEOUT_MS + 1,
+    });
+    expect(warnings.some((w) => w.includes("exceeds maximum"))).toBe(true);
+    expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
+      false,
+    );
   });
 });
 
@@ -511,6 +586,93 @@ describe("checkVersionPin (C7-H6)", () => {
     expect(checkVersionPin("srv", "git+https://github.com/o/r.git")).toBeNull();
     expect(checkVersionPin("srv", "https://example.com/p-1.0.0.tgz")).toBeNull();
     expect(checkVersionPin("srv", "./local-pkg.tgz")).toBeNull();
+  });
+});
+
+// D11-8 (Cycle 11 Wave 2, High, P3/P6): launcher-aware advice. The bundled
+// `gitlab` entry exposed the failure mode — the prior message hardcoded
+// "uses npx -y" and advised "pin glab@<version>", but `glab` is the GitLab CLI
+// Go binary, not an npm package, so that advice was unsatisfiable. The advice
+// now names the actual launcher and offers a second exit (switch package/
+// launcher) for packages that are not on the launcher's registry.
+describe("checkVersionPin launcher-aware advice (D11-8)", () => {
+  it("defaults the launcher token to npx (back-compat with the 2-arg call)", () => {
+    const result = checkVersionPin("srv", "some-pkg");
+    expect(result).not.toBeNull();
+    expect(result).toContain("uses npx with");
+    // The advice must NOT hardcode the old "uses npx -y" phrasing.
+    expect(result).not.toContain("uses npx -y with");
+  });
+
+  it("names the supplied launcher instead of npx for non-npx launchers", () => {
+    const result = checkVersionPin("srv", "mcp-server-fetch", "uvx");
+    expect(result).not.toBeNull();
+    expect(result).toContain("uses uvx with");
+    expect(result).not.toContain("uses npx");
+  });
+
+  it("offers a switch-package/launcher exit, not an npm-only pin instruction", () => {
+    const result = checkVersionPin("srv", "glab", "npx");
+    expect(result).not.toBeNull();
+    // Still advises pinning a published version...
+    expect(result).toContain("glab@<version>");
+    // ...but also tells the operator to switch off the launcher if `glab`
+    // is not a package on npx's registry (the unsatisfiable-advice fix).
+    expect(result).toContain("not a");
+    expect(result).toContain("switch to the correct package");
+    // D15-25: `glab` is not a known canonical MCP package, so the message
+    // escalates to the unknown/dependency-confusion class up front.
+    expect(result).toContain("not a known/expected hatch3r canonical MCP package");
+  });
+});
+
+// D15-25 (Cycle 11 Wave 3, Medium, P6/SA15.5-F2): the version-pin gate
+// escalates an unpinned UNKNOWN package (not in CANONICAL_MCP_PACKAGES) to the
+// dependency-confusion / wrong-launcher class — the `glab` failure mode where
+// the operator picked a name that is not a package on the launcher's registry
+// at all. A known canonical package that merely lacks a version keeps the plain
+// pin advice. CANONICAL_MCP_PACKAGES is verified to mirror the real bundled
+// mcp.json in src/__tests__/mcp/mcp-package-resolution.test.ts.
+describe("checkVersionPin unknown-package escalation (D15-25)", () => {
+  it("escalates an unpinned UNKNOWN package name to the dependency-confusion class", () => {
+    const result = checkVersionPin("srv", "totally-made-up-pkg", "npx");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+    expect(result).toContain("not a known/expected hatch3r canonical MCP package");
+    expect(result).toContain("dependency-confusion");
+    // The original pin-or-switch advice is preserved alongside the escalation.
+    expect(result).toContain("switch to the correct package");
+  });
+
+  it("escalates @latest on an unknown scoped package too", () => {
+    const result = checkVersionPin("srv", "@unknown-org/mystery-mcp@latest", "uvx");
+    expect(result).not.toBeNull();
+    expect(result).toContain("not a known/expected hatch3r canonical MCP package");
+    // Launcher name is threaded through the escalation, not hardcoded to npx.
+    expect(result).toContain("uvx");
+    expect(result).not.toContain("npx");
+  });
+
+  it("does NOT escalate a KNOWN canonical package that merely lacks a version", () => {
+    // @upstash/context7-mcp is a bundled canonical MCP package — an unpinned
+    // form is a forgotten-version warning, not an unknown-package one.
+    const canonical = [...CANONICAL_MCP_PACKAGES][0];
+    const result = checkVersionPin("srv", canonical, "npx");
+    expect(result).not.toBeNull();
+    // Still warns that it is unpinned (the version-pin contract is unchanged)...
+    expect(result).toContain("unpinned");
+    expect(result).toContain(canonical);
+    // ...but does NOT carry the unknown/dependency-confusion escalation.
+    expect(result).not.toContain("not a known/expected hatch3r canonical MCP package");
+    expect(result).not.toContain("dependency-confusion");
+  });
+
+  it("does NOT escalate a KNOWN canonical package pinned to @latest", () => {
+    const canonical = [...CANONICAL_MCP_PACKAGES][0];
+    const result = checkVersionPin("srv", `${canonical}@latest`, "npx");
+    expect(result).not.toBeNull();
+    expect(result).toContain("unpinned");
+    expect(result).not.toContain("not a known/expected hatch3r canonical MCP package");
   });
 });
 
@@ -1213,6 +1375,53 @@ describe("validateMcpEntry HTTP-pin integration (C9-M34)", () => {
     expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(false);
   });
 
+  // D11-15 (D11, P6/SA11.3-F3): a documented bypass rationale suppresses the
+  // repeating per-server warning so the framework's own first-party github
+  // server (rotating endpoint, no pinnable artifact) does not train operators
+  // to ignore MCP security warnings (alarm fatigue).
+  it("suppresses the bypass warning when _trust_bypass_reason is a non-empty string", () => {
+    const entry: McpServerEntry = {
+      url: "https://api.githubcopilot.com/mcp/",
+      _trust_bypass: true,
+      _trust_bypass_reason: "github-first-party",
+    };
+    const warnings = validateMcpEntry("github", entry);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(false);
+    expect(warnings.some((w) => w.includes("invalid _trust_bypass_reason"))).toBe(false);
+  });
+
+  it("still warns on bypass when _trust_bypass_reason is absent (operator-added server)", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+    };
+    const warnings = validateMcpEntry("operator-added", entry);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(true);
+    expect(warnings.some((w) => w.includes("_trust_bypass_reason"))).toBe(true);
+  });
+
+  it("does not suppress, and flags, an empty/whitespace _trust_bypass_reason", () => {
+    const entry: McpServerEntry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+      _trust_bypass_reason: "   ",
+    };
+    const warnings = validateMcpEntry("blankreason", entry);
+    expect(warnings.some((w) => w.includes("invalid _trust_bypass_reason"))).toBe(true);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(true);
+  });
+
+  it("does not suppress, and flags, a non-string _trust_bypass_reason", () => {
+    const entry = {
+      url: "https://mcp.example.com/v1",
+      _trust_bypass: true,
+      _trust_bypass_reason: 42 as unknown as string,
+    } as McpServerEntry;
+    const warnings = validateMcpEntry("badreasontype", entry);
+    expect(warnings.some((w) => w.includes("invalid _trust_bypass_reason"))).toBe(true);
+    expect(warnings.some((w) => w.includes("pinning bypassed"))).toBe(true);
+  });
+
   it("emits no HTTP-pin warning for command+url combos (stdio precedence)", () => {
     const entry: McpServerEntry = {
       command: "node",
@@ -1577,14 +1786,23 @@ describe("readMcpConfig drop-path (F15.5-C1)", () => {
 });
 
 /**
- * D11-M5 (Cycle 10 Wave-3 Medium, P2): adapter env-var-format parity audit.
- * Enforces that {@link MCP_ENV_VAR_FORMAT_PARITY} covers every supported
- * adapter and that each row's `format` actually produces the expected
- * platform-side syntax via {@link transformEnvVarSyntax}. A future adapter
- * that picks the wrong format trips this gate at test time rather than at
- * runtime when secrets fail to substitute.
+ * D11-M5 (Cycle 10 Wave-3 Medium, P2): adapter env-var-format parity table —
+ * INTERNAL consistency only. Enforces that {@link MCP_ENV_VAR_FORMAT_PARITY}
+ * covers every supported adapter on both surfaces and that each row's `format`
+ * maps to the documented {@link transformEnvVarSyntax} output.
+ *
+ * D2-14 (Cycle 11 Wave 3, D2, P2): this suite alone does NOT verify the table
+ * against the adapters' real call sites — looping the table through
+ * `transformEnvVarSyntax(canonical, row.format)` is tautological (it re-derives
+ * each row's output from that same row's `format` field; the adapters'
+ * hard-coded format arguments are never read). The real call-site cross-check
+ * that drives each owning adapter's `generate()` and asserts the row's declared
+ * substitution lands in the emitted client config lives in
+ * `src/__tests__/adapters/mcp-dataflow.test.ts` →
+ * "MCP_ENV_VAR_FORMAT_PARITY adapter cross-check (D2-14)". Keep both: this one
+ * pins the table's shape, that one binds the shape to the adapter behavior.
  */
-describe("MCP_ENV_VAR_FORMAT_PARITY", () => {
+describe("MCP_ENV_VAR_FORMAT_PARITY (table-internal consistency)", () => {
   it("covers every supported adapter on both mcp-env and mcp-headers surfaces", () => {
     const supported: ReadonlyArray<"claude" | "cursor" | "copilot"> = [
       "claude",

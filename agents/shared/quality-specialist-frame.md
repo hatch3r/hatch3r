@@ -70,7 +70,7 @@ When the review surface decomposes into independent units (routes, flows, servic
 
 ### Cost-dominance (P8 B2)
 
-Sub-agent count tracks the present unit count — never reduce below unit count to save tokens. Token cost of additional sub-agents is dominated by quality gain from isolated specialist contexts. Serialization is only valid on dependency edges or on shared-resource contention (e.g., two specialists hitting the same staging endpoint will skew each other's latency measurements). The `sub_agents_spawned` field in the output schema records the count and per-unit rationale. Cost-dominance is anchored in `.claude/rules/fan-out-discipline.md`.
+Sub-agent count tracks the present unit count — never reduce below unit count to save tokens. Token cost of additional sub-agents is dominated by quality gain from isolated specialist contexts. Serialization is only valid on dependency edges or on shared-resource contention (e.g., two specialists hitting the same staging endpoint will skew each other's latency measurements). The `sub_agents_spawned` field in the output schema records the count and per-unit rationale. Cost-dominance is anchored in `rules/hatch3r-fan-out-discipline.md`.
 
 ### End-of-Turn Delegation Attestation
 
@@ -114,7 +114,7 @@ status: PASS | FINDINGS | CRITICAL
 
 ### sub_agents_spawned emission contract (D5-M8, P8 B2)
 
-The `sub_agents_spawned` field is MANDATORY on every specialist output — not optional, not "emit when delegating". A specialist that ran no sub-agents emits `sub_agents_spawned: {count: 0, rationale: "single-unit audit — no decomposition triggered"}`; a specialist that delegated to N per-unit sub-agents emits `sub_agents_spawned: {count: N, rationale: "<one-sentence decomposition>"}`. Omitting the field on a specialist output is a P8 B2 violation per `.claude/rules/fan-out-discipline.md` ("Delegating artifacts emit sub-agent count + rationale as a first-class output field"). The orchestrator rejects a specialist response missing `sub_agents_spawned` and re-invokes the specialist with the contract restated.
+The `sub_agents_spawned` field is MANDATORY on every specialist output — not optional, not "emit when delegating". A specialist that ran no sub-agents emits `sub_agents_spawned: {count: 0, rationale: "single-unit audit — no decomposition triggered"}`; a specialist that delegated to N per-unit sub-agents emits `sub_agents_spawned: {count: N, rationale: "<one-sentence decomposition>"}`. Omitting the field on a specialist output is a P8 B2 violation per `rules/hatch3r-fan-out-discipline.md` ("Delegating artifacts emit sub-agent count + rationale as a first-class output field"). The orchestrator rejects a specialist response missing `sub_agents_spawned` and re-invokes the specialist with the contract restated.
 
 ### Severity vocabulary
 

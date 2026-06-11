@@ -43,14 +43,29 @@ async function makeFixture(): Promise<Fixture> {
       join(rootDir, "agents", `${t.specialist}.md`),
     );
   }
-  // implementer + reviewer carry the Phase 4 enumerations.
+  // The four core 4-phase pipeline agents: implementer + reviewer carry the
+  // Phase 4 enumerations; researcher + fixer round out the watchdog-coverage
+  // required set (D8-12). Clone all four so the unmodified fixture is green.
+  for (const core of [
+    "hatch3r-researcher",
+    "hatch3r-implementer",
+    "hatch3r-fixer",
+    "hatch3r-reviewer",
+  ]) {
+    await cp(
+      join(REPO_ROOT, "agents", `${core}.md`),
+      join(rootDir, "agents", `${core}.md`),
+    );
+  }
+  // D22-6 single source: the 9-row CQ trigger table lives in
+  // agents/shared/cq-specialist-roster.md; implementer/reviewer/fixer point at
+  // it. checkCqTriggerTableParity reads this file as the reference copy, so the
+  // fixture must clone it or the unmodified baseline reports a missing-roster
+  // ROSTER-CQ-TABLE-DRIFT error.
+  await mkdir(join(rootDir, "agents", "shared"), { recursive: true });
   await cp(
-    join(REPO_ROOT, "agents", "hatch3r-implementer.md"),
-    join(rootDir, "agents", "hatch3r-implementer.md"),
-  );
-  await cp(
-    join(REPO_ROOT, "agents", "hatch3r-reviewer.md"),
-    join(rootDir, "agents", "hatch3r-reviewer.md"),
+    join(REPO_ROOT, "agents", "shared", "cq-specialist-roster.md"),
+    join(rootDir, "agents", "shared", "cq-specialist-roster.md"),
   );
   await cp(
     join(REPO_ROOT, "rules", "hatch3r-agent-orchestration.md"),
@@ -285,5 +300,138 @@ describe("validate-specialist-roster", () => {
         (f) => f.code === "ROSTER-CMD-MISSING" && f.file === "commands/hatch3r-workflow.md",
       ),
     ).toBe(false);
+  });
+
+  // ── Watchdog coverage (D8-12) ──────────────────────────────────
+
+  it("ERRORs (ROSTER-WATCHDOG-MISSING) when an agent declares no watchdog directive", async () => {
+    // Strip the watchdog directive from a core pipeline agent: remove both the
+    // frontmatter field and any shared-frame reference.
+    const fixerPath = join(fx.rootDir, "agents", "hatch3r-fixer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(fixerPath, "utf-8");
+    const stripped = body
+      .split("\n")
+      .filter((l) => !/^\s*wall_clock_advisory_ms\s*:/.test(l))
+      .join("\n")
+      .split("quality-specialist-frame")
+      .join("quality-OTHER-frame");
+    await writeFile(fixerPath, stripped, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const miss = r.findings.find(
+      (f) => f.code === "ROSTER-WATCHDOG-MISSING" && f.file === "agents/hatch3r-fixer.md",
+    );
+    expect(miss).toBeDefined();
+    expect(miss?.message).toMatch(/wall_clock_advisory_ms/);
+    expect(r.errorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("accepts the shared-frame reference as a watchdog carrier (no field needed)", async () => {
+    // Replace docs-writer's watchdog field with a quality-specialist-frame
+    // reference in the body — the second accepted carrier (D8-11). The gate
+    // must NOT flag it.
+    const dwPath = join(fx.rootDir, "agents", "hatch3r-docs-writer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(dwPath, "utf-8");
+    const withoutField = body
+      .split("\n")
+      .filter((l) => !/^\s*wall_clock_advisory_ms\s*:/.test(l))
+      .join("\n");
+    const withFrameRef =
+      withoutField + "\n\nWatchdog: see `agents/shared/quality-specialist-frame.md`.\n";
+    await writeFile(dwPath, withFrameRef, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    expect(
+      r.findings.some(
+        (f) => f.code === "ROSTER-WATCHDOG-MISSING" && f.file === "agents/hatch3r-docs-writer.md",
+      ),
+    ).toBe(false);
+  });
+
+  // ── CQ trigger-table single-source parity (D16-12 / D6-15 / D22-6) ──
+  //
+  // D22-6 extracted the 9-row CQ trigger table to the single source
+  // agents/shared/cq-specialist-roster.md and replaced the implementer/reviewer/
+  // fixer copies with a one-line pointer. The three drift scenarios below mean,
+  // in the single-source topology: (a) a consumer re-inlines a divergent copy of
+  // a row, (b) a consumer drops its roster pointer, (c) a consumer re-inlines a
+  // row that diverges from the shared source.
+
+  it("ERRORs (ROSTER-CQ-TABLE-DRIFT) when fixer re-inlines a divergent CQ row", async () => {
+    // D22-6 single source: the CQ trigger table lives once in
+    // agents/shared/cq-specialist-roster.md and fixer points at it. The
+    // regression this catches is a copy reintroduced inline that diverges from
+    // the source. Inject a CQ3 row into fixer's Specialist Delegation section
+    // whose trigger prose does not match the shared roster's CQ3 row; the parity
+    // check (which now opens fixer — the file the prior gate never read) must
+    // flag the divergent reintroduced copy.
+    const fixerPath = join(fx.rootDir, "agents", "hatch3r-fixer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(fixerPath, "utf-8");
+    const injected = body.replace(
+      /(## Specialist Delegation\n)/,
+      "$1\n| CQ3 Security | `hatch3r-security` | DRIFTED reintroduced trigger prose |\n",
+    );
+    expect(injected).not.toBe(body); // ensure the replace matched
+    await writeFile(fixerPath, injected, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const drift = r.findings.find(
+      (f) => f.code === "ROSTER-CQ-TABLE-DRIFT" && f.file === "agents/hatch3r-fixer.md",
+    );
+    expect(drift).toBeDefined();
+    expect(drift?.message).toMatch(/CQ3/);
+    expect(drift?.message).toMatch(/diverges/);
+    expect(r.errorCount).toBeGreaterThanOrEqual(1);
+  });
+
+  it("ERRORs (ROSTER-CQ-TABLE-DRIFT) when fixer loses its roster pointer entirely", async () => {
+    // D22-6 single source: fixer carries no inline CQ rows — it points at the
+    // shared roster. Drop that pointer (the path reference to
+    // agents/shared/cq-specialist-roster.md) so fixer's Specialist Delegation
+    // section neither inlines the table nor references the source; the gate must
+    // report the lost roster reference.
+    const fixerPath = join(fx.rootDir, "agents", "hatch3r-fixer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(fixerPath, "utf-8");
+    // Remove every mention of the roster path so `pointsAtRoster` is false.
+    const stripped = body
+      .split("agents/shared/cq-specialist-roster.md")
+      .join("agents/shared/cq-OTHER-roster.md");
+    expect(stripped).not.toBe(body);
+    await writeFile(fixerPath, stripped, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const miss = r.findings.find(
+      (f) => f.code === "ROSTER-CQ-TABLE-DRIFT" && f.file === "agents/hatch3r-fixer.md",
+    );
+    expect(miss).toBeDefined();
+    expect(miss?.message).toMatch(/lost the roster reference/);
+  });
+
+  it("ERRORs (ROSTER-CQ-TABLE-DRIFT) when reviewer re-inlines a CQ row that diverges from the source", async () => {
+    // D22-6 single source: reviewer points at the shared roster and carries no
+    // inline CQ rows. Reintroduce a CQ9 row inline whose prose diverges from the
+    // shared roster's CQ9 row; the gate compares each reintroduced row against
+    // the single source (not against another agent) and flags the divergence on
+    // the reviewer file.
+    const reviewPath = join(fx.rootDir, "agents", "hatch3r-reviewer.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(reviewPath, "utf-8");
+    const injected = body.replace(
+      /(## Specialist Delegation\n)/,
+      "$1\n| CQ9 Enhancability | `hatch3r-enhancability` | bogus divergent reintroduced row |\n",
+    );
+    expect(injected).not.toBe(body);
+    await writeFile(reviewPath, injected, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const drift = r.findings.find(
+      (f) => f.code === "ROSTER-CQ-TABLE-DRIFT" && f.file === "agents/hatch3r-reviewer.md",
+    );
+    expect(drift).toBeDefined();
+    expect(drift?.message).toMatch(/CQ9/);
   });
 });

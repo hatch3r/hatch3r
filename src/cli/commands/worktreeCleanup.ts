@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import chalk from "chalk";
 import {
   HatchError,
@@ -79,7 +80,6 @@ function statusBadge(s: WorktreeStatus): string {
   const parts: string[] = [];
   if (s.modified) parts.push(`${s.modified} modified`);
   if (s.untracked) parts.push(`${s.untracked} untracked`);
-  if (s.stashes) parts.push(`${s.stashes} stash${s.stashes === 1 ? "" : "es"}`);
   return parts.length === 0 ? chalk.dim("clean") : chalk.yellow(parts.join(", "));
 }
 
@@ -200,7 +200,7 @@ function findDirty(
   return selected
     .map((p) => lookup.get(p))
     .filter((c): c is Candidate =>
-      !!c && (c.status.modified > 0 || c.status.untracked > 0 || c.status.stashes > 0),
+      !!c && (c.status.modified > 0 || c.status.untracked > 0),
     );
 }
 
@@ -403,7 +403,27 @@ export async function worktreeCleanupCommand(
   enableDefaultCrossProcessLocking();
 
   const cwd = process.cwd();
-  const mainRoot = isInsideWorktree(cwd) ? findMainWorktree(cwd) : cwd;
+  // D1-13 (Cycle 11 Wave 2, D1, P1/CQ4): canonicalize the main-repo root on BOTH
+  // branches. `findMainWorktree` already returns a `realpathSync.native`-resolved
+  // path (worktree/resolve.ts), and `listWorktrees` runs the same canonicalizer on
+  // every `git worktree list --porcelain` path. The not-inside-worktree branch
+  // previously returned a bare `process.cwd()`: on macOS (`/var` → `/private/var`)
+  // and Windows (8.3 short form → long form) that raw path does not byte-match the
+  // canonicalized entry git emits for the same directory, so `partition()` never
+  // hit the `w.path === mainRoot` arm and the main repo was mis-bucketed as a
+  // cleanable candidate. Canonicalize here so the comparison holds. Best-effort:
+  // fall back to the raw cwd when realpath throws (deleted/permission-denied cwd),
+  // matching the listWorktrees prunable-path fallback.
+  let mainRoot: string;
+  if (isInsideWorktree(cwd)) {
+    mainRoot = findMainWorktree(cwd);
+  } else {
+    try {
+      mainRoot = realpathSync.native(cwd);
+    } catch {
+      mainRoot = cwd;
+    }
+  }
 
   let worktrees: WorktreeListEntry[];
   try {

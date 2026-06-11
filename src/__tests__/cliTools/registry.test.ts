@@ -122,35 +122,6 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(jq.securityNote).toMatch(/sandbox|isolat/i);
   });
 
-  it("sd entry is annotated releaseCadence:'stable' (D21-SA21.2-F01)", () => {
-    // C9-H86: sd 1.1.0 (released 2025-02-24) is 447 days old at the
-    // 2026-05-18 audit. Tagging the entry `stable` documents that the long
-    // gap is intentional (mature steady-state tool) — the staleness
-    // heuristic in src/cliTools/triggers.ts can suppress amber-flag noise.
-    const sd = AVAILABLE_CLI_TOOLS.sd;
-    expect(sd.releaseCadence).toBe("stable");
-  });
-
-  it("ripgrep entry is annotated releaseCadence:'stable' (D21-M1, Cycle 10)", () => {
-    // D21-M1: ripgrep 15.1.0 (released 2025-10-31) is 208 days old at the
-    // 2026-05-26 audit. BurntSushi/ripgrep is mature steady-state — multi-
-    // month gaps between minor releases are the norm, not abandonment.
-    // releaseCadence: 'stable' suppresses staleness-heuristic amber flags
-    // without claiming the canonical search primitive is at risk.
-    const ripgrep = AVAILABLE_CLI_TOOLS.ripgrep;
-    expect(ripgrep.releaseCadence).toBe("stable");
-  });
-
-  it("bat entry is annotated releaseCadence:'stable' (D21-M3, Cycle 10)", () => {
-    // D21-M3: bat 0.26.1 (released 2025-12-12) is 167 days old at the
-    // 2026-05-26 audit. sharkdp/bat matches the fd cadence pattern — mature
-    // steady-state tooling with multi-month gaps between minor releases.
-    // releaseCadence: 'stable' dampens the staleness heuristic without
-    // claiming the canonical syntax-aware view tool is abandoned.
-    const bat = AVAILABLE_CLI_TOOLS.bat;
-    expect(bat.releaseCadence).toBe("stable");
-  });
-
   it("az-devops entry declares an extensionProbe for the azure-devops extension (D21-M6, Cycle 10)", () => {
     // D21-M6: the base `command -v az` probe is a false positive for users
     // who install Azure CLI standalone without the azure-devops extension.
@@ -166,27 +137,25 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(azDevops!.extensionProbe!.name).toBe("azure-devops");
   });
 
-  it("gh entry carries minVersion + securityNote citing GHSA-crc3-h8v6-qh57 (D21-SA21.5-F01)", () => {
-    // C9-H88: gh CLI before 2.92.0 (released 2026-05-06) leaks tokens via
-    // auxiliary host extension calls per GHSA-crc3-h8v6-qh57. Surface
-    // minVersion + securityNote so the installer/picker flag old builds.
+  it("gh entry floors at >=2.93.0 + securityNote attributes the Authorization-header leak to CVE-2026-48501 (D21-1/D21-2, Cycle 11)", () => {
+    // Cycle 11 D21-1/D21-2 (SA21.5-F1/F2): the prior note misattributed the
+    // token leak to GHSA-crc3-h8v6-qh57. That advisory is CVE-2026-45803 (LOW
+    // terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0).
+    // The real Authorization-header leak to TUF mirrors is CVE-2026-48501 /
+    // GHSA-8xvp-7hj6-mcj9, fixed in 2.93.0 — so the floor is raised to >=2.93.0
+    // and the securityNote attributes each advisory to its correct CVE.
     const gh = AVAILABLE_CLI_TOOLS.gh;
-    expect(gh.minVersion).toBe(">=2.92.0");
+    expect(gh.minVersion).toBe(">=2.93.0");
     expect(gh.securityNote).toBeDefined();
-    expect(gh.securityNote).toContain("GHSA-crc3-h8v6-qh57");
-    expect(gh.securityNote).toContain("2.92.0");
-  });
-
-  it("gh + glab entries are annotated releaseCadence:'rapid' (D21-SA21.5-F-21.5.2, Cycle 10)", () => {
-    // Cycle 10 D21-SA21.5-F-21.5.2: gh (~30-day mean) and glab (~6-day mean)
-    // both ship at rapid cadence per the registry's own ReleaseCadence
-    // definition ("monthly or faster"). Tagging both `rapid` lets a
-    // cadence-aware staleness heuristic treat a short pause as an anomaly
-    // instead of falling back to the default 90/180-day window.
-    const gh = AVAILABLE_CLI_TOOLS.gh;
-    const glab = AVAILABLE_CLI_TOOLS.glab;
-    expect(gh.releaseCadence).toBe("rapid");
-    expect(glab.releaseCadence).toBe("rapid");
+    // The Authorization-header leak (the HIGH-impact token exposure) is the
+    // real CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9, fixed 2.93.0.
+    expect(gh.securityNote).toContain("CVE-2026-48501");
+    expect(gh.securityNote).toContain("GHSA-8xvp-7hj6-mcj9");
+    expect(gh.securityNote).toContain("2.93.0");
+    // GHSA-crc3-h8v6-qh57 is still mentioned, but correctly framed as the LOW
+    // escape-injection (CVE-2026-45803) — never as a token leak.
+    expect(gh.securityNote).toContain("CVE-2026-45803");
+    expect(gh.securityNote).not.toMatch(/GHSA-crc3-h8v6-qh57[^.]*token/i);
   });
 
   it("glab + az-devops carry tested-against minVersion documentation pins (D21-SA21.5-F-21.5.3, Cycle 10)", () => {
@@ -199,6 +168,39 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(glab.minVersion).toBe("1.99.0");
     expect(azDevops).toBeDefined();
     expect(azDevops!.minVersion).toBe("1.0.4");
+  });
+
+  it("yq + miller + csvkit carry tested-against documentation-pin minVersions (D21-13, Cycle 11)", () => {
+    // Cycle 11 D21-13 (SA21.3-F5): yq/miller/csvkit previously had no version
+    // floor while jq/dasel did, so skill.ts emitted no floor block for them.
+    // These are documentation pins mirroring the glab/az-devops precedent
+    // (cycle-verified baseline, NOT CVE-driven): yq 4.53.2, miller 6.18.1,
+    // csvkit 2.2.0. The bare version string (no `>=`) matches the doc-pin form.
+    const yq = AVAILABLE_CLI_TOOLS.yq;
+    const miller = AVAILABLE_CLI_TOOLS.miller;
+    const csvkit = AVAILABLE_CLI_TOOLS.csvkit;
+    expect(yq.minVersion).toBe("4.53.2");
+    expect(miller.minVersion).toBe("6.18.1");
+    expect(csvkit.minVersion).toBe("2.2.0");
+  });
+
+  it("gh linux recipe uses the upstream apt-repo one-liner; glab linux prefers snap (D21-17, Cycle 11)", () => {
+    // Cycle 11 D21-17 (SA21.5-F4): bare `sudo apt install gh`/`glab` fail on
+    // stock Debian and pull versions below the registry floor. gh's linux
+    // recipe is the cli.github.com keyring + signed-repo apt one-liner; glab's
+    // linux recipe is `snap install glab` (with the release `.deb` as fallback
+    // per the registry comment) — the upstream-recommended Linux channels.
+    const gh = AVAILABLE_CLI_TOOLS.gh;
+    const ghLinux = gh.install.linux.map((c) => c.command);
+    // No bare `apt install gh` remains; the recipe adds the signed cli.github.com repo.
+    expect(ghLinux).not.toContain("sudo apt install gh");
+    expect(ghLinux.some((c) => c.includes("cli.github.com/packages"))).toBe(true);
+    expect(ghLinux.some((c) => c.includes("githubcli-archive-keyring.gpg"))).toBe(true);
+
+    const glab = AVAILABLE_CLI_TOOLS.glab;
+    const glabLinux = glab.install.linux.map((c) => c.command);
+    expect(glabLinux).not.toContain("sudo apt install glab");
+    expect(glabLinux).toContain("sudo snap install glab");
   });
 
   it("docker entry floors at >=29.5.2 + securityNote cites the docker cp host-root CVE cluster (D21-SA21.6-F02, Cycle 10)", () => {
@@ -215,13 +217,21 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(docker.securityNote).toContain("CVE-2026-41567");
     expect(docker.securityNote).toContain("CVE-2026-42306");
     expect(docker.securityNote).toContain("29.5.2");
+    // Cycle 11 D21-16 (SA21.6-F4): the two HIGH 29.x AuthZ-bypass CVEs (both
+    // fixed in 29.3.1) must be in the user-facing disclosure roster too.
+    expect(docker.securityNote).toContain("CVE-2026-34040");
+    expect(docker.securityNote).toContain("CVE-2026-33997");
+    expect(docker.securityNote).toContain("29.3.1");
   });
 
-  it("curl entry registered as tier-1 with minVersion >=8.20.0 + securityNote citing the seven Mar-Apr 2026 CVEs (D21-SA21.4-F02, Cycle 10)", () => {
-    // Cycle 10 D21-SA21.4-F02 (F-21.7.1): the HTTP category was documented
-    // in the D21 audit source set but no registry entry existed. curl 8.20.0
-    // (released 2026-04-29) supersedes the seven-CVE batch enumerated below;
-    // earlier builds carry credential-leak and connection-reuse exposure.
+  it("curl entry tier-1 minVersion >=8.20.0 + securityNote cites the 8.20.0-specific CVEs with accurate severity (D21-14, Cycle 11)", () => {
+    // Cycle 11 D21-14 (SA21.4-F1): the prior note rolled seven CVEs together as
+    // "all fixed in 8.20.0" and labelled them "Medium-and-Low" — both wrong
+    // (CVE-2026-3805 fixed 8.18.0, CVE-2026-3783 fixed 8.17.0; CVE-2026-6253 is
+    // High). The corrected note cites the three advisories actually resolved by
+    // the 8.20.0 release (CVE-2026-5773/5545/4873) plus the earlier High
+    // CVE-2026-6253, and states the >=8.20.0 floor clears the cumulative
+    // backlog. The inaccurate CVE-2026-7168 roster is gone.
     const curl = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).curl;
     expect(curl).toBeDefined();
     expect(curl!.id).toBe("curl");
@@ -229,15 +239,23 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(curl!.category).toBe("http");
     expect(curl!.minVersion).toBe(">=8.20.0");
     expect(curl!.securityNote).toBeDefined();
-    expect(curl!.securityNote).toContain("CVE-2026-7168");
+    // The three advisories specific to the 8.20.0 release.
+    expect(curl!.securityNote).toContain("CVE-2026-5773");
+    expect(curl!.securityNote).toContain("CVE-2026-5545");
+    expect(curl!.securityNote).toContain("CVE-2026-4873");
+    // The earlier High advisory is named with correct severity.
+    expect(curl!.securityNote).toContain("CVE-2026-6253");
+    expect(curl!.securityNote).toMatch(/High/);
     expect(curl!.securityNote).toContain("8.20.0");
+    // The discredited "all fixed in 8.20.0 / Medium-and-Low" framing is gone.
+    expect(curl!.securityNote).not.toContain("CVE-2026-7168");
+    expect(curl!.securityNote).not.toMatch(/Medium-and-Low/);
   });
 
-  it("httpie entry registered as tier-2 web-project with releaseCadence stable (D21-SA21.4-F03, Cycle 10)", () => {
+  it("httpie entry registered as tier-2 web-project (D21-SA21.4-F03, Cycle 10)", () => {
     // Cycle 10 D21-SA21.4-F03 (F-21.7.1): httpie/cli 3.2.4 (2024-11-01) is
-    // 572 days old at audit but the project remains under maintenance.
-    // releaseCadence: "stable" dampens the staleness heuristic for the
-    // long gap without claiming the tool is abandoned.
+    // 572 days old at audit but the project remains under maintenance, so it
+    // stays registered as the tier-2 web-project HTTP tool.
     const httpie = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).httpie;
     expect(httpie).toBeDefined();
     expect(httpie!.id).toBe("httpie");
@@ -245,13 +263,12 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(httpie!.tier).toBe(2);
     expect(httpie!.category).toBe("http");
     expect(httpie!.trigger).toBe("web-project");
-    expect(httpie!.releaseCadence).toBe("stable");
   });
 
-  it("xh entry registered as tier-2 web-project with minVersion >=0.25.3 + releaseCadence quarterly (D21-SA21.4-F04, Cycle 10)", () => {
+  it("xh entry registered as tier-2 web-project with minVersion >=0.25.3 (D21-SA21.4-F04, Cycle 10)", () => {
     // Cycle 10 D21-SA21.4-F04 (F-21.7.1): xh v0.25.3 (2025-12-16) is the
-    // latest stable; cadence ~quarterly per release history; entry pins to
-    // the latest stable so 0.24.x builds get an upgrade hint at install.
+    // latest stable; entry pins to the latest stable so 0.24.x builds get an
+    // upgrade hint at install.
     const xh = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).xh;
     expect(xh).toBeDefined();
     expect(xh!.id).toBe("xh");
@@ -259,7 +276,36 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(xh!.category).toBe("http");
     expect(xh!.trigger).toBe("web-project");
     expect(xh!.minVersion).toBe(">=0.25.3");
-    expect(xh!.releaseCadence).toBe("quarterly");
+  });
+
+  it("playwright entry floors at >=1.55.1 + securityNote cites the installer-MitM + Chromium-roll CVEs (D21-4, Cycle 11)", () => {
+    // Cycle 11 D21-4 (SA21.6-F1): playwright was the only tier-2 browser tool
+    // with no version floor while its sandbox image is recommended for
+    // navigating untrusted URLs. CVE-2025-59288 (installer MitM in
+    // `npx playwright install`, CVSS 8.7) is fixed in 1.55.1; the bundled
+    // Chromium carries CVE-2026-2441 (rolled per monthly release). The entry
+    // pins >=1.55.1 and the securityNote carries the Chromium-currency caution.
+    const playwright = AVAILABLE_CLI_TOOLS.playwright;
+    expect(playwright.minVersion).toBe(">=1.55.1");
+    expect(playwright.securityNote).toBeDefined();
+    expect(playwright.securityNote).toContain("CVE-2025-59288");
+    expect(playwright.securityNote).toContain("CVE-2026-2441");
+    expect(playwright.securityNote).toContain("1.55.1");
+  });
+
+  it("sd Linux recipe uses cargo binstall (v1.1.0 GitHub-release binary) + minVersion >=1.1.0 (D21-6, Cycle 11)", () => {
+    // Cycle 11 D21-6 (SA21.2-F1): `cargo install sd` pins crates.io 1.0.0 while
+    // brew/scoop ship 1.1.0 and the documented line-by-line default + -A flag
+    // are 1.1.0-only. The GitHub v1.1.0 release ships prebuilt Linux binaries;
+    // `cargo binstall sd` fetches that binary, aligning all three OSes on 1.1.0
+    // so the >=1.1.0 floor is satisfiable everywhere.
+    const sd = AVAILABLE_CLI_TOOLS.sd;
+    expect(sd.minVersion).toBe(">=1.1.0");
+    // The linux recipe is the binstall channel (v1.1.0 GitHub-release binary),
+    // not the crates.io-pinned `cargo install sd` (which resolves to 1.0.0).
+    const linuxCommands = sd.install.linux.map((c) => c.command);
+    expect(linuxCommands).toContain("cargo binstall sd");
+    expect(linuxCommands).not.toContain("cargo install sd");
   });
 
   it("dasel entry registered as tier-3 with minVersion >=3.11.0 + securityNote citing 3-CVE cluster (D21-SA21.3-F-21.3.5/F-21.3.6, Cycle 10)", () => {
@@ -292,7 +338,6 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(containerUse!.category).toBe("container");
     expect(containerUse!.caveat).toBe("pre-1.0-stale-no-security-policy");
     expect(containerUse!.minVersion).toBe(">=0.4.2");
-    expect(containerUse!.releaseCadence).toBe("quarterly");
   });
 
   it("podman entry carries minVersion + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-F03)", () => {
@@ -308,19 +353,14 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
   });
 
   it("optional schema fields are correctly typed on every entry (D15-SA15.7-F01 / D21-SA21.7-F02)", () => {
-    // C9-H55 + C9-H89: minVersion / releaseCadence / cve_scan are optional
-    // schema extensions. Verify that each entry that declares them uses the
-    // documented shape — strings for minVersion, the literal union for
-    // releaseCadence, and { last_checked, advisory_count, report_url } for
-    // cve_scan. Entries that omit the fields are not iterated.
-    const validCadences = new Set(["rapid", "monthly", "quarterly", "stable"]);
+    // C9-H55 + C9-H89: minVersion / cve_scan are optional schema extensions.
+    // Verify that each entry that declares them uses the documented shape —
+    // strings for minVersion, and { last_checked, advisory_count, report_url }
+    // for cve_scan. Entries that omit the fields are not iterated.
     for (const entry of allEntries) {
       if (entry.minVersion !== undefined) {
         expect(entry.minVersion).toBeTypeOf("string");
         expect(entry.minVersion.length).toBeGreaterThan(0);
-      }
-      if (entry.releaseCadence !== undefined) {
-        expect(validCadences.has(entry.releaseCadence)).toBe(true);
       }
       if (entry.cve_scan !== undefined) {
         expect(entry.cve_scan.last_checked).toBeTypeOf("string");
@@ -349,6 +389,52 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
       expect(entry.install.mac.length).toBeGreaterThan(0);
       expect(entry.homepage).toBeTypeOf("string");
       expect(entry.homepage.startsWith("http")).toBe(true);
+    }
+  });
+
+  it("every entry declares a source-repo VCS URL + a valid SPDX license (D15-32, Cycle 11)", () => {
+    // Cycle 11 D15-32 (SA15.7-F4): the D15.7 provenance contract requires
+    // "vendor + source URL + license" as machine-checkable fields. `homepage`
+    // alone is insufficient — several homepages are docs/marketing sites
+    // (duckdb.org, learn.microsoft.com, csvkit.readthedocs.io) rather than the
+    // source repo. `sourceRepo` must be a GitHub/GitLab VCS URL and `license`
+    // a valid SPDX expression so provenance is auditable per cycle.
+
+    // Curated allowlist of the SPDX license ids actually used by the catalog.
+    // A new tool with a license outside this set fails here, forcing a
+    // deliberate allowlist update (and a real SPDX id, not a typo / "see repo").
+    const KNOWN_SPDX_IDS = new Set([
+      "MIT",
+      "Apache-2.0",
+      "BSD-2-Clause",
+      "BSD-3-Clause",
+      "GPL-2.0-only",
+      "Unlicense",
+      "curl", // `curl` is itself a registered SPDX license id.
+    ]);
+    // SPDX expression: one-or-more ids joined by OR / AND / WITH operators.
+    // Validates the structural shape and that every leaf id is a known SPDX id.
+    const validateSpdxExpression = (expr: string): boolean => {
+      if (!/^[A-Za-z0-9.+-]+(?: (?:OR|AND|WITH) [A-Za-z0-9.+-]+)*$/.test(expr)) {
+        return false;
+      }
+      const leaves = expr.split(/ (?:OR|AND|WITH) /);
+      return leaves.every((leaf) => KNOWN_SPDX_IDS.has(leaf));
+    };
+
+    for (const entry of allEntries) {
+      // sourceRepo: a GitHub or GitLab https VCS URL (never a docs site).
+      expect(entry.sourceRepo, `${entry.id} sourceRepo`).toBeTypeOf("string");
+      expect(
+        /^https:\/\/(?:github\.com|gitlab\.com)\/[^/]+\/[^/]+/.test(entry.sourceRepo),
+        `${entry.id} sourceRepo "${entry.sourceRepo}" must be a github.com/gitlab.com VCS URL`,
+      ).toBe(true);
+      // license: a valid SPDX expression built from known ids.
+      expect(entry.license, `${entry.id} license`).toBeTypeOf("string");
+      expect(
+        validateSpdxExpression(entry.license),
+        `${entry.id} license "${entry.license}" is not a valid SPDX expression of known ids`,
+      ).toBe(true);
     }
   });
 

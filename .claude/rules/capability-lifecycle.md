@@ -28,14 +28,25 @@ Pick the preset that matches the intent before editing any artifact:
 
 When in doubt, run `/h4tcher-capability-discover` first — it is the only read-only lifecycle preset and surfaces duplication risk before any write.
 
-`/h4tcher-docusaurus-generator` is a maintainer utility (not a lifecycle add/refactor/remove preset and not delegated-to by the others): it builds or refreshes the framework's own Docusaurus site (`website/`) from `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`. Listed here so the maintainer-skill surface is enumerated in one place (D24-SA24.2-F07).
+## Maintainer utilities (non-lifecycle)
+
+These `h4tcher-` skills are framework-dev maintainer tools, NOT lifecycle add/refactor/remove presets and NOT delegated-to by the lifecycle presets. Enumerated here so the entire maintainer-skill surface is listed in one place — when a new maintainer-only skill is authored, add a row here (D24-SA24.2-F07 single-enumeration invariant; regression closed under D24-10):
+
+| Skill | Purpose |
+|-------|---------|
+| `/h4tcher-docusaurus-generator` | Build or refresh the framework's own Docusaurus site (`website/`) from `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`. |
+| `/h4tcher-pr-resolve` | Resolve PR comments on the hatch3r repo: run the canonical `hatch3r-pr-resolve` workflow, then apply hatch3r-dev quality gates (validate, rule parity, efficiency, lean thresholds, anti-slop, inventory, pillar compliance) and stop before commit. |
+| `/h4tcher-release-prep` | Prepare a hatch3r release: version bump, changelog completeness + sync, repo + website docs currency, quality gates, adapter-output verification, release-notes reconciliation with CI. |
 
 ## Removal threshold
 
 Source of truth: `governance/audit/domains/D16-compound-system.md` §16.3 "Removal candidate threshold" (SA 16.3 Artifact Inventory & Redundancy). An artifact qualifies for removal only when ALL three hold:
 
 1. Zero unique value beyond an existing artifact
-2. ≤1 cross-reference from other artifacts
+2. Class-aware reachability fails — a flat cross-reference count mis-fires on entry-point and by-construction classes, so the test is per class:
+   - **agents** — zero `agentPipeline:` id-occurrences across `commands/hatch3r-*.md`.
+   - **skills + commands** — NOT an entry point: absent from `AGENT_COMMAND_NAMES` (`src/cli/program.ts:45`) AND not emitted by any adapter AND not on the CLAUDE.md user surface. Skills/commands are user-typed leaf nodes; zero functional consumers is their correct state and never alone implies removability.
+   - **rules** — neither `scope: always` nor a glob matching a repo path; glob/always rules are reachable by construction.
 3. No orchestrator dependency in any `commands/hatch3r-*.md` `agentPipeline:`
 
 Default recommendation when overlap is detected is merge via `/h4tcher-capability-refactor`, not removal (D16.3 add-vs-remove bias check). Removal requires the threshold above and a documented rejected merge alternative.

@@ -16,9 +16,10 @@ Hooks are non-interactive: the configured agent runs with its standard tool allo
 | **session-start** | New coding session opens | `learnings-loader` | Index `.hatch3r/learnings/`, surface up to 5 relevant entries scoped to recently changed files; silent when nothing matches. |
 | **file-save** | TS/JS/TSX/JSX file saved (configurable globs) | `context-rules` | Match the saved path against the canonical `rules/` content (always-apply plus glob-scoped) and emit non-blocking inline suggestions for violations; 2 s debounce. |
 | **pre-commit** | Before commit, on staged TS/JS files | `lint-fixer` | Run the project linter and formatter on staged files, auto-fix what is fixable, re-stage the fixes, report unfixable violations with file and line. |
-| **pre-push** | Before push, on outgoing commits | `security-auditor` | Scan the outgoing diff for high-entropy strings and known secret patterns (API keys, tokens, private keys, `.env`, `*.pem`); block the push on detection. |
+| **pre-push** | Before push, on outgoing commits | `security` | Scan the outgoing diff for high-entropy strings and known secret patterns (API keys, tokens, private keys, `.env`, `*.pem`); block the push on detection. |
 | **post-merge** | After a merge completes | `ci-watcher` | Poll the CI pipeline for the merge SHA with exponential backoff (30 s -- 5 min, 15 min timeout) and report failures with a root-cause summary. |
 | **ci-failure** | CI workflow run reports failure | `ci-watcher` | Fetch the failed run logs, classify the failure (build, test, lint, type, dependency, infra, timeout, permission), produce a root-cause hypothesis with a suggested fix. |
+| **review-loop-cap** | Reviewer about to spawn another fixer iteration | `reviewer` | Block fixer-spawn past the configured review-loop iteration ceiling via a `.review-loop.json` checkpoint, preventing unbounded review-fix cycles. |
 
 ## Configuration
 

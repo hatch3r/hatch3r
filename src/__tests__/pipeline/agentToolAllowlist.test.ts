@@ -5,10 +5,14 @@ import { parse as parseYaml } from "yaml";
 import {
   AGENT_TOOL_POLICIES,
   ALL_TOOL_CATEGORIES,
+  FUNCTIONAL_TOOL_CATEGORIES,
+  RESERVED_TOOL_CATEGORIES,
   getAgentToolPolicy,
   checkToolAccess,
   toFailureLogEntry,
   validateToolPolicies,
+  buildClaudePreToolUseHookScript,
+  buildCursorSubagentGuardHookScript,
   type AgentToolPolicy,
   type AllowlistDenialEvent,
 } from "../../pipeline/agentToolAllowlist.js";
@@ -298,9 +302,26 @@ describe("agentToolAllowlist", () => {
   });
 
   describe("validateToolPolicies", () => {
-    it("should return no warnings for the default policies", () => {
+    it("returns only the expected all-category least-privilege advisories for the default policies", () => {
+      // D5-2 (Cycle 11 Wave 2): hatch3r-docs-writer and hatch3r-lint-fixer
+      // grant all six functional categories (read, search, write, execute, web,
+      // mcp) because their bodies instruct every one of them (docs-writer:
+      // markdown-lint + web research + Context7; lint-fixer: lint:fix +
+      // typecheck/test + web research + Context7).
+      // D5-24 (Cycle 11 Wave 3): hatch3r-devops joins them — its body instructs
+      // web research + Context7 MCP (now granted) on top of its existing
+      // write (IaC/CI authoring) + execute (dry-run validation) grant, so it too
+      // holds all six functional categories. validateToolPolicies surfaces an
+      // all-categories advisory WARNING (not an error) for each — these are
+      // expected and assert the least-privilege signal still fires. Order matches
+      // AGENT_TOOL_POLICIES registry insertion order (docs-writer, lint-fixer,
+      // devops).
       const warnings = validateToolPolicies();
-      expect(warnings).toEqual([]);
+      expect(warnings).toEqual([
+        `Agent "hatch3r-docs-writer" has access to all tool categories — consider restricting to least privilege.`,
+        `Agent "hatch3r-lint-fixer" has access to all tool categories — consider restricting to least privilege.`,
+        `Agent "hatch3r-devops" has access to all tool categories — consider restricting to least privilege.`,
+      ]);
     });
 
     // C8-D15-M3: unknown tool categories (typos) must be HARD errors, not
@@ -429,6 +450,56 @@ describe("agentToolAllowlist", () => {
         const warnings = validateToolPolicies(emptyPolicies);
         expect(warnings.some((w) => w.includes("empty tool allowlist"))).toBe(
           true,
+        );
+      });
+
+      // L-D9 / D2-SA2.4 F5 (reserved tool-category collapse — agentToolAllowlist
+      // side): the "all tool categories" least-privilege warning gates on
+      // FUNCTIONAL_TOOL_CATEGORIES (6), NOT on ALL_TOOL_CATEGORIES (8). The
+      // reserved `git`/`board` aliases collapse onto `execute`/`mcp` at the
+      // translator layer (RESERVED_TOOL_CATEGORIES) and confer no privilege
+      // beyond them, so the broadest *realistic* envelope is the 6 functional
+      // categories. The pre-existing "all categories" test grants all 8, so it
+      // cannot distinguish "gate on 6 functional" from "gate on 8 total"; these
+      // tests pin the collapse semantics so a future regression to gate on
+      // ALL_TOOL_CATEGORIES (which would under-warn a 6-functional grant) fails.
+      it("trips the all-categories warning on the 6 functional categories alone (no git/board)", () => {
+        const functionalOnly: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-functional-only",
+            allowedTools: [...FUNCTIONAL_TOOL_CATEGORIES],
+            description: "has every functional category but neither reserved alias",
+          },
+        ];
+        // Guard the premise: the fixture deliberately omits the reserved aliases.
+        for (const reserved of RESERVED_TOOL_CATEGORIES) {
+          expect(functionalOnly[0].allowedTools).not.toContain(reserved);
+        }
+        const warnings = validateToolPolicies(functionalOnly);
+        expect(warnings.some((w) => w.includes("all tool categories"))).toBe(
+          true,
+        );
+      });
+
+      it("does NOT trip the all-categories warning when ONLY the reserved git/board aliases are granted (they collapse, conferring no functional privilege)", () => {
+        const reservedOnly: AgentToolPolicy[] = [
+          {
+            agentId: "hatch3r-reserved-only",
+            allowedTools: [...RESERVED_TOOL_CATEGORIES],
+            description: "grants only the reserved categories that collapse to execute/mcp",
+          },
+        ];
+        // Reserved categories are valid (they are in ALL_TOOL_CATEGORIES) so the
+        // validator must not throw on them...
+        let warnings: string[] = [];
+        expect(() => {
+          warnings = validateToolPolicies(reservedOnly);
+        }).not.toThrow();
+        // ...but because they are not functional categories, the least-privilege
+        // "all tool categories" warning must NOT fire (the collapse means this is
+        // not a broad grant — it is in fact a near-empty privilege envelope).
+        expect(warnings.some((w) => w.includes("all tool categories"))).toBe(
+          false,
         );
       });
 
@@ -602,6 +673,92 @@ describe("agentToolAllowlist", () => {
       expect(parsed[0].phase).toBe("tool-allowlist");
       expect(parsed[0].tool).toBe("git");
       expect(parsed[0].errorCode).toBe("TOOL_NOT_ALLOWED");
+    });
+  });
+
+  // D15-2 (Cycle 11 Wave 2, High, ASI02/ASI03): the canonical orchestration
+  // rule mandates `subagent_type: "generalPurpose"` for ALL delegations, but the
+  // Claude PreToolUse hook scopes enforcement to a `hatch3r-`-prefixed
+  // `agent_type`. A `generalPurpose` spawn carries Claude Code's own
+  // `agent_type` (`general-purpose`), so the runtime hook passes it through by
+  // design. These tests pin the two-layer trust boundary documented in
+  // SECURITY.md ASI02 + `rules/hatch3r-agent-orchestration.md` -> Subagent
+  // Spawning Protocol -> Tool-allowlist enforcement boundary: (1) the rendered
+  // PreToolUse hook gates only `hatch3r-*` agent_type; (2) the
+  // orchestrator-boundary `checkToolAccess(roleId, category)` gate is the active
+  // enforcement layer for the generic-spawn convention — it denies off-policy
+  // categories by the hatch3r role id regardless of how the sub-agent is spawned.
+  describe("D15-2 generalPurpose spawn trust boundary (ASI02/ASI03)", () => {
+    it("PreToolUse hook scope-gates on a hatch3r- agent_type prefix (general-purpose passes through)", () => {
+      const script = buildClaudePreToolUseHookScript();
+      // The documented scope filter: non-hatch3r agent_type exits 0 (pass-through).
+      expect(script).toContain('if (!agentType.startsWith("hatch3r-"))');
+      // The pass-through is an exit-0 (Claude Code's normal permission flow applies).
+      const scopeIdx = script.indexOf('if (!agentType.startsWith("hatch3r-"))');
+      expect(script.slice(scopeIdx, scopeIdx + 120)).toContain("process.exit(0)");
+    });
+
+    it("orchestrator-boundary checkToolAccess is the active layer: denies an off-policy category by hatch3r role id", () => {
+      // hatch3r-researcher is read/search-only; `write` and `execute` are denied
+      // at the boundary gate. This gate runs irrespective of the generalPurpose
+      // spawn convention, so it — not the bypassed PreToolUse hook — enforces the
+      // review-only policy for delegated work.
+      expect(checkToolAccess("hatch3r-researcher", "write").allowed).toBe(false);
+      expect(checkToolAccess("hatch3r-researcher", "read").allowed).toBe(true);
+    });
+
+    it("orchestrator-boundary checkToolAccess denies an unregistered role id (deny-by-default), closing the generic-spawn gap", () => {
+      // A bare `general-purpose` spawn that never carries a hatch3r role id has no
+      // registered policy; the boundary gate denies by default rather than
+      // silently allowing — the inverse of the PreToolUse hook's pass-through.
+      const result = checkToolAccess("general-purpose", "write");
+      expect(result.allowed).toBe(false);
+      expect(result.denial?.reasonCode).toBe("NO_POLICY");
+    });
+  });
+
+  // D9-4 (Cycle 11 D9, P6): the Cursor `subagentStart` deny hook is the hard
+  // runtime ASI02 block for Cursor, at parity with the Claude PreToolUse
+  // NO_POLICY deny. cursor.com/docs/agent/hooks (accessed 2026-06-06) confirms
+  // `subagentStart` exposes `subagent_type` + `subagent_id` and denies with
+  // `{permission: "deny"}` — the prior "Cursor has no PreToolUse hook
+  // primitive" prose was false against current docs.
+  describe("D9-4 Cursor subagentStart guard hook script", () => {
+    it("scope-gates on a hatch3r- subagent_type prefix (non-hatch3r passes through)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      // The documented scope filter: a non-hatch3r subagent_type exits 0 (pass-through).
+      expect(script).toContain('if (!subagentType.startsWith("hatch3r-"))');
+      const scopeIdx = script.indexOf('if (!subagentType.startsWith("hatch3r-"))');
+      expect(script.slice(scopeIdx, scopeIdx + 120)).toContain("process.exit(0)");
+    });
+
+    it("reads the sibling policy doc one level up at ../agents-policy.json", () => {
+      // Script lives at .cursor/hooks/subagent-guard.mjs; policy doc at
+      // .cursor/agents-policy.json — so the relative resolution must climb one dir.
+      const script = buildCursorSubagentGuardHookScript();
+      expect(script).toContain('join(__dirname, "..", "agents-policy.json")');
+    });
+
+    it("denies a hatch3r- subagent with no policy row via {permission: deny} (NO_POLICY)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      // Cursor's documented deny shape is a stdout JSON {permission:"deny",...}.
+      expect(script).toContain('permission: "deny"');
+      // The NO_POLICY deny path mirrors the Claude hook's deny-by-default.
+      expect(script).toContain('reasonCode: "NO_POLICY"');
+      expect(script).toContain("No policy registered for agent");
+    });
+
+    it("denies when the policy file is unreadable (fail-closed at script level)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      expect(script).toContain('reasonCode: "POLICY_FILE_MISSING"');
+    });
+
+    it("matches the subagent against the canonical agentId field (parity with the registry)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      // The lookup keys on subagent_type === policy.agentId, the same join the
+      // Claude hook uses on agent_type, so the two adapters enforce one registry.
+      expect(script).toContain("policiesDoc.policies.find((p) => p.agentId === subagentType)");
+      expect(script).toContain("payload.subagent_type");
     });
   });
 });

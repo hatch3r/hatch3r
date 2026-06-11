@@ -12,9 +12,14 @@ import {
   LANGUAGE_SPECIALIST_CONFIGS,
   DEFAULT_MAX_VALIDATION_PASS_ITERATIONS,
   VALIDATION_PASS_CALIBRATION,
+  evaluatePhase4Completion,
+  resolveEffectiveTier,
+  formatTierUpgradeNote,
   type AgentStatus,
   type PipelineContext,
+  type TierUpgrade,
   type ProjectTypeContext,
+  type QualityResults,
   type ReviewVerdict,
   type ValidationPass,
 } from "../../pipeline/pipelineContext.js";
@@ -212,6 +217,77 @@ describe("validatePhaseTransition", () => {
       };
       const errors = validatePhaseTransition(ctx, 4);
       expect(errors.some((e) => e.field === "reviewResult.iterations")).toBe(true);
+    });
+
+    it("rejects an UNRESOLVED verdict at the Phase 4 advance gate by default (D7-10)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: { ...validReviewResult(), finalVerdict: "UNRESOLVED" as const },
+      };
+      const errors = validatePhaseTransition(ctx, 4);
+      const verdictErr = errors.find((e) => e.field === "reviewResult.finalVerdict");
+      expect(verdictErr).toBeDefined();
+      expect(verdictErr!.message).toContain("allowUnresolvedAdvance");
+    });
+
+    it("admits an UNRESOLVED verdict at Phase 4 when allowUnresolvedAdvance is passed (D7-10)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: { ...validReviewResult(), finalVerdict: "UNRESOLVED" as const },
+      };
+      const errors = validatePhaseTransition(ctx, 4, { allowUnresolvedAdvance: true });
+      expect(errors).toHaveLength(0);
+    });
+
+    it("does not apply the UNRESOLVED rejection at completion (D7-10 — scoped to the advance gate)", () => {
+      // The UNRESOLVED gate is the Phase 3 → 4 advance decision (targetPhase 4),
+      // not the completion check; completion only requires the field set.
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: { ...validReviewResult(), finalVerdict: "UNRESOLVED" as const },
+        qualityResults: validQualityResults(),
+      };
+      const errors = validatePhaseTransition(ctx, "completion");
+      expect(errors.some((e) => e.field === "reviewResult.finalVerdict")).toBe(false);
+    });
+
+    it("accepts an absent reviewResult at Phase 4 when phase3Skipped is set (D7-11 skip-path)", () => {
+      // Documentation-only / trivial change: Phase 3 was skipped, so no reviewer
+      // ran and there is no reviewResult.
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+      };
+      const errors = validatePhaseTransition(ctx, 4, { phase3Skipped: true });
+      expect(errors.some((e) => e.field === "reviewResult")).toBe(false);
+    });
+
+    it("still requires reviewResult at Phase 4 without the phase3Skipped signal (D7-11)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+      };
+      const errors = validatePhaseTransition(ctx, 4);
+      expect(errors.some((e) => e.field === "reviewResult")).toBe(true);
+    });
+
+    it("accepts a synthetic SKIPPED reviewResult with iterations 0 under phase3Skipped (D7-11)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: { ...validReviewResult(), iterations: 0 },
+      };
+      const errors = validatePhaseTransition(ctx, 4, { phase3Skipped: true });
+      expect(errors.some((e) => e.field === "reviewResult.iterations")).toBe(false);
     });
   });
 
@@ -537,6 +613,53 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     const result = shouldTriggerSpecialist("hatch3r-ui", ["src/server/route.ts"]);
     expect(result.triggered).toBe(false);
   });
+
+  // ── Backend path-glob triggers (Finding D7-20) ──────────────────
+  it("triggers hatch3r-reliability on a backend service-handler .ts path (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-reliability", ["src/server/handlers/order.ts"]);
+    expect(result.triggered).toBe(true);
+    expect(result.reasons.some((r) => r.includes("Backend path-glob trigger"))).toBe(true);
+  });
+
+  it("triggers hatch3r-scalability on a backend route .ts path (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-scalability", ["src/routes/checkout.ts"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("triggers hatch3r-performance on a backend data-access .ts path (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-performance", ["src/db/queries/users.ts"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("triggers hatch3r-reliability on a Go service file under a backend segment (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-reliability", ["internal/api/server.go"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("triggers hatch3r-maintainability on a migration path (D7-20)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-maintainability", ["db/migrate/0007_add_index.ts"]);
+    expect(result.triggered).toBe(true);
+  });
+
+  it("does NOT trigger a backend specialist on a front-end-only component path (D7-20)", () => {
+    // hatch3r-reliability has no front-end basename patterns; a .vue under
+    // components/ has no backend directory segment, so it must not trigger.
+    const result = shouldTriggerSpecialist("hatch3r-reliability", ["src/components/Button.vue"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  it("does NOT trigger a backend specialist on a non-source file inside a backend dir (D7-20)", () => {
+    // A README living under routes/ is not a code change — the source-suffix
+    // guard prevents a spurious backend trigger.
+    const result = shouldTriggerSpecialist("hatch3r-scalability", ["src/routes/README.md"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  it("does NOT match a backend segment as a basename substring (D7-20)", () => {
+    // "routesConfig.ts" contains "routes" but not as a directory segment.
+    const result = shouldTriggerSpecialist("hatch3r-reliability", ["src/lib/routesConfig.ts"]);
+    expect(result.triggered).toBe(false);
+  });
 });
 
 describe("LANGUAGE_SPECIALIST_CONFIGS", () => {
@@ -709,5 +832,248 @@ describe("Phase 4 Validation Pass calibration (Finding D7-SA7.3-F-7)", () => {
   it("VALIDATION_PASS_CALIBRATION is frozen against mutation", () => {
     expect(Object.isFrozen(VALIDATION_PASS_CALIBRATION)).toBe(true);
     expect(Object.isFrozen(VALIDATION_PASS_CALIBRATION.recalibrationTriggers)).toBe(true);
+  });
+});
+
+describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
+  // Fresh fixture per assertion so a test that mutates one clause cannot leak
+  // into the next. Baseline = both mandatory always-mode floor specialists
+  // (hatch3r-security CQ3, hatch3r-testability CQ5) returned SUCCESS and the
+  // validation pass is green — the only state the contract reports complete.
+  function passingQualityResults(): QualityResults {
+    return {
+      specialists: [
+        { specialist: "hatch3r-security", status: "SUCCESS", findingsCount: 0, summary: "No CQ3 findings" },
+        { specialist: "hatch3r-testability", status: "SUCCESS", findingsCount: 0, summary: "All tests pass" },
+      ],
+      validationPass: {
+        testsPass: true,
+        typecheckPass: true,
+        fixAttempts: 0,
+        regressionsPersist: false,
+      },
+    };
+  }
+
+  it("returns complete:true when every clause passes (all-pass)", () => {
+    const result = evaluatePhase4Completion(passingQualityResults());
+    expect(result.complete).toBe(true);
+    expect(result.mandatoryFloorsSatisfied).toBe(true);
+    expect(result.reReviewIterations).toBe(0);
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.codeMutatingSpecialists).toEqual([]);
+    expect(result.incompletionReason).toBeUndefined();
+  });
+
+  it("fails closed when validationPass.testsPass === false", () => {
+    const q = passingQualityResults();
+    q.validationPass.testsPass = false;
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.testsPass === false");
+  });
+
+  it("fails closed when validationPass.typecheckPass === false", () => {
+    const q = passingQualityResults();
+    q.validationPass.typecheckPass = false;
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.typecheckPass === false");
+  });
+
+  it("fails closed when validationPass.regressionsPersist === true", () => {
+    const q = passingQualityResults();
+    q.validationPass.regressionsPersist = true;
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.regressionsPersist === true");
+  });
+
+  it("fails closed when a mandatory floor specialist did not return SUCCESS (D16-5 security gate)", () => {
+    // D16-5: a mandatory always-mode CQ3/CQ5 specialist that times out (or
+    // crashes) must NOT be treated as an implicit pass. The typed gate reports
+    // mandatoryFloorsSatisfied:false and complete:false — the same fail-closed
+    // posture the orchestration-detail rule now carries in prose.
+    const q = passingQualityResults();
+    const sec = q.specialists.find((s) => s.specialist === "hatch3r-security")!;
+    sec.status = "TIMEOUT";
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+    );
+  });
+
+  it("fails closed when the security specialist is absent (missing-floor, not an implicit pass)", () => {
+    // Absence-of-finding is not an implicit pass: if hatch3r-security never ran
+    // (no SpecialistResult), find() returns undefined and the floor is unsatisfied.
+    const q = passingQualityResults();
+    q.specialists = q.specialists.filter((s) => s.specialist !== "hatch3r-security");
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+  });
+
+  it("fails closed when reReviewIterations exceeds the cap of 1", () => {
+    const result = evaluatePhase4Completion(passingQualityResults(), {
+      reReviewIterations: 2,
+    });
+    expect(result.complete).toBe(false);
+    expect(result.reReviewIterations).toBe(2);
+    expect(result.incompletionReason).toBe(
+      "Phase 4 Validation Pass re-review exceeded max 1 iteration (rules/hatch3r-agent-orchestration.md)",
+    );
+  });
+
+  it("fails closed when unresolvedCriticalFindings > 0", () => {
+    const result = evaluatePhase4Completion(passingQualityResults(), {
+      unresolvedCriticalFindings: 1,
+    });
+    expect(result.complete).toBe(false);
+    expect(result.unresolvedCriticalFindings).toBe(1);
+    expect(result.incompletionReason).toBe(
+      "1 Critical finding(s) unresolved after Phase 4 fixer pass",
+    );
+  });
+
+  it("evaluates clauses in priority order — testsPass failure reported before a missing floor", () => {
+    // Guards the early-return ordering: when both the validation pass and a
+    // mandatory floor fail, the validation-pass clause is reported first.
+    const q = passingQualityResults();
+    q.validationPass.testsPass = false;
+    q.specialists = q.specialists.filter((s) => s.specialist !== "hatch3r-security");
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+    expect(result.incompletionReason).toBe("validationPass.testsPass === false");
+  });
+
+  it("passes through codeMutatingSpecialists for the Phase 4 Validation Pass re-review scope", () => {
+    const result = evaluatePhase4Completion(passingQualityResults(), {
+      codeMutatingSpecialists: ["hatch3r-security"],
+    });
+    expect(result.complete).toBe(true);
+    expect(result.codeMutatingSpecialists).toEqual(["hatch3r-security"]);
+  });
+
+  it("derives unresolvedCriticalFindings from SpecialistResult.criticalCount when no override is passed (D7-19)", () => {
+    // D7-19: a specialist that recorded a Critical finding must fail the gate
+    // without the caller threading the count through a separate options arg.
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.criticalCount = 2;
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.unresolvedCriticalFindings).toBe(2);
+    expect(result.incompletionReason).toBe(
+      "2 Critical finding(s) unresolved after Phase 4 fixer pass",
+    );
+  });
+
+  it("sums criticalCount across specialists for the derived default (D7-19)", () => {
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.criticalCount = 1;
+    q.specialists.find((s) => s.specialist === "hatch3r-testability")!.criticalCount = 2;
+    const result = evaluatePhase4Completion(q);
+    expect(result.unresolvedCriticalFindings).toBe(3);
+    expect(result.complete).toBe(false);
+  });
+
+  it("treats absent criticalCount as 0 — back-compatible default stays complete (D7-19)", () => {
+    // Baseline fixture omits criticalCount entirely; the derived sum is 0.
+    const result = evaluatePhase4Completion(passingQualityResults());
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.complete).toBe(true);
+  });
+
+  it("lets an explicit options.unresolvedCriticalFindings override the derived sum (D7-19)", () => {
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.criticalCount = 5;
+    // Explicit 0 override wins over the derived sum of 5.
+    const result = evaluatePhase4Completion(q, { unresolvedCriticalFindings: 0 });
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.complete).toBe(true);
+  });
+});
+
+describe("mid-run tier upgrade (Finding D7-14)", () => {
+  describe("resolveEffectiveTier", () => {
+    it("returns the baseline deepContextTier when no upgrade is recorded", () => {
+      expect(resolveEffectiveTier({ deepContextTier: 2 })).toBe(2);
+    });
+
+    it("returns the upgraded tier when a mid-run upgrade escalates above the baseline", () => {
+      const upgrade: TierUpgrade = {
+        from: 2,
+        to: 3,
+        reason: "Phase 1 research found 12 affected files (initial estimate <5)",
+        atPhase: 1,
+      };
+      expect(resolveEffectiveTier({ deepContextTier: 2, tierUpgrade: upgrade })).toBe(3);
+    });
+
+    it("ignores a malformed non-escalating upgrade (to <= from) — never downgrades coverage", () => {
+      // A bad record must not lower the effective tier below the baseline.
+      expect(
+        resolveEffectiveTier({
+          deepContextTier: 3,
+          tierUpgrade: { from: 3, to: 2, reason: "stale record", atPhase: 2 },
+        }),
+      ).toBe(3);
+      expect(
+        resolveEffectiveTier({
+          deepContextTier: 2,
+          tierUpgrade: { from: 2, to: 2, reason: "no-op", atPhase: 1 },
+        }),
+      ).toBe(2);
+    });
+  });
+
+  describe("formatTierUpgradeNote", () => {
+    it("returns null when no upgrade is recorded", () => {
+      expect(formatTierUpgradeNote({ deepContextTier: 2 })).toBeNull();
+    });
+
+    it("renders a one-line note naming from→to, phase, reason, and the depth consequence", () => {
+      const note = formatTierUpgradeNote({
+        deepContextTier: 1,
+        tierUpgrade: {
+          from: 1,
+          to: 3,
+          reason: "Phase 2 surfaced 4 undocumented dependencies",
+          atPhase: 2,
+        },
+      });
+      expect(note).not.toBeNull();
+      expect(note).toContain("Tier upgraded 1→3 at Phase 2");
+      expect(note).toContain("Phase 2 surfaced 4 undocumented dependencies");
+      expect(note).toContain("Tier 3");
+      // Single line — no embedded newlines in the iteration-summary surfacing.
+      expect(note).not.toContain("\n");
+    });
+
+    it("returns null for a recorded-but-non-escalating upgrade (agrees with resolveEffectiveTier)", () => {
+      expect(
+        formatTierUpgradeNote({
+          deepContextTier: 3,
+          tierUpgrade: { from: 3, to: 2, reason: "stale record", atPhase: 2 },
+        }),
+      ).toBeNull();
+    });
+  });
+
+  it("PipelineContext accepts an optional tierUpgrade field (type-level + runtime carry)", () => {
+    const ctx: Partial<PipelineContext> = {
+      ...validBaseContext(),
+      tierUpgrade: {
+        from: 2,
+        to: 3,
+        reason: "Phase 1 research found >10 affected files",
+        atPhase: 1,
+      },
+    };
+    // The carrier does not disturb existing phase-transition validation.
+    expect(validatePhaseTransition(ctx, 1)).toHaveLength(0);
+    expect(resolveEffectiveTier(ctx as PipelineContext)).toBe(3);
   });
 });

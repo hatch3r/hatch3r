@@ -267,9 +267,21 @@ export const PHASE_HANDOFF_LOSS_WARN_THRESHOLD = 0.3;
  * Byte-loss measurement for a single phase-to-phase handoff.
  *
  * Captured when the orchestrator passes context from one phase to the next.
- * `informationLossEstimate` is a 0-1 fraction: the proportion of input bytes
- * NOT carried into the output (e.g. 0.4 = the handoff dropped 40% of the
- * upstream bytes through summarisation/pruning).
+ *
+ * D7-25 (Cycle 11 Wave 3, D7, P5): `informationLossEstimate` is a **byte-size
+ * proxy**, not a semantic-importance measure — it counts bytes dropped, so by
+ * itself a dropped security finding and dropped whitespace score identically.
+ * The orchestration rule's compression strategy #4 ("never truncate security
+ * findings", `rules/hatch3r-agent-orchestration-detail.md` § Context Token
+ * Optimization) means those decision-critical bytes are NEVER part of the
+ * lossy drop. `protectedByteCount` lets the caller declare how many of the
+ * input bytes are protected-and-retained (security findings, unresolved
+ * findings carried forward); those bytes are excluded from BOTH the numerator
+ * (dropped bytes) and the denominator (droppable bytes), so the estimate
+ * reflects loss over the bytes that were actually eligible to be compressed.
+ * It remains a size proxy: a high value flags "a lot of droppable context was
+ * compressed", a cue to verify critical context survived — it does not by
+ * itself prove what was lost mattered.
  */
 export interface PhaseHandoffMetrics {
   /** Phase producing the context (handoff source). */
@@ -280,9 +292,19 @@ export interface PhaseHandoffMetrics {
   inputBytes: number;
   /** Byte count of the context leaving the handoff (post-compression). */
   outputBytes: number;
+  /**
+   * Bytes that are protected-and-retained (compression strategy #4: security
+   * findings + carried-forward unresolved findings). Excluded from the loss
+   * estimate's numerator and denominator. 0 when no bytes are protected.
+   */
+  protectedByteCount: number;
   /** True when a compression strategy was applied at this handoff. */
   summarisationApplied: boolean;
-  /** Fraction (0-1) of input bytes not carried into the output. */
+  /**
+   * Byte-SIZE-proxy loss fraction (0-1): dropped droppable bytes ÷ droppable
+   * bytes (protected bytes excluded from both). NOT a semantic-importance
+   * measure — see {@link PhaseHandoffMetrics} for the size-proxy disclaimer.
+   */
   informationLossEstimate: number;
 }
 
@@ -292,6 +314,15 @@ export interface PhaseHandoffMetrics {
  * `informationLossEstimate` is clamped to [0, 1]; an output larger than the
  * input (e.g. the phase added analysis rather than compressing) yields a loss
  * estimate of 0 — handoffs never report negative loss. Pure function; no I/O.
+ *
+ * D7-25: `protectedByteCount` (optional, default 0) declares input bytes that
+ * compression strategy #4 protects-and-retains (security findings,
+ * carried-forward unresolved findings). Those bytes are excluded from both the
+ * dropped-byte numerator and the droppable-byte denominator, so the estimate
+ * measures loss over the bytes that were eligible to be compressed — a dropped
+ * whitespace byte counts, a (retained) protected byte does not. The value is
+ * clamped to `[0, safeInput]`. It remains a byte-SIZE proxy, not a
+ * semantic-importance measure (see {@link PhaseHandoffMetrics}).
  */
 export function createPhaseHandoffMetrics(
   fromPhase: PhaseName,
@@ -299,18 +330,29 @@ export function createPhaseHandoffMetrics(
   inputBytes: number,
   outputBytes: number,
   summarisationApplied: boolean,
+  protectedByteCount: number = 0,
 ): PhaseHandoffMetrics {
   const safeInput = inputBytes > 0 ? inputBytes : 0;
   const safeOutput = outputBytes > 0 ? outputBytes : 0;
-  const lost = safeInput - safeOutput;
+  const safeProtected =
+    protectedByteCount > 0 ? Math.min(protectedByteCount, safeInput) : 0;
+
+  // Protected bytes are excluded from both sides: they are retained by design
+  // (strategy #4), so they belong in neither the dropped count nor the
+  // droppable base. droppableInput = input - protected; droppableOutput is the
+  // output minus the retained protected bytes (clamped at 0).
+  const droppableInput = safeInput - safeProtected;
+  const droppableOutput = Math.max(0, safeOutput - safeProtected);
+  const lost = droppableInput - droppableOutput;
   const informationLossEstimate =
-    safeInput === 0 || lost <= 0 ? 0 : Math.min(1, lost / safeInput);
+    droppableInput <= 0 || lost <= 0 ? 0 : Math.min(1, lost / droppableInput);
 
   return {
     fromPhase,
     toPhase,
     inputBytes: safeInput,
     outputBytes: safeOutput,
+    protectedByteCount: safeProtected,
     summarisationApplied,
     informationLossEstimate,
   };

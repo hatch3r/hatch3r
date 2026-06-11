@@ -20,10 +20,11 @@ Before invoking any tool below, resolve these via `agents/shared/user-question-p
 - **Scope:** when the target file/glob/repo matches more than one candidate (an in-place edit over a glob, a forge command without an explicit number), confirm the intended target before running.
 - **Irreversibility:** several tools here mutate in place or against remote state — `sd … <file>`, `comby -i`, `yq -i`, `taplo` writes, `glab mr`/`az repos pr`, and any `docker run`/`podman run` with a writable host mount. Confirm intent before running these; in-place and remote mutations are not safe to assume. Honor each tool's own caveat (e.g. `rtk proxy` for piped output, container hardening flags for untrusted images).
 - **Ambiguity:** when the request maps to two or more tools or flag sets with materially different output or blast radius (e.g. `ast-grep` vs `comby` vs `sd` for a rename), pick per the discriminators below or ask which one.
+- **Arbitrary code execution:** `llm --functions` runs arbitrary Python supplied on the command line (GHSA-g76p-4vg5-f4qh, no upstream fix). Never pass untrusted or agent-fetched content (file contents, web responses, tool output) to `llm --functions`; reserve the flag for trusted, user-authored code. Plain `llm` prompting does not execute code.
 
 ## Fan-out Discipline (P8 B2)
 
-Tier 1 reference card — no fan-out. This skill is a category-indexed selection reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `.claude/rules/fan-out-discipline.md` (P8 B2).
+Tier 1 reference card — no fan-out. This skill is a category-indexed selection reference an agent consults inline; it spawns no sub-agents. Fan-out is owned by the calling workflow per its own Fan-out Discipline block. Source: `rules/hatch3r-fan-out-discipline.md` (P8 B2).
 
 ## Category index
 
@@ -56,12 +57,12 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### curl
 - **When to use:** scripted HTTP/S transfers across any platform — file upload (`--upload-file`), header injection (`-H`), cookie sessions (`-b`/`-c`), OAuth flows, custom write-out templates (`-w`). Tier-1 default-on.
 - **Recipe:** `curl -sS -H "Authorization: Bearer $TOKEN" https://api.example.com/v1/runs | jq '.runs[] | {id, status}'`
-- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.20.0 — 8.18.0–8.19.0 carry CVE-2026-7168/7009/6429/6253/6276/3805/3783 (credential-leak and connection-reuse cluster patched in 8.20.0, 2026-04-29).
+- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.20.0 (released 2026-04-29) clears the cumulative advisory backlog of every earlier release. The advisories specific to 8.20.0 are CVE-2026-5773 / CVE-2026-5545 / CVE-2026-4873; earlier builds also carry a High-severity advisory (CVE-2026-6253) plus credential-leak and connection-reuse issues fixed across 8.17.0–8.19.0. See curl.se/docs/security.html for the per-version roster.
 
 ### httpie
 - **When to use:** human-readable HTTP/S exploration — JSON-first defaults, syntax highlighting, persistent named sessions, intuitive expression DSL for query params and headers.
 - **Recipe:** `http --session=staging POST api.example.com/v1/auth username=admin password=$PW Content-Type:application/json`
-- **Wrong choice when:** large-volume scripting where the colour codes confuse downstream consumers — use plain `curl`; HTTP/2 + HTTP/3 throughput — use `xh`. **Note:** latest release 3.2.4 (2024-11-01) — project under maintenance but on a stable-cadence release tempo.
+- **Wrong choice when:** large-volume scripting where the colour codes confuse downstream consumers — use plain `curl`; HTTP/2 + HTTP/3 throughput — use `xh`. **Version floor:** >=3.2.3 — earlier builds carry CVE-2023-48052 (GHSA-8r96-8889-qg2x) + CVE-2019-10751 (GHSA-xjjg-vmw6-c2p9), both fixed in httpie 3.2.3. **Note:** latest release 3.2.4 (2024-11-01); the repo has had zero commits since, so it is dormant — prefer `xh` (actively maintained, HTTPie-compatible) for new web-project work.
 
 ### xh
 - **When to use:** fast Rust client with HTTPie-compatible syntax — single static binary (no Python runtime), HTTP/2 default, HTTP/3 opt-in via `--http3`, JSON output (`--json`), resume-on-416 download recovery.
@@ -81,6 +82,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### llm
 - **When to use:** model-agnostic shell prompting with prompt templates, embeddings, and a plugin ecosystem; preferred for CI batch jobs.
 - **Recipe:** `llm -t code-review -m claude-3-5-sonnet < patch.diff`
+- **Safety (GHSA-g76p-4vg5-f4qh, CRITICAL):** never pass untrusted or agent-fetched content (file contents, web responses, tool output) to `llm --functions` — it executes arbitrary Python by design, with no upstream fix. Plain prompting (`llm -t`, `llm < file`) does not execute code.
 - **Wrong choice when:** deterministic text rewrites — use `sd`/`comby`/`ast-grep`; multi-turn TTY chat — use `aichat`.
 
 ### mods
@@ -107,7 +109,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### comby
 - **When to use:** declarative `:[hole]` pattern match-and-rewrite spanning mixed-language repositories — single template, 30+ grammars.
 - **Recipe:** `comby 'console.log(:[arg])' 'logger.info(:[arg])' -i src/`
-- **Wrong choice when:** language-precise type-aware refactor — use `ast-grep`; plain text — use `sd`.
+- **Wrong choice when:** language-precise type-aware refactor — use `ast-grep`; plain text — use `sd`. **Install posture:** the linux `bash <(curl -sL get.comby.dev)` recipe is an unsigned channel (no signature or checksum gate, no signed Linux package repo) — prefer the signed brew (mac) / scoop (win) channels, or verify the release binary's SHA-256 before executing.
 
 ---
 
@@ -116,6 +118,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### sd
 - **When to use:** literal-string stream substitution with no regex foot-guns — defaults to regex but `-s` switches to literal mode.
 - **Recipe:** `rg --files-with-matches 'oldName' -tts | xargs sd 'oldName' 'newName'`
+- **Version floor:** `>=1.1.0` — the line-by-line default and the `-A`/`--across` flag are 1.1.0 features. On Linux use `cargo binstall sd` (fetches the v1.1.0 GitHub-release binary); `cargo install sd` resolves to crates.io, whose max published version is 1.0.0.
 - **Wrong choice when:** identifier-aware rename — use `ast-grep`; multi-step transforms — use `sed -e`.
 
 ---
@@ -125,7 +128,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### yq
 - **When to use:** editing Kubernetes manifests, Helm values, or GitHub-Actions workflows in place — preserves comments/anchors with `-P`.
 - **Recipe:** `yq -i '.version = "1.7.5"' .hatch3r/hatch.json`
-- **Wrong choice when:** JSON input — use `hatch3r-cli-jq`; TOML — use `taplo`.
+- **Wrong choice when:** JSON input — use `hatch3r-cli-jq`; TOML — use `taplo`. **Tested-against version:** 4.53.2 (cycle-verified documentation pin, not a CVE floor).
 
 ### taplo
 - **When to use:** formatting, linting, and querying TOML (`pyproject.toml`, `Cargo.toml`); bundled schemas for both.
@@ -135,7 +138,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### dasel
 - **When to use:** single binary spanning JSON / YAML / TOML / XML / CSV under one path-query DSL — handy in CI where you do not want jq+yq+taplo and the input format is not known up-front. NDJSON read support added in v3.11.0.
 - **Recipe:** `dasel -r yaml -w json -f config.yaml '.services.app.env'`
-- **Wrong choice when:** format-specific in-place edits with comment preservation — use `yq` (YAML) or `taplo` (TOML); stream-friendly JSON filtering — use `jq` with its richer filter language. **Version floor:** >=3.11.0 — earlier builds carry CVE-2026-46377 / CVE-2026-46378 / CVE-2026-33320 (selector-lexer DoS, index-out-of-range panic, YAML alias DoS — all fixed in 3.11.0, 2026-05-19).
+- **Wrong choice when:** format-specific in-place edits with comment preservation — use `yq` (YAML) or `taplo` (TOML); stream-friendly JSON filtering — use `jq` with its richer filter language. **Version floor:** >=3.11.0 (the current stable) — earlier builds carry CVE-2026-33320 (YAML alias DoS, fixed in 3.3.2), CVE-2026-46378 (selector-lexer DoS, fixed in 3.10.1), and CVE-2026-46377 (index-out-of-range panic, fixed in 3.10.1); pinning >=3.11.0 clears all three.
 
 ---
 
@@ -144,17 +147,17 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### csvkit
 - **When to use:** Python-powered CSV toolkit covering `csvlook`, `csvsql`, `csvjoin`, `csvstat` — best for ad-hoc EDA and SQL-over-CSV.
 - **Recipe:** `csvsql --query 'SELECT name FROM data WHERE active = 1' data.csv`
-- **Wrong choice when:** files >1M rows — use `duckdb`; single-column slice — use `qsv`.
+- **Wrong choice when:** files >1M rows — use `duckdb`; single-column slice — use `qsv`. **Tested-against version:** 2.2.0 (cycle-verified documentation pin, not a CVE floor).
 
 ### duckdb
 - **When to use:** ad-hoc analytical SQL over local Parquet, CSV, JSON; streams reads so memory stays bounded.
 - **Recipe:** `duckdb -c "SELECT count(*) FROM 'data/*.parquet'"`
-- **Wrong choice when:** <10k rows and column slice only — use `qsv`; transactional writes — use SQLite/Postgres.
+- **Wrong choice when:** <10k rows and column slice only — use `qsv`; transactional writes — use SQLite/Postgres. **Install posture:** the linux `curl https://install.duckdb.org | sh` recipe is an unsigned channel (no signature or checksum gate) — prefer the signed brew (mac) / winget (win) channels, or verify the release binary's published SHA-256 before executing.
 
 ### miller
 - **When to use:** `awk`-like record processing across CSV/TSV/JSON-Lines streams with the `put`/`filter` DSL.
 - **Recipe:** `mlr --icsv --ojson put '$tax = $amount * 0.07' transactions.csv`
-- **Wrong choice when:** multi-GB analytical joins — use `duckdb`; trivial slicing — use `qsv`.
+- **Wrong choice when:** multi-GB analytical joins — use `duckdb`; trivial slicing — use `qsv`. **Tested-against version:** 6.18.1 (cycle-verified documentation pin, not a CVE floor).
 
 ### qsv
 - **When to use:** fast CSV toolkit (slice, search, join, stats, 80+ commands) — actively-maintained `xsv` successor (`BurntSushi/xsv` archived 2025-04-24, `jqnatividad/qsv` is the active fork).
@@ -169,7 +172,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 - **When to use:** image build, container run, exec inspection, registry push against a running Docker Engine daemon.
 - **Recipe (trusted image, repo workload):** `docker run --rm -v "$PWD":/app -w /app node:22 npm test`
 - **Recipe (untrusted image OR agent-generated command, default for AI runs):** prefer the hardened equivalent below — read-only filesystem, dropped capabilities, `:ro` sub-tree bind.
-- **Wrong choice when:** rootless / daemonless required — use `podman`; Kubernetes deploy — use `kubectl`/`helm`.
+- **Wrong choice when:** rootless / daemonless required — use `podman`; Kubernetes deploy — use `kubectl`/`helm`. **Version floor:** >=29.5.2 — earlier engines carry CVE-2026-32288 (manifest DoS) plus CVE-2026-41567 / CVE-2026-41568 / CVE-2026-42306 (`docker cp` host-root TOCTOU, fixed in 29.5.1; 29.5.2 fixes the 29.5.1 `docker cp` regression). **Install posture:** the linux `curl -fsSL https://get.docker.com | sudo sh` recipe is an unsigned channel — prefer Docker's signed apt repository (download.docker.com, signed-by GPG key) or the signed brew (mac) / winget (win) channels.
 
 #### Sandbox callout — host-mount + privilege
 
@@ -193,7 +196,7 @@ docker run --rm --read-only --tmpfs /tmp \
 ### podman
 - **When to use:** rootless OCI-image execution without a privileged daemon — ideal for hardened CI workers.
 - **Recipe:** `podman run --rm -v "$PWD:/app:Z" -w /app node:22 npm test` (`:Z` triggers SELinux relabel on Fedora/RHEL).
-- **Wrong choice when:** Swarm / Docker-Desktop integration — use `docker`; tools that hard-code `/var/run/docker.sock` (unless `podman system service` is running).
+- **Wrong choice when:** Swarm / Docker-Desktop integration — use `docker`; tools that hard-code `/var/run/docker.sock` (unless `podman system service` is running). **Version floor (Windows only):** >=5.8.2 — earlier Windows builds carry CVE-2026-33414 (PowerShell command injection in `podman machine init --image` on the Hyper-V backend); mac and linux builds are unaffected.
 
 ### container-use
 - **Caveat (pre-1.0 stale upstream):** v0.4.2 shipped 2025-08-19; no further tagged release at 2026-05-27 (281-day gap) and no `SECURITY.md` is published. Adopt only if you accept undefined CVE disclosure paths. Track: https://github.com/dagger/container-use/releases.
@@ -213,7 +216,7 @@ docker run --rm --read-only --tmpfs /tmp \
 ### delta
 - **When to use:** viewing unified git diffs with side-by-side syntax-coloured hunks (ANSI pager).
 - **Recipe:** `git config --global core.pager delta` then `git config --global interactive.diffFilter 'delta --color-only'`.
-- **Wrong choice when:** scripted consumers — ANSI breaks parsers; semantic refactor review — use `difftastic`.
+- **Wrong choice when:** scripted consumers — ANSI breaks parsers; semantic refactor review — use `difftastic`. **Version floor:** >=0.8.3 — earlier builds carry CVE-2021-36376 (GHSA-5xg3-j2j6-rcx4 path traversal, fixed in git-delta 0.8.3).
 
 ### difftastic
 - **When to use:** syntax-aware diffing that reports semantic edits (rename of block does not show as wholesale rewrite).
@@ -223,7 +226,7 @@ docker run --rm --read-only --tmpfs /tmp \
 ### bat
 - **When to use:** scrolling one source file with syntax colours, line numbers, git modification markers.
 - **Recipe:** `bat --plain --line-range 50:100 src/adapters/cursor.ts`
-- **Wrong choice when:** binary files (use `xxd | bat --language=hex`); strict POSIX pipelines (use `cat`); two-file compare (use `delta`).
+- **Wrong choice when:** binary files (use `xxd | bat --language=hex`); strict POSIX pipelines (use `cat`); two-file compare (use `delta`). **Version floor:** >=0.18.2 — earlier builds carry CVE-2021-36753 (GHSA-p24j-h477-76q3 uncontrolled search path, fixed in bat 0.18.2).
 
 ---
 
@@ -239,12 +242,12 @@ docker run --rm --read-only --tmpfs /tmp \
 ### glab
 - **When to use:** GitLab merge-request review, pipeline retries, issue triage with native PAT/OAuth auth.
 - **Recipe:** `glab mr list --assignee=@me --output json | jq '.[] | {iid, title, web_url}'`
-- **Wrong choice when:** GitHub-hosted — use `hatch3r-cli-gh`; Azure Repos — use `az-devops`.
+- **Wrong choice when:** GitHub-hosted — use `hatch3r-cli-gh`; Azure Repos — use `az-devops`. **Tested version:** 1.99.0 (documentation pin, not a CVE floor) — the verified baseline at last audit.
 
 ### az-devops
 - **When to use:** Azure DevOps work-item edits, repo pushes, pipeline runs via the `az` CLI extension.
 - **Recipe:** `az repos pr list --status active --query '[].pullRequestId' --output tsv`
-- **Wrong choice when:** GitHub — use `hatch3r-cli-gh`; GitLab — use `glab`.
+- **Wrong choice when:** GitHub — use `hatch3r-cli-gh`; GitLab — use `glab`. **Tested version:** az-devops extension 1.0.4 (documentation pin; the extension floats under `az extension update`). **Install posture:** the linux `curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash` recipe is an unsigned channel that runs as root — prefer Microsoft's signed apt repository (packages.microsoft.com, signed-by GPG key) or the signed winget (win) / brew (mac) channels.
 
 ---
 
@@ -253,6 +256,7 @@ docker run --rm --read-only --tmpfs /tmp \
 ### playwright
 - **When to use:** end-to-end browser test execution capturing screenshots and traces; deterministic locators, multi-browser.
 - **Recipe:** `npx playwright test --grep '@smoke' --workers=1 --reporter=line`
+- **Version floor:** `>=1.55.1` — earlier `npx playwright install` builds carry CVE-2025-59288 (installer man-in-the-middle, CVSS 8.7). Keep current beyond the floor so the bundled Chromium rolls the CVE-2026-2441 fix; pin the sandbox container image to a current `*-noble` tag.
 - **Wrong choice when:** API-only system — use `curl` + `jq`; agent-driven natural-language browsing — use `stagehand`.
 
 #### Sandbox callout — credential isolation when navigating untrusted URLs
@@ -260,7 +264,7 @@ docker run --rm --read-only --tmpfs /tmp \
 Playwright launches real Chrome / Firefox / WebKit processes that inherit the host user's environment (`HOME`, `~/.aws`, browser profiles under `~/.config/google-chrome/`). Visiting an attacker-controlled URL with the host user's credential store is the equivalent of granting that URL read access to every site you are logged into. F15.7-H5 (Cycle 10 D15-SA15.7) hardening — apply when navigating to URLs the agent has not vetted:
 
 - Disposable profile: pass `userDataDir: tmp.dirSync().name` (or `--user-data-dir=$(mktemp -d)`) so the browser sees no saved sessions, no autofill, no cookies from the host profile.
-- Run inside the official sandbox image: Microsoft maintains pinned, signed Playwright containers — `mcr.microsoft.com/playwright:v1.49.0-jammy` (pin the exact tag). The image preinstalls every browser binary and isolates filesystem + network from the host. Reference: https://playwright.dev/docs/docker (Microsoft's official Playwright image is the maintained surface; pin to the immutable digest).
+- Run inside the official sandbox image: Microsoft maintains pinned, signed Playwright containers — `mcr.microsoft.com/playwright:v1.60.0-noble` (pin a current tag; keep it current so the bundled Chromium carries the CVE-2026-2441 fix — an 18-month-stale tag like `v1.49.0-jammy` ships an unpatched browser-engine RCE). The image preinstalls every browser binary and isolates filesystem + network from the host. Reference: https://playwright.dev/docs/docker (Microsoft's official Playwright image is the maintained surface; pin to the immutable digest of a current release).
 - Disable hardware acceleration / GPU access on untrusted runs: `args: ['--disable-gpu', '--no-sandbox']` is acceptable inside a hardened container, never on the host.
 - Reset between scenarios: `await context.close(); context = await browser.newContext();` between unvetted URLs so cookie state does not leak across hops.
 - **D15-M14: `playwright codegen <url>` against an authed site.** `npx playwright codegen` opens a browser session the user logs into, then writes the captured locators and credentials into a test file on disk. Running codegen against a host browser profile bakes the live session cookie / Authorization header into the emitted test, exposing the credential in any artefact the test is checked into. Mitigation: always pass `--save-storage=storageState.json` to capture state into a single named file you can scrub or `.gitignore` (instead of writing inline credentials), pass `--user-data-dir=$(mktemp -d)` so codegen does not start from the host's logged-in profile, and review the emitted test for any literal token, bearer string, or `cookie:` header before committing. Reference: https://playwright.dev/docs/codegen#preserve-authenticated-state (preserve auth via the storage-state file rather than inline credentials).
@@ -269,7 +273,7 @@ Playwright launches real Chrome / Firefox / WebKit processes that inherit the ho
 Hardened equivalent of the recipe above (inside Microsoft's pinned image):
 ```
 docker run --rm --network none -v "$PWD:/work:ro" -w /work \
-  mcr.microsoft.com/playwright:v1.49.0-jammy \
+  mcr.microsoft.com/playwright:v1.60.0-noble \
   npx playwright test --grep '@smoke' --workers=1 --reporter=line
 ```
 
@@ -322,17 +326,17 @@ Install commands:
 | `difftastic` | `brew install difftastic` | `cargo install difftastic` |
 | `docker` | `brew install --cask docker` | `apt install docker.io` |
 | `duckdb` | `brew install duckdb` | download from https://duckdb.org/ |
-| `glab` | `brew install glab` | `apt install glab` (or GitLab release) |
+| `glab` | `brew install glab` | `snap install glab` (only in Ubuntu universe 24.04+; or GitLab release `.deb`) |
 | `httpie` | `brew install httpie` | `snap install httpie` (or `pipx install httpie`) |
 | `lazygit` | `brew install lazygit` | `apt install lazygit` |
 | `llm` | `brew install llm` | `pipx install llm` |
 | `miller` | `brew install miller` | `apt install miller` |
 | `mods` | `brew install charmbracelet/tap/mods` | `apt install mods` (Charm repo) |
-| `playwright` | `npm install -D @playwright/test && npx playwright install` | same |
+| `playwright` | `npm install -D @playwright/test && npx playwright install` (pin >=1.55.1) | same (verify >=1.55.1; sandbox image `mcr.microsoft.com/playwright:v1.60.0-noble`) |
 | `podman` | `brew install podman` | `apt install podman` |
 | `qsv` | `brew install qsv` | `cargo install qsv` |
 | `rtk` | `brew install rtk-ai/tap/rtk` | check upstream release |
-| `sd` | `brew install sd` | `cargo install sd` |
+| `sd` | `brew install sd` (1.1.0) | `cargo binstall sd` (v1.1.0 GitHub release; `cargo install sd` pins crates.io 1.0.0 — older, no `-A`/`--across`) |
 | `stagehand` | `npm install -g @browserbasehq/stagehand` | same |
 | `taplo` | `brew install taplo` | `cargo install taplo-cli --locked` |
 | `xh` | `brew install xh` (pin >=0.25.3) | `cargo install xh --locked` |

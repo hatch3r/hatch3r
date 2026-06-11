@@ -48,7 +48,7 @@ Before any browser action, scan the invocation for unresolved questions per `age
 
 ## Fan-out Discipline (P8 B2)
 
-Delegate per task size: Tier 1 (single route, single check) inline; Tier 2 (multi-route or multi-check) spawn parallel sub-agents per route or per capability via the Task tool; Tier 3 (full-app verification + a11y + visual diff + E2E scaffold) one fresh sub-agent per capability with the orchestrator integrating only. Emit `sub_agents_spawned: { count, rationale }` in the result.
+Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 ## Invoked by
 

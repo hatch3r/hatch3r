@@ -626,6 +626,99 @@ describe("saveUserContent — §0 ambiguity gate for orchestrator commands (F20.
   });
 });
 
+describe("saveUserContent — §0 ambiguity gate for user agents/skills (D13-10)", () => {
+  // CONSTITUTION §2 P5 "Ambiguity-detection gate coverage (agents/skills/commands)"
+  // at 100% — the §0 gate must reach agents and skills, not only orchestrator
+  // commands. Tier-aware per F20.2.A1: gentle at solo, strict at team+.
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-section0-agent-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // A canonical-empty index so the §0 gate is the only behaviour under test
+  // (no collision noise). Mirrors the tier-aware block's emptyIndex helper.
+  async function emptyIndex() {
+    const fakeRoot = await mkdtemp(join(tmpdir(), "hatch3r-uc-section0-canon-"));
+    const index = await buildContentIndex(fakeRoot);
+    return { index, cleanup: () => rm(fakeRoot, { recursive: true, force: true }) };
+  }
+
+  const NO_SECTION_ZERO_BODY =
+    "**Pillars:** P8\n\nquality-charter applies. This body jumps to work with no clarification gate.\n";
+  const WITH_SECTION_ZERO_BODY =
+    "**Pillars:** P8\n\nquality-charter applies.\n\n## §0 Detect Ambiguity\n\nResolve ambiguity via `agents/shared/user-question-protocol.md` first.\n";
+
+  for (const type of ["agent", "skill"] as const) {
+    it(`solo WARNS (gentle, non-blocking) on a ${type} with no §0 block`, async () => {
+      const result = await saveUserContent(
+        tempDir,
+        makeArtifact({ type, name: `solo-${type}-no-s0`, body: NO_SECTION_ZERO_BODY }),
+      );
+      // Gentle at solo: the save still lands on disk.
+      expect(result.strictFailures.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(false);
+      expect(result.gentleWarnings.some((g) => /§0 ambiguity-detection block/.test(g))).toBe(true);
+      expect(result.written.length).toBeGreaterThan(0);
+    });
+
+    it(`team REJECTS (strict) a ${type} with no §0 block`, async () => {
+      const { index, cleanup } = await emptyIndex();
+      try {
+        const result = await validateUserArtifact(
+          makeArtifact({ type, name: `team-${type}-no-s0`, body: NO_SECTION_ZERO_BODY }),
+          index,
+          "team",
+        );
+        expect(result.strict.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(true);
+        expect(result.gentle.some((g) => /§0 ambiguity-detection block/.test(g))).toBe(false);
+      } finally {
+        await cleanup();
+      }
+    });
+
+    it(`team ACCEPTS a ${type} that carries a §0 block`, async () => {
+      const { index, cleanup } = await emptyIndex();
+      try {
+        // team also mandates a References section, so add one alongside the §0
+        // block to isolate the §0 gate as cleared.
+        const body = `${WITH_SECTION_ZERO_BODY}\n## References\n- https://example.com (accessed 2026-05-27, primary)\n`;
+        const result = await validateUserArtifact(
+          makeArtifact({ type, name: `team-${type}-with-s0`, body }),
+          index,
+          "team",
+        );
+        expect(result.strict.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(false);
+      } finally {
+        await cleanup();
+      }
+    });
+  }
+
+  it("does NOT apply the agent/skill §0 gate to hooks", async () => {
+    const { index, cleanup } = await emptyIndex();
+    try {
+      const result = await validateUserArtifact(
+        makeArtifact({
+          type: "hook",
+          name: "hook-no-s0",
+          hookEvent: "pre-commit",
+          body: NO_SECTION_ZERO_BODY,
+        }),
+        index,
+        "team",
+      );
+      expect(result.strict.some((s) => /§0 ambiguity-detection block/.test(s))).toBe(false);
+      expect(result.gentle.some((g) => /§0 ambiguity-detection block/.test(g))).toBe(false);
+    } finally {
+      await cleanup();
+    }
+  });
+});
+
 describe("saveUserContent — pillar-enum parity (F20.1.A2 / F20.2.A2, two-axis)", () => {
   let tempDir: string;
 
@@ -1174,11 +1267,14 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
     }
   });
 
-  it("team accepts an agent that carries a References section", async () => {
+  it("team accepts an agent that carries References + §0 ambiguity gate", async () => {
     const { index, cleanup } = await emptyIndex();
     try {
+      // At team+ an agent must also clear the §0 ambiguity gate (D13-10), so the
+      // body references agents/shared/user-question-protocol.md alongside its
+      // References section.
       const body =
-        "**Pillars:** P4\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+        "**Pillars:** P4\n\nquality-charter applies. Resolve ambiguity via agents/shared/user-question-protocol.md.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
       const result = await validateUserArtifact(minimalArtifact({ body }), index, "team");
       expect(result.strict).toEqual([]);
     } finally {
@@ -1189,8 +1285,10 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
   it("scaleup additionally requires an impact_horizon declaration", async () => {
     const { index, cleanup } = await emptyIndex();
     try {
+      // References + §0 satisfied so the impact_horizon gap is the only strict
+      // failure left to assert on.
       const body =
-        "**Pillars:** P4\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+        "**Pillars:** P4\n\nquality-charter applies. Resolve ambiguity via agents/shared/user-question-protocol.md.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
       const result = await validateUserArtifact(minimalArtifact({ body }), index, "scaleup");
       expect(result.strict.some((s) => /impact_horizon/i.test(s))).toBe(true);
     } finally {
@@ -1198,11 +1296,11 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
     }
   });
 
-  it("enterprise accepts an artifact with References + impact_horizon", async () => {
+  it("enterprise accepts an artifact with References + §0 + impact_horizon", async () => {
     const { index, cleanup } = await emptyIndex();
     try {
       const body =
-        "**Pillars:** P4\n\nquality-charter applies. impact_horizon: short\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+        "**Pillars:** P4\n\nquality-charter applies. impact_horizon: short. Resolve ambiguity via agents/shared/user-question-protocol.md.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
       const result = await validateUserArtifact(minimalArtifact({ body }), index, "enterprise");
       expect(result.strict).toEqual([]);
     } finally {
@@ -1276,8 +1374,12 @@ describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
   it("team promotes the wide-grant baseline check to a strict failure", async () => {
     const { index, cleanup } = await emptyIndex();
     try {
+      // §0 (user-question-protocol) + References cleared so the only strict
+      // failure under assertion is the missing security baseline. The body must
+      // NOT cite hatch3r-security-patterns or **Security baseline:** or the
+      // wide-grant gate would not fire.
       const body =
-        "**Pillars:** P6\n\nquality-charter applies.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
+        "**Pillars:** P6\n\nquality-charter applies. Resolve ambiguity via agents/shared/user-question-protocol.md.\n\n## References\n- https://example.com (accessed 2026-05-27, primary)\n";
       const result = await validateUserArtifact(
         minimalArtifact({ body, tools: { allowed: ["read", "write", "execute", "git"] } }),
         index,
@@ -1411,6 +1513,93 @@ describe("validateContentBody — pre-flight body scan (C9-H84 / D20-F20.2.2)", 
   });
 });
 
+describe("validateContentBody — agent tool-grant security baseline (D20-2)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-toolgrant-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  // Frontmatter shape `composeArtifactFile` writes to disk: a block-sequence
+  // `tools.allowed`. > AGENT_TOOL_BASELINE_THRESHOLD (3) categories = wide.
+  const WIDE_TOOLS_YAML =
+    "tools:\n  allowed:\n    - read\n    - search\n    - write\n    - execute\n    - web";
+  const NARROW_TOOLS_YAML = "tools:\n  allowed:\n    - read\n    - search";
+
+  it("flags a wide agent tool grant with no security baseline as severity=error", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(userRoot, "agents", "wide-grant.md"),
+      `---\nid: wide-grant\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\nA hand-authored agent body with no baseline citation.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    const grantErrors = violations.filter(
+      (v) => v.severity === "error" && /tool categories .* without a security baseline/.test(v.message),
+    );
+    expect(grantErrors.length).toBe(1);
+    expect(grantErrors[0]?.relativePath).toContain("wide-grant.md");
+    // The width (5) and the threshold (3) are both surfaced in the message.
+    expect(grantErrors[0]?.message).toContain("5 tool categories");
+    expect(grantErrors[0]?.message).toContain("> 3");
+  });
+
+  it("clears the grant when the body cites hatch3r-security-patterns", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(userRoot, "agents", "cited-rule.md"),
+      `---\nid: cited-rule\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\nThis agent follows the hatch3r-security-patterns rule for its tool grant.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    expect(violations.filter((v) => /security baseline/.test(v.message))).toEqual([]);
+  });
+
+  it("clears the grant when the body carries a **Security baseline:** line", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(userRoot, "agents", "cited-slot.md"),
+      `---\nid: cited-slot\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\n**Security baseline:** read+search are read-only; write/execute are sandboxed.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    expect(violations.filter((v) => /security baseline/.test(v.message))).toEqual([]);
+  });
+
+  it("does not flag a narrow grant (<= threshold) even without a baseline", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "agents"), { recursive: true });
+    await writeFile(
+      join(userRoot, "agents", "narrow-grant.md"),
+      `---\nid: narrow-grant\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${NARROW_TOOLS_YAML}\n---\nA narrow agent body with no baseline citation.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    expect(violations.filter((v) => /security baseline/.test(v.message))).toEqual([]);
+  });
+
+  it("does not apply the grant check to non-agent artifacts", async () => {
+    const userRoot = resolveUserContentRoot(tempDir);
+    await mkdir(join(userRoot, "rules"), { recursive: true });
+    // A rule file carrying a wide `tools.allowed` block must not trip the
+    // agent-only gate (discovery buckets by directory; the check guards type).
+    await writeFile(
+      join(userRoot, "rules", "wide-rule.md"),
+      `---\nid: wide-rule\ntype: rule\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\nA rule body, not an agent.\n`,
+    );
+
+    const violations = await validateContentBody(tempDir);
+    expect(violations.filter((v) => /security baseline/.test(v.message))).toEqual([]);
+  });
+});
+
 describe("hook-event enum parity (F20.1.A1)", () => {
   let tempDir: string;
 
@@ -1456,6 +1645,27 @@ describe("hook-event enum parity (F20.1.A1)", () => {
         }),
       );
       expect(result.strictFailures, `event ${event} should be accepted`).toEqual([]);
+    }
+  });
+
+  // D20-6: the invalid-event strict-gate message must enumerate every member of
+  // VALID_HOOK_EVENTS, not a hand-maintained literal that previously omitted
+  // `review-loop-cap` (8 of 9). The message is built from
+  // `[...VALID_HOOK_EVENTS].join(", ")`, so this guards against the list drifting
+  // out of sync with the enforced set on any future event add/remove.
+  it("the invalid-event strict message enumerates every VALID_HOOK_EVENTS member", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        type: "hook",
+        name: "drift-guard-hook",
+        hookEvent: "made-up-event",
+      }),
+    );
+    const message = result.strictFailures.find((s) => /Hook event/.test(s));
+    expect(message, "expected a Hook event strict failure").toBeDefined();
+    for (const event of VALID_HOOK_EVENTS) {
+      expect(message, `message should list "${event}"`).toContain(event);
     }
   });
 });
@@ -1509,6 +1719,60 @@ describe("lean-threshold doc round-trip (F20.1.E1)", () => {
       expect(
         docThresholds[type],
         `D20 doc must state the ${type} lean threshold`,
+      ).toBe(runtimeValue);
+    }
+  });
+
+  // D20-4 (SA20.2-F2): the creator agent body inlines a per-type lean
+  // threshold in each `### Branch _ — <Type>` section's Gentle gate line.
+  // Those numbers previously drifted from the runtime map (agent ≤150 vs 350,
+  // rule ≤80 vs 100, command ≤300 vs 200, hook ≤80 vs 100). The doc-vs-runtime
+  // round-trip above only covered the private D20 domain doc; this twin asserts
+  // the PUBLIC creator-agent prose against the same exported map so the drift
+  // is a CI failure. The creator agent is canonical and always present, so its
+  // absence is a hard failure (no existsSync skip).
+  it("hatch3r-creator.md per-type Gentle lean lines match the runtime LEAN_LINE_THRESHOLDS", async () => {
+    const repoRoot = resolve(__dirname, "..", "..", "..");
+    const creatorPath = join(repoRoot, "agents", "hatch3r-creator.md");
+    expect(
+      existsSync(creatorPath),
+      "agents/hatch3r-creator.md must exist (canonical agent)",
+    ).toBe(true);
+
+    const creator = await readFile(creatorPath, "utf-8");
+
+    // Each type's per-type Gentle line lives between its `### Branch _ — <Type>`
+    // heading and the next `### Branch` heading (or EOF). Anchoring on the
+    // branch heading (by type name) — not document order or the shared 100/200
+    // values — keeps the assertion precise: skill and command both state 200,
+    // rule and hook both state 100.
+    const branchHeadings = [...creator.matchAll(/^### Branch [A-Z] — (\w+)$/gm)];
+    expect(
+      branchHeadings.length,
+      "creator doc must declare one `### Branch _ — <Type>` heading per type",
+    ).toBe(Object.keys(LEAN_LINE_THRESHOLDS).length);
+
+    for (const [type, runtimeValue] of Object.entries(LEAN_LINE_THRESHOLDS)) {
+      const idx = branchHeadings.findIndex(
+        (m) => m[1].toLowerCase() === type,
+      );
+      expect(
+        idx,
+        `creator doc must have a "### Branch _ — ${type}" section`,
+      ).toBeGreaterThanOrEqual(0);
+
+      const start = branchHeadings[idx].index ?? 0;
+      const end = branchHeadings[idx + 1]?.index ?? creator.length;
+      const section = creator.slice(start, end);
+
+      const leanMatch = section.match(/lean threshold \(≤(\d+) lines/);
+      expect(
+        leanMatch,
+        `creator ${type} branch must state a "lean threshold (≤N lines" Gentle gate`,
+      ).not.toBeNull();
+      expect(
+        Number(leanMatch![1]),
+        `creator ${type} lean threshold must match runtime LEAN_LINE_THRESHOLDS`,
       ).toBe(runtimeValue);
     }
   });
