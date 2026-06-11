@@ -53,6 +53,18 @@ vi.mock("../../env/mcpEnv.js", () => ({
 vi.mock("../../cli/shared/ui.js", () => ({
   printBanner: vi.fn(),
   printBox: vi.fn(),
+  // W5: commandOutput.ts (beginCommand/finishCommand) routes through these ui
+  // exports, so the mock must cover the full surface it touches.
+  printNextSteps: vi.fn(),
+  printTimingSummary: vi.fn(),
+  resetUiState: vi.fn(),
+  setJson: vi.fn(),
+  setQuiet: vi.fn(),
+  setVerbose: vi.fn(),
+  isQuiet: vi.fn().mockReturnValue(false),
+  isJson: vi.fn().mockReturnValue(false),
+  isVerbose: vi.fn().mockReturnValue(false),
+  verbose: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),

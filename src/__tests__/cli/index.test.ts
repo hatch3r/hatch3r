@@ -232,6 +232,158 @@ describe("maturity calibration language (D14-8 drift guard)", () => {
   });
 });
 
+// W5 flag-surface drift guard: every registered command + subcommand must be
+// classified below, and every non-stub member must register the standardized
+// `--format <human|json>` (default "human") + `--quiet` pair; mutating
+// commands with a meaningful preview must register `--dry-run`. A NEW command
+// added to program.ts without a classification here fails the first test with
+// an actionable message — that is the drift guard working as intended: add the
+// command to the matching set(s) AND register the standard flags.
+describe("W5 flag-surface drift guard", () => {
+  const program = createProgram();
+
+  // ── Classification sets (space-joined command paths) ──────────────────────
+  // MUTATING: writes files / manifest / git state.
+  const MUTATING = new Set<string>([
+    "init",
+    "sync",
+    "update",
+    "config",
+    "clean",
+    "worktree-setup",
+    "worktree-cleanup",
+    "rollback",
+    "mcp setup",
+    "mcp remove",
+    "cli-tools", // bare picker persists the selection
+    "cli-tools install", // offerInstaller can run install commands
+    "learn capture",
+  ]);
+  // READ_ONLY: inspection/reporting only.
+  const READ_ONLY = new Set<string>([
+    "status",
+    "validate",
+    "verify", // default mode is read-only; --fix regenerates (still non-prompting)
+    "show",
+    "list",
+    "provenance",
+    "deps",
+    "explain",
+    "mcp list",
+    "mcp env-check",
+    "cli-tools list",
+    "cli-tools detect",
+    "rollback list",
+  ]);
+  // INTERACTIVE_CAPABLE: at least one invocation shape opens a prompt, so
+  // `--format json` is valid only for the headless shapes (--yes/--dry-run/
+  // --all/scalar args) — enforced at runtime by beginCommand's interactive gate.
+  const INTERACTIVE_CAPABLE = new Set<string>([
+    "init",
+    "update",
+    "config",
+    "clean",
+    "worktree-setup",
+    "worktree-cleanup",
+    "rollback",
+    "mcp setup", // always prompts (picker) — json rejected
+    "cli-tools", // always prompts (picker) — json rejected
+    "cli-tools install", // prompts when tools are missing — json rejected
+  ]);
+  // STUB / group-shell exemptions (documented):
+  //   - `add`: stub contract (D1-20) — always exits 0, reads no options.
+  //   - `mcp`: group shell with no action of its own (subcommands carry flags).
+  //   - `learn`: group shell — the bare action exits 2 pointing at `learn capture`.
+  const STUB = new Set<string>(["add", "mcp", "learn"]);
+  // DRY_RUN: mutating commands where a meaningful preview exists.
+  const DRY_RUN = new Set<string>([
+    "init",
+    "sync",
+    "update",
+    "config",
+    "clean",
+    "worktree-setup",
+    "worktree-cleanup",
+    "rollback",
+    "mcp setup",
+    "mcp remove",
+    "cli-tools",
+    "learn capture",
+  ]);
+
+  function walk(cmd: Command, prefix: string): Array<{ path: string; cmd: Command }> {
+    const out: Array<{ path: string; cmd: Command }> = [];
+    for (const sub of cmd.commands) {
+      const path = prefix ? `${prefix} ${sub.name()}` : sub.name();
+      out.push({ path, cmd: sub });
+      out.push(...walk(sub, path));
+    }
+    return out;
+  }
+  const all = walk(program, "");
+
+  it("classifies every registered command + subcommand (a new command must be added to a set here)", () => {
+    const unclassified = all
+      .map((e) => e.path)
+      .filter(
+        (p) =>
+          !MUTATING.has(p) && !READ_ONLY.has(p) && !INTERACTIVE_CAPABLE.has(p) && !STUB.has(p),
+      );
+    expect(
+      unclassified,
+      `Command(s) registered in program.ts but not classified in the W5 drift guard: ` +
+        `[${unclassified.join(", ")}]. Add each to MUTATING / READ_ONLY / ` +
+        `INTERACTIVE_CAPABLE / STUB (and DRY_RUN if a preview exists) in index.test.ts, ` +
+        `and register --format/--quiet per the W5 convention.`,
+    ).toEqual([]);
+  });
+
+  it("carries no stale classification entries for unregistered commands", () => {
+    const known = new Set(all.map((e) => e.path));
+    const stale = [
+      ...MUTATING,
+      ...READ_ONLY,
+      ...INTERACTIVE_CAPABLE,
+      ...STUB,
+      ...DRY_RUN,
+    ].filter((p) => !known.has(p));
+    expect(
+      stale,
+      `Classified command(s) no longer registered in program.ts: [${stale.join(", ")}]`,
+    ).toEqual([]);
+  });
+
+  it("every non-stub command registers --format (default \"human\") and --quiet", () => {
+    const offenders: string[] = [];
+    for (const { path, cmd } of all) {
+      if (STUB.has(path)) continue;
+      const formatOpt = cmd.options.find((o) => o.long === "--format");
+      if (!formatOpt) {
+        offenders.push(`${path}: missing --format`);
+      } else if (formatOpt.defaultValue !== "human") {
+        offenders.push(
+          `${path}: --format default is ${JSON.stringify(formatOpt.defaultValue)}, expected "human"`,
+        );
+      }
+      if (!cmd.options.some((o) => o.long === "--quiet")) {
+        offenders.push(`${path}: missing --quiet`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("every member of the dry-run set registers --dry-run", () => {
+    const offenders: string[] = [];
+    for (const { path, cmd } of all) {
+      if (!DRY_RUN.has(path)) continue;
+      if (!cmd.options.some((o) => o.long === "--dry-run")) {
+        offenders.push(`${path}: missing --dry-run`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+});
+
 // D15-5 (Cycle 11 Wave 2, P6): the documented `--pin-version` supply-chain
 // control was unreachable — the option was never registered, so the command
 // errored at parse even though updateCommand reads `pinVersion` and selfUpdate

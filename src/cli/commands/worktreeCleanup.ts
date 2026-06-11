@@ -25,13 +25,13 @@ import {
   type StepResult,
 } from "../shared/initSteps.js";
 import {
-  printBanner,
   createSpinner,
   printBox,
   info,
   warn,
   error as logError,
 } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
 
 interface CleanupOptions {
@@ -39,6 +39,10 @@ interface CleanupOptions {
   all?: boolean;
   yes?: boolean;
   filesOnly?: boolean;
+  /** W5: `--format <human|json>`; json valid only with --yes or --all. */
+  format?: string;
+  /** W5: `--quiet`: suppress stdout chrome (banner, spinner, boxes). */
+  quiet?: boolean;
 }
 
 interface Candidate {
@@ -394,7 +398,13 @@ async function performCleanup(
 export async function worktreeCleanupCommand(
   opts: CleanupOptions = {},
 ): Promise<void> {
-  printBanner(true);
+  // W5: per-invocation interactivity — `--all` (like `--yes`) bypasses every
+  // prompt, so json is valid with either; otherwise the selection prompts
+  // would interleave with the single JSON document.
+  const format = beginCommand(opts, {
+    banner: "compact",
+    interactive: opts.all !== true && opts.yes !== true,
+  });
 
   // D8-M3: worktree cleanup races the main repo's `.hatch3r/` writes during
   // partial-cleanup rollback. Default-on cross-process locking serializes the
@@ -452,7 +462,17 @@ export async function worktreeCleanupCommand(
   }
 
   if (allCandidates.length === 0 && partitioned.prunable.length === 0) {
-    info(`No hatch3r worktrees found in ${chalk.dim(mainRoot)}.`);
+    if (format === "json") {
+      finishCommand(format, {
+        command: "worktree-cleanup",
+        title: "Worktree cleanup",
+        lines: [],
+        style: "info",
+        json: { cleaned: [], failed: [], message: "no hatch3r worktrees found" },
+      });
+    } else {
+      info(`No hatch3r worktrees found in ${chalk.dim(mainRoot)}.`);
+    }
     return;
   }
 
@@ -464,7 +484,17 @@ export async function worktreeCleanupCommand(
     return;
   }
   if (selection.paths.length === 0 && partitioned.prunable.length === 0) {
-    info("No worktrees selected.");
+    if (format === "json") {
+      finishCommand(format, {
+        command: "worktree-cleanup",
+        title: "Worktree cleanup",
+        lines: [],
+        style: "info",
+        json: { cleaned: [], failed: [], message: "no worktrees selected" },
+      });
+    } else {
+      info("No worktrees selected.");
+    }
     return;
   }
 
@@ -492,7 +522,26 @@ export async function worktreeCleanupCommand(
   if (!opts.filesOnly && result.cleaned.length > 0 && !opts.dryRun) {
     lines.push("", chalk.dim("Branches preserved. To delete, run: git branch -D <name>"));
   }
-  printBox("Worktree cleanup", lines.length ? lines : [chalk.dim("Nothing changed.")], result.failed.length ? "error" : "success");
+  // W5: ending routes through finishCommand (same "Worktree cleanup" title);
+  // the next-step fires only on a live removal that actually detached a
+  // worktree (not dry-run, not --files-only, nothing failed).
+  finishCommand(format, {
+    command: "worktree-cleanup",
+    title: "Worktree cleanup",
+    lines: lines.length ? lines : [chalk.dim("Nothing changed.")],
+    style: result.failed.length ? "error" : "success",
+    nextSteps:
+      result.failed.length === 0 && !opts.dryRun && !opts.filesOnly && result.cleaned.length > 0
+        ? ["Run `git worktree list` to confirm removal."]
+        : undefined,
+    json: {
+      cleaned: result.cleaned,
+      failed: result.failed,
+      pruned: partitioned.prunable.length,
+      dryRun: !!opts.dryRun,
+      filesOnly: !!opts.filesOnly,
+    },
+  });
 
   if (result.failed.length > 0) {
     throw new HatchError(

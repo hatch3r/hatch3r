@@ -144,8 +144,18 @@ export function createProgram(): Command {
     // "no MCP" rather than rely on the implicit default.
     .option("--no-mcp", "Explicitly disable MCP servers on any init path (default; force-off even with --mcp)")
     // --quiet/--json/--no-banner provenance: C9-H26 (Cycle 9). --resume: Decision 27.
+    // --format/--dry-run/--verbose provenance: W5 flag-surface standardization
+    // (every non-stub command registers --format + --quiet; --json stays as a
+    // legacy boolean alias that upgrades format to "json").
     .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit")
     .option("--json", "Emit a machine-readable JSON summary on stdout; implies --quiet")
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--dry-run", "Preview what init would create or change without writing files")
+    .option("--verbose", "Show detailed per-step output")
     .option("--no-banner", "Skip the ASCII banner at startup")
     .option("--resume", "Resume from the last checkpoint in .init-workspace/checkpoint.json")
     // --maturity provenance: Decision 16 (gate→dial reframe). --role: D14-M6. --facets: D14-M9. --per-package: D14-SA14.2-H1.
@@ -190,6 +200,8 @@ export function createProgram(): Command {
       "--preview-tool <name>",
       "Under --dry-run, print the full content body that the named adapter would write",
     )
+    // --quiet provenance: W5 flag-surface standardization.
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit")
     .action(syncCommand);
 
   program
@@ -211,6 +223,8 @@ export function createProgram(): Command {
       "Output format for CI consumers: human (default) or json",
       "human",
     )
+    // --quiet provenance: W5 flag-surface standardization.
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, summary boxes); stderr diagnostics still emit")
     // D11-SA11.2-F10 (D11, P1): document drift scope in --help so an operator
     // reading `hatch3r status --help` learns the check covers only the
     // hatch3r-managed block before they run it — symmetric with the runtime
@@ -251,6 +265,8 @@ export function createProgram(): Command {
       "Output format for CI consumers: human (default) or json",
       "human",
     )
+    // --quiet provenance: W5 flag-surface standardization.
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, success box); stderr diagnostics still emit")
     .action(updateCommand);
 
   program
@@ -266,6 +282,8 @@ export function createProgram(): Command {
       "--strict-content",
       "Escalate content-body lint (anti-slop wordlist + missing pillar references) from warnings to errors",
     )
+    // --quiet provenance: W5 flag-surface standardization.
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, summary boxes); stderr diagnostics still emit")
     .addHelpText(
       "after",
       "\nNote: `hatch3r validate` covers structural validation of the bundled canonical\n" +
@@ -296,6 +314,8 @@ export function createProgram(): Command {
       "Output format for CI consumers: human (default) or json",
       "human",
     )
+    // --quiet provenance: W5 flag-surface standardization.
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, PASS/FAIL box); stderr diagnostics still emit")
     // D11-SA11.2-F10 (D11, P1): mirror the status --help scope note so the two
     // drift commands describe their scope identically. verify compares only the
     // hatch3r-managed block; content outside the markers is the user's.
@@ -316,7 +336,18 @@ export function createProgram(): Command {
       "`config get <key>`, `config set <key> <value>`. " +
       "With no args, runs the interactive flow.",
     )
-    .action((arg1: string | undefined, arg2: string | undefined) => configCommand(arg1, arg2));
+    // --format/--quiet/--dry-run/--verbose provenance: W5 flag-surface
+    // standardization. Options are passed through to configCommand, which
+    // reads them (interface contract with the config command body).
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, boxes, next steps); stderr diagnostics still emit")
+    .option("--dry-run", "Preview the configuration change without writing")
+    .option("--verbose", "Show detailed output")
+    .action((arg1: string | undefined, arg2: string | undefined, opts: Record<string, unknown>) => configCommand(arg1, arg2, opts as never));
 
   program
     .command("clean")
@@ -337,6 +368,14 @@ export function createProgram(): Command {
       "--purge",
       "Full uninstall: after the standard clean, also remove the entire .hatch3r/ directory (state, snapshots, overrides) and .env.mcp. Irreversible — no rollback snapshot survives. Prompts for a separate confirmation unless --yes",
     )
+    // --format/--quiet/--verbose provenance: W5 flag-surface standardization.
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (valid only with --yes or --dry-run — the confirmation prompt would interleave with the JSON document)",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, summary box); stderr diagnostics still emit")
+    .option("--verbose", "List each removed file on stderr as the clean runs")
     .action(cleanCommand);
 
   program
@@ -376,6 +415,13 @@ export function createProgram(): Command {
     .option("--force", "Overwrite existing files in the worktree")
     .option("--yes", "Skip the secret-propagation confirmation prompt")
     .option("--verbose", "Break the skipped-files count down by reason (idempotent re-run vs concurrent-write race)")
+    // --format/--quiet provenance: W5 flag-surface standardization.
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (valid only with --yes or --dry-run)",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, summary box); stderr diagnostics still emit")
     .action(worktreeSetupCommand);
 
   program
@@ -385,6 +431,13 @@ export function createProgram(): Command {
     .option("--all", "Skip the all/specific prompt and clean every hatch3r-managed worktree")
     .option("--yes", "Skip selection and confirmation prompts (implies --all unless paths are filtered upstream)")
     .option("--files-only", "Remove hatch3r-managed files only; keep the git worktree and its directory")
+    // --format/--quiet provenance: W5 flag-surface standardization.
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (valid only with --yes or --all — the selection prompts would interleave with the JSON document)",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, summary box); stderr diagnostics still emit")
     .action(worktreeCleanupCommand);
 
   // CLI-tooling pivot (plan §4.5): side-door commands for MCP and CLI tools.
@@ -393,39 +446,97 @@ export function createProgram(): Command {
   const mcpCmd = program
     .command("mcp")
     .description("Manage MCP servers (now opt-in; CLI tools are the default)");
+  // --format/--quiet/--dry-run on mcp subcommands: W5 flag-surface
+  // standardization. `setup` always opens the interactive picker, so
+  // `--format json` is rejected there at runtime; the headless subcommands
+  // (list, remove <id>, env-check) accept it.
   mcpCmd
     .command("setup")
     .description("Open the MCP server picker and update the manifest + .env.mcp")
-    .action(mcpSetupCommand);
+    .option(
+      "--format <format>",
+      "Output format: human (default) or json (rejected — setup always prompts)",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, success box); stderr diagnostics still emit")
+    .option("--dry-run", "Show the resulting server list + features.mcp without writing the manifest or .env.mcp")
+    .action((opts: { format?: string; quiet?: boolean; dryRun?: boolean }) => mcpSetupCommand(opts));
   mcpCmd
     .command("list")
     .description("Show current MCP server configuration plus .env.mcp status")
-    .action(mcpListCommand);
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, box); stderr diagnostics still emit")
+    .action((opts: { format?: string; quiet?: boolean }) => mcpListCommand(opts));
   mcpCmd
     .command("remove <id>")
     .description("Remove an MCP server by id")
-    .action(mcpRemoveCommand);
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, success box); stderr diagnostics still emit")
+    .option("--dry-run", "Show the resulting server list + features.mcp without writing the manifest")
+    .action((id: string, opts: { format?: string; quiet?: boolean; dryRun?: boolean }) => mcpRemoveCommand(id, opts));
   mcpCmd
     .command("env-check")
     .description("Audit .env.mcp for missing required environment variables")
-    .action(mcpEnvCheckCommand);
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, box); stderr diagnostics still emit")
+    .action((opts: { format?: string; quiet?: boolean }) => mcpEnvCheckCommand(opts));
 
+  // --format/--quiet/--dry-run on cli-tools: W5 flag-surface standardization.
+  // The bare command and `install` can prompt (picker / installer confirm), so
+  // `--format json` is rejected there at runtime; list + detect accept it.
   const cliCmd = program
     .command("cli-tools")
     .description("Manage CLI tool integrations (ripgrep, jq, gh, …)")
-    .action(cliToolsCommand);
+    .option(
+      "--format <format>",
+      "Output format: human (default) or json (rejected — the bare command always opens the picker)",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, success box); stderr diagnostics still emit")
+    .option("--dry-run", "Show the resulting tool selection without writing the manifest")
+    .action((opts: { format?: string; quiet?: boolean; dryRun?: boolean }) => cliToolsCommand(opts));
   cliCmd
     .command("list")
     .description("Show current CLI tool selection plus detection status")
-    .action(cliToolsListCommand);
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, box); stderr diagnostics still emit")
+    .action((opts: { format?: string; quiet?: boolean }) => cliToolsListCommand(opts));
   cliCmd
     .command("install")
     .description("Print install commands for any selected CLI tools missing on PATH")
-    .action(cliToolsInstallCommand);
+    .option(
+      "--format <format>",
+      "Output format: human (default) or json (rejected — install may open a confirmation prompt)",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, spinner); stderr diagnostics still emit")
+    .action((opts: { format?: string; quiet?: boolean }) => cliToolsInstallCommand(opts));
   cliCmd
     .command("detect")
     .description("Read-only detection report for the current CLI tool selection")
-    .action(cliToolsDetectCommand);
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, box); stderr diagnostics still emit")
+    .action((opts: { format?: string; quiet?: boolean }) => cliToolsDetectCommand(opts));
 
   // Decision 27 (Bucket 2.2): per-session snapshot rollback. Long-running
   // orchestrators capture pre-mutation snapshots under .hatch3r/snapshots/;
@@ -436,11 +547,24 @@ export function createProgram(): Command {
     .option("--session <id>", "Session id to restore (see `hatch3r rollback list`)")
     .option("--yes", "Skip the confirmation prompt")
     .option("--dry-run", "Preview the rollback without writing")
+    // --format/--quiet provenance: W5 flag-surface standardization.
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json (valid only with --yes or --dry-run)",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, PASS/FAIL box); stderr diagnostics still emit")
     .action(rollbackCommand);
   rollbackCmd
     .command("list")
     .description("Enumerate snapshot sessions captured under .hatch3r/snapshots/")
-    .action(rollbackListCommand);
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, hints); stderr diagnostics still emit")
+    .action((opts: { format?: string; quiet?: boolean }) => rollbackListCommand(opts));
 
   // SA12.1-F-D12-M9 (Cycle 10 Wave 3, D12, P1): inspect a single canonical
   // artifact (frontmatter + resolved scope + body preview) or enumerate every
@@ -449,12 +573,25 @@ export function createProgram(): Command {
   program
     .command("show <id>")
     .description("Print frontmatter + resolved scope + body preview for a canonical artifact")
-    .action((id: string) => showCommand(id));
+    // --format/--quiet provenance: W5 flag-surface standardization.
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, box, hints); stderr diagnostics still emit")
+    .action((id: string, opts: { format?: string; quiet?: boolean }) => showCommand(id, opts));
 
   program
     .command("list <type>")
     .description("Enumerate canonical artifacts of a type (agent | skill | rule | command | hook | prompt | github-agent)")
-    .action((type: string) => listCommand(type));
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, hints); stderr diagnostics still emit")
+    .action((type: string, opts: { format?: string; quiet?: boolean }) => listCommand(type, opts));
 
   // SA12.1-F-D12-M11 (Cycle 10 Wave 3, D12, P1): read affordance for the
   // provenance manifest at `.hatch3r/provenance.json`. The file has shipped
@@ -464,12 +601,13 @@ export function createProgram(): Command {
   program
     .command("provenance")
     .description("Inspect the .hatch3r/provenance.json manifest (header + per-adapter rollup)")
-    // --format provenance: SA12.1-F-D12-M2.
+    // --format provenance: SA12.1-F-D12-M2. --quiet: W5 standardization.
     .option(
       "--format <format>",
       "Output format for CI consumers: human (default) or json",
       "human",
     )
+    .option("--quiet", "Suppress stdout chrome (banner, boxes, hints); stderr diagnostics still emit")
     .action(provenanceCommand);
 
   // SA12.1-F-D12-M13 (Cycle 10 Wave 3, D12, P1): surface orchestration
@@ -480,7 +618,14 @@ export function createProgram(): Command {
   program
     .command("deps <id>")
     .description("Show orchestration dependencies (downstream + upstream) declared in frontmatter")
-    .action((id: string) => depsCommand(id));
+    // --format/--quiet provenance: W5 flag-surface standardization.
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, box, hints); stderr diagnostics still emit")
+    .action((id: string, opts: { format?: string; quiet?: boolean }) => depsCommand(id, opts));
 
   // D13-5 (Cycle 11 Wave 2, ASI06): `learn` command group. The `/learn` LLM
   // skill authors a learning file then shells out to `hatch3r learn capture
@@ -513,7 +658,15 @@ export function createProgram(): Command {
     .description("Commit a staged learning file through the persistLearning security pipeline into .hatch3r/learnings/")
     .requiredOption("--file <path>", "Path to the staged learning file the /learn skill authored")
     .option("--as <filename>", "Destination filename in .hatch3r/learnings/ (default: the staged file's basename)")
-    .action((opts: { file?: string; as?: string }) => learnCaptureCommand(opts));
+    // --format/--quiet/--dry-run provenance: W5 flag-surface standardization.
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, success box); stderr diagnostics still emit")
+    .option("--dry-run", "Run every security/integrity gate against the staged file without persisting it")
+    .action((opts: { file?: string; as?: string; format?: string; quiet?: boolean; dryRun?: boolean }) => learnCaptureCommand(opts));
 
   // C9-H13: surface the triage-first cost model declared in canonical
   // command frontmatter (triage_tiers + agentPipeline) so users can answer
@@ -533,9 +686,11 @@ export function createProgram(): Command {
     .option("--input-rate <usd-per-1m>", "Override input rate in USD per 1M tokens; takes precedence over --model (--cost only)")
     .option("--output-rate <usd-per-1m>", "Override output rate in USD per 1M tokens; takes precedence over --model (--cost only)")
     .option("--cache-hit <ratio>", "Fraction 0-1 of input served from the prompt cache; cached input billed at 0.1x (--cost only)")
-    // D12-11: machine-readable trace for --source. Mirrors provenance/verify's
-    // --format json; supported only with --source (other modes stay human).
-    .option("--format <format>", "Output format for --source: human (default) or json", "human")
+    // D12-11 introduced --format json for --source; W5 widened it to every
+    // explain mode (--cost, --customizations, --efficiency emit one JSON
+    // document each). --quiet: W5 flag-surface standardization.
+    .option("--format <format>", "Output format: human (default) or json", "human")
+    .option("--quiet", "Suppress stdout chrome (banner, boxes, hints); stderr diagnostics still emit")
     .option("--verbose", "Show detailed output")
     .action(explainCommand);
 

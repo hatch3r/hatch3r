@@ -31,10 +31,12 @@ import {
   printBanner,
   createSpinner,
   printBox,
+  printNextSteps,
   printTimingSummary,
   error as logError,
   warn,
   info,
+  setQuiet,
   setVerbose,
   verbose,
 } from "../shared/ui.js";
@@ -2709,6 +2711,7 @@ export async function validateCommand(opts?: {
   verbose?: boolean;
   format?: ValidateOutputFormat;
   strictContent?: boolean;
+  quiet?: boolean;
 }): Promise<void> {
   const format: ValidateOutputFormat = opts?.format === "json" ? "json" : "human";
   const jsonMode = format === "json";
@@ -2722,6 +2725,11 @@ export async function validateCommand(opts?: {
   // still reach the final JSON object via the ValidationResult aggregator.
   setVerbose(jsonMode ? false : !!opts?.verbose);
   setVerboseWarnEnabled(jsonMode ? false : !!opts?.verbose);
+  // W5: --quiet suppresses stdout chrome (banner, spinner, boxes, next steps,
+  // timing) via the ui module's self-gating; stderr diagnostics still emit.
+  // Explicit boolean (mirrors the setVerbose line above) so a leaked quiet
+  // flag from a prior in-process command is cleared on the no-flag path.
+  setQuiet(jsonMode || !!opts?.quiet);
   if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
@@ -3072,6 +3080,10 @@ export async function validateCommand(opts?: {
 
   if (result.errors.length === 0 && result.warnings.length === 0) {
     printBox("Validation", [chalk.green("All checks passed")], "success");
+    // W5: pass-path follow-up (self-gated under --quiet).
+    printNextSteps([
+      "Run `hatch3r sync` if you changed `.hatch3r/` overrides since the last generation.",
+    ]);
     if (hasCustomizations) {
       printCustomizationHint();
     }
@@ -3116,6 +3128,8 @@ export async function validateCommand(opts?: {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation failed", summaryLines, "error");
+    // W5: fail-path follow-up (self-gated under --quiet).
+    printNextSteps(["Re-run with `--verbose` to see each failing check."]);
     throw new HatchError(
       "Validation failed",
       undefined,
@@ -3128,6 +3142,10 @@ export async function validateCommand(opts?: {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation passed", summaryLines, "success");
+    // W5: pass-path follow-up (self-gated under --quiet).
+    printNextSteps([
+      "Run `hatch3r sync` if you changed `.hatch3r/` overrides since the last generation.",
+    ]);
     // D10-SA10.2-F6: elapsed-time read-out on the warnings-only pass path.
     // Omitted on the error path above (the throw exits before any tail).
     printTimingSummary(validateStartMs);
