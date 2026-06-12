@@ -41,7 +41,11 @@ import { fileURLToPath } from "node:url";
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
-const RESEARCHER_FILE = join("agents", "hatch3r-researcher.md");
+// Forward-slash literal (not join()): compared against the forward-slash-
+// normalized rel path in the caller scan below, and accepted by join() and
+// finding `file:` fields on every platform — join() on win32 would yield a
+// backslash form that never matches the normalized rel.
+const RESEARCHER_FILE = "agents/hatch3r-researcher.md";
 const MODES_DIR = join("agents", "modes");
 const CALLER_DIRS = ["agents", "commands", "skills", "rules"] as const;
 

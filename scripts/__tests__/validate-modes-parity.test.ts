@@ -77,6 +77,7 @@ describe("validate-modes-parity", () => {
   });
 
   it("WARNs (MODES-ZERO-CALLER) when a mode is only in the registration table", async () => {
+    // Regression note: the rel-vs-RESEARCHER_FILE path-separator mismatch (join() backslashes vs normalized rel) only manifests on win32 runners — CI is the regression surface for this test.
     // Add a mode file AND a matching table row, but give it no caller anywhere.
     await writeFile(
       join(fx.rootDir, "agents", "modes", "lonely-mode.md"),
