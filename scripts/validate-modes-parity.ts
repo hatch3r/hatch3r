@@ -144,9 +144,12 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const findings: Finding[] = [];
 
   const stems = await listModeStems(join(root, MODES_DIR));
+  // Normalize CRLF -> LF at read time: the registration-region subtraction
+  // below requires the body and the rebuilt region (joined with "\n") to share
+  // LF endings — on a CRLF checkout the subtraction otherwise no-ops silently.
   let researcherBody = "";
   try {
-    researcherBody = await readFile(join(root, RESEARCHER_FILE), "utf-8");
+    researcherBody = (await readFile(join(root, RESEARCHER_FILE), "utf-8")).replace(/\r\n/g, "\n");
   } catch {
     findings.push({
       level: "error",
@@ -188,7 +191,9 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   for (const d of CALLER_DIRS) {
     for (const abs of await collectFiles(join(root, d))) {
       const rel = abs.slice(root.length + 1).split(/[\\/]/).join("/");
-      let text = await readFile(abs, "utf-8");
+      // Same CRLF -> LF normalization as the researcher read above, so the
+      // region subtraction matches on CRLF checkouts (Windows runners).
+      let text = (await readFile(abs, "utf-8")).replace(/\r\n/g, "\n");
       if (rel === RESEARCHER_FILE && region) text = text.split(region).join("");
       callerFiles.push({ rel, text });
     }

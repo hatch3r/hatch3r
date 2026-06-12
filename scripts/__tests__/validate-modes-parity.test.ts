@@ -100,4 +100,28 @@ describe("validate-modes-parity", () => {
     // A zero-caller mode is a warning, never an error.
     expect(r.findings.some((f) => f.code === "MODES-ZERO-CALLER" && f.level === "error")).toBe(false);
   });
+
+  it("WARNs (MODES-ZERO-CALLER) on a CRLF researcher checkout (Windows runners)", async () => {
+    // Same scenario as above, but the researcher body uses CRLF line endings —
+    // without read-time normalization the registration-region subtraction
+    // no-ops and the table row masquerades as a caller.
+    await writeFile(
+      join(fx.rootDir, "agents", "modes", "lonely-mode.md"),
+      "---\nid: lonely-mode\ntype: agent\n---\n# Lonely\n",
+      "utf-8",
+    );
+    const researcherPath = join(fx.rootDir, "agents", "hatch3r-researcher.md");
+    const body = await readFile(researcherPath, "utf-8");
+    const injected = body.replace(
+      /(\| External Research \| `library-docs`)/,
+      "$1, `lonely-mode`",
+    );
+    expect(injected).not.toBe(body);
+    await writeFile(researcherPath, injected.replace(/\n/g, "\r\n"), "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const warn = r.findings.find((f) => f.code === "MODES-ZERO-CALLER");
+    expect(warn).toBeDefined();
+    expect(warn?.message).toMatch(/lonely-mode/);
+  });
 });
