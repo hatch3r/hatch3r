@@ -93,14 +93,15 @@ describe("init post-init tip", () => {
   it("interactive mode prints the /hatch3r-create tip exactly once", async () => {
     const inq = vi.mocked(inquirer.prompt);
     // F10.3-2 (D10, P1): the interactive first-run flow is collapsed to the
-    // ≤5-prompt ceiling — platform, identity, preset, tools, and a single
-    // MCP multi-select (empty = none). defaultBranch / projectType / teamSize
-    // / maturity / cliTools are resolved from smart defaults, not prompted.
+    // ≤5-prompt ceiling — platform, identity, preset, tools, and (W3-mcp-optin)
+    // the CLI-tools picker (pickCliTools answers under `name: "tools"`; the
+    // queue is order-based). defaultBranch / projectType / teamSize / maturity
+    // resolve from smart defaults; MCP is opt-in via --mcp, never prompted.
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ mcp: [] });
+    inq.mockResolvedValueOnce({ tools: [] });
 
     await initCommand({});
 

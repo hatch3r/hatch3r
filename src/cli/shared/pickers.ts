@@ -204,7 +204,7 @@ export async function confirmMcpGate(opts: ConfirmMcpGateOptions): Promise<boole
     {
       type: "confirm",
       name: "proceed",
-      message: "Configure MCP servers? (CLI tools are recommended as the default)",
+      message: "Configure MCP servers? (opt-in; manage later with `hatch3r mcp setup`)",
       default: defaultYes,
     },
   ]);

@@ -32,11 +32,10 @@ import {
   createSpinner,
   error as logError,
   info,
-  printBanner,
-  printBox,
   warn,
   verbose,
 } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 
 // ── Options ──────────────────────────────────────────────────────
 
@@ -52,6 +51,10 @@ export interface RollbackOptions {
   yes?: boolean;
   /** Preview the rollback without writing. */
   dryRun?: boolean;
+  /** W5: `--format <human|json>`; json emits one envelope document. */
+  format?: string;
+  /** W5: `--quiet`: suppress stdout chrome (banner, spinner, boxes). */
+  quiet?: boolean;
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
@@ -98,7 +101,13 @@ async function confirmRollback(meta: SnapshotMeta): Promise<boolean> {
  * errors. Successful runs return without throwing.
  */
 export async function rollbackCommand(opts: RollbackOptions = {}): Promise<void> {
-  printBanner(true);
+  // W5: per-invocation interactivity — `--dry-run` never prompts, so json is
+  // valid there without --yes; a live restore prompts unless --yes
+  // (beginCommand's interactive gate enforces the pairing).
+  const format = beginCommand(opts, {
+    banner: "compact",
+    interactive: opts.dryRun !== true,
+  });
 
   if (!opts.session || typeof opts.session !== "string" || opts.session.length === 0) {
     logError("`hatch3r rollback` requires --session=<id>");
@@ -168,15 +177,36 @@ export async function rollbackCommand(opts: RollbackOptions = {}): Promise<void>
     summaryLines.push(`${chalk.red("✘")} Errors:         ${result.errors.length}`);
   }
   const tag = opts.dryRun ? "rollback (dry-run)" : "rollback";
+  const jsonPayload = {
+    sessionId: meta.sessionId,
+    dryRun: !!opts.dryRun,
+    filesRestored: result.filesRestored,
+    totalFiles: meta.paths.length,
+    errors: result.errors,
+  };
   if (result.errors.length === 0) {
-    printBox(`${tag}: PASS`, summaryLines, "success");
+    finishCommand(format, {
+      command: "rollback",
+      title: `${tag}: PASS`,
+      lines: summaryLines,
+      style: "success",
+      // W5: next-step on a live restore only — a dry-run changed nothing, so
+      // there is nothing for `hatch3r status` to confirm.
+      nextSteps: opts.dryRun ? undefined : ["Run `hatch3r status` to confirm restored files."],
+      json: jsonPayload,
+    });
     return;
   }
-  printBox(`${tag}: FAIL`, summaryLines, "error");
+  finishCommand(format, {
+    command: "rollback",
+    title: `${tag}: FAIL`,
+    lines: summaryLines,
+    style: "error",
+    json: jsonPayload,
+  });
   for (const err of result.errors) {
     warn(err);
   }
-  console.log();
   throw new HatchError(
     `Rollback completed with ${result.errors.length} error(s)`,
     undefined,
@@ -191,9 +221,31 @@ export async function rollbackCommand(opts: RollbackOptions = {}): Promise<void>
  * descending (newest first). When no sessions exist, prints a friendly
  * hint pointing at the orchestrator commands that create snapshots.
  */
-export async function rollbackListCommand(): Promise<void> {
-  printBanner(true);
+export async function rollbackListCommand(
+  opts: { format?: string; quiet?: boolean } = {},
+): Promise<void> {
+  const format = beginCommand(opts, { banner: "compact" });
   const snapshots = await listSnapshots();
+
+  // W5: json emits one envelope with the session metadata (covers the empty
+  // case too — `sessions: []`).
+  if (format === "json") {
+    finishCommand(format, {
+      command: "rollback list",
+      title: `Snapshot sessions (${snapshots.length})`,
+      lines: [],
+      style: "info",
+      json: {
+        sessions: snapshots.map((m) => ({
+          sessionId: m.sessionId,
+          timestamp: m.timestamp,
+          fileCount: m.paths.length,
+        })),
+      },
+    });
+    return;
+  }
+
   if (snapshots.length === 0) {
     info("No snapshot sessions found under .hatch3r/snapshots/.");
     info("Snapshots are captured by long-running orchestrators (init, sync, audit).");

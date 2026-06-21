@@ -14,7 +14,7 @@ Bundled canonical content (npm package)
     └──→ Claude adapter    → CLAUDE.md, .claude/rules/*.md, .mcp.json, ...
 ```
 
-As of 1.9.0 the adapter set was hard-cut to these 3 (Cursor, GitHub Copilot, Claude Code). Twelve adapters were removed — see the [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list.
+As of 1.9.0 the adapter set was hard-cut to these 3 (Claude Code, Cursor, GitHub Copilot). Twelve adapters were removed — see the [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list.
 
 ## Emission Strategies
 

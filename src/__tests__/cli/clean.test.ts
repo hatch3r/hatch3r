@@ -31,6 +31,17 @@ vi.mock("../../cli/shared/ui.js", () => ({
     fail: vi.fn(),
   }),
   printBox: vi.fn(),
+  // W5: commandOutput.ts (beginCommand/finishCommand) routes through these ui
+  // exports, so the mock must cover the full surface it touches.
+  printNextSteps: vi.fn(),
+  printTimingSummary: vi.fn(),
+  resetUiState: vi.fn(),
+  setJson: vi.fn(),
+  setQuiet: vi.fn(),
+  setVerbose: vi.fn(),
+  isQuiet: vi.fn().mockReturnValue(false),
+  isJson: vi.fn().mockReturnValue(false),
+  isVerbose: vi.fn().mockReturnValue(false),
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
@@ -633,5 +644,57 @@ describe("cleanCommand", () => {
     const lines = (boxCall?.[1] as string[]).join("\n");
     expect(lines).toContain(".hatch3r/");
     expect(lines).not.toContain(".env.mcp");
+  });
+
+  // W5 JSON stdout purity (mutating representative): `clean --yes --dry-run
+  // --format json` must put NOTHING on stdout except the single JSON document
+  // (emitJson → process.stdout.write); every raw console.log path is gated by
+  // jsonMode and the prompt chain never runs.
+  it("--yes --dry-run --format json emits exactly one parseable JSON document on stdout (W5 purity)", async () => {
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      manifestPresent: true,
+      hatch3rDir: true,
+      envMcp: true,
+      manifest: makeManifest(),
+    });
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc", ".hatch3r/hatch.json"],
+      kept: [".env.mcp (contains secrets)"],
+      errors: [],
+    });
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+
+    try {
+      await cleanCommand({ yes: true, dryRun: true, format: "json" });
+
+      // No prompts in json/dry-run mode.
+      expect(inquirer.prompt).not.toHaveBeenCalled();
+
+      // The entire captured stdout parses as ONE document (purity), carrying
+      // the finishCommand envelope + the dry-run preview payload.
+      const raw = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+      const payload = JSON.parse(raw) as Record<string, unknown>;
+      expect(payload.status).toBe("ok");
+      expect(payload.command).toBe("clean");
+      expect(payload.dryRun).toBe(true);
+      expect(payload.wouldRemove).toEqual([
+        ".cursor/rules/hatch3r-test.mdc",
+        ".hatch3r/hatch.json",
+      ]);
+      expect(Array.isArray(payload.wouldKeep)).toBe(true);
+      expect(payload.hatch3rVersion).toBeTruthy();
+      expect(payload.timestamp).toBeTruthy();
+
+      // No raw console.log path ran (printInventory + the human dry-run lists
+      // are jsonMode-gated; console.log output would interleave with the
+      // single document on a real terminal).
+      expect(consoleSpy).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
   });
 });

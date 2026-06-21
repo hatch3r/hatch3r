@@ -30,7 +30,8 @@ import {
   validateLearningFileName,
 } from "../../content/learningsValidation.js";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
-import { printBanner, printBox, label, error as logError, info, warn } from "../shared/ui.js";
+import { label, error as logError, warn } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 
 export interface LearnCaptureOptions {
   /** Absolute or cwd-relative path to the staged learning file to capture. */
@@ -41,6 +42,16 @@ export interface LearnCaptureOptions {
    * traversal or non-`.md` name is rejected before any path is built.
    */
   as?: string;
+  /** W5: `--format <human|json>`; json emits one envelope document. */
+  format?: string;
+  /** W5: `--quiet`: suppress stdout chrome (banner, success box). */
+  quiet?: boolean;
+  /**
+   * W5: `--dry-run` — run every security/integrity gate (deny-scan, output
+   * validation, quarantine, structural, integrity, refuse-overwrite) against
+   * the staged file without persisting it.
+   */
+  dryRun?: boolean;
 }
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/;
@@ -74,7 +85,8 @@ function extractBodyAndIntegrity(raw: string): {
  * the `persistLearning` security pipeline into `.hatch3r/learnings/`.
  */
 export async function learnCaptureCommand(options: LearnCaptureOptions): Promise<void> {
-  printBanner(true);
+  // W5: capture is headless (no prompts), so `--format json` is always valid.
+  const format = beginCommand(options, { banner: "compact" });
 
   if (!options.file || typeof options.file !== "string") {
     logError("hatch3r learn capture requires --file <path> pointing at the staged learning file.");
@@ -157,20 +169,43 @@ export async function learnCaptureCommand(options: LearnCaptureOptions): Promise
   // the target directory, so `.hatch3r/learnings/` must exist first. The skill
   // contract ("If .hatch3r/learnings/ does not exist, create it") makes dir
   // provisioning the caller's job; create it idempotently before the write.
-  await mkdir(learningsDir, { recursive: true });
+  // Skipped under --dry-run (no writes of any kind).
+  const dryRun = options.dryRun === true;
+  if (!dryRun) await mkdir(learningsDir, { recursive: true });
 
   // Commit through the security pipeline. persistLearning runs the three
   // injection gates + structural validation + refuse-overwrite, computes the
   // full-content digest, and atomic-writes the EXACT raw bytes (frontmatter +
   // body) so the on-disk learning retains the schema the loader reads. The
   // declared body-integrity (verified above) is preserved verbatim in those bytes.
-  const result = await persistLearning(targetPath, raw, { source: "learn-command" });
+  // Under --dry-run every gate still runs; only the final write is skipped.
+  const result = await persistLearning(targetPath, raw, {
+    source: "learn-command",
+    dryRun,
+  });
 
   for (const w of result.warnings) warn(w);
 
-  if (!result.written) {
+  if (result.rejections.length > 0) {
     logError(`Refused to capture ${destName} — the security pipeline rejected it:`);
     for (const r of result.rejections) logError(`  ${r}`);
+    if (format === "json") {
+      // Emit the structured payload before the throw so a CI consumer reads
+      // the gate rejections from stdout (the throw goes to stderr).
+      finishCommand(format, {
+        command: "learn capture",
+        title: "Learning capture blocked",
+        lines: [],
+        style: "error",
+        json: {
+          written: false,
+          dryRun,
+          integrity: result.integrity,
+          rejections: result.rejections,
+          warnings: result.warnings,
+        },
+      });
+    }
     throw new HatchError(
       `Learning capture blocked by ${result.rejections.length} gate rejection(s)`,
       // C8-D1-M5: omit exitCode so the central ERROR_CODE_TO_EXIT_CODE map
@@ -181,14 +216,45 @@ export async function learnCaptureCommand(options: LearnCaptureOptions): Promise
     );
   }
 
-  printBox(
-    "Learning captured",
-    [
+  if (dryRun) {
+    finishCommand(format, {
+      command: "learn capture",
+      title: "Learning capture (dry-run)",
+      lines: [
+        label("File", targetPath),
+        label("Integrity", `sha256:${result.integrity}`),
+        label("Gates", "passed (deny-scan + agent-output + user-quarantine + structural)"),
+        label("Write", "skipped (dry-run)"),
+      ],
+      style: "info",
+      json: {
+        written: false,
+        dryRun: true,
+        path: targetPath,
+        integrity: result.integrity,
+        warnings: result.warnings,
+      },
+    });
+    return;
+  }
+
+  finishCommand(format, {
+    command: "learn capture",
+    title: "Learning captured",
+    lines: [
       label("File", result.path ?? targetPath),
       label("Integrity", `sha256:${result.integrity}`),
       label("Gates", "passed (deny-scan + agent-output + user-quarantine + structural)"),
     ],
-    "success",
-  );
-  info("Auto-consulted during future board-pickup and board-fill runs.");
+    style: "success",
+    nextSteps: [
+      "Captured. Learnings are consulted automatically via `.hatch3r/learnings/INDEX.md`.",
+    ],
+    json: {
+      written: true,
+      path: result.path ?? targetPath,
+      integrity: result.integrity,
+      warnings: result.warnings,
+    },
+  });
 }

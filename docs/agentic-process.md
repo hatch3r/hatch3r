@@ -9,7 +9,7 @@ How `npx hatch3r init` sets up a project:
 ```mermaid
 flowchart LR
     A["npx hatch3r init"] --> B["Detect repo\n(git remote)"]
-    B --> C["Select tools\n(Cursor, Copilot, Claude)"]
+    B --> C["Select tools\n(Claude, Cursor, Copilot)"]
     C --> D["Select MCP servers\n(GitHub, Brave, ...)"]
     D --> E["Write manifest\nto .hatch3r/hatch.json"]
     E --> F["Run adapters\n(read bundled content)"]

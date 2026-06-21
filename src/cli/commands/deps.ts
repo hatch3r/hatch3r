@@ -26,7 +26,16 @@ import { parse as parseYaml } from "yaml";
 import { buildContentIndex, resolveUserContentRoot, type CatalogItem } from "../../content/index.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { HatchError } from "../../types.js";
-import { printBanner, printBox, label, error as logError, info } from "../shared/ui.js";
+import { printBox, label, error as logError, info } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
+
+/** W5: standardized flags for `hatch3r deps <id>`. */
+export interface DepsCommandOptions {
+  /** `--format <human|json>`; json emits one `{id, declared, prose}` envelope. */
+  format?: string;
+  /** `--quiet`: suppress stdout chrome (banner, box, hints). */
+  quiet?: boolean;
+}
 
 interface DepsFrontmatter {
   id?: string;
@@ -114,8 +123,11 @@ function scanBodyReferences(
   };
 }
 
-export async function depsCommand(idArg: string | undefined): Promise<void> {
-  printBanner(true);
+export async function depsCommand(
+  idArg: string | undefined,
+  opts: DepsCommandOptions = {},
+): Promise<void> {
+  const format = beginCommand(opts, { banner: "compact" });
   if (!idArg || typeof idArg !== "string") {
     logError("hatch3r deps <id> requires an artifact id (e.g. `hatch3r deps hatch3r-quick-change`).");
     throw new HatchError(
@@ -214,6 +226,44 @@ export async function depsCommand(idArg: string | undefined): Promise<void> {
     }
   }
 
+  // D12-10: best-effort prose scan, computed before rendering so both the
+  // human view and the W5 json envelope share one data pass. The frontmatter
+  // block is the only authoritative downstream declaration; skills, rules,
+  // and MCP servers are referenced in prose and would otherwise be invisible.
+  // Skill/rule ids are index-confirmed; MCP names are pattern-derived (advisory).
+  const knownSkillRuleIds = new Set<string>([
+    ...(index.byType.skill ?? []).map((c) => c.id),
+    ...(index.byType.rule ?? []).map((c) => c.id),
+  ]);
+  const refs = scanBodyReferences(body, item.id, knownSkillRuleIds);
+
+  // W5: json mode emits one `{id, declared, prose}` envelope mirroring the
+  // human sections (declared = frontmatter downstream/upstream; prose = the
+  // best-effort body scan) and returns.
+  if (format === "json") {
+    finishCommand(format, {
+      command: "deps",
+      title: `Dependencies: ${item.id}`,
+      lines: [],
+      style: "info",
+      json: {
+        id: item.id,
+        type: item.type,
+        orchestrator: frontmatter.orchestrator ?? null,
+        declared: {
+          downstream: downstream.map((d, i) => ({
+            id: d.id,
+            via: sources[i],
+            resolved: d.resolved,
+          })),
+          upstream,
+        },
+        prose: refs,
+      },
+    });
+    return;
+  }
+
   const headerLines = [
     label("Id", item.id),
     label("Type", item.type),
@@ -237,15 +287,6 @@ export async function depsCommand(idArg: string | undefined): Promise<void> {
   }
   console.log();
 
-  // D12-10: best-effort prose scan. The frontmatter block above is the only
-  // authoritative downstream declaration; skills, rules, and MCP servers are
-  // referenced in prose and would otherwise be invisible. Skill/rule ids are
-  // index-confirmed; MCP names are pattern-derived (advisory).
-  const knownSkillRuleIds = new Set<string>([
-    ...(index.byType.skill ?? []).map((c) => c.id),
-    ...(index.byType.rule ?? []).map((c) => c.id),
-  ]);
-  const refs = scanBodyReferences(body, item.id, knownSkillRuleIds);
   const refCount = refs.skills.length + refs.rules.length + refs.mcpServers.length;
   console.log(
     chalk.bold("References (best-effort, prose-derived — not authoritative):"),

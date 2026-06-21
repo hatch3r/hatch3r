@@ -8,12 +8,14 @@ title: MCP Setup
 How to connect hatch3r's MCP servers and manage secrets securely.
 
 :::info Last verified
-2026-04-28. Credential acquisition URLs and provider scope models reverified each audit cycle (P3 — Adapter & MCP Currency).
+2026-06-11. Credential acquisition URLs and provider scope models reverified each audit cycle (P3 — Adapter & MCP Currency).
 :::
 
 ## Overview
 
-hatch3r ships with 10 MCP servers: 3 enabled by default (no env vars required) and 7 opt-in servers (GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab). All secrets are centralized in a single `.env.mcp` file at the project root (gitignored by default). MCP configs use `${env:VAR}` placeholders so you never commit secrets.
+MCP is **opt-in**: interactive `hatch3r init` does not prompt for it. Enable it with `npx hatch3r init --mcp` on any init path, or `npx hatch3r mcp setup` at any time after init. Without an opt-in, no MCP config or `.env.mcp` is written and `features.mcp` stays false in the manifest.
+
+hatch3r ships with 10 MCP servers: 3 pre-checked in the picker (no env vars required) and 7 requiring API keys (GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab). All secrets are centralized in a single `.env.mcp` file at the project root (gitignored by default). MCP configs use `${env:VAR}` placeholders so you never commit secrets.
 
 ## Supported MCP Servers
 
@@ -39,22 +41,22 @@ hatch3r supports 10 MCP servers. Three are enabled by default (no API keys requi
 | **Postgres** | PostgreSQL database queries and schema inspection | `POSTGRES_URL` |
 | **Linear** | Linear issue tracking and project management | `LINEAR_API_KEY` |
 
-The platform-specific MCP server (GitHub, Azure DevOps, or GitLab) is automatically selected based on your detected platform during init.
+The platform-specific MCP server (GitHub, Azure DevOps, or GitLab) is pre-selected in the picker based on your detected platform.
 
-## Selecting MCP Servers During Init
+## Opting In to MCP
 
-When you run `npx hatch3r init`, step 6 asks which MCP servers to enable:
+Interactive `npx hatch3r init` does not prompt for MCP. To enable it, run `npx hatch3r mcp setup` (or pass `--mcp` to any init invocation). The picker works as follows:
 
 1. hatch3r detects your platform (GitHub, Azure DevOps, or GitLab) and pre-selects the matching platform MCP server
 2. The three default servers (Playwright, Context7, Filesystem) are pre-checked
 3. You can toggle any server on or off using the interactive checkbox prompt
-4. After selection, hatch3r writes only the chosen servers to `.hatch3r/mcp/mcp.json`
+4. After selection, hatch3r writes only the chosen servers to `.hatch3r/mcp/mcp.json` and sets `features.mcp` in the manifest (`true` only while at least one server is selected; `hatch3r mcp remove` maintains the same flag)
 
-To change MCP servers after init, run `npx hatch3r config`. This re-presents the MCP server selection prompt pre-populated with your current choices.
+To change MCP servers later, run `npx hatch3r mcp setup` again — the picker is pre-populated with your current choices. `npx hatch3r config` offers the same selection behind its MCP gate.
 
 ## Where MCP Config Lives
 
-All adapters that support MCP emit tool-specific configuration during `npx hatch3r init` or `npx hatch3r sync`. The resolved MCP source is `.hatch3r/mcp/mcp.json`; each adapter transforms it into the format and path the tool expects.
+When MCP is enabled, all adapters that support it emit tool-specific configuration during `npx hatch3r init --mcp`, `npx hatch3r mcp setup`, or `npx hatch3r sync`. The resolved MCP source is `.hatch3r/mcp/mcp.json`; each adapter transforms it into the format and path the tool expects.
 
 | Tool | Config path | Format | Notes |
 |------|-------------|--------|-------|
@@ -66,7 +68,7 @@ All adapters that support MCP emit tool-specific configuration during `npx hatch
 
 ### Cursor
 
-1. Run `npx hatch3r init` and select MCP servers when prompted
+1. Run `npx hatch3r mcp setup` (or `npx hatch3r init --mcp` on first init) and select MCP servers in the picker
 2. Config is written to `.cursor/mcp.json` and secrets template to `.env.mcp`
 3. Fill in your API keys in `.env.mcp` (see [Managing Secrets](#managing-secrets))
 4. **Restart Cursor** for changes to take effect
@@ -76,7 +78,7 @@ If using the Cursor plugin, the plugin provides `mcp.json` at the project root. 
 
 ### Claude Code
 
-Config goes to `.mcp.json`. Claude Code reads it from the project root. Fill in `.env.mcp`, source it, and restart Claude Code after init.
+Config goes to `.mcp.json`. Claude Code reads it from the project root. Fill in `.env.mcp`, source it, and restart Claude Code after enabling MCP.
 
 ### Other Hosts
 

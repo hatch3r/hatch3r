@@ -55,8 +55,9 @@ import {
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { findPackageRoot } from "../shared/paths.js";
-import { printBanner, printBox, label, info, error as logError, setVerbose, verbose } from "../shared/ui.js";
-import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { printBox, label, info, error as logError, isQuiet, verbose } from "../shared/ui.js";
+import { emitJson, type CliOutputFormat } from "../shared/output.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { readManifest } from "../../manifest/hatchJson.js";
 import {
   buildCustomizationSummary,
@@ -464,14 +465,14 @@ interface ExplainOptions {
    */
   cacheHit?: string;
   /**
-   * D12-11 (Cycle 11 Wave 3, D12, P1): output format for the `--source` mode —
-   * `human` (default, boxen-rendered) or `json` (one machine-readable document
-   * for CI consumers, reusing `emitJson`). Mirrors the `--format json` surface
-   * the sibling `provenance` / `verify` commands already ship. JSON is honored
-   * only by `--source`; pairing it with `--cost` / `--customizations` /
-   * `--efficiency` is a usage error so the contract stays unambiguous.
+   * D12-11 (Cycle 11 Wave 3, D12, P1) introduced `--format json` for the
+   * `--source` mode; W5 widened it to EVERY mode — `--cost`,
+   * `--customizations`, and `--efficiency` each emit one machine-readable
+   * document on stdout under `--format json`.
    */
   format?: string;
+  /** W5: suppress stdout chrome (banner, boxes, hints); stderr still emits. */
+  quiet?: boolean;
 }
 
 /**
@@ -492,7 +493,11 @@ interface ExplainOptions {
  * it with `--cost` / `--customizations` / `--efficiency` is a usage error.
  */
 export async function explainCommand(opts?: ExplainOptions): Promise<void> {
-  setVerbose(!!opts?.verbose);
+  // W5: beginCommand resolves format (exit-2 on a bad value per D10-22),
+  // wires quiet/verbose, and prints the banner in human mode only — JSON mode
+  // keeps stdout a single parseable document.
+  const format = beginCommand(opts ?? {}, { banner: "compact" });
+  const jsonMode = format === "json";
 
   const costRequested = typeof opts?.cost === "string" && opts.cost.trim().length > 0;
   const customizationsRequested = !!opts?.customizations;
@@ -504,31 +509,16 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   const modesRequested =
     [costRequested, customizationsRequested, sourceRequested, efficiencyRequested].filter(Boolean).length;
 
-  // D12-11: resolve the output format before any banner/box render. parse
-  // throws exit-2 on a bad value (e.g. `--format jsom`); JSON suppresses the
-  // banner so stdout stays a single parseable document.
-  const format: CliOutputFormat = parseFormatOption(opts?.format);
-  const jsonMode = format === "json";
-
-  // JSON output is wired for `--source` only. Pairing it with another mode is a
-  // usage error rather than a silent human-format degrade, so a CI consumer
-  // that asked for JSON of a non-source mode fails loudly (D10-22 contract).
-  if (jsonMode && !sourceRequested && modesRequested >= 1) {
-    logError("--format json is supported only with --source.");
-    throw new HatchError(
-      "--format json is supported only with --source",
-      2,
-      "VALIDATION_ERROR",
-      "Re-run `hatch3r explain --source <output-path> --format json`, or drop --format json for the human cost/customizations/efficiency views.",
-    );
-  }
-
-  if (!jsonMode) printBanner(true);
+  // W5: `--format json` is honored by EVERY mode (D12-11 shipped it for
+  // --source; --cost / --customizations / --efficiency now emit one JSON
+  // document each), so the former json-with-non-source usage error is gone.
 
   if (modesRequested > 1) {
     logError("Conflicting flags: --cost, --customizations, --source, and --efficiency are mutually exclusive.");
-    console.log(chalk.dim("  Pick one mode per invocation."));
-    console.log();
+    if (!isQuiet()) {
+      console.log(chalk.dim("  Pick one mode per invocation."));
+      console.log();
+    }
     throw new HatchError(
       "Conflicting flags: --cost, --customizations, --source, --efficiency",
       2,
@@ -539,11 +529,13 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
 
   if (modesRequested === 0) {
     logError("Missing required mode flag: pass --cost <command-id>, --customizations, --source <output-path>, OR --efficiency.");
-    console.log(chalk.dim("  Example: hatch3r explain --cost hatch3r-quick-change"));
-    console.log(chalk.dim("  Example: hatch3r explain --customizations"));
-    console.log(chalk.dim("  Example: hatch3r explain --source CLAUDE.md"));
-    console.log(chalk.dim("  Example: hatch3r explain --efficiency"));
-    console.log();
+    if (!isQuiet()) {
+      console.log(chalk.dim("  Example: hatch3r explain --cost hatch3r-quick-change"));
+      console.log(chalk.dim("  Example: hatch3r explain --customizations"));
+      console.log(chalk.dim("  Example: hatch3r explain --source CLAUDE.md"));
+      console.log(chalk.dim("  Example: hatch3r explain --efficiency"));
+      console.log();
+    }
     throw new HatchError(
       "Missing required mode flag: --cost, --customizations, --source, or --efficiency",
       2,
@@ -553,7 +545,7 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   }
 
   if (customizationsRequested) {
-    await explainCustomizationsMode();
+    await explainCustomizationsMode(format);
     return;
   }
 
@@ -563,7 +555,7 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   }
 
   if (efficiencyRequested) {
-    await explainEfficiencyMode();
+    await explainEfficiencyMode(format);
     return;
   }
 
@@ -645,6 +637,35 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
     cacheHitRatio,
   });
 
+  // Totals shared by the human table and the W5 json envelope.
+  const totalTokens = rows.reduce((sum, r) => sum + r.totalTokens, 0);
+  const totalUsd = rows.reduce((sum, r) => sum + r.usd, 0);
+
+  // W5: `--cost --format json` emits one machine-readable document mirroring
+  // the human header + per-tier table, then returns.
+  if (jsonMode) {
+    finishCommand(format, {
+      command: "explain",
+      title: "Per-tier cost estimate",
+      lines: [],
+      style: "info",
+      json: {
+        mode: "cost",
+        commandId: fm.id || commandId,
+        path: commandPath,
+        orchestrator: fm.orchestrator,
+        agentPipeline: fm.agentPipeline,
+        tiers: fm.triageTiers,
+        bodyChars: bodyCharCount,
+        model: opts?.model ?? null,
+        rates: { inputPer1M: inputRate, outputPer1M: outputRate, cacheHitRatio },
+        tierRows: rows,
+        totals: { tokens: totalTokens, usd: totalUsd },
+      },
+    });
+    return;
+  }
+
   const headerLines: string[] = [
     label("Command", fm.id || commandId),
     label("Path", commandPath),
@@ -673,8 +694,6 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   );
   const tableWidth = COL_LABEL + COL_AGENTS + COL_TOKENS * 3 + COL_USD;
   tableLines.push(chalk.dim("─".repeat(tableWidth)));
-  let totalTokens = 0;
-  let totalUsd = 0;
   for (const row of rows) {
     tableLines.push(
       `${row.label.padEnd(COL_LABEL)}` +
@@ -684,8 +703,6 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
         `${formatTokens(row.totalTokens).padEnd(COL_TOKENS)}` +
         `${formatUsd(row.usd).padEnd(COL_USD)}`,
     );
-    totalTokens += row.totalTokens;
-    totalUsd += row.usd;
   }
   tableLines.push(chalk.dim("─".repeat(tableWidth)));
   tableLines.push(
@@ -724,7 +741,7 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
  * (active | skipped | failed), and a reason string. Failures and skips appear
  * first so the user sees rejections at a glance; `active` rows follow.
  */
-async function explainCustomizationsMode(): Promise<void> {
+async function explainCustomizationsMode(format: CliOutputFormat = "human"): Promise<void> {
   const rootDir = process.cwd();
   // D10-29: pass the manifest's content selection so an override on a deselected
   // artifact is reported `inert` ("will not be emitted") rather than `active`.
@@ -737,6 +754,36 @@ async function explainCustomizationsMode(): Promise<void> {
     selection = undefined;
   }
   const summary = await buildCustomizationSummary(rootDir, selection);
+
+  // W5: json mode emits one envelope (counts + per-artifact entries, sorted
+  // failed > skipped > inert > active for parity with the human table).
+  if (format === "json") {
+    const outcomeRankJson: Record<CustomizationStatus["outcome"], number> = {
+      failed: 0,
+      skipped: 1,
+      inert: 2,
+      active: 3,
+      none: 4,
+    };
+    finishCommand(format, {
+      command: "explain",
+      title: "Customizations",
+      lines: [],
+      style: "info",
+      json: {
+        mode: "customizations",
+        counts: summary.counts,
+        entries: [...summary.entries].sort((a, b) => {
+          if (outcomeRankJson[a.outcome] !== outcomeRankJson[b.outcome]) {
+            return outcomeRankJson[a.outcome] - outcomeRankJson[b.outcome];
+          }
+          if (a.type !== b.type) return a.type.localeCompare(b.type);
+          return a.id.localeCompare(b.id);
+        }),
+      },
+    });
+    return;
+  }
 
   if (summary.entries.length === 0) {
     printBox(
@@ -869,7 +916,7 @@ async function explainCustomizationsMode(): Promise<void> {
  * the aggregate groups by `artifactId` then by `phase` and reports token in/out
  * sums + invocation count.
  */
-async function explainEfficiencyMode(): Promise<void> {
+async function explainEfficiencyMode(format: CliOutputFormat = "human"): Promise<void> {
   const rootDir = process.cwd();
   const logPath = join(rootDir, HATCH3R_DIR, "efficiency-events.jsonl");
 
@@ -880,12 +927,14 @@ async function explainEfficiencyMode(): Promise<void> {
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ENOENT") {
       logError(`No efficiency telemetry found at ${HATCH3R_DIR}/efficiency-events.jsonl.`);
-      console.log(
-        chalk.dim(
-          "  Telemetry is gated by HATCH3R_EFFICIENCY_TELEMETRY=1. Set the env var and re-run the orchestrator, then re-invoke `hatch3r explain --efficiency`.",
-        ),
-      );
-      console.log();
+      if (!isQuiet()) {
+        console.log(
+          chalk.dim(
+            "  Telemetry is gated by HATCH3R_EFFICIENCY_TELEMETRY=1. Set the env var and re-run the orchestrator, then re-invoke `hatch3r explain --efficiency`.",
+          ),
+        );
+        console.log();
+      }
       throw new HatchError(
         `No ${HATCH3R_DIR}/efficiency-events.jsonl found`,
         undefined,
@@ -953,6 +1002,35 @@ async function explainEfficiencyMode(): Promise<void> {
     if (typeof evt.tokensOut === "number") pagg.outputTokens += Math.max(0, Math.floor(evt.tokensOut));
     if (typeof evt.latencyMs === "number") pagg.totalLatencyMs += Math.max(0, Math.floor(evt.latencyMs));
     if (typeof evt.durationMs === "number") pagg.totalLatencyMs += Math.max(0, Math.floor(evt.durationMs));
+  }
+
+  // W5: json mode emits one envelope with the per-artifact aggregate.
+  if (format === "json") {
+    const artifactIds = [...perArtifact.keys()].sort((a, b) => a.localeCompare(b));
+    finishCommand(format, {
+      command: "explain",
+      title: "Efficiency telemetry",
+      lines: [],
+      style: "info",
+      json: {
+        mode: "efficiency",
+        logFile: `${HATCH3R_DIR}/efficiency-events.jsonl`,
+        eventsParsed: totalLines - parseFailures,
+        parseFailures,
+        artifacts: artifactIds.map((artId) => {
+          const agg = perArtifact.get(artId)!;
+          return {
+            artifactId: artId,
+            spawnInvocations: agg.spawnInvocations,
+            spawnSubAgents: agg.spawnSubAgents,
+            phases: [...agg.phases.entries()]
+              .sort((a, b) => a[0].localeCompare(b[0]))
+              .map(([phase, p]) => ({ phase, ...p })),
+          };
+        }),
+      },
+    });
+    return;
   }
 
   const headerLines = [

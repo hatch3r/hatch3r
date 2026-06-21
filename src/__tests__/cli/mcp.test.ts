@@ -53,6 +53,18 @@ vi.mock("../../env/mcpEnv.js", () => ({
 vi.mock("../../cli/shared/ui.js", () => ({
   printBanner: vi.fn(),
   printBox: vi.fn(),
+  // W5: commandOutput.ts (beginCommand/finishCommand) routes through these ui
+  // exports, so the mock must cover the full surface it touches.
+  printNextSteps: vi.fn(),
+  printTimingSummary: vi.fn(),
+  resetUiState: vi.fn(),
+  setJson: vi.fn(),
+  setQuiet: vi.fn(),
+  setVerbose: vi.fn(),
+  isQuiet: vi.fn().mockReturnValue(false),
+  isJson: vi.fn().mockReturnValue(false),
+  isVerbose: vi.fn().mockReturnValue(false),
+  verbose: vi.fn(),
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
@@ -136,6 +148,10 @@ describe("mcpSetupCommand", () => {
     expect(writeManifest).toHaveBeenCalledTimes(1);
     const writtenManifest = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
     expect(writtenManifest.mcp.servers).toEqual(["github", "context7"]);
+    // W3-mcp-optin: `mcp setup` flips features.mcp in lockstep with the server
+    // list — DEFAULT_FEATURES.mcp is false (opt-in), and sync/update/validate/
+    // adapters gate on `features.mcp && servers.length > 0`.
+    expect(writtenManifest.features.mcp).toBe(true);
 
     expect(ensureEnvMcp).toHaveBeenCalledWith(expect.any(String), ["github", "context7"]);
     expect(ensureGitignoreEntry).toHaveBeenCalledTimes(1);
@@ -159,6 +175,9 @@ describe("mcpSetupCommand", () => {
     await mcpSetupCommand();
 
     expect(writeManifest).toHaveBeenCalledTimes(1);
+    // W3-mcp-optin: an empty selection turns the derived feature flag off.
+    const writtenManifest = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
+    expect(writtenManifest.features.mcp).toBe(false);
     expect(ensureEnvMcp).not.toHaveBeenCalled();
     expect(ensureGitignoreEntry).not.toHaveBeenCalled();
     expect(warn).not.toHaveBeenCalled();
@@ -208,6 +227,35 @@ describe("mcpSetupCommand", () => {
     expect(pickMcpServers).toHaveBeenCalledWith(
       expect.objectContaining({ wslTheme: expect.any(Object) }),
     );
+  });
+
+  // W5-bigfour --dry-run: behavioral no-write contract (mirrors the init
+  // --dry-run block in init.test.ts).
+  it("--dry-run reports the would-be selection and writes NOTHING (no manifest write, no .env.mcp, features.mcp untouched)", async () => {
+    const manifest = makeManifest([], "github");
+    vi.mocked(readManifest).mockResolvedValue(manifest);
+    vi.mocked(pickMcpServers).mockResolvedValue(["github"]);
+
+    await mcpSetupCommand({ dryRun: true });
+
+    // No-write contract: no manifest persist, no .env.mcp provisioning,
+    // no .gitignore registration.
+    expect(writeManifest).not.toHaveBeenCalled();
+    expect(ensureEnvMcp).not.toHaveBeenCalled();
+    expect(ensureGitignoreEntry).not.toHaveBeenCalled();
+    // The in-memory manifest is not mutated either — the dry-run terminus
+    // returns BEFORE the mcp/features assignments.
+    expect(manifest.mcp.servers).toEqual([]);
+    expect((manifest as { features?: unknown }).features).toBeUndefined();
+
+    // The dry-run outcome box is emitted with the would-be state.
+    const call = vi.mocked(printBox).mock.calls.find((c) => c[0] === "MCP setup (dry-run)");
+    expect(call).toBeDefined();
+    expect(call?.[2]).toBe("info");
+    const lines = (call?.[1] as string[]).join("\n");
+    expect(lines).toContain("github");
+    expect(lines).toContain("features.mcp: true");
+    expect(lines).toContain("not written");
   });
 });
 
@@ -291,6 +339,8 @@ describe("mcpRemoveCommand", () => {
     expect(writeManifest).toHaveBeenCalledTimes(1);
     const written = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
     expect(written.mcp.servers).toEqual(["context7"]);
+    // W3-mcp-optin: servers remain → features.mcp stays true.
+    expect(written.features.mcp).toBe(true);
 
     expect(printBox).toHaveBeenCalledWith(
       "MCP server removed",
@@ -299,13 +349,18 @@ describe("mcpRemoveCommand", () => {
     );
   });
 
-  it("prints 'Remaining: none' when the last server is removed", async () => {
+  it("prints 'Remaining: none' and turns features.mcp off when the last server is removed", async () => {
     vi.mocked(readManifest).mockResolvedValue(makeManifest(["github"]));
 
     await mcpRemoveCommand("github");
 
     const lines = (vi.mocked(printBox).mock.calls[0]?.[1] as string[]).join("\n");
     expect(lines).toMatch(/Remaining[^\w]*none/);
+    // W3-mcp-optin: removing the last server recomputes the derived flag off,
+    // keeping the manifest consistent for sync/update/validate/adapters.
+    const written = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
+    expect(written.mcp.servers).toEqual([]);
+    expect(written.features.mcp).toBe(false);
   });
 
   it("throws HatchError(VALIDATION_ERROR, central-map exitCode 64) when the server is not configured", async () => {
@@ -332,6 +387,29 @@ describe("mcpRemoveCommand", () => {
 
     await expect(mcpRemoveCommand("github")).rejects.toThrow(HatchError);
     expect(writeManifest).not.toHaveBeenCalled();
+  });
+
+  // W5-bigfour --dry-run: behavioral no-write contract (mirrors the init
+  // --dry-run block in init.test.ts).
+  it("--dry-run reports the post-removal state and writes NOTHING (manifest + features.mcp untouched)", async () => {
+    const manifest = makeManifest(["github", "context7"]);
+    vi.mocked(readManifest).mockResolvedValue(manifest);
+
+    await mcpRemoveCommand("github", { dryRun: true });
+
+    expect(writeManifest).not.toHaveBeenCalled();
+    // In-memory manifest untouched: full server list intact, no derived
+    // features.mcp recompute — the dry-run terminus precedes both assignments.
+    expect(manifest.mcp.servers).toEqual(["github", "context7"]);
+    expect((manifest as { features?: unknown }).features).toBeUndefined();
+
+    const call = vi.mocked(printBox).mock.calls.find((c) => c[0] === "MCP remove (dry-run)");
+    expect(call).toBeDefined();
+    expect(call?.[2]).toBe("info");
+    const lines = (call?.[1] as string[]).join("\n");
+    expect(lines).toContain("Would remove: github");
+    expect(lines).toContain("context7");
+    expect(lines).toContain("features.mcp: true");
   });
 });
 

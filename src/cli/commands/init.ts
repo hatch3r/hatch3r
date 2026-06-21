@@ -52,30 +52,33 @@ import {
   printBanner,
   createSpinner,
   printBox,
+  printNextSteps,
   info,
   error as logError,
   step,
   label,
   warn,
   verbose,
-  setQuiet,
-  setJson,
-  resetUiState,
   isJson,
   isQuiet,
   printTimingSummary,
 } from "../shared/ui.js";
+import { emitJson } from "../shared/output.js";
+import { beginCommand } from "../shared/commandOutput.js";
 import { findPackageRoot } from "../shared/paths.js";
-import { buildTagGroupedCustomContentChoices } from "../shared/customContentChoices.js";
-import { TOOL_DISPLAY_NAMES, TOOL_PROMPT_CHOICES, MCP_CHOICES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
+import { TOOL_DISPLAY_NAMES, PLATFORM_DISPLAY_NAMES, PLATFORM_MCP_SERVER, sanitizeInput, isWSL, formatCommandHint, TOOL_SECRET_NOTES } from "../shared/constants.js";
 import {
-  BACK,
-  isBack,
   runStepMachine,
   type Step,
-  type StepResult,
 } from "../shared/initSteps.js";
-import { promptRepoIdentity } from "../shared/repoIdentityPrompt.js";
+import {
+  cliToolsStep,
+  customItemsStep,
+  identityStep,
+  platformStep,
+  presetStep,
+  toolsStep,
+} from "../shared/flowSteps.js";
 import {
   AVAILABLE_CLI_TOOLS,
   CLI_TOOL_SECRET_NOTES,
@@ -86,9 +89,8 @@ import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import { applyPlatformTriggers, evaluateTier2Triggers } from "../../cliTools/triggers.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, countPresetExclusions, presetOmittedClusters, estimatePresetItemCount, resolveUserContentRoot, type ContentIndex } from "../../content/index.js";
+import { buildContentIndex, resolveSelection, countSelectionItems, selectionSummary, getAllContentIds, validateOrchestrationDependencies, resolveUserContentRoot, type ContentIndex } from "../../content/index.js";
 import {
-  PRESETS,
   getPreset,
   resolvePresetArg,
   KNOWN_PRESET_IDS,
@@ -118,6 +120,21 @@ const CONTENT_ROOT = findPackageRoot(__dirname);
 
 const DEFAULT_TOOLS: Tool[] = ["claude"];
 const DEFAULT_MCP: string[] = ["playwright", "github", "context7"];
+
+/**
+ * W3-mcp-optin: default MCP server set applied when the user opts in via
+ * `--mcp` (path-independent — interactive, `--yes`, and workspace inits all
+ * resolve through here). The platform server leads; DEFAULT_MCP's "github"
+ * entry is dropped from the tail so a non-GitHub platform does not pull the
+ * GitHub server alongside its own (the Set dedupes it back in for GitHub).
+ * Single source for the expression previously copy-pasted at the three
+ * headless resolution sites.
+ */
+function defaultMcpServers(platform: Platform): string[] {
+  return Array.from(
+    new Set([PLATFORM_MCP_SERVER[platform], ...DEFAULT_MCP.filter((s) => s !== "github")]),
+  );
+}
 
 // D10-SA10.5-H1 (D10, P1): MCP-secret-loading classes used to tailor the
 // post-init `.env.mcp` guidance in the success box. The semantics are the
@@ -595,6 +612,16 @@ export interface RunInitOptions {
    * carries no competing toolchains (no field is written to the manifest).
    */
   conflicts?: ConventionConflict[];
+  /**
+   * W5-bigfour (P1): `--dry-run` — run adapter generation up to the write
+   * boundary (Pass 1, in-memory), render the per-tool would-write summary,
+   * and skip every disk mutation: orphan-tmp sweep, legacy-state migration,
+   * customization rehydration, snapshot, adapter outputs, per-package copies,
+   * `.worktreeinclude`, manifest, provenance, learnings/handoffs seeds,
+   * mcp.json, `.env.mcp`, `.gitignore` entries, telemetry, and checkpoints.
+   * Prompts on the interactive path still run; only writes are skipped.
+   */
+  dryRun?: boolean;
 }
 
 // C8-D1-M3: Guard against a double `runInit` on the same target directory.
@@ -653,13 +680,16 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // effort: the sweep only removes files older than the 60s in-flight-write floor
   // ({@link ORPHAN_MIN_AGE_MS}), surfaces removals + any unlink failures via
   // `warn()` per the Silent Failure Contract (P5), and never aborts init.
-  // Mirrors the `update`/`sync` entry-point sweep.
-  try {
-    const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
-    const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
-    if (tmpDiag) warn(tmpDiag);
-  } catch (err) {
-    verbose(`init: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+  // Mirrors the `update`/`sync` entry-point sweep — including its `--dry-run`
+  // skip (the sweep unlinks files; dry-run promises no writes).
+  if (options.dryRun !== true) {
+    try {
+      const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+      const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+      if (tmpDiag) warn(tmpDiag);
+    } catch (err) {
+      verbose(`init: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   // Decision 24 / Bucket 2.x: surface a pre-execution cost estimate so an
@@ -704,6 +734,8 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     wave: number,
     status: "in-progress" | "passed" | "failed",
   ): Promise<void> => {
+    // W5-bigfour: `--dry-run` promises zero writes — checkpoints included.
+    if (options.dryRun === true) return;
     const meta: CheckpointMeta = {
       baselineSha: HATCH3R_VERSION,
       lastPassedGateN: status === "passed" ? wave : Math.max(0, wave - 1),
@@ -724,7 +756,12 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // Wave 6: relocate any pre-1.9 `.agents/` state (hatch.json, learnings/,
   // handoffs/, mcp/mcp.json) to `.hatch3r/` before reading the manifest so a
   // re-init over a legacy install discovers the manifest at the new path.
-  await migrateAgentsToHatch3r(rootDir);
+  // W5-bigfour: the relocation moves files, so `--dry-run` skips it — on a
+  // legacy repo the preview then reads no manifest and renders as a fresh
+  // install, which matches what a subsequent real run would migrate into.
+  if (options.dryRun !== true) {
+    await migrateAgentsToHatch3r(rootDir);
+  }
 
   const s1 = createSpinner(step(1, totalSteps, "Resolving canonical content..."));
   s1.start();
@@ -815,8 +852,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // `src/manifest/rehydrate.ts` for the rationale and idempotency guarantee.
   // Existing `.customize.yaml` files are preserved (Layer 2 wins by
   // precedence; this is a Layer-4 fallback).
-  const rehydration = await rehydrateCustomization(rootDir, manifest.customization);
-  for (const w of rehydration.warnings) { warn(w); }
+  // W5-bigfour: rehydration writes `.customize.yaml` files, so `--dry-run`
+  // skips it. Tradeoff: a repo whose Layer-4 manifest customization has no
+  // Layer-2 yaml yet previews adapter output WITHOUT that customization (the
+  // adapters read Layer 2 from disk); the no-writes contract dominates.
+  if (options.dryRun !== true) {
+    const rehydration = await rehydrateCustomization(rootDir, manifest.customization);
+    for (const w of rehydration.warnings) { warn(w); }
+  }
 
   const s3 = createSpinner(
     step(3, totalSteps, `Generating ${tools.map((t) => TOOL_DISPLAY_NAMES[t] ?? t).join(", ")} output...`),
@@ -898,14 +941,22 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       // and is not survivorship-biased to 1. recordFirstRunSuccess honours the
       // Silent Failure Contract (never throws), so it runs before — and does not
       // mask — the ADAPTER_ERROR throw below.
-      recordFirstRunSuccess(false, {
-        source: "hatch3r-init",
-        projectRoot: rootDir,
-        tags: {
-          failure: ioFailure ? "io" : "content",
-          tools: tools.join("+"),
-        },
-      });
+      // W5-bigfour: this site sits BEFORE the dry-run terminus, so it must
+      // carry its own `--dry-run` gate — telemetry writes
+      // `.hatch3r/telemetry/space-<date>.jsonl`, and dry-run promises zero
+      // writes (matches the orphan-sweep / checkpoint / migration /
+      // rehydration gates above). The success-path recording is unreachable
+      // under dry-run (the terminus returns first), so it needs no gate.
+      if (options.dryRun !== true) {
+        recordFirstRunSuccess(false, {
+          source: "hatch3r-init",
+          projectRoot: rootDir,
+          tags: {
+            failure: ioFailure ? "io" : "content",
+            tools: tools.join("+"),
+          },
+        });
+      }
       throw new HatchError(
         "All adapters failed",
         undefined,
@@ -932,6 +983,83 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     if (budgetWarning) {
       warn(budgetWarning);
     }
+  }
+
+  // W5-bigfour (P1): `--dry-run` terminus. Pass 1 above produced the complete
+  // in-memory output set without touching disk, so every write below this
+  // point (snapshot, adapter outputs, per-package copies, .worktreeinclude,
+  // manifest, provenance, learnings/handoffs seeds, mcp.json, .env.mcp,
+  // .gitignore entries, telemetry, checkpoints) is skipped wholesale. The
+  // rendering mirrors `update --dry-run` (`runUpdateDryRun` in update.ts):
+  // per-tool added/modified/unchanged classification by raw byte comparison
+  // of the generated content against the on-disk copy.
+  if (options.dryRun === true) {
+    s3.succeed(step(3, totalSteps, "Adapter output generated (dry run — no writes)"));
+    const dryRunChanges: Array<{
+      tool: Tool;
+      added: string[];
+      modified: string[];
+      unchanged: string[];
+    }> = [];
+    for (const pa of pendingAdapters) {
+      const bucket = {
+        tool: pa.tool,
+        added: [] as string[],
+        modified: [] as string[],
+        unchanged: [] as string[],
+      };
+      for (const out of pa.outputs) {
+        let existing: string | null = null;
+        try {
+          existing = await readFile(join(rootDir, out.path), "utf-8");
+        } catch (err) {
+          void err; // missing file → "added"
+        }
+        if (existing === null) bucket.added.push(out.path);
+        else if (existing !== out.content) bucket.modified.push(out.path);
+        else bucket.unchanged.push(out.path);
+      }
+      dryRunChanges.push(bucket);
+    }
+    if (isJson()) {
+      emitJson({
+        status: "dry-run",
+        version: HATCH3R_VERSION,
+        rootDir,
+        tools,
+        preset: contentSelection.preset,
+        projectType: contentSelection.projectType,
+        teamSize: contentSelection.teamSize,
+        contentItemCount: countSelectionItems(contentSelection),
+        adapterFailures: adapterFailures.map((f) => ({ tool: f.tool, error: f.error })),
+        adapterChanges: dryRunChanges,
+      });
+      return;
+    }
+    const dryLines: string[] = [];
+    for (const f of adapterFailures) {
+      dryLines.push(`${chalk.red("x")} ${f.tool}: ${f.error}`);
+    }
+    for (const bucket of dryRunChanges) {
+      dryLines.push(chalk.bold(TOOL_DISPLAY_NAMES[bucket.tool] ?? bucket.tool));
+      for (const p of bucket.added) dryLines.push(`  ${chalk.green("+ added")}    ${p}`);
+      for (const p of bucket.modified) dryLines.push(`  ${chalk.yellow("~ modified")} ${p}`);
+      for (const p of bucket.unchanged) dryLines.push(`  ${chalk.dim("= unchanged")} ${p}`);
+    }
+    dryLines.push("");
+    dryLines.push(
+      chalk.dim(
+        `Skipped writes: ${HATCH3R_DIR}/hatch.json, learnings/handoffs seeds, mcp.json, ` +
+          `.env.mcp, .gitignore entries, provenance, snapshots, checkpoints.`,
+      ),
+    );
+    printBox(
+      "Init dry run (no writes)",
+      dryRunChanges.length > 0 ? dryLines : [chalk.dim("No adapters configured.")],
+      "info",
+    );
+    printTimingSummary(initStartMs);
+    return;
   }
 
   // Decision 27: capture a pre-mutation snapshot of every file we are about
@@ -993,6 +1121,9 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       });
       addManagedFile(manifest, out.path);
       toolPaths.push(out.path);
+      // W5-bigfour: `--verbose` per-file written-output detail (stderr;
+      // no-op when verbose mode is off).
+      verbose(`init: wrote ${out.path} (${pa.tool})`);
     }
     manifest.managedFilesByAdapter[pa.tool] = toolPaths;
   }
@@ -1297,7 +1428,11 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       manifestPath: `${HATCH3R_DIR}/hatch.json`,
       snapshotSessionId: sessionId,
     };
-    console.log(JSON.stringify(payload));
+    // W5-bigfour (P1): single-document JSON contract — emit via the shared
+    // emitJson funnel (process.stdout.write + one trailing newline) so the
+    // payload shape and serialization match every other `--format json`
+    // command. Field names are unchanged.
+    emitJson(payload);
     return;
   }
 
@@ -1349,6 +1484,13 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   }
   if (mcpServers.length > 0) {
     summaryLines.push(label("MCP", mcpServers.join(", ")));
+  } else {
+    // W3-mcp-optin: name the opt-in lever on the no-MCP path so a user who
+    // skipped MCP (now the default — interactive init no longer prompts)
+    // learns the side-door without digging through docs.
+    summaryLines.push(
+      `${chalk.dim("·")} ${chalk.dim("MCP servers: none configured — add anytime with npx hatch3r mcp setup")}`,
+    );
   }
   if (manifest.worktree?.enabled) {
     summaryLines.push(label("Worktree", "isolation enabled"));
@@ -1507,6 +1649,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     printBox("Hatch complete", summaryLines, "success");
   }
 
+  // W5-bigfour (P1): post-box next-steps ladder (no-op under quiet/json).
+  // The in-box CTA ladder above already names every command (hatch3r-spec /
+  // feature-plan / quick-change / validate), so the single complementary
+  // step here is the one action the box cannot perform for the user:
+  // switching to the editor where those commands run.
+  printNextSteps([
+    "Open your editor and run the suggested command above to start your first task.",
+  ]);
+
   if (cliTools && cliTools.selected.length > 0 && !isQuiet()) {
     const finalMissing = await findMissingCliTools(cliTools.selected);
     printMissingCliToolsDisclaimer(finalMissing, cliTools.selected.length);
@@ -1523,11 +1674,14 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   printTimingSummary(initStartMs);
 }
 
-async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection): Promise<void> {
+async function checkExisting(rootDir: string, skipPrompt: boolean, newSelection?: ContentSelection, dryRun?: boolean): Promise<void> {
   // Wave 6: migration shim relocates a legacy `.agents/hatch.json` to
   // `.hatch3r/hatch.json` on first read; checkExisting probes the new
-  // location only.
-  await migrateAgentsToHatch3r(rootDir);
+  // location only. W5-bigfour: the relocation moves files, so `--dry-run`
+  // skips it (zero-writes promise).
+  if (dryRun !== true) {
+    await migrateAgentsToHatch3r(rootDir);
+  }
   const hatchJsonPath = join(rootDir, HATCH3R_DIR, "hatch.json");
   try {
     await access(hatchJsonPath);
@@ -1767,17 +1921,24 @@ export async function initCommand(
     quick?: boolean;
     default?: boolean;
     /**
-     * CLI-tools selection for `--yes` non-interactive init (plan §4.3).
-     * Accepts `"tier1"`, `"all"`, or a comma-separated list of registry
-     * ids (e.g. `"ripgrep,jq,gh"`). When omitted on a `--yes` run, the
-     * default tier-1 + triggered-tier-2 selection is applied.
+     * CLI-tools selection on ANY init path (W3-mcp-optin: previously `--yes`
+     * only). Accepts `"tier1"`, `"all"`, or a comma-separated list of
+     * registry ids (e.g. `"ripgrep,jq,gh"`). On `--yes`, omission applies the
+     * default tier-1 + triggered-tier-2 selection; on interactive runs an
+     * explicit value skips the CLI-tools picker prompt.
      */
     cliTools?: string;
-    /** Disable CLI tools entirely on `--yes` (plan §4.3). */
+    /**
+     * Disable CLI tools entirely on any init path (interactive runs skip the
+     * CLI-tools picker prompt; W3-mcp-optin path-independence).
+     */
     noCliTools?: boolean;
     /**
-     * Re-opt-in to MCP on `--yes`. Default is now off — the pivot moved
-     * MCP behind a Yes/No gate (plan §4.3 step 8 / §2 decision row).
+     * Opt in to MCP on ANY init path (W3-mcp-optin: previously `--yes` only).
+     * MCP is off by default — interactive init no longer prompts for MCP
+     * servers; this flag and the `hatch3r mcp setup` side-door are the only
+     * enable paths. When set, the platform default server set
+     * (`defaultMcpServers`) is applied.
      */
     mcp?: boolean;
     /**
@@ -1787,8 +1948,8 @@ export async function initCommand(
      * Commander's `--no-mcp` registration (program.ts) sets `opts.mcp = false`;
      * this dedicated field additionally lets a programmatic caller force-off
      * even if `mcp` is set, and makes the explicit-off intent legible at the
-     * resolution sites below. Honored on the `--yes` single-repo + workspace
-     * paths (the only paths that read `opts.mcp`).
+     * resolution sites below. Honored on every init path — single-repo and
+     * workspace, interactive and `--yes` (W3-mcp-optin path-independence).
      */
     noMcp?: boolean;
     /**
@@ -1813,6 +1974,27 @@ export async function initCommand(
      * CI badge tool wants the banner gone but the success box kept.
      */
     noBanner?: boolean;
+    /**
+     * W5-bigfour (P1): `--format <human|json>`. `json` is byte-identical to
+     * the legacy `--json` boolean alias (both resolve through `beginCommand`
+     * to the same emitJson payload) and is valid only on headless runs
+     * (`--yes` / `--quick` / `--default`) — an interactive prompt flow cannot
+     * interleave with the single-JSON-document stdout contract (exit 2).
+     */
+    format?: string;
+    /**
+     * W5-bigfour (P1): `--dry-run` — preview the per-tool adapter outputs
+     * (added/modified/unchanged vs disk) without writing anything: no
+     * manifest, adapter outputs, mcp.json, seeds, .gitignore entries,
+     * provenance, snapshots, or checkpoints. Prompts still run on the
+     * interactive path; only writes are skipped.
+     */
+    dryRun?: boolean;
+    /**
+     * W5-bigfour (P1): `--verbose` — per-file written-output detail on the
+     * generation pass (stderr), plus the existing verbose() diagnostics.
+     */
+    verbose?: boolean;
     /**
      * Decision 27 (Bucket 2.2): re-enter the orchestrator at the last
      * checkpoint recorded under `.init-workspace/checkpoint.json`. When set
@@ -1875,21 +2057,26 @@ export async function initCommand(
   } = {},
 ): Promise<void> {
   // C9-H26 (D10-SA10.2-F1): chrome-suppression flags.
-  // - `--json` implies `--quiet` (the structured emission replaces all chrome).
+  // - `--json` / `--format json` imply `--quiet` (the structured emission
+  //   replaces all chrome).
   // - `--quiet` implies `--no-banner` (banner is chrome).
   // - `--no-banner` alone keeps spinner/success-box output.
-  // D1-SA1.1-F09: reset EVERY module-global UI flag in one call so no flag
-  // from a previous invocation leaks into the current one (matters under
-  // vitest where the ui module is shared across tests in the same worker).
-  // `resetUiState()` is the single source of truth in `shared/ui.ts` — a
-  // future ui-flag is reset there, not re-listed at each command call site.
-  resetUiState();
-  const jsonMode = opts.json === true;
-  const quietMode = jsonMode || opts.quiet === true;
-  const skipBanner = quietMode || opts.noBanner === true;
-  setJson(jsonMode);
-  setQuiet(quietMode);
-  if (!skipBanner) {
+  // W5-bigfour (P1): the wiring flows through the standardized beginCommand
+  // chokepoint — it resets the module-global UI flags (D1-SA1.1-F09 leak
+  // guard), resolves `--format` with the legacy `--json` boolean as a one-way
+  // upgrade, wires quiet/verbose, and rejects `--format json` on a
+  // prompt-driven run (exit 2): inquirer prompts cannot interleave with the
+  // single-JSON-document stdout contract. `--quick`/`--default` collapse to
+  // the `--yes` path below, so they count as headless here.
+  const headlessRun = opts.yes === true || opts.quick === true || opts.default === true;
+  beginCommand(
+    { format: opts.format, quiet: opts.quiet, verbose: opts.verbose, json: opts.json, yes: headlessRun },
+    { interactive: !headlessRun },
+  );
+  // `--no-banner` keeps the success box but drops the banner. quiet/json
+  // already suppress printBanner internally, so only the explicit flag needs
+  // a local gate (C9-H26 semantics preserved).
+  if (opts.noBanner !== true) {
     printBanner();
   }
   // F16.1-C1 / D11-H-7 (Decision 27 / Bucket 2.2): `--resume` reads the
@@ -2137,15 +2324,13 @@ export async function initCommand(
     // worktree-capable tools (preserves pre-1.6.1 --yes behavior for CI callers).
     const worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
 
-    const features = { ...DEFAULT_FEATURES };
-    // CLI-tooling pivot (plan §4.3): MCP is now opt-in on `--yes`. Users
-    // who still want MCP defaults pass `--mcp` explicitly. Without that
-    // flag, MCP server list stays empty and no .env.mcp is generated.
-    // D1-SA1.1-F13: `--no-mcp` forces the list empty even when `--mcp` is set.
-    const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpServers = features.mcp && opts.mcp && !opts.noMcp
-      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
-      : [];
+    // W3-mcp-optin: MCP is pure opt-in on every init path. `--mcp` resolves
+    // the platform default server set; without it the list stays empty and no
+    // .env.mcp is generated. D1-SA1.1-F13: `--no-mcp` forces the list empty
+    // even when `--mcp` is set. `features.mcp` derives from the resolved list
+    // so the manifest flag and server list can never disagree.
+    const mcpServers = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+    const features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
 
     // CLI-tooling pivot (plan §4.3 `--yes` path): default to tier-1 +
     // triggered-tier-2 unless the user passed `--no-cli-tools`. Explicit
@@ -2191,9 +2376,9 @@ export async function initCommand(
     warnBoardPrerequisites(contentSelection);
     warnBoardDroppedForSolo(teamSize, preset, projectType, index, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
-    await checkExisting(rootDir, true, contentSelection);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts });
-    await runToolImport(rootDir, opts.import, true);
+    await checkExisting(rootDir, true, contentSelection, opts.dryRun);
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+    await runToolImport(rootDir, opts.import, true, opts.dryRun);
     return;
   }
 
@@ -2205,7 +2390,6 @@ export async function initCommand(
   const filterIndex = await buildContentIndex(CONTENT_ROOT);
   const projectLanguages = languagesForSelection(repoInfo);
   const detection = await detectProjectType(repoInfo, rootDir);
-  const totalItems = filterIndex.items.length;
   const wslTheme = isWSL()
     ? { icon: { checked: chalk.green("[x]"), unchecked: "[ ]", cursor: ">" } }
     : undefined;
@@ -2247,12 +2431,14 @@ export async function initCommand(
     seededMaturityDefault,
     "maturity",
   );
-  // CLI tools default to the post-pivot tier-1 + triggered tier-2 set (matches
-  // `--yes`); customizable later via `hatch3r cli-tools`.
-  const inferredCliTools: CliToolId[] = Array.from(new Set([
-    ...DEFAULT_CLI_TOOLS,
-    ...applyPlatformTriggers(detectedPlatform, evaluateTier2Triggers(repoInfo)),
-  ]));
+  // W3-mcp-optin: `--cli-tools` / `--no-cli-tools` apply on the interactive
+  // path too (flag semantics are path-independent). An explicit selection
+  // skips the picker step below; without a flag the picker runs with tier-1 +
+  // triggered tier-2 pre-checked, so enter-through reproduces the `--yes`
+  // smart default exactly.
+  const explicitCliTools: CliToolId[] | undefined = opts.noCliTools
+    ? []
+    : resolveCliToolsFlag(opts.cliTools, repoInfo, detectedPlatform);
 
   // Step-machine drives the interactive flow with back-navigation.
   // Each step's `run()` calls inquirer with the same shape the
@@ -2261,15 +2447,15 @@ export async function initCommand(
   // the resolved state below.
   // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤5 prompts
   // (Decision 25 / Vercel-Heroku OSS-onboarding benchmark). The five retained
-  // prompts are: platform, identity, preset, tools, and a single collapsed MCP
-  // multi-select (recommendation step c — `(none)` = decline). The four
-  // dropped prompts use smart defaults, each overridable post-init:
+  // prompts are: platform, identity, preset, tools, and the CLI-tools picker
+  // (W3-mcp-optin: the collapsed MCP multi-select moved behind the `--mcp`
+  // flag / `hatch3r mcp setup` side-door, freeing the slot). The dropped
+  // prompts use smart defaults, each overridable post-init:
   //   - defaultBranch → `parseGitDefaultBranch()` (git-detected)
   //   - projectType   → `detectProjectType()` (auto-detected)
   //   - teamSize      → `inferTeamSizeFromGit()` (recommendation step d)
   //   - maturity      → `--maturity` flag / DEFAULT_MATURITY_TIER (2.0.0 add)
-  //   - cliTools      → tier-1 + triggered tier-2 (matches `--yes`; the pivot
-  //                     default — customize later via `hatch3r cli-tools`)
+  //   - mcp           → off unless `--mcp` (opt in later via `hatch3r mcp setup`)
   // `customItems` stays as a conditional power-user prompt (preset=custom only),
   // so it does not count against the common-path ceiling.
   interface SingleRepoState {
@@ -2278,172 +2464,76 @@ export async function initCommand(
     preset: PresetId;
     customItems: string[] | undefined;
     tools: Tool[];
-    // F10.3-2 step (c): collapsed MCP picker. Empty selection = no MCP
-    // (`features.mcp` is derived from `mcpServers.length`). Replaces the prior
-    // two-prompt `wantMcp` confirm + conditional `mcpServers` picker.
-    mcpServers: string[];
+    // W3-mcp-optin: 3-tier CLI-tools picker result. Empty selection = CLI
+    // tools disabled (`{enabled: false, selected: []}`). Replaces the prior
+    // collapsed MCP multi-select as the 5th prompt.
+    cliTools: CliToolId[];
   }
 
+  // W2-flowsteps: each step is composed from the shared builders in
+  // `src/cli/shared/flowSteps.ts` — prompt copy, name keys, defaults, skip
+  // predicates, and BACK threading are unchanged from the inline versions.
   const steps: Array<Step<SingleRepoState, keyof SingleRepoState>> = [
-    {
-      id: "platform",
-      async run(_state, previous): Promise<StepResult<Platform>> {
-        const answer = await inquirer.prompt<{ platform: Platform | typeof BACK }>([
-          {
-            type: "select",
-            name: "platform",
-            message: "Select your platform:",
-            choices: [
-              { name: "GitHub", value: "github" as Platform },
-              { name: "Azure DevOps", value: "azure-devops" as Platform },
-              { name: "GitLab", value: "gitlab" as Platform },
-            ],
-            default: previous ?? detectedPlatform,
-          },
-        ]);
-        return isBack(answer.platform) ? BACK : (answer.platform as Platform);
-      },
-    },
-    {
-      id: "identity",
-      async run(state, previous): Promise<StepResult<SingleRepoState["identity"]>> {
-        // D1-M4: Delegate to the shared repoIdentityPrompt helper so the
-        // 3-branch GitHub / Azure DevOps / GitLab prompt is single-sourced.
-        return promptRepoIdentity(state.platform!, { previous, remote });
-      },
-    },
-    {
-      id: "preset",
-      async run(_state, previous): Promise<StepResult<PresetId>> {
-        // F10.3-2: projectType + teamSize are no longer prompted — the item-
-        // count estimate uses the auto-detected projectType and the
-        // git-inferred teamSize resolved above the step machine.
-        // D10-M17 (Cycle 10 rollover): surface the inferred projectType +
-        // teamSize filters BEFORE the picker so the operator sees which
-        // filters drive the `(~N items)` and `(excludes M of T)` counts on
-        // each choice. Previously the filter context was only visible in the
-        // post-init success summary, after the preset choice was already
-        // committed. The override path (`--project-type` / `--team-size`
-        // flags) is named inline so a user who disagrees with the inference
-        // can re-run with the flag instead of accepting an off-target preset.
+    platformStep<SingleRepoState>({
+      message: "Select your platform:",
+      defaultPlatform: detectedPlatform,
+    }),
+    // D1-M4: identityStep delegates to the shared repoIdentityPrompt helper
+    // so the 3-branch GitHub / Azure DevOps / GitLab prompt is single-sourced.
+    identityStep<SingleRepoState>({ remote }),
+    // F10.3-2: projectType + teamSize are no longer prompted — the item-
+    // count estimate uses the auto-detected projectType and the git-inferred
+    // teamSize resolved above the step machine. D10-M17 (Cycle 10 rollover):
+    // the banner surfaces the inferred filters BEFORE the picker so the
+    // operator sees which filters drive the `(~N items)` and `(excludes M of
+    // T)` counts on each choice; the override path (`--project-type` /
+    // `--team-size` flags) is named inline so a user who disagrees with the
+    // inference can re-run with the flag instead of accepting an off-target
+    // preset.
+    presetStep<SingleRepoState>({
+      index: filterIndex,
+      projectType: inferredProjectType,
+      teamSize: inferredTeamSize,
+      projectLanguages,
+      defaultPreset: "standard",
+      customUniverseHint: true,
+      banner: () =>
         info(
           chalk.dim(
             `Filters: projectType=${inferredProjectType}, teamSize=${inferredTeamSize}. ` +
               `Override with --project-type / --team-size at re-run.`,
           ),
-        );
-        const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
-          {
-            type: "select",
-            name: "preset",
-            message: "Select content profile:",
-            choices: PRESETS.map((p) => {
-              const excluded = countPresetExclusions(p, filterIndex);
-              const estimated = p.id !== "custom" ? estimatePresetItemCount(p, inferredProjectType, inferredTeamSize, filterIndex, projectLanguages) : 0;
-              // D1-SA1.1-F11: the `custom` preset has no fixed item count
-              // (the user picks per-item), so `estimatePresetItemCount` is not
-              // run for it. Surface the size of the universe the checkbox will
-              // present (`filterIndex.items.length`) so the user knows how
-              // many items they will choose from before entering the picker.
-              const countHint =
-                p.id === "custom"
-                  ? ` (${totalItems} items to choose from)`
-                  : estimated > 0
-                    ? ` (~${estimated} items)`
-                    : "";
-              const suffix = excluded > 0 ? ` (excludes ${excluded} of ${totalItems})` : "";
-              // F10.6-1 (D10): name WHAT each preset drops, not just a count, so
-              // a user picking "Standard" sees the real omissions before
-              // committing. D10-12 (Cycle 11): derive the labels from the
-              // realized post-floor selection delta via presetOmittedClusters —
-              // the static `p.omits` field is capability *intent* and over-states
-              // drops because floor-tagged items ship regardless of preset.
-              const omittedClusters = presetOmittedClusters(p, filterIndex);
-              const omitLine = omittedClusters.length ? `omits: ${omittedClusters.join(", ")}` : undefined;
-              return {
-                name: `${p.name} — ${p.description}${countHint}${suffix}`,
-                value: p.id,
-                description: omitLine,
-              };
-            }),
-            default: previous ?? ("standard" as PresetId),
-          },
-        ]);
-        return isBack(answer.preset) ? BACK : (answer.preset as PresetId);
-      },
-    },
-    {
-      id: "customItems",
-      skip: (s) => s.preset !== "custom",
-      async run(_state, previous): Promise<StepResult<string[] | undefined>> {
-        const groupedChoices = buildTagGroupedCustomContentChoices(
-          filterIndex.items,
-          // D10-13: floor + protected rows are locked-on by the picker itself;
-          // this baseline only governs optional rows (no retired `core` tag).
-          (item) => item.protected === true,
-        );
-        const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "items",
-            message: "Select content items:",
-            choices: groupedChoices,
-            ...(previous ? { default: previous } : {}),
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(customAnswer.items)) return BACK;
-        return (customAnswer.items ?? []) as string[];
-      },
-    },
-    {
-      id: "tools",
-      async run(_state, previous): Promise<StepResult<Tool[]>> {
-        const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "tools",
-            message: "Select tools to configure:",
-            choices: TOOL_PROMPT_CHOICES,
-            default: previous ?? toolDefaults,
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(toolAnswers.tools)) return BACK;
-        const filtered = (toolAnswers.tools ?? []) as Tool[];
-        return filtered.length > 0 ? filtered : DEFAULT_TOOLS;
-      },
-    },
-    {
-      // F10.3-2 step (c): single collapsed MCP multi-select. The prior
-      // `wantMcp` confirm + conditional `mcpServers` picker (2 prompts) are
-      // folded into one checkbox where leaving everything unchecked is the
-      // `(none)` no-op. `features.mcp` is derived from the result length
-      // after the step machine, so an empty pick disables MCP cleanly.
-      id: "mcpServers",
-      async run(state, previous): Promise<StepResult<string[]>> {
-        const platformMcp = PLATFORM_MCP_SERVER[state.platform!];
-        const { mcp } = await inquirer.prompt<{ mcp: string[] | typeof BACK }>([
-          {
-            type: "checkbox",
-            name: "mcp",
-            message: "Select MCP servers to enable (leave empty for none — you can add later with `hatch3r mcp setup`):",
-            choices: MCP_CHOICES,
-            default: previous ?? [],
-            ...(wslTheme && { theme: wslTheme }),
-          },
-        ]);
-        if (isBack(mcp)) return BACK;
-        const servers = (mcp ?? []) as string[];
-        // Mirror pickMcpServers: if the user selected ANY server, ensure the
-        // platform server is present (board/platform integration depends on
-        // it). An empty selection stays empty — that is the `(none)` path.
-        if (servers.length > 0 && !servers.includes(platformMcp)) {
-          servers.unshift(platformMcp);
-        }
-        return servers;
-      },
-    },
+        ),
+    }),
+    customItemsStep<SingleRepoState>({
+      index: filterIndex,
+      // D10-13: floor + protected rows are locked-on by the picker itself;
+      // this baseline only governs optional rows (no retired `core` tag).
+      baselineChecked: () => (item) => item.protected === true,
+      previousAsDefault: true,
+      wslTheme,
+    }),
+    toolsStep<SingleRepoState>({
+      defaults: toolDefaults,
+      emptyFallback: DEFAULT_TOOLS,
+      wslTheme,
+    }),
+    // W3-mcp-optin: the 5th prompt is the CLI-tools picker (the collapsed MCP
+    // multi-select moved behind `--mcp` / `hatch3r mcp setup`). Tier-2
+    // suggestions read the platform chosen in step 1, so they are computed
+    // per-visit from the in-progress state; with no `existing` selection the
+    // picker pre-checks tier-1 + these suggestions, making enter-through equal
+    // the `--yes` smart default. Skipped entirely when `--cli-tools` /
+    // `--no-cli-tools` resolved an explicit selection above.
+    ...(explicitCliTools === undefined
+      ? [
+          cliToolsStep<SingleRepoState>({
+            tier2Suggested: (s) =>
+              applyPlatformTriggers(s.platform ?? detectedPlatform, evaluateTier2Triggers(repoInfo)),
+            wslTheme,
+          }),
+        ]
+      : []),
   ];
 
   const stepState = await runStepMachine<SingleRepoState>(steps);
@@ -2460,20 +2550,25 @@ export async function initCommand(
   const selectedPreset = getPreset(stepState.preset);
   const customSelections = stepState.customItems;
   const tools = stepState.tools;
-  // F10.3-2 step (c): `features.mcp` is now derived from the collapsed MCP
-  // multi-select — a non-empty pick enables MCP, an empty pick (the `(none)`
-  // path) leaves it off. Replaces the prior `wantMcp` confirm.
-  const features: Features = { ...DEFAULT_FEATURES, mcp: (stepState.mcpServers ?? []).length > 0 };
+  // W3-mcp-optin: MCP no longer prompts on the interactive path. The flag
+  // semantics are path-independent: `--mcp` (minus `--no-mcp`) resolves the
+  // platform default server set, otherwise MCP stays off — opt in later via
+  // `hatch3r mcp setup`. `features.mcp` derives from the resolved list.
+  const mcpServers: string[] = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+  const features: Features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
 
   // C9-H32 (D10-SA10.5-F2): Surface MCP secret-loading divergence at
   // tool-selection time — before commit — so a user picking Claude alongside
   // auto-loaders (Cursor / Copilot / Windsurf) sees the divergent shell-source
-  // requirement immediately.
-  const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
-  if (secretNotes.length > 0) {
-    info(chalk.dim("MCP secret loading by tool:"));
-    for (const note of secretNotes) {
-      info(chalk.dim(`  ${note}`));
+  // requirement immediately. W3-mcp-optin: gated on an actual MCP opt-in —
+  // a no-MCP install has no MCP secrets to load, so the note was noise there.
+  if (mcpServers.length > 0) {
+    const secretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+    if (secretNotes.length > 0) {
+      info(chalk.dim("MCP secret loading by tool:"));
+      for (const note of secretNotes) {
+        info(chalk.dim(`  ${note}`));
+      }
     }
   }
 
@@ -2481,14 +2576,12 @@ export async function initCommand(
   // selected; honor explicit --worktree/--no-worktree override.
   const worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
 
-  // MCP server list is the collapsed multi-select result (empty = no MCP).
-  const mcpServers: string[] = stepState.mcpServers ?? [];
-
-  // F10.3-2: CLI tools are no longer prompted in the ≤5-prompt flow — they
-  // default to the post-pivot tier-1 + triggered tier-2 set (same as `--yes`),
-  // customizable later via `hatch3r cli-tools`. Detection + installer follow-up
-  // still runs so a user with missing tools on PATH gets the same guidance.
-  const selectedCliTools = inferredCliTools;
+  // W3-mcp-optin: CLI tools come from the picker step (5th prompt) unless a
+  // `--cli-tools` / `--no-cli-tools` flag resolved them above. An empty
+  // selection disables CLI tools (`{enabled: false, selected: []}`).
+  // Detection + installer follow-up still runs on a non-empty selection so a
+  // user with missing tools on PATH gets the same guidance as before.
+  const selectedCliTools: CliToolId[] = explicitCliTools ?? stepState.cliTools ?? [];
   if (selectedCliTools.length > 0) {
     const detectSpinner = createSpinner(`Detecting ${selectedCliTools.length} CLI tool(s)...`);
     detectSpinner.start();
@@ -2534,9 +2627,9 @@ export async function initCommand(
   warnBoardPrerequisites(contentSelection);
   warnBoardDroppedForSolo(teamSize, selectedPreset, projectType, filterIndex, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
-  await checkExisting(rootDir, false, contentSelection);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts });
-  await runToolImport(rootDir, opts.import, false);
+  await checkExisting(rootDir, false, contentSelection, opts.dryRun);
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+  await runToolImport(rootDir, opts.import, false, opts.dryRun);
 }
 
 // ── Tool import (--import) ─────────────────────────────────────────
@@ -2583,11 +2676,15 @@ function renderFormatImportSummary(summary: FormatImportSummary, headlinePrefix:
  *   leaves disk untouched.
  * - Headless (`--yes`/`--json`/`--quiet`, `headless === true`): writes directly
  *   and surfaces the counts (JSON line under `--json`, summary otherwise).
+ * - W5-bigfour `--dry-run` (`dryRun === true`): renders the conversion
+ *   preview only (runImport in dry-run mode) and returns — no confirm prompt,
+ *   no files written, on both headless and interactive paths.
  */
 async function runToolImport(
   rootDir: string,
   target: string | undefined,
   headless: boolean,
+  dryRun?: boolean,
 ): Promise<void> {
   if (target === undefined) return;
 
@@ -2610,6 +2707,30 @@ async function runToolImport(
   const existingRuleIds = new Set<string>(
     importIndex.items.filter((i) => i.type === "rule").map((i) => i.id),
   );
+
+  // W5-bigfour: under `--dry-run`, render the conversion preview and stop —
+  // no confirm, no write — so `init --dry-run --import <t>` keeps the
+  // zero-writes promise on every path.
+  if (dryRun === true) {
+    const preview = await runImport({ rootDir, target: importTarget, dryRun: true, existingRuleIds });
+    if (isJson()) {
+      emitJson({
+        status: "dry-run",
+        import: importTarget,
+        formats: preview.map((r) => ({
+          format: r.format,
+          sourceFiles: r.sourceFiles,
+          converted: r.converted.length,
+          conflicts: r.conflicts.length,
+          manualReview: r.manualReview.length,
+        })),
+      });
+      return;
+    }
+    for (const s of preview) renderFormatImportSummary(s, "Import (dry run)");
+    info("Import: dry run — no files written.");
+    return;
+  }
 
   // Interactive: dry-run preview → confirm → real write. Headless: write now.
   if (!headless && !isQuiet()) {
@@ -2666,7 +2787,7 @@ async function runWorkspaceInit(
   rootDir: string,
   detectedRepos: Awaited<ReturnType<typeof detectSubRepos>>,
   repoInfo: RepoInfo,
-  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string; perPackage?: boolean },
+  opts: { tools?: string; yes?: boolean; preset?: string; projectType?: string; teamSize?: string; worktree?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; noMcp?: boolean; maturity?: string; perPackage?: boolean; dryRun?: boolean },
   // D1-SA1.2-H1: the entry-point-parsed `--role` / `--facets` filters, passed
   // through so the workspace flow (headless + interactive) applies the same
   // selection filter as the single-repo flow instead of silently dropping them.
@@ -2684,13 +2805,11 @@ async function runWorkspaceInit(
     // Create empty workspace manifest with defaults
     const platform: Platform = "github";
     const tools: Tool[] = resolveToolsFromOpts(opts.tools, repoInfo);
-    const features = { ...DEFAULT_FEATURES };
-    // CLI-tooling pivot: MCP opt-in via --mcp on `--yes`. Defaults empty.
-    // D1-SA1.1-F13: `--no-mcp` forces empty even with `--mcp`.
-    const platformMcp = PLATFORM_MCP_SERVER[platform];
-    const mcpServers = features.mcp && opts.mcp && !opts.noMcp
-      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
-      : [];
+    // W3-mcp-optin: MCP opt-in via --mcp on any init path. Defaults empty.
+    // D1-SA1.1-F13: `--no-mcp` forces empty even with `--mcp`. `features.mcp`
+    // derives from the resolved list.
+    const mcpServers = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+    const features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
     const cliToolsBase = opts.noCliTools
       ? { enabled: false, selected: [] as CliToolId[] }
       : ((): CliToolsConfig => {
@@ -2714,6 +2833,11 @@ async function runWorkspaceInit(
       [],
       "manual",
     );
+    // W5-bigfour: `--dry-run` skips the workspace-manifest write.
+    if (opts.dryRun === true) {
+      info(`Dry run: workspace manifest (${HATCH3R_DIR}/workspace.json) not written.`);
+      return;
+    }
     await writeWorkspaceManifest(rootDir, wsManifest);
     return;
   }
@@ -2804,14 +2928,11 @@ async function runWorkspaceInit(
     // Worktree: honor explicit --worktree/--no-worktree, else auto-enable for
     // worktree-capable tools (preserves pre-1.6.1 --yes behavior).
     worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-    features = { ...DEFAULT_FEATURES };
-    // CLI-tooling pivot (plan §4.3): MCP is opt-in on `--yes`; default to
-    // empty server list unless `--mcp` is set. Mirrors single-repo flow.
-    // D1-SA1.1-F13: `--no-mcp` forces empty even with `--mcp`.
-    const platformMcp = PLATFORM_MCP_SERVER[platform];
-    mcpServers = features.mcp && opts.mcp && !opts.noMcp
-      ? Array.from(new Set([platformMcp, ...DEFAULT_MCP.filter((s) => s !== "github")]))
-      : [];
+    // W3-mcp-optin: MCP is opt-in via `--mcp` on any init path; default to
+    // empty server list. Mirrors single-repo flow. D1-SA1.1-F13: `--no-mcp`
+    // forces empty even with `--mcp`. `features.mcp` derives from the list.
+    mcpServers = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+    features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
     if (opts.noCliTools) {
       wsCliTools = { enabled: false, selected: [] };
     } else {
@@ -2852,7 +2973,6 @@ async function runWorkspaceInit(
     const wsFilterIndex = await buildContentIndex(CONTENT_ROOT);
     const projectLanguages = languagesForSelection(repoInfo);
     const wsDetection = await detectProjectType(repoInfo, rootDir);
-    const wsTotalItems = wsFilterIndex.items.length;
     const wsToolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
 
     // F10.3-2 (D10, P1): workspace flow mirrors the single-repo ≤5-prompt
@@ -2871,137 +2991,78 @@ async function runWorkspaceInit(
       "team-size",
     );
     wsMaturity = validateFlag(opts.maturity, [...MATURITY_TIERS], DEFAULT_MATURITY_TIER, "maturity");
-    const wsInferredCliTools: CliToolId[] = Array.from(new Set([
-      ...DEFAULT_CLI_TOOLS,
-      ...applyPlatformTriggers(platform, evaluateTier2Triggers(repoInfo)),
-    ]));
+    // W3-mcp-optin: `--cli-tools` / `--no-cli-tools` apply on the interactive
+    // workspace path too (path-independent flag semantics); an explicit
+    // selection skips the picker step. The workspace platform is derived from
+    // sub-repos before the machine runs, so the tier-2 suggestion set is a
+    // plain array (no state thunk needed).
+    const wsExplicitCliTools: CliToolId[] | undefined = opts.noCliTools
+      ? []
+      : resolveCliToolsFlag(opts.cliTools, repoInfo, platform);
+    const wsTier2Suggested: CliToolId[] = applyPlatformTriggers(
+      platform,
+      evaluateTier2Triggers(repoInfo),
+    );
 
     // The collapsed workspace prompt set: preset, customItems (conditional),
-    // tools, mcp (single multi-select with `(none)`).
+    // tools, cliTools (W3-mcp-optin: replaces the collapsed MCP multi-select).
     interface WorkspaceState {
       preset: PresetId;
       customItems: string[] | undefined;
       tools: Tool[];
-      mcpServers: string[];
+      cliTools: CliToolId[];
     }
 
+    // W2-flowsteps: composed from the shared builders in
+    // `src/cli/shared/flowSteps.ts` (same composition as the single-repo
+    // machine minus platform/identity, which the workspace flow derives
+    // from sub-repos instead of prompting).
     const wsSteps: Array<Step<WorkspaceState>> = [
-      {
-        id: "preset",
-        async run(_state, previous): Promise<StepResult<PresetId>> {
-          // D10-M17 (Cycle 10 rollover): workspace flow mirrors the single-repo
-          // pre-picker filter banner so the operator sees which inferred
-          // projectType + teamSize drive the `(~N items)` / `(excludes M of T)`
-          // counts before picking a preset.
+      // D10-M17 (Cycle 10 rollover): workspace flow mirrors the single-repo
+      // pre-picker filter banner so the operator sees which inferred
+      // projectType + teamSize drive the `(~N items)` / `(excludes M of T)`
+      // counts before picking a preset.
+      presetStep<WorkspaceState>({
+        index: wsFilterIndex,
+        projectType: wsInferredProjectType,
+        teamSize: wsInferredTeamSize,
+        projectLanguages,
+        defaultPreset: "standard",
+        customUniverseHint: true,
+        banner: () =>
           info(
             chalk.dim(
               `Filters: projectType=${wsInferredProjectType}, teamSize=${wsInferredTeamSize}. ` +
                 `Override with --project-type / --team-size at re-run.`,
             ),
-          );
-          const answer = await inquirer.prompt<{ preset: PresetId | typeof BACK }>([
-            {
-              type: "select",
-              name: "preset",
-              message: "Select content profile:",
-              choices: PRESETS.map((p) => {
-                const excluded = countPresetExclusions(p, wsFilterIndex);
-                const wsEstimated = p.id !== "custom" ? estimatePresetItemCount(p, wsInferredProjectType, wsInferredTeamSize, wsFilterIndex, projectLanguages) : 0;
-                // D1-SA1.1-F11: workspace-flow parity with the single-repo
-                // picker — show the choose-from universe size for `custom`
-                // since it has no estimable fixed count.
-                const wsCountHint =
-                  p.id === "custom"
-                    ? ` (${wsTotalItems} items to choose from)`
-                    : wsEstimated > 0
-                      ? ` (~${wsEstimated} items)`
-                      : "";
-                const suffix = excluded > 0 ? ` (excludes ${excluded} of ${wsTotalItems})` : "";
-                // F10.6-1 (D10): name the omitted clusters (not just a count) so
-                // the workspace operator sees what each preset drops. D10-12
-                // (Cycle 11): use the realized post-floor delta via
-                // presetOmittedClusters, not the over-stating capability-intent
-                // `p.omits` field.
-                const wsOmittedClusters = presetOmittedClusters(p, wsFilterIndex);
-                const omitLine = wsOmittedClusters.length ? `omits: ${wsOmittedClusters.join(", ")}` : undefined;
-                return {
-                  name: `${p.name} — ${p.description}${wsCountHint}${suffix}`,
-                  value: p.id,
-                  description: omitLine,
-                };
-              }),
-              default: previous ?? ("standard" as PresetId),
-            },
-          ]);
-          return isBack(answer.preset) ? BACK : (answer.preset as PresetId);
-        },
-      },
-      {
-        id: "customItems",
-        skip: (s) => s.preset !== "custom",
-        async run(_state, previous): Promise<StepResult<string[] | undefined>> {
-          const wsGroupedChoices = buildTagGroupedCustomContentChoices(
-            wsFilterIndex.items,
-            // D10-13: floor + protected rows are locked-on by the picker itself;
-            // this baseline only governs optional rows (no retired `core` tag).
-            (item) => item.protected === true,
-          );
-          const customAnswer = await inquirer.prompt<{ items: string[] | typeof BACK }>([
-            {
-              type: "checkbox",
-              name: "items",
-              message: "Select content items:",
-              choices: wsGroupedChoices,
-              ...(previous ? { default: previous } : {}),
-              ...(wslTheme && { theme: wslTheme }),
-            },
-          ]);
-          if (isBack(customAnswer.items)) return BACK;
-          return (customAnswer.items ?? []) as string[];
-        },
-      },
-      {
-        id: "tools",
-        async run(_state, previous): Promise<StepResult<Tool[]>> {
-          const toolAnswers = await inquirer.prompt<{ tools: Tool[] | typeof BACK }>([
-            {
-              type: "checkbox",
-              name: "tools",
-              message: "Select tools to configure:",
-              choices: TOOL_PROMPT_CHOICES,
-              default: previous ?? wsToolDefaults,
-              ...(wslTheme && { theme: wslTheme }),
-            },
-          ]);
-          if (isBack(toolAnswers.tools)) return BACK;
-          const filtered = (toolAnswers.tools ?? []) as Tool[];
-          return filtered.length > 0 ? filtered : DEFAULT_TOOLS;
-        },
-      },
-      {
-        // F10.3-2 step (c): single collapsed MCP multi-select (workspace
-        // parity with the single-repo flow). Empty = no MCP.
-        id: "mcpServers",
-        async run(_state, previous): Promise<StepResult<string[]>> {
-          const platformMcp = PLATFORM_MCP_SERVER[platform];
-          const { mcp } = await inquirer.prompt<{ mcp: string[] | typeof BACK }>([
-            {
-              type: "checkbox",
-              name: "mcp",
-              message: "Select MCP servers to enable (leave empty for none — you can add later with `hatch3r mcp setup`):",
-              choices: MCP_CHOICES,
-              default: previous ?? [],
-              ...(wslTheme && { theme: wslTheme }),
-            },
-          ]);
-          if (isBack(mcp)) return BACK;
-          const servers = (mcp ?? []) as string[];
-          if (servers.length > 0 && !servers.includes(platformMcp)) {
-            servers.unshift(platformMcp);
-          }
-          return servers;
-        },
-      },
+          ),
+      }),
+      customItemsStep<WorkspaceState>({
+        index: wsFilterIndex,
+        // D10-13: floor + protected rows are locked-on by the picker itself;
+        // this baseline only governs optional rows (no retired `core` tag).
+        baselineChecked: () => (item) => item.protected === true,
+        previousAsDefault: true,
+        wslTheme,
+      }),
+      toolsStep<WorkspaceState>({
+        defaults: wsToolDefaults,
+        emptyFallback: DEFAULT_TOOLS,
+        wslTheme,
+      }),
+      // W3-mcp-optin: CLI-tools picker (workspace parity with the single-repo
+      // flow; the collapsed MCP multi-select moved behind `--mcp` /
+      // `hatch3r mcp setup`). Tier-2 suggestions close over the workspace
+      // platform derived from sub-repos above. Skipped when `--cli-tools` /
+      // `--no-cli-tools` resolved an explicit selection.
+      ...(wsExplicitCliTools === undefined
+        ? [
+            cliToolsStep<WorkspaceState>({
+              tier2Suggested: wsTier2Suggested,
+              wslTheme,
+            }),
+          ]
+        : []),
     ];
 
     const wsState = await runStepMachine<WorkspaceState>(wsSteps);
@@ -3013,25 +3074,31 @@ async function runWorkspaceInit(
     const customSelections = wsState.customItems;
     tools = wsState.tools;
 
+    // W3-mcp-optin: MCP no longer prompts on the interactive workspace path;
+    // `--mcp` (minus `--no-mcp`) resolves the platform default server set,
+    // mirroring the single-repo flow. `features.mcp` derives from the list.
+    mcpServers = opts.mcp === true && !opts.noMcp ? defaultMcpServers(platform) : [];
+    features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
+
     // C9-H32 (D10-SA10.5-F2): Surface per-editor MCP secret-loading
     // divergence at tool-selection time — before commit — matching the
     // single-repo flow. Workspace parity prevents user surprise.
-    const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
-    if (wsSecretNotes.length > 0) {
-      info(chalk.dim("MCP secret loading by tool:"));
-      for (const note of wsSecretNotes) {
-        info(chalk.dim(`  ${note}`));
+    // W3-mcp-optin: gated on an actual MCP opt-in (no MCP, no MCP secrets).
+    if (mcpServers.length > 0) {
+      const wsSecretNotes = tools.map((t) => TOOL_SECRET_NOTES[t]).filter(Boolean);
+      if (wsSecretNotes.length > 0) {
+        info(chalk.dim("MCP secret loading by tool:"));
+        for (const note of wsSecretNotes) {
+          info(chalk.dim(`  ${note}`));
+        }
       }
     }
 
     worktreeEnabled = opts.worktree ?? tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
-    // F10.3-2 step (c): `features.mcp` is derived from the collapsed MCP
-    // multi-select result (empty = off).
-    mcpServers = wsState.mcpServers ?? [];
-    features = { ...DEFAULT_FEATURES, mcp: mcpServers.length > 0 };
 
-    // F10.3-2: CLI tools default to tier-1 + triggered tier-2 (no prompt).
-    const wsSelectedCliTools = wsInferredCliTools;
+    // W3-mcp-optin: CLI tools come from the picker step unless a flag
+    // resolved them; empty selection disables CLI tools.
+    const wsSelectedCliTools: CliToolId[] = wsExplicitCliTools ?? wsState.cliTools ?? [];
     if (wsSelectedCliTools.length > 0) {
       const wsDetectSpinner = createSpinner(`Detecting ${wsSelectedCliTools.length} CLI tool(s)...`);
       wsDetectSpinner.start();
@@ -3064,7 +3131,7 @@ async function runWorkspaceInit(
   warnBoardPrerequisites(contentSelection);
 
   // Step 6: Create canonical .agents/ at workspace root (empty identity — workspace root is not a repo)
-  await checkExisting(rootDir, headless, contentSelection);
+  await checkExisting(rootDir, headless, contentSelection, opts.dryRun);
   await runInit({
     rootDir,
     platform,
@@ -3087,7 +3154,20 @@ async function runWorkspaceInit(
     maturity: wsMaturity,
     // D14-SA14.2-H1: forward the per-package opt-in to the workspace-root init.
     perPackage: opts.perPackage,
+    // W5-bigfour: forward `--dry-run` so the workspace-root init previews
+    // adapter output without writing.
+    dryRun: opts.dryRun,
   });
+
+  // W5-bigfour: `--dry-run` terminus for the workspace flow — the runInit
+  // call above already rendered the per-tool would-write preview; the
+  // remaining steps (workspace-manifest write, sub-repo sync) are writes, so
+  // skip them and stop. The sync-selection prompts are part of the skipped
+  // write phase and are skipped with it.
+  if (opts.dryRun === true) {
+    info(`Dry run: ${HATCH3R_DIR}/workspace.json write and sub-repo sync skipped.`);
+    return;
+  }
 
   // Step 7: Build repo entries and select which to sync
   let repoEntries: WorkspaceRepoEntry[];
@@ -3235,7 +3315,11 @@ async function runWorkspaceInit(
       worktreeEnabled,
       manifestPath: `${HATCH3R_DIR}/workspace.json`,
     };
-    console.log(JSON.stringify(payload));
+    // W5-bigfour (P1): single-document JSON contract — emit via the shared
+    // emitJson funnel (process.stdout.write + one trailing newline) so the
+    // payload shape and serialization match every other `--format json`
+    // command. Field names are unchanged.
+    emitJson(payload);
     return;
   }
 

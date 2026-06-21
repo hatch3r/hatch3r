@@ -19,8 +19,8 @@ import { resolve } from "node:path";
  * It value-asserts the two corpus-scanning gates programmatically rather than
  * shelling out to the full 8-gate `npm run validate` (which re-runs structural
  * gates already covered by their own dedicated tests and adds ~5s of subprocess
- * cost). Each gate is invoked through the project's local `tsx` binary with
- * `--json`, exactly as CI invokes it, so this test exercises the same code
+ * cost). Each gate is invoked as a node subprocess with the `tsx` loader
+ * (`node --import tsx <script> --json`), so this test exercises the same code
  * path as the gate it backstops:
  *   - validate-canonical: strict-mode read of every published canonical content
  *     type from the bundled content root; 0 warnings is a release precondition.
@@ -35,7 +35,6 @@ import { resolve } from "node:path";
  */
 
 const ROOT = resolve(import.meta.dirname, "..", "..", "..");
-const TSX = resolve(ROOT, "node_modules", ".bin", "tsx");
 
 interface ValidatorRun {
   /** Parsed `--json` payload from the validator. */
@@ -47,8 +46,8 @@ interface ValidatorRun {
 }
 
 /**
- * Run a validator script through the local tsx binary with `--json` and return
- * its parsed result, exit code, and stderr. Throws only if the validator emits
+ * Run a validator script via the tsx loader with `--json` and return its
+ * parsed result, exit code, and stderr. Throws only if the validator emits
  * no parseable JSON (a broken validator, distinct from a corpus failure).
  */
 function runValidator(scriptRelPath: string): ValidatorRun {
@@ -56,7 +55,10 @@ function runValidator(scriptRelPath: string): ValidatorRun {
   let stderr = "";
   let exitCode = 0;
   try {
-    stdout = execFileSync(TSX, [resolve(ROOT, scriptRelPath), "--json"], {
+    // Spawn node with the tsx loader directly (not the `.bin/tsx` POSIX shim,
+    // which is not executable on Windows) — same pattern as
+    // `src/__tests__/cli/topLevelErrorFunnel.test.ts`.
+    stdout = execFileSync(process.execPath, ["--import", "tsx", resolve(ROOT, scriptRelPath), "--json"], {
       cwd: ROOT,
       encoding: "utf-8",
       timeout: 60_000,

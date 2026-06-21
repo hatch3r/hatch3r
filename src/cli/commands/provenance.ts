@@ -24,8 +24,9 @@ import { join } from "node:path";
 import chalk from "chalk";
 import { HATCH3R_DIR, HatchError } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
-import { printBanner, printBox, label, error as logError, info } from "../shared/ui.js";
-import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { printBox, label, error as logError, info } from "../shared/ui.js";
+import { emitJson } from "../shared/output.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 
 interface ProvenanceEntry {
   path: string;
@@ -43,10 +44,10 @@ interface ProvenanceManifest {
   outputs?: ProvenanceEntry[];
 }
 
-export async function provenanceCommand(opts?: { format?: string }): Promise<void> {
-  const format: CliOutputFormat = parseFormatOption(opts?.format);
+export async function provenanceCommand(opts?: { format?: string; quiet?: boolean }): Promise<void> {
+  // W5: flag resolution (format/quiet + banner gating) via beginCommand.
+  const format = beginCommand(opts ?? {}, { banner: "compact" });
   const jsonMode = format === "json";
-  if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
   const provenancePath = join(rootDir, HATCH3R_DIR, "provenance.json");
@@ -89,14 +90,19 @@ export async function provenanceCommand(opts?: { format?: string }): Promise<voi
   }
 
   if (jsonMode) {
-    // Emit the manifest verbatim — CI consumers may want every field. Wrap
-    // with a `status` envelope so the same payload shape (status + ...) is
-    // consistent with the other JSON-mode commands.
-    emitJson({
-      status: (manifest.outputs?.length ?? 0) === 0 ? "empty" : "present",
-      manifest,
-      hatch3rVersion: HATCH3R_VERSION,
-      timestamp: new Date().toISOString(),
+    // Emit the manifest verbatim — CI consumers may want every field. The
+    // `status` key inside `json` overrides the style-derived default, so the
+    // legacy "empty"/"present" contract is preserved; finishCommand adds the
+    // `command` field plus version/timestamp provenance.
+    finishCommand(format, {
+      command: "provenance",
+      title: "Provenance",
+      lines: [],
+      style: "info",
+      json: {
+        status: (manifest.outputs?.length ?? 0) === 0 ? "empty" : "present",
+        manifest,
+      },
     });
     return;
   }
@@ -129,6 +135,15 @@ export async function provenanceCommand(opts?: { format?: string }): Promise<voi
   for (const [adapter, count] of [...perAdapter.entries()].sort((a, b) => a[0].localeCompare(b[0]))) {
     adapterLines.push(`${chalk.cyan("•")} ${adapter.padEnd(12)} ${count} output(s)`);
   }
-  printBox("Per-adapter rollup", adapterLines, "info");
-  info(`Run \`hatch3r explain --source <output-path>\` (or \`--source all\`) to see the per-file source list.`);
+  // W5: human ending routes through finishCommand (same box title; the
+  // follow-up hint moves into the standardized next-steps block).
+  finishCommand(format, {
+    command: "provenance",
+    title: "Per-adapter rollup",
+    lines: adapterLines,
+    style: "info",
+    nextSteps: [
+      "Run `hatch3r explain --source <output-path>` (or `--source all`) to see the per-file source list.",
+    ],
+  });
 }

@@ -9,7 +9,8 @@ import {
 } from "./status.js";
 import { runRegenerate } from "./update.js";
 import { scanManagedBlockTampering } from "./validate.js";
-import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { emitJson } from "../shared/output.js";
+import { beginCommand } from "../shared/commandOutput.js";
 import {
   assertManifest,
   MISSING_MANIFEST_MESSAGE,
@@ -17,9 +18,10 @@ import {
 } from "../shared/requireManifest.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
-  printBanner,
   createSpinner,
+  isQuiet,
   printBox,
+  printNextSteps,
   info,
   warn,
 } from "../shared/ui.js";
@@ -81,6 +83,11 @@ export interface VerifyOptions {
    * JSON mode already carries the full `entries` list.
    */
   verbose?: boolean;
+  /**
+   * W5: suppress stdout chrome (banner, spinner, PASS/FAIL box, next steps);
+   * stderr diagnostics still emit. Wired through `beginCommand`.
+   */
+  quiet?: boolean;
 }
 
 /** Render the drift counts as boxed summary lines (shared by report + fix paths). */
@@ -214,9 +221,12 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   // SA12.1-F-D12-M2 (D12, P1): JSON mode emits a single structured document
   // for CI consumers (PASS/FAIL + drift counts + per-entry list). Human mode
   // keeps the legacy decorated chrome (banner, spinner, printBox panels).
-  const format: CliOutputFormat = parseFormatOption(options.format);
+  // W5: beginCommand resolves format/quiet AND routes `--verbose` through
+  // `setVerbose`, so the `verbose()` diagnostics inside computeAdapterDrift
+  // now emit on `verify --verbose` (previously the flag was read directly and
+  // the channel never enabled).
+  const format = beginCommand(options, { banner: "compact" });
   const jsonMode = format === "json";
-  if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
@@ -296,6 +306,8 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     // while the marker STRUCTURE is broken — surface the structural scan even on
     // a drift-clean PASS so a hand-broken marker is not silently passed.
     printTamperWarnings(tamperWarnings);
+    // W5: PASS-path follow-up (self-gated under --quiet).
+    printNextSteps(["No drift. `hatch3r validate` covers structural checks."]);
     return;
   }
 
@@ -317,17 +329,27 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     info(`--fix could not clear all drift — run ${chalk.bold("hatch3r sync")} or inspect the failing tool(s).`);
   } else {
     info(recoveryHint);
+    // W5: FAIL-path follow-up. Skipped after --fix (re-suggesting --fix when
+    // the fix loop just failed would be circular; the info line above already
+    // points at sync). Self-gated under --quiet.
+    printNextSteps([
+      "Run `hatch3r verify --fix` to regenerate, or `hatch3r status --diff` to inspect first.",
+    ]);
   }
   // D11-SA11.2-F10 (D11, P1): scope disclosure — verify compares only the
   // hatch3r-managed block, never content outside HATCH3R:BEGIN/END. Mirrors the
   // note status emits so the two commands describe their scope identically.
-  console.log(
-    chalk.dim(
-      "  Note: verify covers hatch3r-managed blocks only (HATCH3R:BEGIN/END). " +
-      "Content outside the markers is yours — use `git diff` to inspect it.",
-    ),
-  );
-  console.log();
+  // W5: raw stdout writes are gated under --quiet (printBox/info self-gate;
+  // these two do not).
+  if (!isQuiet()) {
+    console.log(
+      chalk.dim(
+        "  Note: verify covers hatch3r-managed blocks only (HATCH3R:BEGIN/END). " +
+        "Content outside the markers is yours — use `git diff` to inspect it.",
+      ),
+    );
+    console.log();
+  }
   throw new HatchError(
     `Adapter output drift detected (${driftCount} file(s))`,
     undefined,

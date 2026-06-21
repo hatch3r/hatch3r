@@ -38,7 +38,10 @@ export function makeManifest(overrides: Partial<HatchManifest> = {}): HatchManif
     namespace: "test-org",
     project: "test-repo",
     tools: ["cursor"],
-    features: { ...DEFAULT_FEATURES },
+    // W3-mcp-optin: DEFAULT_FEATURES.mcp flipped to false (opt-in). This
+    // fixture carries `mcp.servers: ["github"]`, so pin mcp ON explicitly to
+    // keep exercising the mcpGate/server-picker paths the config tests cover.
+    features: { ...DEFAULT_FEATURES, mcp: true },
     mcp: { servers: ["github"] },
     board: {
       owner: "test-org",

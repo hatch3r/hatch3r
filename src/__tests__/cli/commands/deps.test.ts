@@ -137,4 +137,40 @@ describe("depsCommand", () => {
     expect(out).toContain("References (best-effort, prose-derived");
     expect(out).toContain("no skill / rule / MCP references found");
   });
+
+  // W5 JSON stdout purity (read-only representative): in json mode the ENTIRE
+  // stdout stream must be one parseable JSON document — no banner, box, hint,
+  // or raw console.log line may interleave with it.
+  it("emits exactly one parseable JSON document on stdout under --format json (W5 purity)", async () => {
+    const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+    try {
+      const { depsCommand } = await import("../../../cli/commands/deps.js");
+      logSpy.mockClear();
+      await depsCommand("hatch3r-quick-change", { format: "json" });
+
+      // The entire captured stdout parses as ONE document (purity).
+      const raw = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+      const payload = JSON.parse(raw) as Record<string, unknown>;
+
+      // Envelope keys (finishCommand contract) + the deps payload shape.
+      expect(payload.status).toBe("ok");
+      expect(payload.command).toBe("deps");
+      // Command artifacts resolve under the index's `cmd-` prefixed id (the
+      // same 4-form lookup the human view uses).
+      expect(payload.id).toBe("cmd-hatch3r-quick-change");
+      expect(payload.declared).toBeDefined();
+      expect(
+        Array.isArray((payload.declared as Record<string, unknown>).downstream),
+      ).toBe(true);
+      expect(payload.prose).toBeDefined();
+      expect(payload.hatch3rVersion).toBeTruthy();
+      expect(payload.timestamp).toBeTruthy();
+
+      // No raw console.log write ran in json mode (console.log would have
+      // interleaved with the single document on a real terminal).
+      expect(logSpy).not.toHaveBeenCalled();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
 });

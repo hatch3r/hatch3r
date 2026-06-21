@@ -34,10 +34,10 @@ For lighter reconfiguration without re-initializing, use:
 
 ### Invalid tool(s)
 
-Use only valid tools: `cursor`, `copilot`, `claude`. (The adapter set was hard-cut to these 3 in 1.9.0.)
+Use only valid tools: `claude`, `cursor`, `copilot`. (The adapter set was hard-cut to these 3 in 1.9.0.)
 
 ```bash
-npx hatch3r init --tools cursor,claude
+npx hatch3r init --tools claude,cursor
 ```
 
 ### Not in a git repository

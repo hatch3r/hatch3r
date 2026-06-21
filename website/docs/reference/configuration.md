@@ -52,7 +52,7 @@ To change your configuration after init, run `npx hatch3r config`. This interact
 | `project` | `string` | Project name (Azure DevOps project or GitLab group) |
 | `repo` | `string` | Repository name |
 | `owner` | `string` | *(deprecated)* GitHub organization or user -- use `namespace` instead |
-| `tools` | `string[]` | Enabled coding tools: `cursor`, `copilot`, `claude` (the adapter set was hard-cut to these 3 in 1.9.0) |
+| `tools` | `string[]` | Enabled coding tools: `claude`, `cursor`, `copilot` (the adapter set was hard-cut to these 3 in 1.9.0) |
 | `features` | `object` | Feature flags for content types |
 | `mcp` | `object` | MCP server configuration |
 | `board` | `object` | GitHub Projects V2 board configuration |

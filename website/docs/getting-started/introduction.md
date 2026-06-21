@@ -12,7 +12,7 @@ hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic ag
 
 ## What is hatch3r?
 
-hatch3r maintains a **single canonical source** of agent configuration (bundled inside the npm package) and generates **native configuration** for 3 AI coding platforms (Cursor, Claude Code, GitHub Copilot). You define your agent setup once and hatch3r adapts it to whatever supported tool you use.
+hatch3r maintains a **single canonical source** of agent configuration (bundled inside the npm package) and generates **native configuration** for 3 AI coding platforms (Claude Code, Cursor, GitHub Copilot). You define your agent setup once and hatch3r adapts it to whatever supported tool you use.
 
 ```
 <your repo>/
@@ -36,7 +36,7 @@ Canonical content (agents, skills, rules, commands, hooks) lives inside the bund
 
 - **One command setup** -- `npx hatch3r init` detects your repo, asks about your project context, lets you choose a content profile, and generates everything
 - **Selective init** -- choose what you need: Minimal (core only), Standard (recommended), Full, or Custom content profiles with greenfield/brownfield and solo/team filtering
-- **Tool-agnostic** -- single source of truth with adapters for 3 platforms (Cursor, Claude Code, GitHub Copilot)
+- **Tool-agnostic** -- single source of truth with adapters for 3 platforms (Claude Code, Cursor, GitHub Copilot)
 - **Two-axis pillar framework (2.0.0)** -- 8 governance pillars (P1-P8) plus 9 content-quality pillars (CQ1-CQ9), each owned by a specialist agent with measurable thresholds. See [Quality-Vector Specialists](../guides/quality-vector-specialists).
 - **Board management** -- full GitHub Projects V2 lifecycle from `todo.md` to merged PRs
 - **Sub-agentic delegation** -- implementer agents, dependency-aware orchestration, collision detection

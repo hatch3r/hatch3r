@@ -14,10 +14,10 @@ Requires Node.js 22+.
 
 ```bash
 npx hatch3r init --default  # recommended: zero-prompt setup with the standard profile
-npx hatch3r init            # interactive: customize tools, profile, and MCP (6 prompts for GitHub greenfield; +1 for Azure DevOps, +1 for `custom` preset, +1 for workspace mode)
+npx hatch3r init            # interactive: customize profile, tools, and CLI tools (6 prompts for GitHub greenfield; +1 for Azure DevOps, +1 for `custom` preset, +1 for workspace mode)
 ```
 
-`--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, asks about your project context (greenfield/brownfield, solo/team), lets you choose a content profile (minimal/standard/full/custom), and generates everything. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
+`--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, infers your project context (greenfield/brownfield, solo/team), then walks platform → repo identity → content profile (minimal/standard/full/custom) → tools → CLI-tools picker, and generates everything. MCP is not prompted — opt in with `--mcp` or `npx hatch3r mcp setup` later. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
 
 **Already using Cursor?** Carry your existing rules across with `npx hatch3r init --import cursor` — they land under `.hatch3r/overrides/rules/` (`.md` + `.mdc`) with per-file conflict reporting. See [Migrating from another tool](https://docs.hatch3r.com/docs/getting-started/quick-start#migrating-from-another-tool).
 
@@ -30,7 +30,7 @@ npx hatch3r init            # interactive: customize tools, profile, and MCP (6 
 | **Rules** | 67 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
 | **Commands** | 30 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, bug-pipeline, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
-| **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- gated behind a Yes/No prompt during `init` (default No since 1.7.5; pass `--mcp` to restore prior `--yes` behavior) |
+| **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- pure opt-in since 2.0.0: `init --mcp` or `npx hatch3r mcp setup` (interactive init does not prompt for MCP; `features.mcp` defaults to false) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
 
 ## Supported Tools (3 Adapters)
@@ -67,7 +67,7 @@ Canonical content (agents, skills, rules, commands, hooks) lives inside the bund
 
 hatch3r provides a full project lifecycle, from setup to release:
 
-1. **Initialize** -- `npx hatch3r init` detects your repo and platform, asks about context and profile, generates agents/skills/rules/commands/MCP. For headless CI, pass `--yes` (add `--mcp` to keep MCP servers).
+1. **Initialize** -- `npx hatch3r init` detects your repo and platform, asks about profile, tools, and CLI tools, generates agents/skills/rules/commands. For headless CI, pass `--yes` (add `--mcp` to also configure MCP servers).
 2. **Set up the board** -- `hatch3r-board-init` creates or connects a Projects V2 board with status fields, label taxonomy, and config writeback.
 3. **Define work** -- Create a `todo.md` at the project root (one item per line).
 4. **Fill the board** -- `hatch3r-board-fill` parses `todo.md`, classifies items, groups into epics, builds a dependency DAG, and marks issues `status:ready`.
@@ -100,6 +100,8 @@ npx hatch3r add <pack>    # Install a community pack (coming soon)
 
 `hatch3r cli-tools` and `hatch3r mcp` are side-door entry points for users who skipped a section during init. `cli-tools` defaults to the picker (`list`, `install`, `detect` are the other subcommands); `mcp` requires a subcommand (`setup`, `list`, `remove <id>`, `env-check`).
 
+Every non-stub command accepts `--format <human|json>` and `--quiet`; mutating commands add `--dry-run`. `--format json` emits exactly one JSON document on stdout and is an exit-2 usage error on a prompting invocation.
+
 ### Agent Commands
 
 Invoked inside your coding tool (e.g., as Cursor commands). All are prefixed `hatch3r-`.
@@ -118,12 +120,12 @@ Since 1.7.5, hatch3r ships a first-class CLI-tools surface as the token-efficien
 
 ## MCP Configuration
 
-Since 1.7.5, MCP is **opt-in**. `npx hatch3r init` gates MCP behind a Yes/No prompt (default No) after the features picker. Declining skips MCP entirely -- no `.env.mcp`, no `mcp.json`, no servers in the manifest. When you accept, `hatch3r init` writes a gitignored `.env.mcp` with the required environment variables and MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`).
+Since 1.7.5, MCP is **opt-in**; since 2.0.0 interactive `npx hatch3r init` no longer offers an MCP prompt. Without an opt-in, init skips MCP entirely -- no `.env.mcp`, no `mcp.json`, no servers in the manifest, and `features.mcp` stays false. When you opt in (`init --mcp` on any init path, or `npx hatch3r mcp setup` afterwards), hatch3r writes a gitignored `.env.mcp` with the required environment variables and MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`).
 
 - **VS Code / Copilot:** secrets pass via the `env` object in `.vscode/mcp.json`.
 - **Cursor / Claude Code / others:** source the file first: `set -a && source .env.mcp && set +a && cursor .`
 
-Manage MCP at any time via `npx hatch3r mcp setup | list | remove <id> | env-check`. **CI note:** as of 1.7.5, `npx hatch3r init --yes` no longer configures MCP by default -- add `--mcp` to restore prior behavior. See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for per-server details and PAT scope guidance.
+Manage MCP at any time via `npx hatch3r mcp setup | list | remove <id> | env-check`. **CI note:** interactive init no longer offers MCP, and `npx hatch3r init --yes` does not configure it by default -- opt in via `npx hatch3r mcp setup` or `init --mcp`. See [MCP Setup](https://docs.hatch3r.com/docs/guides/mcp-setup) for per-server details and PAT scope guidance.
 
 ## Content Profiles
 
