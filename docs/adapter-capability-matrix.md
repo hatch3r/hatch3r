@@ -2,7 +2,7 @@
 
 > **Last verified**: 2026-06-06 | **hatch3r version**: 2.0.0
 
-Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Cursor, GitHub Copilot, and Claude Code. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut — see [CHANGELOG.md](../CHANGELOG.md) §[1.9.0]. This document tracks what each remaining adapter emits, what each platform supports natively, and where gaps remain.
+Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut — see [CHANGELOG.md](../CHANGELOG.md) §[1.9.0]. This document tracks what each remaining adapter emits, what each platform supports natively, and where gaps remain.
 
 ## Legend
 

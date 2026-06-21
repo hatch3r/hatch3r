@@ -192,12 +192,13 @@ jobs:
   build:
     runs-on: ${{ matrix.os }}
     # Windows runners are I/O-slow and variable: the full suite (npm ci + build
-    # + ~4500 tests, no coverage) finishes in ~10 min on a fast windows-latest
-    # box, but slow-runner variance pushed node 22/24 past a flat 15-min ceiling
-    # (cancelled at 15m04s/15m11s) while node 26 finished in 9m43s on the SAME
-    # commit with every test passing. Give Windows headroom; keep the tight
-    # 15-min hang-guard for the fast OSes.
-    timeout-minutes: ${{ matrix.os == 'windows-latest' && 25 || 15 }}
+    # + ~5866 tests, no coverage) finishes well under the limit on a fast
+    # windows-latest box, but slow-runner variance is wide. The suite grew
+    # ~4500 -> 5866 and slow node 22/24/26 runs overran the prior 25-min ceiling
+    # (all three cancelled at ~25m on release/2.0.0-final) while a fast node 26
+    # run finished in <10 min on the SAME commit with every test passing. Give
+    # Windows 35-min headroom; keep the tight 15-min hang-guard for the fast OSes.
+    timeout-minutes: ${{ matrix.os == 'windows-latest' && 35 || 15 }}
     strategy:
       fail-fast: false
       matrix:

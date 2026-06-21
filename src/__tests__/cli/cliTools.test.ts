@@ -42,6 +42,17 @@ vi.mock("../../cli/shared/ui.js", () => ({
     fail: vi.fn(),
     stop: vi.fn(),
   })),
+  // W5: commandOutput.ts (beginCommand/finishCommand) routes through these ui
+  // exports, so the mock must cover the full surface it touches.
+  printNextSteps: vi.fn(),
+  printTimingSummary: vi.fn(),
+  resetUiState: vi.fn(),
+  setJson: vi.fn(),
+  setQuiet: vi.fn(),
+  setVerbose: vi.fn(),
+  isQuiet: vi.fn().mockReturnValue(false),
+  isJson: vi.fn().mockReturnValue(false),
+  isVerbose: vi.fn().mockReturnValue(false),
   info: vi.fn(),
   warn: vi.fn(),
   error: vi.fn(),
@@ -401,6 +412,41 @@ describe("cliToolsCommand interactive picker flow (C9-H8)", () => {
     });
     // Final disclaimer probe runs but disclaimer treats empty missing as no-op.
     expect(printMissingCliToolsDisclaimer).toHaveBeenCalledWith([], 1);
+  });
+});
+
+// W5-bigfour --dry-run: behavioral no-write contract for the bare picker
+// command (mirrors the init --dry-run block in init.test.ts).
+describe("cliToolsCommand --dry-run no-write contract (W5)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(writeManifest).mockResolvedValue(undefined);
+  });
+
+  it("--dry-run shows the would-be selection and writes NOTHING (no manifest write, no detection, no installer)", async () => {
+    const manifest = makeManifest([]);
+    vi.mocked(readManifest).mockResolvedValue(manifest);
+    vi.mocked(pickCliTools).mockResolvedValue(["ripgrep", "fd"] as never);
+
+    await cliToolsCommand({ dryRun: true });
+
+    // No-write contract: no manifest persist, and the dry-run terminus
+    // precedes the detection probe + installer offer + disclaimer entirely.
+    expect(writeManifest).not.toHaveBeenCalled();
+    expect(findMissingCliTools).not.toHaveBeenCalled();
+    expect(offerInstaller).not.toHaveBeenCalled();
+    expect(printMissingCliToolsDisclaimer).not.toHaveBeenCalled();
+    // The in-memory manifest keeps its pre-picker cliTools shape.
+    expect(manifest.cliTools).toEqual({ enabled: false, selected: [] });
+
+    // The dry-run outcome box is emitted with the would-be selection.
+    const call = vi.mocked(printBox).mock.calls.find((c) => c[0] === "CLI tools (dry-run)");
+    expect(call).toBeDefined();
+    expect(call?.[2]).toBe("info");
+    const lines = (call?.[1] as string[]).join("\n");
+    expect(lines).toContain("ripgrep");
+    expect(lines).toContain("fd");
+    expect(lines).toContain("not written");
   });
 });
 

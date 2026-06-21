@@ -388,9 +388,9 @@ async function detectExistingAgents(rootDir: string): Promise<boolean> {
 }
 
 const TOOL_INDICATORS: { tool: Tool; paths: string[] }[] = [
+  { tool: "claude", paths: ["CLAUDE.md", ".claude"] },
   { tool: "cursor", paths: [".cursor"] },
   { tool: "copilot", paths: [join(".github", "copilot-instructions.md")] },
-  { tool: "claude", paths: ["CLAUDE.md", ".claude"] },
 ];
 
 /** Detect which AI coding tools already have configuration in the repo. */

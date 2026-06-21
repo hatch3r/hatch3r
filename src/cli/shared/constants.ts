@@ -9,9 +9,9 @@ import {
 import { verbose } from "./ui.js";
 
 export const TOOL_DISPLAY_NAMES: Record<Tool, string> = {
+  claude: "Claude Code",
   cursor: "Cursor",
   copilot: "GitHub Copilot",
-  claude: "Claude Code",
 };
 
 export const TOOL_PROMPT_CHOICES: { name: string; value: Tool }[] = TOOLS.map((t) => ({
@@ -52,9 +52,9 @@ export const PLATFORM_MCP_SERVER: Record<Platform, string> = {
  * Tools that use slash commands get "/", others get a description of how to invoke.
  */
 export const TOOL_COMMAND_SYNTAX: Record<Tool, string> = {
+  claude: "/",
   cursor: "/",
   copilot: "/",
-  claude: "/",
 };
 
 /**
@@ -147,9 +147,9 @@ export function formatCommandHint(tools: Tool[], commandName: string): string {
  * on first use rather than reading from `.env.mcp`.
  */
 export const TOOL_SECRET_NOTES: Partial<Record<Tool, string>> = {
+  claude: "Claude Code: reads .env.mcp via shell sourcing (run `set -a && source .env.mcp && set +a` before starting; macOS GUI launchers do not inherit shell env)",
   cursor: "Cursor: auto-loads .env.mcp from project root (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var)",
   copilot: "VS Code / Copilot: STDIO server env auto-loads from .env.mcp (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var); MCP header secrets are prompted via VS Code ${input:NAME} variables on first use",
-  claude: "Claude Code: reads .env.mcp via shell sourcing (run `set -a && source .env.mcp && set +a` before starting; macOS GUI launchers do not inherit shell env)",
 };
 
 export function sanitizeInput(value: string): string {

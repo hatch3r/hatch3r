@@ -20,12 +20,12 @@ flowchart LR
     A["npx hatch3r init"]:::accent --> B["Detect repo\n(git remote)"]
     B --> B2["Project context\n(greenfield/brownfield,\nsolo/team)"]
     B2 --> B3["Content profile\n(minimal/standard/full/custom)"]
-    B3 --> C["Select tools\n(Cursor, Copilot, Claude Code)"]
-    C --> D["Select MCP servers\n(GitHub, Brave, ...)"]
+    B3 --> C["Select tools\n(Claude Code, Cursor, Copilot)"]
+    C --> D["CLI-tools picker\n(tier-grouped; MCP only\nvia --mcp / mcp setup)"]
     D --> E["Resolve selection\n(bundled content\n+ .hatch3r/overrides)"]
     E --> F["Run adapters"]:::accent
     F --> G[".cursor/\n.github/\nCLAUDE.md"]:::output
-    F --> H[".env.mcp\n(secrets template)"]:::output
+    F --> H[".env.mcp\n(secrets template,\nMCP opt-in only)"]:::output
 ```
 
 ## Canonical Content Model

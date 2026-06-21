@@ -17,6 +17,7 @@ import { ALL_TAGS, facetOf } from "../../content/tags.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies, resolveUserContentRoot } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
 import { findPackageRoot } from "../shared/paths.js";
+import { emitJson } from "../shared/output.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { validateLearningsDirectory } from "../../content/learningsValidation.js";
 import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
@@ -30,10 +31,12 @@ import {
   printBanner,
   createSpinner,
   printBox,
+  printNextSteps,
   printTimingSummary,
   error as logError,
   warn,
   info,
+  setQuiet,
   setVerbose,
   verbose,
 } from "../shared/ui.js";
@@ -2557,6 +2560,13 @@ export async function scanManagedBlockTampering(rootDir: string): Promise<string
  */
 export type ValidateOutputFormat = "human" | "json";
 
+/**
+ * JSON-mode payload schema. Serialization goes through the shared
+ * `emitJson` (`src/cli/shared/output.ts`) — one JSON document plus a single
+ * trailing newline; do NOT interleave other stdout writes in json mode. Call
+ * sites pin this shape via `satisfies ValidateJsonOutput` since the shared
+ * emitter accepts `unknown`.
+ */
 interface ValidateJsonOutput {
   errors: string[];
   warnings: string[];
@@ -2568,12 +2578,6 @@ interface ValidateJsonOutput {
     hatch3rVersion: string;
     timestamp: string;
   };
-}
-
-function emitJson(output: ValidateJsonOutput): void {
-  // Write a single JSON document followed by a newline — one-shot payload for
-  // CI parsers. Do NOT interleave other stdout writes in json mode.
-  process.stdout.write(JSON.stringify(output) + "\n");
 }
 
 /**
@@ -2707,6 +2711,7 @@ export async function validateCommand(opts?: {
   verbose?: boolean;
   format?: ValidateOutputFormat;
   strictContent?: boolean;
+  quiet?: boolean;
 }): Promise<void> {
   const format: ValidateOutputFormat = opts?.format === "json" ? "json" : "human";
   const jsonMode = format === "json";
@@ -2720,6 +2725,11 @@ export async function validateCommand(opts?: {
   // still reach the final JSON object via the ValidationResult aggregator.
   setVerbose(jsonMode ? false : !!opts?.verbose);
   setVerboseWarnEnabled(jsonMode ? false : !!opts?.verbose);
+  // W5: --quiet suppresses stdout chrome (banner, spinner, boxes, next steps,
+  // timing) via the ui module's self-gating; stderr diagnostics still emit.
+  // Explicit boolean (mirrors the setVerbose line above) so a leaked quiet
+  // flag from a prior in-process command is cleared on the no-flag path.
+  setQuiet(jsonMode || !!opts?.quiet);
   if (!jsonMode) printBanner(true);
 
   const rootDir = process.cwd();
@@ -2749,7 +2759,7 @@ export async function validateCommand(opts?: {
             hatch3rVersion: HATCH3R_VERSION,
             timestamp,
           },
-        });
+        } satisfies ValidateJsonOutput);
         // D1-SA1.4-F12 (Cycle 10 Wave 4, P5): in JSON mode the single payload
         // above IS the contract (validate.ts:1467 "Do NOT interleave other
         // stdout writes"). Throwing here would propagate to the top-level CLI
@@ -2779,7 +2789,7 @@ export async function validateCommand(opts?: {
           hatch3rVersion: HATCH3R_VERSION,
           timestamp,
         },
-      });
+      } satisfies ValidateJsonOutput);
     } else {
       spinner?.succeed(`Documentation counts verified (${checked} checks, 0 mismatches)`);
     }
@@ -2815,7 +2825,7 @@ export async function validateCommand(opts?: {
           hatch3rVersion: HATCH3R_VERSION,
           timestamp,
         },
-      });
+      } satisfies ValidateJsonOutput);
       // D1-SA1.4-F12: exit cleanly after the single JSON payload rather than
       // throwing into the stderr-printing top-level handler (CONFIG_ERROR → 65).
       process.exit(exitCodeForErrorCode("CONFIG_ERROR"));
@@ -3057,7 +3067,7 @@ export async function validateCommand(opts?: {
         hatch3rVersion: HATCH3R_VERSION,
         timestamp,
       },
-    });
+    } satisfies ValidateJsonOutput);
     if (hasErrors) {
       // D1-SA1.4-F12: the JSON `errors` array is the machine-readable contract;
       // exit with the sysexits code instead of throwing into the top-level
@@ -3070,6 +3080,10 @@ export async function validateCommand(opts?: {
 
   if (result.errors.length === 0 && result.warnings.length === 0) {
     printBox("Validation", [chalk.green("All checks passed")], "success");
+    // W5: pass-path follow-up (self-gated under --quiet).
+    printNextSteps([
+      "Run `hatch3r sync` if you changed `.hatch3r/` overrides since the last generation.",
+    ]);
     if (hasCustomizations) {
       printCustomizationHint();
     }
@@ -3114,6 +3128,8 @@ export async function validateCommand(opts?: {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation failed", summaryLines, "error");
+    // W5: fail-path follow-up (self-gated under --quiet).
+    printNextSteps(["Re-run with `--verbose` to see each failing check."]);
     throw new HatchError(
       "Validation failed",
       undefined,
@@ -3126,6 +3142,10 @@ export async function validateCommand(opts?: {
       `${chalk.yellow("⚠")} ${result.warnings.length} warning(s)`,
     ];
     printBox("Validation passed", summaryLines, "success");
+    // W5: pass-path follow-up (self-gated under --quiet).
+    printNextSteps([
+      "Run `hatch3r sync` if you changed `.hatch3r/` overrides since the last generation.",
+    ]);
     // D10-SA10.2-F6: elapsed-time read-out on the warnings-only pass path.
     // Omitted on the error path above (the throw exits before any tail).
     printTimingSummary(validateStartMs);

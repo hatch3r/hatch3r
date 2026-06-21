@@ -603,11 +603,37 @@ describe("explainCommand", () => {
       expect(payload.hatch3rVersion).toBeTruthy();
     });
 
-    it("rejects --format json paired with a non-source mode (usage error, exit 2)", async () => {
+    // W5: `--format json` is honored by EVERY explain mode (the former
+    // source-only restriction and its usage error are gone). Each non-source
+    // mode emits one machine-readable envelope.
+    it("`--customizations --format json` emits a single JSON envelope (W5 widening)", async () => {
       const { explainCommand } = await import("../../cli/commands/explain.js");
-      const err = await explainCommand({ customizations: true, format: "json" }).catch((e) => e);
-      expect(err).toBeInstanceOf(HatchError);
-      expect((err as HatchError).exitCode).toBe(2);
+      await explainCommand({ customizations: true, format: "json" });
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.command).toBe("explain");
+      expect(payload.mode).toBe("customizations");
+      expect(payload.counts).toBeDefined();
+      expect(Array.isArray(payload.entries)).toBe(true);
+      expect(payload.hatch3rVersion).toBeTruthy();
+    });
+
+    it("`--cost --format json` emits tier rows + totals as a single JSON envelope (W5 widening)", async () => {
+      await writeCommandFile(tempDir, "hatch3r-json-cost.md", "Body.", {
+        id: "hatch3r-json-cost",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        triage_tiers: [1, 2],
+      });
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-json-cost", format: "json" });
+      const payload = jsonPayload() as Record<string, unknown>;
+      expect(payload.command).toBe("explain");
+      expect(payload.mode).toBe("cost");
+      expect(payload.commandId).toBe("hatch3r-json-cost");
+      const rows = payload.tierRows as Array<Record<string, unknown>>;
+      expect(rows).toHaveLength(2);
+      expect(rows[0].tier).toBe(1);
+      expect(payload.totals).toBeDefined();
     });
   });
 

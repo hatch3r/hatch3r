@@ -262,7 +262,9 @@ describe("init command", () => {
     // spurious unsupported-feature warning on the happy path.
     expect(manifest.features.prompts).toBe(false);
     expect(manifest.features.commands).toBe(true);
-    expect(manifest.features.mcp).toBe(true);
+    // W3-mcp-optin: MCP defaults OFF — pure opt-in via `--mcp` on any init
+    // path or the `hatch3r mcp setup` side-door.
+    expect(manifest.features.mcp).toBe(false);
     expect(manifest.features.githubAgents).toBe(true);
   });
 
@@ -277,6 +279,8 @@ describe("init command", () => {
 
     expect(manifest.mcp).toBeDefined();
     expect(manifest.mcp.servers.length).toBeGreaterThan(0);
+    // W3-mcp-optin: `features.mcp` derives from the resolved server list.
+    expect(manifest.features.mcp).toBe(true);
   });
 
   it("--yes default produces empty MCP servers (Wave 3 plan §4.3)", async () => {
@@ -288,6 +292,8 @@ describe("init command", () => {
     // Plan §4.3 step 8 / §2 decision row: --yes now defaults MCP off. The
     // server list is empty unless --mcp is explicitly passed.
     expect(manifest.mcp.servers).toEqual([]);
+    // W3-mcp-optin: the derived feature flag matches the empty list.
+    expect(manifest.features.mcp).toBe(false);
   });
 
   it("should create .env.mcp with required env vars for selected servers when --mcp is passed", async () => {
@@ -836,7 +842,7 @@ describe("init resumability checkpoints (F16.1-C1)", () => {
 
 // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤5 prompts.
 describe("init interactive ≤5-prompt ceiling (F10.3-2)", () => {
-  let initCommand: () => Promise<void>;
+  let initCommand: (opts?: { mcp?: boolean }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -866,47 +872,56 @@ describe("init interactive ≤5-prompt ceiling (F10.3-2)", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("the common-path interactive flow consumes exactly 5 prompts (platform, identity, preset, tools, mcp)", async () => {
+  it("the common-path interactive flow consumes exactly 5 prompts (platform, identity, preset, tools, cliTools)", async () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: the 5th prompt is the CLI-tools picker (pickCliTools
+    // prompts under `name: "tools"`; the queue is order-based, so this
+    // answer lands on the cliTools prompt, not the editor-tools prompt).
+    inq.mockResolvedValueOnce({ tools: ["ripgrep", "jq"] });
 
     await initCommand();
 
     // Exactly five inquirer.prompt calls — the ≤5-prompt ceiling. (No
-    // defaultBranch / projectType / teamSize / maturity / wantMcp / cliTools
-    // prompts; those resolve to smart defaults.)
+    // defaultBranch / projectType / teamSize / maturity / mcp prompts;
+    // those resolve to smart defaults, with MCP pure opt-in via --mcp.)
     expect(inq.mock.calls.length).toBe(5);
 
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
-    // Empty MCP selection → MCP feature off (the `(none)` path).
+    // W3-mcp-optin: no MCP prompt and no --mcp flag → MCP off, no servers.
     expect(manifest.features.mcp).toBe(false);
-    // Dropped prompts resolved: defaultBranch from git fallback ("main"),
-    // cliTools defaulted to the tier-1 + triggered set (non-empty).
+    expect(manifest.mcp.servers).toEqual([]);
+    // Dropped prompts resolved: defaultBranch from git fallback ("main");
+    // the cliTools pick round-trips into the manifest.
     expect(manifest.board?.defaultBranch).toBe("main");
-    expect(Array.isArray(manifest.cliTools?.selected)).toBe(true);
+    expect(manifest.cliTools?.selected).toEqual(["ripgrep", "jq"]);
+    expect(manifest.cliTools?.enabled).toBe(true);
   });
 
-  it("a non-empty MCP multi-select enables the MCP feature (collapsed picker)", async () => {
+  it("the --mcp flag enables MCP on the interactive path (no MCP prompt fires)", async () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // User picks a server in the collapsed MCP step.
-    inq.mockResolvedValueOnce({ mcp: ["playwright"] });
+    // 5th prompt: cliTools picker (empty selection → CLI tools disabled).
+    inq.mockResolvedValueOnce({ tools: [] });
 
-    await initCommand();
+    await initCommand({ mcp: true });
 
+    // Still 5 prompts — `--mcp` resolves the server set without prompting.
     expect(inq.mock.calls.length).toBe(5);
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
     expect(manifest.features.mcp).toBe(true);
-    // The platform server is auto-included alongside an explicit pick.
-    expect(manifest.mcp.servers).toContain("playwright");
+    // Platform default set: platform server first, then DEFAULT_MCP tail.
     expect(manifest.mcp.servers).toContain("github");
+    expect(manifest.mcp.servers).toContain("playwright");
+    expect(manifest.mcp.servers).toContain("context7");
+    // Empty cliTools pick → disabled config.
+    expect(manifest.cliTools).toEqual({ enabled: false, selected: [] });
   });
 });
 
@@ -1397,10 +1412,8 @@ describe("init worktree generation (claude tool present)", () => {
 
   // Slice D: worktree is auto-enabled when a worktree-capable tool is
   // selected; the interactive confirm prompt was removed. --worktree /
-  // --no-worktree still override. C9-H28 (D10-SA10.3-F1) prompt order:
-  //   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
-  //   preset -> tools -> wantMcp -> [mcp picker] ->
-  //   cliTools picker -> [create?]
+  // --no-worktree still override. W3-mcp-optin prompt order:
+  //   platform -> owner/repo -> preset -> tools -> cliTools picker
   function queueInteractiveWithWorktree(opts: { tools?: string[] } = {}): void {
     const inq = vi.mocked(inquirer.prompt);
     const tools = opts.tools ?? ["claude"];
@@ -1408,9 +1421,10 @@ describe("init worktree generation (claude tool present)", () => {
     inq.mockResolvedValueOnce({ owner: "test-owner", repo: "test-repo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools });
-    // Slice B: feature checkbox replaced by single wantMcp confirm.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (pickCliTools answers
+    // under `name: "tools"`; order-based queue). Empty = CLI tools disabled,
+    // which also skips the detection + installer follow-ups.
+    inq.mockResolvedValueOnce({ tools: [] });
   }
 
   it("interactive init auto-enables worktree when a worktree-capable tool is selected", async () => {
@@ -1569,18 +1583,16 @@ describe("init interactive single-repo flow", () => {
 
   /**
    * Queue prompt responses for the interactive single-repo flow.
-   * C9-H28 (D10-SA10.3-F1) prompt order:
-   *   platform -> owner/repo -> defaultBranch -> projectType -> teamSize ->
-   *   preset -> [custom items] -> tools -> features ->
-   *   [mcp gate] -> [mcp servers] -> cliTools picker -> [create?]
+   * W3-mcp-optin prompt order:
+   *   platform -> owner/repo -> preset -> [custom items] -> tools ->
+   *   cliTools picker -> [existing-install confirm]
    * Slice D removed the worktree confirm prompt; worktree is auto-enabled
-   * when a worktree-capable tool (claude/cursor/copilot) is selected. The
-   * cliTools picker always runs but an empty selection short-circuits the
-   * detection + installer follow-ups so tests stay deterministic. The MCP
-   * gate fires only when `features.mcp` is true; the server picker fires only
-   * when the user proceeds through the gate (mcpServers !== undefined here).
-   * C9-H28 moved features + MCP ahead of CLI tools so users complete the
-   * high-impact decisions first.
+   * when a worktree-capable tool (claude/cursor/copilot) is selected.
+   * W3-mcp-optin removed the MCP prompt entirely — MCP is enabled only via
+   * the `--mcp` flag (any init path) or `hatch3r mcp setup`. The cliTools
+   * picker (pickCliTools, `name: "tools"`) is the 5th prompt; an empty
+   * selection disables CLI tools and short-circuits the detection +
+   * installer follow-ups so tests stay deterministic.
    */
   function setupGithubInteractive(opts: {
     preset?: "minimal" | "standard" | "full" | "custom";
@@ -1588,8 +1600,6 @@ describe("init interactive single-repo flow", () => {
     teamSize?: "solo" | "team";
     maturity?: "solo" | "team" | "scaleup" | "enterprise";
     tools?: string[];
-    features?: string[];
-    mcpServers?: string[];
     customItems?: string[];
     cliTools?: string[];
   } = {}): void {
@@ -1602,14 +1612,9 @@ describe("init interactive single-repo flow", () => {
       inq.mockResolvedValueOnce({ items: opts.customItems ?? [] });
     }
     inq.mockResolvedValueOnce({ tools });
-    // Slice B: feature checkbox replaced by single wantMcp confirm — the
-    // confirm doubles as the MCP gate. Callers who want MCP supply
-    // `mcpServers` (or set `features: ["mcp", ...]` for back-compat);
-    // anything else means MCP off.
-    const featuresList = opts.features ?? (opts.mcpServers !== undefined ? ["mcp"] : []);
-    const wantMcp = featuresList.includes("mcp");
-    // F10.3-2: collapsed MCP multi-select (empty = none).
-    inq.mockResolvedValueOnce({ mcp: wantMcp ? (opts.mcpServers ?? ["github", "playwright", "context7"]) : [] });
+    // W3-mcp-optin: cliTools picker answer (order-based queue; same
+    // `name: "tools"` key as the editor-tools prompt above).
+    inq.mockResolvedValueOnce({ tools: opts.cliTools ?? [] });
   }
 
   it("runs the GitHub interactive flow end-to-end", async () => {
@@ -1647,10 +1652,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ org: "ado-org", project: "ado-proj", repo: "ado-repo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
 
     await initCommand({});
 
@@ -1668,10 +1672,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ namespace: "gl-ns", project: "gl-proj" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
 
     await initCommand({});
 
@@ -1691,10 +1694,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ preset: "minimal" });
     // Empty tool selection -> falls back to DEFAULT_TOOLS (= ["claude"])
     inq.mockResolvedValueOnce({ tools: [] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
 
     await initCommand({});
 
@@ -1705,8 +1707,8 @@ describe("init interactive single-repo flow", () => {
     expect(manifest.board?.defaultBranch).toBe("main");
   });
 
-  it("interactive flow with mcp disabled does not prompt for MCP servers", async () => {
-    setupGithubInteractive({ features: ["agents"], mcpServers: undefined });
+  it("interactive flow never prompts for MCP servers; MCP defaults off (W3-mcp-optin)", async () => {
+    setupGithubInteractive();
     await initCommand({});
 
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
@@ -1728,10 +1730,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
     // The checkExisting prompt — accept overwrite
     inq.mockResolvedValueOnce({ proceed: true });
 
@@ -1755,10 +1756,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
     // Reject overwrite
     inq.mockResolvedValueOnce({ proceed: false });
 
@@ -1822,10 +1822,9 @@ describe("init interactive workspace flow", () => {
     // 6) Tools
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // 7) Features (C9-H28: moved before CLI tools; Slice D: worktree auto-enabled)
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
     // 8) Repo selection for sync
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -1847,10 +1846,9 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
 
     await initCommand({});
 
@@ -1881,10 +1879,9 @@ describe("init interactive workspace flow", () => {
     // 7) Tools
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // 8) Features (C9-H28: moved before CLI tools; Slice D: worktree auto-enabled)
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
     // 9) Repo sync selection
     inq.mockResolvedValueOnce({ syncRepos: [] });
 
@@ -2058,10 +2055,9 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
 
     await initCommand({ preset: "minimal" });
 
@@ -2212,10 +2208,9 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ acceptIdentity: true });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
     // Select the repo with existing hatch3r for sync (triggers conflict prompt)
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // Decline the overwrite
@@ -2238,10 +2233,9 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ acceptIdentity: true });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     inq.mockResolvedValueOnce({ confirmConflict: true });
 
@@ -2260,10 +2254,9 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     inq.mockResolvedValueOnce({ acceptIdentity: true });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
+    inq.mockResolvedValueOnce({ tools: [] });
     inq.mockResolvedValueOnce({ syncRepos: ["api"] });
     // NO confirmConflict prompt expected here
 
@@ -2390,6 +2383,8 @@ describe("init --yes CLI tooling flags (Wave 5 plan §4.3)", () => {
     expect(manifest.mcp.servers.length).toBeGreaterThan(0);
     // Github platform default MCP server.
     expect(manifest.mcp.servers).toContain("github");
+    // W3-mcp-optin: the derived feature flag follows the non-empty list.
+    expect(manifest.features.mcp).toBe(true);
   });
 
   it("--yes (no --mcp) produces empty manifest.mcp.servers", async () => {
@@ -2420,7 +2415,30 @@ describe("init chrome-suppression flags (C9-H26)", () => {
     quiet?: boolean;
     json?: boolean;
     noBanner?: boolean;
+    format?: string;
+    dryRun?: boolean;
   }) => Promise<void>;
+
+  /**
+   * W5-bigfour: the init JSON payload is now emitted via the shared emitJson
+   * funnel (process.stdout.write), not console.log — capture stdout chunks
+   * around an initCommand run. Restores the spy before returning.
+   */
+  async function captureStdoutWrite(run: () => Promise<void>): Promise<string> {
+    const chunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        chunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      await run();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    return chunks.join("");
+  }
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -2470,7 +2488,10 @@ describe("init chrome-suppression flags (C9-H26)", () => {
   });
 
   it("--json emits a single machine-readable JSON line and no chrome", async () => {
-    await initCommand({ yes: true, json: true, tools: "claude" });
+    // W5-bigfour: the payload flows through emitJson (process.stdout.write).
+    const stdoutRaw = await captureStdoutWrite(() =>
+      initCommand({ yes: true, json: true, tools: "claude" }),
+    );
 
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     // Banner + success box must be absent.
@@ -2478,8 +2499,8 @@ describe("init chrome-suppression flags (C9-H26)", () => {
     expect(stdout).not.toContain("Hatch complete");
 
     // Exactly one JSON line on stdout.
-    const jsonLines = consoleSpy.mock.calls
-      .map((c) => String(c[0]))
+    const jsonLines = stdoutRaw
+      .split("\n")
       .filter((line) => line.trim().startsWith("{") && line.trim().endsWith("}"));
     expect(jsonLines.length).toBe(1);
 
@@ -2500,6 +2521,51 @@ describe("init chrome-suppression flags (C9-H26)", () => {
     expect(manifest.tools).toEqual(["claude"]);
   });
 
+  // W5-bigfour: `--format json` must be byte-identical in behavior to the
+  // legacy `--json` boolean alias — same single-document payload, same field
+  // names, same chrome suppression (both resolve through beginCommand).
+  it("--format json is equivalent to --json (same payload fields, same chrome suppression)", async () => {
+    const rawFormat = await captureStdoutWrite(() =>
+      initCommand({ yes: true, format: "json", tools: "claude" }),
+    );
+    const formatPayload = JSON.parse(rawFormat.trim());
+
+    // Chrome suppressed exactly like --json.
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Crack the egg");
+    expect(stdout).not.toContain("Hatch complete");
+
+    // Second run in a fresh dir with the legacy alias; compare the payloads.
+    const aliasDir = await mkdtemp(join(tmpdir(), "hatch3r-init-fmt-"));
+    cwdSpy.mockReturnValue(aliasDir);
+    try {
+      const rawAlias = await captureStdoutWrite(() =>
+        initCommand({ yes: true, json: true, tools: "claude" }),
+      );
+      const aliasPayload = JSON.parse(rawAlias.trim());
+      // Identical schema (key set + order) ...
+      expect(Object.keys(formatPayload)).toEqual(Object.keys(aliasPayload));
+      // ... and identical values on every run-independent field (rootDir and
+      // snapshotSessionId are necessarily per-run).
+      expect(formatPayload.status).toEqual(aliasPayload.status);
+      expect(formatPayload.version).toEqual(aliasPayload.version);
+      expect(formatPayload.tools).toEqual(aliasPayload.tools);
+      expect(formatPayload.preset).toEqual(aliasPayload.preset);
+      expect(formatPayload.canonicalDir).toEqual(aliasPayload.canonicalDir);
+      expect(formatPayload.manifestPath).toEqual(aliasPayload.manifestPath);
+    } finally {
+      cwdSpy.mockReturnValue(tempDir);
+      await rm(aliasDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+    }
+  });
+
+  it("--format json without --yes is rejected (exit 2) — prompts cannot interleave with the JSON document", async () => {
+    const err = await initCommand({ format: "json" }).catch((e) => e as HatchError);
+    expect(err).toBeInstanceOf(HatchError);
+    expect((err as HatchError).exitCode).toBe(2);
+    expect((err as HatchError).recoveryHint).toContain("--yes");
+  });
+
   it("--json implies --quiet (no banner, no success box)", async () => {
     await initCommand({ yes: true, json: true });
 
@@ -2513,6 +2579,75 @@ describe("init chrome-suppression flags (C9-H26)", () => {
 
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(stdout).toContain("Hatch complete");
+  });
+
+  // ── W5-bigfour: --dry-run ────────────────────────────────────────────
+  describe("--dry-run (W5-bigfour)", () => {
+    it("--dry-run --yes writes NOTHING (no manifest, no adapter outputs, no workspace/checkpoint state)", async () => {
+      await initCommand({ yes: true, dryRun: true, tools: "claude,cursor" });
+
+      // The temp dir must contain zero init artifacts: no .hatch3r/ (manifest,
+      // seeds, mcp, snapshots), no adapter outputs, no checkpoint workspace,
+      // no .gitignore registration.
+      const { readdir } = await import("node:fs/promises");
+      const entries = await readdir(tempDir);
+      expect(entries).toEqual([]);
+      // Regression (P3 review): SPACE telemetry is one of the dry-run-skipped
+      // writes — `.hatch3r/telemetry/` must not exist after a dry run.
+      await expect(access(join(tempDir, HATCH3R_DIR, "telemetry"))).rejects.toThrow();
+    });
+
+    it("--dry-run writes NO telemetry on the all-adapters-failed path (the failure terminus precedes the dry-run terminus)", async () => {
+      // Regression (P3 review): the all-adapters-failed terminus records
+      // `firstRunSuccessRate=0` BEFORE the dry-run terminus is reached, so it
+      // carries its own `--dry-run` gate. Without the gate, a failed dry run
+      // leaked `.hatch3r/telemetry/space-<date>.jsonl` despite the zero-writes
+      // contract. Mirrors the non-dry-run test (C7-H8 block), which asserts
+      // the telemetry IS written.
+      const adaptersMod = await import("../../adapters/index.js");
+      const failingAdapter = {
+        get warnings() { return [] as string[]; },
+        generate: async () => { throw new Error("simulated adapter failure"); },
+      };
+      const getAdapterSpy = vi.spyOn(adaptersMod, "getAdapter")
+        .mockReturnValue(failingAdapter as unknown as ReturnType<typeof adaptersMod.getAdapter>);
+
+      try {
+        await expect(
+          initCommand({ yes: true, dryRun: true, tools: "claude" }),
+        ).rejects.toThrow(HatchError);
+
+        const { readdir } = await import("node:fs/promises");
+        const entries = await readdir(tempDir);
+        expect(entries).toEqual([]);
+      } finally {
+        getAdapterSpy.mockRestore();
+      }
+    });
+
+    it("--dry-run renders the per-tool would-write preview box instead of the success box", async () => {
+      await initCommand({ yes: true, dryRun: true, tools: "claude" });
+
+      const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(stdout).toContain("Init dry run (no writes)");
+      expect(stdout).toContain("+ added");
+      expect(stdout).not.toContain("Hatch complete");
+    });
+
+    it("--dry-run --format json emits a single dry-run JSON document and writes nothing", async () => {
+      const raw = await captureStdoutWrite(() =>
+        initCommand({ yes: true, dryRun: true, format: "json", tools: "claude" }),
+      );
+      const payload = JSON.parse(raw.trim());
+      expect(payload.status).toBe("dry-run");
+      expect(payload.tools).toEqual(["claude"]);
+      expect(Array.isArray(payload.adapterChanges)).toBe(true);
+      expect(payload.adapterChanges[0].added.length).toBeGreaterThan(0);
+
+      const { readdir } = await import("node:fs/promises");
+      const entries = await readdir(tempDir);
+      expect(entries).toEqual([]);
+    });
   });
 });
 
@@ -2626,7 +2761,7 @@ describe("init stack-support pointer (D14-15)", () => {
 
 // ── C9-H32 (D10-SA10.5-F2): TOOL_SECRET_NOTES surface at tool-selection time ─
 describe("init tool-secret-notes ordering (C9-H32)", () => {
-  let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
+  let initCommand: (opts?: { tools?: string; yes?: boolean; mcp?: boolean }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
   let exitSpy: MockInstance;
@@ -2658,24 +2793,42 @@ describe("init tool-secret-notes ordering (C9-H32)", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  it("MCP-secret-loading notes surface in interactive flow immediately after tool selection (before features/CLI tools)", async () => {
+  it("MCP-secret-loading notes surface on an interactive --mcp run after tool selection", async () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // Slice B: feature checkbox replaced by wantMcp confirm; this test
-    // exercises MCP-off.
-    // F10.3-2: collapsed MCP multi-select — empty = no MCP.
-    inq.mockResolvedValueOnce({ mcp: [] });
+    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled).
+    inq.mockResolvedValueOnce({ tools: [] });
 
-    await initCommand({});
+    // W3-mcp-optin: the notes are gated on an actual MCP opt-in (no MCP →
+    // no MCP secrets to load), so this ordering test runs with --mcp.
+    await initCommand({ mcp: true });
 
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     // Claude routes secrets via shell sourcing — surfaced as part of the
     // TOOL_SECRET_NOTES block at tool-selection time.
     expect(stdout).toContain("MCP secret loading by tool");
     expect(stdout).toContain("shell sourcing");
+  });
+
+  it("a no-MCP interactive run omits the secret-loading notes and names the mcp setup side-door", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+
+    await initCommand({});
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("MCP secret loading by tool");
+    // W3-mcp-optin success-box bullet: the opt-in lever is named on the
+    // no-MCP path.
+    expect(stdout).toContain("none configured");
+    expect(stdout).toContain("hatch3r mcp setup");
   });
 });
 

@@ -46,7 +46,6 @@ import {
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
 import {
-  printBanner,
   createSpinner,
   printBox,
   printNextSteps,
@@ -58,7 +57,8 @@ import {
   label,
   verbose,
 } from "../shared/ui.js";
-import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { emitJson, type CliOutputFormat } from "../shared/output.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import {
   assertManifest,
   MISSING_MANIFEST_MESSAGE,
@@ -1252,13 +1252,24 @@ export async function updateCommand(
      * box. `"human"` (default) keeps the legacy chrome.
      */
     format?: string;
+    /**
+     * W5-bigfour (P1): suppress stdout chrome (banner, spinner text, summary
+     * box, next-steps, timing). Diagnostics (warn/error) stay on stderr per
+     * POSIX. Wired through `beginCommand` → `setQuiet`.
+     */
+    quiet?: boolean;
   },
 ): Promise<void> {
   // SA12.1-F-D12-M2: branch on `--format json` BEFORE banner so CI consumers
   // see exactly one JSON document on stdout.
-  const format: CliOutputFormat = parseFormatOption(_opts?.format);
+  // W5-bigfour (P1): flag wiring flows through the standardized beginCommand
+  // chokepoint — `--format` parsing, `--quiet` → setQuiet, compact banner in
+  // human mode. JSON mode additionally engages chrome suppression (`setJson`
+  // implies quiet) so info()/box chrome cannot interleave with the single
+  // JSON document on stdout. `--verbose` is intentionally NOT registered on
+  // `update` (program.ts), so beginCommand's verbose wiring stays inert here.
+  const format: CliOutputFormat = beginCommand(_opts ?? {}, { banner: "compact" });
   const jsonMode = format === "json";
-  if (!jsonMode) printBanner(true);
 
   // F8.3.4 (D8): the pipeline wall-clock deadman now lives inside
   // `runRegenerate` (which wraps the adapter phase in
@@ -1557,17 +1568,26 @@ export async function updateCommand(
   // SA12.1-F-D12-M2 (D12, P1): in JSON mode, emit a single structured
   // document in place of the decorated success box. The schema lets CI
   // consumers branch on `status`, `failedTools`, and per-tool counts.
-  if (jsonMode) {
-    emitJson({
+  // W5-bigfour (P1): box-vs-JSON emission flows through the standardized
+  // finishCommand chokepoint. Payload field names unchanged; the envelope
+  // adds the standard `command` identity field. The post-box CLI-tooling
+  // nudge + next-steps ladder stay on ui.ts primitives because finishCommand
+  // cannot interleave an info() line between the box and the next-steps.
+  finishCommand(format, {
+    command: "update",
+    title: "Update complete",
+    lines: updateSummaryLines,
+    style: "success",
+    json: {
       status: result.failedTools > 0 ? "partial" : "passed",
       copiedFiles: result.copiedFiles,
       syncedTools: result.syncedTools,
       failedTools: result.failedTools,
       version: result.version,
       snapshotSessionId: result.snapshotSessionId ?? null,
-      hatch3rVersion: HATCH3R_VERSION,
-      timestamp: new Date().toISOString(),
-    });
+    },
+  });
+  if (jsonMode) {
     // SA12.1-F05 (D12, P1): the JSON document carries `status: "partial"`, but
     // a CI script gating on the exit code still needs the non-zero signal.
     // Emit the structured payload first (CI consumers parse it from stdout),
@@ -1576,8 +1596,6 @@ export async function updateCommand(
     throwOnPartialAdapterFailure(result.failedTools, m.tools.length);
     return;
   }
-
-  printBox("Update complete", updateSummaryLines, "success");
 
   // CLI-tooling pivot (plan §4.7 update touchpoint): nudge users who
   // upgraded without ever opting in to the CLI tooling surface. Repeats

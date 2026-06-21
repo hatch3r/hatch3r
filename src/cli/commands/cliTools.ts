@@ -18,17 +18,30 @@ import {
   type CliToolMeta,
 } from "../../cliTools/registry.js";
 import {
-  printBanner,
-  printBox,
   createSpinner,
   info,
   warn,
   verbose,
   label,
 } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { pickCliTools } from "../shared/pickers.js";
 import { isBack } from "../shared/initSteps.js";
 import { isWSL } from "../shared/constants.js";
+
+/** W5: standardized flags for the read-only cli-tools subcommands. */
+export interface CliToolsCommandOptions {
+  /** `--format <human|json>`; json emits one envelope document on stdout. */
+  format?: string;
+  /** `--quiet`: suppress stdout chrome (banner, boxes); stderr still emits. */
+  quiet?: boolean;
+}
+
+/** W5: flags for the bare (picker) command. */
+export interface CliToolsBareOptions extends CliToolsCommandOptions {
+  /** `--dry-run`: show the resulting selection without writing the manifest. */
+  dryRun?: boolean;
+}
 
 /**
  * Side-door CLI-tools command (plan §4.5). Mirror of `mcp.ts`: default
@@ -49,8 +62,10 @@ function wslThemeOrUndefined(): unknown {
  * the new selection to `manifest.cliTools`. Run by `hatch3r cli-tools`
  * with no subcommand.
  */
-export async function cliToolsCommand(): Promise<void> {
-  printBanner(true);
+export async function cliToolsCommand(opts: CliToolsBareOptions = {}): Promise<void> {
+  // W5: the bare command ALWAYS opens the picker (no --yes escape hatch), so
+  // `--format json` is rejected here by beginCommand's interactive gate.
+  const format = beginCommand(opts, { banner: "compact", interactive: true });
   const rootDir = process.cwd();
 
   // D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
@@ -61,12 +76,15 @@ export async function cliToolsCommand(): Promise<void> {
   // ({@link ORPHAN_MIN_AGE_MS}), surfaces removals + unlink failures via
   // `warn()` per the Silent Failure Contract (P5), never aborts the command.
   // Mirrors the `update`/`sync`/`init`/`config`/`mcp` entry-point sweep.
-  try {
-    const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
-    const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
-    if (tmpDiag) warn(tmpDiag);
-  } catch (err) {
-    verbose(`cli-tools: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+  // Skipped under --dry-run (the sweep unlinks files; dry-run promises no writes).
+  if (opts.dryRun !== true) {
+    try {
+      const sweptTmp = await sweepOrphanTmpFiles(rootDir, { recursive: true });
+      const tmpDiag = formatOrphanTmpSweepDiagnostic(sweptTmp);
+      if (tmpDiag) warn(tmpDiag);
+    } catch (err) {
+      verbose(`cli-tools: orphan-tmp sweep skipped — ${err instanceof Error ? err.message : String(err)}`);
+    }
   }
 
   const manifest = await readManifest(rootDir);
@@ -82,6 +100,23 @@ export async function cliToolsCommand(): Promise<void> {
     return;
   }
   const selected = selectedResult;
+
+  // W5 --dry-run: show the resulting selection without detection, installer
+  // offer, or manifest write.
+  if (opts.dryRun === true) {
+    finishCommand(format, {
+      command: "cli-tools",
+      title: "CLI tools (dry-run)",
+      lines: [
+        label("Selected", selected.length > 0 ? selected.join(", ") : "none"),
+        label("Manifest", ".hatch3r/hatch.json (not written)"),
+      ],
+      style: "info",
+      nextSteps: ["Run `hatch3r cli-tools install` to print install commands for missing tools."],
+      json: { dryRun: true, selected },
+    });
+    return;
+  }
 
   if (selected.length > 0) {
     const spinner = createSpinner(`Detecting ${selected.length} CLI tool(s)...`);
@@ -116,15 +151,18 @@ export async function cliToolsCommand(): Promise<void> {
   manifest.cliTools = cliToolsConfig;
   await writeManifest(rootDir, manifest);
 
-  printBox(
-    "CLI tools configured",
-    [
+  finishCommand(format, {
+    command: "cli-tools",
+    title: "CLI tools configured",
+    lines: [
       label("Selected", selected.length > 0 ? selected.join(", ") : "none"),
       label("Manifest", ".hatch3r/hatch.json"),
       label("Next", "Run `npx hatch3r sync` so adapters re-emit the filtered skill set"),
     ],
-    "success",
-  );
+    style: "success",
+    nextSteps: ["Run `hatch3r cli-tools install` to print install commands for missing tools."],
+    json: { selected, enabled: selected.length > 0 },
+  });
 
   if (selected.length > 0) {
     const finalMissing = await findMissingCliTools(selected);
@@ -132,23 +170,25 @@ export async function cliToolsCommand(): Promise<void> {
   }
 }
 
-export async function cliToolsListCommand(): Promise<void> {
-  printBanner(true);
+export async function cliToolsListCommand(opts: CliToolsCommandOptions = {}): Promise<void> {
+  const format = beginCommand(opts, { banner: "compact" });
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
   assertManifest(manifest);
 
   const selected = manifest.cliTools?.selected ?? [];
   if (selected.length === 0) {
-    printBox(
-      "CLI tools",
-      [
+    finishCommand(format, {
+      command: "cli-tools list",
+      title: "CLI tools",
+      lines: [
         "(no CLI tools selected)",
         "",
         "Run `npx hatch3r cli-tools` to open the picker.",
       ],
-      "info",
-    );
+      style: "info",
+      json: { selected: [], tools: [], installedCount: 0, total: 0 },
+    });
     return;
   }
 
@@ -175,11 +215,29 @@ export async function cliToolsListCommand(): Promise<void> {
   lines.push("");
   lines.push(label("Detected", `${installed}/${results.length} installed`));
 
-  printBox("CLI tools", lines, installed === results.length ? "success" : "info");
+  finishCommand(format, {
+    command: "cli-tools list",
+    title: "CLI tools",
+    lines,
+    style: installed === results.length ? "success" : "info",
+    json: {
+      selected,
+      tools: results.map((r) => ({
+        id: r.id,
+        installed: r.installed,
+        path: r.path ?? null,
+        extensionMissing: r.extensionMissing ?? null,
+      })),
+      installedCount: installed,
+      total: results.length,
+    },
+  });
 }
 
-export async function cliToolsInstallCommand(): Promise<void> {
-  printBanner(true);
+export async function cliToolsInstallCommand(opts: CliToolsCommandOptions = {}): Promise<void> {
+  // W5: install may open the installer confirmation prompt when tools are
+  // missing, so `--format json` is rejected by the interactive gate.
+  beginCommand(opts, { banner: "compact", interactive: true });
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
   assertManifest(manifest);
@@ -206,15 +264,25 @@ export async function cliToolsInstallCommand(): Promise<void> {
   }
 }
 
-export async function cliToolsDetectCommand(): Promise<void> {
-  printBanner(true);
+export async function cliToolsDetectCommand(opts: CliToolsCommandOptions = {}): Promise<void> {
+  const format = beginCommand(opts, { banner: "compact" });
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
   assertManifest(manifest);
 
   const selected = manifest.cliTools?.selected ?? [];
   if (selected.length === 0) {
-    info("No CLI tools selected — run `npx hatch3r cli-tools` first to opt in.");
+    if (format === "json") {
+      finishCommand(format, {
+        command: "cli-tools detect",
+        title: "CLI tool detection",
+        lines: [],
+        style: "info",
+        json: { selected: [], tools: [], installedCount: 0, total: 0 },
+      });
+    } else {
+      info("No CLI tools selected — run `npx hatch3r cli-tools` first to opt in.");
+    }
     return;
   }
 
@@ -239,7 +307,23 @@ export async function cliToolsDetectCommand(): Promise<void> {
     lines.push("");
     lines.push(`Run ${chalk.bold("npx hatch3r cli-tools install")} to see install commands.`);
   }
-  printBox("CLI tool detection", lines, installed === results.length ? "success" : "info");
+  finishCommand(format, {
+    command: "cli-tools detect",
+    title: "CLI tool detection",
+    lines,
+    style: installed === results.length ? "success" : "info",
+    json: {
+      selected,
+      tools: results.map((r) => ({
+        id: r.id,
+        installed: r.installed,
+        path: r.path ?? null,
+        extensionMissing: r.extensionMissing ?? null,
+      })),
+      installedCount: installed,
+      total: results.length,
+    },
+  });
 
   if (installed < results.length) {
     warn(`${results.length - installed} CLI tool(s) not detected`);

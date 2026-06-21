@@ -3,10 +3,12 @@
  * error formatting. The single top-level `parseAsync()` catch in
  * `src/cli/index.ts` routes every caught command failure through
  * `formatActionableError(err)` (D8-1, Cycle 11 Wave 2), so the user-facing
- * error contract is consistent across all 18 commands without each command
- * calling the funnel itself — any uncaught throw from init/sync/status/update
- * /validate/verify/config/clean/add/worktree-setup/worktree-cleanup/mcp
- * /cli-tools/explain/rollback/provenance/show/deps lands in that one catch.
+ * error contract is consistent across all 19 command files (20 registered
+ * top-level names in `src/cli/program.ts`, including `list` and `learn`)
+ * without each command calling the funnel itself — any uncaught throw from
+ * init/sync/status/update/validate/verify/config/clean/add/worktree-setup
+ * /worktree-cleanup/mcp/cli-tools/explain/rollback/provenance/show/list/deps
+ * /learn lands in that one catch.
  * Three paths are routed deliberately AROUND the funnel and documented at
  * their call sites in `src/cli/index.ts`: the `CommanderError` parse-error
  * branch (commander already wrote its own message + help pointer), the

@@ -70,6 +70,9 @@ function makeManifest(tool: Tool): HatchManifest {
   return createManifest({
     tools: [tool],
     mcpServers: ["auth-server", "cmd-server"],
+    // W3-mcp-optin: DEFAULT_FEATURES.mcp is now false (opt-in). This suite
+    // exercises MCP emission dataflow, so pin the feature on explicitly.
+    features: { mcp: true },
   });
 }
 

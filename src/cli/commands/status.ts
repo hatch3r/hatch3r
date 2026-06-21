@@ -14,7 +14,8 @@ import {
   summarizeSpaceMetricRecords,
 } from "../../pipeline/spaceTelemetry.js";
 import { buildCustomizationSummary, selectionSetFromManifest } from "../../adapters/customizationSummary.js";
-import { emitJson, parseFormatOption, type CliOutputFormat } from "../shared/output.js";
+import { emitJson } from "../shared/output.js";
+import { beginCommand } from "../shared/commandOutput.js";
 import {
   assertManifest,
   MISSING_MANIFEST_MESSAGE,
@@ -22,10 +23,11 @@ import {
 } from "../shared/requireManifest.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import {
-  printBanner,
   createSpinner,
   printBox,
+  printNextSteps,
   info,
+  isQuiet,
   label,
   setVerbose,
   verbose,
@@ -436,14 +438,23 @@ export function renderDriftLines(report: DriftReport): string[] {
   return lines;
 }
 
-export async function statusCommand(opts?: { verbose?: boolean; format?: string; diff?: boolean }): Promise<void> {
+export async function statusCommand(opts?: {
+  verbose?: boolean;
+  format?: string;
+  diff?: boolean;
+  quiet?: boolean;
+}): Promise<void> {
   // SA12.1-F-D12-M2 (D12, P1): JSON mode emits a single structured document
   // for CI consumers — see {@link buildStatusJsonOutput}. Human mode keeps
   // the legacy decorated chrome (banner, spinner, printBox panels).
-  const format: CliOutputFormat = parseFormatOption(opts?.format);
+  // W5: flag resolution (format/quiet/verbose + banner gating) flows through
+  // the shared beginCommand chokepoint.
+  const format = beginCommand(opts ?? {}, { banner: "compact" });
   const jsonMode = format === "json";
-  setVerbose(jsonMode ? false : !!opts?.verbose);
-  if (!jsonMode) printBanner(true);
+  // W5 parity with sync.ts: verbose diagnostics stay OFF in JSON mode even
+  // when `--verbose` is passed, so stderr verbose lines can never interleave
+  // with the single stdout JSON document.
+  if (jsonMode) setVerbose(false);
 
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
@@ -500,12 +511,14 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
     return;
   }
 
-  console.log();
+  // Blank-line separators are chrome — suppressed under `--quiet`; the
+  // drift-detail data lines below stay unconditional.
+  if (!isQuiet()) console.log();
 
   for (const line of renderDriftLines(report)) {
     console.log(`  ${line}`);
   }
-  console.log();
+  if (!isQuiet()) console.log();
 
   const summaryLines = [
     `${chalk.green("=")} In sync:    ${report.counts.synced}`,
@@ -531,6 +544,15 @@ export async function statusCommand(opts?: { verbose?: boolean; format?: string;
   const hasDrift = report.counts.modified > 0 || report.counts.missing > 0 || report.counts.unexpected > 0;
   const style = hasDrift ? "info" as const : "success" as const;
   printBox("Status", summaryLines, style);
+
+  // W5: clean-path follow-up. The drift-tailored hints below cover every
+  // drifted state; this is the only guidance emitted when everything is in
+  // sync. Self-gated under --quiet/json via printNextSteps.
+  if (!hasDrift) {
+    printNextSteps([
+      "All files in sync. Run `hatch3r validate` to also check content structure.",
+    ]);
+  }
 
   // D12-SA12.2-F5 (D12, P1): `--diff` renders the same before/after summary box
   // `hatch3r sync --diff` emits, computed in-memory from the drift report (no

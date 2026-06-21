@@ -431,6 +431,15 @@ export interface PersistLearningOptions {
    * path. Defaults to `"learn-command"`.
    */
   source?: string;
+  /**
+   * W5 (`hatch3r learn capture --dry-run`): run EVERY gate — structural,
+   * deny-scan, output validation, user-content quarantine, integrity
+   * comparison, and refuse-overwrite — but skip the final write. The result
+   * carries `written: false` with an EMPTY `rejections` array when all gates
+   * passed (the caller distinguishes "dry-run pass" from "blocked" by
+   * `rejections.length`); `path` is still populated with the would-be target.
+   */
+  dryRun?: boolean;
 }
 
 /**
@@ -567,6 +576,18 @@ export async function persistLearning(
         `source=${source} refuse-overwrite: ${targetPath} already exists; ` +
           `learnings are append-only per /hatch3r-learn guardrail.`,
       ],
+      warnings,
+    };
+  }
+
+  // W5 dry-run: every gate above (including refuse-overwrite) has passed;
+  // report the would-be write without touching disk.
+  if (options.dryRun === true) {
+    return {
+      written: false,
+      path: targetPath,
+      integrity,
+      rejections,
       warnings,
     };
   }

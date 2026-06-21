@@ -2,11 +2,11 @@
 
 All notable changes to hatch3r are documented in this file.
 
-## [2.0.0] - 2026-05-26
+## [2.0.0] - 2026-06-21
 
 ### Headline
 
-Two-axis pillar framework (governance P1-P8 × content-quality CQ1-CQ9) backed by 9 quality-vector specialist agents, 2 spec agents (greenfield/brownfield) with an orchestrator command, 3 new audit domains (D22 Content Architecture, D23 Agentic Engineering Trends, D24 Governance Self-Audit), 6 new canonical rules, 4 new audit templates, and 6 code modules adding maturity-tier config, resumability + per-session snapshot rollback wired into every mutation command (`init`, `sync`, `update`, `config`, `clean`), cost visibility, tag-filtered routing, adapter capability-utilization audit, and an opt-in Playwright browser-verification skill. CONSTITUTION restructured (§2 two-axis, §3 second matrix, 17 new Key Design Decisions). Tag registry expanded from 44 to 76 tags. This is a major release without breaking CLI surface; manifest schema unchanged from v1.9.0.
+Major release on two fronts. **Governance** — a two-axis pillar framework (governance P1-P8 × content-quality CQ1-CQ9) backed by 9 quality-vector specialist agents, 2 spec agents (greenfield/brownfield) with an orchestrator command, 3 new audit domains (D22 Content Architecture, D23 Agentic Engineering Trends, D24 Governance Self-Audit), 6 new canonical rules, 4 new audit templates, and 6 code modules adding maturity-tier config, resumability + per-session snapshot rollback wired into every mutation command (`init`, `sync`, `update`, `config`, `clean`), cost visibility, tag-filtered routing, adapter capability-utilization audit, and an opt-in Playwright browser-verification skill. CONSTITUTION restructured (§2 two-axis, §3 second matrix, 17 new Key Design Decisions). Tag registry expanded from 44 to 76 tags. **CLI** — Claude Code becomes the first-listed tool across every picker and enumeration; `init` and `config` share one set of interactive step builders; MCP moves to pure opt-in (the init MCP prompt is replaced by the CLI-tools picker); `config` content changes are manifest-only; and every non-stub command gains the standardized `--format <human|json>` + `--quiet` flag matrix with a single shared command ending and a registration drift-guard test. Major release without breaking CLI surface; manifest schema unchanged from v1.9.0 (schemaVersion 3).
 
 ### Two-Axis Pillar Framework (CONSTITUTION §2)
 
@@ -122,9 +122,42 @@ Retired 5 legacy meta-agents in favor of the 9 CQ specialists per CONSTITUTION �
 
 Cross-references in canonical content, framework-dev docs, website docs, governance templates, and `governance/inventory.json` updated to the successor agent IDs. Historical audit findings, finding-registry entries, and prior-release CHANGELOG entries retain their original IDs as immutable cycle records.
 
+### Claude-Code-first tool ordering
+
+- `TOOLS` in `src/types.ts` reordered to `["claude", "cursor", "copilot"]`; every derived surface (tool picker choices, `--tools` help text, adapter enumeration, README + website tables) now lists Claude Code first. Ordering only — no behavioral change to any adapter.
+
+### Shared init/config step builders (drift-proof parity)
+
+- `src/cli/shared/flowSteps.ts` — platform, identity, preset, custom-items, tools, CLI-tools, MCP-gate, and MCP-servers steps extracted into shared factories consumed by init's single-repo flow, init's workspace flow, and config. Prompt copy, name keys, defaults, skip predicates, and Shift+Tab BACK threading are single-sourced, so the two commands can no longer drift apart prompt-by-prompt (the pre-extraction test answer-queues pass unmodified).
+
+### MCP is pure opt-in; init's fifth prompt is the CLI-tools picker
+
+- Interactive `init` no longer prompts for MCP. The flow is: platform → repo identity → preset → (custom items, only when preset=custom) → tools → CLI-tools picker (tier-1 + trigger-matched tier-2 pre-checked, so enter-through equals the `--yes` smart default).
+- MCP opt-in paths: `init --mcp` on any init path, or `hatch3r mcp setup` afterwards. `features.mcp` defaults to false; `mcp setup` and `mcp remove` maintain the flag (`true` only while at least one server remains selected) so adapter emission and `sync` stay consistent with the manifest.
+- `--no-mcp` force-disables even when combined with `--mcp`, so a CI config can self-document "no MCP" instead of relying on the implicit default.
+
+### config content changes are manifest-only
+
+- `hatch3r config` add/remove of content items updates `.hatch3r/hatch.json` and regenerates adapter outputs from the bundled canonical content — no `.agents/` materialization on any path. Removing an item still rescues hand-authored `.customize.yaml`/`.customize.md` overrides into the archive via `archiveCustomizeOverrides` (skipped under `--dry-run`, which performs no writes).
+
+### Standardized flag matrix + shared command endings
+
+- Every non-stub command and subcommand registers `--format <human|json>` + `--quiet` (normalized via `parseFormatOption`); mutating commands register `--dry-run` with wired previews (init, sync, update, config, clean, rollback, worktree-setup, worktree-cleanup, mcp setup/remove, cli-tools, learn capture); `--verbose` is registered only where detail output is wired — a registered-but-unread flag violates the Silent Failure Contract.
+- `--format json` on a prompting invocation (e.g. `mcp setup`, bare `cli-tools`, interactive flows without `--yes`) is an exit-2 usage error; an invalid `--format` value is also exit 2. JSON mode emits exactly one document on stdout with the envelope `{ status, <command payload>, command, hatch3rVersion, timestamp }`; diagnostics stay on stderr. Legacy `init --json` is kept as a boolean alias that upgrades `--format` to `json`.
+- `src/cli/shared/commandOutput.ts` — `beginCommand`/`finishCommand` are the single chokepoint for command endings: one outcome box + ≤3 next-steps + optional timing in human mode, or the one JSON envelope in JSON mode, never both.
+- Drift guard: `src/__tests__/cli/index.test.ts` ("W5 flag-surface drift guard") fails when a newly registered command or subcommand is not classified into the flag matrix.
+
+### Dry-run no-write contracts
+
+- `--dry-run` paths are covered by tests asserting no file mutation (manifest, adapter outputs, `.env.mcp`, archive moves) across init, sync, update, config, clean, rollback, worktree-setup/cleanup, mcp setup/remove, cli-tools, and learn capture.
+
+### Security — path-charset guard
+
+- **Path-charset guard in `archiveCustomizeOverrides`** (`src/content/index.ts`): a cleaned item id outside `[A-Za-z0-9._-]` (or containing `..`) is rejected before any path is built, closing a traversal read/delete primitive that would open if a future caller wired user-supplied ids into the rescue flow. Degrades like the function's other failure modes (verbose diagnostic + skip, no throw).
+
 ### Inventory
 
-agents 19 → 29 (net +10: +11 from Bucket 1.1's 9 CQ specialists + Bucket 1.2's 2 spec agents, −5 from Bucket 3.1 legacy retirements, +4 from the finalize-readiness expansion); skills 39 → 53; rules 40 → 66; commands 25 → 30; pipeline modules 18 → 22; CLI commands 14 → 18; audit domains 21 → 24.
+agents 19 → 29 (net +10: +11 from Bucket 1.1's 9 CQ specialists + Bucket 1.2's 2 spec agents, −5 from Bucket 3.1 legacy retirements, +4 from the finalize-readiness expansion); skills 39 → 53; rules 40 → 67; commands 25 → 30; hooks 6 → 7; pipeline modules 18 → 22; CLI commands 14 → 19; audit domains 21 → 24.
 
 All counts in this Inventory section are sourced from `governance/inventory.json` (`counts` object, regenerated by `npm run inventory`) at release-cut — the single source of truth that the `inventory --check-docs` CI gate diffs against README + CLAUDE.md + `.cursor-plugin/plugin.json`.
 
@@ -133,9 +166,9 @@ All counts in this Inventory section are sourced from `governance/inventory.json
 ### Gates
 
 - `npx tsc --noEmit` — 0 errors
-- `npm test` — 4947 passing, 3 skipped (4950 total)
+- `npm test` — 5863 passing, 3 skipped (5866 total)
 - `npm run lint` — 0 errors
-- `npm run validate` — 66/66 rule pairs OK; 0 errors across efficiency-invariants, bridge-budget, fanout-emission, cli-skills, wiring
+- `npm run validate` — 67/67 rule pairs OK; 0 errors across efficiency-invariants, bridge-budget, fanout-emission, cli-skills, wiring
 - Anti-slop wordlist scan — 0 hits across all new content
 
 ### Fixed

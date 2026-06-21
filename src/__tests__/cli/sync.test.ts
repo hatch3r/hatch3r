@@ -165,6 +165,38 @@ describe("sync command", () => {
     expect(output).toContain("Sync complete");
   });
 
+  // W5-bigfour: the clean-sync epilogue renders the printNextSteps ladder
+  // after the summary box (preserved through the finishCommand adoption).
+  it("clean sync output contains the next-steps ladder", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Next steps:");
+    expect(output).toContain("hatch3r status");
+  });
+
+  // W5-bigfour: `--quiet` (beginCommand → setQuiet) suppresses the banner,
+  // summary box, and next-steps chrome while the sync still writes output.
+  it("--quiet suppresses the banner, summary box, and next steps on stdout", async () => {
+    await createTestProject(tempDir);
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand({ quiet: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).not.toContain("hatch3r");
+    expect(output).not.toContain("Sync complete");
+    expect(output).not.toContain("Next steps:");
+
+    // The sync itself still ran — adapter output exists.
+    const cursorRulesDir = join(tempDir, ".cursor", "rules");
+    const entries = await import("node:fs/promises").then((m) => m.readdir(cursorRulesDir));
+    expect(entries.some((f) => f.endsWith(".mdc"))).toBe(true);
+  });
+
   it("should sync multiple tools when configured", async () => {
     await createTestProject(tempDir, { tools: ["cursor", "claude"] });
 
@@ -199,6 +231,53 @@ describe("sync command", () => {
     ].join("\n");
     expect(output).toContain("New secrets needed in .env.mcp");
     expect(output).toContain("GITHUB_PAT");
+  });
+
+  // MCP side-door → sync e2e: `hatch3r mcp setup` only mutates the manifest
+  // and defers adapter regeneration to the next sync, so sync MUST actually
+  // emit the MCP adapter output for the manifest-configured servers — the
+  // env-var warning test above alone left "sync silently ignores side-door
+  // config" unguarded.
+  it("emits the cursor MCP config on disk for manifest-configured servers (side-door e2e)", async () => {
+    await createTestProject(tempDir, {
+      mcp: { servers: ["github"] },
+    });
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    // The cursor adapter writes `.cursor/mcp.json` with a top-level
+    // `mcpServers` map (cursor.ts:326) containing the selected server.
+    const raw = await readFile(join(tempDir, ".cursor", "mcp.json"), "utf-8");
+    const parsed = JSON.parse(raw) as { mcpServers: Record<string, unknown> };
+    expect(parsed.mcpServers).toHaveProperty("github");
+  });
+
+  it("does NOT emit MCP config when features.mcp is false even with a non-empty server list (opt-in gate)", async () => {
+    // Negative side of the side-door contract: adapters gate MCP emission on
+    // `features.mcp && mcp.servers.length > 0` (base.ts::readFilteredMcp), so
+    // a server list left behind with the feature flag off must produce no
+    // MCP output file.
+    await createTestProject(tempDir, {
+      features: {
+        agents: true,
+        skills: true,
+        rules: true,
+        prompts: true,
+        commands: true,
+        mcp: false,
+        githubAgents: true,
+        hooks: true,
+        handoffs: true,
+      },
+      mcp: { servers: ["github"] },
+    });
+
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const mcpJson = await readFile(join(tempDir, ".cursor", "mcp.json"), "utf-8").catch(() => null);
+    expect(mcpJson).toBeNull();
   });
 
   it("should report 'skipped' for unchanged non-managed files on re-sync", async () => {

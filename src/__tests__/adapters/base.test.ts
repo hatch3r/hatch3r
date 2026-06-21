@@ -1041,6 +1041,9 @@ describe("MCP validation warning scope (D11-16)", () => {
       const manifest = createManifest({
         tools: ["claude"],
         mcpServers: ["github", "brave-search"],
+        // W3-mcp-optin: pin MCP on (now opt-in) so readFilteredMcp runs and
+        // the warning-scope assertion is non-vacuous.
+        features: { mcp: true },
       });
       await adapter.generate(root, manifest);
 
@@ -1075,6 +1078,9 @@ describe("MCP validation warning scope (D11-16)", () => {
       const manifest = createManifest({
         tools: ["claude"],
         mcpServers: ["selected-noisy"],
+        // W3-mcp-optin: pin MCP on (now opt-in) so the selected server is
+        // actually validated and the warning surfaces.
+        features: { mcp: true },
       });
       await adapter.generate(root, manifest);
       expect(

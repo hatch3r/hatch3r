@@ -26,7 +26,16 @@ import { parse as parseYaml } from "yaml";
 import { buildContentIndex, resolveUserContentRoot, type CatalogItem } from "../../content/index.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { HatchError } from "../../types.js";
-import { printBanner, printBox, label, error as logError, info } from "../shared/ui.js";
+import { label, error as logError, info } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
+
+/** W5: standardized flags shared by `show` and `list`. */
+export interface ShowCommandOptions {
+  /** `--format <human|json>`; json emits one envelope document on stdout. */
+  format?: string;
+  /** `--quiet`: suppress stdout chrome (banner, box, hints). */
+  quiet?: boolean;
+}
 
 /** Frontmatter projection we surface to the operator — typed-safe subset. */
 interface ResolvedFrontmatter {
@@ -71,8 +80,11 @@ function parseFrontmatter(raw: string): { frontmatter: ResolvedFrontmatter; body
  * (`hatch3r-implementer`) or omit it (`implementer`); the lookup tries both.
  * For commands, the `cmd-` prefix is also tried per `applyCommandPrefix`.
  */
-export async function showCommand(idArg: string | undefined): Promise<void> {
-  printBanner(true);
+export async function showCommand(
+  idArg: string | undefined,
+  opts: ShowCommandOptions = {},
+): Promise<void> {
+  const format = beginCommand(opts, { banner: "compact" });
   if (!idArg || typeof idArg !== "string") {
     logError("hatch3r show <id> requires an artifact id (e.g. `hatch3r show hatch3r-implementer`).");
     throw new HatchError(
@@ -135,7 +147,33 @@ export async function showCommand(idArg: string | undefined): Promise<void> {
   if (frontmatter.agentPipeline && frontmatter.agentPipeline.length > 0) {
     headerLines.push(label("Pipeline", frontmatter.agentPipeline.join(" → ")));
   }
-  printBox(`Artifact: ${item.id}`, headerLines, "info");
+  // W5: one chokepoint for both formats — human prints the same "Artifact:"
+  // box as before; json emits a small envelope (frontmatter projection only,
+  // no body preview) and returns.
+  finishCommand(format, {
+    command: "show",
+    title: `Artifact: ${item.id}`,
+    lines: headerLines,
+    style: "info",
+    json: {
+      artifact: {
+        id: item.id,
+        type: item.type,
+        source: item.source,
+        path: item.relativePath,
+        description: item.description,
+        tags: item.tags,
+        protected: item.protected ?? false,
+        precedence: frontmatter.precedence ?? null,
+        scope: frontmatter.scope ?? null,
+        globs: frontmatter.globs ?? null,
+        orchestrator: frontmatter.orchestrator ?? null,
+        agentPipeline: frontmatter.agentPipeline ?? [],
+        companionPath: item.companionPath ?? null,
+      },
+    },
+  });
+  if (format === "json") return;
 
   // Body preview: first N lines of the body, with a footer pointing the
   // operator at the source file when the body is truncated.
@@ -182,8 +220,11 @@ const TYPE_ALIASES: Record<string, CatalogItem["type"]> = {
   "github-agents": "github-agent",
 };
 
-export async function listCommand(typeArg: string | undefined): Promise<void> {
-  printBanner(true);
+export async function listCommand(
+  typeArg: string | undefined,
+  opts: ShowCommandOptions = {},
+): Promise<void> {
+  const format = beginCommand(opts, { banner: "compact" });
   const normalized = typeof typeArg === "string" ? typeArg.trim().toLowerCase() : "";
   const type = TYPE_ALIASES[normalized];
   if (!type) {
@@ -201,6 +242,29 @@ export async function listCommand(typeArg: string | undefined): Promise<void> {
   const userRoot = resolveUserContentRoot(rootDir);
   const index = await buildContentIndex(canonicalRoot, userRoot ? { userRoot } : undefined);
   const items = (index.byType[type] ?? []).slice().sort((a, b) => a.id.localeCompare(b.id));
+
+  // W5: json emits one envelope with the per-item projection and returns
+  // (covers the empty case too — `items: []`).
+  if (format === "json") {
+    finishCommand(format, {
+      command: "list",
+      title: `${type} (${items.length})`,
+      lines: [],
+      style: "info",
+      json: {
+        type,
+        count: items.length,
+        items: items.map((i) => ({
+          id: i.id,
+          description: i.description,
+          tags: i.tags,
+          source: i.source,
+          protected: i.protected ?? false,
+        })),
+      },
+    });
+    return;
+  }
 
   if (items.length === 0) {
     info(`No artifacts of type "${type}" found.`);

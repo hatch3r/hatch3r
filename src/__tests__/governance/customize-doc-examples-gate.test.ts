@@ -31,7 +31,6 @@ import { join, resolve } from "node:path";
  */
 
 const ROOT = resolve(import.meta.dirname, "..", "..", "..");
-const TSX = resolve(ROOT, "node_modules", ".bin", "tsx");
 const SCRIPT = resolve(ROOT, "scripts", "validate-customize-doc-examples.ts");
 
 interface GateResult {
@@ -47,7 +46,10 @@ function runGate(scanRoot: string): { result: GateResult; exitCode: number; stde
   let stderr = "";
   let exitCode = 0;
   try {
-    stdout = execFileSync(TSX, [SCRIPT, "--json", "--root", scanRoot], {
+    // Spawn node with the tsx loader directly (not the `.bin/tsx` POSIX shim,
+    // which is not executable on Windows) — same pattern as
+    // `src/__tests__/cli/topLevelErrorFunnel.test.ts`.
+    stdout = execFileSync(process.execPath, ["--import", "tsx", SCRIPT, "--json", "--root", scanRoot], {
       cwd: ROOT,
       encoding: "utf-8",
       timeout: 60_000,

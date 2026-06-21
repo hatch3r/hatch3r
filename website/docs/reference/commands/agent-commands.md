@@ -133,7 +133,7 @@ Guided development lifecycle with 4 phases: Analyze, Plan, Implement, and Review
 
 ### handoff
 
-Capture mid-work session state into a tool-agnostic handoff artifact under `.hatch3r/handoffs/active/<id>.md` so any of the 3 supported coding tools (Cursor, Claude Code, Copilot) can resume the work cleanly later -- same tool or different tool, same developer or different developer.
+Capture mid-work session state into a tool-agnostic handoff artifact under `.hatch3r/handoffs/active/<id>.md` so any of the 3 supported coding tools (Claude Code, Cursor, Copilot) can resume the work cleanly later -- same tool or different tool, same developer or different developer.
 
 ```
 /hatch3r-handoff prepare           # capture current session state into a new handoff

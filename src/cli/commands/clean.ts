@@ -3,15 +3,15 @@ import { join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import {
-  printBanner,
   createSpinner,
-  printBox,
   info,
   warn,
   error as logError,
   step,
   label,
+  verbose,
 } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { HATCH3R_DIR, HatchError, WORKTREE_INCLUDE_FILE, type CliToolsConfig, type ContentSelection, type CustomizationManifest, type Features, type Platform, type Tool } from "../../types.js";
 import { inventoryArtifacts, executeClean, backupLearnings, restoreLearnings, type CleanInventory } from "../../clean/index.js";
 import { runInit, type RunInitOptions } from "./init.js";
@@ -149,9 +149,26 @@ async function purgeUserState(rootDir: string, envMcpPresent: boolean): Promise<
 }
 
 export async function cleanCommand(
-  opts: { yes?: boolean; dryRun?: boolean; learnings?: boolean; purge?: boolean } = {},
+  opts: {
+    yes?: boolean;
+    dryRun?: boolean;
+    learnings?: boolean;
+    purge?: boolean;
+    format?: string;
+    quiet?: boolean;
+    verbose?: boolean;
+  } = {},
 ): Promise<void> {
-  printBanner(true);
+  // W5: beginCommand resolves --format/--quiet/--verbose and gates the banner
+  // (previously printed unconditionally, corrupting any future json stdout).
+  // Interactivity is per-invocation: --dry-run never prompts, so json is valid
+  // there without --yes; every other path prompts unless --yes (beginCommand's
+  // interactive gate enforces exactly that pairing).
+  const format = beginCommand(opts, {
+    banner: "compact",
+    interactive: opts.dryRun !== true,
+  });
+  const jsonMode = format === "json";
 
   const rootDir = process.cwd();
 
@@ -177,7 +194,22 @@ export async function cleanCommand(
     inventory.archiveDir;
 
   if (!hasAnything) {
-    info("No hatch3r artifacts found. Nothing to clean.");
+    if (jsonMode) {
+      finishCommand(format, {
+        command: "clean",
+        title: "Clean",
+        lines: [],
+        style: "info",
+        json: {
+          removed: [],
+          kept: [],
+          errors: [],
+          message: "No hatch3r artifacts found. Nothing to clean.",
+        },
+      });
+    } else {
+      info("No hatch3r artifacts found. Nothing to clean.");
+    }
     return;
   }
 
@@ -187,46 +219,61 @@ export async function cleanCommand(
   // 3. Backup learnings before cleanup
   const learningsBackup = await backupLearnings(rootDir);
 
-  // 4. Display inventory
-  printInventory(inventory);
+  // 4. Display inventory (human only — json mode is a single stdout document)
+  if (!jsonMode) printInventory(inventory);
 
   // Workspace warnings
   if (inventory.isWorkspaceRoot) {
     warn("This is a workspace root. Member repos still reference this workspace.");
-    console.log(chalk.dim("  Clean member repos individually or reinitialize them.\n"));
+    if (!jsonMode) console.log(chalk.dim("  Clean member repos individually or reinitialize them.\n"));
   }
   if (inventory.isWorkspaceMember) {
     warn(`This repo is managed by a workspace at ${chalk.bold(inventory.workspaceRootPath ?? "..")}.`);
-    console.log("");
+    if (!jsonMode) console.log("");
   }
 
   // 5. Dry run
   if (opts.dryRun) {
     const result = await executeClean(rootDir, inventory, true);
-    console.log(chalk.bold("  Would remove:"));
-    for (const f of result.removed) {
-      console.log(`    ${chalk.red("×")} ${f}`);
-    }
     // D1-21: with --purge, .hatch3r/ and .env.mcp move from "would keep" to
     // "would remove" so the preview matches what a live --purge run does.
-    if (opts.purge) {
-      if (inventory.hatch3rDir) {
-        console.log(`    ${chalk.red("×")} ${HATCH3R_DIR}/ ${chalk.dim("(purge — state, snapshots, overrides)")}`);
-      }
-      if (inventory.envMcp) {
-        console.log(`    ${chalk.red("×")} .env.mcp ${chalk.dim("(purge — secrets)")}`);
-      }
-    }
     const wouldKeep = opts.purge
       ? result.kept.filter((k) => !k.startsWith(HATCH3R_DIR) && !k.startsWith(".env.mcp"))
       : result.kept;
-    if (wouldKeep.length > 0) {
-      console.log(chalk.bold("\n  Would keep:"));
-      for (const f of wouldKeep) {
-        console.log(`    ${chalk.green("✓")} ${f}`);
+    if (jsonMode) {
+      const wouldRemove = [...result.removed];
+      if (opts.purge) {
+        if (inventory.hatch3rDir) wouldRemove.push(`${HATCH3R_DIR}/`);
+        if (inventory.envMcp) wouldRemove.push(".env.mcp");
       }
+      finishCommand(format, {
+        command: "clean",
+        title: "Clean (dry-run)",
+        lines: [],
+        style: "info",
+        json: { dryRun: true, purge: !!opts.purge, wouldRemove, wouldKeep },
+      });
+    } else {
+      console.log(chalk.bold("  Would remove:"));
+      for (const f of result.removed) {
+        console.log(`    ${chalk.red("×")} ${f}`);
+      }
+      if (opts.purge) {
+        if (inventory.hatch3rDir) {
+          console.log(`    ${chalk.red("×")} ${HATCH3R_DIR}/ ${chalk.dim("(purge — state, snapshots, overrides)")}`);
+        }
+        if (inventory.envMcp) {
+          console.log(`    ${chalk.red("×")} .env.mcp ${chalk.dim("(purge — secrets)")}`);
+        }
+      }
+      if (wouldKeep.length > 0) {
+        console.log(chalk.bold("\n  Would keep:"));
+        for (const f of wouldKeep) {
+          console.log(`    ${chalk.green("✓")} ${f}`);
+        }
+      }
+      console.log("");
     }
-    console.log("");
     // Clean up learnings backup since we're not proceeding
     if (learningsBackup) {
       await rm(learningsBackup, { recursive: true, force: true });
@@ -293,6 +340,12 @@ export async function cleanCommand(
   s2.start();
   const result = await executeClean(rootDir, inventory, false);
   s2.succeed(step(2, 3, `Removed ${result.removed.length} item(s)`));
+
+  // W5: --verbose wires the per-file removal list (previously dry-run-only)
+  // into the live run via the stderr [verbose] channel.
+  for (const f of result.removed) {
+    verbose(`removed ${f}`);
+  }
 
   // D6-M7 (Cycle 9 Wave 3): session-corruption recovery — wipe learnings
   // and handoffs when the operator explicitly opts in via `--learnings`.
@@ -368,9 +421,14 @@ export async function cleanCommand(
     for (const p of purged) {
       purgeLines.push(`${chalk.red("×")} ${p} purged`);
     }
-    purgeLines.push("");
-    purgeLines.push(`${chalk.cyan("→")} Run ${chalk.bold("hatch3r init")} for a fresh setup.`);
-    printBox("Purge complete", purgeLines, "success");
+    finishCommand(format, {
+      command: "clean",
+      title: "Purge complete",
+      lines: purgeLines,
+      style: "success",
+      nextSteps: ["Run `npx hatch3r init` to set up again."],
+      json: { removed: result.removed, purged, errors: result.errors },
+    });
     return;
   }
 
@@ -461,7 +519,21 @@ export async function cleanCommand(
           );
         }
 
-        printBox("Reinit complete", summaryLines, "success");
+        // W5: no reinit-path next-step — the repo was just set up again, so
+        // pointing at `hatch3r init` would be contradictory.
+        finishCommand(format, {
+          command: "clean",
+          title: "Reinit complete",
+          lines: summaryLines,
+          style: "success",
+          json: {
+            removed: result.removed,
+            kept: result.kept,
+            errors: result.errors,
+            reinit: true,
+            snapshotSession: cleanSessionId ?? null,
+          },
+        });
       } catch (err) {
         s3.fail(step(3, 3, "Reinit failed"));
         if (err instanceof HatchError && err.exitCode === 0) throw err;
@@ -499,8 +571,21 @@ export async function cleanCommand(
     summaryLines.push(`${chalk.dim("Snapshot:")} ${cleanSessionId}`);
     summaryLines.push(`${chalk.dim("Revert with:")} hatch3r rollback --session=${cleanSessionId}`);
   }
-  summaryLines.push("");
-  summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold("hatch3r init")} when ready to set up again.`);
 
-  printBox("Clean complete", summaryLines, "success");
+  // W5: the legacy in-box "→ Run hatch3r init …" line moved into the
+  // standardized next-steps block (suppressed after the reinit path above,
+  // which returns before reaching here).
+  finishCommand(format, {
+    command: "clean",
+    title: "Clean complete",
+    lines: summaryLines,
+    style: "success",
+    nextSteps: ["Run `npx hatch3r init` to set up again."],
+    json: {
+      removed: result.removed,
+      kept: result.kept,
+      errors: result.errors,
+      snapshotSession: cleanSessionId ?? null,
+    },
+  });
 }

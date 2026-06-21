@@ -97,10 +97,15 @@ function extractMarkers(content: string): string[] {
 }
 
 function makeManifest(tool: string, overrides: Partial<Parameters<typeof createManifest>[0]> = {}): HatchManifest {
+  const { features, ...createOpts } = overrides;
   return createManifest({
     tools: [tool as "cursor"],
     mcpServers: ["github"],
-    ...overrides,
+    // W3-mcp-optin: DEFAULT_FEATURES.mcp is now false (opt-in). The snapshots
+    // were captured with MCP output included, so pin the feature on; per-call
+    // feature overrides still win via the merge.
+    features: { mcp: true, ...features },
+    ...createOpts,
   });
 }
 

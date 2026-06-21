@@ -15,15 +15,25 @@ As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelv
 
 | Tool | Rules | Agents | Skills | Commands | MCP | Hooks |
 |------|:-----:|:------:|:------:|:--------:|:---:|:-----:|
+| **Claude Code** | Y | Y | Y | Y | Y | Y |
 | **Cursor** | Y | Y | Y | Y | Y | Y |
 | **GitHub Copilot** | Y | Y | Y | Y | Y | -- |
-| **Claude Code** | Y | Y | Y | Y | Y | Y |
 
 **Legend:** **Y** = adapter emits files, **B** = bridge (content folded into instruction file), **--** = no platform support
 
 ## Output Paths
 
 Each adapter generates files in the format its platform expects:
+
+### Claude Code
+
+| Capability | Output Path |
+|------------|-------------|
+| Rules | `.claude/rules/hatch3r-{id}.md` |
+| Agents | `.claude/agents/hatch3r-{id}.md` |
+| Skills | `.claude/skills/hatch3r-{id}/SKILL.md` |
+| Bridge | `CLAUDE.md` |
+| MCP | `.mcp.json` |
 
 ### Cursor
 
@@ -45,16 +55,6 @@ Each adapter generates files in the format its platform expects:
 | Prompts | `.github/prompts/hatch3r-{id}.prompt.md` |
 | MCP | `.vscode/mcp.json` |
 
-### Claude Code
-
-| Capability | Output Path |
-|------------|-------------|
-| Rules | `.claude/rules/hatch3r-{id}.md` |
-| Agents | `.claude/agents/hatch3r-{id}.md` |
-| Skills | `.claude/skills/hatch3r-{id}/SKILL.md` |
-| Bridge | `CLAUDE.md` |
-| MCP | `.mcp.json` |
-
 For all platforms, see the full [Adapter Capability Matrix](../reference/adapter-capability-matrix).
 
 ## MCP Configuration
@@ -72,7 +72,7 @@ Since 1.7.5 MCP is opt-in (default No during `init`). See the [MCP Setup guide](
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 24 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Cursor, Claude Code, Copilot).
+Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 24 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Claude Code, Cursor, Copilot).
 
 ### Tier-1 (default-on, 10 tools)
 

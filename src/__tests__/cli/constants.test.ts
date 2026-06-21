@@ -78,6 +78,10 @@ describe("data constants", () => {
     expect(TOOL_PROMPT_CHOICES).toMatchSnapshot();
   });
 
+  it("TOOL_PROMPT_CHOICES lists Claude Code first", () => {
+    expect(TOOL_PROMPT_CHOICES[0].value).toBe("claude");
+  });
+
   it("FEATURE_CHOICES matches snapshot", () => {
     expect(FEATURE_CHOICES).toMatchSnapshot();
   });

@@ -10,7 +10,7 @@ Six terms carry most of hatch3r's mental model. Read this once before the [Quick
 
 ## Canonical source vs. adapters
 
-hatch3r keeps **one** copy of your agent setup — the **canonical source** — bundled inside the npm package, and *generates* tool-specific files from it. The generators are **adapters**: one per supported tool (Cursor, Claude Code, GitHub Copilot). You edit intent in one place; adapters translate it into each tool's native config (`.cursor/`, `.claude/` + `CLAUDE.md`, `.github/copilot-instructions.md`). Your repo holds only the manifest, your overrides, and the generated outputs — not the canonical content itself. Details: [Content Model](../reference/architecture/content-model) · [Adapter System](../reference/architecture/adapter-system).
+hatch3r keeps **one** copy of your agent setup — the **canonical source** — bundled inside the npm package, and *generates* tool-specific files from it. The generators are **adapters**: one per supported tool (Claude Code, Cursor, GitHub Copilot). You edit intent in one place; adapters translate it into each tool's native config (`.claude/` + `CLAUDE.md`, `.cursor/`, `.github/copilot-instructions.md`). Your repo holds only the manifest, your overrides, and the generated outputs — not the canonical content itself. Details: [Content Model](../reference/architecture/content-model) · [Adapter System](../reference/architecture/adapter-system).
 
 ## Agent / skill / command / rule
 

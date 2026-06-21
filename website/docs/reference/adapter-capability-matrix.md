@@ -5,7 +5,7 @@ title: Adapter Capability Matrix
 
 # Adapter Capability Matrix
 
-Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Cursor, GitHub Copilot, and Claude Code. Twelve adapters were removed in a hard cut — see the [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list.
+Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Claude Code, Cursor, and GitHub Copilot. Twelve adapters were removed in a hard cut — see the [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list.
 
 ## Legend
 

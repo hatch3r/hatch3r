@@ -24,7 +24,6 @@ import type {
   WorktreeSkippedEntry,
 } from "../../worktree/types.js";
 import {
-  printBanner,
   createSpinner,
   printBox,
   error as logError,
@@ -32,6 +31,8 @@ import {
   warn,
   label,
 } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
+import type { CliOutputFormat } from "../shared/output.js";
 import { copyToClipboard } from "../shared/clipboard.js";
 import { enableDefaultCrossProcessLocking } from "../../merge/safeWrite.js";
 
@@ -112,6 +113,10 @@ interface SetupOptions {
   yes?: boolean;
   fromPath?: string;
   verbose?: boolean;
+  /** W5: `--format <human|json>`; json valid only with --yes or --dry-run. */
+  format?: string;
+  /** W5: `--quiet`: suppress stdout chrome (banner, spinner, boxes). */
+  quiet?: boolean;
 }
 
 async function readIncludeOrThrow(mainRoot: string): Promise<string> {
@@ -187,6 +192,35 @@ function printDryRun(
   printBox("Worktree setup (dry run)", [...header, ...summaryLines], "info");
 }
 
+/**
+ * W5: json twin of {@link printDryRun} — one envelope document describing the
+ * planned worktree population (mode, source/target, per-entry strategy).
+ */
+function emitDryRunJson(
+  format: CliOutputFormat,
+  includeContent: string,
+  mainRoot: string,
+  targetRoot: string,
+  mode: "name" | "from-path",
+  name?: string,
+): void {
+  const entries = parseWorktreeInclude(includeContent);
+  finishCommand(format, {
+    command: "worktree-setup",
+    title: "Worktree setup (dry run)",
+    lines: [],
+    style: "info",
+    json: {
+      dryRun: true,
+      mode,
+      name: name ?? null,
+      source: mainRoot,
+      target: targetRoot,
+      entries: entries.map((e) => ({ pattern: e.pattern, strategy: e.strategy })),
+    },
+  });
+}
+
 function syncWorktree(targetRoot: string): { ok: boolean; output: string } {
   try {
     const out = execFileSync("npx", ["hatch3r", "sync"], {
@@ -210,6 +244,7 @@ const SKIP_REASON_LABELS: Record<WorktreeSkipReason, string> = {
 };
 
 function printSetupSuccessBox(
+  format: CliOutputFormat,
   targetRoot: string,
   result: {
     copied: string[];
@@ -259,12 +294,35 @@ function printSetupSuccessBox(
       ...(syncOutput ? [chalk.dim(`  ${syncOutput.split("\n").slice(0, 5).join("\n  ")}`)] : []),
     );
   }
-  printBox("Worktree setup", lines, syncOk ? "success" : "error");
+  // W5: ending routes through finishCommand (same "Worktree setup" box title);
+  // json emits one envelope; the next-step is success-only (the failure body
+  // already carries the sync-repair guidance).
+  finishCommand(format, {
+    command: "worktree-setup",
+    title: "Worktree setup",
+    lines,
+    style: syncOk ? "success" : "error",
+    nextSteps: syncOk
+      ? [`\`${cdLine}\` and start your agent — the worktree is ready.`]
+      : undefined,
+    json: {
+      target: targetRoot,
+      copied: result.copied.length,
+      symlinked: result.symlinked.length,
+      skipped: result.skipped.length,
+      errors: result.errors,
+      syncOk,
+    },
+  });
 }
 
 // ─── Mode 1: --from-path (legacy hook flow) ──────────────────────────────────
 
-async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void> {
+async function runFromPath(
+  targetPath: string,
+  opts: SetupOptions,
+  format: CliOutputFormat,
+): Promise<void> {
   const mainRoot = opts.from ?? (isInsideWorktree(targetPath) ? findMainWorktree(targetPath) : process.cwd());
   if (!(await pathExists(targetPath))) {
     logError(`--from-path target does not exist: ${targetPath}`);
@@ -281,7 +339,11 @@ async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void
   await confirmSecretsOrAbort(includeContent, mainRoot, targetPath, opts);
 
   if (opts.dryRun) {
-    printDryRun(includeContent, mainRoot, targetPath, "from-path");
+    if (format === "json") {
+      emitDryRunJson(format, includeContent, mainRoot, targetPath, "from-path");
+    } else {
+      printDryRun(includeContent, mainRoot, targetPath, "from-path");
+    }
     return;
   }
 
@@ -295,7 +357,7 @@ async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void
   const sync = syncWorktree(targetPath);
   const cdLine = `cd ${targetPath}`;
   const tool = copyToClipboard(cdLine);
-  printSetupSuccessBox(targetPath, result, sync.ok, sync.output, tool, opts.verbose);
+  printSetupSuccessBox(format, targetPath, result, sync.ok, sync.output, tool, opts.verbose);
 
   if (!sync.ok) {
     throw new HatchError(
@@ -309,7 +371,11 @@ async function runFromPath(targetPath: string, opts: SetupOptions): Promise<void
 
 // ─── Mode 2: <name> (new full flow) ──────────────────────────────────────────
 
-async function runByName(name: string, opts: SetupOptions): Promise<void> {
+async function runByName(
+  name: string,
+  opts: SetupOptions,
+  format: CliOutputFormat,
+): Promise<void> {
   const cwd = process.cwd();
   const mainRoot = opts.from ?? (isInsideWorktree(cwd) ? findMainWorktree(cwd) : cwd);
 
@@ -341,7 +407,11 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
   await confirmSecretsOrAbort(includeContent, mainRoot, targetRoot, opts);
 
   if (opts.dryRun) {
-    printDryRun(includeContent, mainRoot, targetRoot, "name", name);
+    if (format === "json") {
+      emitDryRunJson(format, includeContent, mainRoot, targetRoot, "name", name);
+    } else {
+      printDryRun(includeContent, mainRoot, targetRoot, "name", name);
+    }
     return;
   }
 
@@ -370,7 +440,7 @@ async function runByName(name: string, opts: SetupOptions): Promise<void> {
   const sync = syncWorktree(targetRoot);
   const cdLine = `cd ${targetRoot}`;
   const tool = copyToClipboard(cdLine);
-  printSetupSuccessBox(targetRoot, result, sync.ok, sync.output, tool, opts.verbose);
+  printSetupSuccessBox(format, targetRoot, result, sync.ok, sync.output, tool, opts.verbose);
 
   if (!sync.ok) {
     throw new HatchError(
@@ -388,7 +458,13 @@ export async function worktreeSetupCommand(
   nameOrUndefined?: string,
   opts: SetupOptions = {},
 ): Promise<void> {
-  printBanner(true);
+  // W5: per-invocation interactivity — the secret-propagation confirm can
+  // prompt unless --yes or --dry-run, so `--format json` requires one of them
+  // (beginCommand's gate keys on --yes; --dry-run flips interactive off here).
+  const format = beginCommand(opts, {
+    banner: "compact",
+    interactive: opts.dryRun !== true,
+  });
 
   // D8-M3: worktree contexts multiply the surface for concurrent writes from
   // the main repo + N worktrees onto the same upstream `.hatch3r/` and copied
@@ -401,7 +477,7 @@ export async function worktreeSetupCommand(
     if (nameOrUndefined) {
       warn("Both <name> positional and --from-path supplied; using --from-path.");
     }
-    return runFromPath(opts.fromPath, opts);
+    return runFromPath(opts.fromPath, opts, format);
   }
 
   if (!nameOrUndefined) {
@@ -416,5 +492,5 @@ export async function worktreeSetupCommand(
     );
   }
 
-  return runByName(nameOrUndefined, opts);
+  return runByName(nameOrUndefined, opts, format);
 }

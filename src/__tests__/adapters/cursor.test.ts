@@ -19,10 +19,14 @@ describe("CursorAdapter", () => {
   function makeManifest(
     overrides: Partial<Parameters<typeof createManifest>[0]> & { models?: HatchManifest["models"] } = {},
   ): HatchManifest {
-    const { models, ...createOpts } = overrides;
+    const { models, features, ...createOpts } = overrides;
     const base = createManifest({
       tools: ["cursor"],
       mcpServers: ["github"],
+      // W3-mcp-optin: DEFAULT_FEATURES.mcp is now false (opt-in). This fixture
+      // seeds mcpServers, so pin the feature on to keep exercising the MCP
+      // emission paths; per-test feature overrides still win via the merge.
+      features: { mcp: true, ...features },
       ...createOpts,
     });
     return models ? { ...base, models } : base;

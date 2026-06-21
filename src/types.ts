@@ -323,7 +323,7 @@ export interface WorktreeConfig {
   nodeModules?: "symlink" | "skip";
 }
 
-export const TOOLS = ["cursor", "copilot", "claude"] as const;
+export const TOOLS = ["claude", "cursor", "copilot"] as const;
 export type Tool = (typeof TOOLS)[number];
 export const VALID_TOOLS = new Set<string>(TOOLS);
 export const TOOL_CHOICES = TOOLS.join(", ");
@@ -1051,7 +1051,11 @@ export const DEFAULT_FEATURES: Features = {
   // field JSDoc on the Features interface.
   prompts: false,
   commands: true,
-  mcp: true,
+  // 2.0.0 MCP opt-in contract: default OFF. Interactive init no longer prompts
+  // for MCP servers; the only enable paths are `hatch3r init --mcp` (any init
+  // path) and the `hatch3r mcp setup` side-door. init/mcp-setup derive the
+  // effective value from the resolved server list (mcp: servers.length > 0).
+  mcp: false,
   githubAgents: true,
   hooks: true,
   handoffs: true,
