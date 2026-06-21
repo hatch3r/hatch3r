@@ -7,7 +7,7 @@ title: CLI Commands
 
 Commands you run directly in the terminal via `npx hatch3r`.
 
-## Standard flags (2.1.0)
+## Standard flags (2.0.0)
 
 Every non-stub command and subcommand accepts:
 
@@ -301,7 +301,7 @@ See the [CLI Tools getting-started guide](../../getting-started/cli-tools.md) fo
 
 ## hatch3r mcp
 
-Added in 1.7.5. Manage MCP server configuration. MCP is pure opt-in since 2.1.0: interactive `init` does not prompt for it, and no init path configures it without `--mcp`. `mcp setup` is the primary opt-in surface; `setup` and `remove` keep the manifest's `features.mcp` flag consistent (`true` only while at least one server remains selected).
+Added in 1.7.5. Manage MCP server configuration. MCP is pure opt-in since 2.0.0: interactive `init` does not prompt for it, and no init path configures it without `--mcp`. `mcp setup` is the primary opt-in surface; `setup` and `remove` keep the manifest's `features.mcp` flag consistent (`true` only while at least one server remains selected).
 
 ```bash
 npx hatch3r mcp setup                 # open the MCP server picker (writes manifest + .env.mcp)

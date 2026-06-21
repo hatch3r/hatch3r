@@ -8,7 +8,7 @@ title: Quick Start
 A copy-paste-runnable walkthrough that takes a project from empty to released using hatch3r. The path is the same for greenfield and brownfield work — the spec step (Step 4) auto-detects which one you are in and branches for you.
 
 :::info Last verified
-2026-06-11 against hatch3r 2.1.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency). MCP is pure opt-in since 2.1.0 — interactive init does not prompt for it; enable with `npx hatch3r init --mcp` or `npx hatch3r mcp setup`.
+2026-06-11 against hatch3r 2.0.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency). MCP is pure opt-in since 2.0.0 — interactive init does not prompt for it; enable with `npx hatch3r init --mcp` or `npx hatch3r mcp setup`.
 :::
 
 ## Prerequisites

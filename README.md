@@ -30,7 +30,7 @@ npx hatch3r init            # interactive: customize profile, tools, and CLI too
 | **Rules** | 67 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
 | **Commands** | 30 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, bug-pipeline, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **CLI tools** | 29 across 3 tiers | Tier-1 default (ripgrep, fd, jq, yq, gh, delta, bat, sd, ast-grep, zstd); tier-2 conditional (Playwright, duckdb, qsv, taplo, glab, az-devops, Docker, llm, fzf, lazygit, difftastic); tier-3 opt-in (RTK, Stagehand, aichat, mods, Comby, miller, csvkit, Podman) -- emitted as per-tool canonical skills + a decision-tree overview |
-| **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- pure opt-in since 2.1.0: `init --mcp` or `npx hatch3r mcp setup` (interactive init does not prompt for MCP; `features.mcp` defaults to false) |
+| **MCP Servers** | 10 (opt-in) | Playwright, Context7, Filesystem, GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab -- pure opt-in since 2.0.0: `init --mcp` or `npx hatch3r mcp setup` (interactive init does not prompt for MCP; `features.mcp` defaults to false) |
 | **Platforms** | 3 | GitHub, Azure DevOps, GitLab -- auto-detected from git remote |
 
 ## Supported Tools (3 Adapters)
@@ -120,7 +120,7 @@ Since 1.7.5, hatch3r ships a first-class CLI-tools surface as the token-efficien
 
 ## MCP Configuration
 
-Since 1.7.5, MCP is **opt-in**; since 2.1.0 interactive `npx hatch3r init` no longer offers an MCP prompt. Without an opt-in, init skips MCP entirely -- no `.env.mcp`, no `mcp.json`, no servers in the manifest, and `features.mcp` stays false. When you opt in (`init --mcp` on any init path, or `npx hatch3r mcp setup` afterwards), hatch3r writes a gitignored `.env.mcp` with the required environment variables and MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`).
+Since 1.7.5, MCP is **opt-in**; since 2.0.0 interactive `npx hatch3r init` no longer offers an MCP prompt. Without an opt-in, init skips MCP entirely -- no `.env.mcp`, no `mcp.json`, no servers in the manifest, and `features.mcp` stays false. When you opt in (`init --mcp` on any init path, or `npx hatch3r mcp setup` afterwards), hatch3r writes a gitignored `.env.mcp` with the required environment variables and MCP config to the tool-appropriate location (`.cursor/mcp.json`, `.mcp.json`, `.vscode/mcp.json`).
 
 - **VS Code / Copilot:** secrets pass via the `env` object in `.vscode/mcp.json`.
 - **Cursor / Claude Code / others:** source the file first: `set -a && source .env.mcp && set +a && cursor .`

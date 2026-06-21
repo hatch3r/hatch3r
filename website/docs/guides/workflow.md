@@ -8,7 +8,7 @@ title: Workflow
 hatch3r provides a full project lifecycle, from setup to release. This guide walks through the typical flow and links to the deeper view of the four-phase pickup pipeline and review loop.
 
 :::info Last verified
-2026-06-11 against hatch3r 2.1.0. The init flow described in Step 1 mirrors the canonical prompt order in `src/cli/commands/init.ts`; the copy-paste-runnable version lives in the [Quick Start](../getting-started/quick-start). Re-verified each audit cycle (P3 — Adapter & MCP Currency).
+2026-06-11 against hatch3r 2.0.0. The init flow described in Step 1 mirrors the canonical prompt order in `src/cli/commands/init.ts`; the copy-paste-runnable version lives in the [Quick Start](../getting-started/quick-start). Re-verified each audit cycle (P3 — Adapter & MCP Currency).
 :::
 
 ## 1. Initialize

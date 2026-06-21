@@ -15,7 +15,7 @@ External research and runtime measurement converged on the same conclusion: pipi
 - **GitHub Blog — Improving token efficiency in agentic workflows (May 7 2026)**: agent runs that prefer CLI tooling over MCP shave 30-60% off token consumption on file-walk / search / format / diff workloads.
 - **Cloudflare — Code Mode (Feb 20 2026)** + **ThoughtWorks Tech Radar Vol 34 (Apr 2026)**: industry consensus is pushing agents toward subprocess-tool composition over network-tool federation.
 
-hatch3r still supports MCP — the pivot is about defaults, not deprecation. Since 2.1.0 interactive `npx hatch3r init` does not prompt for MCP at all (the fifth prompt is the CLI-tools picker); opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` on demand.
+hatch3r still supports MCP — the pivot is about defaults, not deprecation. Since 2.0.0 interactive `npx hatch3r init` does not prompt for MCP at all (the fifth prompt is the CLI-tools picker); opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` on demand.
 
 ## The 29-tool catalog
 
