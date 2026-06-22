@@ -130,7 +130,14 @@ export default defineConfig({
         test: {
           name: "heavy-fs",
           include: HEAVY_FS_TEST_FILES,
-          testTimeout: 30000,
+          // Heavy-fs tests materialize full content trees (many file writes); on
+          // I/O-slow windows-latest CI runners the heaviest (full x 3-adapter
+          // init + the GitHub/Azure/GitLab interactive single-repo flows)
+          // intermittently exceed a flat 30s -> spurious "Test timed out in
+          // 30000ms" (variance: same tests pass on faster runners). Give windows
+          // headroom; keep the tight 30s hang-tripwire on the fast OSes
+          // (Linux/macOS finish well under it). Per-test overrides still win.
+          testTimeout: process.platform === "win32" ? 120000 : 30000,
           hookTimeout: 30000,
           // Later group → runs alone, after "main" fully drains.
           sequence: { groupOrder: 1 },
