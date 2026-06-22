@@ -85,6 +85,16 @@ jobs:
           WINDOW_DAYS: "120"
         run: |
           set -euo pipefail
+          # governance/audit/domains/D15-trust-reference.md is private IP
+          # (gitignored on the public repo; source of truth: hatch3r-governance),
+          # so on the public runner the file is absent. Skip with a notice rather
+          # than hard-fail — the same [ -f ] guard ci.yml uses for its
+          # finding-registry step. Where the governance overlay is mounted the
+          # file is present and the full currency check below runs.
+          if [ ! -f "$DOC" ]; then
+            echo "::notice::$DOC not present (private governance IP) — skipping trust-reference doc currency check."
+            exit 0
+          fi
           if ! grep -q "## Compliance Verification Schedule" "$DOC"; then
             echo "::error::$DOC is missing the Compliance Verification Schedule section."
             exit 1
