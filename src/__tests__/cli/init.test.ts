@@ -71,7 +71,7 @@ describe("init command", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("should create .agents/ directory with --yes flag", async () => {
@@ -795,7 +795,7 @@ describe("init resumability checkpoints (F16.1-C1)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("writes a `passed` checkpoint at .init-workspace/checkpoint.json after a successful init", async () => {
@@ -869,7 +869,7 @@ describe("init interactive ≤5-prompt ceiling (F10.3-2)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("the common-path interactive flow consumes exactly 5 prompts (platform, identity, preset, tools, cliTools)", async () => {
@@ -964,7 +964,7 @@ describe("workspace init", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("should skip identity prompts and create workspace.json with --yes", async () => {
@@ -1093,7 +1093,7 @@ describe("init validation flags (--yes path)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("rejects an invalid --preset value", async () => {
@@ -1159,7 +1159,7 @@ describe("init validation flags (--yes path)", () => {
     );
 
     // Reset and run with full preset
-    await rm(join(tempDir, AGENTS_DIR), { recursive: true, force: true });
+    await rm(join(tempDir, AGENTS_DIR), { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
     await initCommand({ yes: true, preset: "full" });
     const fullManifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
     const fullCount = Object.values(fullManifest.content.items).reduce(
@@ -1261,7 +1261,7 @@ describe("init partial adapter failure (one of many fails)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("writes manifest when at least one adapter succeeds (partial failure)", async () => {
@@ -1331,7 +1331,7 @@ describe("init re-init: stale content cleanup", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("removes stale content when switching from full to minimal preset", async () => {
@@ -1387,7 +1387,7 @@ describe("init worktree generation (claude tool present)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("generates .worktreeinclude when a worktree-capable tool is selected", async () => {
@@ -1496,7 +1496,7 @@ describe("init language detection (Wave 3 H15)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("records detected TypeScript language in the manifest", async () => {
@@ -1578,7 +1578,7 @@ describe("init interactive single-repo flow", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   /**
@@ -1803,7 +1803,7 @@ describe("init interactive workspace flow", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("interactive workspace prompt accepts workspace mode", async () => {
@@ -1973,7 +1973,7 @@ describe("init --quick / --default aliases (C8-D10-M2)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("--quick runs without prompts and writes a manifest", async () => {
@@ -2028,7 +2028,7 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("rejects invalid --preset even in interactive mode (without --yes)", async () => {
@@ -2074,7 +2074,7 @@ describe("init runInit idempotency guard (C8-D1-M3)", () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("rejects reentrant runInit for the same rootDir", async () => {
@@ -2194,7 +2194,7 @@ describe("init workspace conflict guard (C8-D1-M3)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("prompts for confirmation when selected sub-repo already has hatch3r, and on decline drops it from sync", async () => {
@@ -2313,7 +2313,7 @@ describe("init --yes CLI tooling flags (Wave 5 plan §4.3)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("--yes --no-cli-tools produces manifest.cliTools.enabled === false", async () => {
@@ -2466,7 +2466,7 @@ describe("init chrome-suppression flags (C9-H26)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("--quiet suppresses the banner and success box on stdout", async () => {
@@ -2681,7 +2681,7 @@ describe("init multi-CTA post-init hint (C9-H29)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("greenfield empty repo surfaces all 4 README paths (project-spec primary, codebase-map/feature-plan/quick-change as alternates)", async () => {
@@ -2737,7 +2737,7 @@ describe("init stack-support pointer (D14-15)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("surfaces the matrix pointer for a detected partial stack (angular)", async () => {
@@ -2790,7 +2790,7 @@ describe("init tool-secret-notes ordering (C9-H32)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("MCP-secret-loading notes surface on an interactive --mcp run after tool selection", async () => {
@@ -2862,7 +2862,7 @@ describe("init shared-bridge-file ownership (C9-H31)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("drops the managedFilesByAdapter._shared bucket (Wave 6 manifest schema bump)", async () => {
@@ -2936,7 +2936,7 @@ describe("init per-package emission gate (D14-SA14.2-H1)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   it("does NOT write per-package copies by default (opt-out-by-default)", async () => {
@@ -3054,7 +3054,7 @@ describe("init Wave-3 Medium fixes (D10-37, D14-17, D1-15, D6-12)", () => {
     exitSpy.mockRestore();
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
-    await rm(tempDir, { recursive: true, force: true });
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
   // D10-37: the solo+full disclosure must state team-scoped workflows are
@@ -3125,6 +3125,11 @@ describe("init Wave-3 Medium fixes (D10-37, D14-17, D1-15, D6-12)", () => {
     expect(stdout).toContain("Hatch complete");
     // Output was actually written (manifest present).
     await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
-  });
+    // Full preset x all 3 adapters is the heaviest first-run install: on
+    // I/O-slow Windows CI runners it runs past the 30s heavy-fs default
+    // (cancelled at 30s on win-26), so give this single worst-case test
+    // explicit headroom. Linux/macOS finish well under 10s, so the ceiling
+    // never trips there.
+  }, 120_000);
 });
 
