@@ -39,8 +39,7 @@ jobs:
       # — audit mode is detect-only and a token-bearing job that runs
       # third-party code (npm ci/test, npx cyclonedx, npm pack/publish) must
       # fail closed on any unlisted destination. disable-sudo: true removes the
-      # runner's privilege-escalation path. The no-token release-please.yml
-      # stays on audit (no id-token).
+      # runner's privilege-escalation path.
       #
       # Allowlist derivation (every entry maps to a step's required egress; a
       # missing entry fails the release closed, so each is load-bearing):
