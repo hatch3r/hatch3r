@@ -64,7 +64,9 @@
     "ai-agents",
     "mcp",
     "skills",
-    "rules"
+    "rules",
+    "typescript",
+    "cli"
   ],
   "author": "hatch3r",
   "license": "MIT",
