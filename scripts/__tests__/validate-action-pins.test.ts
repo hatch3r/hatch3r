@@ -206,7 +206,7 @@ describe("runValidator (injected resolveTags)", () => {
 // The shipped .github/workflows pins map every comment to a tag the SHA
 // resolves to AFTER the D4-3 fix. This asserts the parser handles the real
 // files and that the core hatch3r-managed pins (ci.yml / release.yml /
-// release-please.yml / deploy-docs.yml / pr-checks.yml) carry 0 comment-vs-SHA
+// deploy-docs.yml / pr-checks.yml) carry 0 comment-vs-SHA
 // drift — without a network call. Keyed on the SHA (not owner/repo) so two pins
 // of the same action at different SHAs — actions/checkout is pinned at both
 // de0fac2e (v6.0.2) and 692973e3 (v4.1.7) in this repo — each resolve
@@ -226,7 +226,6 @@ describe("runValidator against the real workflows dir (SHA-keyed resolver)", () 
       "48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e": ["v6", "v6.4.0"], // setup-node
       c604332985a26aa8cf1bdc465b92731239ec6b9e: ["v4.1.0"], // attest-sbom
       b4309332981a82ec1c5618f44dd2e27cc8bfbfda: ["v3", "v3.0.0"], // action-gh-release
-      "45996ed1f6d02564a971a2fa1b5860e934307cf7": ["v5.0.0"], // release-please-action
       "2031cfc080254a8a887f58cffee85186f0e49e48": ["v4.9.0"], // dependency-review-action
       ba6de6cc0565af1f42295590380973573297e31f: ["v1.3.2"], // SocketDev/action
       fc324d3547104276b827a68afc52ff2a11cc49c9: ["v5.0.0"], // upload-pages-artifact
