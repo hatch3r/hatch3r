@@ -156,7 +156,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "7878ef919cc8d5c057b4f9a81fc0be4c54316cc46bff155c99e47b5d8f0a6420",
+    "bodyHash": "6dfcc96eb69c2652c26b8537473589cc6e0758715dc27935f52801dbd120f158",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -289,7 +289,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "bodyHash": "4d053d2a947b87015360fee4792728b411305dfb573f73db54996e5dda1475d6",
+    "bodyHash": "8c63028845272a6142ff6b32298b34f0e3ffd16f4f6d46b40bdc28eb38b8f378",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -540,7 +540,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "4d053d2a947b87015360fee4792728b411305dfb573f73db54996e5dda1475d6",
+    "bodyHash": "8c63028845272a6142ff6b32298b34f0e3ffd16f4f6d46b40bdc28eb38b8f378",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",

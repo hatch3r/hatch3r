@@ -467,16 +467,22 @@ export function maturityStep<TState extends { maturity: MaturityTier }>(
 
 // ── confidenceFloor ─────────────────────────────────────────────────
 
-export interface ConfidenceFloorStepOptions {
+export interface ConfidenceFloorStepOptions<TState extends object = object> {
   /** Prompt copy — config: "Agent assertiveness floor:". */
   message: string;
   /**
-   * First-visit default. config injects the tier-aware resolved value
-   * (`readConfidenceFloor(manifest)`): an explicit persisted floor wins, else
-   * solo/team default `any` and scaleup/enterprise default `high`. Builders
-   * never read the manifest.
+   * First-visit default. Either a fixed floor, or a resolver over the
+   * in-progress state. config passes a resolver so the seed tracks the maturity
+   * tier the user picked EARLIER in this same run (the maturity step is
+   * sequenced before this one): `readConfidenceFloor` with the in-run maturity
+   * keeps an explicit persisted floor winning, else solo/team default `any` and
+   * scaleup/enterprise default `high`. Without the resolver the seed would lag a
+   * mid-run maturity bump, and accepting a stale default could pin a floor that
+   * contradicts the newly-chosen tier. Builders never read the manifest — the
+   * caller closes over it inside the resolver (mirrors `tier2Suggested` /
+   * `defaultPreset`).
    */
-  defaultFloor: ConfidenceFloor;
+  defaultFloor: ConfidenceFloor | ((state: Partial<TState>) => ConfidenceFloor);
 }
 
 /**
@@ -487,11 +493,13 @@ export interface ConfidenceFloorStepOptions {
  * `config confidence_floor=<v>` form remains).
  */
 export function confidenceFloorStep<TState extends { confidenceFloor: ConfidenceFloor }>(
-  opts: ConfidenceFloorStepOptions,
+  opts: ConfidenceFloorStepOptions<TState>,
 ): StepFor<TState, "confidenceFloor"> {
   return {
     id: "confidenceFloor",
-    async run(_state, previous): Promise<StepResult<TState["confidenceFloor"]>> {
+    async run(state, previous): Promise<StepResult<TState["confidenceFloor"]>> {
+      const resolvedDefault =
+        typeof opts.defaultFloor === "function" ? opts.defaultFloor(state) : opts.defaultFloor;
       const answer = await inquirer.prompt<{ confidenceFloor: ConfidenceFloor | typeof BACK }>([
         {
           type: "select",
@@ -502,7 +510,7 @@ export function confidenceFloorStep<TState extends { confidenceFloor: Confidence
             { name: "medium — second-pass on any low-confidence finding", value: "medium" as ConfidenceFloor },
             { name: "high — second-pass on non-high confidence + ASK on every low-confidence finding", value: "high" as ConfidenceFloor },
           ],
-          default: previous ?? opts.defaultFloor,
+          default: previous ?? resolvedDefault,
         },
       ]);
       return isBack(answer.confidenceFloor) ? BACK : (answer.confidenceFloor as TState["confidenceFloor"]);

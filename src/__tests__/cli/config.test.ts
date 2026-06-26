@@ -630,6 +630,42 @@ describe("config command", () => {
       expect(result.hooks).toBe(false);   // listed + unselected → off
       expect(result.mcp).toBe(true);      // listed + selected → on
     });
+
+    it("renders Handoffs checked when the manifest OMITS the key, and keeps it enabled on accept-defaults", async () => {
+      // Upgraded manifests written before `handoffs` joined the schema omit the
+      // key entirely. DEFAULT_FEATURES.handoffs === true, so the checkbox
+      // default must fall back to the schema default and render handoffs CHECKED
+      // — otherwise an accept-defaults run rebuilds features.handoffs = false and
+      // silently disables it (the existing handoffs tests above use a manifest
+      // where the key is present, so they miss this missing-key path).
+      const manifest = makeManifest();
+      delete (manifest.features as Partial<Features>).handoffs;
+      expect(manifest.features.handoffs).toBeUndefined();
+
+      // Accept the (now-checked) default set including handoffs; adding a tool
+      // forces the write past the no-changes guard.
+      primeConfig(manifest, {
+        features: ["agents", "skills", "rules", "commands", "mcp", "githubAgents", "hooks", "handoffs"],
+        tools: ["cursor", "claude"],
+      });
+
+      await (await importConfigCommand())();
+
+      // 1. The features prompt seeded handoffs as a checked default (the fix:
+      //    `manifest.features[k] ?? DEFAULT_FEATURES[k]`). Pre-fix the missing
+      //    key read as falsy and handoffs was absent from the default set.
+      const featuresCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "features");
+      });
+      expect(featuresCall).toBeDefined();
+      const featuresQuestion = (featuresCall![0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
+      expect(featuresQuestion.default).toContain("handoffs");
+
+      // 2. The accepted selection persists handoffs enabled — no silent disable.
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.features.handoffs).toBe(true);
+    });
   });
 
   describe("maturity + confidence_floor interactive steps (Tasks C/E, 2.1.0)", () => {
@@ -675,6 +711,35 @@ describe("config command", () => {
 
       expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
       expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("seeds the floor default from the in-run maturity bump, not the pre-mutation tier", async () => {
+      // solo manifest, no explicit confidenceFloor → pre-mutation floor "any".
+      // Bumping maturity to scaleup in the SAME run must seed the floor prompt's
+      // default to scaleup's derived "high" (not the stale "any"), so accepting
+      // it cannot pin a floor that contradicts the new tier. The inquirer mock
+      // returns queued answers regardless of `default`, so the seed is asserted
+      // on the rendered prompt; the queued floor answer mirrors accepting it.
+      const manifest = makeManifest(); // no maturity / confidenceFloor fields
+      expect(manifest.confidenceFloor).toBeUndefined();
+      primeConfig(manifest, { maturity: "scaleup", confidenceFloor: "high" });
+
+      await (await importConfigCommand())();
+
+      const floorCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "confidenceFloor");
+      });
+      expect(floorCall).toBeDefined();
+      const floorQuestion = (floorCall![0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
+      // Pre-fix this default was readConfidenceFloor(pre-mutation solo) === "any".
+      expect(floorQuestion.default).toBe("high");
+
+      // Accepting that tier-correct default persists a floor that follows the
+      // new tier — no stale "any" pin overriding scaleup's derived "high".
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("scaleup");
+      expect(writtenManifest.confidenceFloor).toBe("high");
     });
   });
 

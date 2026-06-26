@@ -156,12 +156,14 @@ function defaultModelFormat(model: string): ModelFormat {
  * Render {@link value} as a YAML double-quoted scalar safe for a single-line
  * frontmatter field (e.g. `description:`).
  *
- * Command descriptions routinely contain `: ` and `--` sequences (e.g.
- * "Pick up epics/issues from the project board: dependency-aware selection")
- * that make an unquoted YAML plain scalar ambiguous or invalid. When the
- * `description:` line fails to parse, the slash-command picker in Claude Code /
- * Cursor / Copilot falls back to showing the `HATCH3R:BEGIN` managed-block
- * marker as the description. Double-quoting removes that hazard.
+ * Command and skill descriptions routinely contain `: ` and `--` sequences
+ * (e.g. "Pick up epics/issues from the project board: dependency-aware
+ * selection") that make an unquoted YAML plain scalar ambiguous or invalid.
+ * When the `description:` line fails to parse, the slash-command / skill picker
+ * in Claude Code / Cursor / Copilot falls back to showing the `HATCH3R:BEGIN`
+ * managed-block marker as the description. Double-quoting removes that hazard.
+ * Used by {@link processCommandsWithFm}, {@link processSkillsWithFm}, and
+ * {@link processSkillsWithFmCliFiltered}.
  *
  * Transform: collapse runs of CR/LF to a single space (a frontmatter scalar is
  * one line), then escape backslashes FIRST and double-quotes second — order
@@ -770,7 +772,19 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
-  /** Process skills and output each with YAML frontmatter (name, description) at the path returned by `pathFn`. */
+  /**
+   * Process skills and output each with YAML frontmatter (`name`,
+   * `description`) at the path returned by `pathFn`.
+   *
+   * The `description:` is rendered as a YAML double-quoted scalar via
+   * {@link toYamlDoubleQuotedScalar} — the same treatment {@link processCommandsWithFm}
+   * applies to command descriptions. A skill description carrying `: ` (or a
+   * leading YAML indicator / `"` / `#`) would otherwise make the byte-0
+   * `description:` line an invalid plain scalar, and the `/` picker in Claude
+   * Code / Cursor / Copilot would fall back to showing the `HATCH3R:BEGIN`
+   * managed-block marker. `name` is the canonical id (a `hatch3r-` slug with no
+   * quoting hazard) and stays unquoted, mirroring the command helper.
+   */
   protected async processSkillsWithFm(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -785,7 +799,7 @@ export abstract class BaseAdapter implements Adapter {
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
-      const fm = `---\nname: ${skill.id}\ndescription: ${desc}\n---`;
+      const fm = `---\nname: ${skill.id}\ndescription: ${toYamlDoubleQuotedScalar(desc)}\n---`;
       results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content, this.singleSource(skill)));
     }
     return results;
@@ -876,7 +890,10 @@ export abstract class BaseAdapter implements Adapter {
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
-      const fmLines = [`name: ${skill.id}`, `description: ${desc}`];
+      // Double-quote the description for the same picker-safety reason the
+      // command helper does (see {@link processSkillsWithFm}): a `: `- or
+      // `--`-bearing description breaks the byte-0 plain scalar otherwise.
+      const fmLines = [`name: ${skill.id}`, `description: ${toYamlDoubleQuotedScalar(desc)}`];
       // D9-H-6: append the Copilot `allowed-tools` pre-approval array when
       // the adapter opts in and the skill declares tools. Each entry is
       // JSON-quoted so binaries containing characters that would otherwise

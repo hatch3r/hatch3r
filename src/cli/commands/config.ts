@@ -995,9 +995,17 @@ async function configCommandImpl(
     {
       id: "features",
       async run(_state, previous): Promise<StepResult<(keyof Features)[]>> {
+        // A manifest written before a feature joined the schema OMITS its key;
+        // DEFAULT_FEATURES treats a missing key as its schema default (e.g.
+        // `handoffs === true`). Fall back to that default instead of the falsy
+        // `undefined` — otherwise the checkbox renders the feature UNCHECKED and
+        // an accept-defaults run persists it `false`, silently disabling it on
+        // upgraded manifests (Cursor Bugbot — handoffs default unchecked).
         const currentFeatureKeys =
           previous ??
-          (Object.keys(DEFAULT_FEATURES) as (keyof Features)[]).filter((k) => manifest.features[k]);
+          (Object.keys(DEFAULT_FEATURES) as (keyof Features)[]).filter(
+            (k) => manifest.features[k] ?? DEFAULT_FEATURES[k],
+          );
         const featureAnswers = await inquirer.prompt<{ features: (keyof Features)[] | typeof BACK }>([
           {
             type: "checkbox",
@@ -1074,15 +1082,19 @@ async function configCommandImpl(
       defaultMaturity: readMaturityTier(manifest),
     }),
     // E (2.1.0, P1): interactive confidence_floor surface — parity with the
-    // scalar `config confidence_floor=<v>` form. Default = the tier-aware
-    // resolved value (readConfidenceFloor: explicit floor wins, else
-    // solo/team→"any", scaleup/enterprise→"high"). Computed from the manifest
-    // as it stands at config start (the machine does not mutate it), so a
-    // maturity change made earlier in this same run is not reflected in this
-    // default — the user can still pick any floor explicitly.
+    // scalar `config confidence_floor=<v>` form. The default is resolved AT
+    // PROMPT TIME from the in-run maturity (`state.maturity`, set by the
+    // maturity step sequenced just above) rather than the pre-mutation
+    // manifest, so a solo→scaleup bump made earlier in this same run seeds the
+    // tier-correct floor ("high") instead of the stale solo default ("any").
+    // readConfidenceFloor keeps an explicit persisted floor winning; only the
+    // tier-derived fallback follows the new maturity. Without this, accepting
+    // the seeded default after a maturity bump would persist a floor that
+    // contradicts the chosen tier (Cursor Bugbot — floor pinned on tier bump).
     confidenceFloorStep<ConfigState>({
       message: "Agent assertiveness floor (review/ASK gate):",
-      defaultFloor: readConfidenceFloor(manifest),
+      defaultFloor: (state) =>
+        readConfidenceFloor({ ...manifest, maturity: state.maturity ?? manifest.maturity }),
     }),
   ];
 
