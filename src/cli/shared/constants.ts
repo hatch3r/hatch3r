@@ -28,6 +28,12 @@ export const FEATURE_CHOICES: { name: string; value: keyof Features }[] = [
   { name: "MCP", value: "mcp" },
   { name: "Hooks", value: "hooks" },
   { name: "GitHub agents", value: "githubAgents" },
+  // 2.1.0 (Task D): handoffs was a live control surface (DEFAULT_FEATURES.handoffs
+  // = true, threaded into bridge-orchestration emission) but absent from the
+  // picker, so the config feature-rebuild loop silently forced it false on every
+  // run. Listed here (default checked) so it round-trips; the rebuild loop is
+  // additionally hardened to preserve unlisted features (see config.ts).
+  { name: "Handoffs", value: "handoffs" },
 ];
 
 export const MCP_CHOICES = Object.entries(AVAILABLE_MCP_SERVERS).map(([id, meta]) => ({

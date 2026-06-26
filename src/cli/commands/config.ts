@@ -59,8 +59,10 @@ import {
 } from "../shared/initSteps.js";
 import {
   cliToolsStep,
+  confidenceFloorStep,
   customItemsStep,
   identityStep,
+  maturityStep,
   mcpGateStep,
   mcpServersStep,
   platformStep,
@@ -181,6 +183,34 @@ function isDiffEmpty(diff: ConfigDiff): boolean {
     diff.addedCliTools.length === 0 &&
     diff.removedCliTools.length === 0
   );
+}
+
+/**
+ * Task D (2.1.0, CQ8 maintainability): rebuild the {@link Features} map from an
+ * interactive checkbox selection without dropping live-but-unlisted features.
+ *
+ * The config feature picker renders only the features in
+ * {@link FEATURE_CHOICES}, so the rebuild must flip ONLY the keys the picker
+ * actually offered (`pickerVisible`) and RETAIN every other key from the prior
+ * manifest. The pre-2.1.0 loop flipped EVERY {@link DEFAULT_FEATURES} key to
+ * `selected.includes(k)`, which forced any feature absent from the picker to
+ * `false` on every config run — silently disabling `handoffs` (a live control
+ * surface, `DEFAULT_FEATURES.handoffs === true`) because it was not a choice.
+ *
+ * `prev` seeds the result so unlisted keys survive; spreading over
+ * {@link DEFAULT_FEATURES} first fills any key a legacy manifest omits. Exported
+ * for direct unit testing with a synthetic unlisted feature.
+ */
+export function rebuildFeaturesFromSelection(
+  prev: Features,
+  selected: (keyof Features)[],
+  pickerVisible: Iterable<keyof Features>,
+): Features {
+  const features: Features = { ...DEFAULT_FEATURES, ...prev };
+  for (const k of pickerVisible) {
+    features[k] = selected.includes(k);
+  }
+  return features;
 }
 
 /**
@@ -898,6 +928,11 @@ async function configCommandImpl(
     worktreeEnabled: boolean;
     preset: PresetId;
     customItems: string[] | undefined;
+    // C / E (2.1.0): investment-calibration dials. Both unconditional steps,
+    // seeded from the persisted manifest via readMaturityTier /
+    // readConfidenceFloor (the latter tier-aware). Persisted after the machine.
+    maturity: MaturityTier;
+    confidenceFloor: ConfidenceFloor;
   }
 
   // W2-flowsteps: shared prompt steps are composed from the builders in
@@ -1031,6 +1066,24 @@ async function configCommandImpl(
       extraSkip: () => !manifest.content,
       wslTheme,
     }),
+    // C (2.1.0, P1): interactive maturity surface — parity with the scalar
+    // `config maturity=<tier>` form. Default = the persisted tier
+    // (readMaturityTier resolves absence to "solo").
+    maturityStep<ConfigState>({
+      message: "Maturity tier (investment depth):",
+      defaultMaturity: readMaturityTier(manifest),
+    }),
+    // E (2.1.0, P1): interactive confidence_floor surface — parity with the
+    // scalar `config confidence_floor=<v>` form. Default = the tier-aware
+    // resolved value (readConfidenceFloor: explicit floor wins, else
+    // solo/team→"any", scaleup/enterprise→"high"). Computed from the manifest
+    // as it stands at config start (the machine does not mutate it), so a
+    // maturity change made earlier in this same run is not reflected in this
+    // default — the user can still pick any floor explicitly.
+    confidenceFloorStep<ConfigState>({
+      message: "Agent assertiveness floor (review/ASK gate):",
+      defaultFloor: readConfidenceFloor(manifest),
+    }),
   ];
 
   const stepState = await runStepMachine<ConfigState>(steps);
@@ -1039,6 +1092,20 @@ async function configCommandImpl(
   const { owner, repo, namespace, project } = stepState.identity;
   const defaultBranch = stepState.defaultBranch;
   const tools = stepState.tools;
+
+  // C / E (2.1.0): detect maturity / confidence-floor changes against the
+  // pre-mutation manifest (readMaturityTier / readConfidenceFloor resolve the
+  // current effective value). computeDiff() does not track these dials, so the
+  // booleans feed the no-changes early-return guard below — without them a
+  // maturity-only or floor-only change would hit "No changes detected" and be
+  // dropped before writeManifest.
+  const selectedMaturity = stepState.maturity;
+  const selectedConfidenceFloor = stepState.confidenceFloor;
+  const maturityChanged =
+    selectedMaturity !== undefined && selectedMaturity !== readMaturityTier(manifest);
+  const confidenceFloorChanged =
+    selectedConfidenceFloor !== undefined &&
+    selectedConfidenceFloor !== readConfidenceFloor(manifest);
 
   if (tools.length === 0) {
     logError("At least one tool must be selected.");
@@ -1069,11 +1136,16 @@ async function configCommandImpl(
   };
 
   // --- Features ---
-  const selectedFeatures = stepState.features;
-  const features: Features = { ...DEFAULT_FEATURES };
-  for (const k of Object.keys(features) as (keyof Features)[]) {
-    features[k] = selectedFeatures.includes(k);
-  }
+  // Task D (2.1.0, CQ8): the checkbox only renders the features in
+  // FEATURE_CHOICES, so a feature ABSENT from the picker must RETAIN its prior
+  // manifest value — not be forced false (the pre-2.1.0 `handoffs` bug, now also
+  // listed in FEATURE_CHOICES). Logic single-sourced in the exported pure
+  // helper below so it is unit-testable with a synthetic unlisted feature.
+  const features: Features = rebuildFeaturesFromSelection(
+    manifest.features,
+    stepState.features,
+    FEATURE_CHOICES.map((c) => c.value),
+  );
 
   // --- MCP servers ---
   // When the mcp feature is on but the user declined the gate, preserve
@@ -1266,7 +1338,13 @@ async function configCommandImpl(
   // into computeDiff instead of patching the returned struct afterwards.
   const diff = computeDiff(manifest, tools, features, mcpServers, platform, owner, repo, namespace, project, selectedCliTools, contentChanges);
 
-  if (isDiffEmpty(diff) && defaultBranch === currentBranch && !contentMetadataChanged) {
+  if (
+    isDiffEmpty(diff) &&
+    defaultBranch === currentBranch &&
+    !contentMetadataChanged &&
+    !maturityChanged &&
+    !confidenceFloorChanged
+  ) {
     // W5-bigfour: blank-line separators are stdout chrome — gate behind quiet
     // (info() is already self-gated).
     if (!isQuiet()) console.log();
@@ -1412,6 +1490,12 @@ async function configCommandImpl(
   manifest.features = features;
   manifest.mcp = { servers: mcpServers };
   manifest.cliTools = cliToolsConfig;
+  // C / E (2.1.0): persist the investment dials from the interactive steps
+  // (parity with the scalar `config maturity=` / `config confidence_floor=`
+  // setters). Both steps are unconditional, so stepState always carries a
+  // value; the guard is defensive against a future skip predicate.
+  if (selectedMaturity !== undefined) manifest.maturity = selectedMaturity;
+  if (selectedConfidenceFloor !== undefined) manifest.confidenceFloor = selectedConfidenceFloor;
 
   if (manifest.board) {
     manifest.board.owner = owner;
@@ -1519,6 +1603,15 @@ async function configCommandImpl(
   // W5-bigfour: the per-change diff lines are single-sourced in
   // buildDiffSummaryLines (shared with the `--dry-run` terminus above).
   const summaryLines: string[] = buildDiffSummaryLines(diff, platform, namespace, project, defaultBranch, currentBranch);
+
+  // C / E (2.1.0, P1): surface the investment-dial changes in the summary so a
+  // maturity / floor edit is visible (computeDiff does not track these dials).
+  if (maturityChanged && selectedMaturity !== undefined) {
+    summaryLines.push(`${chalk.cyan("~")} Maturity: ${selectedMaturity}`);
+  }
+  if (confidenceFloorChanged && selectedConfidenceFloor !== undefined) {
+    summaryLines.push(`${chalk.cyan("~")} Confidence floor: ${selectedConfidenceFloor}`);
+  }
 
   summaryLines.push("");
   summaryLines.push(label("Files", `${updateResult.copiedFiles} canonical files updated`));

@@ -1,5 +1,6 @@
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
+import { parse as parseYaml } from "yaml";
 import type {
   AdapterOutput,
   CanonicalFile,
@@ -149,6 +150,59 @@ export type CompanionSubdir = (typeof KNOWN_COMPANION_SUBDIRS)[number];
 
 function defaultModelFormat(model: string): ModelFormat {
   return { text: `**Recommended model:** \`${model}\`` };
+}
+
+/**
+ * Render {@link value} as a YAML double-quoted scalar safe for a single-line
+ * frontmatter field (e.g. `description:`).
+ *
+ * Command descriptions routinely contain `: ` and `--` sequences (e.g.
+ * "Pick up epics/issues from the project board: dependency-aware selection")
+ * that make an unquoted YAML plain scalar ambiguous or invalid. When the
+ * `description:` line fails to parse, the slash-command picker in Claude Code /
+ * Cursor / Copilot falls back to showing the `HATCH3R:BEGIN` managed-block
+ * marker as the description. Double-quoting removes that hazard.
+ *
+ * Transform: collapse runs of CR/LF to a single space (a frontmatter scalar is
+ * one line), then escape backslashes FIRST and double-quotes second — order
+ * matters, because escaping `"` first would have its inserted `\` doubled by
+ * the backslash pass — then wrap in double quotes.
+ */
+function toYamlDoubleQuotedScalar(value: string): string {
+  const singleLine = value.replace(/[\r\n]+/g, " ");
+  const escaped = singleLine.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+  return `"${escaped}"`;
+}
+
+/**
+ * Extract the canonical `argument-hint` frontmatter value from a command's raw
+ * file content, or `undefined` when absent/blank.
+ *
+ * The slash-command picker (Claude Code) renders `argument-hint:` as the
+ * expected-argument affordance (D5-33). The field is NOT on
+ * {@link CanonicalMetadata} — `parseFrontmatter`'s allowlist omits it — so the
+ * pre-fix `processCommandsRaw` only carried it through by emitting the whole
+ * raw frontmatter inside the managed block (below the byte-0 marker, where the
+ * picker could not read it). {@link processCommandsWithFm} re-parses it here
+ * and re-emits it in the byte-0 stub, the command analogue of how the skills
+ * helper preserves `allowed-tools`. Re-parsing (rather than threading a typed
+ * field) keeps the change inside the adapter layer.
+ *
+ * No try/catch (CONSTITUTION §2 P5 / `silent-failure/no-silent-catch`): every
+ * `cmd` reaching {@link processCommandsWithFm} was already parsed by the
+ * canonical reader ({@link readCanonicalFiles} runs `parseFrontmatter` → the
+ * same `yaml` parser and drops a file with invalid frontmatter before it
+ * becomes a `CanonicalFile`), so `parseYaml` on the same byte-0 `---…---` block
+ * cannot throw here. A regex miss (no frontmatter block) or a non-string/absent
+ * value returns `undefined`; if unvalidated content ever reached this helper, a
+ * YAML error would propagate loudly rather than be silently swallowed.
+ */
+function extractArgumentHint(rawContent: string): string | undefined {
+  const match = rawContent.match(/^---\n([\s\S]*?)\n---/);
+  if (!match) return undefined;
+  const parsed = parseYaml(match[1]) as Record<string, unknown> | null;
+  const hint = parsed?.["argument-hint"];
+  return typeof hint === "string" && hint.trim().length > 0 ? hint : undefined;
 }
 
 export abstract class BaseAdapter implements Adapter {
@@ -854,6 +908,57 @@ export abstract class BaseAdapter implements Adapter {
       if (skip) continue;
       const content = this.substituteCanonicalContent(raw, ctx);
       results.push(output(pathFn(cmd.id), wrapManagedFor(pathFn(cmd.id), content), content, this.singleSource(cmd)));
+    }
+    return results;
+  }
+
+  /**
+   * Process commands and output each with YAML frontmatter (`name`,
+   * `description`) prepended before the managed block, at the path returned by
+   * `pathFn`.
+   *
+   * Twin of {@link processCommandsRaw} (same user-facing canonical read,
+   * customization, token substitution, feature gate, and warnings handling) —
+   * and the command analogue of {@link processSkillsWithFm} — but emits a
+   * `---\nname:\ndescription:\n---` stub at byte 0 so the slash-command picker
+   * in Claude Code / Cursor / Copilot shows the real description instead of the
+   * `HATCH3R:BEGIN` managed-block marker (the picker reads `description:` at
+   * byte 0). It uses {@link applyCustomization} (frontmatter-stripped body),
+   * not {@link applyCustomizationRaw} (full file), so the canonical frontmatter
+   * is not re-emitted inside the managed block. The description (and any
+   * `argument-hint`) is rendered as a YAML double-quoted scalar via
+   * {@link toYamlDoubleQuotedScalar} because command descriptions routinely
+   * carry `: ` / `--`, and `argument-hint` values such as `[service-name]`
+   * would otherwise parse as a YAML flow sequence, either of which breaks an
+   * unquoted plain scalar.
+   *
+   * The canonical `argument-hint` field (when present) is re-emitted in the
+   * stub so the picker's argument affordance survives at byte 0 (D5-33) — the
+   * pre-fix `processCommandsRaw` carried it only below the marker where the
+   * picker could not read it. Other canonical command frontmatter (governance
+   * metadata like `orchestrator`/`agentPipeline`/`triage_tiers`) is
+   * intentionally NOT hoisted: it is hatch3r-authoring data with no runtime or
+   * picker consumer.
+   */
+  protected async processCommandsWithFm(
+    ctx: AdapterContext,
+    pathFn: (id: string) => string,
+  ): Promise<AdapterOutput[]> {
+    if (!ctx.features.commands) return [];
+    const results: AdapterOutput[] = [];
+    const commands = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "commands", ctx.userRepoRoot);
+    for (const cmd of commands) {
+      this.throwIfAborted(ctx);
+      const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, cmd);
+      this.warnings.push(...warnings);
+      if (skip) continue;
+      const content = this.substituteCanonicalContent(raw, ctx);
+      const desc = overrides.description ?? cmd.description;
+      const fmLines = [`name: ${cmd.id}`, `description: ${toYamlDoubleQuotedScalar(desc)}`];
+      const argumentHint = extractArgumentHint(cmd.rawContent);
+      if (argumentHint) fmLines.push(`argument-hint: ${toYamlDoubleQuotedScalar(argumentHint)}`);
+      const fm = `---\n${fmLines.join("\n")}\n---`;
+      results.push(output(pathFn(cmd.id), `${fm}\n\n${wrapManagedFor(pathFn(cmd.id), content)}`, content, this.singleSource(cmd)));
     }
     return results;
   }

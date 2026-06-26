@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ARCHIVE_DIR, HatchError, DEFAULT_FEATURES, type HatchManifest } from "../../types.js";
+import { ARCHIVE_DIR, HatchError, DEFAULT_FEATURES, type Features, type HatchManifest } from "../../types.js";
 import {
   makeManifest,
   makeContentSelection,
@@ -589,6 +589,92 @@ describe("config command", () => {
       const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.features.hooks).toBe(false);
       expect(writtenManifest.features.mcp).toBe(false);
+    });
+  });
+
+  // ── 2.1.0: handoffs fix + maturity/confidence interactive surfaces ──
+  describe("handoffs feature-rebuild fix (Task D, 2.1.0)", () => {
+    it("FEATURE_CHOICES offers handoffs (default-checked) so it round-trips", async () => {
+      const { FEATURE_CHOICES } = await import("../../cli/shared/constants.js");
+      expect(FEATURE_CHOICES.some((c) => c.value === "handoffs")).toBe(true);
+    });
+
+    it("re-running config keeps features.handoffs === true (core regression)", async () => {
+      // makeManifest carries DEFAULT_FEATURES.handoffs === true. A tool add
+      // forces the write; the feature selection accepts the default set (which
+      // now includes handoffs as a checked choice), so handoffs survives.
+      const manifest = makeManifest();
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
+
+      await (await importConfigCommand())();
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.features.handoffs).toBe(true);
+    });
+
+    it("rebuildFeaturesFromSelection preserves a feature absent from the picker", async () => {
+      const { rebuildFeaturesFromSelection } = await import("../../cli/commands/config.js");
+      const prev: Features = { ...DEFAULT_FEATURES, handoffs: true, mcp: true };
+      // Simulate the pre-2.1.0 picker that did NOT render handoffs.
+      const pickerVisible: (keyof Features)[] = [
+        "agents", "skills", "rules", "prompts", "commands", "mcp", "hooks", "githubAgents",
+      ];
+      // User unchecks hooks; handoffs is not offered at all.
+      const selected: (keyof Features)[] = [
+        "agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents",
+      ];
+
+      const result = rebuildFeaturesFromSelection(prev, selected, pickerVisible);
+
+      expect(result.handoffs).toBe(true); // unlisted → prior value preserved
+      expect(result.hooks).toBe(false);   // listed + unselected → off
+      expect(result.mcp).toBe(true);      // listed + selected → on
+    });
+  });
+
+  describe("maturity + confidence_floor interactive steps (Tasks C/E, 2.1.0)", () => {
+    it("the maturity step fires and persists the chosen tier", async () => {
+      const manifest = makeManifest(); // no maturity field → resolves to solo
+      primeConfig(manifest, { maturity: "scaleup" });
+
+      await (await importConfigCommand())();
+
+      // The maturity prompt was rendered.
+      const sawMaturityPrompt = vi.mocked(inquirer.prompt).mock.calls.some((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "maturity");
+      });
+      expect(sawMaturityPrompt).toBe(true);
+      // The tier change alone forces the write (not gated by "No changes").
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("scaleup");
+    });
+
+    it("the confidence_floor step fires and persists the chosen floor", async () => {
+      const manifest = makeManifest(); // solo, no floor → resolves to "any"
+      primeConfig(manifest, { confidenceFloor: "high" });
+
+      await (await importConfigCommand())();
+
+      const sawFloorPrompt = vi.mocked(inquirer.prompt).mock.calls.some((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "confidenceFloor");
+      });
+      expect(sawFloorPrompt).toBe(true);
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.confidenceFloor).toBe("high");
+    });
+
+    it("accepting the maturity + floor defaults registers no change", async () => {
+      // makeManifest has no maturity/floor → defaults solo/any; the queued
+      // answers mirror those defaults, so the no-changes guard still fires.
+      const manifest = makeManifest();
+      primeConfig(manifest);
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
     });
   });
 

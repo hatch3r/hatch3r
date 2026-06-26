@@ -137,9 +137,10 @@ function withCacheBreakpoints(body: string): string {
 
 /**
  * C9-M47 (P7): re-wrap an `AdapterOutput` produced by the cross-adapter
- * helpers (`processSkillsRawCliFiltered`, `processCommandsRaw`) so the
- * Claude adapter's managed-block payload carries the cache-breakpoint
- * sentinels without disturbing the shared base helpers.
+ * helpers (`processSkillsWithFmCliFiltered`, `processCommandsWithFm`,
+ * `processCompanionSubdir`) so the Claude adapter's managed-block payload
+ * carries the cache-breakpoint sentinels without disturbing the shared base
+ * helpers.
  *
  * Strategy: take the existing `managedContent` (the raw body the helper
  * passed to the managed-block wrapper), wrap it with sentinels, and rebuild
@@ -147,14 +148,29 @@ function withCacheBreakpoints(body: string): string {
  * the path-mandatory helper (D11-SA11.2-F8) keeps the marker variant correct
  * for the output's extension even though every `.claude/` output is markdown
  * today. Outputs without `managedContent` (no managed block) pass through
- * unchanged.
+ * unchanged. Any YAML frontmatter prefix the with-fm skill/command helpers
+ * prepend before the managed block is preserved (see the prefix logic below)
+ * so the slash-command picker keeps reading `description:` at byte 0.
  */
 function rewrapWithCacheBreakpoints(out: AdapterOutput): AdapterOutput {
   if (!out.managedContent) return out;
   const wrappedBody = withCacheBreakpoints(out.managedContent);
+  // Preserve any YAML frontmatter the with-fm skill/command helpers
+  // (processSkillsWithFmCliFiltered / processCommandsWithFm) prepend before the
+  // managed block. The slash-command picker reads `description:` at byte 0, so
+  // the rebuilt content MUST keep that prefix — rebuilding from the managed
+  // block alone would strip it and re-introduce the bug. The original content
+  // was composed as `${prefix}${wrapManagedFor(path, managedContent)}`;
+  // reconstruct that exact block to locate the prefix, then re-wrap the
+  // cache-breakpoint body. Raw (no-frontmatter) outputs — e.g. companion files
+  // emitted by processCompanionSubdir — yield blockIdx 0 and an empty prefix,
+  // so their behavior is byte-for-byte unchanged.
+  const originalBlock = wrapManagedFor(out.path, out.managedContent);
+  const blockIdx = out.content.indexOf(originalBlock);
+  const prefix = blockIdx > 0 ? out.content.slice(0, blockIdx) : "";
   return {
     ...out,
-    content: wrapManagedFor(out.path, wrappedBody),
+    content: `${prefix}${wrapManagedFor(out.path, wrappedBody)}`,
     managedContent: wrappedBody,
   };
 }
@@ -252,6 +268,17 @@ const AGENT_TEAMS_SECTION_MINIMAL = [
   "",
   "Use `/hatch3r-agent-team` for guided team creation.",
 ];
+
+/**
+ * Byte-0 picker description for the synthetic `.claude/commands/hatch3r-agent-team.md`
+ * launcher. The slash-command picker reads `description:` at byte 0; this
+ * inline-built command is not routed through `processCommandsWithFm`, so the
+ * description is supplied here. Kept free of `"` and `\` so it serializes as a
+ * valid YAML double-quoted scalar without escaping — the same shape
+ * `base.ts::toYamlDoubleQuotedScalar` emits for special-char-free input.
+ */
+const AGENT_TEAM_DESCRIPTION =
+  "Launch a Claude Code Agent Team that runs the hatch3r 4-phase pipeline — Research, Implement, Review, then parallel Quality gates — across coordinating teammates.";
 
 const AGENT_TEAM_COMMAND = `# hatch3r Agent Team
 
@@ -1221,13 +1248,13 @@ export class ClaudeAdapter extends BaseAdapter {
     // (shared across all 3 supported adapters); we post-process the
     // Claude-specific results so the sentinels appear in this adapter's
     // managed blocks only, without touching the cross-adapter helpers.
-    const skillOutputs = await this.processSkillsRawCliFiltered(
+    const skillOutputs = await this.processSkillsWithFmCliFiltered(
       ctx,
       (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`,
     );
     results.push(...skillOutputs.map(rewrapWithCacheBreakpoints));
 
-    const commandOutputs = await this.processCommandsRaw(
+    const commandOutputs = await this.processCommandsWithFm(
       ctx,
       (id) => `.claude/commands/${toPrefixedId(id)}.md`,
     );
@@ -1329,7 +1356,17 @@ export class ClaudeAdapter extends BaseAdapter {
 
     // C9-M47 (P7): agent-team command body gets cache-breakpoint sentinels too.
     const agentTeamBody = withCacheBreakpoints(AGENT_TEAM_COMMAND);
-    results.push(output(".claude/commands/hatch3r-agent-team.md", wrapManagedFor(".claude/commands/hatch3r-agent-team.md", agentTeamBody), agentTeamBody));
+    const agentTeamPath = ".claude/commands/hatch3r-agent-team.md";
+    // Prepend byte-0 YAML frontmatter before the managed block so the
+    // slash-command picker shows AGENT_TEAM_DESCRIPTION instead of the
+    // HATCH3R:BEGIN marker. Mirrors the `${fm}\n\n${managed-block}` composition
+    // processCommandsWithFm uses; managedContent stays the cache-wrapped body.
+    const agentTeamFm = `---\nname: hatch3r-agent-team\ndescription: "${AGENT_TEAM_DESCRIPTION}"\n---`;
+    results.push(output(
+      agentTeamPath,
+      `${agentTeamFm}\n\n${wrapManagedFor(agentTeamPath, agentTeamBody)}`,
+      agentTeamBody,
+    ));
 
     return results;
   }

@@ -273,7 +273,7 @@ export class CursorAdapter extends BaseAdapter {
     );
 
     results.push(
-      ...await this.processCommandsRaw(ctx, (id) => `.cursor/commands/${toPrefixedId(id)}.md`),
+      ...await this.processCommandsWithFm(ctx, (id) => `.cursor/commands/${toPrefixedId(id)}.md`),
     );
 
     // Companion/reference content (see `BaseAdapter.processCompanionSubdir`

@@ -2,6 +2,25 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.1.0] - 2026-06-26
+
+### Headline
+
+Adds a `hatch3r setup` command that scaffolds a fresh project (mkdir + git init, opt-in GitHub remote) and chains into `init`, and fixes the `/` slash-command picker showing the `HATCH3R:BEGIN` managed-block marker instead of each command/skill description across all three adapters. Interactive `init` now asks for the project maturity tier (the 4th of ≤6 prompts) and prints the defaults it inferred; `config` gains interactive maturity and `confidence_floor` steps and stops silently disabling the `handoffs` feature on re-run. No breaking CLI changes; manifest schema unchanged (schemaVersion 3).
+
+### Added
+
+- **`hatch3r setup [dir]`** — scaffold a new project then initialize it: creates the directory, runs `git init` (idempotent), optionally creates a GitHub remote with `--remote` (via `gh`, skipped with a warning when unavailable), then chains into the `init` prompts. Standard `--format <human|json>` / `--quiet` / `--dry-run` / `--verbose` flags. (CLI commands 19 → 20.)
+- **Maturity-tier prompt in `init`** — every interactive run now asks for the project maturity tier (solo / team / scaleup / enterprise), seeded at the git-inferred default; `--maturity <tier>` skips it. A matching maturity step was added to interactive `config`.
+- **`confidence_floor` step in `config`** — the agent-assertiveness floor is now settable interactively (tier-aware default), not only via `config confidence_floor=<value>`.
+- **Inferred-default feedback in `init`** — prints the default branch and maturity tier it inferred, so silent defaults are visible and correctable.
+- **`handoffs` in the `config` feature picker** — the feature is now shown and toggleable.
+
+### Fixed
+
+- **Slash-command picker descriptions** — command files (Claude Code, Cursor, Copilot) and Claude skill files now emit byte-0 YAML `description:` frontmatter, so the `/` picker shows each artifact's real description instead of the `HATCH3R:BEGIN` managed-block marker. Covers the synthetic `hatch3r-agent-team` launcher.
+- **`handoffs` silently disabled on `config` re-run** — `handoffs` was missing from the feature picker, so re-running `config` rebuilt the feature set without it and forced it off. The rebuild now preserves any feature not shown in the picker, fixing `handoffs` and preventing the same class of silent drop for future features.
+
 ## [2.0.0] - 2026-06-21
 
 ### Headline

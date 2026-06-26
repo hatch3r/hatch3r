@@ -73,8 +73,9 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "5b7f3d7a8b2bc9637ad66c33774a0b0082b5a78dfd72f138fbc6ca725c51a323",
+    "bodyHash": "7ed4814b45eb01509f72112e3f677a1325b0f346543992a88eb782a89a086931",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
@@ -82,8 +83,9 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "a1d33909d7202d1cd9d939d325559c88297d10910e0448ab3e0d5594e6793dfd",
+    "bodyHash": "caaffe65856323e861f5b90f03217d1ecfe0d97670d83237c12b84168fb8084d",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
@@ -154,8 +156,9 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "44a01c4e7a01b3ff1bb948e97220fddafdc09753d78a9bdb8247c6af1bc59b2d",
+    "bodyHash": "7878ef919cc8d5c057b4f9a81fc0be4c54316cc46bff155c99e47b5d8f0a6420",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
@@ -276,8 +279,9 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "bodyHash": "75db9d5cece0faac2cae0552991a52abb3408eecbe3ff848a5a6ccfc71ee6d5b",
+    "bodyHash": "9f81e2b5a166c02f60ee288ad54e0977e308ade2696ee77af3d5f200ad4cbd99",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,
@@ -399,8 +403,9 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "75db9d5cece0faac2cae0552991a52abb3408eecbe3ff848a5a6ccfc71ee6d5b",
+    "bodyHash": "9f81e2b5a166c02f60ee288ad54e0977e308ade2696ee77af3d5f200ad4cbd99",
     "contentMarkers": [
+      "FRONTMATTER",
       "MANAGED_BLOCK",
     ],
     "hasManagedContent": true,

@@ -311,6 +311,15 @@ You are a test agent.`,
     expect(cmd.path).toBe(".cursor/commands/hatch3r-test-command.md");
     expect(cmd.content).toContain("test-command");
     expect(cmd.managedContent).toBeDefined();
+    // Slash-command picker fix: frontmatter at byte 0 so the picker reads
+    // `description:` rather than the HATCH3R:BEGIN managed-block marker.
+    expect(cmd.content.startsWith("---")).toBe(true);
+    expect(cmd.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+    expect(cmd.content).toContain("description:");
+    expect(cmd.content).toContain("A test command for unit testing");
+    const fmBlock = cmd.content.slice(0, cmd.content.indexOf(MANAGED_BLOCK_START));
+    expect(fmBlock).toContain("description:");
+    expect(fmBlock).not.toContain("HATCH3R:BEGIN");
   });
 
   it("generates mcp.json when MCP is enabled with servers", async () => {

@@ -840,8 +840,9 @@ describe("init resumability checkpoints (F16.1-C1)", () => {
   });
 });
 
-// F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤5 prompts.
-describe("init interactive ≤5-prompt ceiling (F10.3-2)", () => {
+// F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤6 prompts
+// (Decision 25 raised the ceiling 5→6 in 2.1.0 to add the maturity prompt).
+describe("init interactive ≤6-prompt ceiling (F10.3-2)", () => {
   let initCommand: (opts?: { mcp?: boolean }) => Promise<void>;
   let tempDir: string;
   let cwdSpy: MockInstance;
@@ -872,23 +873,25 @@ describe("init interactive ≤5-prompt ceiling (F10.3-2)", () => {
     await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
   });
 
-  it("the common-path interactive flow consumes exactly 5 prompts (platform, identity, preset, tools, cliTools)", async () => {
+  it("the common-path interactive flow consumes exactly 6 prompts (platform, identity, preset, maturity, tools, cliTools)", async () => {
     const inq = vi.mocked(inquirer.prompt);
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // W3-mcp-optin: the 5th prompt is the CLI-tools picker (pickCliTools
+    // W3-mcp-optin: the 6th prompt is the CLI-tools picker (pickCliTools
     // prompts under `name: "tools"`; the queue is order-based, so this
     // answer lands on the cliTools prompt, not the editor-tools prompt).
     inq.mockResolvedValueOnce({ tools: ["ripgrep", "jq"] });
 
     await initCommand();
 
-    // Exactly five inquirer.prompt calls — the ≤5-prompt ceiling. (No
-    // defaultBranch / projectType / teamSize / maturity / mcp prompts;
-    // those resolve to smart defaults, with MCP pure opt-in via --mcp.)
-    expect(inq.mock.calls.length).toBe(5);
+    // Exactly six inquirer.prompt calls — the ≤6-prompt ceiling. (No
+    // defaultBranch / projectType / teamSize / mcp prompts; those resolve to
+    // smart defaults, with MCP pure opt-in via --mcp. Maturity IS now prompted.)
+    expect(inq.mock.calls.length).toBe(6);
 
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
     // W3-mcp-optin: no MCP prompt and no --mcp flag → MCP off, no servers.
@@ -906,14 +909,16 @@ describe("init interactive ≤5-prompt ceiling (F10.3-2)", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // 5th prompt: cliTools picker (empty selection → CLI tools disabled).
+    // 6th prompt: cliTools picker (empty selection → CLI tools disabled).
     inq.mockResolvedValueOnce({ tools: [] });
 
     await initCommand({ mcp: true });
 
-    // Still 5 prompts — `--mcp` resolves the server set without prompting.
-    expect(inq.mock.calls.length).toBe(5);
+    // Still 6 prompts — `--mcp` resolves the server set without prompting.
+    expect(inq.mock.calls.length).toBe(6);
     const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
     expect(manifest.features.mcp).toBe(true);
     // Platform default set: platform server first, then DEFAULT_MCP tail.
@@ -922,6 +927,146 @@ describe("init interactive ≤5-prompt ceiling (F10.3-2)", () => {
     expect(manifest.mcp.servers).toContain("context7");
     // Empty cliTools pick → disabled config.
     expect(manifest.cliTools).toEqual({ enabled: false, selected: [] });
+  });
+});
+
+// C / F (2.1.0): interactive maturity prompt + inferred-default feedback lines.
+// The maturity prompt shows on EVERY interactive run (Decision 25 raised the
+// ceiling 5→6), seeded at the git-inferred tier; only `--maturity` skips it.
+describe("init interactive maturity prompt + inferred-default feedback (C/F, 2.1.0)", () => {
+  let initCommand: (opts?: {
+    tools?: string;
+    teamSize?: string;
+    maturity?: string;
+    quiet?: boolean;
+  }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-mat-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  });
+
+  it("shows the maturity prompt seeded at the git-inferred tier (--team-size team → team seed)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    // Order: platform, identity, preset, maturity, tools, cliTools.
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ maturity: "scaleup" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+
+    await initCommand({ teamSize: "team" });
+
+    // 6 prompts: the maturity step is the 4th, inserted after preset.
+    expect(inq.mock.calls.length).toBe(6);
+    // The maturity prompt (4th call) is seeded at the git-inferred tier — with
+    // `--team-size team` and no `--maturity`, the seed is "team".
+    const maturityQuestion = (inq.mock.calls[3][0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
+    expect(maturityQuestion.name).toBe("maturity");
+    expect(maturityQuestion.default).toBe("team");
+    // The user's pick persists.
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.maturity).toBe("scaleup");
+  });
+
+  it("the common solo flow shows the maturity prompt (seeded solo) and is 6 prompts", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    // Fresh temp dir → inferTeamSizeFromGit falls back to solo → maturity seed
+    // "solo". Order: platform, identity, preset, maturity, tools, cliTools.
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+
+    await initCommand({});
+
+    expect(inq.mock.calls.length).toBe(6);
+    // The maturity prompt IS shown on the common path (Decision 25 5→6), seeded
+    // at the inferred solo tier.
+    const maturityQuestion = (inq.mock.calls[3][0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
+    expect(maturityQuestion.name).toBe("maturity");
+    expect(maturityQuestion.default).toBe("solo");
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.maturity).toBe("solo");
+  });
+
+  it("--maturity skips the maturity prompt and persists the flag value (back to 5 prompts)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    // An explicit `--maturity` is authoritative and gates the prompt off, so the
+    // flow drops back to 5 prompts (no maturity step).
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+
+    await initCommand({ teamSize: "team", maturity: "scaleup" });
+
+    expect(inq.mock.calls.length).toBe(5);
+    const sawMaturityPrompt = inq.mock.calls.some((call) =>
+      (call[0] as unknown as Array<{ name?: string }>).some((q) => q.name === "maturity"),
+    );
+    expect(sawMaturityPrompt).toBe(false);
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.maturity).toBe("scaleup");
+  });
+
+  it("emits the inferred default-branch + maturity feedback lines in human mode", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+
+    await initCommand({});
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("Detected default branch:");
+    expect(stdout).toContain("Inferred maturity:");
+  });
+
+  it("suppresses the inferred-default feedback lines under --quiet (json implies quiet)", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+
+    await initCommand({ quiet: true });
+
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).not.toContain("Detected default branch:");
+    expect(stdout).not.toContain("Inferred maturity:");
   });
 });
 
@@ -1420,8 +1565,11 @@ describe("init worktree generation (claude tool present)", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "test-owner", repo: "test-repo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset on every
+    // interactive run. Solo default (fresh temp dir → inferTeamSizeFromGit solo).
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools });
-    // W3-mcp-optin: 5th prompt is the cliTools picker (pickCliTools answers
+    // W3-mcp-optin: 6th prompt is the cliTools picker (pickCliTools answers
     // under `name: "tools"`; order-based queue). Empty = CLI tools disabled,
     // which also skips the detection + installer follow-ups.
     inq.mockResolvedValueOnce({ tools: [] });
@@ -1608,6 +1756,9 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "test-owner", repo: "test-repo" });
     inq.mockResolvedValueOnce({ preset: opts.preset ?? "full" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset, before the
+    // custom-items power-user prompt. Default seeded at the inferred tier.
+    inq.mockResolvedValueOnce({ maturity: opts.maturity ?? "solo" });
     if (opts.preset === "custom") {
       inq.mockResolvedValueOnce({ items: opts.customItems ?? [] });
     }
@@ -1651,6 +1802,8 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ platform: "azure-devops" });
     inq.mockResolvedValueOnce({ org: "ado-org", project: "ado-proj", repo: "ado-repo" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
     // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
@@ -1671,6 +1824,8 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ platform: "gitlab" });
     inq.mockResolvedValueOnce({ namespace: "gl-ns", project: "gl-proj" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
     // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
@@ -1692,6 +1847,8 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ owner: "", repo: "" });
     // Empty branch -> falls back to detected default ("main" via parseGitDefaultBranch)
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     // Empty tool selection -> falls back to DEFAULT_TOOLS (= ["claude"])
     inq.mockResolvedValueOnce({ tools: [] });
     // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
@@ -1729,8 +1886,10 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // W3-mcp-optin: 6th prompt is the cliTools picker (empty = disabled);
     // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
     inq.mockResolvedValueOnce({ tools: [] });
     // The checkExisting prompt — accept overwrite
@@ -1755,8 +1914,10 @@ describe("init interactive single-repo flow", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
+    // W3-mcp-optin: 6th prompt is the cliTools picker (empty = disabled);
     // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
     inq.mockResolvedValueOnce({ tools: [] });
     // Reject overwrite
@@ -1845,6 +2006,8 @@ describe("init interactive workspace flow", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
     // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
@@ -2054,6 +2217,8 @@ describe("init eager flag validation (C8-D1-M4)", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled);
     // MCP no longer prompts — opt-in is via --mcp / `hatch3r mcp setup`.
@@ -2798,8 +2963,10 @@ describe("init tool-secret-notes ordering (C9-H32)", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
-    // W3-mcp-optin: 5th prompt is the cliTools picker (empty = disabled).
+    // W3-mcp-optin: 6th prompt is the cliTools picker (empty = disabled).
     inq.mockResolvedValueOnce({ tools: [] });
 
     // W3-mcp-optin: the notes are gated on an actual MCP opt-in (no MCP →
@@ -2818,6 +2985,8 @@ describe("init tool-secret-notes ordering (C9-H32)", () => {
     inq.mockResolvedValueOnce({ platform: "github" });
     inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
     inq.mockResolvedValueOnce({ preset: "minimal" });
+    // 2.1.0 (Decision 25 5→6): maturity prompt fires after preset.
+    inq.mockResolvedValueOnce({ maturity: "solo" });
     inq.mockResolvedValueOnce({ tools: ["claude"] });
     inq.mockResolvedValueOnce({ tools: [] });
 

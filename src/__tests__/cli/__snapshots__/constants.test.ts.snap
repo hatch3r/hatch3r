@@ -34,6 +34,10 @@ exports[`data constants > FEATURE_CHOICES matches snapshot 1`] = `
     "name": "GitHub agents",
     "value": "githubAgents",
   },
+  {
+    "name": "Handoffs",
+    "value": "handoffs",
+  },
 ]
 `;
 

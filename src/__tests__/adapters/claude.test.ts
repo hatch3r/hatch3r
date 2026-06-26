@@ -695,6 +695,40 @@ Body.`,
     expect(skill.path).toMatch(/SKILL\.md$/);
     expect(skill.content).toContain("test-skill");
     expect(skill.managedContent).toBeDefined();
+    // Slash-command picker fix: the SKILL output now opens with YAML
+    // frontmatter. It previously did not (raw managed block whose first line
+    // was the HATCH3R:BEGIN marker, which the picker rendered as the
+    // description). The Claude adapter switched skills to the with-fm helper.
+    expect(skill.content.startsWith("---")).toBe(true);
+    expect(skill.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+    expect(skill.content).toContain("description:");
+    expect(skill.content).toContain("A test skill for unit testing");
+    const skillFm = skill.content.slice(0, skill.content.indexOf(MANAGED_BLOCK_START));
+    expect(skillFm).not.toContain("HATCH3R:BEGIN");
+  });
+
+  it("emits per-command files with description frontmatter at byte 0 (slash-picker fix)", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    // The canonical command. The synthetic .claude/commands/hatch3r-agent-team.md
+    // launcher is built inline (not via processCommandsWithFm), so target the
+    // canonical command id explicitly.
+    const cmd = outputs.find(
+      (o) => o.path === ".claude/commands/hatch3r-test-command.md",
+    );
+    expect(cmd).toBeDefined();
+    expect(cmd!.content.startsWith("---")).toBe(true);
+    expect(cmd!.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+    expect(cmd!.content).toContain("description:");
+    expect(cmd!.content).toContain("A test command for unit testing");
+    // The frontmatter block (before the managed block) carries the real
+    // description, not the HATCH3R:BEGIN marker the picker used to show.
+    const fmBlock = cmd!.content.slice(0, cmd!.content.indexOf(MANAGED_BLOCK_START));
+    expect(fmBlock).toContain("description:");
+    expect(fmBlock).not.toContain("HATCH3R:BEGIN");
+    // Cache-breakpoint post-processing still wraps the managed body.
+    expect(cmd!.managedContent).toBeDefined();
   });
 
   it("generates .mcp.json when MCP is enabled with servers", async () => {
@@ -1932,12 +1966,21 @@ Low priority rule body.
       expect(agentTeam!.content).toContain(CACHE_BREAKPOINT_SENTINEL_END);
       expect(agentTeam!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_START);
       expect(agentTeam!.managedContent).toContain(CACHE_BREAKPOINT_SENTINEL_END);
+      // Slash-command picker fix: the synthetic launcher now opens with YAML
+      // frontmatter (byte 0) so the picker reads a real `description:` instead
+      // of the HATCH3R:BEGIN managed-block marker.
+      expect(agentTeam!.content.startsWith("---")).toBe(true);
+      expect(agentTeam!.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+      expect(agentTeam!.content).toContain("description:");
+      const agentTeamFm = agentTeam!.content.slice(0, agentTeam!.content.indexOf(MANAGED_BLOCK_START));
+      expect(agentTeamFm).toContain("description:");
+      expect(agentTeamFm).not.toContain("HATCH3R:BEGIN");
     });
 
     it("does not duplicate sentinels on re-emission (idempotent helper)", async () => {
       // Same adapter instance, two sequential generates → sentinels must
       // appear exactly once per managed block (no double-wrap from nested
-      // calls or from `processSkillsRawCliFiltered` -> `rewrapWithCacheBreakpoints`).
+      // calls or from `processSkillsWithFmCliFiltered` -> `rewrapWithCacheBreakpoints`).
       const manifest = makeManifest();
       await adapter.generate(FIXTURES_DIR, manifest);
       const outputs = await adapter.generate(FIXTURES_DIR, manifest);
