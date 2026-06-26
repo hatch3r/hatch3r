@@ -84,6 +84,7 @@ hatch3r provides a full project lifecycle, from setup to release:
 
 ```bash
 npx hatch3r init          # Interactive setup (or --default for zero prompts)
+npx hatch3r setup [dir]   # Scaffold a new project (mkdir + git init) then run init
 npx hatch3r config        # Reconfigure tools, MCP servers, features, and platform
 npx hatch3r sync          # Re-generate from canonical state
 npx hatch3r update        # Pull latest templates (safe merge)

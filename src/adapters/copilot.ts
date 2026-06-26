@@ -507,7 +507,7 @@ jobs:
     // Commands still surface in Copilot's native prompts-file picker via the
     // `.github/prompts/` path below, gated on `features.commands`.
     results.push(
-      ...await this.processCommandsRaw(ctx, (id) => `.github/prompts/${toPrefixedId(id)}.prompt.md`),
+      ...await this.processCommandsWithFm(ctx, (id) => `.github/prompts/${toPrefixedId(id)}.prompt.md`),
     );
 
     // D5-41 (Cycle 11 Wave 3, D5, P4 / D16.3 add-vs-remove bias): suppress the

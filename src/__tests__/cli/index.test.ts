@@ -18,6 +18,9 @@ describe("createProgram() command registration", () => {
 
   const EXPECTED_COMMANDS = [
     "init",
+    // Scaffold a fresh project (mkdir + git init, optional gh remote) then
+    // chain into init.
+    "setup",
     "sync",
     "status",
     "update",
@@ -246,6 +249,7 @@ describe("W5 flag-surface drift guard", () => {
   // MUTATING: writes files / manifest / git state.
   const MUTATING = new Set<string>([
     "init",
+    "setup", // mkdir + git init (+ optional gh remote), then chains into init
     "sync",
     "update",
     "config",
@@ -280,6 +284,7 @@ describe("W5 flag-surface drift guard", () => {
   // --all/scalar args) — enforced at runtime by beginCommand's interactive gate.
   const INTERACTIVE_CAPABLE = new Set<string>([
     "init",
+    "setup", // prompts for a directory name when [dir] is omitted on a non-empty cwd
     "update",
     "config",
     "clean",
@@ -298,6 +303,7 @@ describe("W5 flag-surface drift guard", () => {
   // DRY_RUN: mutating commands where a meaningful preview exists.
   const DRY_RUN = new Set<string>([
     "init",
+    "setup", // previews the scaffold plan (create dir / git init / remote / run init)
     "sync",
     "update",
     "config",

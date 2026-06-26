@@ -209,6 +209,61 @@ Applies to API code and protobufs.`,
     expect(promptFromCommands).toBeDefined();
     expect(promptFromCommands!.path).toBe(".github/prompts/hatch3r-test-command.prompt.md");
     expect(promptFromCommands!.managedContent).toBeDefined();
+    // Slash-command picker fix: the per-command prompt opens with YAML
+    // frontmatter so the picker reads `description:`, not the HATCH3R:BEGIN
+    // managed-block marker.
+    expect(promptFromCommands!.content.startsWith("---")).toBe(true);
+    expect(promptFromCommands!.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+    expect(promptFromCommands!.content).toContain("description:");
+    expect(promptFromCommands!.content).toContain("A test command for unit testing");
+  });
+
+  it("double-quotes command descriptions so `: `, `--`, and quotes never break the picker's YAML", async () => {
+    // Real command descriptions carry `: ` and `--` (e.g. "from the project
+    // board: dependency-aware selection") that make an UNQUOTED YAML plain
+    // scalar ambiguous/invalid — which is what made the picker fall back to
+    // showing the HATCH3R:BEGIN marker. Pin that the emitted frontmatter is a
+    // double-quoted scalar that round-trips through a real YAML parser.
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-cmd-fm-"));
+    try {
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "commands"), { recursive: true });
+      const nastyDesc =
+        'Design a new capability -- draft user stories: acceptance criteria, "data model", and API surface';
+      // Leading `[` would parse as a YAML flow sequence if emitted unquoted, so
+      // the argument-hint exercises the same quoting path (D5-33 affordance).
+      const nastyHint = "[target] | <id> -- mode: fast";
+      await writeFile(
+        join(agentsDir, "commands", "nasty-command.md"),
+        `---\nid: nasty-command\ntype: command\ndescription: ${JSON.stringify(nastyDesc)}\nargument-hint: ${JSON.stringify(nastyHint)}\n---\n# Nasty Command\n\nBody.`,
+        "utf-8",
+      );
+      const outputs = await adapter.generate(agentsDir, makeManifest());
+
+      const cmd = outputs.find(
+        (o) => o.path === ".github/prompts/hatch3r-nasty-command.prompt.md",
+      );
+      expect(cmd).toBeDefined();
+      expect(cmd!.content.startsWith("---")).toBe(true);
+
+      // The emitted frontmatter parses as YAML and round-trips the exact
+      // description and argument-hint; an unquoted plain scalar would have
+      // thrown or truncated at the first `: ` / `[`.
+      const fmMatch = cmd!.content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch).not.toBeNull();
+      const parsed = parseYaml(fmMatch![1]) as {
+        name?: string;
+        description?: string;
+        "argument-hint"?: string;
+      };
+      expect(parsed.name).toBe("nasty-command");
+      expect(parsed.description).toBe(nastyDesc);
+      expect(parsed.description).not.toContain("HATCH3R:BEGIN");
+      // argument-hint survives at byte 0 so the picker affordance works (D5-33).
+      expect(parsed["argument-hint"]).toBe(nastyHint);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
   });
 
   it("generates regular agent files from the agents path", async () => {

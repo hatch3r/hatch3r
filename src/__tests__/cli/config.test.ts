@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } fr
 import { mkdtemp, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { ARCHIVE_DIR, HatchError, DEFAULT_FEATURES, type HatchManifest } from "../../types.js";
+import { ARCHIVE_DIR, HatchError, DEFAULT_FEATURES, type Features, type HatchManifest } from "../../types.js";
 import {
   makeManifest,
   makeContentSelection,
@@ -589,6 +589,177 @@ describe("config command", () => {
       const writtenManifest = getWrittenManifest(writeManifest);
       expect(writtenManifest.features.hooks).toBe(false);
       expect(writtenManifest.features.mcp).toBe(false);
+    });
+  });
+
+  // ── 2.1.0: handoffs fix + maturity/confidence interactive surfaces ──
+  describe("handoffs feature-rebuild fix (Task D, 2.1.0)", () => {
+    it("FEATURE_CHOICES offers handoffs (default-checked) so it round-trips", async () => {
+      const { FEATURE_CHOICES } = await import("../../cli/shared/constants.js");
+      expect(FEATURE_CHOICES.some((c) => c.value === "handoffs")).toBe(true);
+    });
+
+    it("re-running config keeps features.handoffs === true (core regression)", async () => {
+      // makeManifest carries DEFAULT_FEATURES.handoffs === true. A tool add
+      // forces the write; the feature selection accepts the default set (which
+      // now includes handoffs as a checked choice), so handoffs survives.
+      const manifest = makeManifest();
+      primeConfig(manifest, { tools: ["cursor", "claude"] });
+
+      await (await importConfigCommand())();
+
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.features.handoffs).toBe(true);
+    });
+
+    it("rebuildFeaturesFromSelection preserves a feature absent from the picker", async () => {
+      const { rebuildFeaturesFromSelection } = await import("../../cli/commands/config.js");
+      const prev: Features = { ...DEFAULT_FEATURES, handoffs: true, mcp: true };
+      // Simulate the pre-2.1.0 picker that did NOT render handoffs.
+      const pickerVisible: (keyof Features)[] = [
+        "agents", "skills", "rules", "prompts", "commands", "mcp", "hooks", "githubAgents",
+      ];
+      // User unchecks hooks; handoffs is not offered at all.
+      const selected: (keyof Features)[] = [
+        "agents", "skills", "rules", "prompts", "commands", "mcp", "githubAgents",
+      ];
+
+      const result = rebuildFeaturesFromSelection(prev, selected, pickerVisible);
+
+      expect(result.handoffs).toBe(true); // unlisted → prior value preserved
+      expect(result.hooks).toBe(false);   // listed + unselected → off
+      expect(result.mcp).toBe(true);      // listed + selected → on
+    });
+
+    it("renders Handoffs checked when the manifest OMITS the key, and keeps it enabled on accept-defaults", async () => {
+      // Upgraded manifests written before `handoffs` joined the schema omit the
+      // key entirely. DEFAULT_FEATURES.handoffs === true, so the checkbox
+      // default must fall back to the schema default and render handoffs CHECKED
+      // — otherwise an accept-defaults run rebuilds features.handoffs = false and
+      // silently disables it (the existing handoffs tests above use a manifest
+      // where the key is present, so they miss this missing-key path).
+      const manifest = makeManifest();
+      delete (manifest.features as Partial<Features>).handoffs;
+      expect(manifest.features.handoffs).toBeUndefined();
+
+      // Accept the (now-checked) default set including handoffs; adding a tool
+      // forces the write past the no-changes guard.
+      primeConfig(manifest, {
+        features: ["agents", "skills", "rules", "commands", "mcp", "githubAgents", "hooks", "handoffs"],
+        tools: ["cursor", "claude"],
+      });
+
+      await (await importConfigCommand())();
+
+      // 1. The features prompt seeded handoffs as a checked default (the fix:
+      //    `manifest.features[k] ?? DEFAULT_FEATURES[k]`). Pre-fix the missing
+      //    key read as falsy and handoffs was absent from the default set.
+      const featuresCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "features");
+      });
+      expect(featuresCall).toBeDefined();
+      const featuresQuestion = (featuresCall![0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
+      expect(featuresQuestion.default).toContain("handoffs");
+
+      // 2. The accepted selection persists handoffs enabled — no silent disable.
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.features.handoffs).toBe(true);
+    });
+  });
+
+  describe("maturity + confidence_floor interactive steps (Tasks C/E, 2.1.0)", () => {
+    it("the maturity step fires and persists the chosen tier", async () => {
+      const manifest = makeManifest(); // no maturity field → resolves to solo
+      primeConfig(manifest, { maturity: "scaleup" });
+
+      await (await importConfigCommand())();
+
+      // The maturity prompt was rendered.
+      const sawMaturityPrompt = vi.mocked(inquirer.prompt).mock.calls.some((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "maturity");
+      });
+      expect(sawMaturityPrompt).toBe(true);
+      // The tier change alone forces the write (not gated by "No changes").
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("scaleup");
+    });
+
+    it("the confidence_floor step fires and persists the chosen floor", async () => {
+      const manifest = makeManifest(); // solo, no floor → resolves to "any"
+      primeConfig(manifest, { confidenceFloor: "high" });
+
+      await (await importConfigCommand())();
+
+      const sawFloorPrompt = vi.mocked(inquirer.prompt).mock.calls.some((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "confidenceFloor");
+      });
+      expect(sawFloorPrompt).toBe(true);
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.confidenceFloor).toBe("high");
+    });
+
+    it("accepting the maturity + floor defaults registers no change", async () => {
+      // makeManifest has no maturity/floor → defaults solo/any; the queued
+      // answers mirror those defaults, so the no-changes guard still fires.
+      const manifest = makeManifest();
+      primeConfig(manifest);
+
+      await (await importConfigCommand())();
+
+      expect(vi.mocked(info)).toHaveBeenCalledWith(expect.stringContaining("No changes detected"));
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+    });
+
+    it("seeds the floor default from the in-run maturity bump, not the pre-mutation tier", async () => {
+      // solo manifest, no explicit confidenceFloor → pre-mutation floor "any".
+      // Bumping maturity to scaleup in the SAME run must seed the floor prompt's
+      // default to scaleup's derived "high" (not the stale "any"), so accepting
+      // it cannot pin a floor that contradicts the new tier. The inquirer mock
+      // returns queued answers regardless of `default`, so the seed is asserted
+      // on the rendered prompt; the queued floor answer mirrors accepting it.
+      const manifest = makeManifest(); // no maturity / confidenceFloor fields
+      expect(manifest.confidenceFloor).toBeUndefined();
+      primeConfig(manifest, { maturity: "scaleup", confidenceFloor: "high" });
+
+      await (await importConfigCommand())();
+
+      const floorCall = vi.mocked(inquirer.prompt).mock.calls.find((call) => {
+        const questions = call[0] as unknown as PromptQuestion[];
+        return Array.isArray(questions) && questions.some((q) => q.name === "confidenceFloor");
+      });
+      expect(floorCall).toBeDefined();
+      const floorQuestion = (floorCall![0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
+      // Pre-fix this default was readConfidenceFloor(pre-mutation solo) === "any".
+      expect(floorQuestion.default).toBe("high");
+
+      // Accepting that tier-correct default persists a floor that follows the
+      // new tier — no stale "any" pin overriding scaleup's derived "high".
+      const writtenManifest = getWrittenManifest(writeManifest);
+      expect(writtenManifest.maturity).toBe("scaleup");
+      expect(writtenManifest.confidenceFloor).toBe("high");
+    });
+
+    it("dry-run preview includes the maturity dial line (Bugbot: config dry-run omits dial lines)", async () => {
+      // The live "Config updated" box appends `~ Maturity:` / `~ Confidence
+      // floor:` after buildDiffSummaryLines; the `--dry-run` terminus must show
+      // the same dial lines so the preview matches what a real run persists.
+      const manifest = makeManifest(); // no maturity field → resolves to solo
+      primeConfig(manifest, { maturity: "scaleup" });
+
+      await (await importConfigCommand())(undefined, undefined, { dryRun: true });
+
+      // Dry run writes nothing …
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+      // … and the dry-run box carries the maturity change line a live run would.
+      const dryRunBox = vi
+        .mocked(printBox)
+        .mock.calls.find((call) => call[0] === "Config dry run (no writes)");
+      expect(dryRunBox).toBeDefined();
+      const lines = dryRunBox![1] as string[];
+      expect(lines.some((l) => l.includes("Maturity: scaleup"))).toBe(true);
     });
   });
 

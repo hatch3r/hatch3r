@@ -75,6 +75,7 @@ import {
   cliToolsStep,
   customItemsStep,
   identityStep,
+  maturityStep,
   platformStep,
   presetStep,
   toolsStep,
@@ -481,9 +482,11 @@ function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Pla
 
 /**
  * F10.3-2 (D10, P1): infer team size from git history instead of prompting.
- * The interactive `teamSize` prompt was dropped to bring the first-run flow to
- * the P1 ≤5-prompt ceiling (Decision 25 / Vercel-Heroku benchmark). We count
- * distinct commit authors via `git log` — `>1` distinct author email implies a
+ * The interactive `teamSize` prompt was dropped to keep the first-run flow
+ * within the P1 prompt ceiling (Decision 25 / Vercel-Heroku benchmark; the
+ * ceiling is ≤6 as of 2.1.0, the 6th being the maturity prompt). teamSize is
+ * still inferred, not prompted. We count distinct commit authors via `git log`
+ * — `>1` distinct author email implies a
  * `team` repo; a single author (or an unreadable / empty / non-git history)
  * falls back to `solo`, which matches the prior prompt default and the `--yes`
  * default. Degradation mirrors `parseGitDefaultBranch`: any git error returns
@@ -2395,10 +2398,12 @@ export async function initCommand(
     : undefined;
   const toolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
 
-  // F10.3-2 (D10, P1): smart defaults for the four prompts dropped to reach
-  // the ≤5-prompt ceiling. Each value is computed from detection / git so the
-  // resolved selection is identical to what the dropped prompt would have
-  // defaulted to; every value is overridable post-init via `hatch3r config`.
+  // F10.3-2 (D10, P1): smart defaults for the prompts dropped to reach the
+  // ≤6-prompt ceiling (defaultBranch / projectType / teamSize / mcp; 2.1.0
+  // re-added maturity as a prompt seeded by `inferredMaturity` below). Each
+  // value is computed from detection / git so the resolved selection matches
+  // what the dropped prompt would have defaulted to; every value is overridable
+  // post-init via `hatch3r config`.
   const inferredDefaultBranch = parseGitDefaultBranch();
   const inferredProjectType: "greenfield" | "brownfield" = validateFlag(
     opts.projectType,
@@ -2413,16 +2418,16 @@ export async function initCommand(
     inferTeamSizeFromGit(rootDir),
     "team-size",
   );
-  // D14-17 (D14-SA14.3-F4, P1): maturity tier is not a prompted input under the
-  // ≤5-prompt ceiling, so without a seed it silently defaulted to
-  // DEFAULT_MATURITY_TIER ("solo") for every repo — a multi-author codebase got
-  // the lowest-investment calibration. `inferTeamSizeFromGit` already
-  // distinguishes solo vs multi-author by distinct commit-author count; reuse
-  // that orthogonal signal to seed the maturity default (team-authored repo →
-  // "team" tier, otherwise "solo"). An explicit `--maturity` flag still wins
-  // (validateFlag returns the flag value when present), and the resolved tier is
-  // surfaced in the success-box "Maturity" line below so the inference is
-  // visible, not silent. This keeps the solo path at ≤5 prompts (no new prompt).
+  // D14-17 (D14-SA14.3-F4, P1; 2.1.0 Decision 25 5→6): the maturity tier is now
+  // a prompted input on every interactive run (unless `--maturity` is passed),
+  // seeded by this value. `inferTeamSizeFromGit` distinguishes solo vs
+  // multi-author by distinct commit-author count; reuse that orthogonal signal
+  // to seed the maturity DEFAULT (team-authored repo → "team" tier, otherwise
+  // "solo") so the prompt's pre-selected option matches the repo. An explicit
+  // `--maturity` flag still wins (validateFlag returns the flag value when
+  // present) AND skips the prompt; on the headless / `--yes` paths this seed is
+  // the resolved tier directly. The resolved tier is surfaced in the
+  // success-box "Maturity" line.
   const seededMaturityDefault: MaturityTier =
     inferredTeamSize === "team" ? "team" : DEFAULT_MATURITY_TIER;
   const inferredMaturity: MaturityTier = validateFlag(
@@ -2431,6 +2436,31 @@ export async function initCommand(
     seededMaturityDefault,
     "maturity",
   );
+
+  // Task F (2.1.0, P1): the default branch + git-inferred team-size/maturity
+  // were resolved silently above. Surface ONE dim confirmation line each so the
+  // inference is visible before the picker, not a hidden default. `info()` is a
+  // no-op under --quiet (and --json sets quiet), so these render only in human
+  // interactive mode — the inference outcome is observable without chrome in
+  // the structured/quiet paths.
+  info(chalk.dim(`Detected default branch: ${inferredDefaultBranch}`));
+  info(
+    chalk.dim(
+      opts.maturity === undefined
+        ? `Inferred maturity: ${inferredMaturity} (team size: ${inferredTeamSize})`
+        : `Maturity: ${inferredMaturity} (from --maturity); team size: ${inferredTeamSize}`,
+    ),
+  );
+
+  // C (2.1.0, P1; Decision 25 raised the ceiling 5→6): the maturity tier is a
+  // first-class calibration input, prompted on EVERY interactive run. The only
+  // skips are `--maturity` (the flag is authoritative) and the headless /
+  // `--yes` / `--quick` / `--default` paths, which return before this block.
+  // The prompt is seeded at the git-inferred tier (`inferredMaturity`), so
+  // enter-through reproduces the prior smart default; the success-box
+  // "Maturity" line still surfaces the resolved tier.
+  const promptMaturity = opts.maturity === undefined;
+
   // W3-mcp-optin: `--cli-tools` / `--no-cli-tools` apply on the interactive
   // path too (flag semantics are path-independent). An explicit selection
   // skips the picker step below; without a flag the picker runs with tier-1 +
@@ -2445,23 +2475,28 @@ export async function initCommand(
   // pre-Slice-E inline prompts used so existing test queues match
   // unchanged. The orchestrator awaits `runStepMachine` and consumes
   // the resolved state below.
-  // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤5 prompts
-  // (Decision 25 / Vercel-Heroku OSS-onboarding benchmark). The five retained
-  // prompts are: platform, identity, preset, tools, and the CLI-tools picker
+  // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤6 prompts
+  // (Decision 25 / Vercel-Heroku OSS-onboarding benchmark; raised 5→6 in 2.1.0
+  // to add the maturity calibration prompt). The six retained prompts are:
+  // platform, identity, preset, maturity, tools, and the CLI-tools picker
   // (W3-mcp-optin: the collapsed MCP multi-select moved behind the `--mcp`
-  // flag / `hatch3r mcp setup` side-door, freeing the slot). The dropped
-  // prompts use smart defaults, each overridable post-init:
+  // flag / `hatch3r mcp setup` side-door). The dropped prompts use smart
+  // defaults, each overridable post-init:
   //   - defaultBranch → `parseGitDefaultBranch()` (git-detected)
   //   - projectType   → `detectProjectType()` (auto-detected)
   //   - teamSize      → `inferTeamSizeFromGit()` (recommendation step d)
-  //   - maturity      → `--maturity` flag / DEFAULT_MATURITY_TIER (2.0.0 add)
   //   - mcp           → off unless `--mcp` (opt in later via `hatch3r mcp setup`)
   // `customItems` stays as a conditional power-user prompt (preset=custom only),
-  // so it does not count against the common-path ceiling.
+  // so it does not count against the common-path ceiling. The maturity prompt
+  // is skipped only when `--maturity` resolved the tier from the flag.
   interface SingleRepoState {
     platform: Platform;
     identity: { owner: string; repo: string; namespace: string; project: string };
     preset: PresetId;
+    // C (2.1.0): maturity tier, prompted on every interactive run (see
+    // `promptMaturity` above). Undefined only when `--maturity` gated the prompt
+    // off — the resolved tier then falls back to `inferredMaturity` below.
+    maturity: MaturityTier;
     customItems: string[] | undefined;
     tools: Tool[];
     // W3-mcp-optin: 3-tier CLI-tools picker result. Empty selection = CLI
@@ -2505,6 +2540,19 @@ export async function initCommand(
           ),
         ),
     }),
+    // C (2.1.0, P1): maturity prompt, seeded at the git-inferred tier. Always
+    // shown on the interactive path; conditionally spread (matching the
+    // cliToolsStep gate below) only so it is ABSENT from the array — not just
+    // skipped — when `--maturity` resolved the tier from the flag. Decision 25
+    // raised the interactive ceiling 5→6 to admit it; see `promptMaturity`.
+    ...(promptMaturity
+      ? [
+          maturityStep<SingleRepoState>({
+            message: "Project maturity (investment depth):",
+            defaultMaturity: inferredMaturity,
+          }),
+        ]
+      : []),
     customItemsStep<SingleRepoState>({
       index: filterIndex,
       // D10-13: floor + protected rows are locked-on by the picker itself;
@@ -2546,7 +2594,9 @@ export async function initCommand(
   const defaultBranch = inferredDefaultBranch;
   const projectType = inferredProjectType;
   const teamSize = inferredTeamSize;
-  const maturity: MaturityTier = inferredMaturity;
+  // C (2.1.0): use the prompted tier when the maturity step ran (the common
+  // interactive path); otherwise (`--maturity` flag) the value inferred above.
+  const maturity: MaturityTier = stepState.maturity ?? inferredMaturity;
   const selectedPreset = getPreset(stepState.preset);
   const customSelections = stepState.customItems;
   const tools = stepState.tools;
@@ -2975,9 +3025,13 @@ async function runWorkspaceInit(
     const wsDetection = await detectProjectType(repoInfo, rootDir);
     const wsToolDefaults = repoInfo.existingTools.length > 0 ? repoInfo.existingTools : DEFAULT_TOOLS;
 
-    // F10.3-2 (D10, P1): workspace flow mirrors the single-repo ≤5-prompt
-    // collapse. projectType / teamSize / maturity / cliTools are no longer
-    // prompted — they resolve to detection / git-inference / flag defaults.
+    // F10.3-2 (D10, P1): workspace flow keeps the single-repo prompt-collapse.
+    // projectType / teamSize / maturity / cliTools are NOT prompted here — they
+    // resolve to detection / git-inference / flag defaults. NOTE: unlike the
+    // single-repo flow (which re-added the maturity prompt in 2.1.0, Decision 25
+    // 5→6), the workspace flow does NOT prompt maturity; it stays leaner and the
+    // tier resolves to the inferred/flag default. Re-deciding this is a behavior
+    // change for the workspace machine (wsSteps below), out of scope here.
     const wsInferredProjectType: "greenfield" | "brownfield" = validateFlag(
       opts.projectType,
       ["greenfield", "brownfield"],

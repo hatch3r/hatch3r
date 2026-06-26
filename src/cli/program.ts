@@ -5,6 +5,7 @@ import { worktreeCleanupCommand } from "./commands/worktreeCleanup.js";
 import { cleanCommand } from "./commands/clean.js";
 import { configCommand } from "./commands/config.js";
 import { initCommand } from "./commands/init.js";
+import { setupCommand } from "./commands/setup.js";
 import { syncCommand } from "./commands/sync.js";
 import { updateCommand } from "./commands/update.js";
 import { validateCommand } from "./commands/validate.js";
@@ -170,6 +171,29 @@ export function createProgram(): Command {
     .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability")
     .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd")
     .action(initCommand);
+
+  program
+    .command("setup [dir]")
+    .description("Scaffold a fresh project (mkdir + git init, optional GitHub remote) then chain into `hatch3r init`. Needs only Node + git; --remote is opt-in")
+    // --remote is opt-in and degrades to a warning when `gh` is missing/unauthed
+    // — the happy path must succeed with only Node 22+ and git installed.
+    .option("--remote", "Create a private GitHub remote via `gh repo create` after git init (skipped with a warning when gh is missing or unauthenticated)")
+    // Pass-through init options (subset of `init`'s flag surface, forwarded to
+    // initCommand after the scaffold step).
+    .option("--tools <tools>", `Comma-separated tools (${TOOL_CHOICES})`)
+    .option("--preset <preset>", "Content preset forwarded to init (e.g. minimal, standard, full, web-app)")
+    .option("--maturity <tier>", "Project maturity tier forwarded to init: solo, team, scaleup, enterprise (default: solo)")
+    .option("--yes", "Skip interactive prompts (scaffold + init use smart defaults)")
+    // --format/--quiet/--dry-run/--verbose provenance: W5 flag-surface standardization.
+    .option(
+      "--format <format>",
+      "Output format for CI consumers: human (default) or json",
+      "human",
+    )
+    .option("--quiet", "Suppress stdout chrome (banner, spinner, boxes); stderr diagnostics still emit")
+    .option("--dry-run", "Preview the scaffold plan (create dir, git init, remote, then run init) without writing anything")
+    .option("--verbose", "Show detailed per-step output")
+    .action(setupCommand);
 
   program
     .command("sync")

@@ -32,7 +32,14 @@ import {
   type CatalogItem,
   type ContentIndex,
 } from "../../content/index.js";
-import type { CliToolId, Features, Platform, Tool } from "../../types.js";
+import type {
+  CliToolId,
+  ConfidenceFloor,
+  Features,
+  MaturityTier,
+  Platform,
+  Tool,
+} from "../../types.js";
 
 // Leaf casts like `answer.platform as TState["platform"]` close the
 // generic seam: the builder's constraint (`TState extends { platform:
@@ -408,6 +415,105 @@ export function mcpServersStep<TState extends { mcpServers: string[] }>(
         wslTheme: opts.wslTheme,
       });
       return result as StepResult<TState["mcpServers"]>;
+    },
+  };
+}
+
+// ── maturity ────────────────────────────────────────────────────────
+
+export interface MaturityStepOptions {
+  /** Prompt copy — init: "Project maturity (investment depth):"; config: "Maturity tier:". */
+  message: string;
+  /**
+   * First-visit default. init injects the git-inferred tier
+   * (`inferTeamSizeFromGit`-seeded); config injects the persisted
+   * `readMaturityTier(manifest)` value. Builders never read the manifest.
+   */
+  defaultMaturity: MaturityTier;
+}
+
+/**
+ * Single-select maturity-tier picker (`name: "maturity"`). The choice copy
+ * names what each tier adds on top of the universal floor (see the
+ * `MaturityTier` JSDoc in `src/types.ts`); the tier is an investment dial, not
+ * a content gate (Decision 16). Used by both the init single-repo machine (the
+ * 4th of ≤6 interactive prompts; Decision 25 raised the ceiling 5→6 to admit
+ * it) and the config machine.
+ */
+export function maturityStep<TState extends { maturity: MaturityTier }>(
+  opts: MaturityStepOptions,
+): StepFor<TState, "maturity"> {
+  return {
+    id: "maturity",
+    async run(_state, previous): Promise<StepResult<TState["maturity"]>> {
+      const answer = await inquirer.prompt<{ maturity: MaturityTier | typeof BACK }>([
+        {
+          type: "select",
+          name: "maturity",
+          message: opts.message,
+          choices: [
+            { name: "solo — individual / hobby; universal floor, warn-only gates", value: "solo" as MaturityTier },
+            { name: "team — shared repo; + duplication/design discipline, strict gates", value: "team" as MaturityTier },
+            { name: "scaleup — multi-team; + SLOs, tracing, performance budgets", value: "scaleup" as MaturityTier },
+            { name: "enterprise — regulated; + mutation/contract testing, AI evals, FinOps", value: "enterprise" as MaturityTier },
+          ],
+          default: previous ?? opts.defaultMaturity,
+        },
+      ]);
+      return isBack(answer.maturity) ? BACK : (answer.maturity as TState["maturity"]);
+    },
+  };
+}
+
+// ── confidenceFloor ─────────────────────────────────────────────────
+
+export interface ConfidenceFloorStepOptions<TState extends object = object> {
+  /** Prompt copy — config: "Agent assertiveness floor:". */
+  message: string;
+  /**
+   * First-visit default. Either a fixed floor, or a resolver over the
+   * in-progress state. config passes a resolver so the seed tracks the maturity
+   * tier the user picked EARLIER in this same run (the maturity step is
+   * sequenced before this one): `readConfidenceFloor` with the in-run maturity
+   * keeps an explicit persisted floor winning, else solo/team default `any` and
+   * scaleup/enterprise default `high`. Without the resolver the seed would lag a
+   * mid-run maturity bump, and accepting a stale default could pin a floor that
+   * contradicts the newly-chosen tier. Builders never read the manifest — the
+   * caller closes over it inside the resolver (mirrors `tier2Suggested` /
+   * `defaultPreset`).
+   */
+  defaultFloor: ConfidenceFloor | ((state: Partial<TState>) => ConfidenceFloor);
+}
+
+/**
+ * Single-select agent-assertiveness floor picker (`name: "confidenceFloor"`).
+ * Choice copy mirrors the `ConfidenceFloor` JSDoc in `src/types.ts`. config-only
+ * — init keeps its interactive flow at ≤6 prompts (maturity is the only dial it
+ * prompts for), so confidence_floor has no init prompt (the scalar
+ * `config confidence_floor=<v>` form remains).
+ */
+export function confidenceFloorStep<TState extends { confidenceFloor: ConfidenceFloor }>(
+  opts: ConfidenceFloorStepOptions<TState>,
+): StepFor<TState, "confidenceFloor"> {
+  return {
+    id: "confidenceFloor",
+    async run(state, previous): Promise<StepResult<TState["confidenceFloor"]>> {
+      const resolvedDefault =
+        typeof opts.defaultFloor === "function" ? opts.defaultFloor(state) : opts.defaultFloor;
+      const answer = await inquirer.prompt<{ confidenceFloor: ConfidenceFloor | typeof BACK }>([
+        {
+          type: "select",
+          name: "confidenceFloor",
+          message: opts.message,
+          choices: [
+            { name: "any — second-pass only on a low-confidence reviewer finding", value: "any" as ConfidenceFloor },
+            { name: "medium — second-pass on any low-confidence finding", value: "medium" as ConfidenceFloor },
+            { name: "high — second-pass on non-high confidence + ASK on every low-confidence finding", value: "high" as ConfidenceFloor },
+          ],
+          default: previous ?? resolvedDefault,
+        },
+      ]);
+      return isBack(answer.confidenceFloor) ? BACK : (answer.confidenceFloor as TState["confidenceFloor"]);
     },
   };
 }

@@ -283,6 +283,18 @@ export interface PromptOverrides {
    * passing; set to `false` to exercise the abort branch.
    */
   confirmArchiveTools?: boolean;
+  /**
+   * 2.1.0 (Task C): answer to the unconditional maturity-tier step. Defaults to
+   * the manifest's persisted tier (or "solo" when absent), so accepting the
+   * default registers no change. Set a different tier to exercise persistence.
+   */
+  maturity?: "solo" | "team" | "scaleup" | "enterprise";
+  /**
+   * 2.1.0 (Task E): answer to the unconditional confidence-floor step. Defaults
+   * to the tier-aware resolved value (explicit floor, else solo/team→"any",
+   * scaleup/enterprise→"high"), so accepting the default registers no change.
+   */
+  confidenceFloor?: "any" | "medium" | "high";
 }
 
 /**
@@ -430,6 +442,18 @@ export function setupStandardPrompts(
       });
     }
   }
+
+  // 11.5. 2.1.0 (Tasks C/E): unconditional maturity + confidence-floor steps,
+  // appended to the end of the config step machine (after the content block,
+  // before the post-machine archive confirm). Default answers mirror the
+  // production defaults (readMaturityTier / readConfidenceFloor) so accepting
+  // them registers no change and the "No changes detected" path is preserved.
+  const queuedMaturity = overrides.maturity ?? manifest.maturity ?? "solo";
+  inquirerMock.prompt.mockResolvedValueOnce({ maturity: queuedMaturity });
+  const resolvedTier = manifest.maturity ?? "solo";
+  const tierFloor = resolvedTier === "scaleup" || resolvedTier === "enterprise" ? "high" : "any";
+  const queuedFloor = overrides.confidenceFloor ?? manifest.confidenceFloor ?? tierFloor;
+  inquirerMock.prompt.mockResolvedValueOnce({ confidenceFloor: queuedFloor });
 
   // 12. D10-M14 (Cycle 10): tool-removal archive confirm. Fires only when
   // the standard prompts above drop at least one tool relative to the
