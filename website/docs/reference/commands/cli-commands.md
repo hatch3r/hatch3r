@@ -52,13 +52,49 @@ The interactive flow asks (default branch, project type, and team size are infer
 1. **Platform** -- GitHub, Azure DevOps, or GitLab (auto-detected from git remote)
 2. **Repo identity** -- owner/org and repo name (auto-filled from the remote where possible)
 3. **Content profile** -- Minimal, Standard (recommended), Full, or Custom
-4. **Custom content items** -- only when Custom is selected at step 3
-5. **Tools** -- select from the 3 supported adapters (Claude Code, Cursor, GitHub Copilot)
-6. **CLI tools** -- tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). There is no MCP prompt — opt in with `--mcp` or `npx hatch3r mcp setup` later
+4. **Maturity tier** -- solo, team, scaleup, or enterprise (seeded at the git-inferred default); `--maturity <tier>` skips this prompt. The tier is an investment-depth dial, not a content gate -- every tier installs the full corpus (see [Maturity Tiers](../../guides/maturity-tiers))
+5. **Custom content items** -- only when Custom is selected at step 3
+6. **Tools** -- select from the 3 supported adapters (Claude Code, Cursor, GitHub Copilot)
+7. **CLI tools** -- tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). There is no MCP prompt — opt in with `--mcp` or `npx hatch3r mcp setup` later
+
+The common (non-custom) path is 6 prompts; the custom-content multi-select adds a 7th only when Custom is chosen at step 3.
 
 Only the content matching your profile and context is generated into your adapter outputs (canonical content is read from the bundled npm package, not copied into your repo). Use `hatch3r config` to add or remove items later.
 
 With `--yes`, init auto-detects greenfield/brownfield, defaults to solo + standard preset, selects tier-1 + triggered tier-2 CLI tools, and skips all prompts.
+
+## hatch3r setup
+
+Added in 2.1.0. Scaffolds a fresh project directory and then chains into the `hatch3r init` prompts inside it. The happy path needs only Node 22+ and `git`.
+
+```bash
+npx hatch3r setup my-app
+npx hatch3r setup my-app --remote
+npx hatch3r setup demo --yes --tools claude
+npx hatch3r setup my-app --dry-run    # preview the scaffold without writing
+```
+
+**Flags:**
+
+| Flag | Values | Default | Description |
+|------|--------|---------|-------------|
+| `--remote` | — | off | Create a private GitHub remote via `gh repo create` after `git init`. Acts only when `gh` is installed and authenticated (`gh auth status` exits 0); otherwise it prints a warning and continues the local scaffold |
+| `--tools` | comma-separated tool names | auto-detected | Forwarded to `init` — which coding tools to configure (Claude Code, Cursor, Copilot) |
+| `--preset` | `minimal`, `standard`, `full`, or any `init` preset value | `standard` | Forwarded to `init` — content profile preset |
+| `--maturity` | `solo`, `team`, `scaleup`, `enterprise` | git-inferred | Forwarded to `init` — investment-depth tier; supplying it skips the maturity prompt |
+| `--yes` | — | off | Forwarded to `init` — skip all prompts (headless mode) |
+| `--format <human\|json>` | `human`, `json` | `human` | Forwarded to `init`. `--format json` without `--yes` is an exit-2 usage error |
+| `--quiet` | — | off | Forwarded to `init` — suppress stdout chrome |
+| `--dry-run` | — | off | Preview the scaffold plan (directory, `git init`, remote, then init) and write nothing; `init` is not run |
+| `--verbose` | — | off | Forwarded to `init` — verbose per-step output |
+
+What it does, in order:
+
+1. Resolves the target directory from the positional `[dir]` argument; when omitted it uses the current directory if empty, otherwise prompts for a directory name. An existing target with content beyond a lone `.git` is refused with an actionable `FS_ERROR` (exit 74)
+2. Creates the directory (skipped when it already exists empty)
+3. Runs `git init` — idempotent, skipped when a `.git` is already present
+4. With `--remote`, creates the private GitHub remote (warns and continues when `gh` is missing/unauthenticated, or if `gh repo create` fails)
+5. Changes into the new directory and runs the `hatch3r init` prompts (see above); `init` emits the single terminal outcome box / JSON envelope
 
 ## hatch3r config
 

@@ -21,6 +21,10 @@ Adds a `hatch3r setup` command that scaffolds a fresh project (mkdir + git init,
 - **Slash-command picker descriptions** — command files (Claude Code, Cursor, Copilot) and Claude skill files now emit byte-0 YAML `description:` frontmatter, so the `/` picker shows each artifact's real description instead of the `HATCH3R:BEGIN` managed-block marker. Covers the synthetic `hatch3r-agent-team` launcher.
 - **`handoffs` silently disabled on `config` re-run** — `handoffs` was missing from the feature picker, so re-running `config` rebuilt the feature set without it and forced it off. The rebuild now preserves any feature not shown in the picker, fixing `handoffs` and preventing the same class of silent drop for future features.
 
+### Chore
+
+- Post-2.0.0 housekeeping rolled into this release: D15 CI guard + npm keywords (#105), removed `release-please.yml` (org blocks Actions-created PRs) (#106), and a Windows-aware heavy-fs test timeout to stop init flakiness (#107).
+
 ## [2.0.0] - 2026-06-21
 
 ### Headline
