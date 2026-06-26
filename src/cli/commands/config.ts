@@ -1372,6 +1372,16 @@ async function configCommandImpl(
   // `.env.mcp`, and the workspace post-steps.
   if (cliOpts?.dryRun === true) {
     const dryLines = buildDiffSummaryLines(diff, platform, namespace, project, defaultBranch, currentBranch);
+    // C / E (2.1.0, P1): mirror the live "Config updated" box's investment-dial
+    // change lines (computeDiff does not track these dials) so the dry-run
+    // preview shows the maturity / confidence-floor edits a real run would
+    // persist. Same flags + line format as the live summary path below.
+    if (maturityChanged && selectedMaturity !== undefined) {
+      dryLines.push(`${chalk.cyan("~")} Maturity: ${selectedMaturity}`);
+    }
+    if (confidenceFloorChanged && selectedConfidenceFloor !== undefined) {
+      dryLines.push(`${chalk.cyan("~")} Confidence floor: ${selectedConfidenceFloor}`);
+    }
     dryLines.push("");
     dryLines.push(
       chalk.dim(

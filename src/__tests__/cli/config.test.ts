@@ -741,6 +741,26 @@ describe("config command", () => {
       expect(writtenManifest.maturity).toBe("scaleup");
       expect(writtenManifest.confidenceFloor).toBe("high");
     });
+
+    it("dry-run preview includes the maturity dial line (Bugbot: config dry-run omits dial lines)", async () => {
+      // The live "Config updated" box appends `~ Maturity:` / `~ Confidence
+      // floor:` after buildDiffSummaryLines; the `--dry-run` terminus must show
+      // the same dial lines so the preview matches what a real run persists.
+      const manifest = makeManifest(); // no maturity field → resolves to solo
+      primeConfig(manifest, { maturity: "scaleup" });
+
+      await (await importConfigCommand())(undefined, undefined, { dryRun: true });
+
+      // Dry run writes nothing …
+      expect(vi.mocked(writeManifest)).not.toHaveBeenCalled();
+      // … and the dry-run box carries the maturity change line a live run would.
+      const dryRunBox = vi
+        .mocked(printBox)
+        .mock.calls.find((call) => call[0] === "Config dry run (no writes)");
+      expect(dryRunBox).toBeDefined();
+      const lines = dryRunBox![1] as string[];
+      expect(lines.some((l) => l.includes("Maturity: scaleup"))).toBe(true);
+    });
   });
 
   // ── MCP servers ──────────────────────────────────────────────
