@@ -5,6 +5,10 @@ on:
     branches: [main]
     paths:
       - 'website/**'
+      # The landing page imports governance/inventory.json at build time
+      # (website/src/pages/index.tsx hero stats) — inventory-only pushes must
+      # redeploy or live stats go stale (Bugbot PR #115).
+      - 'governance/inventory.json'
       - '.github/workflows/deploy-docs.yml'
   workflow_dispatch:
 
