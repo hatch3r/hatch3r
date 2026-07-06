@@ -22,7 +22,7 @@ Pick the preset that matches the intent before editing any artifact:
 | Add a new artifact | `/h4tcher-capability-add` |
 | Rename / split / merge / restructure | `/h4tcher-capability-refactor` |
 | Phase out an artifact | `/h4tcher-capability-remove` |
-| Holistic governance re-think (vision + pillars + audit + execution + lean + charters + anti-slop + closed-loop) | `/h4tcher-re-envision` |
+| Interactive governance evolution (corpus scan + research + full-coverage discussion + rewrite with per-file consent) | `/h4tcher-evolve` |
 | Full framework audit cycle | `/h4tcher-audit-cycle` |
 | Regenerate the hatch3r docs site from this repo's corpus | `/h4tcher-docusaurus-generator` |
 
@@ -79,4 +79,4 @@ Before declaring lifecycle work complete, run every gate below — orchestrator 
 - `npm run validate:efficiency`
 - B1 gate present (clarification-default rule applied; user-question-protocol referenced)
 - B2 rationale present (sub-agent count + rationale emitted by orchestrator)
-- `/h4tcher-re-envision` is the only lifecycle preset authorized to direct-edit VISION.md, CONSTITUTION §2 P5 lean-threshold rows, CONSTITUTION §2 Anti-Bloat Principles + Silent Failure Contract, AUDIT.md behavioral charter directive additions/refinements, anti-slop wordlist (atomic pair with CLAUDE.md), EVOLVE.md prompt mechanics, quality-charter, user-question-protocol, and CLAUDE.md cross-references — per-file consent required at §6.1; CONSTITUTION pillars/traceability/§8/Key Design Decisions remain §8 framework-owner direct edit via queued proposals.
+- `/h4tcher-evolve` sessions are the authorized governance-edit path — in-session per-file owner consent constitutes CONSTITUTION §8 approval for all governance layers (pillars, §3 matrix, §6 decisions, §8 itself carry an explicit §8-amendment label in the consent ASK); out-of-session changes keep CL-3 / §8-queue routes.

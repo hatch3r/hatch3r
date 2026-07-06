@@ -4,7 +4,7 @@
  *
  * CONSTITUTION §6 "Key Design Decisions" register integrity gate. The §6 table
  * carries a leftmost `#` ordinal column plus in-body `Decision N` provenance
- * references inside the Rationale cells (the RE-ENVISION cycle that introduced
+ * references inside the Rationale cells (the governance-evolution cycle that introduced
  * the row — see the §6 citation key, F24.4-H2). Two integrity classes had no
  * code gate:
  *

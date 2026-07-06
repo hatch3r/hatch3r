@@ -69,7 +69,7 @@ D22 / D23 / D24 admission (per the canonical audit domain map) adds three domain
 | **D24** Governance Self-Audit | `invariant_violation` | A constitution invariant (e.g., lean threshold, anti-slop, pillar coverage) is broken | Critical |
 | **D24** Governance Self-Audit | `process_drift` | Audit cycle deviated from the audit-execute Phase contract | High |
 | **D24** Governance Self-Audit | `traceability_gap` | A change landed without a finding-registry entry or §8 amendment trail | Medium |
-| **D24** Governance Self-Audit | `cadence_miss` | Required cadence (re-envision ≥14 days, audit cycle, evolve) overdue | Low |
+| **D24** Governance Self-Audit | `cadence_miss` | Required cadence (evolve session ≥14 days full-rewrite, audit cycle) overdue | Low |
 
 The Specialist Status column from the 6-Column Canonical Map applies to D22/D23/D24 SAs (PASS | FINDINGS | CRITICAL coarse status) — the bucket-level mapping above is the per-finding-row resolution within each SA's output. Consumers (fixer, reviewer) map the source bucket to canonical Audit Severity before applying action policy, identical to the Consumer Contract for existing domains.
 

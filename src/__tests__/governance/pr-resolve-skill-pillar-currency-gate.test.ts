@@ -103,7 +103,7 @@ describe.skipIf(!SOURCES_PRESENT)("PR-resolve skill pillar-currency gate (Cycle 
     const skillText = readFileSync(SKILL, "utf-8");
     // Literal governance-file line ceilings the skill must NOT hardcode in its
     // injected block — these drift independently and lived in the pre-D19-4 cache.
-    const cachedCeiling = /(CONSTITUTION|AUDIT|AUDIT-EXECUTE|RE-ENVISION|EVOLVE)\s*[≤<]=?\s*\d{2,}/;
+    const cachedCeiling = /(CONSTITUTION|AUDIT|AUDIT-EXECUTE|EVOLVE)\s*[≤<]=?\s*\d{2,}/;
     const offenders = skillText
       .split("\n")
       .map((line, i) => ({ line, n: i + 1 }))

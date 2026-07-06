@@ -36,7 +36,7 @@ const LIFECYCLE_RULE = resolve(ROOT, ".claude", "rules", "capability-lifecycle.m
 /**
  * The framework-dev maintainer utilities in scope for the F07 single-enumeration
  * invariant: `h4tcher-` skills that are neither lifecycle presets
- * (add/refactor/remove/discover/scoped-audit/re-envision) nor delegated-to author
+ * (add/refactor/remove/discover/scoped-audit/evolve) nor delegated-to author
  * skills (content/adapter/domain-author) nor the audit subsystem skills
  * (audit-cycle/audit-execute/governance-check, covered by their own rows/findings).
  * Each maps to its skill directory under `.claude/skills/`.

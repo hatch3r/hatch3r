@@ -5,27 +5,29 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 
 /**
- * Cycle 11 D24-15 gate test.
+ * Cycle 11 D24-15 gate test (retargeted to EVOLVE.md after the RE-ENVISION
+ * retirement).
  *
  * `scripts/validate-governance-currency.ts` enforces (second check,
- * GOV-CLI-COUNT-CACHED) that RE-ENVISION.md's T8 "CLI Scope" sparring-theme row
- * does not cache a hardcoded "<N> command(s)" count in its "Current state:"
- * line. The only enumeration of the CLI command surface is VISION §CLI Scope;
- * CLAUDE.md's architecture table carries the aggregate count. A literal count
- * in T8 drifts against both — the Cycle-11 drift recorded "13 commands" while
- * VISION listed 14 bullets and CLAUDE.md declared 18. The D24-15 fix replaced
- * the literal with drift-proof phrasing and added this probe; the gate keeps
- * the count from silently re-entering the row.
+ * GOV-CLI-COUNT-CACHED) that governance/EVOLVE.md — the unified interactive
+ * governance-evolution engine — does not cache a hardcoded "<N> command(s)"
+ * count on any "Current state:" line, file-wide. The engine generates its
+ * "Current state:" lines at run time from templates; the only enumeration of
+ * the CLI command surface is VISION §CLI Scope, and CLAUDE.md's architecture
+ * table carries the aggregate count. A literal count in the static file drifts
+ * against both — the Cycle-11 drift recorded "13 commands" while VISION listed
+ * 14 bullets and CLAUDE.md declared 18. The gate keeps a count from silently
+ * entering any "Current state:" line.
  *
  * Three assertions:
- *   1. The real shipped RE-ENVISION.md passes (exit 0, 0 errors) — its T8 row
- *      uses drift-proof phrasing, no cached count.
- *   2. A synthetic governance tree whose T8 row caches "13 commands" trips the
- *      gate (exit 1, GOV-CLI-COUNT-CACHED) — proving the gate catches a
- *      regression.
- *   3. A synthetic T8 row with the drift-proof phrasing is NOT flagged, and a
- *      "<N> commands" phrase OUTSIDE the T8 block is NOT flagged (scope is the
- *      T8 "Current state:" line only).
+ *   1. The real shipped EVOLVE.md passes (exit 0, 0 errors) — no "Current
+ *      state:" line caches a count.
+ *   2. A synthetic governance tree whose EVOLVE.md caches "13 commands" on a
+ *      "Current state:" line trips the gate (exit 1, GOV-CLI-COUNT-CACHED) —
+ *      proving the gate catches a regression.
+ *   3. A drift-proof "Current state:" line is NOT flagged, and a
+ *      "<N> commands" phrase on a non-"Current state:" line is NOT flagged
+ *      (scope is "Current state:" lines only).
  *
  * Subprocess form keeps every import inside `src/` (the script lives under
  * `scripts/`, outside tsconfig `rootDir: "src"`), so `tsc --noEmit` stays
@@ -72,40 +74,43 @@ function runGate(scanRoot: string): { result: GateResult; exitCode: number; stde
   return { result: JSON.parse(stdout) as GateResult, exitCode, stderr };
 }
 
-/** Build a synthetic governance/RE-ENVISION.md under `dir` with a given T8 row. */
-function writeReEnvision(dir: string, t8CurrentState: string, extraTail = ""): string {
+/**
+ * Build a synthetic governance/EVOLVE.md under `dir`. The body carries one
+ * clean "Current state:" line (no count) plus a parameterized "Current
+ * state:" line under test; `extraTail` appends arbitrary trailing lines
+ * (e.g. a non-"Current state:" line carrying a count).
+ */
+function writeEvolve(dir: string, currentStateUnderTest: string, extraTail = ""): string {
   const govDir = join(dir, "governance");
   mkdirSync(govDir, { recursive: true });
   const body = [
-    "# Re-Envision",
+    "# Evolve",
     "",
-    "> Last updated: 2026-06-09",
+    "> Last updated: 2026-07-06",
     "",
-    "### T7. Platform Strategy | L1 | direct-edit VISION",
-    "Current state: VISION §Supported Platforms (3 adapters). Drift: L1 IDs.",
+    "## Layer Scan",
     "",
-    "### T8. CLI Scope | L1 | direct-edit VISION",
-    `Current state: ${t8CurrentState}`,
+    "Current state: VISION §Supported Platforms (3 adapters). Drift: none.",
     "",
-    "### T9. Learning System Vision | L1 | direct-edit VISION",
-    "Current state: VISION §Learning. Drift: L1 IDs.",
+    `Current state: ${currentStateUnderTest}`,
+    "",
     extraTail,
     "",
   ].join("\n");
-  writeFileSync(join(govDir, "RE-ENVISION.md"), body, "utf-8");
-  return "governance/RE-ENVISION.md";
+  writeFileSync(join(govDir, "EVOLVE.md"), body, "utf-8");
+  return "governance/EVOLVE.md";
 }
 
-// Privatization gate: governance/RE-ENVISION.md is private overlay IP, gitignored
+// Privatization gate: governance/EVOLVE.md is private overlay IP, gitignored
 // and absent in public CI / contributor clones. Skip the real-repo assertion when
 // it is absent (mirrors validate-governance-total.test.ts's "skips clean when the
 // CONSTITUTION is absent (private-corpus public CI)" contract); the two synthetic
-// gate tests below build their own RE-ENVISION.md and stay fully effective. The
+// gate tests below build their own EVOLVE.md and stay fully effective. The
 // real-repo assertion runs unchanged wherever the file is present.
-const RE_ENVISION_PRESENT = existsSync(resolve(ROOT, "governance", "RE-ENVISION.md"));
+const EVOLVE_PRESENT = existsSync(resolve(ROOT, "governance", "EVOLVE.md"));
 
 describe("validate-governance-currency CLI-count gate (Cycle 11 D24-15)", () => {
-  it.skipIf(!RE_ENVISION_PRESENT)("the real shipped RE-ENVISION.md caches no CLI count in its T8 row", () => {
+  it.skipIf(!EVOLVE_PRESENT)("the real shipped EVOLVE.md caches no CLI count on any Current state: line", () => {
     const { result, exitCode, stderr } = runGate(ROOT);
     const cliCountErrors = result.drifts.filter((d) => d.code === "GOV-CLI-COUNT-CACHED");
     expect(cliCountErrors, `GOV-CLI-COUNT-CACHED hits:\n${stderr}`).toHaveLength(0);
@@ -114,10 +119,10 @@ describe("validate-governance-currency CLI-count gate (Cycle 11 D24-15)", () => 
     expect(result.scannedFiles).toBeGreaterThan(0);
   });
 
-  it("flags a T8 row that caches a hardcoded '13 commands' count", () => {
+  it("flags a Current state: line that caches a hardcoded '13 commands' count", () => {
     const dir = mkdtempSync(join(tmpdir(), "h3-d2415-"));
     try {
-      const rel = writeReEnvision(
+      const rel = writeEvolve(
         dir,
         "VISION §CLI Scope (generator vs runtime boundary, 13 commands). Drift: L1 IDs.",
       );
@@ -127,7 +132,8 @@ describe("validate-governance-currency CLI-count gate (Cycle 11 D24-15)", () => 
       expect(hit).toBeDefined();
       expect(hit?.level).toBe("error");
       expect(hit?.file).toBe(rel);
-      // T8 "Current state:" line sits at line 9 in the synthetic body.
+      // The parameterized "Current state:" line sits at line 9 in the
+      // synthetic body (the clean line at line 7 is not flagged).
       expect(hit?.line).toBe(9);
       expect(hit?.message).toContain("13 commands");
     } finally {
@@ -135,15 +141,16 @@ describe("validate-governance-currency CLI-count gate (Cycle 11 D24-15)", () => 
     }
   });
 
-  it("does not flag drift-proof phrasing, nor a count outside the T8 block", () => {
+  it("does not flag drift-proof phrasing, nor a count on a non-Current-state line", () => {
     const dir = mkdtempSync(join(tmpdir(), "h3-d2415-"));
     try {
-      writeReEnvision(
+      writeEvolve(
         dir,
         "VISION §CLI Scope (generator vs runtime boundary, the CLI command surface enumerated in VISION §CLI Scope). Drift: L1 IDs.",
-        // A "14 commands" phrase in a later, unrelated theme line must NOT trip
-        // the gate — the check is scoped to the T8 "Current state:" line only.
-        "### T15. Misc | L1\nNote: some other section once mentioned 14 commands historically.",
+        // A "14 commands" phrase on a line that is not a "Current state:" line
+        // must NOT trip the gate — the check is scoped to "Current state:"
+        // lines only, even though it scans the whole file.
+        "## Notes\nNote: some other section once mentioned 14 commands historically.",
       );
       const { result, exitCode } = runGate(dir);
       const cliCountHits = result.drifts.filter((d) => d.code === "GOV-CLI-COUNT-CACHED");

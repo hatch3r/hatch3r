@@ -27,14 +27,15 @@
  * catches the self-contradiction class on every CI run, in any checkout, with
  * no overlay-repo history required.
  *
- * Second check (D24-15, Cycle 11 D24 Medium): RE-ENVISION.md's T8 "CLI Scope"
- * sparring-theme row caches the literal current-state phrase the orchestrator
- * presents during the sparring dialog. A hardcoded "N commands" count there
- * drifts against the only enumeration source (VISION §CLI Scope) and against
- * CLAUDE.md's architecture table — the Cycle-11 drift recorded "13 commands"
- * while VISION listed 14 bullets and CLAUDE.md declared 18. The fix replaced the
- * literal with drift-proof phrasing; this gate forbids any hardcoded
- * "<N> command(s)" count from re-entering the T8 "Current state:" line, so the
+ * Second check (D24-15, Cycle 11 D24 Medium; retargeted to EVOLVE.md after the
+ * RE-ENVISION retirement): governance/EVOLVE.md — the unified interactive
+ * governance-evolution engine — generates its "Current state:" lines at run
+ * time from templates. A hardcoded "<N> command(s)" count on any static
+ * "Current state:" line is therefore cached drift: it diverges from the only
+ * enumeration source (VISION §CLI Scope) and from CLAUDE.md's architecture
+ * table — the Cycle-11 drift recorded "13 commands" while VISION listed 14
+ * bullets and CLAUDE.md declared 18. This gate scans every "Current state:"
+ * line file-wide and forbids any hardcoded count from entering one, so the
  * count can never silently re-drift (GOV-CLI-COUNT-CACHED, ERROR).
  *
  * Usage:
@@ -63,7 +64,6 @@ const GOVERNANCE_FILES: readonly string[] = [
   "governance/VISION.md",
   "governance/AUDIT.md",
   "governance/AUDIT-EXECUTE.md",
-  "governance/RE-ENVISION.md",
   "governance/EVOLVE.md",
   "governance/pack-trust-model.md",
 ];
@@ -142,29 +142,23 @@ export function scanHeaders(body: string): HeaderScan {
 }
 
 /**
- * D24-15: scan RE-ENVISION.md's T8 "CLI Scope" sparring-theme row for a cached
- * "<N> command(s)" count literal in its "Current state:" line. The count must
- * not be hardcoded there — it drifts against VISION §CLI Scope (the sole
- * enumeration) and CLAUDE.md's architecture table. Returns one drift per
- * offending line. Scoped to the T8 block only (the next `### T9` heading ends
- * it) so unrelated count phrasing elsewhere in the file is not flagged.
+ * D24-15 (retargeted to EVOLVE.md after the RE-ENVISION retirement): scan
+ * governance/EVOLVE.md for a cached "<N> command(s)" count literal on any
+ * "Current state:" line, file-wide. The governance-evolution engine generates
+ * its "Current state:" lines at run time from templates, so a hardcoded CLI
+ * count in the static file is exactly the drift this gate catches — it drifts
+ * against VISION §CLI Scope (the sole enumeration) and CLAUDE.md's
+ * architecture table. Returns one drift per offending line. Count phrasing on
+ * non-"Current state:" lines is not flagged.
  */
 export function scanCachedCliCount(body: string, rel: string): CurrencyDrift[] {
   const drifts: CurrencyDrift[] = [];
   const lines = body.split("\n");
-  let inT8 = false;
   // Matches "13 commands", "14 command", "1 command" — a bare integer count
   // immediately followed by the word command/commands.
   const COUNT_RE = /\b\d+\s+commands?\b/i;
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    // T8 heading opens the block; any subsequent `### T<n>.` heading closes it.
-    if (/^###\s+T8\.\s/.test(line)) {
-      inT8 = true;
-      continue;
-    }
-    if (inT8 && /^###\s+T\d+\.\s/.test(line)) break;
-    if (!inT8) continue;
     if (/^Current state:/i.test(line) && COUNT_RE.test(line)) {
       const m = line.match(COUNT_RE);
       drifts.push({
@@ -172,7 +166,7 @@ export function scanCachedCliCount(body: string, rel: string): CurrencyDrift[] {
         line: i + 1,
         level: "error",
         code: "GOV-CLI-COUNT-CACHED",
-        message: `T8 "Current state:" caches a hardcoded CLI count "${m?.[0]}" — it drifts against VISION §CLI Scope (the sole enumeration) and CLAUDE.md's architecture table; use drift-proof phrasing ("the CLI command surface enumerated in VISION §CLI Scope") instead (D24-15)`,
+        message: `"Current state:" line caches a hardcoded CLI count "${m?.[0]}" — it drifts against VISION §CLI Scope (the sole enumeration) and CLAUDE.md's architecture table; use drift-proof phrasing ("the CLI command surface enumerated in VISION §CLI Scope") instead (D24-15)`,
       });
     }
   }
@@ -195,10 +189,10 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     }
     scanned += 1;
 
-    // D24-15: RE-ENVISION.md's T8 row must not cache a hardcoded CLI count.
-    // Run before the header-currency early-continue so the check still fires on
-    // a file that happens to lack a `> Last updated:` header.
-    if (rel.endsWith("RE-ENVISION.md")) {
+    // D24-15: EVOLVE.md's "Current state:" lines must not cache a hardcoded
+    // CLI count. Run before the header-currency early-continue so the check
+    // still fires on a file that happens to lack a `> Last updated:` header.
+    if (rel.endsWith("EVOLVE.md")) {
       drifts.push(...scanCachedCliCount(body, rel));
     }
 

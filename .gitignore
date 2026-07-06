@@ -35,7 +35,7 @@ governance/*
 # Private audit methodology (source of truth: hatch3r/hatch3r-governance)
 .claude/skills/h4tcher-audit-cycle/
 .claude/skills/h4tcher-audit-execute/
-.claude/skills/h4tcher-re-envision/
+.claude/skills/h4tcher-evolve/
 .claude/skills/h4tcher-domain-author/
 .claude/skills/h4tcher-governance-check/
 .claude/skills/h4tcher-scoped-audit/
@@ -66,6 +66,7 @@ ops/
 todo.md
 social_preview.png
 .audit-workspace/
+.evolve-workspace/
 .re-envision-workspace/
 .agents/
 .hatch3r/

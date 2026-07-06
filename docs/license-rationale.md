@@ -67,7 +67,7 @@ If you derive a fork that diverges from upstream hatch3r, please do not call the
 
 ## License changes
 
-Changing the license of a hatch3r release would require contributor consent under the DCO (Developer Certificate of Origin) sign-off model enforced on every commit (see [`CONTRIBUTING.md`](../CONTRIBUTING.md)). A license change has never been proposed and is not planned. If a proposal ever arises, it would route through the `/h4tcher-re-envision` governance sparring engine and require explicit user consent.
+Changing the license of a hatch3r release would require contributor consent under the DCO (Developer Certificate of Origin) sign-off model enforced on every commit (see [`CONTRIBUTING.md`](../CONTRIBUTING.md)). A license change has never been proposed and is not planned. If a proposal ever arises, it would route through the `/h4tcher-evolve` governance-evolution engine and require explicit user consent.
 
 ## References
 

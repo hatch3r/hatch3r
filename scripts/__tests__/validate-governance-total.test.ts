@@ -39,13 +39,13 @@ function buildConstitution(ceiling: number, extraLines = 0): string {
 
 | Metric | Limit | Calibration |
 |--------|-------|-------------|
-| Governance total (sum of the 7 lean-tracked prompts) | <=${ceiling} lines | Ceiling = sum of per-file caps. |
+| Governance total (sum of the 6 lean-tracked prompts) | <=${ceiling} lines | Ceiling = sum of per-file caps. |
 `;
   for (let i = 0; i < extraLines; i++) body += `padding line ${i}\n`;
   return body;
 }
 
-/** Write all 7 scoped files, each with `linesPerFile` newline-terminated lines. */
+/** Write all 6 scoped files, each with `linesPerFile` newline-terminated lines. */
 async function writeScopedFiles(
   rootDir: string,
   linesPerFile: number,
@@ -134,7 +134,7 @@ describe("runValidator (governance-total)", () => {
   });
 
   it("passes when the summed total is at or under the ceiling", async () => {
-    // 7 files * 100 lines = 700; CONSTITUTION replaced with a ~12-line table.
+    // 6 files * 100 lines = 600; CONSTITUTION replaced with a ~12-line table.
     const constitution = buildConstitution(5000);
     await writeScopedFiles(fixture.rootDir, 100, constitution);
     const result = await runValidator({ rootDir: fixture.rootDir });
@@ -157,7 +157,7 @@ describe("runValidator (governance-total)", () => {
   it("errors when a scoped file is missing", async () => {
     const constitution = buildConstitution(5000);
     await writeFile(join(fixture.rootDir, "governance", "CONSTITUTION.md"), constitution, "utf-8");
-    // Only write CONSTITUTION; the other 6 scoped files are absent.
+    // Only write CONSTITUTION; the other 5 scoped files are absent.
     const result = await runValidator({ rootDir: fixture.rootDir });
     expect(result.errors.length).toBeGreaterThan(0);
     expect(result.exitCode).toBe(1);

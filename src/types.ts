@@ -980,7 +980,7 @@ export type HatchErrorCode =
  * sub-classes carry different operator next-steps (fix your command line vs fix
  * your repo content), so they stay separate codes under this one SSOT. Changing
  * either code is a paired source + governance-rule edit (cli-ux-standards.md is
- * framework-dev-only via the capability-lifecycle / re-envision presets).
+ * framework-dev-only via the capability-lifecycle / evolve presets).
  */
 export const ERROR_CODE_TO_EXIT_CODE: Record<HatchErrorCode, number> = {
   VALIDATION_ERROR: 64,

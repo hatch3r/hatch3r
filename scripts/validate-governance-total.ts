@@ -4,14 +4,14 @@
  *
  * Enforces the CONSTITUTION §2 P5 "Governance total" lean-threshold row. That
  * row was scope-undefined and unenforced: no CI leg summed any files, and the
- * smallest defensible scope (the 7 lean-tracked prompts) already exceeded the
+ * smallest defensible scope (the 6 lean-tracked prompts) already exceeded the
  * prior <=3000 ceiling. D24-9 redefined the scope inline and reset the ceiling
- * to the deterministic sum of those 7 files' own per-file caps; this script is
+ * to the deterministic sum of those 6 files' own per-file caps; this script is
  * the enforcer that row's text now names.
  *
- * Scope (the 7 lean-tracked governance prompts, per CONSTITUTION §2 P5):
+ * Scope (the 6 lean-tracked governance prompts, per CONSTITUTION §2 P5):
  *   CONSTITUTION.md + VISION.md + AUDIT.md + AUDIT-EXECUTE.md +
- *   RE-ENVISION.md + EVOLVE.md + pack-trust-model.md
+ *   EVOLVE.md + pack-trust-model.md
  *
  * The ceiling is NOT hardcoded here. It is parsed from the CONSTITUTION §2 P5
  * "Governance total" row Limit cell, so the table stays the single source of
@@ -41,7 +41,7 @@ const ROOT = resolve(__dirname, "..");
 const CONSTITUTION_REL = "governance/CONSTITUTION.md";
 
 /**
- * The 7 lean-tracked governance prompts that constitute the "Governance total"
+ * The 6 lean-tracked governance prompts that constitute the "Governance total"
  * scope. Order matches the CONSTITUTION §2 P5 row text for diagnostic
  * readability.
  */
@@ -50,7 +50,6 @@ export const SCOPED_FILES: readonly string[] = [
   "governance/VISION.md",
   "governance/AUDIT.md",
   "governance/AUDIT-EXECUTE.md",
-  "governance/RE-ENVISION.md",
   "governance/EVOLVE.md",
   "governance/pack-trust-model.md",
 ];

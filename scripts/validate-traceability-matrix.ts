@@ -116,6 +116,12 @@ export function parseMatrixSection(
   const out = new Map<string, string[]>();
   const lines = body.split("\n");
   let inSection = false;
+  // Domains column index, resolved dynamically from the section's header row
+  // (the first `|`-row whose cells include `Domains`). Current header layout:
+  // | Pillar | CONST | VISION | AUDIT | A-EXEC | EVOLVE | TMPL | Domains | Trust |
+  // The dynamic lookup means a column insertion/removal in the CONSTITUTION
+  // matrix (e.g. the RE-ENV column retirement) cannot silently shift the cell.
+  let domainsIdx: number | null = null;
   for (const line of lines) {
     if (line.startsWith("### ") && line.includes(sectionHeader)) {
       inSection = true;
@@ -127,8 +133,17 @@ export function parseMatrixSection(
     if (!line.trim().startsWith("|")) continue;
 
     const cols = line.split("|").map((c) => c.trim());
-    // cols[0] is empty (leading pipe); pillar label is cols[1]; Domains is the
-    // 9th data column. Header/separator rows are skipped via the pillar regex.
+    // cols[0] is empty (leading pipe); pillar label is cols[1]. Header and
+    // separator rows are skipped via the pillar regex.
+    if (domainsIdx === null) {
+      // No header seen yet: this row is either the header (locate the Domains
+      // cell) or a pre-header row with no addressable Domains cell. Either way
+      // it carries no parseable data — skip it, same style as an absent
+      // section, whose gaps the downstream cross-checks surface.
+      const idx = cols.findIndex((c) => /^domains$/i.test(c));
+      if (idx !== -1) domainsIdx = idx;
+      continue;
+    }
     const pillarLabel = cols[1] ?? "";
     const pillarMatch =
       pillarPrefix === "P"
@@ -136,10 +151,7 @@ export function parseMatrixSection(
         : pillarLabel.match(/^(CQ[1-9])\b/);
     if (!pillarMatch) continue;
     const pillar = pillarMatch[1];
-    // Domains column: index 8 in the pipe-split (1-based data col 8 -> the
-    // 8th "| ... |" segment after the leading empty). Header layout:
-    // | Pillar | CONST | VISION | AUDIT | A-EXEC | RE-ENV | EVOLVE | TMPL | Domains | Trust |
-    const domainsCell = cols[9] ?? "";
+    const domainsCell = cols[domainsIdx] ?? "";
     out.set(pillar, parseDomainCell(domainsCell));
   }
   return out;
