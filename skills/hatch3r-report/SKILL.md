@@ -167,4 +167,4 @@ Each fired record: `{id, severity, turns:[n,...], evidence, suggestion}`. Consol
 - **Mask obvious secret patterns** (`sk-`, `ghp_`, `xoxb-`, `AIza`, `Bearer `) in any rendered tool_use input — substitute `{REDACTED-{prefix}}`. The transcript may contain ephemeral tokens from user pastes.
 - **Never write outside `.hatch3r/reports/`.** The `--save` target is fixed; do not honor flags or env vars that redirect output to other paths.
 - **Never abort on a malformed record.** Skip-and-count is the contract; aborting would hide the rest of the session from the operator (Silent Failure Contract — surface the skip count rather than swallowing it).
-- **Honor the iteration summary contract** (`rules/hatch3r-iteration-summary.md`) at the end of the parent assistant turn that invoked this skill. The report content is not a substitute for the canonical Status / Outcome / Done block.
+- **Honor the iteration summary contract** (`rules/hatch3r-iteration-summary.md`) at the end of the parent assistant turn that invoked this skill. The report content is not a substitute for the canonical recap (status + outcome + telemetry facets).

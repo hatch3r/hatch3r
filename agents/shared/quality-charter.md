@@ -109,11 +109,11 @@ Before answering project-specific questions about prior work, decisions, or reso
 
 ### 11. Standardized Iteration Summary
 
-Every user-facing iteration ends with the canonical Iteration Summary block defined in `rules/hatch3r-iteration-summary.md`.
+Every user-facing iteration ends with the recap-contract Iteration Summary defined in `rules/hatch3r-iteration-summary.md`: a 1–2 line recap — Status (closed enum: SUCCESS | PARTIAL | FAILED | BLOCKED) plus a one-sentence Outcome on line 1, telemetry facets (files · sub-agents · gates · cost delta · tier) on line 2 — followed by exception lines that fire only on non-default outcomes, per the exception-line registry in that rule.
 
-Required fields: Status (closed enum: SUCCESS | PARTIAL | FAILED | BLOCKED), Outcome (one sentence), Done, Not Done / Deferred / Unverified, Open Questions / Blockers, Confidence + basis. Optional sections (Artifacts Touched, Verifications Run, Earliest Failure Point, Suggested Next Action) are appended only when they carry information.
+An absent exception line is a positive claim of its default (no `Not done:` line claims `None — full scope completed`; no `Blockers:` line claims `None`). Emitting silence when a non-default state exists is a gate failure — the same violation class as silently skipping Not Done under the prior template. Never inflate confidence — if you did not verify, emit the `Confidence:` line with medium/low and name the unknown.
 
-Never substitute a prose paragraph for the block. Never silently skip Not Done — if scope was fully completed, write `None — full scope completed`. Never inflate confidence — if you did not verify, say medium and name the unknown.
+Never substitute a prose paragraph for the recap.
 
 ### 12. Anti-Duplication Procedure
 

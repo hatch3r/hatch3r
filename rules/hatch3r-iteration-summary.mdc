@@ -1,7 +1,7 @@
 ---
 id: hatch3r-iteration-summary
 type: rule
-description: 9-section iteration summary template emitted by every orchestrator command and meaningful skill run — status, outcome, done/not-done, fan-out + cost, verifications, gates, pillar impact, open questions, learnings captured.
+description: Recap-contract iteration summary — every orchestrator command and meaningful skill run closes with a 1-2 line recap (status, outcome, files/sub-agents/gates/cost-delta telemetry) plus exception lines that fire only on non-default outcomes; silence asserts the default.
 tags: [iteration, summary, telemetry, floor:content-quality]
 precedence: high
 alwaysApply: true
@@ -12,46 +12,54 @@ alwaysApply: true
 
 ## When Required
 
-Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST emit the 9-section block as the final user-facing output.
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 23, superseded in place 2026-07-06 (the recap contract replaces the former sectioned template).
 
 ## Pre-Execution Cost Preview
 
-Every orchestrator command MUST emit a one-block cost preview BEFORE its first sub-agent dispatch (Decision 24 at the user-facing surface), so the user sees the cost envelope before any agent spawns:
+Every orchestrator command MUST emit the pre-dispatch cost preview defined at `rules/hatch3r-cost-visibility.md` → Pre-Execution Estimate BEFORE its first sub-agent dispatch (Decision 24 at the user-facing surface). That rule owns the preview schema — do not restate it here. Commands wire the preview as an explicit pre-dispatch step (e.g., `commands/hatch3r-workflow.md` Step 0.5); the recap's cost facet closes the loop by reporting deltas against it.
 
-```yaml
-cost_preview:
-  expected_sa_count: <integer>
-  estimated_input_tokens_static_frame: <integer>
-  triage_tier: 1 | 2 | 3
-  web_research_budget: <integer queries, 0 if none>
-  estimated_duration_min: <integer>
+## The Recap
+
+Under the `## Iteration Summary` heading, the body is a 1-2 line recap:
+
+```
+Line 1:  **<SUCCESS|PARTIAL|FAILED|BLOCKED>** — <one outcome sentence naming the work object and end state>
+Line 2:  files <N> (+<added>/−<removed>) · sa <actual>/<expected> · gates <passed>/<run> · cost Δ<tok%>% tok / Δ<min%>% min · tier <1|2|3>
 ```
 
-Calibrate the fields to the triage tier (see `rules/hatch3r-deep-context`); source token estimates from `src/pipeline/observability.ts` / `src/pipeline/costEstimator.ts`. The post-run §2 "Fan-out + Cost" section closes the loop by reporting actuals + `delta_percent` against this preview. Commands wire the preview as an explicit pre-dispatch step (e.g., `commands/hatch3r-workflow.md` Step 0.5).
+Status enum reused from `agents/shared/quality-charter.md` §11. Facet order fixed (machine-parseable). `+<added>/−<removed>` are diff line totals (lines added/removed) across the changed files. `sa <actual>/<expected>` carries the fan-out count; **rationale stays a dispatch-time emission** per `rules/hatch3r-fan-out-discipline.md` (validate-fanout-emission unaffected). Merge condition: line 2 folds into line 1 parenthesized when ≥3 facets at rest (files 0, sa 0, gates 0); at-rest facets fold away except `files`, `sa`, and `tier` — e.g. `**SUCCESS** — Explained adapter precedence (read-only: files 0 · sa 0 · tier 1)`.
 
-## The 9 Sections
+## Exception Lines
 
-1. **Request** — verbatim restatement of the user's ask in one sentence
-2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` + `cost: { estimated_input_tokens, actual_input_tokens, estimated_duration_min, actual_duration_min, delta_percent }`
-3. **Web Research** — every URL fetched with access date + trust tier (per `agents/shared/rigor-contract.md`); count 0 acceptable if no research was needed
-4. **Files Mutated** — list with diff summary (lines added / removed / files created)
-5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist
-6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per Decision 17
-7. **Verification Commands** — exact commands run with exit codes + key output lines (≤200 chars)
-8. **Open Questions / Blockers** — explicit None if fully closed. When an ASK gate's default-if-no-response was exercised this run, this section MUST carry one `Default applied: <question summary> → option <N> (<one-line reason>)` line per default taken (the operational counterpart to `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response step 3); absence of the line when a default was applied is a P8 B1 gate failure
-9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run; cross-reference `rules/hatch3r-learning-system.md`
+Below the recap, a line appears ONLY when its firing condition holds. An absent exception line is a positive claim of its Silent-when default — silence asserts the default. Each entry is a single line; `Cost:` is the one multi-line exception (its fenced YAML follows the line).
 
-## Required Fields per quality-charter §11
+| Line | Format | Fires when | Gate preserved | Silent-when |
+|---|---|---|---|---|
+| Not done | `Not done: <item> [— deferred: <why> \| unverified: <what>]; …` | any scope item not done/deferred/unverified | charter honesty; handoff Work Remaining | full scope completed |
+| Blockers | `Blockers: <blocker or open question>; …` | any open blocker | old §8; handoff Blockers | none open |
+| Default applied | `Default applied: <question summary> → option <N> (<one-line reason>)` — format unchanged from the superseded template, one per default | ASK default exercised | **P8 B1** | no default taken |
+| Gates failed | `Gates failed: <gate>: <one-line cause>; …` | recap gates shows failure | P1 actionability | all gates passed |
+| Cost | `Cost: flagged_for_review: true` + fenced cost_actuals/delta YAML (the one multi-line exception) | any delta > 25% absolute | **Decision 24** / cost-visibility AC5 | deltas within ±25% (recap Δ facet suffices; telemetry persists regardless) |
+| Confidence | `Confidence: <high\|medium\|low> — <basis>[. <D13 action string verbatim>]` | review loop ran OR confidence < high OR status ≠ SUCCESS | D13 mapping; reviewer-calibration; anti-inflation | SUCCESS + high + direct measurement + no loop |
+| User-Accepted Bypass | `User-Accepted Bypass: yes — <verbatim reason ≤200 chars>` + JSONL append | accepted low-confidence PASS | D13 bypass record | no bypass |
+| Learnings | `Learnings: consulted <ids> · surfaced <ids> · captured <ids>` (omit empty facets) | any facet non-empty | learning-system gates | no INDEX / zero matches / nothing captured |
+| Tier | `formatTierUpgradeNote` output verbatim (one-liner, `src/pipeline/pipelineContext.ts:647-655`) | mid-run tier upgrade | D7-14 | no upgrade |
+| Duplication | `Duplication: <n> match(es), closest <path>, overlap <none\|partial\|high>` or `Duplication: scan skipped (<reason>)` | scan matched OR skipped | anti-duplication silent-failure | scan ran clean |
+| Next (optional, never gated) | `Next: <one-line suggested action>` | concrete next step exists | charter optional-sections precedent | nothing to suggest |
 
-- **Status:** closed enum SUCCESS | PARTIAL | FAILED | BLOCKED
-- **Outcome:** one sentence
-- **Done / Not Done / Deferred / Unverified:** explicit lists
-- **Confidence + basis:** one of direct measurement | sampled observation | inference from analogue
-- **Consulted Learnings:** IDs of `.hatch3r/learnings/` entries the bound agents (implementer / reviewer / researcher / fixer) read this run per the `rules/hatch3r-learning-system.md` Mandatory Consultation Gate; `none` when INDEX.md is absent or zero `applies-to` rows matched. Distinct from §9 Learnings Captured (entries written this run). Citing zero when `applies-to` matched is a gate failure.
+Charter-field mapping: Status + Outcome → line 1; Done → outcome + files facet; the rest → exception lines. Learning-system's "citing zero when `applies-to` matched is a gate failure" becomes fired-condition-with-no-line.
+
+## Handoff Mapping
+
+Handoff surfaces (`rules/hatch3r-handoff-readiness.md`, `skills/hatch3r-handoff-prepare/SKILL.md`, `agents/hatch3r-handoff-preparer.md`) derive their fields from the recap:
+
+- **Work Done** ← recap outcome (line 1) + files facet
+- **Work Remaining** ← `Not done:` line; absent ⇒ `None — full scope completed`
+- **Blockers** ← `Blockers:` line; absent ⇒ `None`
 
 ## Confidence-to-Action Mapping (D13)
 
-When a review loop ran this turn, the §5 Confidence line MUST append the action guidance for the loop's terminal confidence level (`reviewLoopConfidence` in `src/pipeline/reviewLoop.ts`). This is the canonical confidence-to-action text — `confidenceExplanation` in `src/pipeline/reviewLoop.ts` returns these exact three strings, so the typed helper and this user-facing rule stay byte-identical (the strings are no longer reachable only from a unit test, closing D13-SA13.2-F2):
+When a review loop ran this turn, the `Confidence:` exception line MUST append the action guidance for the loop's terminal confidence level (`reviewLoopConfidence` in `src/pipeline/reviewLoop.ts`). This is the canonical confidence-to-action text — `confidenceExplanation` in `src/pipeline/reviewLoop.ts` returns these exact three strings, so the typed helper and this user-facing rule stay byte-identical (the strings are no longer reachable only from a unit test, closing D13-SA13.2-F2):
 
 - **high** — The fix was correct on the first attempt. Human review is optional but recommended for critical code paths.
 - **medium** — The fix required one round of corrections, which is normal for moderately complex changes. A brief human review is recommended.
@@ -61,7 +69,7 @@ Omit the mapping when no review loop ran (e.g. a Tier 1 typo edit with no review
 
 ## Pattern Rationale (D13 in-flow teaching — default-ON at Tier ≥ 2)
 
-In-flow teaching is the default, not opt-in: at Tier ≥ 2 (non-trivial / novel orchestrations) the orchestrator MUST emit a `## Pattern Rationale` block before the Iteration Summary, teaching the user each framework pattern applied this turn — closing the knowledge-transfer gap surfaced by D13 SA13.4 (F5/F6: sub-agent reasoning is summarized away before it reaches the user, so the user learns nothing unless the orchestrator teaches at its own surface). One SHORT line per applied pattern with rule citation + pillar served + plain-language reason:
+At Tier ≥ 2 the orchestrator MUST emit a `## Pattern Rationale` block before the Iteration Summary — one SHORT line per framework pattern applied this turn (rule citation + pillar served + plain-language reason), so sub-agent reasoning reaches the user instead of being summarized away (D13 SA13.4 F5/F6):
 
 ```
 pattern_rationale:
@@ -71,38 +79,26 @@ pattern_rationale:
     why: <≤1 sentence plain language>
 ```
 
-Emission policy:
-
-- **Default-ON at Tier ≥ 2:** emit one line for each mutated file that applies a named rule the user did not request explicitly. A Tier ≥ 2 turn that applied at least one such pattern and omits the block is a P5 gate failure (same enforcement class as the §9 Validation Gate).
-- **Tier 1 exemption:** Tier 1 trivial edits (typo, frontmatter-only, single-line clarification) skip the block — no pattern is taught, so no field appears, preserving token budget. This mirrors the Tier-1 exemption in `rules/hatch3r-agent-orchestration.md` (Per-Turn Pipeline-State Header).
-- **No-pattern case:** when a Tier ≥ 2 turn applied no named rule beyond what the user requested, emit `pattern_rationale: none (no implicit pattern applied)` rather than dropping the field, so the block's absence is never ambiguous.
-- **`--quiet` opt-out:** the `--quiet` CLI flag suppresses the block at the user surface (same precedent as cost data in `rules/hatch3r-cost-visibility.md` → "appears in user-facing iteration summaries by default … suppressing via the `--quiet` CLI flag"). Suppression is user-surface only; it does not weaken the Tier ≥ 2 emission contract for default (non-`--quiet`) runs.
+Emission policy: one line per mutated file that applies a named rule the user did not request explicitly; a Tier ≥ 2 turn that applied at least one such pattern and omits the block is a P5 gate failure (same enforcement class as the Validation Gate below). Tier 1 trivial edits (typo, frontmatter-only, single-line clarification) skip the block, mirroring the Tier-1 exemption in `rules/hatch3r-agent-orchestration.md` → Per-Turn Pipeline-State Header. When a Tier ≥ 2 turn applied no named rule beyond the request, emit `pattern_rationale: none (no implicit pattern applied)` so absence is never ambiguous. The `--quiet` CLI flag suppresses the block at the user surface only (same precedent as cost data in `rules/hatch3r-cost-visibility.md`); suppression does not weaken the Tier ≥ 2 emission contract for default runs.
 
 ## User-Accepted Bypass Record (D13)
 
-When the user explicitly accepts a low-confidence PASS at an ASK checkpoint (per the gate-failure rule in the Confidence Propagation Contract used by every core orchestrator), the orchestrator MUST:
-
-1. Emit `User-Accepted Bypass: yes` in §8 (Open Questions / Blockers) with the bypass reason verbatim from the user reply.
-2. Append a single line to `.hatch3r/bypass-log.jsonl` (one JSON object per line — append-only, never rewritten):
+When the user explicitly accepts a low-confidence PASS at an ASK checkpoint (per the Confidence Propagation Contract used by every core orchestrator), the orchestrator MUST (1) emit the `User-Accepted Bypass:` exception line with the bypass reason verbatim from the user reply, and (2) append one JSON object line to `.hatch3r/bypass-log.jsonl` (append-only, never rewritten; atomic append via the `src/merge/safeWrite.ts` pattern — temp+rename then concat):
 
 ```json
-{"ts": "<ISO-8601>", "command": "<hatch3r-* name>", "verdict": "low", "user_reason": "<verbatim ≤200 chars>", "files": ["<paths>"], "session_id": "<id>"}
+{"ts": "<ISO-8601 UTC>", "command": "<hatch3r-* name>", "verdict": "low", "user_reason": "<verbatim ≤200 chars, no PII>", "files": ["<paths>"], "session_id": "<host session id, else unknown>"}
 ```
 
-Schema: `ts` ISO-8601 UTC timestamp; `command` the orchestrator command id; `verdict` always `low` (no bypass on high/medium per the contract); `user_reason` the user's verbatim acceptance string (truncated at 200 chars, no PII); `files` mutated file list; `session_id` the host runtime's session id when available, `unknown` otherwise. Atomic append via `src/merge/safeWrite.ts` pattern (temp+rename then concat). Absence of the line on a recorded bypass is a P5 gate failure.
+Absence of the line on a recorded bypass is a P5 gate failure.
 
 ## Validation Gate
 
-A skill or command that omits the 9-section block fails the lifecycle gate (`.claude/rules/capability-lifecycle.md`). Prose substitution is rejected. The orchestrator catches the omission before declaring SUCCESS.
+A run fails the gate when the recap is missing, when any registry row's firing condition holds with no corresponding exception line, or when prose is substituted for the recap grammar. Registry-row checking is an explicit pre-status step: before declaring status, the orchestrator walks the table above and emits each line whose firing condition holds — the omission is caught before SUCCESS is declared.
 
 ## Emission-Rate Telemetry (current status: per-run gate only; cross-run rate not yet wired)
 
-The validation gate above asserts the 9-section block is present per run. It does NOT measure the emission rate across runs, and no automated cross-run measurement exists today.
-
-The SPACE-shaped activity/performance instrumentation (`src/pipeline/spaceTelemetry.ts`, Decision 24 sibling of cost-visibility) provides the recording primitive `recordSpaceMetric`, the in-process aggregator `getSpaceSummary`, and the across-runs reader `loadSpaceMetricsFromDisk`, but they are not invoked on the iteration-summary path: orchestrator commands and skills are LLM-interpreted markdown with no binding to compiled `src/`, and no command, skill, hook, or `src/` code emits an `iterationSummaryEmitted` metric. The cross-run emission-rate loop is therefore unwired — a future capability, not a live measurement (origin: D10-SA10.8-F-6; gap corrected D10-18). The module records on the `activity` and `performance` axes only; its `satisfaction` and `communication` axes are reserved with no feeder, so "SPACE" names the data shape, not full five-axis coverage (D10-40).
-
-To wire it, a host-runtime bridge (a Claude Code / Cursor / Copilot post-turn hook or an MCP shim) would need to call `recordSpaceMetric({ metricId: "iterationSummaryEmitted", axis: "activity", value: <1 if the 9-section block was produced else 0> })` after each orchestrator/meaningful-skill turn, persisting one JSONL line per run to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl`; the audit cycle could then read the persisted JSONL across runs via `loadSpaceMetricsFromDisk` + `summarizeSpaceMetricRecords` (NOT `getSpaceSummary`, which sees only the current process's ring buffer) to check the CONSTITUTION §2 P5 "Sub-agent count emission on delegating artifacts: 100%" target against observed runs instead of only mandating it. `recordSpaceMetric` already honours the Silent Failure Contract (telemetry I/O routes through `src/pipeline/failureLog.ts` and never throws), so building the bridge adds no failure surface. Until that bridge ships, P5 emission compliance is enforced by the per-run validation gate above plus audit-cycle spot checks, not by an aggregate metric.
+The Validation Gate asserts recap presence per run; no automated cross-run emission-rate measurement exists today. `src/pipeline/spaceTelemetry.ts` provides `recordSpaceMetric`, `loadSpaceMetricsFromDisk`, and `summarizeSpaceMetricRecords`, but nothing on the iteration-summary path invokes them — commands and skills are LLM-interpreted markdown with no binding to compiled `src/`, so the cross-run loop is a future capability, not a live measurement (origin D10-SA10.8-F-6; gap corrected D10-18). The module records only the `activity` and `performance` axes; `satisfaction` and `communication` are reserved with no feeder, so "SPACE" names the data shape, not five-axis coverage (D10-40). Wiring requires a host-runtime post-turn bridge emitting an `iterationSummaryEmitted` metric to `.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl`; until then, P5 emission compliance rests on the per-run gate plus audit-cycle spot checks.
 
 ## Pillar Service
-- P5 — standardised reporting prevents drift across orchestrators
-- P7 — cost section surfaces token + duration deltas to user per Decision 24
+- P5 — one standardised recap plus an auditable exception-line registry prevents drift across orchestrators
+- P7 — the recap cost facet surfaces token + duration deltas per Decision 24 at a fraction of the former template's token footprint

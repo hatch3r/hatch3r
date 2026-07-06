@@ -121,7 +121,7 @@ cost_preview:
   estimated_duration_min: <int>
 ```
 
-Post-execution actuals + `delta_percent` land in the Step 10 iteration summary's Fan-out + Cost section. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Post-execution actuals + `delta_percent` land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ### Effort Override (Decision 17)
 
@@ -336,19 +336,7 @@ The npm publish itself runs in CI (`.github/workflows/release.yml`) on the human
 
 ## Step 10: Iteration Summary (mandatory output)
 
-Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output. The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
-
-The 9 sections:
-
-1. **Request** — verbatim restatement of the user's ask in one sentence.
-2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_preview` / actuals / `delta_percent` blocks. Per-tier `expected_sa_count` (from frontmatter `sub_agents_spawned.count: 7` × tier heuristic in `rules/hatch3r-cost-visibility.md`): Tier 1 ≈ 3 (bump + changelog implementer, testability, security); Tier 2 ≈ 6 (+ review loop reviewer/fixer + ci-watcher when a gate trips); Tier 3 up to 7 (full pipeline incl. docs-writer). Token telemetry sources from `src/pipeline/observability.ts`.
-3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
-4. **Files Mutated** — list with diff summary (version files, CHANGELOG, SBOM, docs).
-5. **Gates Passed / Failed** — explicit list (test, tsc, lint, validate, lockfile-lint, npm audit, hatch3r verify, review loop, testability, security).
-6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
-7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
-8. **Open Questions / Blockers** — explicit `None` if fully closed; record the Step 9 human-owned next step here.
-9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
 
 **Status enum:** SUCCESS (release assembled + committed on the branch, all gates green, awaiting human publish) | PARTIAL (a gate ended on a retry-limit miss or SBOM tooling absent) | FAILED (build broken, no release commit produced) | BLOCKED (review loop unresolved after 3 iterations, or a breaking-change decision needs the user). SUCCESS here means "ready for human publish" — never "published".
 
@@ -375,7 +363,9 @@ release is long-running — a Tier 3 release runs preflight, version bump, chang
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
 
 - **Pre-execution `cost_preview`** — emitted in Step 0.5 before the Step 2 implementer dispatch.
-- **Post-execution actuals + `delta_percent`** — appended to the Step 10 iteration summary's Fan-out + Cost section. Deltas >25% absolute value carry `flagged_for_review: true`.
+- **Post-execution actuals + `delta_percent`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`. Deltas >25% absolute value carry `flagged_for_review: true`.
+
+Per-tier `expected_sa_count` (from frontmatter `sub_agents_spawned.count: 7` × tier heuristic in `rules/hatch3r-cost-visibility.md`): Tier 1 ≈ 3 (bump + changelog implementer, testability, security); Tier 2 ≈ 6 (+ review loop reviewer/fixer + ci-watcher when a gate trips); Tier 3 up to 7 (full pipeline incl. docs-writer). Token telemetry sources from `src/pipeline/observability.ts`.
 
 ---
 

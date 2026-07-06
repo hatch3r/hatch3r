@@ -186,30 +186,17 @@ Run the project verification gates and record exit codes: `npm test` (or the pro
 
 ### Iteration Summary (mandatory output)
 
-Emit the canonical iteration summary per `rules/hatch3r-iteration-summary.md`:
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+
+Worked example for this domain:
 
 ```markdown
 ## Iteration Summary
 
-**Status:** SUCCESS | PARTIAL | FAILED | BLOCKED
-**Outcome:** {one sentence — e.g., "Scaffolded OAuth 2.1 + OIDC + hashed-PAT auth for orders-api; security gate PASS."}
-
-**Done:**
-- src/auth/oauth/* → authorization-code + PKCE flow via hatch3r-implementer (proof: {id})
-- src/auth/oidc/* → ID-token validation (iss/aud/nonce/JWKS) via hatch3r-implementer (proof: {id})
-- src/auth/pat/* → Argon2id-hashed PAT issue/verify via hatch3r-implementer (proof: {id})
-
-**Not Done / Deferred / Unverified:**
-- `.env.example` placeholders — populate real issuer + client_secret before first run
-- (or: `None — full scope completed`)
-
-**Open Questions / Blockers:**
-- (or: `None`)
-
-**Fan-out + Cost:** sub_agents_spawned: { count, rationale } + cost_estimate / cost_actuals / delta
-**Pillar Impact Attribution:** progress_toward_pillar: content-quality.CQ3+{delta}
-**Confidence:** {high | medium | low} — {basis from implementer output + security gate verdict}
-**Suggested Next Action:** {one line — e.g., "Populate .env, then wire the OIDC callback route into the service router."}
+**SUCCESS** — Scaffolded OAuth 2.1 + OIDC + hashed-PAT auth for orders-api; security gate PASS on both modes.
+files 9 (+412/−0) · sa 4/4 · gates 3/3 · cost Δ+6% tok / Δ+2% min · tier 2
+Not done: `.env.example` placeholders — deferred: populate real issuer + client_secret before first run
+Next: wire the OIDC callback route into the service router.
 ```
 
 Status decision rules:

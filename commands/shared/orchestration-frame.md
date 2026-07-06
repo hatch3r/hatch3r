@@ -88,7 +88,7 @@ cost_estimate:
 
 `expected_sa_count` is calibrated from the command's frontmatter `sub_agents_spawned.count` × the tier heuristic in `rules/hatch3r-cost-visibility.md` → Pre-Execution Estimate. Each command supplies its own per-tier numbers (e.g. `<tier1-count>` / `<tier2-count>` / `<tier3-count>`).
 
-**Post-execution `cost_actuals` + `delta`** — call `buildCostBlock` again with actuals; both land in the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`.
+**Post-execution `cost_actuals` + `delta`** — call `buildCostBlock` again with actuals; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Field contract + delta semantics: `rules/hatch3r-cost-visibility.md`.
 
 ---
 
@@ -116,4 +116,4 @@ mutating_subagent_invocations: <integer>
 inline_edits_by_orchestrator: none
 ```
 
-Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation next turn. The block sits beside the Iteration Summary, not inside it, preserving the iteration-summary contract verbatim.
+Unattributable rows are a self-declared P8 B2 violation — halt and queue re-delegation next turn. The block sits beside the Iteration Summary, not inside it, preserving the recap contract verbatim.

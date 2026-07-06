@@ -85,7 +85,7 @@ Fan-out scales with task decomposition, not token budget (P8 B2 dominates P7): N
 
 ## Step 4: Emit the End-of-Turn Delegation Attestation Template
 
-Every turn that mutated files at Tier >= 2 emits the attestation block immediately BEFORE the Iteration Summary (beside it, not inside it — the iteration-summary contract stays verbatim), per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation:
+Every turn that mutated files at Tier >= 2 emits the attestation block immediately BEFORE the Iteration Summary (beside it, not inside it — the recap contract stays verbatim), per `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation:
 
 ```
 [hatch3r-delegation-attestation]

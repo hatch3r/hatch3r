@@ -64,7 +64,7 @@ Append exactly one record per second pass to `.hatch3r/calibration-log.jsonl` (p
 {"timestamp":"<ISO-8601>","first_pass_verdict":"PASS","second_pass_verdict":"PASS|REQUEST CHANGES","divergent":false,"second_pass_model_class":"different|re-roll","consecutive_clean_count":5,"trigger":"cadence|high-risk"}
 ```
 
-`consecutive_clean_count` is the post-increment cross-run count at firing time; `trigger` records which Trigger branch fired (`high-risk` when the diff touched a safety-class surface and the second pass fired on the first clean PASS under the `N=1` fast path). `second_pass_model_class` is `different` for a cross-family second pass or `re-roll` for the same-family fallback; a `re-roll` record corresponds to a `calibration: degraded (same-family re-roll)` verdict annotation per Action. The project-local over-claim rate derived from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`.
+`consecutive_clean_count` is the post-increment cross-run count at firing time; `trigger` records which Trigger branch fired (`high-risk` when the diff touched a safety-class surface and the second pass fired on the first clean PASS under the `N=1` fast path). `second_pass_model_class` is `different` for a cross-family second pass or `re-roll` for the same-family fallback; a `re-roll` record corresponds to a `calibration: degraded (same-family re-roll)` verdict annotation per Action. The project-local over-claim rate derived from this log feeds the `Confidence:` exception line of the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`.
 
 ## Unavailability (visible skip, never silent)
 
@@ -79,6 +79,6 @@ Skip the second pass ONLY when no second model class is available AND the orches
 
 - `agents/hatch3r-reviewer.md` §Runtime Confidence Calibration — the consuming agent body that invokes this contract (accessed 2026-05-28, trust tier: canonical).
 - The across-cycle calibration protocol §Runtime complement (F13.2-F1) — the across-cycle measurement loop this runtime bound complements (accessed 2026-05-28, trust tier: canonical).
-- `rules/hatch3r-iteration-summary.md` — consumes the project-local over-claim rate for the `Confidence` field (accessed 2026-05-28, trust tier: canonical).
+- `rules/hatch3r-iteration-summary.md` — consumes the project-local over-claim rate for the `Confidence:` exception line (accessed 2026-05-28, trust tier: canonical).
 - Tian, Z. et al. "Overconfidence in LLM-as-a-Judge: Diagnosis and Confidence-Driven Solution" (arxiv:2508.06225). `https://arxiv.org/abs/2508.06225` (accessed 2026-06-09, peer-reviewed-methodology). Evidence that an LLM judge's predicted confidence significantly overstates realized correctness (the Overconfidence Phenomenon), so a self-reported clean PASS is structurally over-trusted — motivating the out-of-band second pass.
 - Huang, J. et al. "Large Language Models Cannot Self-Correct Reasoning Yet." ICLR 2024 (arxiv:2310.01798). `https://arxiv.org/abs/2310.01798` (accessed 2026-06-06, peer-reviewed-methodology). Evidence that same-model self-critique shares the generator's blind spot, motivating the different-model-class setup recommendation in Action and the lowered safety-class `N=1` second-pass cadence (D23-2).

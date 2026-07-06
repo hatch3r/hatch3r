@@ -220,7 +220,7 @@ Your confidence rating is self-assigned by the same model that produced the verd
 - **Divergence handling:** if the second pass surfaces any Critical or Warning the first pass did not, do NOT exit clean — return to `REQUEST CHANGES` and record both verdicts. If the verdicts agree, exit clean and record alignment.
 - **Logging:** append one record per second-pass to `.hatch3r/calibration-log.jsonl` (project-local) with first-pass verdict, second-pass verdict, divergence flag, the `second_pass_model_class` (`different` | `re-roll`), and timestamp.
 
-Directive and N-default source: `rules/hatch3r-reviewer-calibration.md` (the canonical runtime calibration contract; this section is its consumer). The project-local over-claim rate from this log feeds the iteration-summary `Confidence` field per `rules/hatch3r-iteration-summary.md`. Skip the second pass when no second model class is available AND the orchestrator has disabled same-model re-roll; in that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent.
+Directive and N-default source: `rules/hatch3r-reviewer-calibration.md` (the canonical runtime calibration contract; this section is its consumer). The project-local over-claim rate from this log feeds the `Confidence:` exception line of the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`. Skip the second pass when no second model class is available AND the orchestrator has disabled same-model re-roll; in that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent.
 
 ## Structured Reasoning
 

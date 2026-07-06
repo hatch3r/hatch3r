@@ -171,39 +171,16 @@ Spawn `hatch3r-pack-installer` via the Task tool with `subagent_type: "generalPu
 
 ## Step 5: Iteration Summary
 
-Emit the canonical iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output. The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+
+Worked example for this domain:
 
 ```markdown
 ## Iteration Summary
 
-**Status:** SUCCESS | PARTIAL | FAILED | BLOCKED
-**Outcome:** {one sentence — e.g., "Installed @acme/hatch3r-react-pack@1.2.0; signature PASS, 0 scan hits, 4 files written."}
-
-**Done:**
-- Trust verification: hatch3r-security → {verdict}
-- Install: hatch3r-pack-installer → {COMPLETE | BLOCKED}
-
-**Not Done / Deferred / Unverified:**
-- (or: `None — pack installed and verified`)
-
-**Open Questions / Blockers:**
-- (or: `None`)
-
-**Confidence:** {high | medium | low} — {one-sentence basis from the install + verification verdicts}
-
-**Artifacts Touched:**
-| Path | Action | Notes |
-| ---- | ------ | ----- |
-| {adapter path} | created / merged | managed block |
-
-**Verifications Run:**
-| Check | Result |
-| ----- | ------ |
-| signature (npm audit signatures / cosign verify-blob) | pass |
-| body scan (scanForDeniedPatterns) | 0 hits |
-| hatch3r verify (post-apply drift) | 0 drift |
-
-**Suggested Next Action:** {one line — e.g., "Run /hatch3r-capability-discover to see the newly installed pack artifacts."}
+**SUCCESS** — Installed @acme/hatch3r-react-pack@1.2.0: signature PASS, 0 body-scan hits, post-apply hatch3r verify clean.
+files 4 (+96/−0) · sa 2/2 · gates 3/3 · cost Δ+3% tok / Δ−12% min · tier 1
+Next: run /hatch3r-capability-discover to see the newly installed pack artifacts.
 ```
 
 Status decision rules:

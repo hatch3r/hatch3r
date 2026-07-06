@@ -20,7 +20,7 @@ Before any other work, consult `.hatch3r/learnings/INDEX.md` (if present) for pr
 
 This step precedes §0 Detect Ambiguity and supplements the more detailed Step 0b in the Implementation Protocol — the inline Step 0 is the always-on minimum; Step 0b is the structured deep-read against `applies-to` globs.
 
-Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/hatch3r-learning-system.md` → Mid-Edit Learning Surfacing: when a file or pattern you are editing matches a captured learning (path overlap, `applies-to` match, or `topic` semantic overlap), cite it on a `Surfaced Learnings:` line in the iteration summary before completing the edit.
+Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/hatch3r-learning-system.md` → Mid-Edit Learning Surfacing: when a file or pattern you are editing matches a captured learning (path overlap, `applies-to` match, or `topic` semantic overlap), cite it on the surfaced facet of the `Learnings:` exception line in the iteration summary before completing the edit.
 
 ## §0 Detect Ambiguity (P8 B1)
 

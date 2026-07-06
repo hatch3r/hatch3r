@@ -100,7 +100,7 @@ cost_estimate:
   estimated_duration_min: <int>
 ```
 
-Post-execution actuals + delta land in the Step 6 Iteration Summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+Post-execution actuals + delta land in the Step 6 Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
 
 ### Effort Override (Decision 17)
 
@@ -166,7 +166,7 @@ Each fixer prompt MUST include:
 4. The confidence expression requirement (verbatim).
 5. Explicit: do NOT create branches, commits, or PRs — the fixer's standing boundary; this command stops before commit for human review.
 
-Await the fixer's structured result. Capture its `Delegation proof ID` per file (quoted verbatim in the Step 6 attestation) and its `Reviewer re-run required` signal. When a fix touches framework source under `src/`, honor the fixer's reviewer-loop continuation signal — but this command does not run the full Phase 3 review loop; it surfaces `Reviewer re-run required: true` as a Suggested Next Action in Step 6 rather than auto-spawning a reviewer.
+Await the fixer's structured result. Capture its `Delegation proof ID` per file (quoted verbatim in the Step 6 attestation) and its `Reviewer re-run required` signal. When a fix touches framework source under `src/`, honor the fixer's reviewer-loop continuation signal — but this command does not run the full Phase 3 review loop; it surfaces `Reviewer re-run required: true` on the `Next:` line of the Step 6 recap rather than auto-spawning a reviewer.
 
 ---
 
@@ -180,26 +180,18 @@ Re-run the relevant Step 1 probe(s) to confirm the fix cleared the symptom: re-r
 
 ### Iteration Summary (mandatory output)
 
-Emit the canonical iteration summary per `rules/hatch3r-iteration-summary.md`:
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+
+Worked example for this domain:
 
 ```markdown
 ## Iteration Summary
 
-**Status:** SUCCESS | PARTIAL | FAILED | BLOCKED
-**Outcome:** {one sentence — e.g., "Diagnosed manifest schema drift; migrated .hatch3r/hatch.json to schemaVersion 3; hatch3r status now clean."}
-
-**Done:**
-- {finding} → fixed via hatch3r-fixer (proof: {id}); verified by {re-run command} exit 0
-
-**Not Done / Deferred / Unverified:**
-- (or: `None — full scope completed`)
-
-**Open Questions / Blockers:**
-- (or: `None`)
-
-**Fan-out + Cost:** sub_agents_spawned: { count, rationale } + cost_estimate / cost_actuals / delta
-**Confidence:** {high | medium | low} — {basis from researcher + fixer outputs}
-**Suggested Next Action:** {one line — e.g., "Commit the manifest migration; re-run /hatch3r-diagnose if drift reappears."}
+**PARTIAL** — Diagnosed manifest schema drift; migrated .hatch3r/hatch.json to schemaVersion 3; primary symptom resolved (hatch3r status re-run clean); second symptom not yet reproduced.
+files 1 (+3/−1) · sa 3/3 · gates 2/2 · cost Δ−8% tok / Δ+5% min · tier 3
+Blockers: second symptom (intermittent sync stall) not reproduced against the captured state bundle — needs a failing transcript
+Confidence: medium — primary fix verified by re-run probe; residual symptom unreproduced.
+Next: commit the manifest migration; re-run /hatch3r-diagnose if the stall recurs.
 ```
 
 Status decision rules:

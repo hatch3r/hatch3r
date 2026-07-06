@@ -94,7 +94,7 @@ Apply this format whenever the fix involves choosing between approaches, when th
 3. Read the full content of every matched learning file.
 4. Cite each consulted learning ID in the structured result's `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
 
-Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/hatch3r-learning-system.md` → Mid-Edit Learning Surfacing: when a file or pattern you are editing matches a captured learning (path overlap, `applies-to` match, or `topic` semantic overlap), cite it on a `Surfaced Learnings:` line in the iteration summary before completing the edit.
+Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/hatch3r-learning-system.md` → Mid-Edit Learning Surfacing: when a file or pattern you are editing matches a captured learning (path overlap, `applies-to` match, or `topic` semantic overlap), cite it on the surfaced facet of the `Learnings:` exception line in the iteration summary before completing the edit.
 
 ### 1. Parse Reviewer Findings
 
