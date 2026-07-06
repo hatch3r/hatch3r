@@ -8,7 +8,7 @@ slug: introduction
 
 **Crack the egg. Hatch better agents.**
 
-hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic agentic coding setup into any repository — 29 agents, 53 skills, 65 rules, 30 commands, and 7 hooks generated from one canonical source. One command gives you agents, skills, rules, commands, and MCP integrations -- optimized for your coding tool of choice.
+hatch3r is an open-source CLI and Cursor plugin that installs a tool-agnostic agentic coding setup into any repository — 29 agents, 53 skills, 67 rules, 30 commands, and 7 hooks generated from one canonical source. One command gives you agents, skills, rules, commands, and MCP integrations -- optimized for your coding tool of choice.
 
 ## What is hatch3r?
 
@@ -30,7 +30,7 @@ hatch3r maintains a **single canonical source** of agent configuration (bundled 
   .worktreeinclude                <- Generated (worktree isolation)
 ```
 
-Canonical content (agents, skills, rules, commands, hooks) lives inside the bundled npm package — adapters read from there directly, so end-user repos no longer contain a `.agents/` mirror. (Removed in 1.9.0; see [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md).)
+Canonical content (agents, skills, rules, commands, hooks) lives inside the bundled npm package — adapters read from there directly, so end-user repos no longer contain a `.agents/` mirror. (Removed in 1.9.0; see [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md).)
 
 ## Key Features
 

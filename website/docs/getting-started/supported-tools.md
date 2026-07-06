@@ -8,7 +8,7 @@ title: Supported Tools
 hatch3r generates native configuration for 3 AI coding platforms from a single bundled canonical source.
 
 :::info v1.9.0 scope cut
-As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut. See the [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list and migration notes.
+As of 1.9.0 hatch3r supports only Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut. See the [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for the full breaking-change list and migration notes.
 :::
 
 ## Platform Overview

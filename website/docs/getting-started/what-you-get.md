@@ -11,7 +11,7 @@ hatch3r ships a full agentic setup out of the box. During `hatch3r init`, you ch
 |----------|-------|-----------|
 | **Agents** | 29 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, nine quality-vector specialists (UI, UX, security, reliability, testability, scalability, performance, maintainability, enhancability), and more |
 | **Skills** | 53 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills + a 24-tool `cli-toolbox`, and more |
-| **Rules** | 65 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context, handoff readiness, and more |
+| **Rules** | 67 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context, handoff readiness, and more |
 | **Commands** | 30 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, bug-pipeline, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
 | **MCP Servers** | 10 (3 default + 7 opt-in) | Playwright, Context7, Filesystem (default); GitHub, Brave Search, Sentry, Postgres, Linear, Azure DevOps, GitLab (opt-in) |
 
@@ -44,7 +44,7 @@ Specialized agents that handle distinct responsibilities in your development wor
 | **a11y-auditor** | `review`, `a11y` | Accessibility specialist -- WCAG AA compliance, ARIA, color contrast |
 | **perf-profiler** | `review`, `performance` | Performance engineer -- runtime profiling, bundle size, benchmarks |
 
-...and 14 more, including the nine quality-vector specialists. See the full [Agents reference](../reference/agents).
+...and 13 more, including the nine quality-vector specialists. See the full [Agents reference](../reference/agents).
 
 ## Skills
 
@@ -60,7 +60,7 @@ On-demand instruction bundles for specific tasks. Skills are loaded when agents 
 | **pr-creation** | PR conventions, branch naming, self-review checklist |
 | **incident-response** | Triage, mitigation, root cause analysis, post-mortem |
 
-...and 36 more. See the full [Skills reference](../reference/skills).
+...and 46 more. See the full [Skills reference](../reference/skills).
 
 ## Rules
 
@@ -76,7 +76,7 @@ Persistent coding standards and conventions always available to agents.
 | **deep-context** | Deep context retrieval and codebase understanding for AI agents |
 | **agent-orchestration** | Agent delegation patterns and multi-agent coordination protocols |
 
-...and 47 more. See the full [Rules reference](../reference/rules).
+...and 60 more. See the full [Rules reference](../reference/rules).
 
 ## Commands
 
@@ -92,4 +92,4 @@ Workflows invoked inside your coding tool or via CLI.
 | **test-plan** | Plan a test strategy (coverage targets, strategy matrix, prioritized cases) with parallel researchers |
 | **release** | Cut a versioned release with changelog |
 
-...and 16 more. See the full [Commands reference](../reference/commands/agent-commands).
+...and 23 more. See the full [Commands reference](../reference/commands/agent-commands).

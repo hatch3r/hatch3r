@@ -7,7 +7,7 @@ title: Quality-Vector Specialists
 
 hatch3r 2.0.0 introduces a two-axis pillar framework. The **governance axis** (P1-P8) defines how the framework operates -- CLI UX, scientific quality, adapter currency, lean coverage, self-quality, security, speed, and clarification/fan-out discipline. The **content-quality axis** (CQ1-CQ9) defines what the framework produces in end-user code. Each CQ pillar is owned by a specialist agent invoked at quality gates with measurable thresholds and a structured proof_trace contract.
 
-See the [governance overview](https://docs.hatch3r.com/docs/about) §2 for the canonical pillar definitions and the traceability matrix.
+See the [pillar framework overview](https://docs.hatch3r.com/docs/about#pillar-framework) for the pillar definitions.
 
 ## Per-Pillar Specialist Table
 
@@ -27,11 +27,11 @@ See the [governance overview](https://docs.hatch3r.com/docs/about) §2 for the c
 
 Each specialist agent declares a Phase-4 trigger in its frontmatter -- conditional file patterns that match changes touching its pillar's surface. When `hatch3r-board-pickup` (or the manual workflow) reaches the final-quality phase, the orchestrator dispatches the specialists whose triggers match the changed files, in parallel.
 
-Each specialist returns a structured `proof_trace` with the measurements it took, the thresholds it compared against, and an `impact_horizon` classifier (short / medium / long) per CONSTITUTION Decision 17.
+Each specialist returns a structured `proof_trace` with the measurements it took, the thresholds it compared against, and an `impact_horizon` classifier (short / medium / long) attached to every audit finding.
 
 ## Pillar Compliance Test
 
-Every governance or content change in hatch3r answers six questions (CONSTITUTION §2):
+Every governance or content change in hatch3r answers six questions:
 
 1. Which pillar(s) does this change serve, on which axis (governance and/or content-quality)?
 2. What measurable improvement does it produce?
@@ -42,6 +42,6 @@ Every governance or content change in hatch3r answers six questions (CONSTITUTIO
 
 ## Reference
 
-- [Governance overview §2 Pillar Framework](https://docs.hatch3r.com/docs/about)
+- [Pillar framework overview](https://docs.hatch3r.com/docs/about#pillar-framework)
 - [agents/hatch3r-ui.md](https://github.com/hatch3r/hatch3r/blob/main/agents/hatch3r-ui.md) (and the other 8 specialist agent files alongside it)
 - [Agent Teams](./agent-teams) -- how specialists coordinate with reviewer, fixer, and test-writer roles

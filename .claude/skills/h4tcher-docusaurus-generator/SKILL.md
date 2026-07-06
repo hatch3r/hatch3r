@@ -1,15 +1,15 @@
 ---
 name: h4tcher-docusaurus-generator
-description: Maintainer skill — generate or refresh the hatch3r project documentation site (Docusaurus 3.x) from this repo's canonical corpus (governance/, agents/, skills/, rules/, commands/, hooks/, docs/). Use when a hatch3r maintainer asks to build, regenerate, or update the framework's own docs site. Analyzes the hatch3r repo structure, regenerates markdown into website/docs/, and previews the site.
+description: Maintainer skill — generate or refresh the hatch3r project documentation site (Docusaurus 3.x) from this repo's canonical corpus (agents/, skills/, rules/, commands/, hooks/, docs/, plus counts from the public governance/inventory.json). Use when a hatch3r maintainer asks to build, regenerate, or update the framework's own docs site. Analyzes the hatch3r repo structure, regenerates markdown into website/docs/, and previews the site.
 effort: medium
 allowed-tools: Read Grep Glob Bash(*) Write Edit
 ---
 
-> Last updated: 2026-06-05
+> Last updated: 2026-07-06
 
 # Docusaurus Generator (hatch3r maintainer skill)
 
-This skill refreshes the **hatch3r project's own** documentation site, which already exists at `website/` (Docusaurus 3.x), by re-deriving its pages from this repository's canonical corpus. It is a framework-dev maintainer tool (hence the `h4tcher-` prefix per CLAUDE.md), not a generic per-project docs generator and not a lifecycle add/refactor/remove preset. It sources content from `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`.
+This skill refreshes the **hatch3r project's own** documentation site, which already exists at `website/` (Docusaurus 3.x), by re-deriving its pages from this repository's canonical corpus. It is a framework-dev maintainer tool (hence the `h4tcher-` prefix per CLAUDE.md), not a generic per-project docs generator and not a lifecycle add/refactor/remove preset. It sources content from `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`; the only governance source is the public `governance/inventory.json` (counts).
 
 The site lives in `website/` and deploys to `docs.hatch3r.com` via `.github/workflows/deploy-docs.yml` on push to `main` (paths filter: `website/**`). There is no `docs-site/` directory — operate on `website/` directly. Do NOT run `npx create-docusaurus`: the project is already scaffolded; creating a second project is a P4 (Lean Coverage) violation.
 
@@ -26,7 +26,7 @@ Scan this repo to identify what each page must reflect:
 
 - **CLI surface**: the commands under `src/cli/commands/` (mirror the `npx hatch3r <cmd>` help) → `website/docs/reference/commands/cli-commands.md`
 - **Canonical content**: `agents/`, `skills/`, `rules/`, `commands/`, `hooks/` — the artifacts hatch3r ships → the matching `website/docs/reference/{agents,skills,rules,hooks}.md` pages and `reference/commands/agent-commands.md`
-- **Governance**: `governance/VISION.md`, `CONSTITUTION.md`, and the audit-domain set under `governance/audit/domains/` → architecture and guide pages (do not lift private governance verbatim; summarize the public-facing behavior)
+- **Governance**: summarize public-facing governance behavior only, in your own prose, on architecture and guide pages. The sole citable governance source is the public `governance/inventory.json` (counts). NEVER emit private governance file paths, § numbers, or Decision numbers into public pages — the private governance corpus may exist locally via the overlay, but it is not a citable source for the public site
 - **Existing docs**: the `docs/` directory and `README.md` (do not duplicate; link or lift)
 - **Source-of-truth counts**: `governance/inventory.json` `counts` — page tallies (agents, skills, rules, commands, hooks) must match it
 
@@ -34,7 +34,7 @@ Scan this repo to identify what each page must reflect:
 # Key sources to examine in the hatch3r repo
 ls src/cli/commands/*.ts
 ls agents/ skills/ rules/ commands/ hooks/
-ls governance/ docs/
+ls docs/
 jq '.name, .description' package.json
 jq '.counts' governance/inventory.json
 ```
