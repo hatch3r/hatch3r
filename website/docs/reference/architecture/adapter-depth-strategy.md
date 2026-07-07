@@ -4,7 +4,7 @@ title: Adapter Depth Strategy
 
 # Adapter Depth Strategy
 
-hatch3r supports 3 AI coding tools, each with different platform capabilities, market adoption, and integration depth. This document defines a three-tier investment model that allocates engineering effort proportionally to each adapter's impact and platform maturity. As of 1.9.0 the adapter set was hard-cut to the 3 Tier-1 adapters; Tier 2 and Tier 3 currently hold no adapters and define the depth bar a future adapter must clear (see [CHANGELOG](https://github.com/hatch3r-dev/hatch3r/blob/main/CHANGELOG.md) for the 12 adapters removed in the cut).
+hatch3r supports 3 AI coding tools, each with different platform capabilities, market adoption, and integration depth. This document defines a three-tier investment model that allocates engineering effort proportionally to each adapter's impact and platform maturity. As of 1.9.0 the adapter set was hard-cut to the 3 Tier-1 adapters; Tier 2 and Tier 3 currently hold no adapters and define the depth bar a future adapter must clear (see [CHANGELOG](https://github.com/hatch3r/hatch3r/blob/main/CHANGELOG.md) for the 12 adapters removed in the cut).
 
 ## Tier Model
 

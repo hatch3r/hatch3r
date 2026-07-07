@@ -25,20 +25,21 @@ Many open-source projects collapse when the lead maintainer's attention drops be
 
 ### 1. The audit cycle replaces continuous maintainer attention
 
-The framework's primary quality mechanism is the audit cycle (the audit prompt and its 4-wave execution model). One cycle deploys 124 sub-agents across 24 domains and produces a structured `AUDIT-REPORT.md` with severity-tagged findings. Execution follows a 4-wave progression (Critical → High → Medium → Low) with 18-check regression gates between waves.
+The framework's primary quality mechanism is the audit cycle (the audit prompt and its 4-wave execution model). One cycle deploys 124 sub-agents across 24 domains and produces a structured `AUDIT-REPORT.md` with severity-tagged findings. Execution follows a 4-wave progression (Critical → High → Medium → Low) with regression gates between waves.
 
 Practical consequence: a single async contributor can pick up a single finding (one work-unit), implement it under the implementation sub-agent template, run the regression gate, and ship the result — without coordinating with the maintainer in real time. The audit cycle does the prioritization, scoping, and acceptance criteria up front. Contribution latency is bounded by the contributor's available hours, not by the maintainer's.
 
 ### 2. Lean thresholds prevent governance bloat
 
-The Constitution (§2 P5) caps governance file sizes:
+Governance file sizes are capped by lean thresholds, CI-mirrored in `.claude/rules/governance-lean-thresholds.md`:
 
 | File | Limit |
 |------|-------|
-| Constitution | <=225 lines |
+| Constitution | <=550 lines |
 | Audit prompt | <=600 lines |
-| Audit execution model | <=700 lines |
-| Domain files (`D01-D24`) | 30-80 lines each |
+| Audit execution model | <=720 lines |
+| Governance total (6 lean-tracked prompts) | <=3120 lines |
+| Audit domain files | 30-80 lines (≤5 sub-agents), 15 lines per sub-agent above that |
 | Cross-file duplication | <5% |
 | Anti-slop phrases per file | 0 |
 
@@ -76,7 +77,7 @@ This is the mechanism by which async, parallel contribution is possible without 
 This section is honest about gaps rather than aspirational:
 
 - **Maintainer-fund dependency.** Audit cycles consume real labor (token budget for the audit's sub-agents, maintainer time to review PR-by-PR). If donation revenue drops to zero and the maintainer's available hours drop to zero simultaneously, cycle cadence slows.
-- **Adapter staleness on rare platforms.** P3 requires each adapter to be re-verified against vendor documentation per cycle. Less-used adapters (Aider, Goose, Antigravity) can drift longer before a contributor notices.
+- **Adapter staleness between cycles.** P3 requires each of the 3 adapters (Claude Code, Cursor, GitHub Copilot) to be re-verified against vendor documentation per cycle. A platform change that lands mid-cycle can drift until the next verification pass.
 - **Plugin marketplace policy risk.** If Anthropic or Cursor change their marketplace licensing rules (e.g., requiring a different license, demanding telemetry), hatch3r would need a structural response. Tracked in the D17 Competition audit domain.
 
 These are findable through audit cycles. They are not fatal under the structural-defense model above, but they require honest acknowledgment.
@@ -87,7 +88,7 @@ In rough order of value-per-hour to the project:
 
 1. **Run an audit cycle on your own project's hatch3r install** and open issues against findings that surface. The audit prompt enforces the rigor contract (falsifiability statement, two independent sources, three-step causal chain, bias check, adversarial peer-review counter-argument), so issues opened from audit output land with a documented scope and resolution path.
 2. **Pick up a Wave 2/3/4 finding from the audit finding registry** and submit a PR. Each finding has a documented work unit, acceptance criteria, and a regression gate.
-3. **Verify a single adapter against the current vendor documentation** (one of the 15 in `src/adapters/`). Submit a PR with the web-research citation per P3.
+3. **Verify a single adapter against the current vendor documentation** (one of the 3 in `src/adapters/`). Submit a PR with the web-research citation per P3.
 4. **Sponsor the maintainer via GitHub Sponsors** to fund the labor of running cycles.
 
 There is no "premium tier" of contribution; all four paths land in the same MIT-licensed repository under the same DCO sign-off model.
@@ -96,7 +97,7 @@ There is no "premium tier" of contribution; all four paths land in the same MIT-
 
 - [`docs/license-rationale.md`](./license-rationale.md) — why MIT and the explicit anti-monetization signal
 - [Vision overview](https://docs.hatch3r.com/docs/about) §The Closed Loop — audit cycle as continuous quality mechanism
-- [Governance overview](https://docs.hatch3r.com/docs/about) §2 P4 / P5 — lean coverage and governance self-quality pillars
+- [Governance overview](https://docs.hatch3r.com/docs/about) — lean coverage (P4) and governance self-quality (P5) pillars
 - Audit prompt — 24 domains, 124 sub-agents
 - Audit execution model — 4-wave execution with regression gates
 - [`CONTRIBUTING.md`](../CONTRIBUTING.md) — DCO sign-off, commit conventions

@@ -52,6 +52,8 @@ These are a representative slice; the full list of content-quality thresholds sh
 
 ## Pillar framework
 
+This summarizes the pillar framework from hatch3r's internal governance constitution (maintained in a private governance repo); the tables below are the public reference.
+
 Every change to hatch3r serves at least one pillar on one of two axes.
 
 **Governance axis (P1-P8)** — how the framework operates:

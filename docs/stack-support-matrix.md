@@ -100,7 +100,7 @@ For repos where a language is detected but no framework indicator fired (a bare 
 Every stack — full, partial, or none — receives these regardless of tier:
 
 - **Always-on rules** (`scope: always`): `hatch3r-code-standards`, `hatch3r-security`, `hatch3r-testing`.
-- **Floor-tagged content** (`floor:security`, `floor:ui-ux`, `floor:protocol`, `floor:content-quality`): admitted by every non-custom preset and never disabled at any maturity tier (CONSTITUTION §2B universal floor invariant).
+- **Floor-tagged content** (`floor:security`, `floor:ui-ux`, `floor:protocol`, `floor:content-quality`): admitted by every non-custom preset and never disabled at any maturity tier (the universal content-quality floor invariant).
 - **Glob-scoped cross-cutting rules** whose globs match the repo's files: accessibility, ux-states, theming, design-system, api-design, auth-patterns, migrations, observability (logging/metrics/tracing), resilience, container-hardening, dependency-management, and more.
 
 So "partial" means *no framework-idiom rule*, not *no coverage*. A partial-stack repo still ships the security, accessibility, testing, and observability floors.
@@ -111,7 +111,7 @@ So "partial" means *no framework-idiom rule*, not *no coverage*. A partial-stack
 
 To promote a stack from partial/none to full:
 
-1. Author a `rules/hatch3r-<stack>-patterns.md` (+ `.mdc` twin) following [Content Authoring](https://github.com/hatch3r-dev/hatch3r/blob/main/.claude/rules/content-authoring.md) — `scope: conditional` with stack-file globs, a `lang:<x>` tag, and ≥2 reputable sources in a `## References` section.
+1. Author a `rules/hatch3r-<stack>-patterns.md` (+ `.mdc` twin) following [Content Authoring](https://github.com/hatch3r/hatch3r/blob/main/.claude/rules/content-authoring.md) — `scope: conditional` with stack-file globs, a `lang:<x>` tag, and ≥2 reputable sources in a `## References` section.
 2. Map the stack in `src/detect/stackSupport.ts` (`FRAMEWORK_SUPPORT` and/or `LANGUAGE_SUPPORT`) to `{ tier: "full", rule: "hatch3r-<stack>-patterns" }`.
 3. If the stack is detected by a new framework/language, add the indicator to `src/detect/repoAnalyzer.ts` and the `Framework` union (`src/types.ts`) or `LANGUAGE_INDICATORS`.
 4. If a new language maps to a `lang:*` capability tag, add it to `LANGUAGE_TO_TAG` (`src/content/tags.ts`) so the rule is selected on that stack.

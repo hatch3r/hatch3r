@@ -97,9 +97,9 @@ Before answering project-specific questions, these agents MUST read `.hatch3r/le
 - `hatch3r-researcher`
 - `hatch3r-fixer`
 
-Bound agents cite consulted entry IDs in the iteration summary's `Open Questions / Blockers` or a dedicated `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
+Bound agents cite consulted entry IDs in the `consulted` facet of the Iteration Summary's `Learnings:` exception line (`Learnings: consulted <ids> · …` per `rules/hatch3r-iteration-summary.md` → Exception Lines). Citing zero entries when `applies-to` matched is a fired condition with no line — a gate failure visible at audit time.
 
-When `.hatch3r/learnings/INDEX.md` does not exist or contains zero entries: consultation step is recorded as "no learnings available" in the iteration summary and the agent proceeds.
+When `.hatch3r/learnings/INDEX.md` does not exist or contains zero entries: the `Learnings:` line stays silent in the Iteration Summary — silence asserts "no learnings available" per the recap contract — and the agent proceeds.
 
 ### Consultation Efficiency
 
@@ -108,7 +108,7 @@ The gate above binds at task start; these heuristics bound its token cost (D6-17
 1. **Scan the INDEX table first.** Read `.hatch3r/learnings/INDEX.md` and match each row's `Topic` + `Applies-To` against the current task; read the full body only for matched rows. Do not read every learning file body.
 2. **Limit surfaced learnings to 5 per consultation.** When more than 5 match, prioritize by `confidence` (high > medium > low) then `created` (recent first).
 3. **Consult once per task.** When an upstream step already consulted for this task (e.g. `hatch3r-board-pickup` Step 6, before delegation), the orchestrator passes the matched learnings to sub-agents as prompt enrichment instead of re-consulting per sub-agent.
-4. **Skip below 3 files.** When `.hatch3r/learnings/` holds fewer than 3 entries, consultation overhead exceeds value — record "no learnings available" and proceed (same recording as the empty-INDEX case above).
+4. **Skip below 3 files.** When `.hatch3r/learnings/` holds fewer than 3 entries, consultation overhead exceeds value — proceed under the same silent default as the empty-INDEX case above.
 
 ### Mid-Task Consult Content Security (ASI06)
 
@@ -122,9 +122,9 @@ The Injection Gate above is the deterministic JS read-path scan; a mid-task cons
 
 The Mandatory Consultation Gate fires once, before work starts (write-then-consult). State-of-art assistants additionally surface knowledge *during* the edit (ambient-teach). To close that gap without runtime support, bound agents surface relevant learnings inline as they touch files:
 
-- **Trigger:** while editing, when the file or pattern being changed matches a captured learning, surface that learning inline in the iteration summary BEFORE completing the edit (not only at Step 0).
+- **Trigger:** while editing, when the file or pattern being changed matches a captured learning, surface that learning inline — via the `surfaced` facet of the Iteration Summary's `Learnings:` exception line — BEFORE completing the edit (not only at Step 0).
 - **Relevant-learning criteria** (any one qualifies): (1) **path overlap** — the edited path matches the learning's `applies-to` glob; (2) **applies-to match** — an explicit module/path-prefix hit; (3) **semantic overlap** — the edit intent matches the learning `topic` (e.g. editing a retry path while a `topic: retry-backoff` learning exists).
-- **Surfacing format:** add a `Surfaced Learnings:` line to the iteration summary citing the entry IDs and a one-clause why-relevant; cite zero only when none matched.
+- **Surfacing format:** cite the entry IDs in the `surfaced` facet of the Iteration Summary's `Learnings:` exception line with a one-clause why-relevant; when none matched the facet is omitted — silence asserts zero.
 - **Bound agents:** `hatch3r-implementer`, `hatch3r-fixer` (the code-mutating agents whose edits benefit most). This complements — does not replace — the once-per-run Consultation Gate above.
 
 ## Auto-Consolidation
@@ -157,7 +157,7 @@ When a trigger fires:
 
 1. The capturing agent writes a new file `.hatch3r/learnings/<id>.md` with the structured frontmatter and a body paragraph (rule + Why + How to apply).
 2. The agent regenerates `.hatch3r/learnings/INDEX.md` from the directory contents.
-3. The iteration summary records the captured learning ID under `Learnings Captured`.
+3. The Iteration Summary records the captured learning ID in the `captured` facet of the `Learnings:` exception line.
 
 Project-local; learnings never escape the project boundary. The canonical framework repository's `agents/` and `rules/` do not consume project learnings.
 

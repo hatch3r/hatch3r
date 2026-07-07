@@ -40,7 +40,7 @@ This file lists the eight P7 efficiency patterns referenced by agents, orchestra
   1. Compute the planned-scope vector: count of distinct files to be written/edited, AND total LOC delta across all planned changes (sum of inserts + deletes).
   2. If `files > 1` OR `loc_delta > 50`, the agent MUST emit a `## Plan` block (file list + change shape per file) and pause for the orchestrator's confirmation BEFORE issuing any Edit/Write/MultiEdit tool call.
   3. Single-file changes ≤ 50 LOC may skip the Plan block and act directly (the Tier-1 carve-out for `hatch3r-quick-change`).
-  4. The Iteration Summary records the chosen path (`plan_act_split: triggered | skipped`) so reviewer / audit can verify.
+  4. `plan_act_split: triggered` is recorded via the Pattern Rationale block of the recap-contract Iteration Summary (`rules/hatch3r-iteration-summary.md`); a skipped split stays silent — silence asserts the skip — so reviewer / audit can verify the taken path.
 
 Verification: this trigger is enforced by the agent body's "Scope Trigger" section — audited under D06 sub-agent 6.5; the audit checks the four code-mutating agents (`implementer`, `fixer`, `architect`, `creator`) for the trigger declaration.
 

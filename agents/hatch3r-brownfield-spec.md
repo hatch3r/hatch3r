@@ -210,7 +210,7 @@ Return structured result with:
 
 **Breaking changes detected:** NONE | {count with table rows from deliverable 3}
 
-**Iteration Summary:** {per `rules/hatch3r-iteration-summary.md` — 9 sections}
+**Iteration Summary:** {per `rules/hatch3r-iteration-summary.md` — recap + exception lines}
 ```
 
 Proof trace per `agents/shared/rigor-contract.md` §Proof Trace Contract is mandatory on every state-dependent claim (file existence, grep match, type-check result). Citation alone insufficient.

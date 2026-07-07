@@ -61,7 +61,7 @@ Adding a new tool to `src/cliTools/registry.ts::AVAILABLE_CLI_TOOLS` MUST satisf
 7. **Capability matrix** — `src/adapters/canonical.ts` renders the skill to all 3 adapter outputs (cursor, claude, copilot); the per-adapter render path is tested in `src/__tests__/adapters/{name}.test.ts`.
 8. **Alternative-tool comparison** — the PR body lists at least 2 named alternatives considered (with rejection rationale citing measurable trade-offs); avoids tool-duplication per `rules/hatch3r-anti-duplication.md`.
 9. **Probe binary registration** — the `probe` field on the registry entry names the binary used by `detectInstalled()`; the probe MUST be the exact executable name printed by the install command output (e.g. `rg` for ripgrep, `fd` for fd, `jq` for jq).
-10. **Iteration-summary entry** — the addition emits one row in `rules/hatch3r-iteration-summary.md` §Changes Made with the registry-entry diff link, per the iteration-summary template.
+10. **Iteration-summary entry** — the addition emits one line in the recap-contract Iteration Summary citing the registry-entry diff link, per `rules/hatch3r-iteration-summary.md`.
 
 ## Removing or Demoting a Tool
 

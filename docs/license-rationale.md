@@ -32,7 +32,7 @@ The only conditions: retain the copyright notice and the standard MIT warranty d
 
 ### Worked example: proprietary product embedding hatch3r
 
-A vendor builds a closed-source IDE plugin that bundles hatch3r's canonical content (the 19 agents, 63 skills, 42 rules, 38 commands, and 6 hooks tracked in [`governance/inventory.json`](../governance/inventory.json) as of 2026-05-18). The vendor sells the plugin commercially. Under MIT, this is permitted with the following obligations:
+A vendor builds a closed-source IDE plugin that bundles hatch3r's canonical content (the 29 agents, 53 skills, 67 rules, 30 commands, and 7 hooks tracked in [`governance/inventory.json`](../governance/inventory.json) as of 2026-07-06). The vendor sells the plugin commercially. Under MIT, this is permitted with the following obligations:
 
 1. Bundle a copy of [`/LICENSE`](../LICENSE) (or its substantive text) in the distributed product, in a location where users can find it — typically a `Third-Party Notices` view in the application, a `LICENSE` or `NOTICE` file in the distribution archive, or a section in the product's about page.
 2. Retain the copyright line: `Copyright (c) 2026 hatch3r contributors`.
@@ -46,7 +46,7 @@ This permissiveness is deliberate. The framework's value compounds with adoption
 hatch3r is not monetized today and has no roadmap toward monetization. Specifically:
 
 - **No enterprise tier.** There is no closed-source enterprise edition, no paid feature gate, and no plan to introduce one.
-- **No closed-source upsell.** Every artifact the framework ships — including the audit prompt, the 24 domain files, and the 4-wave execution model — is part of the open repository.
+- **No closed-source upsell.** Every artifact the framework ships — the canonical agents, skills, rules, commands, and hooks bundled in the npm package — is part of the open repository.
 - **No proprietary cloud service.** The CLI generates configuration locally; there is no hosted service collecting telemetry or gating capabilities behind authentication. Per the project's [CLI scope stance](https://docs.hatch3r.com/docs/about), "the CLI is NOT a runtime. It generates configuration; it does not execute agents."
 - **No dual-license trick.** hatch3r is not offered under MIT with a parallel commercial license that includes additional rights. The MIT license is the only license; everyone gets identical terms.
 
@@ -67,7 +67,7 @@ If you derive a fork that diverges from upstream hatch3r, please do not call the
 
 ## License changes
 
-Changing the license of a hatch3r release would require contributor consent under the DCO (Developer Certificate of Origin) sign-off model enforced on every commit (see [`CONTRIBUTING.md`](../CONTRIBUTING.md)). A license change has never been proposed and is not planned. If a proposal ever arises, it would route through the `/h4tcher-re-envision` governance sparring engine and require explicit user consent.
+Changing the license of a hatch3r release would require contributor consent under the DCO (Developer Certificate of Origin) sign-off model enforced on every commit (see [`CONTRIBUTING.md`](../CONTRIBUTING.md)). A license change has never been proposed and is not planned. If a proposal ever arises, it would route through the `/h4tcher-evolve` governance-evolution engine and require explicit user consent.
 
 ## References
 

@@ -95,7 +95,7 @@ Build to the deepest column — today's absolute audit thresholds. Depth added:
 
 ## CQ specialist agents by tier
 
-All nine content-quality specialist agents (CONSTITUTION §2B, files at `agents/hatch3r-{ui,ux,security,reliability,scalability,performance,maintainability,testability,enhancability}.md`) install at **every** tier now. The column below is advisory **calibration emphasis** — the tier at which each concern's depth starts to bind — not an install condition. Each specialist carries a `## Tier calibration` ladder whose solo column equals the universal floor and whose enterprise column equals its absolute audit threshold.
+All nine content-quality specialist agents (files at `agents/hatch3r-{ui,ux,security,reliability,scalability,performance,maintainability,testability,enhancability}.md`) install at **every** tier now. The column below is advisory **calibration emphasis** — the tier at which each concern's depth starts to bind — not an install condition. Each specialist carries a `## Tier calibration` ladder whose solo column equals the universal floor and whose enterprise column equals its absolute audit threshold.
 
 | Specialist | File | Tier where this concern's depth starts to bind |
 |------------|------|------------------------------------------------|

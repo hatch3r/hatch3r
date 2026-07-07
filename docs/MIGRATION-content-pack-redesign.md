@@ -60,7 +60,7 @@ If any of your overrides are silently absent from the manifest output that you e
 
 The redesign is documented in:
 
-- Constitution §2 P1-P8 — pillars served (P1 CLI UX, P2 Scientific Quality, P4 Lean Coverage, P6 Security & Trust).
+- Pillars served (of the 8 governance pillars): P1 CLI UX, P2 Scientific Quality, P4 Lean Coverage, P6 Security & Trust.
 - `src/content/tags.ts` — authoritative facet registry.
 - `src/content/index.ts::resolveSelection` — filter pipeline.
 - `scripts/wave2-retag.ts` + `scripts/wave2-fix-cli-skills.ts` — auditable migration scripts applied to bundled content.

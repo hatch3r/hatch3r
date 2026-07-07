@@ -2,6 +2,20 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.1.1] - 2026-07-06
+
+### Content
+
+- **Recap-contract iteration summary — the 9-section template is retired**: `rules/hatch3r-iteration-summary.md` (+ `.mdc`) now defines a 1–2 line recap (status enum + outcome sentence + `files · sa · gates · cost Δ · tier` telemetry facets) plus an 11-row exception-line registry (`Not done`, `Blockers`, `Default applied`, `Gates failed`, `Cost`, `Confidence`, `User-Accepted Bypass`, `Learnings`, `Tier`, `Duplication`, `Next`) where a line appears only when its firing condition holds — silence asserts the default, and a fired condition with no line is the gate failure. Dropped outright: request restatement, web-research list, pillar-impact attribution, verification-command detail (the recap `gates` facet replaces it). Every governance gate survives as a conditional line: the P8 B1 `Default applied:` log, the Decision-24 cost visibility (delta in the recap; full blocks beyond ±25%), charter honesty (`Not done` / `Blockers`), the D13 confidence-to-action strings, and the learning-system facets. (#115) Propagated across 63 canonical files: 30 command closing blocks, the coupled contracts (`cost-visibility`, `clarification-default`, `learning-system`, `agent-orchestration`, `handoff-readiness`, quality-charter §11, user-question-protocol), worked recap examples in the scaffold/diagnose/pack-install/pr-resolve/spec templates and the handoff trio (with absence-translation defaults), and the CONSTITUTION §6 Decision-23 row / VISION Principle 21 / D10 checklist superseded in place (2026-07-06).
+
+### Governance
+
+- **RE-ENVISION.md absorbed into EVOLVE.md — single interactive governance-evolution engine**: `governance/EVOLVE.md` is rewritten from a stateless 9-dimension proposal-only self-check into the unified interactive governance-evolution engine — 3 modes (`full-rewrite` / `scoped:<A##,...>` / `assess-only`), a 16-block full-coverage agenda (A00–A15) in which every block reaches an explicit verdict, parallel corpus-scan + research fan-out (15 scanner + 6 researcher sub-agents in full-rewrite mode, file-based outputs), a net-new capability round (≤10 candidates per run), dependency-waved per-file-consent rewrite execution (waves W1–W7; author sub-agents only), and checkpoint/resume in `.evolve-workspace/`. `governance/RE-ENVISION.md` is retired and the `/h4tcher-re-envision` skill is replaced by `/h4tcher-evolve`. CONSTITUTION §8 "EVOLVE session authorization" replaces the RE-ENVISION direct-edit authorization: in-session per-file owner consent constitutes §8 approval for all governance layers (labeled consent ASK on §8-tier files); out-of-session changes keep the CL-3 / §8-queue routes. Lean table recalibrated: RE-ENVISION row removed, EVOLVE `<=400` → `<=700` lines, governance total re-derived as the 6 lean-tracked prompts (CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + EVOLVE + pack-trust-model) `<=3120` lines. Validators and tests retargeted: `scripts/validate-governance-total.ts` scopes the 6-prompt list, `scripts/validate-traceability-matrix.ts` reads the Domains column after the RE-ENV matrix-column removal, and the D24-15 cached-CLI-count gate (`scripts/validate-governance-currency.ts` + `src/__tests__/governance/cli-count-currency-gate.test.ts`) retargets from RE-ENVISION to `governance/EVOLVE.md`. (#115)
+
+### Chore
+
+- **Docs website + repo docs currency**: landing page stats now build-time-derived from `governance/inventory.json` (29 agents / 53 skills / 67 rules / 30 commands / 3 adapters — were 16/26/27/34/15) with the tools grid cut to the 3 supported adapters and `/.agents/` copy removed; private-governance citations across `website/docs/` and 9 repo `docs/*.md` files reworded to public-safe statements with stale counts corrected; org slug normalized to `github.com/hatch3r/hatch3r`; the `/h4tcher-docusaurus-generator` skill no longer sources private governance files. (#115)
+
 ## [2.1.0] - 2026-06-26
 
 ### Headline

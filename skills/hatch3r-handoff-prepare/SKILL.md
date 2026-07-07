@@ -57,13 +57,13 @@ Populate the 8 required sections in the order defined by the README schema:
 - {decision with one-line rationale}
 
 ## Work Done
-- {bullet from the most recent Iteration Summary block's Done section}
+- {bullet from the most recent Iteration Summary recap's outcome + files facet}
 
 ## Work Remaining
-- {bullet from the Iteration Summary block's Not Done / Deferred / Unverified section}
+- {bullet per the recap's `Not done:` item; absent line ⇒ write "None — full scope completed"}
 
 ## Blockers
-- {bullet from the Iteration Summary block's Open Questions / Blockers section, or "None"}
+- {bullet per the recap's `Blockers:` item; absent line ⇒ write "None"}
 
 ## Next Steps
 1. {ordered, actionable}
@@ -83,7 +83,7 @@ Populate the 8 required sections in the order defined by the README schema:
 --- END USER-TIER CONTENT: handoff ---
 ```
 
-**Provenance constraint:** `Work Done`, `Work Remaining`, and `Blockers` are copied **verbatim** from the session's most recent Iteration Summary block (per `rules/hatch3r-iteration-summary.md`). Do not paraphrase — the contract is exact reuse so loaders can correlate handoff state with prior turn output.
+**Provenance constraint:** `Work Done`, `Work Remaining`, and `Blockers` derive from the session's most recent Iteration Summary per the Handoff Mapping in `rules/hatch3r-iteration-summary.md`: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`. Present lines are copied **verbatim** — do not paraphrase; the contract is exact reuse so loaders can correlate handoff state with prior turn output.
 
 **Hard cap:** body ≤ 51,200 bytes (50 KB). If exceeded:
 

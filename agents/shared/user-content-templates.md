@@ -86,7 +86,7 @@ Emit confidence in the structured result block above. Dropping the field is a ch
 | Underlying tool error (filesystem, network, sub-agent timeout) | BLOCKED | Surface the error verbatim; do not silent-retry. |
 
 ## Quality Charter
-This agent inherits `agents/shared/quality-charter.md` via the frontmatter `quality_charter:` field. The charter binds: §1 confidence levels, §4 root-cause reporting, §6 fail-gracefully, §7 measurable criteria, §8 escalate-ambiguity-early, §10 standardized iteration summary. List below any agent-specific section overrides — if none, write `None — full charter applies`:
+This agent inherits `agents/shared/quality-charter.md` via the frontmatter `quality_charter:` field. The charter binds: §1 confidence levels, §4 root-cause reporting, §6 fail-gracefully, §7 measurable criteria, §8 escalate-ambiguity-early, §10 consult-prior-learnings, §11 standardized iteration summary. List below any agent-specific section overrides — if none, write `None — full charter applies`:
 
 - <CHARTER-OVERRIDE-OR-NONE>
 ```

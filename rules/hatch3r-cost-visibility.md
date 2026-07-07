@@ -12,7 +12,7 @@ scope: always
 
 Source: the cost-visibility design decision and the cost-transparency principle (pillar P7; see `agents/shared/principles.md`).
 
-Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) and every meaningful skill run that mutates state MUST emit cost data — pre-execution estimate at plan time and post-execution actuals + delta at completion time. The delta lands in the iteration summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) and every meaningful skill run that mutates state MUST emit cost data — pre-execution estimate at plan time and post-execution actuals + delta at completion time. The delta lands in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-iteration-summary.md`.
 
 ## Pre-Execution Estimate
 
@@ -57,9 +57,9 @@ delta:
 
 ## Surfacing in Iteration Summary
 
-Per `rules/hatch3r-iteration-summary.md` §2 Fan-out + Cost: both blocks appear in the iteration summary's Cost section. Deltas exceeding 25% (absolute value) flag for review — they signal under- or over-estimation patterns that the next cycle should investigate. The flag is informational, not a gate failure.
+Per `rules/hatch3r-iteration-summary.md` (recap contract): the recap carries the cost facet on every run — `cost Δ<tok%>% tok / Δ<min%>% min`. Deltas exceeding 25% (absolute value) additionally fire the `Cost:` exception line — `Cost: flagged_for_review: true` followed by the fenced `cost_actuals` + `delta` blocks — because they signal under- or over-estimation patterns that the next cycle should investigate. The flag is informational, not a gate failure; deltas within ±25% emit no `Cost:` line (the recap Δ facet suffices; telemetry persists regardless).
 
-A run with no Cost section in its iteration summary fails the iteration-summary validation gate (`.claude/rules/capability-lifecycle.md` Gate Checklist).
+A recap with no cost facet fails the Validation Gate of `rules/hatch3r-iteration-summary.md`.
 
 ### Worked Example
 
@@ -91,6 +91,13 @@ delta:
 
 `duration_delta_percent` exceeds 25% — flagged informational for next-cycle EVOLVE review. `input_tokens_delta_percent` is 24.4% — under threshold, no flag.
 
+In the closing recap these actuals surface as the cost facet, and the >25% duration delta fires the `Cost:` exception line (the fenced `cost_actuals` + `delta` blocks above follow it):
+
+```
+files 4 (+310/−22) · sa 6/5 · gates 6/6 · cost Δ24.4% tok / Δ27.5% min · tier 2
+Cost: flagged_for_review: true
+```
+
 ## Source of Telemetry
 
 `src/pipeline/observability.ts` records:
@@ -117,7 +124,7 @@ A change to a `commands/hatch3r-*.md` orchestrator or to a meaningful state-muta
 
 1. The artifact emits `cost_estimate` before the first sub-agent spawn.
 2. The artifact emits `cost_actuals` + `delta` before declaring iteration-summary status.
-3. The iteration summary's Fan-out + Cost section (per `rules/hatch3r-iteration-summary.md` §2) carries both blocks.
+3. The Iteration Summary recap carries the cost facet; when any delta exceeds 25% absolute, the `Cost:` exception line carries both blocks (per `rules/hatch3r-iteration-summary.md` → Exception Lines).
 4. Telemetry persists to `.hatch3r/telemetry/<session-id>.json` even under `--quiet`.
 5. Delta thresholds beyond 25% absolute value carry an explicit `flagged_for_review: true` annotation in the iteration summary.
 

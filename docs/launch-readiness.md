@@ -7,7 +7,7 @@ tags: [distribution, launch, governance, decision-log]
 
 # Launch Readiness
 
-> Source authority: the PRD §14 (Distribution Channels) and the Constitution §6 Decision 26 (supply-chain floor — npm provenance + SBOM + SHA-pinned actions). Closes finding F18.3.5 (Cycle 10, High).
+> Source authority: the PRD §14 (Distribution Channels) and the project's supply-chain floor policy (npm provenance + SBOM + SHA-pinned actions). Closes finding F18.3.5 (Cycle 10, High).
 
 ## Purpose
 
@@ -34,7 +34,7 @@ All six must read GREEN before any external-facing launch posts. Each row cites 
 | P3 | AAIF stance documented in PRD §5.x (closes F18.2.2 / F17.3.1) | PRD §5 (positioning section) | PRD §5 mentions agents.md / AAIF / cross-tool fallback at least once |
 | P4 | 3-lane distribution plan documented in PRD §14 (F17.3.2 — Claude plugin marketplace + AGENTS.md/AAIF + Cursor plugin) | PRD §14 Distribution Channels | All three channels documented as live (not "stub" / "planned") |
 | P5 | Marketplace submission package current (`docs/marketplace-submission.md`) | `docs/marketplace-submission.md` (referenced from F18.3.4) | Status field reads `READY` not `PARTIAL`; counts match `governance/inventory.json`; in-app form URLs reachable |
-| P6 | Latest release published with npm provenance + SBOM | Constitution §6 Decision 26 (supply-chain floor) | `npm view hatch3r@latest dist.signatures` returns provenance attestation; SBOM artifact present on the corresponding GitHub release |
+| P6 | Latest release published with npm provenance + SBOM | Supply-chain floor policy (npm provenance + SBOM + SHA-pinned actions) | `npm view hatch3r@latest dist.signatures` returns provenance attestation; SBOM artifact present on the corresponding GitHub release |
 
 ## 3. Status snapshot (cycle 10 close)
 
@@ -94,6 +94,6 @@ Append one row per launch-go/no-go decision. Date in ISO format. Status snapshot
 ## References
 
 - PRD §14 Distribution Channels — canonical 3-lane plan (CLI, Cursor Plugin, npm Dependency); to be extended to the Claude Plugins Marketplace + AGENTS.md/AAIF lane per F17.3.2.
-- Constitution §6 Key Design Decision 26 — supply-chain floor: npm provenance + SBOM + SHA-pinned actions + CI matrix Ubuntu/macOS/Windows × Node LTS 22/24.
+- Supply-chain floor policy — npm provenance + SBOM + SHA-pinned actions + CI matrix Ubuntu/macOS/Windows × Node LTS 22/24.
 - `docs/marketplace-submission.md` — agent-prepared submission package; status drives P5.
 - Audit finding registry — Cycle 10 finding closure feeds P1.

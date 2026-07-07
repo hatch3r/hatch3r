@@ -50,6 +50,6 @@ Effect: self-assessed confidence becomes a track-record signal rather than a sin
 ## Cross-references
 
 - Body sections schema: `.hatch3r/handoffs/README.md`
-- Iteration Summary contract (populates Work Done / Work Remaining / Blockers): `rules/hatch3r-iteration-summary.md`
+- Iteration Summary recap contract (Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`): `rules/hatch3r-iteration-summary.md`
 - Injection-pattern catalog: `agents/shared/injection-patterns.md` Section B
 - Quality charter (confidence levels): `agents/shared/quality-charter.md`

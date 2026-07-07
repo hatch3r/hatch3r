@@ -71,7 +71,7 @@
  *
  * No flags → all nine modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
- * `governance/RE-ENVISION.md`, `commands/hatch3r-audit-cycle*.md`) remains
+ * `governance/EVOLVE.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
  * 2026-04 — it carries `triage_tiers` and is checked alongside commands.
  *
@@ -97,17 +97,18 @@ const AUDIT_EXECUTE_REL = "governance/AUDIT-EXECUTE.md";
 
 // ── Audit-cycle exempt list (hard-coded) ──────────────────────────
 //
-// RE-ENVISION.md exemption confirmed 2026-05-18 after redesign from vision-only
-// dialog to holistic governance sparring engine. The redesigned prompt still
-// runs interactively (one theme block at a time, 5 hard-stop ASK gates) and
-// fans out 10 layer SAs in parallel at §2 — but the body remains framework-owner
-// dialog, not an orchestrator pipeline. Static-first/triage-first/parallel-tool
-// invariants don't apply to one-at-a-time interactive flows. Per CONSTITUTION
-// §2 P7 the audit-cycle file list is hard-exempt; RE-ENVISION inherits that.
+// EVOLVE.md exemption: EVOLVE.md is the unified interactive governance-
+// evolution engine (it absorbed the retired RE-ENVISION.md). It runs as a
+// framework-owner dialog with a one-at-a-time verdict flow — each proposal is
+// presented and resolved individually before the next — not as an orchestrator
+// pipeline. The static-first/triage-first/parallel-tool invariants target
+// runtime orchestrator artifacts (commands, agents, AUDIT-EXECUTE), not a
+// one-at-a-time interactive engine. Per CONSTITUTION §2 P7 the audit-cycle
+// file list is hard-exempt; EVOLVE inherits that.
 
 const AUDIT_EXEMPT_PATHS: readonly string[] = [
   "governance/AUDIT.md",
-  "governance/RE-ENVISION.md",
+  "governance/EVOLVE.md",
 ];
 
 const AUDIT_EXEMPT_GLOBS: readonly string[] = [

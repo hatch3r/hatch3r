@@ -19,8 +19,7 @@ Before modifying any governance file, check `wc -l` against these limits from `g
 | `VISION.md` | <=250 lines |
 | `AUDIT.md` | <=600 lines |
 | `AUDIT-EXECUTE.md` | <=720 lines |
-| `RE-ENVISION.md` | <=550 lines |
-| `EVOLVE.md` | <=400 lines |
+| `EVOLVE.md` | <=700 lines |
 | `pack-trust-model.md` | <=300 lines |
 | `rules/*.md` (precedence: critical or high) | <=250 lines |
 | `rules/*.md` (precedence: normal or low) | <=120 lines |
@@ -38,7 +37,7 @@ Before modifying any governance file, check `wc -l` against these limits from `g
 | Template file | 80-200 lines |
 | Cross-file duplication | <5% |
 | Finding inflation | <2.0x pre-dedup/post-impact-gating/post-triage |
-| Governance total (sum of the 7 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + RE-ENVISION + EVOLVE + pack-trust-model) | <=3370 lines |
+| Governance total (sum of the 6 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + EVOLVE + pack-trust-model) | <=3120 lines |
 | Generated UI a11y violations (axe-core, serious/critical) | 0 |
 | Design-token adoption in generated code (color, spacing, typography) | >=95% |
 | Four-state surface contract coverage on generated async views | 100% |

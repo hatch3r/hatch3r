@@ -34,7 +34,7 @@ A triage-first orchestrator classifies a task by reading these three signals bef
 2. **Decision class** — additive/reversible → Light or Standard; introduces an architectural decision, a new integration, or a breaking change → Deep.
 3. **Acceptance-criteria clarity** — a single clear AC keeps a task Light or Standard; missing/ambiguous AC fires the P8 B1 clarification gate (`.claude/rules/clarification-default.md`) before tiering, since an unclassifiable task cannot be tiered.
 
-Auto-tiering can misclassify (a single-module task scored Deep, or a cross-cutting task scored Light). The `--effort` flag is the documented recovery path; record the chosen tier in the iteration summary `triage_tier` field (`rules/hatch3r-iteration-summary.md`).
+Auto-tiering can misclassify (a single-module task scored Deep, or a cross-cutting task scored Light). The `--effort` flag is the documented recovery path; record the chosen tier in the Iteration Summary recap's tier facet (`rules/hatch3r-iteration-summary.md`).
 
 ---
 

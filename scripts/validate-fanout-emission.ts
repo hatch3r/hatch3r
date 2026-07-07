@@ -41,7 +41,7 @@
  *      carry the heading; `h4tcher-pr-resolve` delegates inside the
  *      canonical workflow it invokes and is caught by the `Task` grant).
  *      The audit-cycle orchestrators
- *      (`h4tcher-audit-cycle`, `h4tcher-audit-execute`, `h4tcher-re-envision`)
+ *      (`h4tcher-audit-cycle`, `h4tcher-audit-execute`, `h4tcher-evolve`)
  *      delegate through the `Agent`/`Workflow` primitives instead and
  *      describe fan-out narratively, mirroring the `AUDIT_EXEMPT_GLOBS`
  *      carve-out for `commands/hatch3r-audit-cycle*.md`; they grant no
@@ -513,7 +513,7 @@ function isDelegatingSkill(file: ParsedFile): boolean {
 // A maintainer preset's fan-out trigger is its frontmatter `Task` grant,
 // not a body phrase: the lifecycle presets grant `allowed-tools: ... Task`
 // to dispatch parallel sub-agents, while the Agent/Workflow-based audit
-// orchestrators (audit-cycle, audit-execute, re-envision) describe fan-out
+// orchestrators (audit-cycle, audit-execute, evolve) describe fan-out
 // narratively and grant no `Task`. `allowed-tools` is a space-separated
 // scalar in these files (e.g. `Read Grep Glob Bash(*) Write Edit Task`),
 // so the grant is detected by whole-word match against that string.

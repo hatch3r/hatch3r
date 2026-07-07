@@ -130,7 +130,7 @@ cost_estimate:
   estimated_duration_min: <int>
 ```
 
-Post-execution actuals + delta land in the Step 5 Iteration Summary's Fan-out + Cost section. `--effort=light|standard|deep` (Decision 17) forces the tier; record both auto and override.
+Post-execution actuals + delta land in the Step 5 Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`. `--effort=light|standard|deep` (Decision 17) forces the tier; record both auto and override.
 
 ---
 
@@ -185,29 +185,17 @@ Run the available validation commands and record exit codes: `promtool check rul
 
 ### Iteration Summary (mandatory output)
 
-Emit the canonical iteration summary per `rules/hatch3r-iteration-summary.md`:
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+
+Worked example for this domain:
 
 ```markdown
 ## Iteration Summary
 
-**Status:** SUCCESS | PARTIAL | FAILED | BLOCKED
-**Outcome:** {one sentence — e.g., "Scaffolded availability + p95 + p99 SLOs and 3-tier burn-rate alerts for checkout-service; reliability gate PASS."}
-
-**Done:**
-- slo/{service}.slo.yaml → 3 SLOs (availability, p95, p99) via hatch3r-implementer (proof: {id})
-- slo/{service}.alerts.yaml → 3-tier multi-burn-rate alerts via hatch3r-implementer (proof: {id})
-
-**Not Done / Deferred / Unverified:**
-- Metric-name placeholders (`# TODO`) — fill with the project's real metric names before deploy
-- (or: `None — full scope completed`)
-
-**Open Questions / Blockers:**
-- (or: `None`)
-
-**Fan-out + Cost:** sub_agents_spawned: { count, rationale } + cost_estimate / cost_actuals / delta
-**Pillar Impact Attribution:** progress_toward_pillar: content-quality.CQ4+{delta}
-**Confidence:** {high | medium | low} — {basis from implementer output + reliability gate verdict}
-**Suggested Next Action:** {one line — e.g., "Replace metric-name TODOs, then wire slo/*.alerts.yaml into the Prometheus rule_files."}
+**SUCCESS** — Scaffolded availability + p95/p99 SLOs and 3-tier burn-rate alerts for checkout-service; reliability gate PASS.
+files 2 (+118/−0) · sa 2/2 · gates 2/2 · cost Δ+4% tok / Δ−10% min · tier 1
+Not done: metric-name placeholders (`# TODO`) — deferred: fill with the project's real metric names before deploy
+Next: wire slo/checkout-service.alerts.yaml into the Prometheus rule_files.
 ```
 
 Status decision rules:

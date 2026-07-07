@@ -72,28 +72,16 @@ Summary: {summary}
 Warnings: {list or "none"}
 ```
 
-Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-summary.md`:
+Then close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Worked example:
 
 ```
 ## Iteration Summary
 
-**Status:** SUCCESS | PARTIAL | FAILED | BLOCKED
-**Outcome:** Handoff written for {work_item or branch} — {one-line state}.
-**Done:**
-- Composed handoff body with 8 required sections
-- Validated against readiness rule (errors: 0, warnings: {n})
-- Computed SHA-256 integrity hash
-- Wrote atomically to .hatch3r/handoffs/active/{id}.md
-**Not Done / Deferred / Unverified:**
-- {None — full scope completed | list of warnings}
-**Open Questions / Blockers:**
-- None
-**Confidence:** high | medium | low — {basis sentence}
-**impact_horizon:** short | medium | long
-**progress_toward_pillar:** governance.P7+<delta>
+**SUCCESS** — Handoff written for gh:owner/repo#42 at .hatch3r/handoffs/active/2026-07-06_T0910_a3f2c_issue-42.md.
+files 1 (+64/−0) · sa 0/0 · gates 6/6 · cost Δ0% tok / Δ0% min · tier 1
 ```
 
-Per the impact-horizon and pillar-progress emission convention, `impact_horizon` defaults to `medium` (a handoff persists across context windows and can be resumed days later); use `long` for handoffs that capture multi-week initiatives. `progress_toward_pillar` records the pillar-delta on the governance axis — handoff-preparer output advances P7 (Speed & Token Efficiency) because the externalized session-state lets a fresh context window resume without re-deriving prior work.
+Handoff body composition consumes the session's most recent recap via the rule's Handoff Mapping: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`.
 
 ## Outputs
 

@@ -77,7 +77,7 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 {
   "name": "hatch3r",
   "description": "10-cycle-audited agentic coding setup: 29 agents, 53 skills, 67 rules, 30 commands, 7 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
-  "version": "2.1.0",
+  "version": "2.1.1",
   "author": {
     "name": "hatch3r",
     "email": "support@hatch3r.com"
@@ -143,7 +143,7 @@ If the marketplace later requires a PR to `anthropics/claude-plugins-official/ex
 ### Quality bar
 - Test suite: 3877+ tests passing (vitest), coverage thresholds at 78/65/80/80 statements/branches/functions/lines globally with a critical-module floor of 90/80/90/90 for `src/merge/`.
 - Security: OWASP ASI01-10 controls (D15 agentic-security audit domain), atomic file writes, prompt injection guards, tool allowlists per agent.
-- Governance: 8 Binding Pillars (the Constitution), 24 audit domains, closed-loop self-evolution audits.
+- Governance: 8 binding governance pillars, 24 audit domains, closed-loop self-evolution audits.
 - License: MIT, DCO sign-off enforced on commits.
 
 ### Cross-platform
@@ -168,7 +168,7 @@ claude plugin validate .
 cat .claude/hooks/hatch3r-hooks.json | jq .
 
 # Confirm inventory counts match plugin.json description
-npm run inventory && diff <(jq -r '.counts | to_entries[] | "\(.key)=\(.value)"' governance/inventory.json | sort) <(echo "agents=29
+npm run inventory && diff <(jq -r '.counts | {adapters, agents, skills, rules, rulesMdc, commands, hooks, pipeline, cliCommands} | to_entries[] | "\(.key)=\(.value)"' governance/inventory.json | sort) <(echo "agents=29
 adapters=3
 cliCommands=20
 commands=30

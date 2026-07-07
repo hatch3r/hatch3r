@@ -24,7 +24,7 @@ Sources: [MCP 2025-06-18 transports](https://modelcontextprotocol.io/specificati
 
 This is the dated CVE audit trail for the MCP attack surface, distinct from the per-server blast radius below. The per-server `securityNote`/version-pin checks (postgres, brave-search) catch a CVE bound to one npm package; the entries here are **protocol/client-connect-class** CVEs that no single per-package pin surfaces, because they live in the connect path every STDIO/HTTP server exercises.
 
-Ownership split (`governance/audit/domains/D15-agentic-security.md` §15.7 "CVE check window"): **D21 owns running the scan; D15.7 verifies this audit trail.** The dynamic per-package scan is `npm run mcp:cve-check` (`scripts/check-mcp-cves.ts`) — it queries OSV.dev for every `npx`-launched package in `mcp/*.json` and fails the gate on a Critical/High advisory public for more than 30 days against a shipped version. Re-run it and refresh the date heading every audit cycle (≤90-day window per CONSTITUTION §2 P3).
+Ownership split (part of hatch3r's internal security audit machinery): **audit domain D21 owns running the scan; the agentic-security domain (D15) verifies this audit trail.** The dynamic per-package scan is `npm run mcp:cve-check` (`scripts/check-mcp-cves.ts`) — it queries OSV.dev for every `npx`-launched package in `mcp/*.json` and fails the gate on a Critical/High advisory public for more than 30 days against a shipped version. Re-run it and refresh the date heading every audit cycle (≤90-day window per the P3 external-tool-currency pillar).
 
 | CVE | Class | CVSS | Affected | hatch3r exposure | Status / mitigation |
 |-----|-------|------|----------|-------------------|---------------------|

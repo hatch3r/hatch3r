@@ -23,7 +23,7 @@ For non-hatch3r repos the canonical `/hatch3r-pr-resolve` command (distributed v
 2. Read `governance/CONSTITUTION.md` §2 P5 lean-threshold table; cache the limits for files this PR is likely to touch.
 3. Capture baseline line counts for any governance file likely to be edited:
    ```bash
-   wc -l governance/CONSTITUTION.md governance/AUDIT.md governance/AUDIT-EXECUTE.md governance/RE-ENVISION.md governance/EVOLVE.md governance/audit/domains/*.md 2>/dev/null
+   wc -l governance/CONSTITUTION.md governance/AUDIT.md governance/AUDIT-EXECUTE.md governance/EVOLVE.md governance/audit/domains/*.md 2>/dev/null
    ```
 4. Confirm working tree is clean: `git status --short` returns empty.
 

@@ -25,7 +25,7 @@ If a similar artifact exists with ≥80% scope overlap, do one of:
 - Refactor into a shared abstraction consumed by both.
 - Document the distinct scope as an ADR before authoring the new artifact.
 
-Report findings of the discovery scan in the iteration summary §Files Mutated section.
+Surface discovery-scan findings via the Iteration Summary's `Duplication:` exception line (formats in `rules/hatch3r-iteration-summary.md` → Exception Lines); a scan that ran clean emits no line — silence asserts it.
 
 ## Post-Write Duplication Scan
 
@@ -52,11 +52,11 @@ Tier set via `hatch3r config maturity=<tier>` per CONSTITUTION §6 Decision #16 
 
 Per CONSTITUTION §2 P4: Single Source of Truth. Silent duplication (no ADR, no refactor) is a P4 violation surfaced by D16 Compound System audit + D22 Content Architecture audit (after authoring).
 
-Per CONSTITUTION §2 P5 Silent Failure Contract: a duplication scan that finds matches but emits no warning to the caller is itself a contract violation — the scan must surface findings via the iteration summary or a CI gate.
+Per CONSTITUTION §2 P5 Silent Failure Contract: a duplication scan that finds matches but emits no warning to the caller is itself a contract violation — the scan must surface findings via the Iteration Summary's `Duplication:` exception line or a CI gate.
 
 ## Discovery Gate Output Schema
 
-Report from the pre-implementation grep step lands in the iteration summary as:
+Report from the pre-implementation grep step lands in the implementer's structured output as:
 
 ```
 discovery_scan:
@@ -68,6 +68,8 @@ discovery_scan:
 ```
 
 `overlap_assessment: high` without `decision: extend-existing | refactor-shared | adr-distinct` is a P4 violation — author is creating a duplicate.
+
+At the user surface, the Iteration Summary carries the `Duplication:` exception line only on a non-clean or skipped scan — `Duplication: <n> match(es), closest <path>, overlap <none|partial|high>` when matches were found, or `Duplication: scan skipped (<reason>)` when skipped; a clean scan emits no line.
 
 ## Worked Example
 
@@ -90,7 +92,7 @@ The discovery + scan procedure binds every code-writing turn EXCEPT:
 - Test-file edits that mirror an existing source-file change (the test mirrors a function the discovery step already ran on).
 - Cosmetic edits (whitespace, comment wording, import sorting).
 
-When skipped, declare `discovery_scan: skipped (reason: <reason>)` in the iteration summary. Skipping without declaration is itself a P5 silent-failure violation per CONSTITUTION §2 P5 Silent Failure Contract.
+When skipped, declare `Duplication: scan skipped (<reason>)` in the Iteration Summary. Skipping without declaration is itself a P5 silent-failure violation per CONSTITUTION §2 P5 Silent Failure Contract.
 
 ## Enforcement
 

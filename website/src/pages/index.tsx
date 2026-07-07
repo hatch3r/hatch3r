@@ -3,20 +3,19 @@ import Link from '@docusaurus/Link';
 import useBaseUrl from '@docusaurus/useBaseUrl';
 import Layout from '@theme/Layout';
 import Heading from '@theme/Heading';
+import inventory from '../../../governance/inventory.json';
+
+const {counts} = inventory;
 
 const stats = [
-  {number: '16', label: 'Agents'},
-  {number: '26', label: 'Skills'},
-  {number: '27', label: 'Rules'},
-  {number: '34', label: 'Commands'},
-  {number: '15', label: 'Platforms'},
+  {number: counts.agents, label: 'Agents'},
+  {number: counts.skills, label: 'Skills'},
+  {number: counts.rules, label: 'Rules'},
+  {number: counts.commands, label: 'Commands'},
+  {number: counts.adapters, label: 'Adapters'},
 ];
 
-const tools = [
-  'Cursor', 'GitHub Copilot', 'Claude Code', 'OpenCode', 'Windsurf',
-  'Amp', 'Codex CLI', 'Gemini CLI', 'Cline / Roo Code', 'Aider',
-  'Kiro', 'Goose', 'Zed', 'Amazon Q', 'Antigravity',
-];
+const tools = ['Cursor', 'GitHub Copilot', 'Claude Code'];
 
 const features: {title: string; description: string; icon: string}[] = [
   {
@@ -29,7 +28,7 @@ const features: {title: string; description: string; icon: string}[] = [
     title: 'Tool-Agnostic',
     icon: '<>',
     description:
-      'Single canonical source in /.agents/ with adapters that generate native config for 15 platforms. Switch tools without rewriting your setup.',
+      'One canonical source shipped inside the npm package, with adapters that generate native config for Claude Code, Cursor, and GitHub Copilot — the only directory added to your repo is .hatch3r/. Switch tools without rewriting your setup.',
   },
   {
     title: 'Board Management',

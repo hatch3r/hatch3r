@@ -170,7 +170,7 @@ cost_estimate:
   estimated_duration_min: <int>
 ```
 
-Post-execution actuals + delta land in the Step 10 Resolution Summary's Fan-out + Cost section per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
+Post-execution actuals + delta land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md` Post-Execution Actuals. Token telemetry sources from `src/pipeline/observability.ts`.
 
 ### Effort Override (Decision 17)
 
@@ -627,46 +627,16 @@ If `run_cache.fix_results.files_changed` is empty (every comment was DECLINE / D
 
 ## Step 10: Resolution Summary
 
-Emit the canonical Iteration Summary block from `rules/hatch3r-iteration-summary.md`. Use the exact field names and the closed Status enum.
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` — a 1–2 line recap plus every exception line whose firing condition holds, using the closed Status enum. Disposition mapping: DEFER dispositions land on the `Not done:` line; NEEDS_CLARIFICATION items land on the `Blockers:` line. Worked example:
 
 ```markdown
 ## Iteration Summary
-
-**Status:** SUCCESS | PARTIAL | FAILED | BLOCKED
-**Outcome:** {one sentence — e.g., "Resolved 8 of 10 comments on PR #142; 2 deferred; replies posted."}
-
-**Done:**
-- {comment_id} @{author}: FIX NOW → implemented in {commit_sha}
-- {comment_id} @{author}: DECLINE (outdated) → reply posted
-- ...
-
-**Not Done / Deferred / Unverified:**
-- {comment_id} @{author}: DEFER → tracked in todo.md
-- {comment_id}: reply post failed (Azure REST 429); manual follow-up needed
-- (or: `None — full scope completed`)
-
-**Open Questions / Blockers:**
-- {comment_id} @{author}: NEEDS_CLARIFICATION → awaiting reviewer response
-- (or: `None`)
-
-**Confidence:** {high | medium | low} — {one-sentence basis from sub-agent outputs and reviewer verdict}
-
-**Artifacts Touched:**
-| Path | Action | Notes |
-| ---- | ------ | ----- |
-| {file} | modified | {one line} |
-
-**Verifications Run:**
-| Check | Result |
-| ----- | ------ |
-| lint | pass |
-| typecheck | pass |
-| tests | pass ({n} passed) |
-| reviewer/fixer loop | clean after {n} iteration(s) |
-| hatch3r-security | pass |
-| hatch3r-testability | pass — added {n} test(s) |
-
-**Suggested Next Action:** {one line — e.g., "Wait for reviewer response on the 2 NEEDS_CLARIFICATION items, then re-run /hatch3r-pr-resolve."}
+**PARTIAL** — Resolved 8 of 10 comments on PR #142; replies posted; commit pushed.
+files 6 (+184/−42) · sa 7/9 · gates 6/6 · cost Δ−12% tok / Δ+8% min · tier 2
+Not done: c-214 @maya DEFER — deferred: tracked in todo.md for /hatch3r-board-fill
+Blockers: c-207 @jordan NEEDS_CLARIFICATION — awaiting reviewer response
+Confidence: medium — reviewer loop clean after 1 round; 2 comments unresolved. The fix required one round of corrections, which is normal for moderately complex changes. A brief human review is recommended.
+Next: re-run /hatch3r-pr-resolve when the reviewer answers c-207.
 ```
 
 Status decision rules:
@@ -695,30 +665,18 @@ pr-resolve is long-running — a Tier 3 PR with many open comments runs identity
 
 ## Iteration Summary (mandatory output)
 
-Emit the canonical 9-section iteration summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output (the Step 10 Resolution Summary block above adapts these sections to the PR-resolution domain — both the Step 10 block and the 9-section canonical contract apply). The validation gate at `.claude/rules/capability-lifecycle.md` blocks SUCCESS declarations without this block (CONSTITUTION §6 Decision 23).
-
-The 9 sections:
-
-1. **Request** — verbatim restatement of the user's ask in one sentence.
-2. **Fan-out + Cost** — `sub_agents_spawned: { count, rationale }` plus the `cost_estimate` / `cost_actuals` / `delta` blocks (see Cost Visibility below).
-3. **Web Research** — every URL fetched with access date + trust tier per `agents/shared/rigor-contract.md` (0 acceptable when no research was needed).
-4. **Files Mutated** — list with diff summary (lines added / removed / files created).
-5. **Gates Passed / Failed** — explicit list per `.claude/rules/capability-lifecycle.md` Gate Checklist.
-6. **Pillar Impact Attribution** — `progress_toward_pillar: <axis>.<pillar_id>+<delta>` per CONSTITUTION §6 Decision 17.
-7. **Verification Commands** — exact commands run with exit codes plus key output lines (≤200 chars).
-8. **Open Questions / Blockers** — explicit `None` if fully closed.
-9. **Learnings Captured** — IDs of any learnings written to `.hatch3r/learnings/` this run per `rules/hatch3r-learning-system.md`.
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06). (The Step 10 block above is the domain rendering; the recap closes the run.)
 
 ### Cost Visibility (Decision 24)
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in Section 2 above.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
 ## Cost estimate (Decision 24)
 
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Step 5 ASK gate (the only mutation gate; fan-out begins in Step 6).
-- **Post-execution `cost_actuals` + `delta`** — appended to the Step 10 Resolution Summary's Fan-out + Cost section per `rules/hatch3r-iteration-summary.md` §2.
+- **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
 Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 9` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 1 (one specialist, no review loop); Tier 2 ≈ 4 (FIX NOW fix group + review loop); Tier 3 up to 9 (full pipeline including the parallel Tier-3 final-quality specialist mandate). A no-comment short-circuit (Step 2d) emits `actual_sa_count: 0`. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 

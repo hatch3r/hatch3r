@@ -81,7 +81,7 @@ Rules:
 - Each `files_mutated_this_turn` row MUST cite the spawning sub-agent invocation and quote its `delegation_proof_id` verbatim. Unattributable rows are self-declared P8 B2 violations; the orchestrator MUST queue re-delegation next turn.
 - `inline_edits_by_orchestrator: none` is the only value accepted outside the `hatch3r-quick-change` Tier-1 carve-out (per the "Inline implementation" definition above).
 - Tier 1 read-only and chat-only turns are exempt (same scope as the Per-Turn Pipeline-State Header); a missing block on a Tier >= 2 mutating turn is a self-detectable drift signal — halt and re-ground per the missing-header protocol.
-- The block is consumed by reviewers and the next orchestrator turn; it sits beside the Iteration Summary, not inside it, preserving the 5-field iteration-summary contract verbatim.
+- The block is consumed by reviewers and the next orchestrator turn; it sits beside the Iteration Summary, not inside it, preserving the recap contract verbatim.
 
 ### Mandatory Delegation Directive (No Inline Implementation)
 

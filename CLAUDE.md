@@ -96,8 +96,7 @@ The three numbered steps above ARE the ad-hoc orchestrator scaffold — apply th
 | `governance/CONSTITUTION.md` | Design rationale: 8 pillars (P1-P8), traceability matrix, lean thresholds |
 | `governance/AUDIT.md` | Audit prompt: 24 domains, 124 sub-agents, behavioral charter |
 | `governance/AUDIT-EXECUTE.md` | Execution: 4-wave model, regression gates, closed-loop phases |
-| `governance/RE-ENVISION.md` | Holistic governance sparring engine — 10 parallel layer SAs + 20-theme dialog; hybrid edit authority (direct-edit / CL-3 / §8 amendment) |
-| `governance/EVOLVE.md` | Cross-cycle assessment + prompt mechanics refinement |
+| `governance/EVOLVE.md` | Unified interactive governance-evolution engine — 3 modes (full-rewrite / scoped / assess-only), corpus-scan + research fan-out, per-section verdict dialog, per-file-consent rewrite, checkpointed in .evolve-workspace/ |
 | `governance/pack-trust-model.md` | Trust tiers + signing methods for distributed packs (referenced from D15) |
 | `governance/audit/domains/D01-D24` + `D15-trust-reference.md` | Domain definitions with sub-agent checklists; D15 trust delegation governed appendix (EVOLVE P2, 2026-04-19); D22/D23/D24 domain bodies authored in subsequent audit cycles per Decision 19 |
 | `governance/audit/templates/` | Sub-agent role templates + `calibration-protocol.md` for finding scoring |
@@ -152,8 +151,7 @@ Mirrors `governance/CONSTITUTION.md` §2 P5 verbatim (validator `scripts/validat
 | VISION.md | <=250 lines |
 | AUDIT.md | <=600 lines |
 | AUDIT-EXECUTE.md | <=720 lines |
-| RE-ENVISION.md | <=550 lines |
-| EVOLVE.md | <=400 lines |
+| EVOLVE.md | <=700 lines |
 | pack-trust-model.md | <=300 lines |
 | rules/*.md (precedence: critical or high) | <=250 lines |
 | rules/*.md (precedence: normal or low) | <=120 lines |
@@ -171,7 +169,7 @@ Mirrors `governance/CONSTITUTION.md` §2 P5 verbatim (validator `scripts/validat
 | Template file | 80-200 lines |
 | Cross-file duplication | <5% |
 | Finding inflation | <2.0x pre-dedup/post-impact-gating/post-triage |
-| Governance total (sum of the 7 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + RE-ENVISION + EVOLVE + pack-trust-model) | <=3370 lines |
+| Governance total (sum of the 6 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + EVOLVE + pack-trust-model) | <=3120 lines |
 | Generated UI a11y violations (axe-core, serious/critical) | 0 |
 | Design-token adoption in generated code (color, spacing, typography) | >=95% |
 | Four-state surface contract coverage on generated async views | 100% |
