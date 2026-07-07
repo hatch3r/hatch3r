@@ -2,6 +2,24 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.2.0] - 2026-07-08
+
+### Headline
+
+Adds a design-system creation command (DTCG 2025.10 tokens, OKLCH ramps, WCAG 2.2 AA gates), a user-consented re-poll loop at the end of `hatch3r-pr-resolve`, per-artifact model configuration for skills and commands, and a `mandatory-on-match` dispatch mode that makes the hatch3r-ui/ux specialists non-skippable on matching diffs at Tier 2/3. End-user repos now auto-gitignore all hatch3r runtime state (telemetry, calibration, locks, workspaces). No breaking CLI changes; manifest schema unchanged (schemaVersion 3) — the new `models.skills` / `models.commands` maps are optional and default to inherit/unset.
+
+### Added
+
+- **`hatch3r-design-system-create` command** (commands 30 → 31) — orchestrator command that creates a project/workspace design system from brand assets or an elicitation dialog: detect-first (consumes `hatch3r-design-system-detect`; a `reuse` verdict halts), 3-tier token taxonomy (primitive → semantic → component, no component→primitive shortcuts), OKLCH ramps, DTCG Format Module 2025.10 emission, dual `design-tokens.json` + `design.md` output, blocking gates on WCAG 2.2 AA contrast (100% of semantic pairs per theme), focus-indicator contrast ≥3:1, touch targets ≥44px, 0 dangling aliases, and 100% light/dark theme parity (APCA Lc 60/45 advisory). `agentPipeline`: researcher, implementer, ui, ux.
+- **pr-resolve re-poll gate (Step 9.5, ask each round)** — after every push, `hatch3r-pr-resolve` asks whether to poll for new AI-review-tool comments (CodeRabbit, Copilot code review) on the new HEAD: 60s × 5 attempts (~300s budget) per round, retaining only comments created after the round start, not already replied to (`postedCommentIds`), and unresolved; a fresh round re-enters the pipeline scoped to the retained set. No automatic round cap — each round is user-approved; round state (`index`, `started_at`, `comments_per_round`) rides the checkpoint for resume, and the Step 10 recap gains a `rounds` facet.
+- **Per-artifact model configuration for skills and commands** — new optional `models.skills` / `models.commands` id maps in `hatch.json`, and `.customize.yaml` `model:` overrides now apply beyond agents. Emitted only where the target tool supports it (official docs, accessed 2026-07-08): Claude Code skills + commands (`model:` frontmatter; omitted = inherit), Copilot prompt files (string form only), Cursor unchanged (no per-file model surface for rules/commands). `models.default` keeps agents-only semantics; with nothing configured, generated output is byte-identical to 2.1.1.
+- **`mandatory-on-match` specialist dispatch mode** — `hatch3r-ui` (CQ1) and `hatch3r-ux` (CQ2) move from conditional guidance to a hard mandate: when their trigger globs match the diff at Tier 2/3, a dedicated per-specialist sub-agent instance must spawn (Tier 1 keeps its Phase Skip Criteria skip; ui and ux are never merged into one spawn). `shouldTriggerSpecialist` returns `mandatory?: boolean`; the roster validator's required-pipeline set now includes mandatory-on-match ids (`hatch3r-revision` gains `hatch3r-ux`).
+
+### Fixed
+
+- **Runtime state committed in end-user repos** — `REQUIRED_GITIGNORE_ENTRIES` grew 7 → 16: `.pr-resolve-workspace/`, `.hatch3r/telemetry/`, `.hatch3r/efficiency-events.jsonl`, `.hatch3r/.failure-log.jsonl`, `.hatch3r/.breaker-state.jsonl`, `.hatch3r/.lock`, `.hatch3r/calibration-state.json`, `.hatch3r/calibration-log.jsonl`, `.hatch3r/archive/`. The reviewer-calibration counter tolerates a reset on fresh clones (missing file = count 0). Also fixes the `spaceTelemetry.ts` comment that claimed telemetry was already ignored.
+- **Plugin manifest version drift** — `.cursor-plugin/plugin.json` (stuck at 2.1.0) and `.claude-plugin/marketplace.json` (stuck at 2.0.0) now carry the release version.
+
 ## [2.1.1] - 2026-07-06
 
 ### Content

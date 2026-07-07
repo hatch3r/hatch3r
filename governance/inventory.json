@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-06-26",
+  "lastUpdated": "2026-07-07",
   "counts": {
     "adapters": 3,
     "agents": 29,
@@ -7,7 +7,7 @@
     "cliSkills": 6,
     "rules": 67,
     "rulesMdc": 67,
-    "commands": 30,
+    "commands": 31,
     "hooks": 7,
     "pipeline": 22,
     "cliCommands": 20,
@@ -268,6 +268,7 @@
       "hatch3r-codebase-map.md",
       "hatch3r-create.md",
       "hatch3r-debug.md",
+      "hatch3r-design-system-create.md",
       "hatch3r-diagnose.md",
       "hatch3r-feature-plan.md",
       "hatch3r-handoff.md",

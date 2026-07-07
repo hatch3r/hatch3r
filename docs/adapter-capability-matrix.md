@@ -54,6 +54,8 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 
 All 3 adapters emit model preferences when configured via `hatch.json`, agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [model-selection.md](model-selection.md) for configuration, aliases, and platform behavior. Use the `hatch3r-customize` skill for per-agent overrides.
 
+Since 2.2.0, per-artifact model configuration extends beyond agents: `models.skills` / `models.commands` id maps in `hatch.json` (and `.customize.yaml` `model:` on skills/commands) emit where the platform supports it — Claude Code skills + commands (`model:` frontmatter; omitted = inherit), Copilot prompt files (string form only), Cursor none (no per-file model surface for rules/commands). Copilot SKILL.md model support is unverified (2026-07-08), so nothing is emitted there. `models.default` keeps agents-only semantics, so unconfigured projects generate byte-identical skills/commands.
+
 | Adapter | Emission | Notes |
 |---------|----------|-------|
 | **cursor** | Native | `model:` in agent YAML frontmatter. Also emits `readonly:` and `background:` for v2.5+ sub-agent control. |

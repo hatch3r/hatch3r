@@ -8,6 +8,8 @@ When you configure a model, hatch3r includes it in the generated config for each
 
 **When no model is configured at any level**, hatch3r does not emit a model preference. Each platform (Claude Code, Cursor, Copilot, etc.) uses its own default.
 
+**When you change a model on an already-generated artifact**, the new value lands in the YAML frontmatter stub at the top of the generated file — a region hatch3r treats as user-owned and preserves across `sync`/`update` (the managed `HATCH3R:BEGIN…END` block below it is what gets refreshed). To apply a model change to an existing file, delete that generated file and run `npx hatch3r update` (it re-emits missing files with current config); freshly generated files always carry the configured model.
+
 ## Configuration Points
 
 The same four layers apply per artifact class (`agents`, `skills`, `commands`):
