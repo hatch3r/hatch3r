@@ -153,6 +153,8 @@ Verdict: <reuse|extend|create-with-justification>
 
 ## Cross-references
 
+Consumer: `commands/hatch3r-design-system-create.md` — creation-side orchestrator; invokes this skill as its mandatory Step 1 and routes on the inventory verdict (reuse → halt, extend → gap-scoped, create → full generation).
+
 Rules consumed by this skill:
 
 - `rules/hatch3r-design-system-detection.md` — rule version of this guidance (mandate + scope)

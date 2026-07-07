@@ -7,7 +7,7 @@ title: Agent Commands
 
 Commands invoked inside your coding tool (e.g. as Cursor commands or Claude Code slash commands). A command is an **orchestrator**: it delegates to one or more hatch3r agents via the Task tool. Single-pass procedures, dispatchers, and inline workflows ship as [Skills](../skills) instead, so board grooming, customization, cost tracking, learning capture, and the other non-orchestrating flows live on the Skills page, not here.
 
-There are 30 agent commands.
+There are 31 agent commands.
 
 ## Spec and Planning Commands
 
@@ -104,6 +104,10 @@ Read all open PR comments (inline + review summary + general discussion) across 
 ### auth-scaffold
 
 Scaffold authentication boilerplate for a greenfield API service -- OAuth 2.1 authorization-code-with-PKCE flow, OIDC ID-token validation, and hashed personal-access-token (PAT) issuance/verification. The implementer writes the code; `hatch3r-security` gates it against the CQ3 auth-depth floor.
+
+### design-system-create
+
+Create a project design system from brand assets or an elicitation dialog -- DTCG 2025.10 token emission with a 3-tier taxonomy (primitive -> semantic -> component), OKLCH color ramps, and dual output `design-tokens.json` + `docs/design.md`. Runs the `hatch3r-design-system-detect` skill first (a `reuse` verdict halts the run instead of overwriting an existing system); the implementer writes the files; `hatch3r-ui` and `hatch3r-ux` gate the result in parallel on WCAG 2.2 AA contrast, 100% theme parity, and 0 dangling aliases.
 
 ### slo-scaffold
 
