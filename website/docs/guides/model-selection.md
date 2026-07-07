@@ -5,7 +5,7 @@ title: Model Selection
 
 # Model Selection
 
-hatch3r lets you configure preferred AI models for your agents. You can set a global default, override per agent, or use project-specific customization files.
+hatch3r lets you configure preferred AI models for your agents — and, where the tool supports it, for skills and commands. You can set a global default (agents only), override per artifact id, or use project-specific customization files.
 
 ## Overview
 
@@ -15,21 +15,33 @@ When no model is configured at any level, hatch3r does not emit a model preferen
 
 ## Configuration Points
 
+The same four layers apply per artifact class (`agents`, `skills`, `commands`):
+
 | Source | Path | Precedence |
 |--------|------|------------|
-| Customization YAML | `.hatch3r/agents/{agent-id}.customize.yaml` | Highest |
-| Manifest per-agent | `hatch.json` -> `models.agents.{agent-id}` | 2nd |
-| Canonical agent | `agents/{agent-id}.md` frontmatter `model:` (bundled content; override under `.hatch3r/overrides/agents/`) | 3rd |
-| Manifest default | `hatch.json` -> `models.default` | 4th |
+| Customization YAML | `.hatch3r/{class}/{id}.customize.yaml` | Highest |
+| Manifest per-artifact | `hatch.json` -> `models.{class}.{id}` | 2nd |
+| Canonical frontmatter | `agents/{id}.md` (etc.) frontmatter `model:` (bundled content; override under `.hatch3r/overrides/{class}/`) | 3rd |
+| Manifest default | `hatch.json` -> `models.default` — **agents only** | 4th |
 | (none) | -- | Platform auto-select |
 
 ## Resolution Order
 
-1. **Customization file** -- `.hatch3r/agents/{agent-id}.customize.yaml` with a `model` field wins
-2. **Manifest per-agent** -- `hatch.json` -> `models.agents[agent-id]`
-3. **Canonical agent frontmatter** -- `model:` in the bundled `agents/{agent-id}.md` (or its `.hatch3r/overrides/agents/` override)
-4. **Manifest default** -- `hatch.json` -> `models.default`
+1. **Customization file** -- `.hatch3r/{class}/{id}.customize.yaml` with a `model` field wins
+2. **Manifest per-artifact** -- `hatch.json` -> `models.{class}[id]` (`models.agents`, `models.skills`, `models.commands`)
+3. **Canonical frontmatter** -- `model:` in the bundled artifact (or its `.hatch3r/overrides/` override)
+4. **Manifest default** -- `hatch.json` -> `models.default` -- applies to **agents only**. Skills and commands never inherit `models.default`: a default that fed them would add `model:` lines to every generated skill/command the moment it is set, and a command-level model switches the whole conversation model — that must stay an explicit per-id choice.
 5. **No model** -- platform uses its own default
+
+## Emission Surfaces
+
+Model lines are emitted only where the tool documents a `model` field on that surface. `inherit` is never written — an omitted field IS the inherit/unset semantic on every surface — and values the platform cannot recognize (for example `gpt-4` on Claude Code, or the hatch3r tier words `standard`/`fast`) are omitted rather than shipped as dead frontmatter.
+
+| Adapter | Agents | Skills | Commands |
+|---------|--------|--------|----------|
+| Claude Code | `model:` in `.claude/agents/*.md` (+ `## Recommended Model` prose) | `model:` in `.claude/skills/*/SKILL.md` | `model:` in `.claude/commands/*.md` |
+| Copilot | `model:` in `.github/agents/*.agent.md` | never (SKILL.md model support unverified) | `model:` in `.github/prompts/*.prompt.md` (string form; no `inherit` keyword — unset = field omitted) |
+| Cursor | `model:` in `.cursor/agents/*.md` | never (no documented field) | never (no documented field) |
 
 ## Aliases
 
@@ -37,7 +49,7 @@ Use short aliases instead of full model IDs. hatch3r resolves them before emitti
 
 | Alias | Resolves To |
 |-------|-------------|
-| `opus` | `claude-opus-4-6` |
+| `opus` | `claude-opus-4-8` |
 | `sonnet` | `claude-sonnet-4-6` |
 | `haiku` | `claude-haiku-4-5` |
 | `codex` | `gpt-5.3-codex` |
@@ -134,8 +146,8 @@ Built-in defaults resolve to Anthropic model IDs. Cursor and Copilot can also dr
 | Platform | Native config? | When model is set |
 |----------|:--------------:|-------------------|
 | Cursor | Yes | `model:` in agent YAML frontmatter |
-| Copilot | Yes (VS Code) | `model:` in agent YAML; ignored on github.com |
-| Claude Code | No | Guidance: `/model` command and env var |
+| Copilot | Yes (VS Code) | `model:` in agent/prompt YAML; ignored on github.com |
+| Claude Code | Yes | `model:` in agent/skill/command YAML frontmatter (Claude-recognizable values); agents also carry `## Recommended Model` guidance for the `/model` + env-var override path |
 
 - **Native config** -- the tool can apply the model directly
 - **Guidance** -- the model is included as instructional text; users set it manually

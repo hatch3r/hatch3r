@@ -656,10 +656,19 @@ async function validateModels(
   if (manifest.models.default && typeof manifest.models.default !== "string") {
     result.errors.push("hatch.json: models.default must be a string");
   }
-  if (manifest.models.agents) {
-    for (const [agentId, model] of Object.entries(manifest.models.agents)) {
+  // release/2.2.0: per-artifact model maps cover skills and commands alongside
+  // agents. Each map gets the identical string-value check with a named-field
+  // error message; mirrors `collectManifestErrors` in src/manifest/hatchJson.ts.
+  for (const cls of ["agents", "skills", "commands"] as const) {
+    const map = manifest.models[cls];
+    if (!map) continue;
+    if (typeof map !== "object" || Array.isArray(map)) {
+      result.errors.push(`hatch.json: models.${cls} must be an object mapping ids to model strings`);
+      continue;
+    }
+    for (const [artifactId, model] of Object.entries(map)) {
       if (typeof model !== "string") {
-        result.errors.push(`hatch.json: models.agents.${agentId} must be a string`);
+        result.errors.push(`hatch.json: models.${cls}.${artifactId} must be a string`);
       }
     }
   }

@@ -264,6 +264,32 @@ You are a test agent.`,
     }
   });
 
+  // release/2.2.0: Cursor documents no per-file model field on skills or
+  // `.cursor/commands/*.md` — only `.cursor/agents/*.md` carries one. The
+  // adapter passes no `emitModel` opt-in to the shared base helpers, so
+  // configuring models.skills / models.commands must leave every cursor
+  // skill/command output byte-identical to the unconfigured run.
+  it("skill and command outputs are byte-unchanged when models.skills/commands are configured", async () => {
+    const baseline = await adapter.generate(FIXTURES_DIR, makeManifest());
+    const configured = await adapter.generate(FIXTURES_DIR, makeManifest({
+      models: {
+        skills: { "test-skill": "claude-sonnet-4-6" },
+        commands: { "test-command": "claude-sonnet-4-6" },
+      },
+    }));
+    const pick = (outputs: typeof baseline) =>
+      outputs
+        .filter((o) => o.path.startsWith(".cursor/skills/") || o.path.startsWith(".cursor/commands/"))
+        .map((o) => ({ path: o.path, content: o.content }))
+        .sort((a, b) => a.path.localeCompare(b.path));
+    const baselinePicked = pick(baseline);
+    expect(baselinePicked.length).toBeGreaterThan(0);
+    expect(pick(configured)).toEqual(baselinePicked);
+    for (const o of pick(configured)) {
+      expect(o.content).not.toContain("model:");
+    }
+  });
+
   it("generates skill files", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

@@ -66,8 +66,32 @@ export const VALID_CONFIDENCE_FLOORS = new Set<string>(CONFIDENCE_FLOORS);
 export const DEFAULT_CONFIDENCE_FLOOR: ConfidenceFloor = "any";
 
 export interface ModelConfig {
+  /**
+   * Fallback model for AGENTS ONLY. `default` deliberately does NOT feed
+   * skills or commands (release/2.2.0 per-artifact model extension): if it
+   * did, every existing project with `models.default` set would suddenly grow
+   * `model:` lines in ALL generated skills/commands on the next sync — a
+   * byte-stability break — and a command-level model switches the WHOLE
+   * conversation model on Claude Code, a far larger blast radius than the
+   * per-subagent scope `default` was written for. Skills/commands opt in per
+   * id via {@link skills} / {@link commands} (or `.customize.yaml`).
+   */
   default?: string;
   agents?: Record<string, string>;
+  /**
+   * Per-skill model override, keyed by canonical skill id. Emitted only on
+   * adapters whose skill surface documents a `model` frontmatter field
+   * (Claude Code; Cursor/Copilot skill files never carry one — see
+   * `resolveArtifactModel` in src/models/resolve.ts and the per-adapter
+   * `emitModel` opt-in in src/adapters/base.ts).
+   */
+  skills?: Record<string, string>;
+  /**
+   * Per-command model override, keyed by canonical command id. Emitted on
+   * Claude Code slash commands and Copilot `.prompt.md` files; Cursor
+   * commands never carry one.
+   */
+  commands?: Record<string, string>;
 }
 
 /**

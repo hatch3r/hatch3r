@@ -715,9 +715,12 @@ function collectManifestErrors(data: unknown): string[] {
     }
   }
 
-  // models (optional ModelConfig: { default?: string; agents?: Record<string,string> }).
-  // Mirrors `validateModels` in src/cli/commands/validate.ts so the value
-  // resolved by `resolveAgentModel` is a string at every adapter call site.
+  // models (optional ModelConfig: { default?: string; agents?/skills?/
+  // commands?: Record<string,string> } — per-artifact maps extended to skills
+  // and commands in release/2.2.0). Mirrors `validateModels` in
+  // src/cli/commands/validate.ts so the value resolved by
+  // `resolveAgentModel` / `resolveArtifactModel` is a string at every adapter
+  // call site.
   if (obj.models !== undefined) {
     if (typeof obj.models !== "object" || obj.models === null || Array.isArray(obj.models)) {
       errors.push("`models` is not an object");
@@ -726,13 +729,15 @@ function collectManifestErrors(data: unknown): string[] {
       if (models.default !== undefined && typeof models.default !== "string") {
         errors.push("`models.default` is not a string");
       }
-      if (models.agents !== undefined) {
-        if (typeof models.agents !== "object" || models.agents === null || Array.isArray(models.agents)) {
-          errors.push("`models.agents` is not an object");
+      for (const cls of ["agents", "skills", "commands"] as const) {
+        const map = models[cls];
+        if (map === undefined) continue;
+        if (typeof map !== "object" || map === null || Array.isArray(map)) {
+          errors.push(`\`models.${cls}\` is not an object`);
         } else {
-          for (const [agentId, model] of Object.entries(models.agents as Record<string, unknown>)) {
+          for (const [artifactId, model] of Object.entries(map as Record<string, unknown>)) {
             if (typeof model !== "string") {
-              errors.push(`\`models.agents.${agentId}\` is not a string`);
+              errors.push(`\`models.${cls}.${artifactId}\` is not a string`);
             }
           }
         }

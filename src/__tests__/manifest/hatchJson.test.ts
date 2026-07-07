@@ -1350,6 +1350,52 @@ describe("hatchJson", () => {
       await expect(readManifest(rootDir)).rejects.toThrow(/models\.default/);
     });
 
+    // release/2.2.0: the per-artifact model maps extend to skills and commands;
+    // both get the same persistence-boundary string-map checks as models.agents
+    // so a malformed value fails closed before reaching resolveArtifactModel.
+    it("rejects a non-string models.skills.<id> (42) with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        models: { skills: { "hatch3r-feature": 42 } },
+      });
+      try {
+        await readManifest(rootDir);
+        throw new Error("expected readManifest to throw on non-string models.skills entry");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
+        expect((e as Error).message).toMatch(/models\.skills\.hatch3r-feature/);
+      }
+    });
+
+    it("rejects an array-valued models.commands with CONFIG_ERROR", async () => {
+      const rootDir = await setup();
+      await writeManifestJson(rootDir, {
+        version: "3.0.0",
+        hatch3rVersion: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        namespace: "acme",
+        project: "app",
+        tools: ["cursor"],
+        features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+        mcp: { servers: [] },
+        managedFiles: [],
+        models: { commands: ["opus"] },
+      });
+      await expect(readManifest(rootDir)).rejects.toThrow(/models\.commands/);
+    });
+
     it("rejects an unknown claude.teammateMode with CONFIG_ERROR", async () => {
       const rootDir = await setup();
       await writeManifestJson(rootDir, {

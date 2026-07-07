@@ -1248,15 +1248,30 @@ export class ClaudeAdapter extends BaseAdapter {
     // (shared across all 3 supported adapters); we post-process the
     // Claude-specific results so the sentinels appear in this adapter's
     // managed blocks only, without touching the cross-adapter helpers.
+    //
+    // release/2.2.0 — `emitModel`: Claude Code documents a `model:` frontmatter
+    // field on skills and slash commands with the same value set as subagents
+    // (sonnet/opus/haiku/fable, full model ID, or `inherit`; omitted =
+    // `inherit` — code.claude.com/docs skills + slash-commands references,
+    // accessed 2026-07-08), so both surfaces reuse the D9-3 recognizable-value
+    // gate. The base helper never emits `inherit` (omission IS inherit) and
+    // there is deliberately NO `## Recommended Model` prose fallback here —
+    // that advisory surface stays agent-only (a skill/command preference for a
+    // non-Claude model has no per-invocation override env var to document).
+    // `rewrapWithCacheBreakpoints` preserves the frontmatter stub (prefix
+    // logic at its definition), so the `model:` line survives re-wrapping the
+    // same way `description:` does.
     const skillOutputs = await this.processSkillsWithFmCliFiltered(
       ctx,
       (id) => `.claude/skills/${toPrefixedId(id)}/SKILL.md`,
+      { emitModel: isClaudeRecognizableModel },
     );
     results.push(...skillOutputs.map(rewrapWithCacheBreakpoints));
 
     const commandOutputs = await this.processCommandsWithFm(
       ctx,
       (id) => `.claude/commands/${toPrefixedId(id)}.md`,
+      { emitModel: isClaudeRecognizableModel },
     );
     results.push(...commandOutputs.map(rewrapWithCacheBreakpoints));
 
