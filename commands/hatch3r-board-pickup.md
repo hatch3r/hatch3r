@@ -37,7 +37,7 @@ Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, o
 | 3b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes) |
 | 3c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes) |
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
-| 3e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-ui`, `hatch3r-performance` | Yes | When triggered |
+| 3e. Final Quality — Triggered | `hatch3r-lint-fixer`, `hatch3r-performance` (conditional); `hatch3r-ui`, `hatch3r-ux` (mandatory-on-match — each triggered one MUST spawn as its own dedicated instance at Tier 2/3) | Yes | When triggered |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 

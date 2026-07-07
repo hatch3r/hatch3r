@@ -1,7 +1,7 @@
 ---
 id: hatch3r-revision-quality
 type: command
-description: Quality verification pipeline for revision Step 7. Covers review loop (Stage 1), final quality with conditional specialists (Stage 2), and failure handling.
+description: Quality verification pipeline for revision Step 7. Covers review loop (Stage 1), final quality with triggered specialists (Stage 2), and failure handling.
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
@@ -74,10 +74,11 @@ After the review loop is clean, spawn specialist agents in parallel via the Task
 
 - **`hatch3r-docs-writer`** — spawn when revision fixes affect public APIs, architectural patterns, or user-facing behavior. Skip silently when no documentation impact is detected (no API signature changes, no UX behavioral changes, no new configuration options).
 
-### Conditional Specialists (Spawn When Triggered)
+### Triggered Specialists (Spawn When Triggered)
 
 - **`hatch3r-lint-fixer`** — spawn when lint errors are present after fix implementation (Step 6 lint-fixer may have missed errors introduced by other sub-agents).
-- **`hatch3r-ui`** (CQ1) — spawn when the diff includes UI component changes (`area:ui` or `area:a11y` label on linked issues, or component/style files in the diff).
+- **`hatch3r-ui`** (CQ1, mandatory-on-match) — spawn when the diff includes UI component changes (`area:ui` or `area:a11y` label on linked issues, or component/style files in the diff). When triggered at Tier 2/3, a dedicated `hatch3r-ui` instance is a hard mandate — skipping it is a gate failure.
+- **`hatch3r-ux`** (CQ2, mandatory-on-match) — spawn when the diff includes flow / route-transition / modal / error-state files or microcopy/i18n string changes. When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
 - **`hatch3r-performance`** (CQ7) — spawn when the diff includes hot-path changes (`area:performance` label on linked issues, or changes to database queries, API handlers, rendering loops).
 
 ### Specialist Prompt Requirements

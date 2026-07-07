@@ -577,15 +577,59 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     // F16.3-H1 (Cycle 10 Wave 1C): hatch3r-testability (CQ5) and
     // hatch3r-security (CQ3) absorbed the legacy test-writer +
     // security-auditor always-mode floors, so their mode is "always".
-    // The remaining 7 CQ specialists keep their conditional dispatch.
+    // Release 2.2.0: hatch3r-ui (CQ1) and hatch3r-ux (CQ2) are
+    // "mandatory-on-match" — matching identical to conditional, but a trigger
+    // hit mandates a dedicated per-specialist spawn at Tier 2/3. The remaining
+    // 5 CQ specialists keep their conditional dispatch.
     const ALWAYS_MODE_CQ = new Set(["hatch3r-testability", "hatch3r-security"]);
+    const MANDATORY_ON_MATCH_CQ = new Set(["hatch3r-ui", "hatch3r-ux"]);
     for (const name of CQ_SPECIALISTS) {
       const entry = SPECIALIST_TRIGGER_TABLE.find((t) => t.specialist === name);
       expect(entry, `${name} missing from SPECIALIST_TRIGGER_TABLE`).toBeDefined();
-      const expectedMode = ALWAYS_MODE_CQ.has(name) ? "always" : "conditional";
+      const expectedMode = ALWAYS_MODE_CQ.has(name)
+        ? "always"
+        : MANDATORY_ON_MATCH_CQ.has(name)
+          ? "mandatory-on-match"
+          : "conditional";
       expect(entry!.mode).toBe(expectedMode);
       expect(entry!.triggerConditions.length).toBeGreaterThan(0);
     }
+  });
+
+  // ── Mandatory-on-match mode (2.2.0 — CQ1/CQ2 hard mandate) ──────
+  it("marks hatch3r-ui and hatch3r-ux as mandatory-on-match (2.2.0)", () => {
+    for (const name of ["hatch3r-ui", "hatch3r-ux"]) {
+      const entry = SPECIALIST_TRIGGER_TABLE.find((t) => t.specialist === name);
+      expect(entry, `${name} missing from SPECIALIST_TRIGGER_TABLE`).toBeDefined();
+      expect(entry!.mode).toBe("mandatory-on-match");
+    }
+  });
+
+  it("returns mandatory: true when a mandatory-on-match specialist triggers", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("returns mandatory: true when hatch3r-ux triggers on a flow component", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["src/flows/Checkout.tsx"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("omits mandatory when a mandatory-on-match specialist does not trigger", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/server/route.ts"]);
+    expect(result.triggered).toBe(false);
+    expect(result.mandatory).toBeUndefined();
+  });
+
+  it("does not set mandatory on triggered conditional or always specialists", () => {
+    const conditional = shouldTriggerSpecialist("hatch3r-performance", ["src/views/Home.vue"]);
+    expect(conditional.triggered).toBe(true);
+    expect(conditional.mandatory).toBeUndefined();
+    const always = shouldTriggerSpecialist("hatch3r-security", ["src/foo.ts"]);
+    expect(always.triggered).toBe(true);
+    expect(always.mandatory).toBeUndefined();
   });
 
   it("should trigger hatch3r-ui on UI component file changes", () => {

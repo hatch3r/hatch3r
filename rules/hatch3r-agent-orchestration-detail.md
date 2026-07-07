@@ -101,13 +101,13 @@ The TypeScript implementation of this schema with runtime validation is in `src/
 | Phase 3 (Review) | Max iterations (3) (code-class cap = `DEFAULT_MAX_REVIEW_ITERATIONS` - 1) | Surface unresolved findings to user. Do not merge. |
 | Phase 3 (Review) | DESIGN_OBJECTION verdict | Terminate review loop immediately. Surface the objection and alternative approaches to the user for an architectural decision. Do not spawn fixer. |
 | Phase 3 (Review) | Fixer introduces regressions | Revert fixer changes. Surface original findings + regression to user. |
-| Phase 4 (Quality) | Conditional-specialist timeout | Log timeout. Continue with available results. Flag in output. |
+| Phase 4 (Quality) | Conditional or mandatory-on-match specialist timeout | Log timeout. Continue with available results. Flag in output (the mandatory-on-match Tier 2/3 mandate binds at dispatch — the instance was spawned; a post-dispatch timeout is a flagged result, not a skipped gate). |
 | Phase 4 (Quality) | Mandatory CQ3/CQ5 specialist non-completion (TIMEOUT / crash / no-output) | Fail closed. Surface `BLOCKED`. A mandatory always-mode specialist (`hatch3r-security` CQ3, `hatch3r-testability` CQ5 per `hatch3r-agent-orchestration.md` Phase 4 Specialist Trigger Table) that does not return `COMPLETE` leaves its gate absent; absence-of-finding is NOT an implicit pass. This row is the prose face of the typed gate `evaluatePhase4Completion` (`src/pipeline/pipelineContext.ts`): a non-SUCCESS floor specialist yields `mandatoryFloorsSatisfied: false` → `complete: false`. Do not merge/release. Require an explicit operator decision (re-run, accept-risk, or abort) before advancing. |
 | Phase 4 (Quality) | Validation pass fails | Spawn fixer (max 2 attempts). Surface if unresolved. |
 
 ### Subagent Error Recovery
 
-1. **Timeout:** Forward partial output. Mark status `TIMEOUT`. Continue pipeline ONLY for conditional specialists. A mandatory always-mode CQ3/CQ5 specialist on TIMEOUT fails closed — surface `BLOCKED`, never treat the missing gate as a pass.
+1. **Timeout:** Forward partial output. Mark status `TIMEOUT`. Continue pipeline ONLY for conditional and mandatory-on-match specialists (their Tier 2/3 mandate binds at dispatch — the instance was spawned; flag the timeout in output). A mandatory always-mode CQ3/CQ5 specialist on TIMEOUT fails closed — surface `BLOCKED`, never treat the missing gate as a pass.
 2. **Crash/no output:** Mark status `FAILED`. Log reason. Continue if non-blocking. A mandatory always-mode CQ3/CQ5 specialist is blocking — a crash or no-output return fails closed (surface `BLOCKED`, explicit operator decision before merge/release), it is never "non-blocking".
 3. **Conflicting outputs:** When two specialists disagree (e.g., security vs performance), escalate to user with both positions.
 4. **Resource exhaustion:** Apply the Context-Degradation Policy (this file) — compress at `>50%` window, restart at `>75%`.

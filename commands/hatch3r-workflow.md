@@ -37,7 +37,7 @@ Optional guided development lifecycle command that walks through structured phas
 | 3b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes) |
 | 3c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes) |
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
-| 3e. Final Quality — Conditional | `hatch3r-lint-fixer` + all conditional CQ specialists (CQ1-CQ9: `hatch3r-ui`, `hatch3r-ux`, `hatch3r-reliability`, `hatch3r-scalability`, `hatch3r-performance`, `hatch3r-maintainability`, `hatch3r-enhancability`) per `SPECIALIST_TRIGGER_TABLE` | Yes | Spawn each whose trigger matches the diff |
+| 3e. Final Quality — Triggered | `hatch3r-lint-fixer` + `hatch3r-ui` + `hatch3r-ux` (mandatory-on-match — each triggered one MUST spawn as its own dedicated instance at Tier 2/3) + the conditional CQ specialists (`hatch3r-reliability`, `hatch3r-scalability`, `hatch3r-performance`, `hatch3r-maintainability`, `hatch3r-enhancability`) per `SPECIALIST_TRIGGER_TABLE` | Yes | Spawn each whose trigger matches the diff |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (multi-module implementers in Phase 3, the Phase-4b final-quality batch) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
 
@@ -373,13 +373,13 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 3. **`hatch3r-docs-writer`** — spawn when changes affect public APIs, architectural patterns, user-facing behavior, or when specs/ADRs need updating. Skip silently if no documentation impact.
 
-**Conditional specialists (spawn each whose trigger matches the diff):**
+**Triggered specialists (spawn each whose trigger matches the diff):**
 
-Spawn **all conditional CQ specialists (CQ1-CQ9) per `SPECIALIST_TRIGGER_TABLE`** plus `hatch3r-lint-fixer` — not the lint/ui/performance subset alone. Evaluate each via `shouldTriggerSpecialist(specialist, changedFiles, projectType)` (D6-M11); spawn the ones that return `{ triggered: true }`:
+Spawn **all triggered CQ specialists (CQ1-CQ9) per `SPECIALIST_TRIGGER_TABLE`** plus `hatch3r-lint-fixer` — not the lint/ui/performance subset alone. Evaluate each via `shouldTriggerSpecialist(specialist, changedFiles, projectType)` (D6-M11); spawn the ones that return `{ triggered: true }`. A `mandatory: true` return (mode `mandatory-on-match`) is non-skippable at Tier 2/3 — that specialist MUST spawn as its own dedicated sub-agent instance:
 
 4. **`hatch3r-lint-fixer`** — lint or type errors present after implementation.
-5. **`hatch3r-ui`** (CQ1) — UI component / design-token / theme files modified.
-6. **`hatch3r-ux`** (CQ2) — flow / route-transition / modal / error-state files or microcopy/i18n strings modified.
+5. **`hatch3r-ui`** (CQ1, mandatory-on-match) — UI component / design-token / theme files modified. When triggered at Tier 2/3, a dedicated `hatch3r-ui` instance is a hard mandate.
+6. **`hatch3r-ux`** (CQ2, mandatory-on-match) — flow / route-transition / modal / error-state files or microcopy/i18n strings modified. When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
 7. **`hatch3r-reliability`** (CQ4) — service/request handler, OTel/SLO, retry/circuit-breaker, or Kubernetes-probe code modified.
 8. **`hatch3r-scalability`** (CQ6) — request handler, queue client, connection-pool, cache, or background-job code modified.
 9. **`hatch3r-performance`** (CQ7) — ORM/data-access, UI-rendering, or bundle/hot-path code modified.
@@ -388,7 +388,7 @@ Spawn **all conditional CQ specialists (CQ1-CQ9) per `SPECIALIST_TRIGGER_TABLE`*
 
 (`hatch3r-architect` and `hatch3r-devops` are also conditional in `SPECIALIST_TRIGGER_TABLE` but are not CQ-vector specialists; spawn them too when their architectural / CI-CD triggers match.)
 
-> **Single source of truth for triggers (D6-M11):** the canonical trigger map lives in `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` and the predicate `shouldTriggerSpecialist(specialist, changedFiles, projectType)` returns `{ triggered, reasons }` for any specialist. The brief prose list above is a quick reference only; for the authoritative trigger evaluation at runtime, call `shouldTriggerSpecialist` from the orchestrator harness (or the equivalent mirror in `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). Adding a specialist to the prose without updating the TS table is rejected by `npm run validate:specialist-roster`.
+> **Single source of truth for triggers (D6-M11):** the canonical trigger map lives in `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` and the predicate `shouldTriggerSpecialist(specialist, changedFiles, projectType)` returns `{ triggered, reasons, mandatory? }` for any specialist. The brief prose list above is a quick reference only; for the authoritative trigger evaluation at runtime, call `shouldTriggerSpecialist` from the orchestrator harness (or the equivalent mirror in `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). Adding a specialist to the prose without updating the TS table is rejected by `npm run validate:specialist-roster`.
 
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow.

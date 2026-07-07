@@ -94,7 +94,7 @@ All tasks use this four-phase pipeline. Never implement inline; always delegate.
 **Phase 1 — Research:** Spawn \`hatch3r-researcher\`. Skip only for trivial edits. Score complexity per \`hatch3r-deep-context\` and add tier modes.
 **Phase 2 — Implement:** Spawn \`hatch3r-implementer\` (one per task). Pass research context.
 **Phase 3 — Review Loop:** \`hatch3r-reviewer\` → if Critical/Warning: \`hatch3r-fixer\` → re-review → repeat (max 3). After clean verdict: one confirmation pass (regressions, acceptance criteria). Remaining findings after max iterations → surface to user.
-**Phase 4 — Final Quality** (after clean review): \`hatch3r-testability\` + \`hatch3r-security\` (always), \`hatch3r-docs-writer\` (evaluate), then conditional CQ specialists: \`hatch3r-ui\`, \`hatch3r-ux\`, \`hatch3r-reliability\`, \`hatch3r-scalability\`, \`hatch3r-performance\`, \`hatch3r-maintainability\`, \`hatch3r-enhancability\`, plus \`hatch3r-lint-fixer\`.
+**Phase 4 — Final Quality** (after clean review): \`hatch3r-testability\` + \`hatch3r-security\` (always), \`hatch3r-docs-writer\` (evaluate), \`hatch3r-ui\` + \`hatch3r-ux\` (mandatory-on-match — when triggered, each MUST spawn as its own dedicated sub-agent instance at Tier 2/3; Tier 1 keeps the Phase Skip Criteria skip), then conditional CQ specialists: \`hatch3r-reliability\`, \`hatch3r-scalability\`, \`hatch3r-performance\`, \`hatch3r-maintainability\`, \`hatch3r-enhancability\`, plus \`hatch3r-lint-fixer\`.
 
 ## Mandatory Behaviors
 

@@ -225,9 +225,10 @@ Launch as many independent sub-agents in parallel as the platform supports.
 **Always evaluate (spawn when applicable):**
 - **hatch3r-docs-writer** — spawn when any changes affect public APIs, architectural patterns, or user-facing behavior.
 
-**Conditional specialists (spawn when triggered by any issue in the batch):**
+**Triggered specialists (spawn when triggered by any issue in the batch):**
 - **hatch3r-lint-fixer** — spawn when lint errors are present after implementation.
-- **hatch3r-ui** (CQ1) — spawn when any issue has `area:ui` or `area:a11y` labels.
+- **hatch3r-ui** (CQ1, mandatory-on-match) — spawn when any issue has `area:ui` or `area:a11y` labels. When triggered at Tier 2/3, a dedicated `hatch3r-ui` instance is a hard mandate — skipping it is a gate failure.
+- **hatch3r-ux** (CQ2, mandatory-on-match) — spawn when any issue in the batch touches flow / route-transition / modal / error-state files or microcopy/i18n strings. When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
 - **hatch3r-performance** (CQ7) — spawn when any issue has `area:performance` label.
 
 Await all specialist sub-agents. Apply their feedback before proceeding to Step 7.
