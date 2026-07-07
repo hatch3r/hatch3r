@@ -262,10 +262,28 @@ export function parseEnvFile(content: string): Record<string, string> {
  * so without these entries a default `git add .` stages per-run resume state —
  * the same Silent-Failure-Contract leak as `.hatch3r/snapshots/`.
  *
+ * 2.2.0-S1 (P6, P1): runtime/ephemeral state hatch3r usage writes into the
+ * user's repo. `.pr-resolve-workspace/` (checkpoint/rollback workspace of the
+ * shipped `commands/hatch3r-pr-resolve.md`); `.hatch3r/telemetry/` (SPACE +
+ * cost/tier telemetry, `src/pipeline/spaceTelemetry.ts` +
+ * `src/pipeline/costEstimator.ts`); `.hatch3r/efficiency-events.jsonl`
+ * (efficiency-event log, `src/pipeline/observability.ts`);
+ * `.hatch3r/.failure-log.jsonl` (Silent-Failure-Contract audit trail,
+ * `src/pipeline/failureLog.ts`); `.hatch3r/.breaker-state.jsonl`
+ * (circuit-breaker state, `src/pipeline/circuitBreaker.ts`); `.hatch3r/.lock`
+ * (advisory pipeline lock-note per `rules/hatch3r-agent-orchestration.md` →
+ * Concurrent Invocation Handling); `.hatch3r/calibration-state.json` +
+ * `.hatch3r/calibration-log.jsonl` (reviewer-calibration counter + second-pass
+ * log per `rules/hatch3r-reviewer-calibration.md` — a missing state file
+ * safely resets the counter to 0); `.hatch3r/archive/` (removed-tool archive
+ * copies; parity with the root `.hatch3r-archive/` entry). All are
+ * machine-local run state; a blanket `.hatch3r/` line already dominates the
+ * `.hatch3r/*` subset via `isCoveredByGitignore`.
+ *
  * The trailing slash on directory entries makes the gitignore match
  * directory-scoped per `https://git-scm.com/docs/gitignore` (accessed
- * 2026-05-26). File entries (`.env.mcp`, `.hatch3r/provenance.json`) stay
- * unsuffixed.
+ * 2026-05-26). File entries (`.env.mcp`, `.hatch3r/provenance.json`, the
+ * `.hatch3r/*.jsonl`/`*.json` logs, `.hatch3r/.lock`) stay unsuffixed.
  */
 const REQUIRED_GITIGNORE_ENTRIES = [
   ".env.mcp",
@@ -275,6 +293,15 @@ const REQUIRED_GITIGNORE_ENTRIES = [
   ".hatch3r/provenance.json",
   ".init-workspace/",
   ".sync-workspace/",
+  ".pr-resolve-workspace/",
+  ".hatch3r/telemetry/",
+  ".hatch3r/efficiency-events.jsonl",
+  ".hatch3r/.failure-log.jsonl",
+  ".hatch3r/.breaker-state.jsonl",
+  ".hatch3r/.lock",
+  ".hatch3r/calibration-state.json",
+  ".hatch3r/calibration-log.jsonl",
+  ".hatch3r/archive/",
 ] as const;
 
 /**
@@ -305,7 +332,15 @@ function isCoveredByGitignore(entry: string, lines: string[]): boolean {
  * snapshots), `.hatch3r/handoffs/` (handoff payloads),
  * `.hatch3r/provenance.json` (per-machine drift baseline, D12-3),
  * `.init-workspace/` + `.sync-workspace/` (per-run `--resume` checkpoint
- * trees, D1-14). See {@link REQUIRED_GITIGNORE_ENTRIES} for rationale.
+ * trees, D1-14), `.pr-resolve-workspace/` (pr-resolve checkpoint/rollback
+ * workspace), `.hatch3r/telemetry/` (SPACE + cost/tier telemetry),
+ * `.hatch3r/efficiency-events.jsonl` (efficiency-event log),
+ * `.hatch3r/.failure-log.jsonl` (failure-log audit trail),
+ * `.hatch3r/.breaker-state.jsonl` (circuit-breaker state), `.hatch3r/.lock`
+ * (advisory pipeline lock-note), `.hatch3r/calibration-state.json` +
+ * `.hatch3r/calibration-log.jsonl` (reviewer-calibration counter + log),
+ * `.hatch3r/archive/` (removed-tool archive copies) — the last nine per
+ * 2.2.0-S1. See {@link REQUIRED_GITIGNORE_ENTRIES} for rationale.
  */
 export async function ensureGitignoreEntry(rootDir: string): Promise<void> {
   const gitignorePath = join(rootDir, ".gitignore");
