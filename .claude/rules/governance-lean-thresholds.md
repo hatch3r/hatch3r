@@ -43,6 +43,7 @@ Before modifying any governance file, check `wc -l` against these limits from `g
 | Four-state surface contract coverage on generated async views | 100% |
 | Generated-service OTel instrumentation on request path | 100% |
 | Migration expand-contract conformance | 100% |
+| Shared-contract consumer-census coverage on taxonomy-touching diffs | 100% |
 | API breaking-change events on stable endpoints | 0 per release |
 | AI feature eval coverage | 100% |
 | Per-feature test-class mandate compliance | 100% |
