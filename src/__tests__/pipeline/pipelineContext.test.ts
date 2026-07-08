@@ -704,6 +704,57 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     const result = shouldTriggerSpecialist("hatch3r-reliability", ["src/lib/routesConfig.ts"]);
     expect(result.triggered).toBe(false);
   });
+
+  // ── Microcopy/locale triggers on hatch3r-ux (Bugbot r3547623249) ──
+  // The CQ2 row's "Microcopy or i18n strings modified" trigger condition must
+  // be matchable by the predicate: a locale-only diff mandates the UX
+  // specialist at Tier 2/3 instead of silently skipping it.
+  it("triggers hatch3r-ux with mandatory: true on a locale-catalog-only diff (r3547623249)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["src/i18n/locales/en.json"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+    expect(result.reasons.some((r) => r.includes("src/i18n/locales/en.json"))).toBe(true);
+  });
+
+  it("triggers hatch3r-ux on a YAML catalog under a locales/ segment", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["locales/de.yml"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("triggers hatch3r-ux on locale-format extensions regardless of directory", () => {
+    // gettext (.po), XLIFF (.xlf), Flutter ARB (.arb): i18n-specific formats
+    // ride the basename matcher, no directory evidence required.
+    for (const file of ["po/messages.po", "translations/app.xlf", "lib/l10n/intl_en.arb"]) {
+      const result = shouldTriggerSpecialist("hatch3r-ux", [file]);
+      expect(result.triggered, `${file} should trigger hatch3r-ux`).toBe(true);
+      expect(result.mandatory, `${file} should be a Tier 2/3 hard mandate`).toBe(true);
+    }
+  });
+
+  it("triggers hatch3r-ux on an i18n config basename", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["i18n.config.ts"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("does NOT trigger hatch3r-ux on a .ts-only backend diff", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["src/server/route.ts"]);
+    expect(result.triggered).toBe(false);
+    expect(result.mandatory).toBeUndefined();
+  });
+
+  it("does NOT trigger hatch3r-ux on generic .json files without locale directory evidence", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["package.json", "tsconfig.json"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  it("does NOT trigger hatch3r-ux on a non-catalog file inside a locales/ dir", () => {
+    // The locale suffix gate mirrors the D7-20 backend source-suffix guard: a
+    // README under locales/ is not a catalog change.
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["locales/README.md"]);
+    expect(result.triggered).toBe(false);
+  });
 });
 
 describe("LANGUAGE_SPECIALIST_CONFIGS", () => {

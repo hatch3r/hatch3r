@@ -790,6 +790,15 @@ export interface SpecialistTrigger {
    * directly without a defensive copy; the matcher only ever reads it.
    */
   triggerPathGlobs?: readonly string[];
+  /**
+   * Suffix allow-list gating which changed files a `triggerPathGlobs` segment
+   * match applies to. Absent → the shared `BACKEND_SOURCE_SUFFIXES` gate
+   * applies (Finding D7-20 backend rows). The CQ2 ux row overrides it with
+   * locale catalog/config suffixes so a `locales/en.json` diff matches
+   * (Bugbot r3547623249) while a README under the same directory still does
+   * not.
+   */
+  triggerPathGlobSuffixes?: readonly string[];
 }
 
 /**
@@ -885,12 +894,34 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
       "Microcopy or i18n strings modified",
       "Async-view wrappers modified",
     ],
+    // Bugbot r3547623249: "Microcopy or i18n strings modified" must be
+    // matchable, not prose-only — a locale-only diff previously matched
+    // nothing here, so Tier 2/3 runs skipped the mandated CQ2 spawn.
+    // Locale-catalog extensions (gettext/Flutter/Fluent/XLIFF/iOS) and i18n
+    // config basenames ride the basename matcher; generic .json/.yaml/.yml
+    // catalogs need directory evidence instead, so they ride the locales/ +
+    // i18n/ path globs below with a catalog/config suffix gate (dirs per
+    // rules/hatch3r-i18n.md globs `**/locales/**` / `**/i18n/**`).
     triggerFilePatterns: [
       "*.tsx",
       "*.jsx",
       "*.vue",
       "*.svelte",
+      "*.po",
+      "*.pot",
+      "*.arb",
+      "*.ftl",
+      "*.xliff",
+      "*.xlf",
+      "*.strings",
+      "*.stringsdict",
+      "i18n.config.ts",
+      "i18n.config.js",
+      "i18n.ts",
+      "i18n.js",
     ],
+    triggerPathGlobs: ["locales/", "i18n/"],
+    triggerPathGlobSuffixes: [".json", ".yaml", ".yml", ".ts", ".js"],
   },
   {
     specialist: "hatch3r-security",
@@ -1316,6 +1347,8 @@ export function validatePhaseTransition(
  * non-source artifact that happens to live under a backend directory (a README
  * in `routes/`, a fixture JSON, a snapshot) does not spuriously trigger a
  * backend specialist. Conservative toward NOT triggering on non-code.
+ * Default gate only — a table row can replace it via
+ * `triggerPathGlobSuffixes` (the CQ2 ux row's locale-catalog gate).
  */
 const BACKEND_SOURCE_SUFFIXES: readonly string[] = [
   ".ts",
@@ -1360,6 +1393,11 @@ function pathMatchesSegmentGlob(file: string, glob: string): boolean {
  * Finding D7-20: backend specialists trigger on path-segment globs
  * (`triggerPathGlobs`) for source files under server/data-tier directories,
  * which the basename-only `triggerFilePatterns` could not reach.
+ *
+ * Bugbot r3547623249: the CQ2 ux row reuses the same path-glob machinery for
+ * locale catalogs (`locales/` / `i18n/` segments gated by
+ * `triggerPathGlobSuffixes`), so a microcopy/locale-only diff mandates the UX
+ * specialist at Tier 2/3 instead of silently skipping it.
  *
  * Release 2.2.0: a triggered `mandatory-on-match` specialist (hatch3r-ui CQ1 /
  * hatch3r-ux CQ2) returns `mandatory: true` — the orchestrator treats that
@@ -1412,19 +1450,26 @@ export function shouldTriggerSpecialist(
     }
   }
 
-  // Path-segment trigger globs (Finding D7-20). A backend source file under a
-  // matched directory segment (e.g. src/server/routes/auth.ts) triggers the
-  // backend specialists (reliability/scalability/performance/maintainability)
-  // their basename-only triggerFilePatterns could not reach.
+  // Path-segment trigger globs (Finding D7-20). A source file under a matched
+  // directory segment (e.g. src/server/routes/auth.ts) triggers the backend
+  // specialists (reliability/scalability/performance/maintainability) their
+  // basename-only triggerFilePatterns could not reach. A row may override the
+  // default backend source-suffix gate via `triggerPathGlobSuffixes` — the CQ2
+  // ux row scopes its locales//i18n/ globs to locale catalog/config suffixes
+  // (Bugbot r3547623249).
   if (trigger.triggerPathGlobs) {
+    const pathGlobSuffixes = trigger.triggerPathGlobSuffixes ?? BACKEND_SOURCE_SUFFIXES;
     const matchedPaths = changedFiles.filter((file) => {
       const normalized = file.replace(/\\/g, "/").toLowerCase();
-      const isSource = BACKEND_SOURCE_SUFFIXES.some((suffix) => normalized.endsWith(suffix));
-      if (!isSource) return false;
+      const suffixEligible = pathGlobSuffixes.some((suffix) => normalized.endsWith(suffix));
+      if (!suffixEligible) return false;
       return trigger.triggerPathGlobs!.some((glob) => pathMatchesSegmentGlob(file, glob));
     });
     if (matchedPaths.length > 0) {
-      reasons.push(`Backend path-glob trigger: ${matchedPaths.join(", ")}`);
+      const label = trigger.triggerPathGlobSuffixes
+        ? "Path-glob trigger"
+        : "Backend path-glob trigger";
+      reasons.push(`${label}: ${matchedPaths.join(", ")}`);
     }
   }
 
