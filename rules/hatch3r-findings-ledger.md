@@ -82,7 +82,7 @@ Suggestions register once, at first appearance (W1, `registered`/`pending`); a r
 
 ## Handoff Integration
 
-No handoff-schema change. The recap's `Open findings:` exception line (`rules/hatch3r-iteration-summary.md` → Exception Lines) is copied verbatim into the handoff's Work Remaining, and `agents/hatch3r-handoff-preparer.md` folds the active run's ledger in its collect-state step — the handoff inherits open findings from the same fold every other consumer reads.
+No handoff-schema change. `agents/hatch3r-handoff-preparer.md` folds the active run's ledger in its collect-state step, and that fold is authoritative for the handoff's Work Remaining `Open findings` bullet at composition time — the handoff inherits open findings from the same fold every other consumer reads. The recap's `Open findings:` exception line (`rules/hatch3r-iteration-summary.md` → Exception Lines) is cross-check provenance, not the source: when it agrees with the fold the preparer copies it verbatim; when it is absent or disagrees (stale recap, mid-session interrupt) the fold wins and the bullet notes `(fold-derived; last recap stale or absent)`; zero open rows ⇒ no bullet. Composition procedure lives in `agents/hatch3r-handoff-preparer.md`, mirrored in `skills/hatch3r-handoff-prepare/SKILL.md` — keep the three aligned when any changes.
 
 ## Store Boundaries
 
