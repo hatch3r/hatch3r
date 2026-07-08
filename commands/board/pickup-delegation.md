@@ -72,13 +72,13 @@ After implementation completes, run the two-stage quality pipeline. Use the Task
 **Stage 1 — Review Loop (sequential):**
 
 1. Spawn **`hatch3r-reviewer`** — code review of all changes. Include the diff and acceptance criteria in the prompt. The reviewer sub-agent output MUST include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 4 can evaluate it deterministically.
-2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes. When fixes touch shared or public interfaces, also include:
+2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes — append the W1 write-ahead rows before the fixer dispatch (`rules/hatch3r-findings-ledger.md` → Write Points). When fixes touch shared or public interfaces, also include:
    - **Blast radius data** from Step 6a.1 (if available) — so the fixer knows which consumers and contracts must be preserved.
    - **Reference conventions** from Step 6a.1 (if available) — so the fixer maintains established patterns when applying fixes.
 3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
 4. Repeat steps 2-3 for a maximum of **3 iterations** until the confidence-aware gate passes. Evaluate the gate per the canonical **Confidence-Aware Review Gate** in `agents/shared/confidence-gate.md`, passing in the resolved `--confidence-floor` (`any` | `medium` | `high`) routed here from `hatch3r-board-pickup` → Confidence Floor. At the default `any` floor: **0 Critical + 0 Warning AND reviewer confidence != low**; if reviewer confidence is low with no Critical/Warning findings, trigger a second reviewer pass before exiting and do not exit until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS. At floor `medium` the pass surface is unchanged; at floor `high` a `medium`-confidence clean verdict also forces a second pass (and any low-confidence finding triggers an ASK) — apply the floor-tier branches from the shared gate, do not collapse them to the `any` row.
    After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
-5. If still not clean after 3 iterations, **ASK** the user how to proceed.
+5. If still not clean after 3 iterations, **ASK** the user how to proceed — the ASK lists the open `finding_id`s with legal closures; reconcile the ledger to the run-exit invariant (W3) on exit (`rules/hatch3r-findings-ledger.md` → W3 loop-exit reconciliation); unattended runs record open findings as `escalated` and exit PARTIAL.
 
 **Stage 2 — Final Quality (parallel, after review loop is clean):**
 
@@ -91,9 +91,10 @@ Launch as many independent sub-agents in parallel as the platform supports.
 **Always evaluate (spawn when applicable):**
 - **hatch3r-docs-writer** — spawn when changes affect public APIs, architectural patterns, or user-facing behavior. Skip silently if no documentation impact.
 
-**Conditional specialists (spawn when triggered):**
+**Triggered specialists (spawn when triggered):**
 - **hatch3r-lint-fixer** — spawn when lint errors are present after implementation.
-- **hatch3r-ui** (CQ1) — spawn when issue has `area:ui` or `area:a11y` labels.
+- **hatch3r-ui** (CQ1, mandatory-on-match) — spawn when the implementer's changed files match the `hatch3r-ui` row of the specialist trigger table (`shouldTriggerSpecialist` / `SPECIALIST_TRIGGER_TABLE` in `src/pipeline/pipelineContext.ts`; prose mirror: `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). A match at Tier 2/3 mandates a dedicated `hatch3r-ui` instance regardless of issue labels — skipping it is a gate failure. `area:ui` / `area:a11y` labels are an early planning signal, not a dispatch gate: their absence never skips a matched specialist.
+- **hatch3r-ux** (CQ2, mandatory-on-match) — spawn when the changed files match the `hatch3r-ux` row of the same trigger table (flow / route-transition / modal / error-state files, microcopy/i18n strings). When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
 - **hatch3r-performance** (CQ7) — spawn when issue has `area:performance` label or changes touch hot paths.
 
 Each specialist sub-agent prompt MUST include:

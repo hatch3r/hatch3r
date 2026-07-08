@@ -29,7 +29,7 @@ sub_agents_spawned:
 | 2. Impact Analysis | `hatch3r-architect` | No | Yes |
 | 3. Plan Generation | `hatch3r-docs-writer` | No | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 # Migration Plan — Dependency or Framework Upgrade from Assessment to Phased Execution
 

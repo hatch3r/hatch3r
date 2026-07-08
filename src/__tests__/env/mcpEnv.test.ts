@@ -337,72 +337,86 @@ describe("ensureGitignoreEntry", () => {
     await rm(tempDir, { recursive: true, force: true });
   });
 
-  // F2.7-F3 (D2, P1) + D1-14 (D1, P1): `ensureGitignoreEntry` registers all
-  // hatch3r entries — `.env.mcp` (MCP secrets), `.hatch3r-archive/` (archive
-  // trees), `.hatch3r/snapshots/` (snapshot dirs), `.hatch3r/handoffs/`
-  // (handoff payloads), `.hatch3r/provenance.json` (drift baseline, D12-3),
-  // `.init-workspace/` + `.sync-workspace/` (per-run `--resume` checkpoint
-  // trees, D1-14). Without these, `git add .` silently commits operational
-  // state + secrets per the Silent Failure Contract.
+  // F2.7-F3 (D2, P1) + D1-14 (D1, P1) + 2.2.0-S1 (P6, P1):
+  // `ensureGitignoreEntry` registers all hatch3r entries — secrets
+  // (`.env.mcp`), operational state (archive/snapshots/handoffs/provenance),
+  // per-run checkpoint workspaces (`.init-workspace/`, `.sync-workspace/`,
+  // `.pr-resolve-workspace/`), and the 2.2.0-S1 runtime files (telemetry dir,
+  // efficiency/failure/breaker logs, advisory lock-note, reviewer-calibration
+  // state, removed-tool archive). Without these, `git add .` silently commits
+  // operational state + secrets per the Silent Failure Contract.
+
+  // Duplicated literally (NOT imported from mcpEnv.ts) so an accidental entry
+  // removal or reorder in REQUIRED_GITIGNORE_ENTRIES fails the suite.
+  const ALL_ENTRIES = [
+    ".env.mcp",
+    ".hatch3r-archive/",
+    ".hatch3r/snapshots/",
+    ".hatch3r/handoffs/",
+    ".hatch3r/provenance.json",
+    ".init-workspace/",
+    ".sync-workspace/",
+    ".pr-resolve-workspace/",
+    ".hatch3r/telemetry/",
+    ".hatch3r/efficiency-events.jsonl",
+    ".hatch3r/.failure-log.jsonl",
+    ".hatch3r/.breaker-state.jsonl",
+    ".hatch3r/.lock",
+    ".hatch3r/calibration-state.json",
+    ".hatch3r/calibration-log.jsonl",
+    ".hatch3r/archive/",
+  ] as const;
+  /** Gitignore block for `entries`: one per line, trailing newline. */
+  const blockOf = (entries: readonly string[]): string => entries.join("\n") + "\n";
+  const ALL_BLOCK = blockOf(ALL_ENTRIES);
 
   it("creates .gitignore with all required hatch3r entries when file does not exist (F2.7-F3)", async () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(
-      ".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
-    );
+    expect(content).toBe(ALL_BLOCK);
   });
 
   it("appends required entries to existing .gitignore (F2.7-F3)", async () => {
     await writeFile(join(tempDir, ".gitignore"), "node_modules/\ndist/\n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(
-      "node_modules/\ndist/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
-    );
+    expect(content).toBe("node_modules/\ndist/\n" + ALL_BLOCK);
   });
 
   it("adds newline separator when existing file lacks trailing newline (F2.7-F3)", async () => {
     await writeFile(join(tempDir, ".gitignore"), "node_modules/", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
-    );
+    expect(content).toBe("node_modules/\n" + ALL_BLOCK);
   });
 
   it("skips entries already present (F2.7-F3)", async () => {
-    await writeFile(
-      join(tempDir, ".gitignore"),
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
-      "utf-8",
-    );
+    await writeFile(join(tempDir, ".gitignore"), "node_modules/\n" + ALL_BLOCK, "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(
-      "node_modules/\n.env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
-    );
+    expect(content).toBe("node_modules/\n" + ALL_BLOCK);
   });
 
   it("skips .env.mcp when .env.* pattern dominates, still adds the others (F2.7-F3)", async () => {
     await writeFile(join(tempDir, ".gitignore"), ".env.*\n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    expect(content).toBe(
-      ".env.*\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
-    );
+    expect(content).toBe(".env.*\n" + blockOf(ALL_ENTRIES.filter((e) => e !== ".env.mcp")));
   });
 
-  it("skips .hatch3r/* subdir entries when .hatch3r/ dominates (F2.7-F3)", async () => {
+  it("skips .hatch3r/* subdir entries when .hatch3r/ dominates, never .pr-resolve-workspace/ (F2.7-F3, 2.2.0-S1)", async () => {
     await writeFile(join(tempDir, ".gitignore"), ".env.mcp\n.hatch3r/\n", "utf-8");
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
-    // .hatch3r/ dominates .hatch3r/snapshots/, .hatch3r/handoffs/, AND the
-    // D12-3 .hatch3r/provenance.json file entry. The D1-14 .init-workspace/
-    // and .sync-workspace/ are top-level siblings, NOT dominated, so still
-    // added. .hatch3r-archive/ is likewise a sibling directory, still added.
+    // .hatch3r/ dominates every `.hatch3r/*` entry — snapshots/, handoffs/,
+    // the D12-3 provenance.json, and the 2.2.0-S1 telemetry/, efficiency/
+    // failure/breaker logs, .lock, calibration files, and archive/. Top-level
+    // siblings are NOT dominated and still added: .hatch3r-archive/,
+    // .init-workspace/, .sync-workspace/, and the 2.2.0-S1
+    // .pr-resolve-workspace/ (the literal expectation below is the regression
+    // anchor for that non-suppression).
     expect(content).toBe(
-      ".env.mcp\n.hatch3r/\n.hatch3r-archive/\n.init-workspace/\n.sync-workspace/\n",
+      ".env.mcp\n.hatch3r/\n.hatch3r-archive/\n.init-workspace/\n.sync-workspace/\n.pr-resolve-workspace/\n",
     );
   });
 
@@ -419,7 +433,8 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content).toBe(
-      ".env.mcp\n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
+      ".env.mcp\n.hatch3r-archive/\n" +
+        blockOf(ALL_ENTRIES.filter((e) => e !== ".env.mcp" && e !== ".hatch3r-archive/")),
     );
   });
 
@@ -429,7 +444,7 @@ describe("ensureGitignoreEntry", () => {
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     // .env.mcp covered by whitespace-trimmed match; other entries still appended.
     expect(content).toBe(
-      "  .env.mcp  \n.hatch3r-archive/\n.hatch3r/snapshots/\n.hatch3r/handoffs/\n.hatch3r/provenance.json\n.init-workspace/\n.sync-workspace/\n",
+      "  .env.mcp  \n" + blockOf(ALL_ENTRIES.filter((e) => e !== ".env.mcp")),
     );
   });
 
@@ -455,5 +470,33 @@ describe("ensureGitignoreEntry", () => {
     await ensureGitignoreEntry(tempDir);
     const content = await readFile(join(tempDir, ".gitignore"), "utf-8");
     expect(content.split("\n")).toContain(".hatch3r/provenance.json");
+  });
+
+  // 2.2.0-S1 (P6, P1): runtime/ephemeral files hatch3r usage writes into the
+  // user's repo — the pr-resolve checkpoint workspace
+  // (commands/hatch3r-pr-resolve.md), SPACE + cost/tier telemetry
+  // (spaceTelemetry.ts, costEstimator.ts), efficiency/failure/breaker JSONL
+  // logs (observability.ts, failureLog.ts, circuitBreaker.ts), the advisory
+  // pipeline lock-note (rules/hatch3r-agent-orchestration.md), the
+  // reviewer-calibration counter + log (rules/hatch3r-reviewer-calibration.md;
+  // a missing state file safely resets the counter to 0), and the removed-tool
+  // archive. Registering them keeps a default `git add .` from committing
+  // per-run operational state.
+  it("registers the 2.2.0-S1 runtime-state entries on a fresh .gitignore (2.2.0-S1)", async () => {
+    await ensureGitignoreEntry(tempDir);
+    const lines = (await readFile(join(tempDir, ".gitignore"), "utf-8")).split("\n");
+    for (const entry of [
+      ".pr-resolve-workspace/",
+      ".hatch3r/telemetry/",
+      ".hatch3r/efficiency-events.jsonl",
+      ".hatch3r/.failure-log.jsonl",
+      ".hatch3r/.breaker-state.jsonl",
+      ".hatch3r/.lock",
+      ".hatch3r/calibration-state.json",
+      ".hatch3r/calibration-log.jsonl",
+      ".hatch3r/archive/",
+    ]) {
+      expect(lines).toContain(entry);
+    }
   });
 });

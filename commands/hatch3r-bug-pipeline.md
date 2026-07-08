@@ -29,7 +29,7 @@ Before any action, scan the bug report for unresolved questions in scope, accept
 | 2. Regression-Test + Fix | `hatch3r-implementer` (failing test first, then minimal fix) | Per independent module | Yes |
 | 3. Root-Cause-Depth Review | `hatch3r-reviewer` -> `hatch3r-fixer` (max 4 iterations) | No (sequential) | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 # Bug Pipeline — Test-First 3-Phase Fix Delegation
 

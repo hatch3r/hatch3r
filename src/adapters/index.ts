@@ -95,8 +95,14 @@ interface AdapterCapability {
 // `capabilityMatrixDrift` test pins it to that source. The `customization` and
 // `modelOverride` columns are likewise unread by runtime selection — they are
 // facts about every adapter's `doGenerate` calling `applyCustomization` /
-// `resolveAgentModel` unconditionally, so they are `true` for all 3 adapters
-// and pinned to that behavioural source by the same drift test.
+// `resolveAgentModel` (agent loop) unconditionally, so they are `true` for all
+// 3 adapters and pinned to that behavioural source by the same drift test.
+// release/2.2.0 note: `modelOverride` is pinned to the AGENT-loop
+// `resolveAgentModel` call only. Skill/command model emission is a separate
+// per-adapter opt-in — the `emitModel` predicate passed to
+// `processSkillsWithFmCliFiltered` / `processCommandsWithFm` in base.ts
+// (claude: skills + commands; copilot: commands→prompts only; cursor: none) —
+// and does not feed this boolean.
 export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: WORKTREE_CAPABLE_TOOLS.has("cursor"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
   claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: WORKTREE_CAPABLE_TOOLS.has("claude"),  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },

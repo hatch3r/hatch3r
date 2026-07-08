@@ -33,7 +33,7 @@ Generate a dependency-aware, priority-ordered roadmap with **two parallel dimens
 | 2. Document Generation | `hatch3r-docs-writer` (todo.md generation) | No | Yes |
 | 3. AGENTS.md | `hatch3r-docs-writer` (AGENTS.md generation/rework) | No | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 ---
 

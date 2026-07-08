@@ -176,9 +176,11 @@ export function resetSpaceMetricsBuffer(): void {
  * 1. Appends to the in-memory ring buffer (always — synchronous, never fails).
  * 2. Persists a JSONL line to
  *    `<projectRoot>/.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl`. The
- *    directory is gitignored via the existing `.hatch3r/` rule in
- *    `.gitignore`. Persistence honours the Silent Failure Contract — I/O
- *    failures route through `failureLog` and this function NEVER throws.
+ *    directory is gitignored via the `.hatch3r/telemetry/` entry in
+ *    `REQUIRED_GITIGNORE_ENTRIES` (`src/env/mcpEnv.ts`), registered in the
+ *    user's `.gitignore` by `ensureGitignoreEntry`. Persistence honours the
+ *    Silent Failure Contract — I/O failures route through `failureLog` and
+ *    this function NEVER throws.
  *
  * `projectRoot` defaults to `process.cwd()`, matching the convention used by
  * `costEstimator.recordActuals` and `observability.recordEfficiencyEvent`.

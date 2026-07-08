@@ -63,7 +63,7 @@ After the shared epic-level research, score each sub-issue individually and run 
 
 ### 6b.3. Execute Level-by-Level With Parallel Sub-Agents
 
-Worktree isolation applies here identically to the batch path: when ≥2 implementers run concurrently in a level on a Tier 2/3 run and the platform writes into the orchestrator's tree, isolate each implementer per **Step 6c.3-iso** (`--isolate=auto|on|off`, default `auto`) and integrate via the merge protocol in Step 6b.4. Sub-issues in an epic share file overlap more often than standalone batch issues, so the missed-overlap risk that isolation removes is higher here.
+Worktree isolation applies here identically to the batch path: when ≥2 implementers run concurrently in a level on a Tier 2/3 run and the platform writes into the orchestrator's tree, isolate each implementer per **Step 6c.3-iso** (`--isolate=auto|on|off`, default `auto`) and integrate via the merge protocol in Step 6b.4. Sub-issues in an epic share file overlap more often than standalone batch issues, so the missed-overlap risk that isolation removes is higher here. Seam constraints apply identically to the epic path when sub-issues share a contract — assign per Step 6c.2 item 4.
 
 For each dependency level, starting at Level 1:
 
@@ -116,7 +116,7 @@ For batches of multiple standalone issues (selected via batch mode in Step 1d or
 2. Group issues by dependency level:
    - **Level 1:** Issues with no dependencies on other issues in the batch (can start immediately). Most standalone issues will be Level 1.
    - **Level N:** Issues that depend on other issues in levels < N.
-3. Within each level, all issues are parallelizable (no mutual dependencies — conflicts were moved to separate levels in Step 3).
+3. Within each level, all issues are parallelizable (no mutual dependencies — conflicts were moved to separate levels in Step 3); levels may be adjusted by the contract-overlap cross-check in Step 6c.2 item 4.
 
 ### 6c.2. Context Gathering (Parallel Researchers)
 
@@ -134,6 +134,13 @@ Unlike epics (which share a single researcher), standalone issues in a batch are
    - Project context and documentation references.
 
 3. **Await all researchers.** Collect structured outputs. Each researcher's output feeds exclusively into its corresponding implementer in Step 6c.3. For Tier 2/3 issues, present elicitation questions to the user and await answers before proceeding.
+
+4. **Contract-overlap cross-check + seam-owner assignment:** union the per-issue Breaking Change Candidates tables; any contract (matching location/symbol/name) appearing in ≥2 issues of the same level is a contract collision that Step 3 item 5 either predicted or missed. Resolve before dispatch:
+   - (a) exactly one issue — the one whose acceptance criteria REQUIRE the contract mutation — becomes the seam owner and lands emitter + all consumer reconciliation in one diff;
+   - (b) every peer issue's Step 6c.3 prompt gains the line `Seam constraint: contract <X> is owned by issue #<N> this batch — consume the current shape; do not mutate it`;
+   - (c) when two issues both require mutating the same contract, move the later one to the next dependency level so it consumes the owner's landed shape (`rules/hatch3r-contract-census.md` → Seam-Owner Protocol).
+
+   Record owner assignments; they are re-checked in Step 6c.4.
 
 ### 6c.3-iso. Optional Worktree Isolation (Parallel Implementers, Filesystem Platforms)
 
@@ -169,6 +176,7 @@ For each dependency level, starting at Level 1:
    - **Reference conventions** from `similar-implementation` output (Tier 2/3) — triggers the implementer's Convention Lock step.
    - **Resolved requirements** from `requirements-elicitation` answers (Tier 2/3).
    - **Blast radius data** from enhanced `codebase-impact` (Tier 3).
+   - **Seam constraints** from Step 6c.2 item 4 (when assigned).
    - Documentation references relevant to this issue.
    - Instruction to follow the **hatch3r-implementer agent protocol**.
    - All `scope: always` rule directives from `rules/` — subagents do not inherit rules automatically.
@@ -195,9 +203,10 @@ After all implementer sub-agents complete across all levels:
 2. **File conflict resolution:** When parallel sub-agents modify the same file, apply this resolution protocol:
    - **Disjoint regions:** Accept both changes (non-overlapping edits to different functions/sections).
    - **Overlapping regions:** If changes touch the same lines or function, merge manually using the sub-agent that modified the larger scope as the base, then apply the smaller-scope change on top. Run tests after merge.
-   - **Semantic conflicts:** If two sub-agents make contradictory changes to the same interface, type, or contract, halt and surface both changes to the user with the conflict description. Do not auto-resolve semantic conflicts.
+   - **Semantic conflicts:** If two sub-agents make contradictory changes to the same interface, type, or contract, halt and surface both changes to the user with the conflict description. Do not auto-resolve semantic conflicts. A semantic conflict on a contract with an assigned seam owner (Step 6c.2 item 4) means a peer violated its seam constraint — name the violating lane when surfacing.
    - **Prevention:** Step 3 (collision detection) should move file-overlapping issues to sequential dependency levels. Conflicts at this stage indicate a missed overlap in Step 3.4.
-3. Verify no regressions between parallel sub-agent outputs.
+3. **Consumer-census verification per lane:** read each implementer's `Consumer census` field. Any `unreconciled` without a named justification → spawn `hatch3r-fixer` for that lane before the Stage-1 review. Then run the cross-lane check: for every contract a seam owner changed, grep the OTHER lanes' diffs for the old identifier — a peer still emitting or reading the old shape violated its seam constraint; route the reconciliation to the seam owner (one diff owns the contract), never patch it in the merge.
+4. Verify no regressions between parallel sub-agent outputs.
 
 ### 6c.5. Post-Implementation Quality Pipeline
 
@@ -206,13 +215,13 @@ After all implementations complete, run the two-stage quality pipeline across th
 **Stage 1 — Review Loop (sequential):**
 
 1. Spawn **`hatch3r-reviewer`** — code review of ALL changes across the batch. Include the full diff and acceptance criteria for each issue. The reviewer sub-agent output MUST include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 4 can evaluate it deterministically.
-2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes. When fixes touch shared or public interfaces, also include:
+2. If the reviewer reports Critical or Warning findings, spawn **`hatch3r-fixer`** with the reviewer output to apply fixes — append the W1 write-ahead rows before the fixer dispatch (`rules/hatch3r-findings-ledger.md` → Write Points). When fixes touch shared or public interfaces, also include:
    - **Blast radius data** from Step 6c.2 (if available) — so the fixer knows which consumers and contracts must be preserved.
    - **Reference conventions** from Step 6c.2 (if available) — so the fixer maintains established patterns when applying fixes.
 3. Re-spawn **`hatch3r-reviewer`** to verify fixes.
 4. Repeat steps 2-3 for a maximum of **3 iterations** until the confidence-aware gate passes. Evaluate the gate per the canonical **Confidence-Aware Review Gate** in `agents/shared/confidence-gate.md`, passing in the resolved `--confidence-floor` (`any` | `medium` | `high`) routed here from `hatch3r-board-pickup` → Confidence Floor. At the default `any` floor: **0 Critical + 0 Warning AND reviewer confidence != low**; if reviewer confidence is low with no Critical/Warning findings, trigger a second reviewer pass before exiting and do not exit until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS. At floor `medium` the pass surface is unchanged; at floor `high` a `medium`-confidence clean verdict also forces a second pass (and any low-confidence finding triggers an ASK) — apply the floor-tier branches from the shared gate, do not collapse them to the `any` row.
    After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings.
-5. If still not clean after 3 iterations, **ASK** the user how to proceed.
+5. If still not clean after 3 iterations, **ASK** the user how to proceed — the ASK lists the open `finding_id`s with legal closures; reconcile the ledger to the run-exit invariant (W3) on exit (`rules/hatch3r-findings-ledger.md` → W3 loop-exit reconciliation); unattended runs record open findings as `escalated` and exit PARTIAL.
 
 **Stage 2 — Final Quality (parallel, after review loop is clean):**
 
@@ -225,9 +234,10 @@ Launch as many independent sub-agents in parallel as the platform supports.
 **Always evaluate (spawn when applicable):**
 - **hatch3r-docs-writer** — spawn when any changes affect public APIs, architectural patterns, or user-facing behavior.
 
-**Conditional specialists (spawn when triggered by any issue in the batch):**
+**Triggered specialists (spawn when triggered by any issue in the batch):**
 - **hatch3r-lint-fixer** — spawn when lint errors are present after implementation.
-- **hatch3r-ui** (CQ1) — spawn when any issue has `area:ui` or `area:a11y` labels.
+- **hatch3r-ui** (CQ1, mandatory-on-match) — spawn when any implementer's changed files across the batch match the `hatch3r-ui` row of the specialist trigger table (`shouldTriggerSpecialist` / `SPECIALIST_TRIGGER_TABLE` in `src/pipeline/pipelineContext.ts`; prose mirror: `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). A match at Tier 2/3 mandates a dedicated `hatch3r-ui` instance regardless of issue labels — skipping it is a gate failure. `area:ui` / `area:a11y` labels are an early planning signal, not a dispatch gate: their absence never skips a matched specialist.
+- **hatch3r-ux** (CQ2, mandatory-on-match) — spawn when any changed file in the batch matches the `hatch3r-ux` row of the same trigger table (flow / route-transition / modal / error-state files, microcopy/i18n strings). When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
 - **hatch3r-performance** (CQ7) — spawn when any issue has `area:performance` label.
 
 Await all specialist sub-agents. Apply their feedback before proceeding to Step 7.

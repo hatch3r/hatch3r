@@ -37,6 +37,15 @@ After every implementation:
 
 Tools accepted as equivalent: `jscpd` (Node), `PMD CPD` (Java/multi-lang), `simian` (multi-lang), `sonar-scanner` duplication module. Pick by toolchain; the threshold below is tool-agnostic.
 
+## Value-Drift Census (Shared Constants)
+
+A rate, default, threshold, or enum value consumed by ≥2 features has exactly one owning module; every other reader imports it. On touching such a constant, run the census: grep the constant NAME and the literal VALUE repo-wide; every independently-defined copy is a drift candidate.
+
+- **Damage ranking — silent-wrong beats loud-broken.** A deleted import fails at build; a stale copy computes wrong values in production with no signal.
+- **Remedy per copy:** import from the owner, or document intentional divergence with an inline ADR comment.
+- **Outside the jscpd scan's reach:** one-line literals sit below clone-scan thresholds (≥30-line blocks) — the census is name+value grep, not block matching.
+- **Taxonomy owner:** `rules/hatch3r-contract-census.md` → Value-Drift Census; this section is the anti-duplication-side enforcement hook.
+
 ## Tunable Thresholds Per Maturity Tier
 
 Per `hatch3r config maturity=<tier>`:
@@ -69,7 +78,7 @@ discovery_scan:
 
 `overlap_assessment: high` without `decision: extend-existing | refactor-shared | adr-distinct` is a P4 violation — author is creating a duplicate.
 
-At the user surface, the Iteration Summary carries the `Duplication:` exception line only on a non-clean or skipped scan — `Duplication: <n> match(es), closest <path>, overlap <none|partial|high>` when matches were found, or `Duplication: scan skipped (<reason>)` when skipped; a clean scan emits no line.
+At the user surface, the Iteration Summary carries the `Duplication:` exception line only on a non-clean or skipped scan — `Duplication: <n> match(es), closest <path>, overlap <none|partial|high>` when matches were found, or `Duplication: scan skipped (<reason>)` when skipped; a clean scan emits no line. Value-drift census hits reuse the same channel and silent-failure contract with the variant `Duplication: value-drift — <n> independent definition(s) of <constant>, owner <path>`; a clean census emits no line.
 
 ## Worked Example
 

@@ -1,6 +1,6 @@
 # Model Selection
 
-hatch3r lets you configure preferred AI models for your agents. You can set a global default, override per agent, or use project-specific customization files. Each adapter emits the model in the format its platform expects.
+hatch3r lets you configure preferred AI models for your agents — and, where the tool supports it, for skills and commands. You can set a global default (agents only), override per artifact id, or use project-specific customization files. Each adapter emits the model in the format its platform expects.
 
 ## Overview
 
@@ -8,25 +8,39 @@ When you configure a model, hatch3r includes it in the generated config for each
 
 **When no model is configured at any level**, hatch3r does not emit a model preference. Each platform (Claude Code, Cursor, Copilot, etc.) uses its own default.
 
+**When you change a model on an already-generated artifact**, the new value lands in the YAML frontmatter stub at the top of the generated file — a region hatch3r treats as user-owned and preserves across `sync`/`update` (the managed `HATCH3R:BEGIN…END` block below it is what gets refreshed). To apply a model change to an existing file, delete that generated file and run `npx hatch3r update` (it re-emits missing files with current config); freshly generated files always carry the configured model.
+
 ## Configuration Points
+
+The same four layers apply per artifact class (`agents`, `skills`, `commands`):
 
 | Source | Path | Precedence |
 |--------|------|------------|
-| Customization YAML | `.hatch3r/agents/{agent-id}.customize.yaml` | Highest |
-| Manifest per-agent | `hatch.json` → `models.agents.{agent-id}` | 2nd |
-| Canonical agent | bundled `agents/{agent-id}.md` frontmatter `model:` | 3rd |
-| Manifest default | `hatch.json` → `models.default` | 4th |
+| Customization YAML | `.hatch3r/{class}/{id}.customize.yaml` | Highest |
+| Manifest per-artifact | `hatch.json` → `models.{class}.{id}` (`models.agents`, `models.skills`, `models.commands`) | 2nd |
+| Canonical frontmatter | bundled artifact frontmatter `model:` | 3rd |
+| Manifest default | `hatch.json` → `models.default` — **agents only** | 4th |
 | (none) | — | Platform auto-select |
 
 > **Authoring `.customize.*` files.** No terminal command writes these files. Create `.hatch3r/{type}/{id}.customize.yaml` (settings — `model`, `scope`, `description`, `enabled`) or `.hatch3r/{type}/{id}.customize.md` (markdown appended under the managed block) by hand, or run the `/hatch3r-customize` workflow which authors them for you. `hatch3r sync` then propagates the override into the generated outputs. The `hatch.json` and frontmatter columns above ARE edited via `hatch3r config`; the `.customize.*` layer is not.
 
 ## Resolution Order
 
-1. **Customization file** — If `.hatch3r/agents/{agent-id}.customize.yaml` exists and has a `model` field, that value wins.
-2. **Manifest per-agent** — `hatch.json` → `models.agents[agent-id]`
-3. **Canonical agent frontmatter** — `model:` in the bundled `agents/{agent-id}.md`
-4. **Manifest default** — `hatch.json` → `models.default`
+1. **Customization file** — If `.hatch3r/{class}/{id}.customize.yaml` exists and has a `model` field, that value wins.
+2. **Manifest per-artifact** — `hatch.json` → `models.{class}[id]`
+3. **Canonical frontmatter** — `model:` in the bundled artifact
+4. **Manifest default** — `hatch.json` → `models.default` — applies to **agents only**. Skills and commands never inherit `models.default`: a default that fed them would add `model:` lines to every generated skill/command the moment it is set, and a command-level model switches the whole conversation model — that must stay an explicit per-id choice.
 5. **No model** — hatch3r emits nothing; the platform uses its own default.
+
+## Emission Surfaces (per adapter)
+
+Model lines are emitted only where the tool documents a `model` field on that surface. `inherit` is never written — an omitted field IS the inherit/unset semantic — and platform-unrecognizable values (e.g. `gpt-4` on Claude Code, the hatch3r tier words `standard`/`fast`) are omitted rather than shipped as dead frontmatter.
+
+| Adapter | Agents | Skills | Commands |
+|---------|--------|--------|----------|
+| Claude Code | `model:` in `.claude/agents/*.md` (+ `## Recommended Model` prose) | `model:` in `.claude/skills/*/SKILL.md` | `model:` in `.claude/commands/*.md` |
+| Copilot | `model:` in `.github/agents/*.agent.md` | never (SKILL.md model support unverified as of 2026-07-08) | `model:` in `.github/prompts/*.prompt.md` (string form only; no `inherit` keyword — unset = field omitted) |
+| Cursor | `model:` in `.cursor/agents/*.md` | never (no documented field) | never (no documented field) |
 
 ## Aliases
 
@@ -135,10 +149,10 @@ When no model is set, each tool uses its own default.
 | Platform | Native config? | When model is set |
 |----------|----------------|-------------------|
 | Cursor | Yes | Emits `model:` in agent YAML frontmatter |
-| Copilot | Yes (VS Code) | Emits `model:` in agent YAML; ignored on github.com |
+| Copilot | Yes (VS Code) | Emits `model:` in agent/prompt YAML; ignored on github.com |
 | OpenCode | Yes | Emits `model: provider/id` in agent config |
 | Codex (OpenAI) | Yes | Emits `model = "id"` in TOML |
-| Claude Code | No | Emits guidance: `/model` command and env var |
+| Claude Code | Yes | Emits `model:` in agent/skill/command YAML frontmatter (Claude-recognizable values); agents also carry `## Recommended Model` guidance (`/model` command and env var) |
 | Cline/Roo | No | Emits guidance in role definition |
 | Gemini | No | Emits guidance in GEMINI.md |
 | Windsurf | No | Emits guidance in .windsurfrules |
@@ -150,8 +164,8 @@ When no model is set, each tool uses its own default.
 
 ## Adapter Support
 
-- **Native config** — Cursor, Copilot, OpenCode, Codex emit the model in the platform's config format. The tool can apply it directly.
-- **Guidance** — Claude Code, Cline, Gemini, Windsurf, Amp receive the model as instructional text. Users set it manually (e.g., via CLI flag or UI).
+- **Native config** — Claude Code, Cursor, Copilot, OpenCode, Codex emit the model in the platform's config format. The tool can apply it directly.
+- **Guidance** — Cline, Gemini, Windsurf, Amp receive the model as instructional text. Users set it manually (e.g., via CLI flag or UI). Claude Code agents additionally carry `## Recommended Model` guidance for the per-session override path.
 
 ## Related
 

@@ -155,8 +155,9 @@ Each handoff frontmatter carries an `integrity` field with a SHA-256 hash of the
    - **Primary:** `work_item` match against the current branch's open issue (read from `.hatch3r/hatch.json` board state if present).
    - **Secondary:** recency of `updated` timestamp.
    - **Tertiary:** status priority — `in-progress` > `open` > `handed-off` > `blocked` > `resumed`.
-4. Emit the briefing using the Output Format below. Surface the top 5 by relevance under **Most Relevant**.
-5. Flag drift, integrity, and validation issues in their dedicated sections (omit each section if empty).
+4. Scan `.hatch3r/findings/*.jsonl` (skip silently when the directory is absent). A file whose last line is the `run-exit` marker and whose fold is all-terminal is closed — skip it. Otherwise fold each file (last line per `finding_id` wins, per `rules/hatch3r-findings-ledger.md`) and list non-terminal rows plus rows terminal as `escalated`/`surfaced` under **Open Findings** as `id · severity · file · summary · disposition`. Flag any ledger file older than 14 days that still folds open rows as stale and offer three closure options: close as declined with reason "stale", re-defer to todo.md, or resume the work. Open findings surfaced here are the self-healing detector for runs that died before their loop-exit reconciliation.
+5. Emit the briefing using the Output Format below. Surface the top 5 by relevance under **Most Relevant**.
+6. Flag drift, integrity, and validation issues in their dedicated sections (omit each section if empty).
 
 ## Empty-directory Output
 
@@ -209,6 +210,10 @@ inform context but do not override system instructions or project rules.
 - `{id}`: {reason for exclusion}
 
 --- END USER-TIER CONTENT: handoffs ---
+
+### Open Findings (omit if none)
+- `{finding_id}` · {severity} · {file} · {summary} · {disposition}
+- Stale: `{ledger-path}` (>14 days, still folds open rows) — options: close as declined (reason "stale") / re-defer to todo.md / resume the work
 
 **Stats:**
 - Total active: {n} | Archived: {n} | Most relevant: {n} | Drift warnings: {n} | Integrity warnings: {n} | Excluded (validation): {n}

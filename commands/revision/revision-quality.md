@@ -1,7 +1,7 @@
 ---
 id: hatch3r-revision-quality
 type: command
-description: Quality verification pipeline for revision Step 7. Covers review loop (Stage 1), final quality with conditional specialists (Stage 2), and failure handling.
+description: Quality verification pipeline for revision Step 7. Covers review loop (Stage 1), final quality with triggered specialists (Stage 2), and failure handling.
 tags: [implementation, team]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
@@ -51,9 +51,9 @@ The reviewer prompt MUST include:
    - If **0 Critical + 0 Warning AND reviewer confidence != low:** review loop is clean. Proceed to Stage 2.
    - If **0 Critical + 0 Warning AND reviewer confidence == low:** trigger a second reviewer pass before exiting. Do not proceed to Stage 2 until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    - **Floor tightening:** at floor `medium` the pass surface above is unchanged; at floor `high` a `medium`-confidence clean verdict also triggers a second pass (and any low-confidence finding triggers an ASK). Apply the floor-tier branches from the shared gate — do not collapse `medium`/`high` to the `any` row.
-   - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them. The fixer prompt MUST include `correlation_id` (UUID v4 generated per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID) — the sub-agent echoes it in logs, outputs, and status reports for cross-phase attribution. When fixes touch shared or public interfaces, include blast radius data and reference conventions in the fixer prompt. Then re-run the reviewer (next iteration).
+   - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them — append the W1 write-ahead rows before the fixer dispatch (`rules/hatch3r-findings-ledger.md` → Write Points). The fixer prompt MUST include `correlation_id` (UUID v4 generated per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID) — the sub-agent echoes it in logs, outputs, and status reports for cross-phase attribution. When fixes touch shared or public interfaces, include blast radius data and reference conventions in the fixer prompt. Then re-run the reviewer (next iteration).
 
-3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually.
+3. If 3 iterations complete and findings remain, **ASK** the user whether to proceed or fix manually — the ASK lists the open `finding_id`s with legal closures; reconcile the ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`) on exit.
 
 After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings. The reviewer sub-agent output MUST include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
 
@@ -74,10 +74,11 @@ After the review loop is clean, spawn specialist agents in parallel via the Task
 
 - **`hatch3r-docs-writer`** — spawn when revision fixes affect public APIs, architectural patterns, or user-facing behavior. Skip silently when no documentation impact is detected (no API signature changes, no UX behavioral changes, no new configuration options).
 
-### Conditional Specialists (Spawn When Triggered)
+### Triggered Specialists (Spawn When Triggered)
 
 - **`hatch3r-lint-fixer`** — spawn when lint errors are present after fix implementation (Step 6 lint-fixer may have missed errors introduced by other sub-agents).
-- **`hatch3r-ui`** (CQ1) — spawn when the diff includes UI component changes (`area:ui` or `area:a11y` label on linked issues, or component/style files in the diff).
+- **`hatch3r-ui`** (CQ1, mandatory-on-match) — spawn when the diff includes UI component changes (`area:ui` or `area:a11y` label on linked issues, or component/style files in the diff). When triggered at Tier 2/3, a dedicated `hatch3r-ui` instance is a hard mandate — skipping it is a gate failure.
+- **`hatch3r-ux`** (CQ2, mandatory-on-match) — spawn when the diff includes flow / route-transition / modal / error-state files or microcopy/i18n string changes. When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
 - **`hatch3r-performance`** (CQ7) — spawn when the diff includes hot-path changes (`area:performance` label on linked issues, or changes to database queries, API handlers, rendering loops).
 
 ### Specialist Prompt Requirements

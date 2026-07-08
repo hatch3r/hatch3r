@@ -9,7 +9,7 @@ import type {
   HatchManifest,
 } from "../types.js";
 import { HatchError } from "../types.js";
-import { resolveAgentModel } from "../models/resolve.js";
+import { resolveAgentModel, resolveArtifactModel } from "../models/resolve.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { resolveUserContentRoot } from "../content/index.js";
@@ -30,6 +30,19 @@ import {
   substituteRepoTokens,
   substituteVerificationGateTokens,
 } from "../pipeline/repoSubstitution.js";
+
+/**
+ * Frontmatter-safe model-value gate for the skill/command emission paths
+ * (release/2.2.0). Mirrors the D11-9 structural injection guard in
+ * `src/adapters/customization.ts` byte-for-byte — but that guard covers ONLY
+ * the `.customize.yaml` path. Manifest-sourced values
+ * (`models.{skills,commands}[id]`) reach `resolveArtifactModel` without
+ * passing through `applyCustomization`, so a hand-edited manifest value
+ * carrying `\n`/`: `/`[` could otherwise break out of the unquoted
+ * `model: ${model}` scalar and inject a second YAML key. Gate at emission:
+ * a value outside the safe set is omitted, never quoted-and-shipped.
+ */
+const SAFE_MODEL_RE = /^[A-Za-z0-9._/-]+$/;
 
 export interface Adapter {
   name: string;
@@ -874,11 +887,23 @@ export abstract class BaseAdapter implements Adapter {
    * is false or the skill declares no tools, the stub is the historical
    * `name: + description:` shape and output is byte-identical to the prior
    * behavior.
+   *
+   * release/2.2.0 — `opts.emitModel`: per-adapter opt-in for a `model:` line
+   * in the frontmatter stub, resolved via `resolveArtifactModel("skills",
+   * ...)` (customize > `models.skills[id]` > skill frontmatter; NO
+   * `models.default` fallback — that stays agents-only). The predicate
+   * receives the alias-expanded value and returns whether the target
+   * platform's skill surface recognizes it (e.g.
+   * `isClaudeRecognizableModel`). Same opt-in rationale as
+   * `emitAllowedTools`: Cursor SKILL.md documents no `model` field and
+   * Copilot SKILL.md model support is unverified, so an adapter that does not
+   * opt in stays byte-identical. `inherit` is never emitted — an omitted
+   * field IS the inherit semantic on every skill surface.
    */
   protected async processSkillsWithFmCliFiltered(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
-    opts?: { emitAllowedTools?: boolean },
+    opts?: { emitAllowedTools?: boolean; emitModel?: (model: string) => boolean },
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.skills) return [];
     const results: AdapterOutput[] = [];
@@ -894,6 +919,13 @@ export abstract class BaseAdapter implements Adapter {
       // command helper does (see {@link processSkillsWithFm}): a `: `- or
       // `--`-bearing description breaks the byte-0 plain scalar otherwise.
       const fmLines = [`name: ${skill.id}`, `description: ${toYamlDoubleQuotedScalar(desc)}`];
+      // release/2.2.0: per-skill `model:` emission (see the emitModel JSDoc
+      // note above). SAFE_MODEL_RE re-gates here because the manifest map
+      // path bypasses the customize-layer injection guard.
+      const model = resolveArtifactModel("skills", skill.id, skill.model, ctx.manifest, overrides);
+      if (model && model !== "inherit" && SAFE_MODEL_RE.test(model) && opts?.emitModel?.(model)) {
+        fmLines.push(`model: ${model}`);
+      }
       // D9-H-6: append the Copilot `allowed-tools` pre-approval array when
       // the adapter opts in and the skill declares tools. Each entry is
       // JSON-quoted so binaries containing characters that would otherwise
@@ -956,10 +988,22 @@ export abstract class BaseAdapter implements Adapter {
    * metadata like `orchestrator`/`agentPipeline`/`triage_tiers`) is
    * intentionally NOT hoisted: it is hatch3r-authoring data with no runtime or
    * picker consumer.
+   *
+   * release/2.2.0 — `opts.emitModel`: per-adapter opt-in for a `model:` line
+   * (after `argument-hint`), resolved via `resolveArtifactModel("commands",
+   * ...)` (customize > `models.commands[id]` > command frontmatter; NO
+   * `models.default` fallback — a command-level model switches the whole
+   * conversation model, so it must be an explicit per-id choice). The
+   * predicate gates to platform-recognizable values
+   * (`isClaudeRecognizableModel` / `isCopilotRecognizableModel`); Cursor
+   * passes no opts — its `.cursor/commands/*.md` surface documents no `model`
+   * field — and stays byte-identical. `inherit` is never emitted (omitted
+   * field == inherit).
    */
   protected async processCommandsWithFm(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
+    opts?: { emitModel?: (model: string) => boolean },
   ): Promise<AdapterOutput[]> {
     if (!ctx.features.commands) return [];
     const results: AdapterOutput[] = [];
@@ -974,6 +1018,13 @@ export abstract class BaseAdapter implements Adapter {
       const fmLines = [`name: ${cmd.id}`, `description: ${toYamlDoubleQuotedScalar(desc)}`];
       const argumentHint = extractArgumentHint(cmd.rawContent);
       if (argumentHint) fmLines.push(`argument-hint: ${toYamlDoubleQuotedScalar(argumentHint)}`);
+      // release/2.2.0: per-command `model:` emission (see the emitModel JSDoc
+      // note above). SAFE_MODEL_RE re-gates here because the manifest map
+      // path bypasses the customize-layer injection guard.
+      const model = resolveArtifactModel("commands", cmd.id, cmd.model, ctx.manifest, overrides);
+      if (model && model !== "inherit" && SAFE_MODEL_RE.test(model) && opts?.emitModel?.(model)) {
+        fmLines.push(`model: ${model}`);
+      }
       const fm = `---\n${fmLines.join("\n")}\n---`;
       results.push(output(pathFn(cmd.id), `${fm}\n\n${wrapManagedFor(pathFn(cmd.id), content)}`, content, this.singleSource(cmd)));
     }

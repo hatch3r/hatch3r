@@ -15,7 +15,7 @@ parallel_tool_default: true
 browser_capability: opt-in
 wall_clock_advisory_ms: 600000
 phase_4_trigger:
-  mode: conditional
+  mode: mandatory-on-match
   conditions:
     - Flow / route-transition / modal / error-state files modified
     - Microcopy or i18n strings modified

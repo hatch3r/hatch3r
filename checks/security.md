@@ -59,3 +59,8 @@ Review criteria for evaluating security posture in pull requests.
 
 - `[CRITICAL]` Error responses to clients do not include stack traces, internal paths, or database details.
 - `[RECOMMENDED]` Security-relevant errors (auth failures, permission denials) are logged with the five fields an incident responder needs — timestamp, actor/subject identifier, action attempted, resource, and outcome — and never the secret or credential that was rejected.
+
+## Environment Gating
+
+- `[CRITICAL]` Dangerous capabilities (debug endpoints, seed/reset scripts, auth bypasses, mock modes, destructive CLI verbs) are gated by an allowlist of named non-production environments — never by a `NODE_ENV !== 'production'` (or equivalent) denylist. An unset, misspelled, or unrecognized environment value takes the deny branch.
+- `[RECOMMENDED]` The application asserts at startup that its resolved environment value is a member of a closed known-environment enum and refuses to start on an unrecognized value.

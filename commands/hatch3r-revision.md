@@ -2,7 +2,7 @@
 id: hatch3r-revision
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-performance]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-performance]
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness. Delegation, quality pipeline, modes, and board integration details are in commands/revision/.
 tags: [implementation, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
@@ -13,8 +13,8 @@ efficiency_tier: deep
 triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:
-  count: 10
-  rationale: Per-revision fanout — researcher (conditional, Tier 2/3 pre-implementation context per commands/revision/revision-delegation.md Step 6.pre), implementer, lint-fixer, testability (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality CQ specialists (security, docs-writer, ui, performance) bounded by max_phase4_parallel. Tier 1 cleanup-only revisions spawn a subset. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 11
+  rationale: Per-revision fanout — researcher (conditional, Tier 2/3 pre-implementation context per commands/revision/revision-delegation.md Step 6.pre), implementer, lint-fixer, testability (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality CQ specialists (security, docs-writer, ui, ux, performance — a triggered mandatory-on-match ui/ux each spawns as its own dedicated instance at Tier 2/3) bounded by max_phase4_parallel. Tier 1 cleanup-only revisions spawn a subset. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -33,9 +33,9 @@ sub_agents_spawned:
 | 5b. Final Quality — Testing | `hatch3r-testability` | Yes | Yes (code changes) |
 | 5c. Final Quality — Security | `hatch3r-security` | Yes | Yes (code changes) |
 | 5d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
-| 5e. Final Quality — Conditional | `hatch3r-lint-fixer`, `hatch3r-ui`, `hatch3r-performance` | Yes | When triggered |
+| 5e. Final Quality — Triggered | `hatch3r-lint-fixer`, `hatch3r-performance` (conditional); `hatch3r-ui`, `hatch3r-ux` (mandatory-on-match — each triggered one MUST spawn as its own dedicated instance at Tier 2/3) | Yes | When triggered |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 ## Browser Automation
 
@@ -403,7 +403,7 @@ If all findings were deferred (no [FIX NOW] items), skip Step 6 entirely and pro
 
 > Full details: see `commands/revision/revision-quality.md`
 
-Two-stage quality pipeline: Stage 1 runs a sequential review loop (`hatch3r-reviewer` -> `hatch3r-fixer`, max 3 iterations). Stage 2 spawns final quality CQ specialists in parallel — mandatory (`hatch3r-testability`, `hatch3r-security`), evaluated (`hatch3r-docs-writer`), and conditional (`hatch3r-ui`, `hatch3r-performance`, `hatch3r-lint-fixer`).
+Two-stage quality pipeline: Stage 1 runs a sequential review loop (`hatch3r-reviewer` -> `hatch3r-fixer`, max 3 iterations). Stage 2 spawns final quality CQ specialists in parallel — mandatory (`hatch3r-testability`, `hatch3r-security`), evaluated (`hatch3r-docs-writer`), mandatory-on-match (`hatch3r-ui`, `hatch3r-ux` — each triggered one MUST spawn as its own dedicated instance at Tier 2/3), and conditional (`hatch3r-performance`, `hatch3r-lint-fixer`).
 
 ---
 
@@ -537,7 +537,7 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 6 fix delegation).
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 10` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 cleanup-only ≈ 0 (inline fixes, no sub-agent); Tier 2 ≈ 5 (conditional researcher + implementer/lint-fixer/hatch3r-testability fix group + reviewer); Tier 3 up to 10 (conditional researcher + full pipeline including the parallel Stage 2 final-quality specialists bounded by `max_phase4_parallel`). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 11` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 cleanup-only ≈ 0 (inline fixes, no sub-agent); Tier 2 ≈ 5 (conditional researcher + implementer/lint-fixer/hatch3r-testability fix group + reviewer); Tier 3 up to 11 (conditional researcher + full pipeline including the parallel Stage 2 final-quality specialists bounded by `max_phase4_parallel`). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

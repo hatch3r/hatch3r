@@ -24,15 +24,15 @@ Living reference for framework capabilities vs. adapter implementations. As of 1
 | **copilot** | Y | Y | Y | Y | Y | Y | -- | -- | Y | Y | Y |
 | **claude** | Y | Y | Y | -- | Y | Y | -- | Y | Y | -- | -- |
 
-## Agent Model Customization
+## Model Customization
 
-All 3 adapters emit model preferences when configured. See [Model Selection](../guides/model-selection) for configuration and aliases.
+All 3 adapters emit agent model preferences when configured; skill and command model emission (release/2.2.0, `models.skills` / `models.commands`) is per-adapter — only surfaces whose platform documents a `model` frontmatter field carry one. `models.default` feeds agents only. `inherit` and platform-unrecognizable values are omitted (an omitted field is the inherit/unset semantic). See [Model Selection](../guides/model-selection) for configuration, aliases, and resolution order.
 
-| Adapter | Emission | Notes |
-|---------|----------|-------|
-| **cursor** | Native | `model:` in agent YAML frontmatter |
-| **copilot** | Native (VS Code) | `model:` in agent YAML; ignored on github.com |
-| **claude** | Guidance | Text in agent content |
+| Adapter | Agents | Skills | Commands |
+|---------|--------|--------|----------|
+| **cursor** | Native — `model:` in agent YAML frontmatter | -- | -- |
+| **copilot** | Native (VS Code) — `model:` in agent YAML; ignored on github.com | -- (SKILL.md model support unverified) | Native — string-form `model:` in `.github/prompts/*.prompt.md` |
+| **claude** | Native — `model:` in sub-agent YAML frontmatter, plus `## Recommended Model` prose for the per-session override path | Native — `model:` in SKILL.md frontmatter | Native — `model:` in command frontmatter |
 
 ## Secret Management {#secret-management}
 

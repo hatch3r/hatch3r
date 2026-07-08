@@ -29,7 +29,7 @@ sub_agents_spawned:
 | 2. Issue Creation | Orchestrator (inline, GitHub MCP) | No | Yes |
 | 3. Board Sync | Orchestrator (Projects v2 sync) | No | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out (Step 1 explore sub-agents, the Step 7.9 per-issue reviewer/fixer loops where N issues = N parallel loops) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out (Step 1 explore sub-agents, the Step 7.9 per-issue reviewer/fixer loops where N issues = N parallel loops) holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 All issue operations MUST follow the Board Sync Enforcement rules defined in `hatch3r-board-shared`.
 
@@ -755,7 +755,7 @@ Per-issue loop, max 4 iterations (spec-class cap). Loop semantics mirror `src/pi
 - `DESIGN_OBJECTION` verdict (the issue's intent itself is broken).
 - Oscillation detected: the set of Critical finding IDs has Jaccard similarity >0.8 across two consecutive iterations (the fixer is editing the wrong line).
 
-Issues that hit forced termination are reported in the Step 7.9 summary with the reviewer's last findings. They remain on the board but are flagged for user attention.
+Issues that hit forced termination are reported in the Step 7.9 summary with the reviewer's last findings. They remain on the board but are flagged for user attention. Additionally append one findings-ledger row per forced-terminated issue (`source: spec-review`, severity Warning, file `issue#<N>`, summary = one-line digest of the last reviewer findings) per `rules/hatch3r-findings-ledger.md` — the board flag survives, and the findings text stops being chat-ephemeral.
 
 #### 7.9e. Summary
 

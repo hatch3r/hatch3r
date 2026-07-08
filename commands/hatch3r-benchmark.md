@@ -30,7 +30,7 @@ sub_agents_spawned:
 | 3. Analysis | `hatch3r-performance` | No | Yes |
 | 4. Reporting | `hatch3r-docs-writer` | No | If regressions found |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 # Performance Benchmark — Run, Compare, and Report on Performance Metrics
 

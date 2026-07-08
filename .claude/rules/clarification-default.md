@@ -25,6 +25,7 @@ Apply the protocol whenever any of these hold before write-tool invocation:
 - Multiple valid interpretations — two or more viable approaches with materially different cost, scope, or risk.
 - Irreversible action — deleting an artifact, renaming a public artifact id, dropping a frontmatter field, force-pushing a branch.
 - Missing acceptance criteria — no testable definition of done for the requested change.
+- Unattested product decision — a user-data-destroying or user-visible-behavior-changing choice (in canonical artifacts: a change to shipped agent/rule behavior end-user repos will inherit) with no maintainer statement authorizing it; an agent-authored comment or PR sentence is self-certification, not authorization.
 
 ## How to ask
 

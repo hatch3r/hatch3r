@@ -22,6 +22,10 @@ alwaysApply: false
 - Never concatenate translated fragments to build sentences — each complete sentence is a single translation key.
 - Maintain a string extraction workflow (e.g., `i18next-parser`, `vue-i18n-extract`) that runs in CI to flag unused and missing keys.
 
+### Dynamic Keys
+
+String extraction cannot see interpolated keys (`t('status.' + value)`, template-literal keys). Every dynamic-key call site either (a) has a test iterating the full value set and asserting each resolved key exists in the default locale (`i18n.te(key)` or equivalent), or (b) carries a co-located comment enumerating the concrete keys for the parser. CI extraction reports count dynamic call sites as unverified, never as passing. Verification pattern owner: `rules/hatch3r-dynamic-stack-verification.md` → Dynamic i18n Keys.
+
 ## RTL Support
 
 - Use CSS logical properties exclusively: `margin-inline-start` (not `margin-left`), `padding-inline-end` (not `padding-right`), `inset-inline-start` (not `left`), `text-align: start` (not `text-align: left`).

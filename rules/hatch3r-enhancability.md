@@ -83,7 +83,7 @@ The OpenAPI / AsyncAPI / GraphQL SDL `info.version` MUST be aligned to the relea
 
 On stable endpoints:
 
-- **Additive schema** — new fields are optional; default values are documented; consumers ignore unknown fields. Removing a field is breaking; renaming is breaking.
+- **Additive schema** — new fields are optional; default values are documented; consumers ignore unknown fields. Removing a field is breaking; renaming is breaking. Remedy: façade contract-hold (`rules/hatch3r-contract-census.md`) — keep the key emitted, hard-null it behind the façade, delete only at the contract phase.
 - **Deprecation header (RFC 9745)** — emit `Deprecation: @1735689600` (Unix-time) or `Deprecation: Tue, 20 May 2025 00:00:00 GMT` (IMF-fixdate) on retiring endpoints.
 - **Sunset header (RFC 8594)** — emit `Sunset: Tue, 31 Dec 2025 23:59:59 GMT` (IMF-fixdate only) on retiring endpoints. Sunset date MUST be later than Deprecation date.
 - **Migration link** — emit `Link: <https://api.example.com/docs/migration>; rel="deprecation"` + `Link: <…>; rel="sunset"`.

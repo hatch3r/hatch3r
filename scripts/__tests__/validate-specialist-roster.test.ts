@@ -27,6 +27,7 @@ const COMMAND_FILES = [
   "hatch3r-workflow.md",
   "hatch3r-revision.md",
   "hatch3r-board-pickup.md",
+  "hatch3r-pr-resolve.md",
   "hatch3r-quick-change.md",
 ];
 
@@ -162,6 +163,27 @@ describe("validate-specialist-roster", () => {
     expect(drift?.message).toMatch(/"always" in SSOT but "conditional"/);
   });
 
+  it("ERRORs when a Mandatory-on-match rule row is flipped back to Conditional (2.2.0)", async () => {
+    // hatch3r-ui is "mandatory-on-match" in the SSOT; flip the rule row to
+    // "Conditional" and expect the mode-parity check to read the 4-mode
+    // vocabulary and surface the drift.
+    const rulePath = join(fx.rootDir, "rules", "hatch3r-agent-orchestration.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(rulePath, "utf-8");
+    const drifted = body.replace(
+      /(\| `hatch3r-ui`[^|]*\|\s*)Mandatory-on-match(\s*\|)/,
+      "$1Conditional$2",
+    );
+    expect(drifted).not.toBe(body);
+    await writeFile(rulePath, drifted, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const drift = r.findings.find((f) => f.code === "ROSTER-RULE-MODE-MISMATCH");
+    expect(drift).toBeDefined();
+    expect(drift?.message).toMatch(/hatch3r-ui/);
+    expect(drift?.message).toMatch(/"mandatory-on-match" in SSOT but "conditional"/);
+  });
+
   // ── Agent-file roster gap ──────────────────────────────────────
 
   it("ERRORs when a specialist's agent file is missing", async () => {
@@ -236,6 +258,69 @@ describe("validate-specialist-roster", () => {
       (f) => f.code === "ROSTER-CMD-MISSING" && f.message.includes("hatch3r-docs-writer"),
     );
     expect(miss).toBeDefined();
+  });
+
+  it("ERRORs when a full-pipeline command drops a mandatory-on-match specialist (2.2.0)", async () => {
+    // hatch3r-ux is "mandatory-on-match" — a full-pipeline orchestrator must be
+    // able to dispatch the hard-mandate Tier 2/3 specialist, so dropping it
+    // from revision's agentPipeline is a ROSTER-CMD-MISSING error.
+    const revPath = join(fx.rootDir, "commands", "hatch3r-revision.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(revPath, "utf-8");
+    const stripped = body.replace("hatch3r-ux, ", "");
+    expect(stripped).not.toBe(body);
+    await writeFile(revPath, stripped, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const miss = r.findings.find(
+      (f) =>
+        f.code === "ROSTER-CMD-MISSING" &&
+        f.file === "commands/hatch3r-revision.md" &&
+        f.message.includes("hatch3r-ux"),
+    );
+    expect(miss).toBeDefined();
+    expect(miss?.message).toMatch(/mandatory-on-match/);
+  });
+
+  it("ERRORs when pr-resolve drops a mandatory-on-match specialist (2.2.0)", async () => {
+    // 2.2.0 added hatch3r-ui/hatch3r-ux (mandatory-on-match) to pr-resolve's
+    // agentPipeline; pr-resolve is in FULL_PIPELINE_COMMANDS so dropping
+    // hatch3r-ux must fail the gate (Bugbot r3540353684).
+    const prPath = join(fx.rootDir, "commands", "hatch3r-pr-resolve.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(prPath, "utf-8");
+    const stripped = body.replace("hatch3r-ux, ", "");
+    expect(stripped).not.toBe(body);
+    await writeFile(prPath, stripped, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const miss = r.findings.find(
+      (f) =>
+        f.code === "ROSTER-CMD-MISSING" &&
+        f.file === "commands/hatch3r-pr-resolve.md" &&
+        f.message.includes("hatch3r-ux"),
+    );
+    expect(miss).toBeDefined();
+    expect(miss?.message).toMatch(/mandatory-on-match/);
+  });
+
+  it("does NOT require a mandatory-on-match specialist on quick-change (always floor only)", async () => {
+    // quick-change is the Tier-1 carve-out held only to the always-mode floor;
+    // the mandatory-on-match Tier 2/3 mandate never binds at Tier 1, so
+    // dropping hatch3r-ui from its agentPipeline must not error.
+    const qcPath = join(fx.rootDir, "commands", "hatch3r-quick-change.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(qcPath, "utf-8");
+    const stripped = body.replace("hatch3r-ui, ", "");
+    expect(stripped).not.toBe(body);
+    await writeFile(qcPath, stripped, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const uiMiss = r.findings.find(
+      (f) =>
+        f.file === "commands/hatch3r-quick-change.md" && f.message.includes("hatch3r-ui"),
+    );
+    expect(uiMiss).toBeUndefined();
   });
 
   it("does NOT require the evaluate-mode docs-writer on quick-change (Tier-1 carve-out)", async () => {

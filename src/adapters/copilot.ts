@@ -506,8 +506,21 @@ jobs:
     // `ADAPTER_CAPABILITIES.copilot.prompts` mis-advertise the capability.
     // Commands still surface in Copilot's native prompts-file picker via the
     // `.github/prompts/` path below, gated on `features.commands`.
+    //
+    // release/2.2.0 — `emitModel`: Copilot documents a `model:` frontmatter
+    // field on `.github/prompts/*.prompt.md` in STRING form only (the Copilot
+    // CLI rejects the array form — github/copilot-cli#2133; omitted = the
+    // user's picker model, and there is no `inherit` keyword, so unset is
+    // expressed by omitting the field; docs.github.com prompt-files reference,
+    // accessed 2026-07-08). The base helper emits the single unquoted-scalar
+    // string shape and never emits `inherit`, matching both constraints; the
+    // D9-16 recognizable-value gate keeps tier words / unknown IDs out.
     results.push(
-      ...await this.processCommandsWithFm(ctx, (id) => `.github/prompts/${toPrefixedId(id)}.prompt.md`),
+      ...await this.processCommandsWithFm(
+        ctx,
+        (id) => `.github/prompts/${toPrefixedId(id)}.prompt.md`,
+        { emitModel: isCopilotRecognizableModel },
+      ),
     );
 
     // D5-41 (Cycle 11 Wave 3, D5, P4 / D16.3 add-vs-remove bias): suppress the
@@ -591,6 +604,15 @@ jobs:
     // .github-hosted repositories; the dual `.agents/skills/` discovery is
     // out-of-scope for the copilot adapter (canonical content ships only
     // bundled via npm in 1.9.0+; see resolveBundledContentRoot).
+    //
+    // release/2.2.0 — NO `emitModel` here, deliberately: Copilot's create-skills
+    // docs enumerate `name`/`description`/`allowed-tools` frontmatter but
+    // document no `model` field on SKILL.md, and no release note confirms one
+    // (re-checked 2026-07-08 against the same docs page as D9-M3). Emitting an
+    // undocumented field would ship dead frontmatter (CONSTITUTION §2 P5
+    // silent-failure surface) — the exact failure D9-16 removed from the agent
+    // path. Revisit when Copilot documents SKILL.md model support; the
+    // `models.skills` map then only needs this opts entry, no new plumbing.
     results.push(
       ...await this.processSkillsWithFmCliFiltered(
         ctx,

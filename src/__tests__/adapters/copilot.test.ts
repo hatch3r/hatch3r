@@ -731,6 +731,80 @@ You are a test agent.`,
     }
   });
 
+  // release/2.2.0: commands→prompts model emission. Copilot documents a
+  // string-form `model:` field on `.github/prompts/*.prompt.md` (no `inherit`
+  // keyword — unset is expressed by omitting the field), gated to
+  // Copilot-recognizable values per D9-16. Copilot SKILL.md model support is
+  // unverified, so `.github/skills/**` never gains a model line even when
+  // `models.skills` is configured.
+  describe("prompt/skill model: frontmatter (release/2.2.0)", () => {
+    async function setupCanonical(tempDir: string): Promise<string> {
+      const canonicalRoot = join(tempDir, "agents");
+      await mkdir(join(canonicalRoot, "skills", "my-skill"), { recursive: true });
+      await writeFile(
+        join(canonicalRoot, "skills", "my-skill", "SKILL.md"),
+        `---\nname: my-skill\ndescription: A model-matrix test skill\n---\n# My Skill\n\nDo skill things.`,
+        "utf-8",
+      );
+      await mkdir(join(canonicalRoot, "commands"), { recursive: true });
+      await writeFile(
+        join(canonicalRoot, "commands", "my-command.md"),
+        `---\nid: my-command\ntype: command\ndescription: A model-matrix test command\n---\n# My Command\n\nDo command things.`,
+        "utf-8",
+      );
+      return canonicalRoot;
+    }
+
+    it("emits model: on the generated .prompt.md for a Copilot-recognizable models.commands value", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-prompt-model-"));
+      try {
+        const canonicalRoot = await setupCanonical(tempDir);
+        const manifest = makeManifest({ models: { commands: { "my-command": "gemini-flash" } } });
+        const outputs = await adapter.generate(canonicalRoot, manifest);
+        const prompt = outputs.find((o) => o.path === ".github/prompts/hatch3r-my-command.prompt.md");
+        expect(prompt).toBeDefined();
+        const fm = prompt!.content.slice(0, prompt!.content.indexOf(MANAGED_BLOCK_START));
+        // Alias-expanded, single string scalar (the only form the Copilot CLI
+        // accepts — github/copilot-cli#2133 rejects the array form).
+        expect(fm).toMatch(/^model: gemini-3-flash$/m);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("omits model: on .prompt.md when unset and when the value is not Copilot-recognizable", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-prompt-model-gate-"));
+      try {
+        const canonicalRoot = await setupCanonical(tempDir);
+        // Unset (models.default is agents-only and must not leak here).
+        const unset = await adapter.generate(canonicalRoot, makeManifest({ models: { default: "opus" } }));
+        const unsetPrompt = unset.find((o) => o.path === ".github/prompts/hatch3r-my-command.prompt.md");
+        expect(unsetPrompt!.content.slice(0, unsetPrompt!.content.indexOf(MANAGED_BLOCK_START))).not.toContain("model:");
+        // Unrecognizable tier word → omitted (D9-16 gate).
+        const tier = await adapter.generate(canonicalRoot, makeManifest({ models: { commands: { "my-command": "fast" } } }));
+        const tierPrompt = tier.find((o) => o.path === ".github/prompts/hatch3r-my-command.prompt.md");
+        expect(tierPrompt!.content.slice(0, tierPrompt!.content.indexOf(MANAGED_BLOCK_START))).not.toContain("model:");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("never emits model: into .github/skills/** even when models.skills is configured (unverified surface)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-skill-model-"));
+      try {
+        const canonicalRoot = await setupCanonical(tempDir);
+        const manifest = makeManifest({ models: { skills: { "my-skill": "claude-sonnet-4-6" } } });
+        const outputs = await adapter.generate(canonicalRoot, manifest);
+        const skill = outputs.find((o) => o.path === ".github/skills/hatch3r-my-skill/SKILL.md");
+        expect(skill).toBeDefined();
+        const fm = skill!.content.slice(0, skill!.content.indexOf(MANAGED_BLOCK_START));
+        expect(fm).not.toContain("model:");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   // D5-39 (Cycle 11 Wave 3, D5, P6): github-agents carry a per-role `tools:`
   // allowlist (they had none before — the security/lint cloud agents inherited
   // every tool). The role map keys on the emitted prefixed id; an unlisted

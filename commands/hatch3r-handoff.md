@@ -25,7 +25,7 @@ sub_agents_spawned:
 
 The `prepare` subcommand delegates to `hatch3r-handoff-preparer` via the Task tool. The other four subcommands (`resume`, `list`, `complete`, `prune`) run inline within this command — they read, list, transition status, or archive files and do not require a sub-agent.
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): any parallel fan-out holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): any parallel fan-out holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 ## Learnings Consultation
 

@@ -50,3 +50,14 @@ Review criteria for evaluating code quality in pull requests.
 - `[RECOMMENDED]` No N+1 query patterns in data fetching code.
 - `[RECOMMENDED]` Large collections use pagination or streaming, not full in-memory loading.
 - `[RECOMMENDED]` Expensive operations (crypto, compression, network) are not performed synchronously in request handlers.
+
+## Decision Provenance
+
+- `[CRITICAL]` Every product-behavior assertion in the diff — a comment, commit message, or PR sentence claiming a choice about user data or user-visible behavior ("acceptable to drop", "users won't need", "safe to overwrite") — cites its source: issue number, acceptance-criterion line, or quoted user reply. An assertion with no citable source is self-certification: verdict REQUEST CHANGES plus an ASK to the user.
+- `[RECOMMENDED]` Migration and data-transform files name the approving decision (issue / acceptance criterion / ADR reference) in the file header comment.
+
+## Shared Contracts and Constants
+
+- `[CRITICAL]` A shared constant (rate, default, threshold, enum value) consumed by more than one feature has exactly one defining module; the diff introduces no second independent definition of the same value, and a changed value is edited at its single owner. Verify by grepping the constant name AND the literal value across the repo.
+- `[CRITICAL]` Every changed shared contract (exported symbol, persisted collection/field name, wire field, event name) has a consumer census in the implementation result: each repo-wide consumer of the old identifier is updated, guarded, or justified by name (`rules/hatch3r-contract-census.md`).
+- `[RECOMMENDED]` An intentional divergence from a shared constant's value carries an inline ADR comment naming the owner constant and the reason for the local value.

@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { resolveAgentModel, withProviderPrefix } from "../../models/resolve.js";
+import { resolveAgentModel, resolveArtifactModel, withProviderPrefix } from "../../models/resolve.js";
 import type { CanonicalFile, HatchManifest } from "../../types.js";
 
 function makeAgent(overrides: Partial<CanonicalFile> = {}): CanonicalFile {
@@ -120,6 +120,78 @@ describe("resolveAgentModel", () => {
     // With customize: customize wins over everything
     const withCustom = resolveAgentModel("hatch3r-implementer", agent, manifest, { model: "haiku" });
     expect(withCustom).toBe("claude-haiku-4-5");
+  });
+});
+
+// release/2.2.0: per-artifact model resolution generalized to skills and
+// commands. `models.default` stays agents-only by design (a default feeding
+// skills/commands would grow model lines in every generated skill/command —
+// a byte-stability break; a command-level model switches the whole
+// conversation model).
+describe("resolveArtifactModel", () => {
+  it("returns undefined when nothing is configured, for every class", () => {
+    const manifest = makeManifest();
+    for (const cls of ["agents", "skills", "commands"] as const) {
+      expect(resolveArtifactModel(cls, "hatch3r-feature", undefined, manifest)).toBeUndefined();
+    }
+  });
+
+  it("resolves the per-class manifest map for skills and commands", () => {
+    const manifest = makeManifest({
+      models: {
+        skills: { "hatch3r-feature": "opus" },
+        commands: { "hatch3r-workflow": "sonnet" },
+      },
+    });
+    expect(resolveArtifactModel("skills", "hatch3r-feature", undefined, manifest)).toBe("claude-opus-4-8");
+    expect(resolveArtifactModel("commands", "hatch3r-workflow", undefined, manifest)).toBe("claude-sonnet-4-6");
+    // Maps are class-scoped: a skills entry never leaks into commands and
+    // vice versa.
+    expect(resolveArtifactModel("commands", "hatch3r-feature", undefined, manifest)).toBeUndefined();
+    expect(resolveArtifactModel("skills", "hatch3r-workflow", undefined, manifest)).toBeUndefined();
+  });
+
+  it("follows precedence customize > manifest map > frontmatter per class", () => {
+    for (const cls of ["agents", "skills", "commands"] as const) {
+      const models: HatchManifest["models"] = {};
+      models[cls] = { "x-artifact": "codex" };
+      const manifest = makeManifest({ models });
+      // frontmatter only
+      expect(resolveArtifactModel(cls, "x-artifact", "sonnet", makeManifest())).toBe("claude-sonnet-4-6");
+      // manifest map beats frontmatter
+      expect(resolveArtifactModel(cls, "x-artifact", "sonnet", manifest)).toBe("gpt-5.3-codex");
+      // customize beats manifest map and frontmatter
+      expect(resolveArtifactModel(cls, "x-artifact", "sonnet", manifest, { model: "haiku" })).toBe("claude-haiku-4-5");
+    }
+  });
+
+  it("applies models.default to agents ONLY (skills/commands resolve undefined)", () => {
+    const manifest = makeManifest({ models: { default: "opus", skills: {}, commands: {} } });
+    expect(resolveArtifactModel("agents", "hatch3r-implementer", undefined, manifest)).toBe("claude-opus-4-8");
+    expect(resolveArtifactModel("skills", "hatch3r-feature", undefined, manifest)).toBeUndefined();
+    expect(resolveArtifactModel("commands", "hatch3r-workflow", undefined, manifest)).toBeUndefined();
+  });
+
+  it("passes `inherit` through verbatim (emission gating is the adapter's job)", () => {
+    const manifest = makeManifest({ models: { skills: { "hatch3r-feature": "inherit" } } });
+    expect(resolveArtifactModel("skills", "hatch3r-feature", undefined, manifest)).toBe("inherit");
+    expect(resolveArtifactModel("commands", "hatch3r-workflow", "inherit", makeManifest())).toBe("inherit");
+  });
+
+  it("expands aliases for skills and commands the same as for agents", () => {
+    const manifest = makeManifest();
+    expect(resolveArtifactModel("skills", "hatch3r-feature", "gemini-pro", manifest)).toBe("gemini-3.1-pro");
+    expect(resolveArtifactModel("commands", "hatch3r-workflow", "haiku", manifest)).toBe("claude-haiku-4-5");
+  });
+
+  it("resolveAgentModel delegates to resolveArtifactModel('agents', ...) unchanged", () => {
+    const agent = makeAgent({ model: "sonnet" });
+    const manifest = makeManifest({
+      models: { default: "opus", agents: { "hatch3r-implementer": "codex" } },
+    });
+    expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe(
+      resolveArtifactModel("agents", "hatch3r-implementer", agent.model, manifest),
+    );
   });
 });
 

@@ -5,7 +5,7 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit Task
 ---
 
-> Last updated: 2026-06-06
+> Last updated: 2026-07-08
 
 # PR Resolve (Maintainer)
 
@@ -30,7 +30,7 @@ For non-hatch3r repos the canonical `/hatch3r-pr-resolve` command (distributed v
 ## Step 2: Invoke the Canonical Workflow
 
 5. Read `commands/hatch3r-pr-resolve.md` end-to-end.
-6. Execute that workflow from Step 0 (Triage) through Step 8 (Post replies). Halt before Step 9 (Commit and push) — the gates below run first; the maintainer commits manually at the end of this skill.
+6. Execute that workflow from Step 0 (Triage) through Step 8 (Post replies). Halt before Step 9 (Commit and push) and Step 9.5 (Re-poll gate) — both depend on the manual commit this skill defers; the gates below run first, and the maintainer commits manually at the end of this skill.
 7. For every sub-agent prompt spawned during Step 6 (Fix implementation) and Step 7 (Review loop + final-quality specialists), inject this hatch3r-development context block:
    ```
    Hatch3r-specific constraints:
@@ -147,6 +147,8 @@ Next action (run manually):
 ```
 
 14. Per-comment replies were already posted in Step 8 of the canonical workflow, so the PR thread reflects the work even though the local commit is pending. The maintainer's manual commit + push completes the loop.
+
+15. Canonical Step 9.5 (re-poll) applies only after commit + push. After the manual `git commit -s && git push`, re-run this skill to poll for new AI-review-tool comments on the new HEAD; the canonical `postedCommentIds` checkpoint filter prevents double-replies across re-runs.
 
 ## Constraints
 

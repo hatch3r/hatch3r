@@ -138,6 +138,20 @@ Every test must be deterministic. Mandates:
 - **Database state:** Integration tests set up and tear down within the test via helpers. Never depend on database state from a previous test. Enforce tenancy isolation via per-test schema or transaction rollback.
 - **Testcontainers** pinned by image digest, not tag.
 
+## Degenerate-Input Guard
+
+A test whose input turns the computation under test into a no-op verifies wiring, not behavior. Canonical degenerate vectors:
+
+- A 0%-interest loan (interest math never executes).
+- A one-record merge (no conflict branch).
+- An empty-array pipeline (every stage vacuously passes).
+- A zero-quantity or zero-price order (totals stay 0).
+- A same-source-and-target move (no-op transfer).
+- `now()` timestamps against expiry logic (never expires).
+- Single-user fixtures against cross-tenant checks.
+
+**Requirement:** for each changed behavior, at least one input **activates** the computation, and the assertion distinguishes the activated result from the degenerate baseline (the two expected outputs differ). **Reviewer treatment:** a suite green only on degenerate vectors is a Warning; on payment, auth, or data-mutation paths, Critical. "N passing" is evidence only when paired with which changed behaviors those N tests activate.
+
 ## Error Path Coverage
 
 Error handling code is often under-tested because developers focus on happy paths. Enforce minimum error coverage:

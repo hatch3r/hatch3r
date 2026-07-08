@@ -577,15 +577,59 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     // F16.3-H1 (Cycle 10 Wave 1C): hatch3r-testability (CQ5) and
     // hatch3r-security (CQ3) absorbed the legacy test-writer +
     // security-auditor always-mode floors, so their mode is "always".
-    // The remaining 7 CQ specialists keep their conditional dispatch.
+    // Release 2.2.0: hatch3r-ui (CQ1) and hatch3r-ux (CQ2) are
+    // "mandatory-on-match" — matching identical to conditional, but a trigger
+    // hit mandates a dedicated per-specialist spawn at Tier 2/3. The remaining
+    // 5 CQ specialists keep their conditional dispatch.
     const ALWAYS_MODE_CQ = new Set(["hatch3r-testability", "hatch3r-security"]);
+    const MANDATORY_ON_MATCH_CQ = new Set(["hatch3r-ui", "hatch3r-ux"]);
     for (const name of CQ_SPECIALISTS) {
       const entry = SPECIALIST_TRIGGER_TABLE.find((t) => t.specialist === name);
       expect(entry, `${name} missing from SPECIALIST_TRIGGER_TABLE`).toBeDefined();
-      const expectedMode = ALWAYS_MODE_CQ.has(name) ? "always" : "conditional";
+      const expectedMode = ALWAYS_MODE_CQ.has(name)
+        ? "always"
+        : MANDATORY_ON_MATCH_CQ.has(name)
+          ? "mandatory-on-match"
+          : "conditional";
       expect(entry!.mode).toBe(expectedMode);
       expect(entry!.triggerConditions.length).toBeGreaterThan(0);
     }
+  });
+
+  // ── Mandatory-on-match mode (2.2.0 — CQ1/CQ2 hard mandate) ──────
+  it("marks hatch3r-ui and hatch3r-ux as mandatory-on-match (2.2.0)", () => {
+    for (const name of ["hatch3r-ui", "hatch3r-ux"]) {
+      const entry = SPECIALIST_TRIGGER_TABLE.find((t) => t.specialist === name);
+      expect(entry, `${name} missing from SPECIALIST_TRIGGER_TABLE`).toBeDefined();
+      expect(entry!.mode).toBe("mandatory-on-match");
+    }
+  });
+
+  it("returns mandatory: true when a mandatory-on-match specialist triggers", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("returns mandatory: true when hatch3r-ux triggers on a flow component", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["src/flows/Checkout.tsx"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("omits mandatory when a mandatory-on-match specialist does not trigger", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/server/route.ts"]);
+    expect(result.triggered).toBe(false);
+    expect(result.mandatory).toBeUndefined();
+  });
+
+  it("does not set mandatory on triggered conditional or always specialists", () => {
+    const conditional = shouldTriggerSpecialist("hatch3r-performance", ["src/views/Home.vue"]);
+    expect(conditional.triggered).toBe(true);
+    expect(conditional.mandatory).toBeUndefined();
+    const always = shouldTriggerSpecialist("hatch3r-security", ["src/foo.ts"]);
+    expect(always.triggered).toBe(true);
+    expect(always.mandatory).toBeUndefined();
   });
 
   it("should trigger hatch3r-ui on UI component file changes", () => {
@@ -658,6 +702,57 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
   it("does NOT match a backend segment as a basename substring (D7-20)", () => {
     // "routesConfig.ts" contains "routes" but not as a directory segment.
     const result = shouldTriggerSpecialist("hatch3r-reliability", ["src/lib/routesConfig.ts"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  // ── Microcopy/locale triggers on hatch3r-ux (Bugbot r3547623249) ──
+  // The CQ2 row's "Microcopy or i18n strings modified" trigger condition must
+  // be matchable by the predicate: a locale-only diff mandates the UX
+  // specialist at Tier 2/3 instead of silently skipping it.
+  it("triggers hatch3r-ux with mandatory: true on a locale-catalog-only diff (r3547623249)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["src/i18n/locales/en.json"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+    expect(result.reasons.some((r) => r.includes("src/i18n/locales/en.json"))).toBe(true);
+  });
+
+  it("triggers hatch3r-ux on a YAML catalog under a locales/ segment", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["locales/de.yml"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("triggers hatch3r-ux on locale-format extensions regardless of directory", () => {
+    // gettext (.po), XLIFF (.xlf), Flutter ARB (.arb): i18n-specific formats
+    // ride the basename matcher, no directory evidence required.
+    for (const file of ["po/messages.po", "translations/app.xlf", "lib/l10n/intl_en.arb"]) {
+      const result = shouldTriggerSpecialist("hatch3r-ux", [file]);
+      expect(result.triggered, `${file} should trigger hatch3r-ux`).toBe(true);
+      expect(result.mandatory, `${file} should be a Tier 2/3 hard mandate`).toBe(true);
+    }
+  });
+
+  it("triggers hatch3r-ux on an i18n config basename", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["i18n.config.ts"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("does NOT trigger hatch3r-ux on a .ts-only backend diff", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["src/server/route.ts"]);
+    expect(result.triggered).toBe(false);
+    expect(result.mandatory).toBeUndefined();
+  });
+
+  it("does NOT trigger hatch3r-ux on generic .json files without locale directory evidence", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["package.json", "tsconfig.json"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  it("does NOT trigger hatch3r-ux on a non-catalog file inside a locales/ dir", () => {
+    // The locale suffix gate mirrors the D7-20 backend source-suffix guard: a
+    // README under locales/ is not a catalog change.
+    const result = shouldTriggerSpecialist("hatch3r-ux", ["locales/README.md"]);
     expect(result.triggered).toBe(false);
   });
 });

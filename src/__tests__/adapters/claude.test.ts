@@ -1141,6 +1141,114 @@ You are a test agent.`,
     }
   });
 
+  // release/2.2.0: per-skill / per-command `model:` frontmatter. Claude Code
+  // documents the field on skills and slash commands with the subagent value
+  // set (sonnet/opus/haiku/fable, full ID, or `inherit`; omitted = inherit),
+  // so emission reuses the D9-3 recognizable-value gate; `inherit` and
+  // non-Claude values are omitted (omission IS the inherit/default semantic).
+  // `models.default` deliberately does NOT feed skills/commands.
+  describe("skill and command model: frontmatter (release/2.2.0)", () => {
+    /** Temp canonical root with one skill (`my-skill`) and one command (`my-command`), neither carrying frontmatter `model:`. */
+    async function setupCanonical(tempDir: string): Promise<string> {
+      const canonicalRoot = join(tempDir, "agents");
+      await mkdir(join(canonicalRoot, "skills", "my-skill"), { recursive: true });
+      await writeFile(
+        join(canonicalRoot, "skills", "my-skill", "SKILL.md"),
+        `---\nname: my-skill\ndescription: A model-matrix test skill\n---\n# My Skill\n\nDo skill things.`,
+        "utf-8",
+      );
+      await mkdir(join(canonicalRoot, "commands"), { recursive: true });
+      await writeFile(
+        join(canonicalRoot, "commands", "my-command.md"),
+        `---\nid: my-command\ntype: command\ndescription: A model-matrix test command\n---\n# My Command\n\nDo command things.`,
+        "utf-8",
+      );
+      return canonicalRoot;
+    }
+
+    function frontmatterOf(content: string): string {
+      const match = content.match(/^---\n([\s\S]*?)\n---/);
+      expect(match).not.toBeNull();
+      return match![1];
+    }
+
+    it("emits no model line when nothing is configured, even with models.default set (agents-only default)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-sc-model-unset-"));
+      try {
+        const canonicalRoot = await setupCanonical(tempDir);
+        const manifest = makeManifest({ models: { default: "opus" } });
+        const outputs = await adapter.generate(canonicalRoot, manifest);
+        const skill = outputs.find((o) => o.path === ".claude/skills/hatch3r-my-skill/SKILL.md");
+        const command = outputs.find((o) => o.path === ".claude/commands/hatch3r-my-command.md");
+        expect(skill).toBeDefined();
+        expect(command).toBeDefined();
+        expect(frontmatterOf(skill!.content)).not.toMatch(/^model:/m);
+        expect(frontmatterOf(command!.content)).not.toMatch(/^model:/m);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("emits model: for models.skills / models.commands entries with a Claude-recognizable value (alias-expanded)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-sc-model-set-"));
+      try {
+        const canonicalRoot = await setupCanonical(tempDir);
+        const manifest = makeManifest({
+          models: { skills: { "my-skill": "opus" }, commands: { "my-command": "claude-sonnet-4-6" } },
+        });
+        const outputs = await adapter.generate(canonicalRoot, manifest);
+        const skill = outputs.find((o) => o.path === ".claude/skills/hatch3r-my-skill/SKILL.md");
+        const command = outputs.find((o) => o.path === ".claude/commands/hatch3r-my-command.md");
+        expect(frontmatterOf(skill!.content)).toMatch(/^model: claude-opus-4-8$/m);
+        expect(frontmatterOf(command!.content)).toMatch(/^model: claude-sonnet-4-6$/m);
+        // No `## Recommended Model` prose fallback on skills/commands — that
+        // advisory surface stays agent-only.
+        expect(skill!.content).not.toContain("## Recommended Model");
+        expect(command!.content).not.toContain("## Recommended Model");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("omits model: for a non-Claude value (gpt-4) and for inherit", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-sc-model-gate-"));
+      try {
+        const canonicalRoot = await setupCanonical(tempDir);
+        const manifest = makeManifest({
+          models: { skills: { "my-skill": "gpt-4" }, commands: { "my-command": "inherit" } },
+        });
+        const outputs = await adapter.generate(canonicalRoot, manifest);
+        const skill = outputs.find((o) => o.path === ".claude/skills/hatch3r-my-skill/SKILL.md");
+        const command = outputs.find((o) => o.path === ".claude/commands/hatch3r-my-command.md");
+        expect(frontmatterOf(skill!.content)).not.toMatch(/^model:/m);
+        expect(frontmatterOf(command!.content)).not.toMatch(/^model:/m);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("customize.yaml model beats the manifest map on skills and commands", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-sc-model-cust-"));
+      try {
+        const canonicalRoot = await setupCanonical(tempDir);
+        await mkdir(join(tempDir, ".hatch3r", "skills"), { recursive: true });
+        await writeFile(join(tempDir, ".hatch3r", "skills", "my-skill.customize.yaml"), "model: haiku", "utf-8");
+        await mkdir(join(tempDir, ".hatch3r", "commands"), { recursive: true });
+        await writeFile(join(tempDir, ".hatch3r", "commands", "my-command.customize.yaml"), "model: haiku", "utf-8");
+        const manifest = makeManifest({
+          models: { skills: { "my-skill": "opus" }, commands: { "my-command": "opus" } },
+        });
+        const outputs = await adapter.generate(canonicalRoot, manifest, tempDir);
+        const skill = outputs.find((o) => o.path === ".claude/skills/hatch3r-my-skill/SKILL.md");
+        const command = outputs.find((o) => o.path === ".claude/commands/hatch3r-my-command.md");
+        expect(frontmatterOf(skill!.content)).toMatch(/^model: claude-haiku-4-5$/m);
+        expect(frontmatterOf(command!.content)).toMatch(/^model: claude-haiku-4-5$/m);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   it("all outputs have action 'create'", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);

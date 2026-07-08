@@ -63,7 +63,7 @@ When the review surface decomposes into independent units (routes, flows, servic
 
 1. **Identify the unit of decomposition.** The specialist file names the unit (route for `hatch3r-ui`, flow for `hatch3r-ux`, security domain for `hatch3r-security`, service or layer for `hatch3r-reliability`, mandate class for `hatch3r-testability`, etc.).
 2. **Spawn one sub-agent per unit via the Task tool.** Provide: unit identifier, the per-unit checklist subset, links to the relevant rules and skills.
-3. **Verify parallel-safety conditions** per `rules/hatch3r-agent-orchestration.md` §Parallel Safety — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+3. **Verify parallel-safety conditions** per `rules/hatch3r-agent-orchestration.md` §Parallel Safety — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 4. **Run unit audits in parallel.** Units are independent under the conditions above.
 5. **Aggregate results** into a single CQ report with per-unit rows; deduplicate findings that recur across units (one report at the shared-component level, not one per consumer).
 6. **Serialize only on dependency edges** — aggregation runs after per-unit measurements complete; cross-unit pattern passes run once per-unit outputs are durable.

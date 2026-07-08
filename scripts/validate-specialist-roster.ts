@@ -24,8 +24,10 @@
  *      specialist enumerations name every SSOT specialist.
  *   4. Full-pipeline orchestrator commands (workflow / revision / board-pickup)
  *      `agentPipeline:` frontmatter includes every always-mode + evaluate-mode
- *      specialist. Conditional-mode specialists are excluded from the
- *      strict-match (a command may legitimately omit a conditional specialist).
+ *      + mandatory-on-match specialist (a full-pipeline orchestrator must be
+ *      able to dispatch a hard-mandate Tier 2/3 specialist). Conditional-mode
+ *      specialists are excluded from the strict-match (a command may
+ *      legitimately omit a conditional specialist).
  *      `quick-change` is exempt from the evaluate-mode (docs-writer) check — it
  *      is the documented Tier-1 carve-out that intentionally skips docs-writer
  *      (`commands/hatch3r-quick-change.md` "intentionally skips"), but is still
@@ -58,8 +60,8 @@
  *   ROSTER-AGENT-FILE      SSOT specialist has no `agents/<id>.md` file
  *   ROSTER-IMPL-MISSING    SSOT specialist not named in implementer.md Phase 4
  *   ROSTER-REVIEW-MISSING  SSOT specialist not named in reviewer.md Phase 4
- *   ROSTER-CMD-MISSING     always/evaluate specialist absent from a command's
- *                          agentPipeline
+ *   ROSTER-CMD-MISSING     always/evaluate/mandatory-on-match specialist absent
+ *                          from a command's agentPipeline
  *   ROSTER-WATCHDOG-MISSING  SSOT specialist or core pipeline agent declares
  *                          no watchdog directive (field or shared-frame ref)
  *   ROSTER-CQ-TABLE-DRIFT  the shared CQ roster is missing its rows, an agent
@@ -118,8 +120,10 @@ const CQ_ROSTER_POINTER = CQ_ROSTER_REL;
 
 // ── Command dispatch-surface policy (F7.3-H3 rec step 4) ──────────
 //
-// Full-pipeline orchestrators must carry every always-mode + evaluate-mode
-// specialist in their `agentPipeline`. quick-change is the Tier-1 carve-out:
+// Full-pipeline orchestrators must carry every always-mode + evaluate-mode +
+// mandatory-on-match specialist in their `agentPipeline` (a full-pipeline
+// orchestrator must be able to dispatch a hard-mandate Tier 2/3 specialist).
+// quick-change is the Tier-1 carve-out:
 // `commands/hatch3r-quick-change.md` documents that it "intentionally skips"
 // docs-writer (an evaluate-mode specialist), so it is held only to the
 // always-mode floor.
@@ -127,6 +131,10 @@ const FULL_PIPELINE_COMMANDS: readonly string[] = [
   "hatch3r-workflow.md",
   "hatch3r-revision.md",
   "hatch3r-board-pickup.md",
+  // 2.2.0: pr-resolve dispatches the full Tier 2/3 surface (review loop +
+  // mandatory-on-match ui/ux at stage 7c), so it is held to the same
+  // always + evaluate + mandatory-on-match floor as the other three.
+  "hatch3r-pr-resolve.md",
 ];
 const ALWAYS_FLOOR_COMMANDS: readonly string[] = ["hatch3r-quick-change.md"];
 
@@ -183,7 +191,9 @@ function ssotSpecialistIds(): string[] {
 }
 
 /** Specialist IDs whose mode requires presence in every full pipeline. */
-function specialistIdsByMode(modes: ReadonlyArray<"always" | "evaluate" | "conditional">): string[] {
+function specialistIdsByMode(
+  modes: ReadonlyArray<"always" | "evaluate" | "conditional" | "mandatory-on-match">,
+): string[] {
   return SPECIALIST_TRIGGER_TABLE.filter((t) => modes.includes(t.mode)).map((t) => t.specialist);
 }
 
@@ -251,7 +261,7 @@ function extractRuleTableSpecialists(ruleBody: string): Set<string> {
 /**
  * Extract specialist trigger-mode pairs from the rule table. Each row carries
  * the specialist id in column 1 and the trigger mode (Always/Evaluate/
- * Conditional) in column 2. Used by checkRuleTriggerModes() to assert mode
+ * Conditional/Mandatory-on-match) in column 2. Used by checkRuleTriggerModes() to assert mode
  * parity with the SSOT — a row that flips a specialist from "Conditional" to
  * "Always" in the rule without the corresponding SSOT change is a Phase 4
  * Specialist Trigger Table parity violation (Finding D7-M7 / D7-SA7.3-1).
@@ -272,7 +282,7 @@ function extractRuleTableTriggerModes(ruleBody: string): Map<string, string> {
       continue;
     }
     const m = trimmed.match(
-      /^\|\s*`(hatch3r-[a-z0-9-]+)`[^|]*\|\s*(Always|Evaluate|Conditional)\s*\|/i,
+      /^\|\s*`(hatch3r-[a-z0-9-]+)`[^|]*\|\s*(Always|Evaluate|Conditional|Mandatory-on-match)\s*\|/i,
     );
     if (m) modes.set(m[1], m[2].toLowerCase());
   }
@@ -448,10 +458,17 @@ function checkAgentEnumeration(
 async function checkCommands(commandsDir: string): Promise<Finding[]> {
   const out: Finding[] = [];
   const alwaysIds = specialistIdsByMode(["always"]);
-  const alwaysAndEvaluateIds = specialistIdsByMode(["always", "evaluate"]);
+  // Full-pipeline orchestrators must be able to dispatch every hard-mandate
+  // specialist: always + evaluate + mandatory-on-match (2.2.0 — a triggered
+  // mandatory-on-match specialist is a non-skippable Tier 2/3 spawn).
+  const fullPipelineRequiredIds = specialistIdsByMode([
+    "always",
+    "evaluate",
+    "mandatory-on-match",
+  ]);
 
   const targets: { file: string; required: string[] }[] = [
-    ...FULL_PIPELINE_COMMANDS.map((file) => ({ file, required: alwaysAndEvaluateIds })),
+    ...FULL_PIPELINE_COMMANDS.map((file) => ({ file, required: fullPipelineRequiredIds })),
     ...ALWAYS_FLOOR_COMMANDS.map((file) => ({ file, required: alwaysIds })),
   ];
 
@@ -484,7 +501,7 @@ async function checkCommands(commandsDir: string): Promise<Finding[]> {
           level: "error",
           code: "ROSTER-CMD-MISSING",
           file: `commands/${file}`,
-          message: `agentPipeline is missing required specialist \`${id}\` (always/evaluate-mode specialists must appear in full-pipeline orchestrators per F7.3-H3 rec step 4)`,
+          message: `agentPipeline is missing required specialist \`${id}\` (always/evaluate/mandatory-on-match-mode specialists must appear in full-pipeline orchestrators — a full-pipeline orchestrator must be able to dispatch a hard-mandate Tier 2/3 specialist — per F7.3-H3 rec step 4)`,
         });
       }
     }

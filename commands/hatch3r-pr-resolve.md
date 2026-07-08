@@ -2,7 +2,7 @@
 id: hatch3r-pr-resolve
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-performance]
+agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-performance]
 description: "Read open PR comments, evaluate each against current code via the rigor contract, implement accepted findings, reply inline. Multi-platform."
 argument-hint: "[pr-number]"
 tags: [implementation, review, ctx:team-only]
@@ -14,8 +14,8 @@ efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:
-  count: 9
-  rationale: Per-PR fanout — implementer, lint-fixer, testability (CQ5, FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security (CQ3), docs-writer, ui (CQ1), performance (CQ7)) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 10
+  rationale: Per-PR fanout — implementer, lint-fixer, testability (CQ5, FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security (CQ3), docs-writer, performance (CQ7), plus ui (CQ1) and ux (CQ2) as mandatory-on-match Tier 2/3 gates — a trigger-glob match requires a dedicated instance) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -34,12 +34,13 @@ sub_agents_spawned:
 | 6. Fix implementation | `hatch3r-implementer`, `hatch3r-lint-fixer`, `hatch3r-testability` | Per finding group | When FIX NOW items exist |
 | 7a. Review loop | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations) | No (sequential) | When code changed (Tier 2/3) |
 | 7b. Final quality — mandatory | `hatch3r-testability`, `hatch3r-security` | Yes | When code changed |
-| 7c. Final quality — conditional | `hatch3r-docs-writer`, `hatch3r-ui`, `hatch3r-performance`, `hatch3r-lint-fixer` | Yes | When triggered |
+| 7c. Final quality — mandatory-on-match + conditional | `hatch3r-ui`, `hatch3r-ux` (mandatory-on-match); `hatch3r-docs-writer`, `hatch3r-performance`, `hatch3r-lint-fixer` (conditional) | Yes | When triggered (ui/ux non-skippable on trigger-glob match at Tier 2/3) |
 | 8. Post replies | Orchestrator (inline, platform CLI) | Per comment | Yes |
 | 9. Commit and push | Orchestrator (inline) | No | When code changed |
+| 9.5. Re-poll gate | Orchestrator (inline) | No | When commit pushed |
 | 10. Iteration Summary | Orchestrator (inline) | No | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 ---
 
@@ -85,8 +86,8 @@ If no `.hatch3r/hatch.json` exists, fall back to GitHub and proceed — the comm
 
 ## Token-Saving Directives
 
-1. **One fetch per comment scope.** Issue exactly one paginated request per scope in Step 2; cache and reuse for Steps 3, 4, and 8.
-2. **One diff computation.** Compute `git diff {defaultBranch}...HEAD` once in Step 1; reuse for Steps 4 (outdated detection) and 7 (review loop input).
+1. **One fetch per comment scope per round.** Issue exactly one paginated request per scope in Step 2; cache and reuse for Steps 3, 4, and 8. Step 9.5b poll attempts are the one sanctioned re-fetch path (max 5 per poll).
+2. **One diff computation per round.** Compute `git diff {defaultBranch}...HEAD` once in Step 1; reuse for Steps 4 (outdated detection) and 7 (review loop input). A Step 9.5 round re-entry refreshes it once against the new HEAD.
 3. **Targeted file reads.** In Step 4, read only the files referenced by a comment's `path`/`line` — not the full codebase.
 4. **No re-reading shared rules.** `scope: always` rules from `rules/` load once at session start; pass their content into sub-agent prompts (Step 6) rather than reloading.
 5. **Per-platform reference cache.** Load the matching `commands/board/shared-{platform}.md` once at run start (Shared Context). Step 8 reads templates from the cache, not from disk.
@@ -136,6 +137,11 @@ run_cache:
   reply_drafts: [{comment_id, body, endpoint}, ...]
   reply_post_results: [{comment_id, status: posted|failed, error?: <string>}, ...]
   deferred_findings: [<finding>, ...]        # written to todo.md in Step 5c
+  ledger_file: <path of this run's findings-ledger JSONL>  # .hatch3r/findings/<YYYY-MM-DD>-pr-resolve-<run8>.jsonl per rules/hatch3r-findings-ledger.md
+  round:
+    index: <int, 1-based>                    # initialized 1; incremented per Step 9.5 re-poll round
+    started_at: <iso>                        # run start; reset to now when a re-poll round begins (9.5b)
+    comments_per_round: [<int>, ...]         # per-round comment count — [0] = Step 3 finding count, then 9.5b retained counts
   errors: [<error_record>, ...]
 ```
 
@@ -143,7 +149,7 @@ run_cache:
 
 ## Workflow
 
-Execute these steps in order. **Do not skip any step.** The only ASK gate is Step 5; after the user accepts triage, run autonomously through Step 10.
+Execute these steps in order. **Do not skip any step.** Two ASK gate classes bound the run: Step 5 (triage routing, once per round) and Step 9.5 (re-poll consent, after each push). After the user accepts triage, each round runs autonomously through Step 9; Step 9.5 bounds the loop; Step 10 closes the run.
 
 ---
 
@@ -163,7 +169,7 @@ Before the Step 5 ASK gate (the only mutation gate, after which fan-out begins i
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <tier → Tier 1 ~1, Tier 2 ~4, Tier 3 up to 9; 0 when no unresolved comments>
+  expected_sa_count: <tier → Tier 1 ~1, Tier 2 ~4, Tier 3 up to 10; 0 when no unresolved comments>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
@@ -373,7 +379,7 @@ After Step 4 completes, recompute Step 0's tier using the now-known severities. 
 
 ## Step 5: Triage Routing + ASK Checkpoint (only mutation gate)
 
-**Tier-3 specialist mandate (P8 B2).** For Tier 3 PRs (6+ findings OR any Critical severity), the post-fix specialist pass (`hatch3r-testability`, `hatch3r-security`, `hatch3r-docs-writer`) MUST run in parallel. Specialists may NOT be deferred via "Needs your call" for cost reasons. Cost-dominance principle applies: token cost of specialist sub-agents is dominated by the quality gain of catching defects pre-merge.
+**Tier-3 specialist mandate (P8 B2).** For Tier 3 PRs (6+ findings OR any Critical severity), the post-fix specialist pass (`hatch3r-testability`, `hatch3r-security`, `hatch3r-docs-writer`) MUST run in parallel. A triggered mandatory-on-match specialist (`hatch3r-ui` CQ1 / `hatch3r-ux` CQ2) joins the pass as its own dedicated instance whenever the round's diff matches its trigger row (Step 7c). Specialists may NOT be deferred via "Needs your call" for cost reasons. Cost-dominance principle applies: token cost of specialist sub-agents is dominated by the quality gain of catching defects pre-merge.
 
 #### 5a. Apply Routing Heuristics
 
@@ -428,9 +434,9 @@ Tier: 2 (standard pipeline)
 Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify_n} clarify • {needs_call_n} need your call • {defer_n} defer
 ```
 
-#### 5c. ASK (only gate)
+#### 5c. ASK (triage gate, once per round)
 
-> Found {N} comments on PR #{pr_number}. Evaluation done. Review the suggested routing. Adjustments:
+> Found {N} comments on PR #{pr_number} (round {round.index}). Evaluation done. Review the suggested routing. Adjustments:
 > - `accept` — proceed with suggested routing
 > - `fix N` — promote a Decline/Clarify/NeedsCall item to FIX NOW
 > - `decline N` — demote a FIX NOW item to DECLINE
@@ -443,7 +449,7 @@ Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify
 
 If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-revision.md` §5b Routing ASK → Critical Deferral Protocol: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
 
-After the user accepts, the run is autonomous until Step 10.
+After the user accepts, the round is autonomous through Step 9; Step 9.5 then gates any further round.
 
 #### 5d. File Deferred Findings to todo.md
 
@@ -452,11 +458,11 @@ If any findings route to DEFER, append a single epic-context block to `todo.md`:
 ```markdown
 # Follow-ups from PR #{pr_number} pr-resolve ({date})
 # Epic: group all items below into one epic during board-fill
-- {comment author}: {finding description} (severity: {severity}, file: {file:line})
+- {comment author}: {finding description} (severity: {severity}, file: {file:line}) [ledger: {finding_id}]
 - ...
 ```
 
-Cache the deferred list. Reply templates in Step 8 reference todo.md for these items.
+Cache the deferred list. For each DEFER item, also append a `deferred` ledger row whose `closure_ref` is the item's todo.md anchor (`rules/hatch3r-findings-ledger.md`). Reply templates in Step 8 reference todo.md for these items.
 
 ---
 
@@ -509,12 +515,12 @@ If any gate fails, identify failures and either fix inline (single-line lint/typ
 
 #### 7b. Review Loop (Tier 2/3 only; Tier 1 skips)
 
-Spawn `hatch3r-reviewer` -> `hatch3r-fixer` per `commands/revision/revision-quality.md` Stage 1 (max 3 iterations, oscillation detection, confidence decay). The reviewer prompt MUST include:
+Spawn `hatch3r-reviewer` -> `hatch3r-fixer` per `commands/revision/revision-quality.md` Stage 1 (max 3 iterations, oscillation detection, confidence decay) — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points). The reviewer prompt MUST include:
 - The cached diff from Step 1e.
 - All `scope: always` rule directives.
 - Iteration number and prior findings.
 - The Confidence expression requirement (verbatim).
-- **Cross-PR Findings block (D13-SA13.1-F08).** Before the first reviewer spawn, scan `.hatch3r/review-findings/` (skip silently if the directory is absent) for entries whose `applies-to` glob matches any file in the cached diff; pass the 5 most-recent matches (by `created` descending) into the reviewer prompt as a `## Cross-PR Findings` block of `{id, applies-to, severity, pr, verdict, summary}` rows. The reviewer (which declares `consults_cross_pr_findings: true`) weighs these as prior organisational memory per its Cross-PR Finding Memory section. After the loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved this run (atomic write via `src/merge/safeWrite.ts`), so the next PR on the same files inherits the memory.
+- **Cross-PR Findings block (D13-SA13.1-F08).** Before the first reviewer spawn, scan `.hatch3r/review-findings/` (skip silently if the directory is absent) for entries whose `applies-to` glob matches any file in the cached diff; pass the 5 most-recent matches (by `created` descending) into the reviewer prompt as a `## Cross-PR Findings` block of `{id, applies-to, severity, pr, verdict, summary}` rows. The reviewer (which declares `consults_cross_pr_findings: true`) weighs these as prior organisational memory per its Cross-PR Finding Memory section. After the loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved this run (atomic write via `src/merge/safeWrite.ts`), so the next PR on the same files inherits the memory — derive the entry from the ledger fold and cite its `finding_id` (`rules/hatch3r-findings-ledger.md` → Store Boundaries).
 
 The reviewer's output MUST include a top-level `confidence: high | medium | low` so the gate evaluates pass/second_pass/escalate per `src/pipeline/reviewLoop.ts` semantics.
 
@@ -528,9 +534,12 @@ After 7b is clean:
 - `hatch3r-testability` (CQ5) — verify tests for changed code paths meet the mandate map / coverage floor.
 - `hatch3r-security` (CQ3) — security review of all changes.
 
+**Mandatory-on-match (Tier 2/3):** when the round's diff matches a specialist's trigger row in the Phase 4 Specialist Trigger Table (`rules/hatch3r-agent-orchestration.md`), a dedicated instance MUST spawn — never merged into another spawn. Skipping a triggered one at Tier 2/3 is a gate failure.
+- `hatch3r-ui` (CQ1) — UI component / theme / token files in the diff (`*.{tsx,jsx,vue,svelte}`, `tailwind.config.*`, design-token registries).
+- `hatch3r-ux` (CQ2) — flow / modal / route-transition / error-state files in the diff; microcopy or i18n strings changed.
+
 **Conditional:**
 - `hatch3r-docs-writer` — when fixes touched public APIs, architectural patterns, or user-facing behavior.
-- `hatch3r-ui` (CQ1) — when the diff includes UI component or style files.
 - `hatch3r-performance` (CQ7) — when the diff includes hot-path changes (DB queries, API handlers, render loops).
 - `hatch3r-lint-fixer` — when residual lint/type errors surfaced after Step 6.
 
@@ -547,7 +556,7 @@ For every finding in `run_cache.triage_decisions` (including DECLINE and DEFER b
 | Decision | Template |
 |----------|----------|
 | FIX NOW — implemented | `Implemented in {commit_sha}: {one-line summary}. Confidence: {high|medium}.` |
-| FIX NOW — failed (BLOCKED / PARTIAL) | `Attempted but blocked: {reason from sub-agent}. Surfaced as follow-up in todo.md.` |
+| FIX NOW — failed (BLOCKED / PARTIAL) | `Attempted but blocked: {reason}. Tracked as {finding_id} in the findings ledger; follow-up in todo.md.` |
 | DECLINE — outdated | `The code at this location has changed since this comment; the original concern no longer applies. Current behavior: {one-line summary}.` |
 | DECLINE — disagree | `Considered, declining because: {reasoning from evaluation.causal_chain}. Counter-argument considered: {evaluation.counter_argument}. Happy to revisit if context differs.` |
 | DECLINE — already done | `Already addressed in {commit_sha}: {one-line summary}.` |
@@ -625,14 +634,44 @@ If `run_cache.fix_results.files_changed` is empty (every comment was DECLINE / D
 
 ---
 
+## Step 9.5: Re-Poll Gate (ask each round)
+
+Runs after every Step 9 push. Skipped when Step 9 was skipped — no new HEAD means AI review tools have nothing new to review. Round state lives in `run_cache.round` and persists to the checkpoint (`roundIndex`, `roundStartedAt`).
+
+#### 9.5a. ASK (re-poll consent)
+
+> Pushed {sha} to PR #{N} (round {round.index}). AI review tools (CodeRabbit, Copilot code review, etc.) may post new comments on the new HEAD within a few minutes. Poll for comments created after {round.started_at} and resolve them in another round? (poll / done)
+
+- `done` → proceed to Step 10.
+- `poll` → run 9.5b.
+
+#### 9.5b. Poll
+
+Re-issue the Step 2 fetch (all scopes) every 60s, max 5 attempts (~300s budget). Retain only comments where ALL three hold:
+
+1. `created_at > round.started_at`.
+2. `comment_id` absent from checkpoint `postedCommentIds` — already-replied threads are never re-processed.
+3. Thread not resolved (the guardrail 9 filter).
+
+**New comments retained:** increment `round.index`, reset `round.started_at` to now, append the retained count to `round.comments_per_round`, refresh the Step 1e diff against the new HEAD, and re-enter at Step 2 scoped to the retained set. The round runs Steps 2–9 in full — normalize, evaluate, Step 5 triage ASK, fix, verify, reply, commit + push — then returns to 9.5a.
+
+**Zero retained after 5 attempts:** report "No new comments after 300s." and re-ask 9.5a (keep polling / done).
+
+There is no automatic round cap — the 9.5a ASK is the bound; every round is user-approved.
+
+---
+
 ## Step 10: Resolution Summary
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` — a 1–2 line recap plus every exception line whose firing condition holds, using the closed Status enum. Disposition mapping: DEFER dispositions land on the `Not done:` line; NEEDS_CLARIFICATION items land on the `Blockers:` line. Worked example:
+Reconcile the findings ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`): zero rows may fold `pending`/`in-fix`; open Critical/Warning force an ASK; unattended runs record them as `escalated` and exit PARTIAL.
+
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` — a 1–2 line recap plus every exception line whose firing condition holds, using the closed Status enum. Disposition mapping: DEFER dispositions land on the `Not done:` line; NEEDS_CLARIFICATION items land on the `Blockers:` line. Recap facets include `rounds {n}` (from `round.index`); when rounds > 1, a `Rounds:` exception line enumerates per-round counts sourced from `round.comments_per_round`. Worked example:
 
 ```markdown
 ## Iteration Summary
-**PARTIAL** — Resolved 8 of 10 comments on PR #142; replies posted; commit pushed.
-files 6 (+184/−42) · sa 7/9 · gates 6/6 · cost Δ−12% tok / Δ+8% min · tier 2
+**PARTIAL** — Resolved 11 of 13 comments on PR #142 across 2 rounds; replies posted; commits pushed.
+files 6 (+184/−42) · sa 7/10 · gates 6/6 · cost Δ−12% tok / Δ+8% min · tier 2 · rounds 2
+Rounds: r1 10 comments (8 fixed) · r2 3 comments (3 fixed)
 Not done: c-214 @maya DEFER — deferred: tracked in todo.md for /hatch3r-board-fill
 Blockers: c-207 @jordan NEEDS_CLARIFICATION — awaiting reviewer response
 Confidence: medium — reviewer loop clean after 1 round; 2 comments unresolved. The fix required one round of corrections, which is normal for moderately complex changes. A brief human review is recommended.
@@ -649,9 +688,9 @@ Status decision rules:
 
 ## Resumability (Decision 27/30)
 
-pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the only mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), and commit + push (Step 9). Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
+pr-resolve is long-running — a Tier 3 PR with many open comments runs identity resolution (Step 1), full-platform comment fetch (Step 2), normalization + rigor-contract evaluation (Steps 3–4), the only mutation-gate ASK (Step 5), parallel-per-finding fix implementation (Step 6), the reviewer ↔ fixer review loop + Phase 4 specialist batch (Step 7), per-comment platform-API replies (Step 8), commit + push (Step 9), and the Step 9.5 re-poll gate, which can add further full rounds. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-fetching comments, re-evaluating findings, or re-posting platform-API replies that already shipped.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.pr-resolve-workspace/`; step range the Step 0 → Step 10 progression; `wave` = per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a; snapshot/rollback paths pre-commit working-tree state and the per-comment reply attempt log. Write points: after Step 1 PR identity resolves, after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (only mutation gate — confirmed routing decisions persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), and after Step 9 commit + push.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.pr-resolve-workspace/`; step range Step 0 → Step 10 with a Step 9.5 loop-back to Step 2; `wave` = per-finding fix-batch index in Step 6 and review-loop iteration index in Step 7a; snapshot/rollback paths pre-commit working-tree state and the per-comment reply attempt log; checkpoint meta gains `roundIndex` + `roundStartedAt`. Write points: after Step 1 PR identity resolves, after Step 2 comment fetch locks the normalizedFindings input, after Step 3 normalization, after Step 4 rigor-contract evaluation, after the Step 5 ASK checkpoint (only mutation gate — confirmed routing decisions persist so resume does not re-prompt), after each Step 6 per-finding implementer/lint-fixer/testability batch returns, after each Step 7a review-loop iteration, after each Step 7b–7c specialist batch returns, after each Step 8 platform-API reply records its commentId in `postedCommentIds` (the resume path skips replies with an entry there — no double-posts), after Step 9 commit + push, and after each Step 9.5 decision (round counter + `roundStartedAt` persist; the `postedCommentIds` filter carries across rounds).
 
 ---
 
@@ -675,10 +714,10 @@ Close the run with the recap-contract Iteration Summary per `rules/hatch3r-itera
 
 This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
 
-- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Step 5 ASK gate (the only mutation gate; fan-out begins in Step 6).
+- **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Step 5 ASK gate (the only mutation gate; fan-out begins in Step 6). Each Step 9.5 re-poll round re-emits it before that round's Step 5 ASK — re-entry passes through Step 4e → Step 5, so the per-round estimate fires on the same path.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 9` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 1 (one specialist, no review loop); Tier 2 ≈ 4 (FIX NOW fix group + review loop); Tier 3 up to 9 (full pipeline including the parallel Tier-3 final-quality specialist mandate). A no-comment short-circuit (Step 2d) emits `actual_sa_count: 0`. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 10` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 1 (one specialist, no review loop); Tier 2 ≈ 4 (FIX NOW fix group + review loop); Tier 3 up to 10 (full pipeline including the parallel Tier-3 final-quality specialist mandate and both mandatory-on-match specialists when triggered). A no-comment short-circuit (Step 2d) emits `actual_sa_count: 0`. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 
@@ -696,21 +735,22 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 | Review loop hits 3 iterations with findings remaining | ASK the user per `commands/revision/revision-quality.md` §Stage 1 Review Loop step 3 (3-iteration ASK). |
 | Quality gate fails 2 retries (Step 7a) | Record in `run_cache.errors`; Step 10 `Status: PARTIAL`. |
 | `git push` rejected (e.g., upstream changed mid-run) | Halt at Step 9 with: "Remote branch changed during run. Run `git pull --rebase`, resolve conflicts, then re-run /hatch3r-pr-resolve to repost any failed replies." |
+| Step 9.5 poll budget exhausted (5 × 60s) with zero new comments | Report "No new comments after 300s."; re-ask 9.5a (keep polling / done). |
 | GraphQL `reviewThreads` query fails (GitHub resolution state) | Fall back to evaluating every inline comment (no resolution filter); record a Low-confidence note in `run_cache.errors`. |
 
 ---
 
 ## Guardrails
 
-1. **One ASK gate.** Step 5 is the only user-facing checkpoint. After `accept`, the run proceeds through Steps 6–10 without further prompting (per user decision).
+1. **Two ASK gate classes.** Step 5 (triage routing, once per round) and Step 9.5 (re-poll consent, after each push) are the only user-facing checkpoints. Within a round, after `accept` Steps 6–9 run without further prompting (per user decision).
 2. **No thread closure.** Never mark a thread resolved (`isResolved: true`, Azure `status: fixed`, GitLab `resolved: true`). Thread resolution is reviewer-owned semantics.
 3. **No review verdicts.** Never approve, dismiss, or request changes on a PR review. Reply-only.
 4. **No labels or status checks.** PR labels and status checks are out of scope (handled by `hatch3r-board-fill` and CI integrations).
-5. **No cross-PR work.** One PR per invocation. The `<pr-number>` argument is bound to a single PR.
+5. **No cross-PR work.** One PR per invocation. The `<pr-number>` argument is bound to a single PR. Step 9.5 rounds iterate on the same PR only — a re-poll never widens scope to another PR.
 6. **No base-branch push.** Step 9 pushes only to `pr.headRefName`. Refuse if the current branch differs.
 7. **Reply body hygiene.** Strip internal paths (`/Users/`, `/home/`, `.audit-workspace/`, `.hatch3r/`). Truncate over 60000 bytes.
 8. **Bot-comment parity.** Per user decision, comments from bot accounts are evaluated under the same rigor contract as human comments — no special-case skipping or downgrading.
-9. **Skip resolved by default.** Step 2 filters resolved threads (`isResolved` for GitHub, `status: fixed/closed` for Azure, `resolved: true` for GitLab) unless a future flag explicitly opts in.
+9. **Skip resolved by default.** Step 2 filters resolved threads (`isResolved` for GitHub, `status: fixed/closed` for Azure, `resolved: true` for GitLab) unless a future flag explicitly opts in. Re-poll rounds (Step 9.5b) additionally exclude comments whose `comment_id` is in checkpoint `postedCommentIds`.
 10. **Confidence propagation.** Every reply body, every triage row, every Step 10 verdict carries a confidence rating from the upstream sub-agent or evaluation. Dropping the signal is a gate failure.
 
 ## References

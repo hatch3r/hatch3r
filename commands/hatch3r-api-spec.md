@@ -30,7 +30,7 @@ sub_agents_spawned:
 | 3. Spec Generation | `hatch3r-docs-writer` | No | Yes |
 | 4. Validation | `hatch3r-reviewer` | No | Yes (if validate mode) |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 # API Specification Generator — OpenAPI from Code or Code-vs-Spec Drift Detection
 

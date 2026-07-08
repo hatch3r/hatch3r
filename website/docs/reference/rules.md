@@ -71,6 +71,7 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 | **testing** | Coverage thresholds, mocking strategy, property-based testing, mutation-score targets, flaky-test quarantine, and snapshot discipline. |
 | **testability-rule** | CQ5 Testability Quality measurement rule -- per-feature test-class mandate map, real-deal ratio floor, AI eval coverage, mutation kill rate. |
 | **ai-evals** | AI feature evaluation, prompt versioning, cost telemetry, prompt caching, model fallback, and hallucination-as-SLI for projects shipping LLM features. |
+| **dynamic-stack-verification** | Runtime-evidence gates for stacks with no static type layer -- smoke-mount changed components, dormant-collection-read ratchet, runtime smoke evidence on module-boundary changes. |
 
 ### Content-quality measurement rules
 
@@ -96,6 +97,8 @@ Rules are grouped below by area. The `precedence` column on each canonical rule 
 | **anti-duplication** | Pre-implementation discovery gate + post-write jscpd duplication scan per maturity tier. Silent duplication is a P4 violation. |
 | **proof-model** | Mandatory citation per factual claim + pre-execution verification gates + `proof_trace` schema. Hallucination prevention via verifiable proof. |
 | **reviewer-calibration** | Every Nth consecutive clean PASS triggers an out-of-band second-pass review before loop exit; divergence reverts to REQUEST CHANGES. |
+| **findings-ledger** | Write-ahead findings ledger -- every review-loop finding is registered on disk before fix dispatch and folds to a terminal disposition at run exit; no finding ends a run pending. |
+| **contract-census** | Shared-contract discipline for brownfield changes -- contract taxonomy, repo-wide consumer census as lane-exit gate, seam-owner protocol for parallel lanes, façade contract-hold on field drop/rename. |
 
 ### Pre-implementation, learning, and tooling
 

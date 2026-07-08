@@ -105,22 +105,28 @@ The `statusFieldId`, `statusOptions`, and `labels` fields are populated automati
     "agents": {
       "hatch3r-lint-fixer": "sonnet",
       "hatch3r-testability": "gemini-pro"
+    },
+    "skills": {
+      "hatch3r-feature": "opus"
+    },
+    "commands": {
+      "hatch3r-workflow": "sonnet"
     }
   }
 }
 ```
 
-Model aliases are resolved before emission: `opus` -> `claude-opus-4-6`, `sonnet` -> `claude-sonnet-4-6`, `haiku` -> `claude-haiku-4-5`, `codex` -> `gpt-5.3-codex`, etc.
+Model aliases are resolved before emission: `opus` -> `claude-opus-4-8`, `sonnet` -> `claude-sonnet-4-6`, `haiku` -> `claude-haiku-4-5`, `codex` -> `gpt-5.3-codex`, etc.
 
-Resolution order (highest precedence first):
+Per-class resolution order (highest precedence first), where `{class}` is `agents`, `skills`, or `commands`:
 
-1. `.hatch3r/agents/{id}.customize.yaml`
-2. `hatch.json` -> `models.agents.{id}`
-3. Agent frontmatter `model:` field
-4. `hatch.json` -> `models.default`
-5. Platform auto-select
+1. `.hatch3r/{class}/{id}.customize.yaml` `model` field
+2. `hatch.json` -> `models.{class}.{id}`
+3. Canonical frontmatter `model:` field
+4. `hatch.json` -> `models.default` — **agents only**. Skills and commands never inherit `models.default`: a default that fed them would add `model:` lines to every generated skill/command, and a command-level model switches the whole conversation model, so it must be an explicit per-id choice.
+5. Platform auto-select (no model emitted)
 
-See the [Model Selection guide](../guides/model-selection) for full details.
+Skill/command model lines are emitted only where the tool documents the field (Claude Code skills + commands; Copilot prompt files; never Cursor skills/commands). `inherit` and unrecognized values are omitted — an omitted field is the inherit/default semantic. See the [Model Selection guide](../guides/model-selection) for the per-adapter emission table.
 
 ### Content selection
 

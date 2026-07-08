@@ -176,7 +176,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "f2ab0d4b47b5553d81b6270262e5af370ccbb82d20899618d2aeff329d32c68c",
+    "bodyHash": "aad057a5c584f2255e10ad8403ca31d53db3cda1b229de6bb647fac2467d0809",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "AGENT_TEAMS",
@@ -248,7 +248,7 @@ exports[`adapter output snapshots > CopilotAdapter > output structure matches sn
   },
   {
     "action": "create",
-    "bodyHash": "e82ad8703cb62984c3d519c6ca036d89ab7b7b699d22d6167f7bd3783c5ea5b3",
+    "bodyHash": "a3aa5c5c0f7d525c5418c21b56dd37739894bf8a230422e9db0d81071933017c",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",
@@ -470,7 +470,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "88995935dcb64a6b9ded816994701089c8456d5339672056c50019cbd33c2ba7",
+    "bodyHash": "97c572b438bbd313f835a78552f84778148d263a5005a6217432395eecd82cd8",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",

@@ -16,6 +16,7 @@ This protocol defines how hatch3r agents and commands surface clarifying or tria
 
 - **Ambiguous requirement** — the request maps to two or more reasonable interpretations that produce different code.
 - **Irreversible decision** — deleting data, renaming a public API, dropping a column, force-pushing a branch.
+- **Unattested product decision** — the change deletes or transforms user data, or changes user-visible behavior beyond the issue's acceptance criteria, and no user statement (this session, the issue body, or a linked acceptance criterion) authorizes the choice. An agent-authored code comment, PR description, or reviewer note is not attestation — it is self-certification. Surface the ASK; a sub-agent returns `BLOCKED_AMBIGUITY`; an unattended run records the finding as `escalated` in the findings ledger (`rules/hatch3r-findings-ledger.md`) and exits PARTIAL — fail-closed, mirroring `commands/hatch3r-release.md` → "hold — never auto-publish".
 - **Branching path** — two or more viable approaches with materially different cost, scope, or risk.
 - **Conflicting constraints** — requirements that cannot all hold (e.g., "no new dependencies" and "use library X").
 - **Missing acceptance criteria** — no testable definition of done for the requested change.

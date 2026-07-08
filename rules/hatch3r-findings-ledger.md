@@ -1,0 +1,129 @@
+---
+id: hatch3r-findings-ledger
+type: rule
+description: Write-ahead findings ledger — every review-loop finding is registered on disk before fix dispatch, folds to a terminal disposition at run exit, and survives interruption; no finding ends a run pending.
+tags: [orchestration, review, floor:protocol]
+precedence: high
+scope: always
+---
+# hatch3r Findings Ledger
+
+**Pillars:** P2 (Scientific & Practical Quality), P8 (Clarification & Fan-out Discipline)
+
+This rule closes one failure class: review-loop findings that are registered in chat but never implemented — Suggestions dropped on clean exits, findings lost at loop exhaustion, sub-agent death, or context compaction, and cross-iteration finding identity reduced to a bare unresolved-count. The fix is a write-ahead ledger: every finding is persisted to disk BEFORE the fixer that would address it is dispatched — the ordering Temporal applies to workflow commands (persisted before execution; `docs.temporal.io/encyclopedia/event-history`, accessed 2026-07-08) — and disk state, not chat context, is the recovery source after interruption (durable file/JSON state over context, per Anthropic's long-running-agent harness guidance; `anthropic.com/engineering/effective-harnesses-for-long-running-agents`, accessed 2026-07-08). At run exit every row folds to exactly one terminal disposition; no finding ends a run pending.
+
+## Store & Format
+
+One JSONL file per run: `.hatch3r/findings/<YYYY-MM-DD>-<command>-<run8>.jsonl`, where `<run8>` is the first 8 hex chars of the run's `correlation_id` (`rules/hatch3r-agent-orchestration.md` → Correlation ID) and `<command>` is the invoking command's short name — the `hatch3r-` prefix dropped (e.g. `workflow`, `pr-resolve`). Append-only; atomic append via the `src/merge/safeWrite.ts` pattern (temp+rename then concat) — the same convention as `.hatch3r/bypass-log.jsonl`.
+
+- **Full-row snapshots.** Every append is a complete row, never a partial patch. **Fold rule: last line per `finding_id` wins.** Any reader reconstructs current state by folding the file top to bottom.
+- **Closure marker.** A final marker row with `"finding_id":"run-exit"` closes a file. Closed = last line is `run-exit` AND the fold is all-terminal. The marker row carries `ts`, `run_id`, `command`, `iteration`, and `finding_id` only.
+- **Committed, not gitignored.** `.hatch3r/findings/` gets no gitignore entry — matching the `.hatch3r/review-findings/` + `todo.md` team-memory precedent — so open findings are visible in the PR diff. Degradation: in a repo with a blanket `.hatch3r/` ignore, interruption-proofing stays (same machine) but team visibility is lost.
+
+Row schema (JSON keys):
+
+| Key | Value |
+|---|---|
+| `ts` | ISO-8601 UTC append time |
+| `run_id` | `<run8>` |
+| `command` | the filename's `<command>` token |
+| `iteration` | review-loop iteration number at append time |
+| `finding_id` | `<run8>-F<seq>` — see Finding IDs |
+| `severity` | `Critical \| Warning \| Suggestion` |
+| `source` | `reviewer \| specialist \| edge-case-ledger \| pr-comment \| spec-review` |
+| `file` | `path:line`, or `issue#N` for board-scoped findings |
+| `summary` | ≤200 chars |
+| `disposition` | `registered` → `targeted \| deferred \| declined \| accepted-risk \| escalated \| already-resolved \| surfaced` |
+| `status` | `pending` → `in-fix` → `done \| failed \| never-attempted` |
+| `closure_ref` | commit SHA, fixer `Findings addressed` quote, todo.md anchor, quoted user reply ≤100 chars, or `review-findings/<id>` |
+
+`status: done` with `closure_ref: null` is ILLEGAL — closure always names its evidence.
+
+## Finding IDs
+
+`finding_id` = `<run8>-F<seq>`; the orchestrator assigns `<seq>` in registration order (F1, F2, …). The reviewer is stateless, so ID continuity is the orchestrator's job: it passes the prior iteration's findings table (`finding_id`, file, summary, status) in every re-review prompt. The reviewer's severity tables carry an `ID` column — reuse the supplied ID for a persisting finding; write `new` for a first appearance (the orchestrator assigns the next `F<seq>`) — plus a `Resolved since last iteration: <ids | none>` line below the tables. Identity heuristic when uncertain: same file + same defect class = same ID. This contract is mirrored in `agents/hatch3r-reviewer.md` → Finding IDs; keep the two aligned when either changes.
+
+## Write Points
+
+| Point | Trigger | Appends |
+|---|---|---|
+| **W1 write-ahead** | reviewer verdict parsed, BEFORE any fixer dispatch — every iteration | new Critical/Warning rows as `targeted`/`pending`; new Suggestions as `registered`/`pending`; one `registered`/`pending` Warning row per reviewer `deferred:` partial-review remainder (summary = the unreviewed item), so unreviewed surfaces survive the session |
+| **W2 per-iteration reconciliation** | after fixer return AND re-review | fixed-and-confirmed rows flip to `done` + `closure_ref`; attempted-but-still-failing rows to `failed`; rows the re-review reports resolved without this run's fix to `already-resolved` |
+| **W3 loop-exit reconciliation** | every exit path: clean, max-iterations, DESIGN_OBJECTION, user abort | resolve every non-terminal row to a legal terminal (Run-Exit Invariant), then append the `run-exit` marker row |
+| **W4 sub-agent-death flush** | the retry/BLOCKED_OTHER path of sub-agent-failure handling (`rules/hatch3r-agent-orchestration.md`) | flush in-flight rows — `in-fix` → `failed`, reason noted in `closure_ref` — before the retry and again before the ASK; a retry that lands re-flips the row at W2 (last line wins) |
+| **W5 Suggestion terminalization** | at W3 | every Suggestion row goes terminal — grammar in Suggestion Handling |
+
+At fixer dispatch the orchestrator appends each targeted row's `pending` → `in-fix` snapshot — the in-flight state W4 flushes. Run-start side task, with W1's first append: create `.hatch3r/findings/` when absent, then run the Hygiene prune.
+
+## Run-Exit Invariant
+
+After W3, zero rows fold to `status: pending` or `in-fix`, and zero rows fold to `disposition: registered`. Every folded row lands on one of the legal terminals:
+
+- (a) `targeted` + `done` + `closure_ref`
+- (b) `already-resolved`
+- (c) `deferred` — with a todo.md anchor in `closure_ref`
+- (d) `declined` or `accepted-risk` — user-attested only: each requires a quoted user reply in `closure_ref`; an autonomous run cannot produce them (`agents/shared/user-question-protocol.md` → Unattested product decision)
+- (e) `escalated` — with an open ASK recorded; legal only when the run's own status is not SUCCESS (unattended runs take this path and exit PARTIAL)
+- (f) `surfaced` — Suggestion severity only; the ID appears on the recap's `Open findings:` line
+
+A Critical/Warning finding that cannot reach (a)–(d) forces an ASK. Terminal `status` pairs mechanically with the outcome: `done` = this run's fix landed (`closure_ref` required); `failed` = attempted and not landed (never a resting terminal alone — the disposition must still reach (c)–(e)); `never-attempted` = closed without a fix attempt this run (`deferred`, `declined`, `accepted-risk`, `escalated`, `surfaced`, `already-resolved`).
+
+## Suggestion Handling
+
+Suggestions register once, at first appearance (W1, `registered`/`pending`); a reviewer repeating one in a later iteration causes no re-append — unless its severity changed, which appends a new full-row snapshot (same `finding_id`, new severity). At W3 every Suggestion row goes terminal (W5) via exactly one of:
+
+- `surfaced` — the ID is printed on the Iteration Summary's `Open findings:` line (`rules/hatch3r-iteration-summary.md` → Exception Lines). This is the never-silently-dropped guarantee: a clean exit still names every unaddressed Suggestion. Unattended default.
+- `deferred` — the user chose deferral; `closure_ref` = the todo.md anchor.
+- `declined` — the user declined; `closure_ref` = the quoted user reply (≤100 chars).
+
+## Session-Start Surfacing
+
+`agents/hatch3r-handoff-loader.md` owns this step. At session start the loader scans `.hatch3r/findings/*.jsonl` (skips silently when the directory is absent), skips closed files, folds each remaining file, and lists open rows — non-terminal rows plus rows terminal as `escalated`/`surfaced` — as `id · severity · file · summary · disposition`. A ledger file older than 14 days that still folds open rows is flagged stale, with three closure options: close as declined with reason "stale", re-defer to todo.md, or resume the work. This scan is the self-healing detector for runs that died before W3: whatever a crash left open re-surfaces next session instead of staying lost.
+
+## Handoff Integration
+
+No handoff-schema change. `agents/hatch3r-handoff-preparer.md` folds the active run's ledger in its collect-state step, and that fold is authoritative for the handoff's Work Remaining `Open findings` bullet at composition time — the handoff inherits open findings from the same fold every other consumer reads. The recap's `Open findings:` exception line (`rules/hatch3r-iteration-summary.md` → Exception Lines) is cross-check provenance, not the source: when it agrees with the fold the preparer copies it verbatim; when it is absent or disagrees (stale recap, mid-session interrupt) the fold wins and the bullet notes `(fold-derived; last recap stale or absent)`; zero open rows ⇒ no bullet. Composition procedure lives in `agents/hatch3r-handoff-preparer.md`, mirrored in `skills/hatch3r-handoff-prepare/SKILL.md` — keep the three aligned when any changes.
+
+## Store Boundaries
+
+Three stores, three jobs. Writes flow ledger-outward — the ledger is written first; the other stores derive from it, never the reverse.
+
+| Store | Role |
+|---|---|
+| `.hatch3r/findings/` (this ledger) | Execution-lifecycle write-ahead log. Run-scoped; carries ALL severities; the source of truth for "is anything open?" |
+| `.hatch3r/review-findings/` | Cross-PR reviewer memory of RESOLVED Critical/Warning findings. Its post-loop append DERIVES from the ledger fold — each entry cites its `finding_id` — never the reverse |
+| `todo.md` | Human follow-up backlog. A `deferred` row's `closure_ref` is the todo.md anchor; the todo bullet carries `[ledger: <finding_id>]`; after deferral the board owns the item (the ledger row is terminal) |
+
+## Hygiene
+
+- The owning orchestrator closes its own file at W3. A dead run's file is never closed by another run — the loader surfaces it (Session-Start Surfacing) for a user decision.
+- Prune at any run's W1: when more than 20 closed files exist, or any closed file is older than 30 days, delete the oldest closed files down to those bounds. Git history preserves pruned files; open files are never pruned.
+
+## Worked Example
+
+A 2-iteration `hatch3r-workflow` run (`run8` = `a3f81c2e`, file `.hatch3r/findings/2026-07-08-workflow-a3f81c2e.jsonl`): iteration 1 registers one Critical, one Warning, one Suggestion; the fixer takes the first two; iteration 2's re-review confirms both resolved; the Suggestion terminalizes as `surfaced`, so the recap prints `Open findings: a3f81c2e-F3 Suggestion — surfaced`.
+
+```jsonl
+{"ts":"2026-07-08T14:02:11Z","run_id":"a3f81c2e","command":"workflow","iteration":1,"finding_id":"a3f81c2e-F1","severity":"Critical","source":"reviewer","file":"src/auth/session.ts:88","summary":"Session token compared with non-constant-time equality","disposition":"targeted","status":"pending","closure_ref":null}
+{"ts":"2026-07-08T14:02:11Z","run_id":"a3f81c2e","command":"workflow","iteration":1,"finding_id":"a3f81c2e-F2","severity":"Warning","source":"reviewer","file":"src/auth/session.ts:97","summary":"New expiry branch has no test","disposition":"targeted","status":"pending","closure_ref":null}
+{"ts":"2026-07-08T14:02:11Z","run_id":"a3f81c2e","command":"workflow","iteration":1,"finding_id":"a3f81c2e-F3","severity":"Suggestion","source":"reviewer","file":"src/auth/session.ts:41","summary":"Extract shared cookie-parse helper","disposition":"registered","status":"pending","closure_ref":null}
+{"ts":"2026-07-08T14:02:38Z","run_id":"a3f81c2e","command":"workflow","iteration":1,"finding_id":"a3f81c2e-F1","severity":"Critical","source":"reviewer","file":"src/auth/session.ts:88","summary":"Session token compared with non-constant-time equality","disposition":"targeted","status":"in-fix","closure_ref":null}
+{"ts":"2026-07-08T14:02:38Z","run_id":"a3f81c2e","command":"workflow","iteration":1,"finding_id":"a3f81c2e-F2","severity":"Warning","source":"reviewer","file":"src/auth/session.ts:97","summary":"New expiry branch has no test","disposition":"targeted","status":"in-fix","closure_ref":null}
+{"ts":"2026-07-08T14:11:02Z","run_id":"a3f81c2e","command":"workflow","iteration":2,"finding_id":"a3f81c2e-F1","severity":"Critical","source":"reviewer","file":"src/auth/session.ts:88","summary":"Session token compared with non-constant-time equality","disposition":"targeted","status":"done","closure_ref":"fixer: Findings addressed — a3f81c2e-F1 timingSafeEqual"}
+{"ts":"2026-07-08T14:11:02Z","run_id":"a3f81c2e","command":"workflow","iteration":2,"finding_id":"a3f81c2e-F2","severity":"Warning","source":"reviewer","file":"src/auth/session.ts:97","summary":"New expiry branch has no test","disposition":"targeted","status":"done","closure_ref":"fixer: Findings addressed — a3f81c2e-F2 expiry-branch test added"}
+{"ts":"2026-07-08T14:11:30Z","run_id":"a3f81c2e","command":"workflow","iteration":2,"finding_id":"a3f81c2e-F3","severity":"Suggestion","source":"reviewer","file":"src/auth/session.ts:41","summary":"Extract shared cookie-parse helper","disposition":"surfaced","status":"never-attempted","closure_ref":null}
+{"ts":"2026-07-08T14:11:31Z","run_id":"a3f81c2e","command":"workflow","iteration":2,"finding_id":"run-exit"}
+```
+
+## Pillar Service
+
+- P2 — findings become falsifiable disk records with evidence-bearing closure (`closure_ref` names a commit, quote, or anchor), and the fold answers "is anything open?" from disk rather than from memory.
+- P8 — `declined`/`accepted-risk` require quoted user attestation, and an open Critical/Warning forces an ASK — autonomy never absorbs a product decision silently.
+
+## References
+
+- Anthropic — Effective harnesses for long-running agents: durable file/JSON state over context; session-start re-read; session-end clean-state sweep. `anthropic.com/engineering/effective-harnesses-for-long-running-agents` (accessed 2026-07-08; T1, published 2025-11-26)
+- Anthropic — Harness design for long-running application development: success criteria written before implementation; files as the inter-agent channel. `anthropic.com/engineering/harness-design-long-running-apps` (accessed 2026-07-08; T1, published 2026-03-24)
+- OASIS — SARIF 2.1.0 Errata 01: `result.kind` open-by-default; `suppression.status: underReview` is never a final state. `docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/sarif-v2.1.0-errata01-os-complete.html` (accessed 2026-07-08; T1, canonical spec, 2023-08-28)
+- DefectDojo — Finding status definitions: risk-accepted carries a revisit pointer; dispositions carry cross-round semantics. `docs.defectdojo.com/triage_findings/findings_workflows/finding_status_definitions/` (accessed 2026-07-08; T2, current)
+- Temporal — Event history / workflow execution: commands persisted before execution; a closed execution has exactly one terminal status. `docs.temporal.io/encyclopedia/event-history` (accessed 2026-07-08; T1, current)
