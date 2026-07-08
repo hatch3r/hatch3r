@@ -50,6 +50,18 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 
 - **copilot** carries `hooks: --` because hatch3r emits no Copilot hook file yet (`ADAPTER_CAPABILITIES.copilot.hooks = false`). The platform surface is now mixed: VS Code documents a **Preview** `PreToolUse` hook with `permissionDecision: "deny"` plus an agent-scoped `hooks:` field ([VS Code custom-agents docs](https://code.visualstudio.com/docs/copilot/customization/custom-agents), verified 2026-06-06), so server-side blocking IS reachable on VS Code Preview — but it is not GA, is absent on github.com, and exposes no transcript access for external processes there. Until the Preview stabilizes and the adapter emits a hook, hatch3r enforces pipeline orchestration on Copilot via instructional rules only — the `## Copilot Enforcement Model (no hook surface)` section emitted into `.github/copilot-instructions.md` by `src/adapters/copilot.ts` documents the trust-based model and self-detectable drift indicators. Emitting a Preview-gated PreToolUse deny-gate is a CL-2 candidate (D9-17). See [hatch3r issue #73](https://github.com/hatch3r/hatch3r/issues/73).
 
+### Derived Capabilities (no matrix column)
+
+`ADAPTER_CAPABILITIES` also carries a `worktree` boolean (`src/adapters/index.ts::AdapterCapability.worktree`) with no Implementation Matrix column: the matrix legend tracks file emission ("Y" = adapter emits files), while `worktree` records tool behavior — git worktree file-isolation support — and emits nothing. Its value is derived per tool from `WORKTREE_CAPABLE_TOOLS` (`src/types.ts`, itself derived from the `Tool`-exhaustive `TOOL_WORKTREE_SUPPORT` map — D2-16/D2-17), the Set that init, config, update, and the manifest layer read to decide whether worktree isolation is enabled (`worktree.enabled` in `hatch.json`); the isolation workflow itself runs via `hatch3r worktree-setup` / `hatch3r worktree-cleanup`. The boolean is pinned to that Set by `src/__tests__/adapters/capabilityMatrixDrift.test.ts` (the cell-level doc reconciliation in `capability-matrix-doc.test.ts` covers emission columns only).
+
+| Adapter | worktree | Derivation |
+|---------|:--------:|------------|
+| **cursor** | Y | `WORKTREE_CAPABLE_TOOLS.has("cursor")` |
+| **copilot** | Y | `WORKTREE_CAPABLE_TOOLS.has("copilot")` |
+| **claude** | Y | `WORKTREE_CAPABLE_TOOLS.has("claude")` |
+
+All 3 tools are worktree-capable: each materializes adapter output under a single repo subtree that survives a `git worktree` (`src/types.ts::TOOL_WORKTREE_SUPPORT`, all `true`). The other two derived booleans, `customization` and `modelOverride`, are behavioral facts about every adapter's `doGenerate()` (unconditional `applyCustomization` / agent-loop `resolveAgentModel` calls) — `true` for all 3 adapters, pinned by the same drift test; `modelOverride` surfaces in the matrix `model` column and the [Agent Model Customization](#agent-model-customization) section below.
+
 ### Agent Model Customization
 
 All 3 adapters emit model preferences when configured via `hatch.json`, agent frontmatter, or `.hatch3r/agents/{id}.customize.yaml`. Resolution order: customization file > manifest per-agent > agent frontmatter > manifest default. See [model-selection.md](model-selection.md) for configuration, aliases, and platform behavior. Use the `hatch3r-customize` skill for per-agent overrides.

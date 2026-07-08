@@ -5,7 +5,7 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit
 ---
 
-> Last updated: 2026-05-29
+> Last updated: 2026-07-08
 
 # Release Prep
 
@@ -57,8 +57,10 @@ Run all gates — ALL must pass:
 
 15. Verify all 3 supported adapters (claude, cursor, copilot) are registered in `src/adapters/index.ts` (count tracked dynamically at `governance/inventory.json::counts.adapters` — auto-derived per CONSTITUTION §6 Decision 12)
 16. Verify `ADAPTER_CAPABILITIES` matrix is complete (no undefined entries)
-17. Check that `package.json` `files` array includes all content directories:
-    - `agents/`, `checks/`, `commands/`, `rules/`, `skills/`, `prompts/`, `github-agents/`, `mcp/`, `hooks/`
+17. Verify the published tree and bundled content:
+    - `package.json` `files` includes `dist/` — the single published tree; canonical content ships inside it, not as top-level directories
+    - after `npm run build`, spot-check `ls dist/content/` for every canonical directory the readers consume: `agents/`, `checks/`, `commands/`, `rules/`, `skills/`, `prompts/`, `github-agents/`, `mcp/`, `hooks/` (a class with zero canonical files — currently `prompts/` — is skipped by the copy and absent by design)
+    - `scripts/copy-content.ts` (postbuild) enforces parity with the `src/adapters/canonical.ts` readers at build time — packaging drift fails the build — so a green Step 3 build is the primary evidence and the `ls` is the spot-check
 
 ## Step 5: Lockfile & Supply Chain
 
