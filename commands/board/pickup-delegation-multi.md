@@ -236,8 +236,8 @@ Launch as many independent sub-agents in parallel as the platform supports.
 
 **Triggered specialists (spawn when triggered by any issue in the batch):**
 - **hatch3r-lint-fixer** — spawn when lint errors are present after implementation.
-- **hatch3r-ui** (CQ1, mandatory-on-match) — spawn when any issue has `area:ui` or `area:a11y` labels. When triggered at Tier 2/3, a dedicated `hatch3r-ui` instance is a hard mandate — skipping it is a gate failure.
-- **hatch3r-ux** (CQ2, mandatory-on-match) — spawn when any issue in the batch touches flow / route-transition / modal / error-state files or microcopy/i18n strings. When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
+- **hatch3r-ui** (CQ1, mandatory-on-match) — spawn when any implementer's changed files across the batch match the `hatch3r-ui` row of the specialist trigger table (`shouldTriggerSpecialist` / `SPECIALIST_TRIGGER_TABLE` in `src/pipeline/pipelineContext.ts`; prose mirror: `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). A match at Tier 2/3 mandates a dedicated `hatch3r-ui` instance regardless of issue labels — skipping it is a gate failure. `area:ui` / `area:a11y` labels are an early planning signal, not a dispatch gate: their absence never skips a matched specialist.
+- **hatch3r-ux** (CQ2, mandatory-on-match) — spawn when any changed file in the batch matches the `hatch3r-ux` row of the same trigger table (flow / route-transition / modal / error-state files, microcopy/i18n strings). When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
 - **hatch3r-performance** (CQ7) — spawn when any issue has `area:performance` label.
 
 Await all specialist sub-agents. Apply their feedback before proceeding to Step 7.
