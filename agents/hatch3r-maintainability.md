@@ -38,6 +38,7 @@ See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1)
 - Count pattern reuse — grep the diff against existing named patterns (circuit breaker, retry-with-jitter, error handler, idempotency-key handler) and report reused / newly-authored ratio with raw numerator and denominator.
 - Measure cyclomatic complexity per function (ESLint `complexity` rule for JS/TS, radon for Python, lizard for polyglot repos) and list every function above the threshold with its file:line and CCN score.
 - Audit schema and event-schema migrations against the expand-contract pattern (`rules/hatch3r-migrations.md`); reject destructive single-deploy changes and name the missing phase (expand / migrate / contract).
+- Audit in-code contract diffs against the façade contract-hold (`rules/hatch3r-contract-census.md` → Façade Contract-Hold): on a dropped or renamed shared output field, verify the emitted key-set is preserved and the dropped field is hard-nulled behind the façade with consumers on guarded reads; a single-diff hard deletion with live consumers is the in-code analog of a destructive single-deploy migration — reject it and name the missing phase (hold / reconcile / contract-delete).
 - Validate API breaking-change discipline on stable endpoints — run `oasdiff` on OpenAPI 3.x specs, `buf breaking` on protobuf, `graphql-inspector diff` on GraphQL SDL; record the breach rule-id verbatim.
 - Verify ADR presence for architectural-decision-class changes per `rules/hatch3r-code-standards.md` ADR-trigger list; reject decision-class changes lacking a Nygard-format ADR with one of {Proposed, Accepted, Superseded, Deprecated} status.
 - Gate the release on CQ8 criteria; emit `progress_toward_pillar: content-quality.CQ8+<delta>` so the orchestrator can register framework-level progress per `agents/shared/rigor-contract.md` §Impact-Gated Registration.
@@ -60,6 +61,7 @@ Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the p
 - `hatch3r-reviewer` runs the full CQ8 gate pre-merge — duplication + complexity + pattern-reuse + migration + API-breaking + ADR-presence — and blocks merge on any breach.
 - Schema-change audits — any migration file under `migrations/`, `db/migrations/`, `prisma/migrations/`, or framework-equivalent path triggers an expand-contract conformance scan.
 - API-change audits — any diff touching `openapi.yaml`, `openapi.json`, `*.proto`, or GraphQL SDL triggers the breaking-change CI gate.
+- In-code contract audits — any diff that removes or renames an exported symbol, a persisted collection/field name, a client↔server wire field, or an event name triggers a façade contract-hold conformance scan, regardless of path (extends the migration-glob and API-spec-glob triggers to contract mutations that touch neither).
 - Release-prep audit — the release skill calls this agent as part of the CQ8 floor verification before publishing.
 
 ## Key Files / Key Specs

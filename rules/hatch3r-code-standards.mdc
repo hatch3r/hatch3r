@@ -88,7 +88,7 @@ When working in a monorepo (multiple packages or apps in a single repository):
 
 - Remove unused imports, variables, functions, and type definitions immediately. Do not comment them out "for later."
 - Use the compiler's unused-symbol diagnostics (e.g., TypeScript `noUnusedLocals`/`noUnusedParameters`, Go `go vet`, Rust `dead_code`) and the linter (`no-unused-vars` or equivalent) to catch dead code automatically.
-- After removing a feature or completing a refactor, search for all references to the removed code. Delete orphaned tests, fixtures, and documentation.
+- After removing a feature or completing a refactor, search for all references to the removed code. Delete orphaned tests, fixtures, and documentation. Exception — façade contract-hold: while a dropped or renamed shared-contract field is inside its compatibility window (`rules/hatch3r-contract-census.md` → Façade Contract-Hold), the nulled field behind the façade and its guarded consumer reads are NOT dead code; run this reference sweep at the contract phase, when the held field is deleted.
 - Feature-flagged code that has been fully rolled out (flag removed) must have the flag-off branch deleted in the same PR.
 - Commented-out code is never acceptable in committed code. Use version control history to retrieve old implementations.
 

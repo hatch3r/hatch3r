@@ -100,6 +100,7 @@ Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/
 
 - Extract all Critical and Warning items from the reviewer output.
 - Note file paths, line numbers, and suggested fixes for each finding.
+- Each finding carries a ledger `finding_id` (`rules/hatch3r-findings-ledger.md` → Finding IDs) — preserve it verbatim in every output line.
 - Ignore Suggestion items — those are surfaced to the user by the orchestrator.
 - Prioritize Critical findings before Warnings.
 
@@ -110,7 +111,7 @@ For each Critical and Warning finding:
 - Read the referenced file and surrounding context.
 - Understand the root cause of the issue.
 - Determine the minimal fix that addresses the finding without introducing new issues.
-- If blast radius data is available, check whether the fix touches shared interfaces or APIs with downstream consumers — preserve those contracts.
+- When the fix touches a shared contract, run the consumer census per `rules/hatch3r-contract-census.md` (Step 5b) — blast-radius input, when provided, seeds the grep list but never substitutes for the self-run grep.
 - If reference conventions are available, verify the fix follows established patterns rather than introducing divergent approaches.
 - Use Context7 MCP (`resolve-library-id` then `query-docs`) for API patterns relevant to the fix.
 - Use web research for security advisories, CVE details, or best practices when the finding involves security or novel patterns.
@@ -155,6 +156,14 @@ ${HATCH3R:VERIFY_GATE_ALL}
 
 The placeholder above is rewritten by the adapter pipeline (`substituteVerifyGateTokens` in `src/adapters/base.ts`) from the project manifest's detected `languages[]` plus its package manager. The literal fallback when detection is unknown is `npm run lint && npm run typecheck && npm run test`; for a Python project the rendered command becomes `ruff check . && mypy . && pytest`, etc. (Adapt only if the project carries non-standard scripts in addition to the resolver output.)
 
+### 5b. Consumer Census (shared-contract fixes)
+
+**Trigger:** the fix renames, removes, or re-signatures an exported symbol; changes a persisted collection/table/field name; adds, renames, or drops a client↔server wire-field key; changes an event name or payload key; moves or revalues a shared constant; or renames a CLI flag or config/env key (`rules/hatch3r-contract-census.md` → Shared-Contract Taxonomy). No trigger → record `Consumer census: N/A (no shared-contract change)` in the fix result and skip the rest of this step.
+
+**Census:** for each changed contract, run a repo-wide grep of the OLD identifier and the NEW identifier — never limited to the findings' file list or the blast-radius consumer map. Reconciled and justification definitions, plus grep patterns: `rules/hatch3r-contract-census.md` → Consumer Census.
+
+**Gate:** `Status: SUCCESS` requires census ∈ {`clean`, `reconciled(N)`, `N/A`}; any `unreconciled` consumer without a named justification caps Status at `PARTIAL`, with the unreconciled consumers listed under Notes.
+
 ### 6. Return Structured Result
 
 Report back to the parent orchestrator with:
@@ -173,11 +182,11 @@ The `Reviewer re-run required` field is an **advisory** signal to the parent orc
 **Reviewer re-run required:** true | false (advisory — orchestrator derives the authoritative value as `Files changed` non-empty; print `true` whenever the `Files changed` list below has ≥1 entry, `false` only when it is empty)
 
 **Findings addressed:**
-- [CRITICAL #1] file:line -- description of fix applied
-- [WARNING #1] file:line -- description of fix applied
+- [<finding_id>] [CRITICAL #1] file:line — <fix summary>
+- [<finding_id>] [WARNING #1] file:line — <fix summary>
 
 **Findings unresolved:**
-- (any findings that could not be fixed, with explanation)
+- [<finding_id>] [WARNING #2] file:line — <reason: blocked | failed | out-of-scope>
 
 **Files changed:**
 - path/to/file.ts -- description of change
@@ -189,6 +198,8 @@ The `Reviewer re-run required` field is an **advisory** signal to the parent orc
 - Lint: PASS | FAIL (details)
 - Typecheck: PASS | FAIL (details)
 - Tests: PASS | FAIL (details)
+
+**Consumer census:** clean | reconciled(N) | N unreconciled — justification | N/A (no shared-contract change)
 
 **Consulted Learnings:**
 - (learning IDs matched in Step 0b, or "none available" / "none matched")
@@ -245,9 +256,9 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 **Reviewer re-run required:** true
 
 **Findings addressed:**
-- [CRITICAL #1] src/routes/billing.ts:42 -- added toInvoiceResponse() DTO to filter internal billing IDs and provider tokens from response
-- [CRITICAL #2] src/routes/billing.ts:38 -- added requireOwnership(req.user.id, params.userId) guard before invoice lookup
-- [WARNING #1] src/routes/billing.ts:45 -- added cursor-based pagination with max page size of 50
+- [b4e2a9c7-F1] [CRITICAL #1] src/routes/billing.ts:42 — added toInvoiceResponse() DTO to filter internal billing IDs and provider tokens from response
+- [b4e2a9c7-F2] [CRITICAL #2] src/routes/billing.ts:38 — added requireOwnership(req.user.id, params.userId) guard before invoice lookup
+- [b4e2a9c7-F3] [WARNING #1] src/routes/billing.ts:45 — added cursor-based pagination with max page size of 50
 
 **Findings unresolved:**
 - None
@@ -265,6 +276,8 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 - Lint: PASS
 - Typecheck: PASS
 - Tests: PASS (42 passed, 0 failed)
+
+**Consumer census:** clean
 
 **Consulted Learnings:**
 - none matched

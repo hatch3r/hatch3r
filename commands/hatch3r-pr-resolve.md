@@ -40,7 +40,7 @@ sub_agents_spawned:
 | 9.5. Re-poll gate | Orchestrator (inline) | No | When commit pushed |
 | 10. Iteration Summary | Orchestrator (inline) | No | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 ---
 
@@ -137,6 +137,7 @@ run_cache:
   reply_drafts: [{comment_id, body, endpoint}, ...]
   reply_post_results: [{comment_id, status: posted|failed, error?: <string>}, ...]
   deferred_findings: [<finding>, ...]        # written to todo.md in Step 5c
+  ledger_file: <path of this run's findings-ledger JSONL>  # .hatch3r/findings/<YYYY-MM-DD>-pr-resolve-<run8>.jsonl per rules/hatch3r-findings-ledger.md
   round:
     index: <int, 1-based>                    # initialized 1; incremented per Step 9.5 re-poll round
     started_at: <iso>                        # run start; reset to now when a re-poll round begins (9.5b)
@@ -457,11 +458,11 @@ If any findings route to DEFER, append a single epic-context block to `todo.md`:
 ```markdown
 # Follow-ups from PR #{pr_number} pr-resolve ({date})
 # Epic: group all items below into one epic during board-fill
-- {comment author}: {finding description} (severity: {severity}, file: {file:line})
+- {comment author}: {finding description} (severity: {severity}, file: {file:line}) [ledger: {finding_id}]
 - ...
 ```
 
-Cache the deferred list. Reply templates in Step 8 reference todo.md for these items.
+Cache the deferred list. For each DEFER item, also append a `deferred` ledger row whose `closure_ref` is the item's todo.md anchor (`rules/hatch3r-findings-ledger.md`). Reply templates in Step 8 reference todo.md for these items.
 
 ---
 
@@ -514,12 +515,12 @@ If any gate fails, identify failures and either fix inline (single-line lint/typ
 
 #### 7b. Review Loop (Tier 2/3 only; Tier 1 skips)
 
-Spawn `hatch3r-reviewer` -> `hatch3r-fixer` per `commands/revision/revision-quality.md` Stage 1 (max 3 iterations, oscillation detection, confidence decay). The reviewer prompt MUST include:
+Spawn `hatch3r-reviewer` -> `hatch3r-fixer` per `commands/revision/revision-quality.md` Stage 1 (max 3 iterations, oscillation detection, confidence decay) — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points). The reviewer prompt MUST include:
 - The cached diff from Step 1e.
 - All `scope: always` rule directives.
 - Iteration number and prior findings.
 - The Confidence expression requirement (verbatim).
-- **Cross-PR Findings block (D13-SA13.1-F08).** Before the first reviewer spawn, scan `.hatch3r/review-findings/` (skip silently if the directory is absent) for entries whose `applies-to` glob matches any file in the cached diff; pass the 5 most-recent matches (by `created` descending) into the reviewer prompt as a `## Cross-PR Findings` block of `{id, applies-to, severity, pr, verdict, summary}` rows. The reviewer (which declares `consults_cross_pr_findings: true`) weighs these as prior organisational memory per its Cross-PR Finding Memory section. After the loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved this run (atomic write via `src/merge/safeWrite.ts`), so the next PR on the same files inherits the memory.
+- **Cross-PR Findings block (D13-SA13.1-F08).** Before the first reviewer spawn, scan `.hatch3r/review-findings/` (skip silently if the directory is absent) for entries whose `applies-to` glob matches any file in the cached diff; pass the 5 most-recent matches (by `created` descending) into the reviewer prompt as a `## Cross-PR Findings` block of `{id, applies-to, severity, pr, verdict, summary}` rows. The reviewer (which declares `consults_cross_pr_findings: true`) weighs these as prior organisational memory per its Cross-PR Finding Memory section. After the loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved this run (atomic write via `src/merge/safeWrite.ts`), so the next PR on the same files inherits the memory — derive the entry from the ledger fold and cite its `finding_id` (`rules/hatch3r-findings-ledger.md` → Store Boundaries).
 
 The reviewer's output MUST include a top-level `confidence: high | medium | low` so the gate evaluates pass/second_pass/escalate per `src/pipeline/reviewLoop.ts` semantics.
 
@@ -555,7 +556,7 @@ For every finding in `run_cache.triage_decisions` (including DECLINE and DEFER b
 | Decision | Template |
 |----------|----------|
 | FIX NOW — implemented | `Implemented in {commit_sha}: {one-line summary}. Confidence: {high|medium}.` |
-| FIX NOW — failed (BLOCKED / PARTIAL) | `Attempted but blocked: {reason from sub-agent}. Surfaced as follow-up in todo.md.` |
+| FIX NOW — failed (BLOCKED / PARTIAL) | `Attempted but blocked: {reason}. Tracked as {finding_id} in the findings ledger; follow-up in todo.md.` |
 | DECLINE — outdated | `The code at this location has changed since this comment; the original concern no longer applies. Current behavior: {one-line summary}.` |
 | DECLINE — disagree | `Considered, declining because: {reasoning from evaluation.causal_chain}. Counter-argument considered: {evaluation.counter_argument}. Happy to revisit if context differs.` |
 | DECLINE — already done | `Already addressed in {commit_sha}: {one-line summary}.` |
@@ -661,6 +662,8 @@ There is no automatic round cap — the 9.5a ASK is the bound; every round is us
 ---
 
 ## Step 10: Resolution Summary
+
+Reconcile the findings ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`): zero rows may fold `pending`/`in-fix`; open Critical/Warning force an ASK; unattended runs record them as `escalated` and exit PARTIAL.
 
 Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` — a 1–2 line recap plus every exception line whose firing condition holds, using the closed Status enum. Disposition mapping: DEFER dispositions land on the `Not done:` line; NEEDS_CLARIFICATION items land on the `Blockers:` line. Recap facets include `rounds {n}` (from `round.index`); when rounds > 1, a `Rounds:` exception line enumerates per-round counts sourced from `round.comments_per_round`. Worked example:
 

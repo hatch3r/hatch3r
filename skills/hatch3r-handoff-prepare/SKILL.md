@@ -83,7 +83,7 @@ Populate the 8 required sections in the order defined by the README schema:
 --- END USER-TIER CONTENT: handoff ---
 ```
 
-**Provenance constraint:** `Work Done`, `Work Remaining`, and `Blockers` derive from the session's most recent Iteration Summary per the Handoff Mapping in `rules/hatch3r-iteration-summary.md`: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`. Present lines are copied **verbatim** — do not paraphrase; the contract is exact reuse so loaders can correlate handoff state with prior turn output.
+**Provenance constraint:** `Work Done`, `Work Remaining`, and `Blockers` derive from the session's most recent Iteration Summary per the Handoff Mapping in `rules/hatch3r-iteration-summary.md`: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`. Present lines are copied **verbatim** — do not paraphrase; the contract is exact reuse so loaders can correlate handoff state with prior turn output. The recap's `Open findings:` line is copied verbatim into Work Remaining as an additional bullet (the same verbatim-provenance constraint applies).
 
 **Hard cap:** body ≤ 51,200 bytes (50 KB). If exceeded:
 

@@ -1,7 +1,7 @@
 ---
 id: hatch3r-clarification-default
 type: rule
-description: "P8 B1 floor: every hatch3r-invoked agentic workflow detects and resolves ambiguity via the platform-native question tool BEFORE executing — default behavior, not exception-driven. Names the 4-trigger set and mandates a §0 ambiguity gate on every mutating agent, command, and skill."
+description: "P8 B1 floor: every hatch3r-invoked agentic workflow detects and resolves ambiguity via the platform-native question tool BEFORE executing — default behavior, not exception-driven. Names the 5-trigger set and mandates a §0 ambiguity gate on every mutating agent, command, and skill."
 tags: [orchestration, floor:protocol]
 scope: always
 precedence: high
@@ -20,7 +20,7 @@ Canonical reference for the *how* of asking: `agents/shared/user-question-protoc
 
 Default-path, not exception: a workflow that proceeds without resolving a live trigger below has violated B1, even if it later succeeds. Asking is the baseline; silent assumption is the deviation that must be justified.
 
-## Four-trigger set
+## Five-trigger set
 
 Apply the protocol before any write-tool invocation when ANY of these hold:
 
@@ -28,14 +28,15 @@ Apply the protocol before any write-tool invocation when ANY of these hold:
 2. **Multiple valid interpretations** — two or more viable approaches with materially different cost, scope, or risk.
 3. **Irreversible action** — deleting an artifact, renaming a public artifact id, dropping a frontmatter field, force-pushing a branch.
 4. **Missing acceptance criteria** — no testable definition of done for the requested change.
+5. **Unattested product decision** — the change destroys or transforms user data, or alters user-visible behavior beyond stated acceptance criteria, with no user statement authorizing it; an agent-authored comment or PR sentence is self-certification, not authorization.
 
-If none of the four hold and the safer default is obvious and reversible, proceed and note the default — do not manufacture a question (anti-pattern per `agents/shared/user-question-protocol.md` "Echo-as-question").
+If none of the five hold and the safer default is obvious and reversible, proceed and note the default — do not manufacture a question (anti-pattern per `agents/shared/user-question-protocol.md` "Echo-as-question").
 
 ## §0 ambiguity gate (every mutating artifact)
 
 Every artifact under `agents/`, `commands/`, and `skills/` that can mutate files MUST carry a §0 (or "Step 0 — Ambiguity gate") block as its first procedural step. The block:
 
-- scans the request against the four-trigger set above before any write;
+- scans the request against the five-trigger set above before any write;
 - on a live trigger, asks via the platform-native question tool per `agents/shared/user-question-protocol.md` and awaits the answer before proceeding;
 - declares the default-if-no-response option so the workflow never deadlocks;
 - on a non-response, wires the central deadlock-break: apply the declared default AND log it in the Iteration Summary via the `Default applied:` exception line (orchestrator path), OR return Status `BLOCKED_AMBIGUITY` when no default line was emitted (sub-agent / authoring-bug path) — never silent-pick, per `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response.
@@ -54,7 +55,7 @@ Binds every hatch3r-invoked workflow that mutates artifacts in the end-user repo
 
 ## Confidence-floor calibration (D13-SA13.3-F13.3.3)
 
-The four-trigger set above is the floor for *scope/intent* ambiguity. Orthogonally, the `--confidence-floor=any|medium|high` flag (and the persisted `hatch3r config confidence_floor=...` default) calibrates a *result-confidence* ASK surface in the core orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-quick-change`, `hatch3r-revision`). At floor `high`, the orchestrator ASKs the user on every low-confidence finding regardless of severity — an additional, user-selected ASK trigger layered on top of the always-on four-trigger set. The floor never relaxes the four triggers; it only adds ASK pressure on uncertain results. Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`.
+The five-trigger set above is the floor for *scope/intent* ambiguity. Orthogonally, the `--confidence-floor=any|medium|high` flag (and the persisted `hatch3r config confidence_floor=...` default) calibrates a *result-confidence* ASK surface in the core orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`, `hatch3r-quick-change`, `hatch3r-revision`). At floor `high`, the orchestrator ASKs the user on every low-confidence finding regardless of severity — an additional, user-selected ASK trigger layered on top of the always-on five-trigger set. The floor never relaxes the five triggers; it only adds ASK pressure on uncertain results. Per P1 maturity tier (Decision 16): solo defaults `any`, enterprise defaults `high`.
 
 ## Exemptions (D5-M5)
 

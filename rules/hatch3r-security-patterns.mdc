@@ -35,6 +35,10 @@ Authentication and authorization patterns (auth middleware, token validation, se
 - Circuit breakers for downstream service failures. Degrade gracefully rather than retrying indefinitely or passing errors upstream.
 - Health checks and readiness probes must not expose sensitive configuration or internal topology.
 - Disable debug endpoints, verbose logging, and source maps in production builds. Gate behind feature flags if needed in staging.
+- **Dangerous-capability environment gates are allowlists, never denylists.** A capability that must not run in production — debug endpoint, seed/reset script, test-auth bypass, destructive CLI verb, mock-payment mode — is gated by an explicit allowlist of named safe environments (`const ALLOWED = ['development','test']; if (!ALLOWED.includes(env)) refuse`).
+  - The denylist form `if (process.env.NODE_ENV !== 'production')` is the named anti-pattern: an unset, misspelled, or novel environment value (`stage`, `prod-eu`, `undefined` in a fresh container) evaluates as "not production" and ENABLES the capability.
+  - Unknown environment fails closed: an absent or unrecognized value takes the deny branch.
+  - Assert at startup that the resolved environment is a member of the project's known-environment enum; refuse to boot otherwise.
 
 ## CSRF Protection
 

@@ -39,7 +39,7 @@ Optional guided development lifecycle command that walks through structured phas
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
 | 3e. Final Quality — Triggered | `hatch3r-lint-fixer` + `hatch3r-ui` + `hatch3r-ux` (mandatory-on-match — each triggered one MUST spawn as its own dedicated instance at Tier 2/3) + the conditional CQ specialists (`hatch3r-reliability`, `hatch3r-scalability`, `hatch3r-performance`, `hatch3r-maintainability`, `hatch3r-enhancability`) per `SPECIALIST_TRIGGER_TABLE` | Yes | Spawn each whose trigger matches the diff |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (multi-module implementers in Phase 3, the Phase-4b final-quality batch) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (multi-module implementers in Phase 3, the Phase-4b final-quality batch) holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 ## Browser Automation
 
@@ -344,9 +344,10 @@ Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "general
 2. **Confidence-aware gate** (the second-pass trigger tightens with the `--confidence-floor` set in Step 0.7 — `any` = default below, `medium`/`high` raise the bar). First resolve the reviewer `confidence` field per the Confidence Propagation Contract absent-confidence clause: an absent or unparseable value is treated as `low` (it does NOT satisfy `!= low`), matching the code gate where `unknown` ranks below `low`.
    - **0 Critical + 0 Warning AND reviewer confidence == high or medium:** Review loop is clean. Proceed to 4b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
    - **0 Critical + 0 Warning AND reviewer confidence == low (including absent/unparseable, resolved to `low` above):** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns high/medium confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
-3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings.
+3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points).
 4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.
-5. **Repeat** steps 2-4 for a maximum of **3 iterations** (code-class cap). If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort).
+5. **Repeat** steps 2-4 for a maximum of **3 iterations** (code-class cap). If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort). The ASK lists each open `finding_id` with its legal closures (fix manually / defer → todo.md anchor / accept risk — user-attested only); on exit, reconcile the ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`); in `--auto` mode record open findings as `escalated` and exit PARTIAL.
+   - **Suggestion terminalization (W5):** every Suggestion row goes terminal at loop exit — `surfaced` (ID on the recap's `Open findings:` line), `deferred` (todo.md anchor), or `declined` (quoted user reply); unattended default is `surfaced` (`rules/hatch3r-findings-ledger.md`).
 
 > **Iteration-cap rationale (D10-SA10.7-F10.7.7).** Code reviews diverge faster than spec reviews — a code finding can spawn a regression the next iteration must catch — so the code-class loop here caps at 3. The spec-class loop in `hatch3r-board-fill` Step 7.9d caps at 4 because issue-spec reviews converge more slowly and deterministically (text refinement, no runtime regressions). Both are bounded below `DEFAULT_MAX_REVIEW_ITERATIONS` (4) in `src/pipeline/reviewLoop.ts`, which keeps the oscillation detector reachable in default config. Expected convergence is 1–2 iterations; the cap is the divergence backstop, not the target.
 
@@ -522,13 +523,14 @@ When invoked with `--auto` or `--unattended`, the workflow operates with reduced
 | Analysis review (Phase 1) | ASK user to proceed | Auto-proceed if no open questions |
 | Plan review (Phase 2) | ASK user to approve | Auto-proceed with plan |
 | Implementation review (Phase 3) | ASK user before Review | Auto-proceed if quality checks pass |
-| Review finalization (Phase 4) | ASK user to finalize | Auto-finalize if all AC met |
+| Review finalization (Phase 4) | ASK user to finalize | Auto-finalize only when all AC met AND no unattested product decision is recorded (see Safety Guardrails) |
 
 ### Safety Guardrails (Always Active)
 
 These checkpoints are NEVER skipped, even in auto mode:
 - **Destructive operations**: Database migrations, file deletions, security rule changes always require confirmation
 - **Breaking changes**: API contract changes, public interface modifications always require confirmation
+- **Product-behavior decisions:** a change that deletes or transforms user data, or alters user-visible behavior beyond the issue's acceptance criteria, always requires user confirmation — a code comment or PR sentence authored by this run is not user consent (`agents/shared/user-question-protocol.md` → Unattested product decision). Unattended: record the decision as `escalated` in the findings ledger and exit PARTIAL.
 - **Open questions**: If Phase 1 analysis surfaces unresolvable ambiguity, stop and ASK regardless of mode
 - **Quality gate failures**: If lint/typecheck/test fail after 2 fix attempts, stop and ASK
 - **Cost thresholds**: When the estimated cost for the selected tier exceeds the configured limit (default: $10 per task), do NOT abort silently. Call `proposeAlternativeTier(currentTier, currentEstimate, budget)` from `src/pipeline/costEstimator.ts` and surface a 3-option ASK: **(a) downgrade** to the suggested lower tier (saves the reported delta — drops the deep researcher modes / Phase-4 specialist depth that the lower tier omits), **(b) raise the budget** and proceed at the current tier, **(c) abort**. Default-if-no-response: abort (preserves the fail-closed contract). When `proposeAlternativeTier` returns `null` (current tier is already the cheapest, or no lower tier fits), present only raise-budget / abort.

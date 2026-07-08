@@ -39,7 +39,7 @@ Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, o
 | 3d. Final Quality — Docs | `hatch3r-docs-writer` | Yes | When APIs/architecture/UX affected |
 | 3e. Final Quality — Triggered | `hatch3r-lint-fixer`, `hatch3r-performance` (conditional); `hatch3r-ui`, `hatch3r-ux` (mandatory-on-match — each triggered one MUST spawn as its own dedicated instance at Tier 2/3) | Yes | When triggered |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 ## Browser Automation
 
@@ -253,6 +253,7 @@ When multiple issues are selected as a batch:
 2. **Open PRs/MRs:** Search using platform CLI (see platform sub-file).
 3. **Overlap analysis:** Flag hard collisions (same problem/files), soft collisions (related work), or no collision.
 4. **Intra-batch overlap (batch mode):** Check whether any issues within the batch are likely to touch the same files. If so, move conflicting issues to sequential dependency levels rather than parallel.
+5. **Intra-batch contract overlap (batch mode):** scan each issue's body and linked spec (the brownfield spec's Integration-Surface table when present) for named contracts — endpoint paths, collection/table names, event names, exported symbols, shared constants/config keys. Two issues naming the same contract are a contract collision even when their predicted file sets are disjoint: move them to sequential levels, or mark the pair for seam-owner assignment at Step 6c.2 (`rules/hatch3r-contract-census.md` → Seam-Owner Protocol). This is a first-pass textual signal; the authoritative check is the researcher breaking-change cross-check in Step 6c.2.
 
 **If hard collision:** **ASK** with options: proceed / pick different / wait.
 **If soft collision:** **ASK** to proceed with awareness.
@@ -328,7 +329,7 @@ Use the issue type to select the appropriate hatch3r skill: `type:bug` → the h
 
 Before delegating: scan `.hatch3r/learnings/` for matching `area`/`tags`, include relevant learnings (especially `pitfall` category) in sub-agent context. Skip silently if no learnings directory exists.
 
-**Cross-PR finding memory (D13-SA13.1-F08).** Also scan `.hatch3r/review-findings/` (skip silently if absent) for entries whose `applies-to` glob matches the issue's target files; carry the 5 most-recent matches (by `created` descending) forward into the Step 7a reviewer prompt as a `## Cross-PR Findings` block so the reviewer — which declares `consults_cross_pr_findings: true` — weighs prior same-file findings as organisational memory. After the Step 7a review loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved (atomic write via `src/merge/safeWrite.ts`), mirroring the Step 10 learnings-capture pattern.
+**Cross-PR finding memory (D13-SA13.1-F08).** Also scan `.hatch3r/review-findings/` (skip silently if absent) for entries whose `applies-to` glob matches the issue's target files; carry the 5 most-recent matches (by `created` descending) forward into the Step 7a reviewer prompt as a `## Cross-PR Findings` block so the reviewer — which declares `consults_cross_pr_findings: true` — weighs prior same-file findings as organisational memory. After the Step 7a review loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved (atomic write via `src/merge/safeWrite.ts`), mirroring the Step 10 learnings-capture pattern — derive the entry from the findings-ledger fold and cite its `finding_id` (`rules/hatch3r-findings-ledger.md` → Store Boundaries).
 
 > **Audit epics:** Audit epics produce findings (issues) rather than code changes — adjust delegation and skip Steps 7-8a if no code changes.
 

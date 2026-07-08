@@ -33,7 +33,7 @@ This command discovers the module taxonomy via static analysis, then delegates s
 | 4. Issue Creation | Orchestrator (GitHub MCP) | No | Yes |
 | 5. Board Sync | Orchestrator (Projects v2 sync) | No | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 All issue operations MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
 

@@ -37,6 +37,7 @@ Below the recap, a line appears ONLY when its firing condition holds. An absent 
 |---|---|---|---|---|
 | Not done | `Not done: <item> [— deferred: <why> \| unverified: <what>]; …` | any scope item not done/deferred/unverified | charter honesty; handoff Work Remaining | full scope completed |
 | Blockers | `Blockers: <blocker or open question>; …` | any open blocker | old §8; handoff Blockers | none open |
+| Open findings | `Open findings: <finding_id> <sev> — <disposition>; …` | any findings-ledger row folds non-terminal, or terminal as `escalated`/`surfaced`, at recap time | findings-ledger run-exit invariant (`rules/hatch3r-findings-ledger.md`) | no ledger file for this run, or every row folds to done/deferred/declined/accepted-risk/already-resolved |
 | Default applied | `Default applied: <question summary> → option <N> (<one-line reason>)` — format unchanged from the superseded template, one per default | ASK default exercised | **P8 B1** | no default taken |
 | Gates failed | `Gates failed: <gate>: <one-line cause>; …` | recap gates shows failure | P1 actionability | all gates passed |
 | Cost | `Cost: flagged_for_review: true` + fenced cost_actuals/delta YAML (the one multi-line exception) | any delta > 25% absolute | **Decision 24** / cost-visibility AC5 | deltas within ±25% (recap Δ facet suffices; telemetry persists regardless) |
@@ -56,6 +57,7 @@ Handoff surfaces (`rules/hatch3r-handoff-readiness.md`, `skills/hatch3r-handoff-
 - **Work Done** ← recap outcome (line 1) + files facet
 - **Work Remaining** ← `Not done:` line; absent ⇒ `None — full scope completed`
 - **Blockers** ← `Blockers:` line; absent ⇒ `None`
+- **Open Findings** ← `Open findings:` line; absent ⇒ none
 
 ## Confidence-to-Action Mapping (D13)
 

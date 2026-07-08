@@ -207,6 +207,28 @@ This gate is mandatory when triggered; passing Step 5b screenshot verification d
 
 The Step 5c verdict is a first-class field in the Return Structured Result block below alongside Browser verification.
 
+### 5d. Consumer Census (shared-contract changes)
+
+**Trigger:** the diff renames, removes, or re-signatures an exported symbol; changes a persisted collection/table/field name; adds, renames, or drops a client↔server wire-field key; changes an event name or payload key; moves or revalues a shared constant; or renames a CLI flag or config/env key (`rules/hatch3r-contract-census.md` → Shared-Contract Taxonomy). No trigger → record `Consumer census: N/A (no shared-contract change)` in the structured result and skip the rest of this step.
+
+**Census:** for each changed contract, run a repo-wide grep of the OLD identifier and the NEW identifier — never limited to the lane's `affectedFiles` (consumers live outside the lane's file set by definition):
+
+- String contracts: grep the quoted forms.
+- Wire fields: grep both client and server trees plus fixtures/mocks.
+- Constants: grep the name AND the literal value.
+
+Grep-pattern details live in `rules/hatch3r-contract-census.md` → Consumer Census.
+
+**Reconciled** means the consumer is updated to the new shape in this diff, OR reads through a guard added in this diff (façade-hold null-guard), OR carries a named justification. Valid justifications:
+
+- Consumer owned by another lane's seam (name the lane/issue).
+- Dead code with a linked deletion.
+- Dynamic/reflective access grep cannot resolve (name the mechanism, add a runtime guard).
+
+**Façade lane-exit self-check** — answer verbatim before returning: "Did you delete the field, or null it behind the façade?" A field deleted during a compatibility window fails this check: revert to the hold pattern (`rules/hatch3r-contract-census.md` → Façade Contract-Hold) before returning.
+
+**Gate:** `Status: SUCCESS` requires census ∈ {`clean`, `reconciled(N)`, `N/A`}; any `unreconciled` consumer without a named justification caps Status at `PARTIAL`, with the unreconciled consumers listed under Issues encountered / Notes.
+
 ### 6. Return Structured Result
 
 Report back to the parent orchestrator with:
@@ -229,6 +251,8 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 - tests/unit/file.test.ts -- what it covers
 
 **Edge-Case Ledger status:** N rows — M covered, K out-of-scope (justified), 0 dropped — or `N/A (no ledger / single-entity change)`
+
+**Consumer census:** clean | reconciled(N) | N unreconciled — justification | N/A (no shared-contract change)
 
 **Browser verification:**
 - VERIFIED | SKIPPED (non-UI) | N/A (no browser MCP available)
@@ -281,7 +305,7 @@ Rate every implementation decision, convention-lock choice, and reported result 
 
 - **High:** Pattern is established in the codebase (located via `similar-implementation` or direct grep), tests pass, and types narrow as expected. You traced the chosen API call and verified its signature against the source.
 - **Medium:** Follows a documented convention but not all consumers were exercised — for example, an uncommon error path or an edge case not covered by the issue's acceptance criteria.
-- **Low:** Best professional judgment — no reference implementation existed, library behavior was inferred from docs, or a contract change was necessary without verifying every consumer in the blast-radius list. Flag to the reviewer in Notes.
+- **Low:** Best professional judgment — no reference implementation existed, or library behavior was inferred from docs. A shared-contract change with unverified consumers is NOT expressible as low confidence — it fails the Consumer Census gate (Step 5d): reconcile every consumer or record a named justification per `rules/hatch3r-contract-census.md`; `unreconciled` without justification caps Status at PARTIAL.
 
 Surface confidence in the implementation result: use `high` for decisions in the `Notes` section that carry forward into review, `medium`/`low` must be paired with the specific unknown so the reviewer can confirm or challenge.
 
@@ -382,6 +406,8 @@ When encountering errors during implementation, follow these protocols:
 **Tests written:**
 - tests/unit/rateLimiter.test.ts -- 8 tests: burst handling, steady-state, window reset, Redis failure fallback
 - tests/integration/rateLimit.test.ts -- 3 tests: end-to-end 429 response, Retry-After header, rate reset
+
+**Consumer census:** clean
 
 **Browser verification:** SKIPPED (non-UI)
 

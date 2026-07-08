@@ -55,7 +55,7 @@ This command is the delegating orchestrator around the single-pass `/h4tcher-rel
 | 9. Marketplace-lane handoff (STOP before publish/merge) | Orchestrator (inline, presents the human-approval gate) | No | Yes |
 | 10. Iteration Summary | Orchestrator (inline) | No | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (Step 7b testability + security; Step 7c docs-writer alongside 7b) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state. Step 2 (version bump) and Step 3 (changelog) serialize on a dependency edge: the changelog header must match the bumped `package.json` version, so version-bump precedes changelog.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (Step 7b testability + security; Step 7c docs-writer alongside 7b) holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state. Step 2 (version bump) and Step 3 (changelog) serialize on a dependency edge: the changelog header must match the bumped `package.json` version, so version-bump precedes changelog.
 
 ---
 

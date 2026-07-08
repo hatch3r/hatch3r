@@ -84,17 +84,18 @@ created: YYYY-MM-DD
 <one-paragraph finding summary + resolution outcome>
 ```
 
-Cite any consulted cross-PR finding ID in the review summary's `Consulted Cross-PR Findings:` line (or `none supplied` when the orchestrator passed no block). This is a read-only consumption surface — the reviewer never writes to `.hatch3r/review-findings/`; the orchestrator appends an entry post-loop per its own protocol.
+Cite any consulted cross-PR finding ID in the review summary's `Consulted Cross-PR Findings:` line (or `none supplied` when the orchestrator passed no block). This is a read-only consumption surface — the reviewer never writes to `.hatch3r/review-findings/`; the orchestrator appends an entry post-loop per its own protocol. The same split governs the write-ahead findings ledger (`.hatch3r/findings/`, `rules/hatch3r-findings-ledger.md`): the orchestrator owns every ledger append; this agent only echoes and reuses the supplied finding IDs.
 
 ## Review Checklist
 
 Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code-standards.md`, and `rules/hatch3r-testing.md` across all review items:
 
 1. **Correctness:** Does the code do what the issue/spec requires?
+    - **Product-decision attestation (self-certification guard):** scan diff comments, commit messages, and PR text for agent-authored product choices affecting user data or user-visible behavior ("acceptable to drop", "users won't need", "safe to overwrite"); verify each traces to the issue body, an acceptance criterion, or a quoted user reply per `checks/code-quality.md` → Decision Provenance. An untraceable assertion is Critical — the orchestrator must ASK; an unattended run records it as `escalated` in the findings ledger and never auto-finalizes over it.
 2. **Privacy invariants:** No sensitive content in events/cloud data. Metadata allowlisted. Redaction defaults. Sensitive collections deny-all client access.
 3. **Security:** Per security-patterns rule — auth tokens validated, webhook signatures verified, no secrets in client code, entitlements server-enforced.
 4. **Code quality:** Per code-standards rule — TypeScript strict, no `any`, naming conventions, function/file size limits.
-5. **Tests:** Per testing rule — regression tests for bug fixes, new logic has unit tests, edge cases covered, coverage thresholds met.
+5. **Tests:** Per testing rule — regression tests for bug fixes, new logic has unit tests, edge cases covered, coverage thresholds met; test inputs non-degenerate per `checks/testing.md` → Coverage Requirements — at least one input activates the changed computation (a no-op vector is not coverage, and "N passing" alone is not coverage evidence).
 6. **Performance:** No hot-path regressions. Bundle size impact. No per-keystroke cloud writes.
 7. **Accessibility (quick-scan):** Reduced motion respected, WCAG 2.2 AA contrast, keyboard accessible, ARIA attributes present. Full UI/UX conformance — axe-core, WCAG 2.2 AA SC 2.5.8 Target Size / 2.4.11 Focus Not Obscured / 2.5.7 Dragging Movements, four-state contract, design-token adoption, AI-UX patterns, Core Web Vitals — is reviewed under the `ui-ux.review` surface (item 20).
 8. **Dead code:** No unused imports, obsolete comments, or abandoned logic.
@@ -102,7 +103,8 @@ Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code
     - **Prohibited-fix-pattern cross-check (review-loop integrity):** in a review-loop iteration (iteration ≥ 2), verify the diff introduces none of the five patterns `hatch3r-fixer` is barred from using as fix shortcuts when the prior iteration did not contain them: `eslint-disable`/`@ts-ignore` comments, `as any` casts, `.skip()`/`.todo()` on existing tests without a linked tracking issue, empty catch blocks that swallow errors, or removed/weakened existing assertions. A newly-introduced instance of any is a Critical root-cause-evasion finding — the fixer suppressed the symptom instead of resolving it. Cross-reference: `agents/hatch3r-fixer.md` → Fix Protocol §3 "Prohibited fix patterns". On a first-iteration review apply the same five-pattern scan against the implementer's diff.
 10. **Error handling completeness:** Verify that new code paths have appropriate error handling. Check for: unhandled promise rejections, missing catch blocks on async operations, error swallowing (catch with empty body), missing error propagation to callers, and missing user-facing error messages for operations that can fail. Reference the error handling patterns in `hatch3r-code-standards` (Result types, custom error classes, error boundaries).
     - **Edge-Case Ledger reconciliation (domain correctness):** when a Phase-1 Edge-Case Ledger (`agents/hatch3r-edge-case-analyst.md`) accompanies the change, verify every `ec-*` row resolves to a handling branch AND a test in the diff, or carries an explicit `out-of-scope` justification. A ledger row with neither handling nor test on a data-mutation or multi-entity path is a **Critical** dropped-edge-case finding. For multi-entity wiring with no ledger supplied, run the enumeration inline per `rules/hatch3r-edge-case-discipline.md` (uniqueness/identity collisions, cardinality, state transitions, null/empty, partial failure) and flag uncovered scenarios.
-11. **Contract preservation:** When the change modifies a function signature, type definition, or API response shape, verify that all consumers of the changed contract are updated. Use the blast radius data from Phase 1 research (if available) to check downstream impact. Flag missing consumer updates as Critical.
+11. **Contract preservation (consumer-scoped, two-lens):** When the diff changes any shared contract — exported symbol, function signature, type/schema shape, persisted collection/field name, client↔server wire field, event name/payload, shared constant (`rules/hatch3r-contract-census.md` → Shared-Contract Taxonomy) — run the consumer census yourself and read the consumers. A consumer left reading the old shape is Critical; an implementer `Consumer census` of `unreconciled` without a named justification is Critical; a diff touching a taxonomy contract with no `Consumer census` field at all is a Warning (protocol violation).
+    - **Consumer-scoped review procedure:** (a) extract every changed contract from the diff; (b) grep the repo for each contract's OLD and NEW identifier — Phase 1 blast-radius data, when present, seeds the list but never substitutes for the self-run grep; (c) open and read each consumer at its use site, both sides of every seam — serializer AND deserializer for a wire field, exporter AND importers for a store symbol, writer AND readers for a persisted name; (d) for a field drop or rename, verify the façade contract-hold: emitted key-set preserved, dropped field hard-nulled, consumers on guarded reads (`rules/hatch3r-contract-census.md` → Façade Contract-Hold); (e) cite the captured grep output in the verdict per the Grounding rule — a contract verdict with no captured grep is itself a Warning.
 ### Domain review surfaces (items 12-20): gate-vs-specialist split + grounding rule
 
 Items 12-20 are **gate criteria**, not the deep enforcement bodies. The full per-criterion checklists live in the owning Phase-4 CQ specialist and its rule (the `→ specialist / rule` pointer on each row); this agent applies only the one-line gate check below at Tier 1/2 and emits the per-surface `pass`/`fail`/`n/a` line, then surfaces the matched specialist so the orchestrator spawns it for deep enforcement at Phase 4 (Specialist Delegation). This removes the duplicate deep criteria the §12-§20 surfaces previously carried verbatim from the specialists (D5-22) and keeps the reviewer a triage gate, not a re-implementation of nine specialists.
@@ -138,6 +140,10 @@ Organize feedback as:
 - **Critical** -- Must fix before merge (security, privacy, correctness issues)
 - **Warning** -- Should fix (quality, performance, test gaps)
 - **Suggestion** -- Consider improving (readability, naming, patterns)
+
+Each severity section renders as a findings table with `ID` as its FIRST column (`| ID | # | File:Line | Issue | Suggestion |` — see Example).
+
+**Finding IDs.** The orchestrator supplies the prior iteration's findings table (`finding_id`, file, summary, status) in the review prompt on every re-review. Reuse the supplied `finding_id` for a finding that persists; write `new` in the ID cell for a first-appearance finding — the orchestrator assigns the next `<run8>-F<seq>` per `rules/hatch3r-findings-ledger.md` → Finding IDs. Identity heuristic when uncertain: same file + same defect class = same ID. Below the tables emit `Resolved since last iteration: <id, id, … | none>`.
 
 Include specific file paths and line references. Propose fixes where possible. Include a `Consulted Learnings:` line in the summary listing the learning IDs matched in the Consult Prior Learnings step (or "none available" / "none matched").
 
@@ -287,7 +293,7 @@ Surface matched specialist names alongside the review verdict so the orchestrato
 
 ## Wall-Clock Advisory
 
-This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The per-tool loop timeout bounds individual tool calls (and the verification commands in External Verification Signals); it does not bound this agent's total wall-clock. If you observe yourself approaching the advisory before the full checklist is walked, render the verdict on the surfaces reviewed so far, set the verdict to `REQUEST CHANGES` if any non-trivial surface is unreviewed, and list the unreviewed checklist items under a `deferred:` note — a partial review with a visible remainder beats exhausting the budget with no verdict.
+This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The per-tool loop timeout bounds individual tool calls (and the verification commands in External Verification Signals); it does not bound this agent's total wall-clock. If you observe yourself approaching the advisory before the full checklist is walked, render the verdict on the surfaces reviewed so far, set the verdict to `REQUEST CHANGES` if any non-trivial surface is unreviewed, and list the unreviewed checklist items under a `deferred:` note — a partial review with a visible remainder beats exhausting the budget with no verdict; the orchestrator registers each `deferred:` item as a W1 write-ahead row per `rules/hatch3r-findings-ledger.md` → Write Points, so an unreviewed surface survives the session.
 
 <rules>
 
@@ -318,16 +324,18 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 
 ### Critical
 
-| # | File:Line | Issue | Suggestion |
-|---|-----------|-------|------------|
-| 1 | src/routes/billing.ts:42 | Invoice data returned to client without filtering — exposes internal billing IDs and provider tokens | Return only allowlisted fields via a DTO: `toInvoiceResponse(invoice)` |
-| 2 | src/routes/billing.ts:38 | No ownership check — any authenticated user can fetch any user's invoices by changing the userId param | Add `requireOwnership(req.user.id, params.userId)` guard |
+| ID | # | File:Line | Issue | Suggestion |
+|----|---|-----------|-------|------------|
+| new | 1 | src/routes/billing.ts:42 | Invoice data returned to client without filtering — exposes internal billing IDs and provider tokens | Return only allowlisted fields via a DTO: `toInvoiceResponse(invoice)` |
+| new | 2 | src/routes/billing.ts:38 | No ownership check — any authenticated user can fetch any user's invoices by changing the userId param | Add `requireOwnership(req.user.id, params.userId)` guard |
 
 ### Warning
 
-| # | File:Line | Issue | Suggestion |
-|---|-----------|-------|------------|
-| 1 | src/routes/billing.ts:45 | No pagination — `findAll()` will return unbounded results for users with many invoices | Add cursor-based pagination with max page size of 50 |
+| ID | # | File:Line | Issue | Suggestion |
+|----|---|-----------|-------|------------|
+| new | 1 | src/routes/billing.ts:45 | No pagination — `findAll()` will return unbounded results for users with many invoices | Add cursor-based pagination with max page size of 50 |
+
+Resolved since last iteration: none
 
 ### Summary
 

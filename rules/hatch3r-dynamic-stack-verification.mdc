@@ -1,0 +1,109 @@
+---
+description: Runtime-evidence gates for stacks with no static type layer (plain-JS Vue, dynamic persistence) — smoke-mount changed components, dormant-collection-read ratchet, runtime smoke evidence on module-boundary changes; a green lint+build+mock-suite proves a layer, not the system.
+globs: ["**/*.vue", "**/*.js", "**/*.mjs", "**/*.cjs", "**/*.jsx", "**/composables/**", "**/stores/**"]
+alwaysApply: false
+precedence: high
+---
+# Dynamic Stack Verification
+
+**Pillars:** P2 (Scientific & Practical Quality), CQ5 (Testability)
+
+## Applicability Gate
+
+The globs above over-attach by construction: editor rule-scoping is glob-only, while "no static type layer" is a project property no glob can express. Self-resolve on activation — exit early when a compiler already validates the consumer side of the changed file:
+
+1. **Checked JS:** the changed `.js`/`.mjs`/`.cjs`/`.jsx` file is reached by a `tsconfig.json` or `jsconfig.json` (`include`/`files`) that enables `checkJs` → skip.
+2. **Typed SFC:** the changed Vue SFC declares `<script lang="ts">` or `<script setup lang="ts">` → skip.
+3. **Pragma coverage:** a `// @ts-check` or `/* @flow */` pragma covers the changed file → skip.
+
+When a checker is authoritative, defer to the compiler gates (`tsc --noEmit`, `vue-tsc`, `flow check`) and the rules that govern typed code. Record the skip in one review-note line — `dynamic-stack-verification: skipped (vue-tsc covers file)` — so "gate passed" and "gate not applicable" stay distinguishable. This rule exists for the residue: files where no compiler validates cross-module contracts, so contract drift reaches runtime unflagged.
+
+## Layer-vs-System
+
+Lint, build, and a mocked test suite each prove one layer; none proves the system. Drift classes that pass all three in a typeless stack and fail only at runtime:
+
+- **Client↔server field-name drift** — the server renames `userId` → `user_id`; the client bundle still builds.
+- **Event-name drift** — the emitter renames `order:placed` → `order.placed`; every listener still lints green.
+- **Store-key drift** — a state key is renamed in the store; consumers read `undefined` without a single thrown error.
+- **i18n-key drift** — an interpolated key no longer resolves; the UI renders the raw key string.
+- **Persisted collection-name drift** — writes target `orders`, reads target `order`; both queries execute without error against empty results.
+
+Empirical anchor: a static type layer flags ~15% of shipped JavaScript bugs (Gao/Bird/Barr, ICSE 2017 — References). A stack that forgoes that layer substitutes runtime evidence for it — not nothing. Report a green lint+build+mock-suite as a layer-level result, never as system verification.
+
+## Smoke-Mount Gate
+
+Every changed component mounts in the test runner — Vue Test Utils `mount()` or Testing Library `render` — with minimal REAL plumbing, not a fully stubbed shell:
+
+- **Store:** the real store plugin via `global.plugins`, or `provide` keyed by the REAL injection key the component injects — a stub keyed to a guessed shape defeats the gate.
+- **i18n:** a real i18n instance with the default locale loaded.
+- **Props:** the component's required props at realistic values.
+
+Minimal assertion — both clauses required:
+
+1. the component constructs without throwing, and
+2. one expected node is present (`wrapper.find('[data-test="..."]').exists()` / `screen.getByRole(...)`).
+
+```js
+const wrapper = mount(OrderSummary, {
+  props: { orderId: 'ord_123' },
+  global: { plugins: [store, i18n] }, // real store, real injection keys
+})
+expect(wrapper.find('[data-test="order-total"]').exists()).toBe(true)
+```
+
+Why mount, not import: `mount()` executes `setup()`, computed store access, and injection resolution immediately, so store-shape mismatches, missing injection keys, and prop-contract breaks surface at mount time — before any interaction is scripted.
+
+**Severity:** missing smoke-mount on a changed component = Warning; on a route-level component (a router target) = Critical.
+
+This gate is the floor BELOW the visual/behavioral mandates in `rules/hatch3r-testability.md` and `rules/hatch3r-ux-states-and-flows.md` — both stay authoritative for their depth (test-class mandates, state-flow and visual coverage); this gate adds only the construct-against-real-contracts floor beneath them.
+
+## Dynamic i18n Keys
+
+Static extraction cannot see interpolated keys (`t('status.' + value)`, template-literal keys). The verification contract is owned by `rules/hatch3r-i18n.md` → Dynamic Keys: a test iterating the full value set and asserting each resolved key exists in the default locale, or a co-located comment enumerating the concrete keys.
+
+Typeless-stack addendum: with no enum type constraining the interpolated value, the full-value-set key-existence test is the only available proof — treat every dynamic i18n call site in the diff as unverified until it carries one.
+
+## Dormant-Collection-Read Ratchet
+
+No compiler links a string-named write site to its read site. Per changed module:
+
+1. **Inventory (grep-derived):** collect persistence identifiers — collection/table/model names — at call sites in the changed module: `collection('x')`, `.from('x')`, `db.x`, `model('X')` (e.g. `grep -nE "collection\(|\.from\(|db\.\w|model\(" <changed-module>`).
+2. **Classify each identifier's edge:**
+   - **written-and-read** — both sides exist in the codebase; the pairing is the proof.
+   - **written-never-read** — data persisted that no code consumes.
+   - **read-never-written** — a consumer waiting on data no code produces.
+3. **Resolve every one-sided (dormant) edge** with exactly one of:
+   - **runtime proof** — a smoke test executing that read/write path against a real or emulated store, or
+   - **a co-located annotation** — `// dormant-by-design: <reason>` (external writer, scheduled job, analytics consumer, migration in flight).
+
+An identifier resolved from a variable (`db[collectionVar]`, `collection(name)`) cannot be inventoried statically — list the call site itself as a dormant edge until a runtime proof covers it.
+
+**Ratchet mechanics (Betterer-style — References):**
+
+- The count of unproven dormant edges per module is a committed baseline.
+- A PR MUST NOT increase the count — fail the check on new violations.
+- An improvement shrinks the baseline in the same PR.
+- A deliberate increase requires an explicit baseline-update step with a written rationale in the PR description.
+- Report before/after counts in the review verdict.
+
+## Boundary-Change Runtime Evidence
+
+A client↔server or module-boundary change — changed exports, HTTP request/response shapes, event names, store contracts — requires ONE piece of captured runtime evidence crossing the changed boundary, cited in the review verdict:
+
+- an executed request/response transcript (curl output, recorded fetch, HAR excerpt),
+- a mounted-flow console log or screenshot exercising the changed contract, or
+- a seeded local run whose output shows the boundary round-trip.
+
+Evidence MUST postdate the diff — a transcript captured before the change proves the old contract, not the new one. A green build is not that evidence: each side passing against its own mock proves agreement with the mock, not agreement between the sides (contract-testing rationale — Pact, References). Deep-context scoring already weights this change class +2 (`rules/hatch3r-deep-context.md`, complexity signal "Module-boundary or client↔server contract change in files with no static type coverage").
+
+**Severity:** boundary change with zero runtime evidence = Warning; on payment, auth, or data-mutation paths = Critical.
+
+## References
+
+- Vue Test Utils — crash course + Testing Vuex guide: https://test-utils.vuejs.org/guide/essentials/a-crash-course.html and https://test-utils.vuejs.org/guide/advanced/vuex.html (accessed 2026-07-08, T1, current) — 3-line mount smoke; real store via `global.plugins`; mount executes store access.
+- Testing Library — Vue Testing Library intro: https://testing-library.com/docs/vue-testing-library/intro/ (accessed 2026-07-08, T1, current) — tests resemble the way the software is used.
+- Gao, Bird, Barr — "To Type or Not to Type: Quantifying Detectable Bugs in JavaScript" (ICSE 2017): https://earlbarr.com/publications/typestudy.pdf (accessed 2026-07-08, T1 peer-reviewed, canonical) — a static type layer detects ~15% of shipped JS bugs (CI 11.5–18.5%); 2022 follow-up as currency pointer: https://arxiv.org/abs/2203.11115.
+- Pact — "How Pact works": https://docs.pact.io/getting_started/how_pact_works (accessed 2026-07-08, T1, page updated 2024-12-23) — mocked suites pass while the real provider differs.
+- i18next-parser — README: https://github.com/i18next/i18next-parser (accessed 2026-07-08, T2, repository archived 2026-02-22) — documents the dynamic-key blind spot in static extraction.
+- knip: https://knip.dev (accessed 2026-07-08, T2, current) — dynamic references as the static-reachability failure class.
+- Betterer: https://phenomnomnominal.github.io/betterer (accessed 2026-07-08, T2, current) — baseline snapshot, fail-on-worse, shrink-on-better.

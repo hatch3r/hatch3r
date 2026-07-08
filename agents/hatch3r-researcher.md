@@ -139,7 +139,7 @@ If no breaking changes are detected, set `Breaking changes detected: NONE` in th
 | 1 | api_signature | src/auth/middleware.ts:42 | `verify(token)` | `verify(token, options)` | 3 callers (src/api/*.ts) | high |
 ```
 
-Confidence field uses `high` (direct code evidence), `medium` (evidence from ADR plus partial code trace), or `low` (inferred from spec without code confirmation). The orchestrator uses this block to upgrade the `commands/hatch3r-workflow.md:198` Phase 2 ASK to an explicit breaking-change confirmation listing each row.
+Confidence field uses `high` (direct code evidence), `medium` (evidence from ADR plus partial code trace), or `low` (inferred from spec without code confirmation). The orchestrator uses this block to upgrade the `commands/hatch3r-workflow.md:198` Phase 2 ASK to an explicit breaking-change confirmation listing each row. For `type_shape`, `event_schema`, and `public_interface` rows classed as a field drop or rename, append `remedy: façade contract-hold` to the row's Proposed-shape cell — the orchestrator forwards it into the implementer prompt so the lane preserves the key-set and hard-nulls the field instead of deleting (procedure: `rules/hatch3r-contract-census.md` → Façade Contract-Hold).
 
 ---
 

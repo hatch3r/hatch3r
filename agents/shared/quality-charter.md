@@ -196,7 +196,7 @@ When an agent produces a service that handles a request, the charter binds it to
 
 Cross-reference: AUDIT Directive 16 (a), CONSTITUTION §2 P2 production-readiness measurement (instrumented-route ratio = 100%), forthcoming D22.
 
-### Data integrity quality (for agent-produced schema and event changes)
+### Data integrity quality (for agent-produced schema, event, and shared-contract changes)
 
 When an agent produces a schema migration, an event-schema change, or a backfill, the charter binds it to these criteria.
 
@@ -205,7 +205,8 @@ When an agent produces a schema migration, an event-schema change, or a backfill
 - **Reversibility:** every forward migration has a documented rollback path; irreversible migrations are flagged and gated on explicit acknowledgement.
 - **Replica-lag awareness:** backfills are idempotent + resumable + throttled to a documented lag budget; reads after writes use primary or wait for replication where consistency is required.
 - **Event-schema compatibility:** event-driven changes declare BACKWARD, FORWARD, or FULL compatibility in a schema registry (Avro / Protobuf / JSON-schema); breaking events bump a major version. Reference `rules/hatch3r-event-schema-evolution.md`.
-- **Verification gate:** a change is not done until the schema diff has been classified against the expand-contract phases and the rollback path has been tested in a non-prod environment.
+- **Shared-contract census:** every mutation of a shared contract (exported symbol, persisted name, wire field, event schema, shared constant — `rules/hatch3r-contract-census.md`) ships a repo-wide consumer census; each consumer is updated, guarded, or justified by name.
+- **Verification gate:** a change is not done until the schema diff has been classified against the expand-contract phases and the rollback path has been tested in a non-prod environment, and — for any shared-contract mutation — the consumer census returns `clean` or `reconciled(N)` with every consumer read at its use site.
 
 Cross-reference: AUDIT Directive 16 (b), CONSTITUTION §2 P2 production-readiness measurement (expand-contract conformance = 100%), forthcoming D22.
 

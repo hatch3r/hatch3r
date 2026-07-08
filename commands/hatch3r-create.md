@@ -49,7 +49,7 @@ If Tier 1, run Phase 1 with reduced prompts (skip optional dimensions). If Tier 
 
 **Parallel-dispatch directive:** When two or more steps below are independent (no shared files, no data dependency), issue all tool calls or sub-agent spawns in a single turn. Sequential dispatch of independent work is a finding under P7 (efficiency charter §P2).
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out (multi-artifact runs spawning one creator per artifact) holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out (multi-artifact runs spawning one creator per artifact) holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 ### Step 0.5: Emit Pre-Execution Cost Preview
 

@@ -38,7 +38,7 @@ Acceptable to proceed without asking ONLY when scope is single-target, single-co
 | 2. Setup Verification | Orchestrator (inline) | No | Yes |
 | 3. Guide Generation | `hatch3r-docs-writer` | No | Yes |
 
-**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes, deterministic aggregation, no shared mutable state.
+**Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
 # Onboarding Guide Generator — Tailored Developer Onboarding from Codebase Analysis to Ready-to-Work Guide
 

@@ -15,8 +15,10 @@ Review criteria for evaluating test coverage and quality in pull requests.
 - `[CRITICAL]` Every new public function or method has at least one unit test.
 - `[CRITICAL]` Code coverage does not decrease from the base branch. New code must be tested.
 - `[CRITICAL]` Bug fix PRs include a regression test that fails without the fix and passes with it.
+- `[CRITICAL]` E2E and integration inputs are non-degenerate: for each changed behavior, at least one test input activates the computation (non-zero rates/amounts, ≥2 records on merge/dedup paths, non-empty collections at every pipeline stage) and the assertion distinguishes the activated result from the no-op result. Named vectors: `rules/hatch3r-testing.md` → Degenerate-Input Guard.
 - `[RECOMMENDED]` Critical path functions (auth, payments, data mutations) have > 90% branch coverage.
 - `[RECOMMENDED]` Edge cases are explicitly tested: empty inputs, boundary values, error conditions, null/undefined.
+- `[RECOMMENDED]` Coverage claims name behaviors, not counts — "N passing" is evidence only when paired with which changed behaviors those N tests activate.
 
 ## Test Quality
 

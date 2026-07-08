@@ -23,6 +23,7 @@ Score every task against these signals before implementation. Each signal adds w
 | Estimated file count > 5 | +2 | Infer from task scope and codebase exploration |
 | Security-sensitive area (auth, payments, data access, secrets) | +2 | Match task against security-sensitive directories or keywords |
 | Behavioral contract change (API signature, event schema, type interface) | +2 | Task implies changes to shared interfaces or public APIs |
+| Module-boundary or client↔server contract change in files with no static type coverage | +2 | Changed exports / HTTP shapes / event names / store keys where no compiler validates consumers |
 
 ### Tier Assignment
 
