@@ -42,7 +42,7 @@ The caller provides:
 4. **Build & Test Status** — recover the most recent results of `npm test`, `npm run lint`, `npx tsc --noEmit` from the current session. If a check did not run this session, mark its row `skipped`.
 5. **work_item** — use the input value if provided; else attempt inference from branch name (e.g., `feat/issue-42-cache-refactor` → `gh:owner/repo#42` using `gh repo view --json nameWithOwner` for the repo prefix).
 6. **compaction_count** — if a `parent_handoff` was indicated, increment its value; else omit.
-7. **Findings ledger** — fold the active run's findings ledger (`.hatch3r/findings/*.jsonl` — last line per `finding_id` wins; `rules/hatch3r-findings-ledger.md` → Store & Format) and count open rows.
+7. **Findings ledger** — fold the active run's findings ledger (`.hatch3r/findings/*.jsonl` — last line per `finding_id` wins; `rules/hatch3r-findings-ledger.md` → Store & Format) and count open rows (non-terminal plus terminal `escalated`/`surfaced`). This fold is the input for the Work Remaining `Open findings` bullet in Step 3.
 
 ### Step 2: Distill Summary
 
@@ -82,7 +82,7 @@ Then close the run with the recap-contract Iteration Summary per `rules/hatch3r-
 files 1 (+64/−0) · sa 0/0 · gates 6/6 · cost Δ0% tok / Δ0% min · tier 1
 ```
 
-Handoff body composition consumes the session's most recent recap via the rule's Handoff Mapping: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`. Open findings ← the recap's `Open findings:` line, copied verbatim into Work Remaining as an additional bullet.
+Handoff body composition consumes the session's most recent recap via the rule's Handoff Mapping: Work Done ← recap outcome + files facet; Work Remaining ← `Not done:` line, absent ⇒ `None — full scope completed`; Blockers ← `Blockers:` line, absent ⇒ `None`. Open findings ← the Step 1 ledger fold, authoritative at composition time: compose the Work Remaining bullet from the fold's open rows in the recap grammar `Open findings: <finding_id> <sev> — <disposition>; …`, with the last recap's line as cross-check provenance — when it agrees with the fold, copy it verbatim as before; when it is absent or disagrees (stale recap, mid-session interrupt), the fold wins and the bullet notes `(fold-derived; last recap stale or absent)`. Zero open rows ⇒ no bullet.
 
 ## Outputs
 

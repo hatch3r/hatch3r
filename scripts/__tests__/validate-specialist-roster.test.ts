@@ -27,6 +27,7 @@ const COMMAND_FILES = [
   "hatch3r-workflow.md",
   "hatch3r-revision.md",
   "hatch3r-board-pickup.md",
+  "hatch3r-pr-resolve.md",
   "hatch3r-quick-change.md",
 ];
 
@@ -275,6 +276,28 @@ describe("validate-specialist-roster", () => {
       (f) =>
         f.code === "ROSTER-CMD-MISSING" &&
         f.file === "commands/hatch3r-revision.md" &&
+        f.message.includes("hatch3r-ux"),
+    );
+    expect(miss).toBeDefined();
+    expect(miss?.message).toMatch(/mandatory-on-match/);
+  });
+
+  it("ERRORs when pr-resolve drops a mandatory-on-match specialist (2.2.0)", async () => {
+    // 2.2.0 added hatch3r-ui/hatch3r-ux (mandatory-on-match) to pr-resolve's
+    // agentPipeline; pr-resolve is in FULL_PIPELINE_COMMANDS so dropping
+    // hatch3r-ux must fail the gate (Bugbot r3540353684).
+    const prPath = join(fx.rootDir, "commands", "hatch3r-pr-resolve.md");
+    const { readFile } = await import("node:fs/promises");
+    const body = await readFile(prPath, "utf-8");
+    const stripped = body.replace("hatch3r-ux, ", "");
+    expect(stripped).not.toBe(body);
+    await writeFile(prPath, stripped, "utf-8");
+
+    const r = await runValidator({ rootDir: fx.rootDir });
+    const miss = r.findings.find(
+      (f) =>
+        f.code === "ROSTER-CMD-MISSING" &&
+        f.file === "commands/hatch3r-pr-resolve.md" &&
         f.message.includes("hatch3r-ux"),
     );
     expect(miss).toBeDefined();

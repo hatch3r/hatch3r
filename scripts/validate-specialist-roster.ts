@@ -131,6 +131,10 @@ const FULL_PIPELINE_COMMANDS: readonly string[] = [
   "hatch3r-workflow.md",
   "hatch3r-revision.md",
   "hatch3r-board-pickup.md",
+  // 2.2.0: pr-resolve dispatches the full Tier 2/3 surface (review loop +
+  // mandatory-on-match ui/ux at stage 7c), so it is held to the same
+  // always + evaluate + mandatory-on-match floor as the other three.
+  "hatch3r-pr-resolve.md",
 ];
 const ALWAYS_FLOOR_COMMANDS: readonly string[] = ["hatch3r-quick-change.md"];
 

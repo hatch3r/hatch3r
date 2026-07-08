@@ -63,6 +63,23 @@ Classify before delegating, using the Light / Standard / Deep vocabulary in `age
 
 An undeclared theme set or emission target fires the §0 gate before tiering. Classify upward on uncertainty (highest-tier rule, `agents/shared/triage-vocabulary.md`).
 
+### Step 0.5: Emit Pre-Execution Cost Preview
+
+Before the Step 2 ASK gate, emit the cost preview per `rules/hatch3r-cost-visibility.md`:
+
+```yaml
+cost_estimate:
+  expected_sa_count: <0-2 researchers by tier + 1 implementer + 2 validation gates>
+  estimated_input_tokens_static_frame: <int>
+  estimated_web_research_queries: <int>   # 0-2 — only for Figma/tokens-studio field-mapping checks
+  triage_tier: light | standard | deep
+  estimated_duration_min: <int>
+```
+
+Post-execution actuals + delta land in the Step 6 Iteration Summary recap per `rules/hatch3r-cost-visibility.md`.
+
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Effort Override. Per-command slot: a complete-assets single-pair run misread as Deep because a stray tokens-studio JSON sits in the repo — force `--effort=light`.
+
 ---
 
 ## Step 1: Detect First (mandatory, read-only)
@@ -112,23 +129,6 @@ Intake summary:
 ```
 
 ASK per `agents/shared/user-question-protocol.md`: `accept` — generate and gate; `edit` — change an intake field first; `skip` — cancel, write nothing. After `accept`, the run is autonomous through Step 6.
-
-### Step 0.5: Emit Pre-Execution Cost Preview
-
-Before the Step 2 ASK gate, emit the cost preview per `rules/hatch3r-cost-visibility.md`:
-
-```yaml
-cost_estimate:
-  expected_sa_count: <0-2 researchers by tier + 1 implementer + 2 validation gates>
-  estimated_input_tokens_static_frame: <int>
-  estimated_web_research_queries: <int>   # 0-2 — only for Figma/tokens-studio field-mapping checks
-  triage_tier: light | standard | deep
-  estimated_duration_min: <int>
-```
-
-Post-execution actuals + delta land in the Step 6 Iteration Summary recap per `rules/hatch3r-cost-visibility.md`.
-
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Effort Override. Per-command slot: a complete-assets single-pair run misread as Deep because a stray tokens-studio JSON sits in the repo — force `--effort=light`.
 
 ---
 
