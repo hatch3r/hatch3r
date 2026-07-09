@@ -9,6 +9,8 @@ precedence: high
 
 # CLI UX Standards
 
+> Last updated: 2026-07-09
+
 **Pillars:** P1 (CLI UX Excellence)
 
 Requirements for all CLI code in `src/cli/`:

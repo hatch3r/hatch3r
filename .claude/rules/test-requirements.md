@@ -9,6 +9,8 @@ precedence: high
 
 # Test Requirements
 
+> Last updated: 2026-07-09
+
 **Pillars:** P2 (Scientific Quality), P5 (Governance Self-Quality)
 
 Testing standards from `vitest.config.ts`:

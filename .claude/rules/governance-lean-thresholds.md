@@ -9,9 +9,11 @@ precedence: high
 
 # Governance Lean Thresholds
 
+> Last updated: 2026-07-09
+
 **Pillars:** P5 (Governance Self-Quality), P4 (Lean Coverage)
 
-Before modifying any governance file, check `wc -l` against these limits from `governance/CONSTITUTION.md` §2 P5 (canonical source — this rule reproduces a curated subset of its rows; `scripts/validate-lean-threshold-currency.ts` (run via `npm run validate:efficiency`) enforces that every row reproduced here carries the same Limit as the Constitution, not that every Constitution row appears here — see the validator's `diffAgainstConstitution` contract):
+Before modifying any governance file, check `wc -l` against these limits from `governance/CONSTITUTION.md` §2 P5 (canonical source — this rule reproduces the file-cap and authoring-band subset of its rows; `scripts/validate-lean-threshold-currency.ts` (run via `npm run validate:efficiency`) enforces that every row reproduced here carries the same Limit as the Constitution, not that every Constitution row appears here — see the validator's `diffAgainstConstitution` contract):
 
 | File | Limit |
 |------|-------|
@@ -19,47 +21,29 @@ Before modifying any governance file, check `wc -l` against these limits from `g
 | `VISION.md` | <=250 lines |
 | `AUDIT.md` | <=600 lines |
 | `AUDIT-EXECUTE.md` | <=720 lines |
-| `EVOLVE.md` | <=700 lines |
+| `EVOLVE.md` | <=550 lines |
 | `pack-trust-model.md` | <=300 lines |
+| `amendment-procedure.md` | <=200 lines |
+| Governed appendix (D15-trust-reference.md) | <=200 lines |
+| `agents/shared/quality-charter.md` | <=300 lines |
+| `agents/shared/rigor-contract.md` | <=160 lines |
+| `agents/shared/user-question-protocol.md` | <=150 lines |
+| `SCALE.md` | <=80 lines |
 | `rules/*.md` (precedence: critical or high) | <=250 lines |
 | `rules/*.md` (precedence: normal or low) | <=120 lines |
 | `CLAUDE.md` | <=300 lines |
 | `README.md` | <=200 lines |
 | `docs/*.md` per file | <=400 lines |
-| Static-first prompt structure | required for `orchestrator: true` and `agents/*.md` |
-| Parallel-tool-by-default directive | required when artifact uses ≥2 independent tool calls |
-| Triage-first orchestrator | required when `orchestrator: true` |
-| Audit-execute SA-per-finding ratio (Critical/High/Medium/Low/Info) | 1:1 / ≤1:8 / ≤1:15 / ≤1:30 / ≤1:50 |
-| Finding impact-gating (Decision 17) | required: impact_horizon ∈ {short, medium, long} + progress_toward_pillar = <pillar_id>+<delta> |
-| Anti-cache patterns | 0 per artifact |
 | Domain file (SA ≤5) | 30-80 lines |
 | Domain file (SA >5) | SA × 15 lines |
 | Template file | 80-200 lines |
-| Cross-file duplication | <5% |
-| Finding inflation | <2.0x pre-dedup/post-impact-gating/post-triage |
-| Governance total (sum of the 6 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + EVOLVE + pack-trust-model) | <=3120 lines |
-| Generated UI a11y violations (axe-core, serious/critical) | 0 |
-| Design-token adoption in generated code (color, spacing, typography) | >=95% |
-| Four-state surface contract coverage on generated async views | 100% |
-| Generated-service OTel instrumentation on request path | 100% |
-| Migration expand-contract conformance | 100% |
-| Shared-contract consumer-census coverage on taxonomy-touching diffs | 100% |
-| API breaking-change events on stable endpoints | 0 per release |
-| AI feature eval coverage | 100% |
-| Per-feature test-class mandate compliance | 100% |
-| Edge-case enumeration coverage on changed surfaces (generated code) | >=90% |
-| Illegal-state-prevention adoption on state machines / unions (generated code) | 100% |
-| Supply-chain floor coverage | 100% |
-| User-facing service SLO defined | 100% |
-| Auth depth coverage | 100% |
-| Anti-slop phrases | 0 per file |
 | Checklist items/SA | 4-8 |
-| Ambiguity-detection gate coverage (agents/skills/commands) | 100% |
-| Sub-agent count emission on delegating artifacts | 100% |
-| Universal floor invariant (security + UI/UX + protocol + content-quality) | structural invariant: every non-custom preset admits every item tagged `floor:security`, `floor:ui-ux`, `floor:protocol`, or `floor:content-quality` unconditionally; under Decision 16 (dial, not gate) every preset admits the full corpus, so this row guarantees `floor:*` items can never be disabled at any tier, anchoring the §2B universal floor |
-| Tag-facet integrity on canonical artifacts | every canonical agent/skill/rule/command/hook carries ≥1 capability tag OR ≥1 floor tag in frontmatter; `customize` and `floor:*` items are exempt from capability-gate filtering |
-| Rule-precedence assignment policy | security + secrets rules → `precedence: critical` (rank 100, prefix `10-`); rules implementing CONSTITUTION §2 P2 hard-mandate floors (supply-chain, observability, migrations, auth depth, AI evals, accessibility, etc.) and framework-dev gatekeepers → `precedence: high` (rank 300, prefix `30-`); cosmetic/style → `precedence: normal` (rank 500, prefix `50-`); deprecation hawks → `precedence: low` (rank 700, prefix `70-`) |
-| Detail-rule frontmatter declaration (`rules/*-detail.{md,mdc}`) | required: `detail_rule: true` + `consumed_by: <parent-rule-id>` on both `.md` and `.mdc` |
+| Cross-file duplication | <5% |
+| Anti-slop phrases | 0 per file |
+| Finding inflation | <2.0x pre-dedup/post-impact-gating/post-triage |
+| Governance total (sum of the 6 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + EVOLVE + pack-trust-model) | <=2970 lines |
+
+Full table — including the generated-code CQ metric rows (a11y, design tokens, OTel, expand-contract, evals, SLO, auth depth, …) and the structural-invariant rows (universal floor, tag-facet integrity, rule-precedence policy, impact-gating, SA-per-finding ratios) — lives in `governance/CONSTITUTION.md` §2 P5. Those rows gate generated end-user code and audit execution, not framework-dev `wc -l` checks, so they are not reproduced here.
 
 If a modification pushes a file over its limit: compress elsewhere in the file to stay within bounds, or provide a pillar-backed rationale for the overage per the Pillar Compliance Test.
 

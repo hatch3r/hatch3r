@@ -9,6 +9,8 @@ precedence: high
 
 # Security Patterns
 
+> Last updated: 2026-07-09
+
 **Pillars:** P6 (Security & Trust)
 
 Security patterns required in all `src/` code:

@@ -2,13 +2,13 @@
 id: shared-user-question-protocol
 type: reference
 description: Protocol for how hatch3r agents and commands ask the user clarifying questions — when to ask, native-tool preference, and a plain-text fallback shape.
-tags: [shared, ux, p1, p4]
+tags: [shared, ux, p1, p4, p8]
 cache_friendly: true
 ---
 
 ## Purpose
 
-> Last updated: 2026-06-09
+> Last updated: 2026-07-09
 
 This protocol defines how hatch3r agents and commands surface clarifying or triage questions to the user across the 3 supported AI coding tools (Claude Code, Cursor, GitHub Copilot per `governance/CONSTITUTION.md` §6 Decision 12). It is the single source of truth for the *how* of asking; the *whether* is governed by [quality-charter §3 "Question Unclear Requirements"](./quality-charter.md) and §8 "Escalate Ambiguity Early". Coverage is a 100% floor, not a fixed file list: every framework-dev workflow that can mutate canonical artifacts routes its ASK through this protocol — the requirements-elicitation mode (`agents/modes/requirements-elicitation.md`), the shared §0 gate block (`agents/shared/clarification-default-block.md`), and every `agents/hatch3r-*.md` agent and `commands/hatch3r-*.md` command that detects ambiguity (counts: `governance/inventory.json` `counts.agents`, `counts.commands`, `counts.skills`). The "3 supported AI coding tools" figure above is drift-guarded against `inventory.json` `counts.adapters` by `scripts/inventory.ts` (`npm run inventory:check-docs`).
 
@@ -20,7 +20,7 @@ This protocol defines how hatch3r agents and commands surface clarifying or tria
 - **Branching path** — two or more viable approaches with materially different cost, scope, or risk.
 - **Conflicting constraints** — requirements that cannot all hold (e.g., "no new dependencies" and "use library X").
 - **Missing acceptance criteria** — no testable definition of done for the requested change.
-- **Architectural premise concern** — request is well-specified and single-interpretation, but the chosen approach is architecturally misguided (wrong pattern for the constraint, mis-applied abstraction, foreseeable scaling failure). Surface the concern as a §0.5 Challenge the Premise question per quality-charter §3 — phrase it constructively ("Before I implement this, I want to confirm the approach because [specific concern]"), then offer 2-4 options (proceed as requested / proposed alternative / hybrid). Default-if-no-response: proceed as requested (lowest-blast-radius assumption is that the user has context the agent lacks).
+- **Architectural premise concern** — request is well-specified and single-interpretation, but the chosen approach is architecturally misguided (wrong pattern for the constraint, mis-applied abstraction, foreseeable scaling failure). Surface the concern as an Architectural-premise-concern question per quality-charter §3 (this file's 'Architectural premise concern' trigger above) — phrase it constructively ("Before I implement this, I want to confirm the approach because [specific concern]"), then offer 2-4 options (proceed as requested / proposed alternative / hybrid). Default-if-no-response: proceed as requested (lowest-blast-radius assumption is that the user has context the agent lacks).
 
 ## When NOT To Ask
 
@@ -76,7 +76,7 @@ Attach a preview only when BOTH hold:
 - **You are the orchestrator** (main-conversation `commands/hatch3r-*.md`), not a Task-tool sub-agent. Sub-agents cannot call the native question tool at all (see the Sub-agent caveat above); they render the question — and any preview snippet — in the `BLOCKED_AMBIGUITY` structured result, and the orchestrator owns the live ASK.
 - **The runtime's native question tool supports rich/rendered option content.** Capability is per-platform; look up your runtime's row in the adapter map (`src/pipeline/adapterToolTranslator.ts::ASK_USER_TOOLS`) before relying on a preview, exactly as you would for the question tool itself. When the platform's native tool is text-only (or absent), embed the preview as a fenced code block inside the Plain-Text Fallback Template instead — never assume a rendering affordance the platform row does not document.
 
-**Concrete affordance (Claude Code orchestrator).** On the `claude` platform, populate the per-option `markdown` field of the `AskUserQuestion` tool: when any option carries a `markdown` value, Claude Code switches to a side-by-side preview layout (numbered options on the left, the rendered markdown on the right), so a diagram, code/diff block, or token-swatch table renders inline with the choice. The field accepts markdown only (no HTML), and long content is truncated to a scrollable panel — keep each option's preview to about one screen of markup. One documented constraint: supplying a `markdown` field suppresses the free-text "Other / Type something" option on that question, so reserve the preview layout for closed-option visual decisions. Other platforms expose no documented preview field (their `ASK_USER_TOOLS` row is `null` — `cursor`, `copilot` as of 2026-06-09); on those, fall back to the fenced-code-block-in-plain-text shape above.
+**Concrete affordance (Claude Code orchestrator).** On the `claude` platform, populate the per-option `markdown` field of the `AskUserQuestion` tool: when any option carries a `markdown` value, Claude Code switches to a side-by-side preview layout (numbered options on the left, the rendered markdown on the right), so a diagram, code/diff block, or token-swatch table renders inline with the choice. The field accepts markdown only (no HTML), and long content is truncated to a scrollable panel — keep each option's preview to about one screen of markup. One documented constraint: supplying a `markdown` field suppresses the free-text "Other / Type something" option on that question, so reserve the preview layout for closed-option visual decisions. Other platforms expose no documented preview field (their `ASK_USER_TOOLS` row is `null` — `cursor`, `copilot` per each row's in-code `// verified <date>` stamp); on those, fall back to the fenced-code-block-in-plain-text shape above.
 
 The preview is an enrichment, not a replacement: the numbered options and the mandatory `Default if no response:` line are still required. Keep the preview small (one screen of markup or a single mock) so it does not bury the decision.
 
@@ -134,7 +134,7 @@ This protocol defines the *shape* of a single question (numbered options, mandat
 
 The `markdown`-field preview affordance documented in "Optional preview attachment" above is corroborated by:
 
-- `anthropics/claude-code` issue #27348 — names the `markdown` field on `AskUserQuestion` options as the trigger for the preview layout and the "Other / Type something" suppression constraint (accessed 2026-06-09; trust tier: official-vendor issue tracker). https://github.com/anthropics/claude-code/issues/27348
-- `anthropics/claude-code` issue #33062 — documents the side-by-side preview panel and its scroll/truncation behavior for long content (accessed 2026-06-09; trust tier: official-vendor issue tracker). https://github.com/anthropics/claude-code/issues/33062
+- `anthropics/claude-code` issue #27348 — names the `markdown` field on `AskUserQuestion` options as the trigger for the preview layout and the "Other / Type something" suppression constraint (accessed 2026-06-09; trust tier: vendor-note). https://github.com/anthropics/claude-code/issues/27348
+- `anthropics/claude-code` issue #33062 — documents the side-by-side preview panel and its scroll/truncation behavior for long content (accessed 2026-06-09; trust tier: vendor-note). https://github.com/anthropics/claude-code/issues/33062
 
 Per-platform tool names and the `null`-means-no-native-tool convention are sourced in `src/pipeline/adapterToolTranslator.ts::ASK_USER_TOOLS` (each entry carries its own `// verified <date> @ <docs URL>` stamp, refreshed on the D09 per-cycle web-research pass).
