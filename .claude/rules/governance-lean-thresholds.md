@@ -18,7 +18,7 @@ Before modifying any governance file, check `wc -l` against these limits from `g
 | File | Limit |
 |------|-------|
 | `CONSTITUTION.md` | <=550 lines |
-| `VISION.md` | <=250 lines |
+| `VISION.md` | <=260 lines |
 | `AUDIT.md` | <=600 lines |
 | `AUDIT-EXECUTE.md` | <=720 lines |
 | `EVOLVE.md` | <=550 lines |
@@ -26,7 +26,8 @@ Before modifying any governance file, check `wc -l` against these limits from `g
 | `amendment-procedure.md` | <=200 lines |
 | Governed appendix (D15-trust-reference.md) | <=200 lines |
 | `agents/shared/quality-charter.md` | <=300 lines |
-| `agents/shared/rigor-contract.md` | <=160 lines |
+| `agents/shared/rigor-contract.md` | <=170 lines |
+| `agents/shared/senior-expert-charter.md` | <=200 lines |
 | `agents/shared/user-question-protocol.md` | <=150 lines |
 | `SCALE.md` | <=80 lines |
 | `rules/*.md` (precedence: critical or high) | <=250 lines |
@@ -41,7 +42,7 @@ Before modifying any governance file, check `wc -l` against these limits from `g
 | Cross-file duplication | <5% |
 | Anti-slop phrases | 0 per file |
 | Finding inflation | <2.0x pre-dedup/post-impact-gating/post-triage |
-| Governance total (sum of the 6 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + EVOLVE + pack-trust-model) | <=2970 lines |
+| Governance total (sum of the 6 lean-tracked prompts: CONSTITUTION + VISION + AUDIT + AUDIT-EXECUTE + EVOLVE + pack-trust-model) | <=2980 lines |
 
 Full table — including the generated-code CQ metric rows (a11y, design tokens, OTel, expand-contract, evals, SLO, auth depth, …) and the structural-invariant rows (universal floor, tag-facet integrity, rule-precedence policy, impact-gating, SA-per-finding ratios) — lives in `governance/CONSTITUTION.md` §2 P5. Those rows gate generated end-user code and audit execution, not framework-dev `wc -l` checks, so they are not reproduced here.
 

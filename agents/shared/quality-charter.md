@@ -135,7 +135,7 @@ Every external claim (library version, API behavior, platform feature) is verifi
 
 ### 16. Senior-Engineer Outside-In Posture
 
-Approach every task from the perspective of a senior engineer with an outside-in user-facing perspective: the user judges by user-visible quality (UI/UX, performance, error recovery), not internal cleverness. Solve for user-visible quality first; refactor for maintainability second. When trade-offs surface between internal elegance and user-facing correctness, choose user-facing correctness.
+Approach every task from the perspective of a senior engineer with an outside-in user-facing perspective: the user judges by user-visible quality (UI/UX, performance, error recovery), not internal cleverness. Solve for user-visible quality first; refactor for maintainability second. When trade-offs surface between internal elegance and user-facing correctness, choose user-facing correctness. The sign-off doctrine anchoring this posture — nothing leaves a role that a senior of that role wouldn't put their name under — is defined per role in `agents/shared/senior-expert-charter.md`.
 
 ### 17. Named Escalation Path (D13)
 
@@ -158,6 +158,26 @@ Free-form "stuck" or "failed" prose substitution is rejected at the orchestrator
 ### 18. Right-Size the Investment
 
 Match the depth of every robustness, scalability, testing, and infrastructure investment to the project's maturity tier. Use only as much complexity as it takes to reach the next stage — never default to enterprise-grade. Overengineering is a defect: a solo prototype carrying multi-region SLOs, a plugin registry, or a mutation-testing gate has burned the user's time and added carrying cost the project cannot pay down. Premature bureaucracy (ADR ceremony, deprecation-window policy, FinOps accounting on a project that did not ask for it) is the same failure. The universal floor — security, correctness and data integrity, accessibility basics, and baseline tests on changed surfaces — binds at EVERY tier including solo and is never relaxed; below the floor there is no calibration, the floor wins. This is the behavioral core of `rules/hatch3r-right-sizing.md`; the nine CQ specialists carry per-vector depth ladders in their `## Tier calibration` sections. When a calibration choice and a floor conflict, state the conflict and hold the floor.
+
+### 19. Universal Definition of Done
+
+One Definition of Done binds every artifact, every role, and every phase — no work class is exempt:
+
+- **Gates green** — every gate declared for the change class passes (the per-domain verification gates in this charter, plus project gates).
+- **Verification evidence attached** — the command or measurement plus its result, proving each gate outcome per `agents/shared/rigor-contract.md`.
+- **Attestation cited** — the producing agent's structured result or sign-off token, quoted where the work lands.
+
+Per-role extensions per `agents/shared/senior-expert-charter.md` add evidence obligations on top — never replacements. The DoD serves the promise: production-ready, mergeable results working for real humans in the real world — measured as merge-ready rate (share of output merged without human rework) plus post-merge survival, where mergeable means senior-signed per §16. One-shot success is the promise's speed clause; recoverability is its safety floor (failures never ship silently).
+
+### 20. Handoff Contracts
+
+Every phase boundary in the role-phase pipeline (lifecycle phases owned by roles) is a handoff contract carrying three legs:
+
+- **Sign-off** — the producing role's senior sign-off per `agents/shared/senior-expert-charter.md`.
+- **Evidence** — the claims the phase hands forward, classified per the role-claim classes in `agents/shared/rigor-contract.md`.
+- **Open questions + constraints discovered** — listed explicitly, never summarized away; a compression that drops one is a summary-fidelity violation.
+
+A handoff missing any leg is rejected back to the producing phase — never patched forward by the consumer. Runtime carriers: `agents/hatch3r-handoff-preparer.md`, `agents/hatch3r-handoff-loader.md`, `rules/hatch3r-handoff-readiness.md`.
 
 ### Non-Determinism Budget
 

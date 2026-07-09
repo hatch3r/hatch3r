@@ -48,6 +48,25 @@ Every finding satisfies six tests, drawn from established empirical practice. A 
 
 ---
 
+## Role-claim evidence classes
+| Role-artifact class | Minimum evidence |
+|---------------------|------------------|
+| Product Manager (discovery / market claims) | Sourced user/market evidence with access dates |
+| Software Architect (ADRs) | Trade-offs + rejected alternatives recorded |
+| UI/Design-System Engineer | Design-token adoption + a11y scan results |
+| UX Designer | Flow/state coverage evidence |
+| Software Engineer / Data Engineer (implementation) | Executed verification (tests/commands + outputs) |
+| QA Engineer | Coverage + edge-case/mutation evidence |
+| Security Engineer / Compliance | Scan results + control mapping |
+| SRE/Operations | SLO/telemetry data |
+| Platform/DevOps Engineer | Pipeline/provenance evidence |
+| Tech Writer | Doc-accuracy verification against the shipped surface |
+| Engineering Lead | Attestation trail (delegation proofs) |
+
+Rigor extends from findings to role claims: a role claim missing its evidence class is inadmissible for sign-off (role taxonomy ratified 2026-07-09; sign-off doctrine: `agents/shared/senior-expert-charter.md`).
+
+---
+
 ## Grading directives
 
 Severity-floor directives applied when grading artifact classes — distinct from the six finding-quality tests above, which accept or reject a finding on its evidence.
@@ -129,13 +148,7 @@ Default research targets per audit domain (overridable in domain-specific source
 
 ## Pillar Service
 
-This template serves the framework's North Star through:
-
-- **P2 Scientific & Practical Quality (primary).** The six-test contract operationalises P2 at the per-finding level for every audit sub-agent and every EVOLVE scanner finding.
-- **P5 Governance Self-Quality (supporting).** Single source of truth eliminates duplication across the audit prompt, the evolve prompt, and the audit domain files.
-- **P3 Adapter & External Tool Currency (supporting).** Web Research Mandate enforces source-and-date capture for platform docs, CLI tool releases, and CVE feeds (per the adapter & external tool currency pillar P3).
-
-Pillar Compliance Test answers: (1) P2 primary, P5 / P3 supporting. (2) Measurable improvement — every finding passes the six-test contract and carries the 9-mandatory-field schema header; placeholder findings are detectable and routed to re-research. (3) Net governance size impact: one shared file capped at ≤160 lines (CONSTITUTION §2 P5), offset by reference-instead-of-restate across the audit/evolve prompts and domain files.
+Pillar Compliance Test answers: (1) P2 Scientific & Practical Quality primary — the six-test contract operationalises P2 at the per-finding level for every audit sub-agent and every EVOLVE scanner finding; P5 Governance Self-Quality and P3 Adapter & External Tool Currency supporting — single-source-of-truth referencing per §Purpose, plus Web Research Mandate source-and-date capture for platform docs, CLI tool releases, and CVE feeds. (2) Measurable improvement — every finding passes the six-test contract and carries the 9-mandatory-field schema header, every role claim carries a named evidence class, and placeholder findings are detectable and routed to re-research. (3) Net governance size impact: one shared file capped at ≤170 lines (CONSTITUTION §2 P5, recalibrated 2026-07-09 for role-claim evidence classes), offset by reference-instead-of-restate across the audit/evolve prompts and domain files.
 
 ---
 
