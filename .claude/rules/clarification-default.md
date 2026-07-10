@@ -9,6 +9,8 @@ precedence: high
 
 # Clarification Default
 
+> Last updated: 2026-07-09
+
 **Pillars:** P8 (Clarification & Fan-out Discipline)
 
 Source: `governance/CONSTITUTION.md` §2 P8.
@@ -33,7 +35,7 @@ Use the platform-native question tool per `agents/shared/user-question-protocol.
 
 ## Scope
 
-This rule applies to every framework-dev workflow that mutates canonical artifacts:
+This rule applies to every framework-dev workflow that mutates canonical artifacts, including:
 
 - `/h4tcher-capability-add`
 - `/h4tcher-capability-refactor`
@@ -42,5 +44,7 @@ This rule applies to every framework-dev workflow that mutates canonical artifac
 - `/h4tcher-domain-author`
 - `/h4tcher-content-author`
 - `/h4tcher-adapter-author`
+- `/h4tcher-audit-execute`
+- `/h4tcher-pr-resolve`
 
 Read-only presets (`/h4tcher-capability-discover`, `/h4tcher-governance-check`) ask only when their report would be meaningless without scope clarification.

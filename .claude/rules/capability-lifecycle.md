@@ -9,6 +9,8 @@ precedence: normal
 
 # Capability Lifecycle
 
+> Last updated: 2026-07-09
+
 **Pillars:** P4 (Lean Coverage), P5 (Governance Self-Quality)
 
 ## Decision tree
@@ -34,7 +36,9 @@ These `h4tcher-` skills are framework-dev maintainer tools, NOT lifecycle add/re
 
 | Skill | Purpose |
 |-------|---------|
+| `/h4tcher-audit-execute` | Execute audit findings via the 4-wave progressive model — regression gates between waves, finding-registry tracking, closed-loop phases. |
 | `/h4tcher-docusaurus-generator` | Build or refresh the framework's own Docusaurus site (`website/`) from `governance/`, `agents/`, `skills/`, `rules/`, `commands/`, `hooks/`, and `docs/`. |
+| `/h4tcher-governance-check` | Pre-audit governance health check: lean thresholds, anti-slop compliance, invariant consistency, pillar coverage (read-only). |
 | `/h4tcher-pr-resolve` | Resolve PR comments on the hatch3r repo: run the canonical `hatch3r-pr-resolve` workflow, then apply hatch3r-dev quality gates (validate, rule parity, efficiency, lean thresholds, anti-slop, inventory, pillar compliance) and stop before commit. |
 | `/h4tcher-release-prep` | Prepare a hatch3r release: version bump, changelog completeness + sync, repo + website docs currency, quality gates, adapter-output verification, release-notes reconciliation with CI. |
 
@@ -45,7 +49,7 @@ Source of truth: `governance/audit/domains/D16-compound-system.md` §16.3 "Remov
 1. Zero unique value beyond an existing artifact
 2. Class-aware reachability fails — a flat cross-reference count mis-fires on entry-point and by-construction classes, so the test is per class:
    - **agents** — zero `agentPipeline:` id-occurrences across `commands/hatch3r-*.md`.
-   - **skills + commands** — NOT an entry point: absent from `AGENT_COMMAND_NAMES` (`src/cli/program.ts:45`) AND not emitted by any adapter AND not on the CLAUDE.md user surface. Skills/commands are user-typed leaf nodes; zero functional consumers is their correct state and never alone implies removability.
+   - **skills + commands** — NOT an entry point: absent from `src/cli/program.ts::AGENT_COMMAND_NAMES` AND not emitted by any adapter AND not on the CLAUDE.md user surface. Skills/commands are user-typed leaf nodes; zero functional consumers is their correct state and never alone implies removability.
    - **rules** — neither `scope: always` nor a glob matching a repo path; glob/always rules are reachable by construction.
 3. No orchestrator dependency in any `commands/hatch3r-*.md` `agentPipeline:`
 
