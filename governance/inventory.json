@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-07-08",
+  "lastUpdated": "2026-07-09",
   "counts": {
     "adapters": 3,
     "agents": 29,
@@ -12,7 +12,7 @@
     "pipeline": 22,
     "cliCommands": 20,
     "agentsModes": 21,
-    "agentsShared": 15,
+    "agentsShared": 16,
     "commandsBoard": 11,
     "commandsRevision": 4,
     "checks": 5,
@@ -386,6 +386,7 @@
       "quality-charter.md",
       "quality-specialist-frame.md",
       "rigor-contract.md",
+      "senior-expert-charter.md",
       "severity-mapping.md",
       "triage-vocabulary.md",
       "user-content-templates.md",
