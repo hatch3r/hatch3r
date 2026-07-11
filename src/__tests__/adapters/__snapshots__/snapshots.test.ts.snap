@@ -111,7 +111,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "05facd1d9b74fe4307956f40ea8612014973cfd738135dce8f197fc54228fcc4",
+    "bodyHash": "9650ab21f1e963a1f42915776a70dab04ff09ce7671657b7e049f564b53a5dcd",
     "contentMarkers": [],
     "hasManagedContent": false,
     "path": ".claude/hooks/pretooluse-allowlist.mjs",
@@ -127,7 +127,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "73f9e79d460f6838450f7eb93c63e5cc49e316f04a3d6041b722be6d54196b20",
+    "bodyHash": "2b4bdd35309643cd0236e838d60118ad42becbe7abee53390d9a2c96fadec463",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -176,7 +176,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "aad057a5c584f2255e10ad8403ca31d53db3cda1b229de6bb647fac2467d0809",
+    "bodyHash": "1c5185177480b336fe9ec7ea10cca29941073e2da06d00247f3f0ddec80323cf",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "AGENT_TEAMS",
