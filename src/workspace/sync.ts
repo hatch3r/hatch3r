@@ -21,9 +21,6 @@ import { safeWriteFile, acquireWriteLock } from "../merge/safeWrite.js";
 import { HATCH3R_DIR } from "../types.js";
 import { migrateAgentsToHatch3r } from "../migration/agentsToHatch3r.js";
 import { HATCH3R_VERSION } from "../version.js";
-import { findPackageRoot } from "../cli/shared/paths.js";
-import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
 import { analyzeRepo } from "../detect/repoAnalyzer.js";
 import { ensureEnvMcp, ensureGitignoreEntry } from "../env/mcpEnv.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "./manifest.js";
@@ -33,9 +30,6 @@ import { CHARS_PER_TOKEN } from "../pipeline/observability.js";
 import { verbose } from "../cli/shared/ui.js";
 import type { WorkspaceManifest, WorkspaceRepoEntry, WorkspaceSyncResult, WorkspaceRepoSyncResult, WorkspaceGroupDelta } from "./types.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONTENT_ROOT = findPackageRoot(__dirname);
-
 /**
  * Estimate total tokens for a set of content IDs by summing the character
  * length of their source files and dividing by the chars-per-token ratio.
@@ -44,6 +38,10 @@ async function estimateTokensForContent(
   contentIds: Set<string>,
   index: Awaited<ReturnType<typeof buildContentIndex>>,
 ): Promise<number> {
+  // D1-SA1.10-01 (Cycle 12): item.relativePath values are relative to the
+  // bundled content root the index was built from (see syncWorkspaceRepos),
+  // so resolve the same root here. Process-cached — cheap per call.
+  const contentRoot = resolveBundledContentRoot();
   let totalChars = 0;
   for (const id of contentIds) {
     // Use getAllItemsById to handle cross-type collisions (e.g., command + skill with same ID)
@@ -52,11 +50,11 @@ async function estimateTokensForContent(
       try {
         if (item.type === "skill") {
           // For skills, read the SKILL.md file
-          const skillPath = join(CONTENT_ROOT, item.relativePath, "SKILL.md");
+          const skillPath = join(contentRoot, item.relativePath, "SKILL.md");
           const content = await readFile(skillPath, "utf-8");
           totalChars += content.length;
         } else {
-          const filePath = join(CONTENT_ROOT, item.relativePath);
+          const filePath = join(contentRoot, item.relativePath);
           const content = await readFile(filePath, "utf-8");
           totalChars += content.length;
         }
@@ -233,10 +231,16 @@ export async function syncWorkspaceRepos(
     .update(JSON.stringify(wsManifest))
     .digest("hex");
 
-  // Build the content index from the bundled package content root (CONTENT_ROOT
-  // = findPackageRoot). Wave 3 removed the workspace `.agents/` canonical tree;
-  // canonical content now ships read-only inside the npm package.
-  const index = await buildContentIndex(CONTENT_ROOT);
+  // Build the content index from the bundled content root. Wave 3 removed the
+  // workspace `.agents/` canonical tree; canonical content now ships read-only
+  // inside the npm package. D1-SA1.10-01 (Cycle 12, Critical): this must be
+  // resolveBundledContentRoot() — the installed layout keeps content under
+  // `<pkgRoot>/dist/content` (package.json `files: ["dist/", ...]` since
+  // 1.9.0), so the previous `findPackageRoot(__dirname)` scanned the bare
+  // package root and built an EMPTY index in every installed execution
+  // (empty member selections, universal-floor invariant off, 0-token
+  // dry-run estimates). Only the dev checkout masked it.
+  const index = await buildContentIndex(resolveBundledContentRoot());
   // D16-2 (Cycle 11): the workspace exclude path must honour the full
   // universal-floor invariant, not just `protected`. Build the
   // not-excludable set from `admitsUnconditionally` (protected OR any

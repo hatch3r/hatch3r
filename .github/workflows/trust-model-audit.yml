@@ -10,6 +10,10 @@ name: Trust model audit (weekly)
 #
 # Cron: every Monday 06:00 UTC (offset from the busiest publish window).
 # Manual: `gh workflow run trust-model-audit.yml` triggers an ad-hoc run.
+#
+# D4-SA4.3-01 (Cycle 12): a second job, branch-protection-drift, rides the
+# same weekly cron — it diffs the live `main` branch-protection payload
+# against the documented contract; see its comment block for the contract.
 
 on:
   schedule:
@@ -263,3 +267,88 @@ jobs:
           );
           CURRENCY_CHECK
           node "$RUNNER_TEMP/trust-crosswalk-currency.cjs"
+
+  # D4-SA4.3-01 (Cycle 12): branch-protection drift probe. Repo settings are
+  # invisible to CI — the required-check list drifted from the ci.yml contract
+  # for ~90 PRs (a phantom "Quality gates" context, dead since v1.1.0, made
+  # compliance impossible and admin bypass the routine merge mechanism; PR #117
+  # / v2.2.0 merged with the required "All CI checks" aggregator in FAILURE).
+  # ci.yml documents the contract ("Branch-protection required-check list"
+  # comment above the ci-success job); nothing verified live settings against
+  # it. This job reads the classic branch-protection payload weekly and fails
+  # on any drift from the contract below, so a settings regression surfaces in
+  # Actions history instead of silently re-enabling bypass-as-norm.
+  #
+  # Contract (mirrors the ci.yml comment + the D4-SA4.3-01 resolution):
+  #   - required contexts == exactly: "All CI checks",
+  #     "Validate PR title (conventional commits)", "DCO sign-off check",
+  #     "Bundle size gate" — never a rotating matrix leg like
+  #     "build (22, ubuntu-latest)", never the removed "Quality gates"
+  #   - strict up-to-date-branch: true
+  #   - enforce_admins: true (bypass is exceptional, not the merge mechanism)
+  #   - classic required_pull_request_reviews: absent — the review layer lives
+  #     in ruleset 13329941, reconciled to 0 required approvals (solo-
+  #     maintainer reality: self-approval never counts, so any count >= 1
+  #     forces bypass on every merge)
+  #
+  # Token: GET /repos/{owner}/{repo}/branches/main/protection needs repository
+  # Administration read access, which the workflow GITHUB_TOKEN cannot be
+  # granted (administration is not a grantable workflow-token permission).
+  # Provision a fine-grained PAT scoped to this repo with Repository
+  # permissions -> Administration: Read-only, stored as the
+  # BRANCH_PROTECTION_READ_TOKEN Actions secret. A missing secret fails this
+  # job with instructions rather than skipping: an unreadable contract is an
+  # unverified contract, and this probe exists to track exactly that class of
+  # human-only settings follow-up.
+  branch-protection-drift:
+    name: Branch protection drift probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Diff live branch protection against the documented contract
+        env:
+          GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_READ_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::BRANCH_PROTECTION_READ_TOKEN secret is not set, so the probe cannot read branch protection (the workflow GITHUB_TOKEN cannot hold Administration:read). Create a fine-grained PAT scoped to $REPO with Repository permissions -> Administration: Read-only, then run: gh secret set BRANCH_PROTECTION_READ_TOKEN --repo $REPO"
+            exit 1
+          fi
+          if ! live="$(gh api "repos/$REPO/branches/main/protection" 2>&1)"; then
+            echo "::error::Cannot read branch protection for $REPO (token lacks Repository permissions -> Administration: Read-only?). gh api said: $live"
+            exit 1
+          fi
+          expected_contexts='["All CI checks","Bundle size gate","DCO sign-off check","Validate PR title (conventional commits)"]'
+          actual_contexts="$(jq -c '.required_status_checks.contexts | sort' <<<"$live")"
+          actual_strict="$(jq -r '.required_status_checks.strict' <<<"$live")"
+          actual_enforce="$(jq -r '.enforce_admins.enabled' <<<"$live")"
+          classic_reviews_present="$(jq -r 'has("required_pull_request_reviews")' <<<"$live")"
+          echo "live: contexts=$actual_contexts strict=$actual_strict enforce_admins=$actual_enforce classic_reviews_present=$classic_reviews_present"
+          drift=0
+          if [ "$actual_contexts" != "$expected_contexts" ]; then
+            echo "::error::Required-check contexts drifted. Contract: $expected_contexts — live: $actual_contexts"
+            drift=1
+          fi
+          if [ "$actual_strict" != "true" ]; then
+            echo "::error::strict up-to-date-branch is '$actual_strict' — contract says true"
+            drift=1
+          fi
+          if [ "$actual_enforce" != "true" ]; then
+            echo "::error::enforce_admins is '$actual_enforce' — contract says true (bypass must be exceptional, not the merge mechanism)"
+            drift=1
+          fi
+          if [ "$classic_reviews_present" != "false" ]; then
+            echo "::error::classic required_pull_request_reviews is present — contract says absent (review policy lives in ruleset 13329941 at 0 required approvals)"
+            drift=1
+          fi
+          if [ "$drift" -ne 0 ]; then
+            echo "::error::Branch protection drifted from the documented contract (ci.yml 'Branch-protection required-check list' + D4-SA4.3-01). Re-apply the contract settings, then re-run this probe."
+            exit 1
+          fi
+          echo "Branch protection matches the documented contract: contexts $expected_contexts, strict=true, enforce_admins=true, classic reviews absent."

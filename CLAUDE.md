@@ -1,6 +1,6 @@
 # hatch3r — Development Instructions
 
-> Last updated: 2026-07-09
+> Last updated: 2026-07-11
 
 > This file governs framework development. It is NOT generated output — it is the agentic setup for developing hatch3r itself.
 
@@ -41,6 +41,8 @@ npm run validate:canonical  # strict canonical-read gate: 0 warnings across publ
 Critical module thresholds: `src/merge/` (90/80/90/90), `src/content/` (85/70/85/85), `src/adapters/customization.ts` (85/75/85/85).
 
 Commits: Conventional Commits (`feat|fix|refactor|test|docs|chore|audit(scope): msg`), DCO sign-off required (`git commit -s`).
+
+Merge gate — `main` branch-protection contract (weekly drift probe: `.github/workflows/trust-model-audit.yml` → `branch-protection-drift`, D4-SA4.3-01): required checks exactly `All CI checks`, `Validate PR title (conventional commits)`, `DCO sign-off check`, `Bundle size gate` — never a rotating `build (...)` matrix leg, no phantom contexts; `enforce_admins` enabled; no classic review requirement — PR-required + review policy live in ruleset 13329941 (0 required approvals, solo-maintainer reality).
 
 ---
 
