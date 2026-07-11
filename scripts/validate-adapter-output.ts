@@ -22,7 +22,11 @@
  * `globs: "src/lib/*.ts,*.md"` MUST surface exactly that pattern set in:
  *   - cursor:  `globs: ["src/lib/*.ts", "*.md"]`   (.cursor/rules/NN-<id>.mdc)
  *   - copilot: `applyTo: "src/lib/*.ts, *.md"`     (.github/instructions/NN-<id>.instructions.md)
- *   - claude:  `paths: ["src/lib/*.ts", "*.md"]`   (.claude/rules/NN-<id>.md)
+ *   - claude:  `paths:` block sequence, one `  - "<glob>"` line per pattern
+ *              (.claude/rules/NN-<id>.md). D9-SA9.1-02 (Cycle 12) switched this
+ *              channel from the flow array `paths: ["src/lib/*.ts", "*.md"]` to
+ *              the block form the Claude Code memory docs document verbatim
+ *              (code.claude.com/docs/en/memory); the parser accepts both shapes.
  * An unconditional rule (`scope: always`, or conditional with no patterns) MUST
  * emit no glob shape — and on copilot it MUST be inlined into
  * `.github/copilot-instructions.md` (no per-file instruction output), because a
@@ -111,7 +115,7 @@ export const RULE_CHANNELS: Record<Tool, RuleChannel> = {
   claude: {
     dirPrefix: ".claude/rules/",
     fileSuffix: ".md",
-    extract: (content) => extractBracketArray(content, "paths"),
+    extract: (content) => extractPathsSequence(content),
   },
 };
 
@@ -170,6 +174,60 @@ function extractCsvString(content: string, key: string): Set<string> | null {
     if (g) set.add(g);
   }
   return set;
+}
+
+/**
+ * Extract the claude channel's `paths:` glob set, accepting BOTH the current
+ * documented block-sequence form and the legacy flow-array form. Returns null
+ * when the `paths:` key is absent (the rule emitted no path shape —
+ * unconditional). Unlike {@link extractBracketArray}, this reads the multi-line
+ * YAML block sequence the claude adapter now emits, so a single-line frontmatter
+ * scan is insufficient.
+ *
+ * D9-SA9.1-02 (Cycle 12, D9, P3) switched
+ * `src/adapters/claude.ts::claudeRulePathsFrontmatter` from the flow array
+ * (`paths: ["a", "b"]`) to the block sequence the Claude Code memory docs
+ * document verbatim (code.claude.com/docs/en/memory, accessed 2026-07-11) —
+ * `paths:` on its own line, then one `  - "<glob>"` item line per pattern. This
+ * parser reads both shapes so the gate never false-fails on either:
+ *
+ *   block-sequence (current emission):    flow-array (accepted legacy):
+ *     paths:                                paths: ["src/lib/*.ts", "*.md"]
+ *       - "src/lib/*.ts"
+ *       - "*.md"
+ *
+ * De-dup semantics match the other extractors — parsed members collapse into a
+ * Set, mirroring `validate-rule-parity.ts`'s `csvToSet`.
+ */
+function extractPathsSequence(content: string): Set<string> | null {
+  const fence = content.match(/^---\r?\n([\s\S]*?)\r?\n---/);
+  if (!fence) return null;
+  const lines = (fence[1] ?? "").split(/\r?\n/);
+  for (let i = 0; i < lines.length; i++) {
+    const head = (lines[i] ?? "").match(/^paths:\s*(.*)$/);
+    if (!head) continue;
+    const inline = (head[1] ?? "").trim();
+    const set = new Set<string>();
+    if (inline.startsWith("[")) {
+      // Legacy flow-array form: `paths: ["a", "b"]` (or `paths: []`).
+      const inner = inline.replace(/^\[/, "").replace(/\]$/, "");
+      for (const part of inner.split(",")) {
+        const g = part.trim().replace(/^["']|["']$/g, "");
+        if (g) set.add(g);
+      }
+    } else {
+      // Block-sequence form: consume `  - "<glob>"` item lines until the first
+      // non-item line (the closing `---` was already stripped by the fence).
+      for (let j = i + 1; j < lines.length; j++) {
+        const item = (lines[j] ?? "").match(/^\s+-\s+(.*)$/);
+        if (!item) break;
+        const g = (item[1] ?? "").trim().replace(/^["']|["']$/g, "");
+        if (g) set.add(g);
+      }
+    }
+    return set;
+  }
+  return null;
 }
 
 // ── Output indexing ───────────────────────────────────────────────

@@ -107,7 +107,16 @@ describe("validate-adapter-output — channel extractors", () => {
     expect(set && [...set].sort()).toEqual(["*.md", "src/lib/*.ts"]);
   });
 
-  it("claude extracts the paths: [...] array set", () => {
+  it("claude extracts the block-sequence paths form (current emission, D9-SA9.1-02)", () => {
+    // src/adapters/claude.ts::claudeRulePathsFrontmatter emits the documented
+    // block sequence: `paths:` on its own line, then one `  - "<glob>"` item
+    // line per pattern. Real emission starts `---\npaths:\n  - "**/.env*"\n…`.
+    const content = `---\npaths:\n  - "src/lib/*.ts"\n  - "*.md"\n---\n\nbody`;
+    const set = RULE_CHANNELS.claude.extract(content);
+    expect(set && [...set].sort()).toEqual(["*.md", "src/lib/*.ts"]);
+  });
+
+  it("claude still accepts the legacy flow-array paths form", () => {
     const content = `---\npaths: ["src/lib/*.ts", "*.md"]\n---\n\nbody`;
     const set = RULE_CHANNELS.claude.extract(content);
     expect(set && [...set].sort()).toEqual(["*.md", "src/lib/*.ts"]);
