@@ -231,7 +231,7 @@ Finding D7-M12 / D7-SA7.5-2: implementation-flavored orchestrators (`workflow`, 
 | Phase 4 Final Quality | CQ + SSOT specialists, batched by severity, bounded by `max_phase4_parallel` | T2/T3 | T1 — only always-mode floor (`security` + `testability`) |
 | Phase 4 Validation Pass | re-run tests/typecheck vs Phase-3 baseline; re-review on specialist code mutations | T2/T3 | — |
 
-Cross-command error-handling defaults: sub-agent failure → retry once then fall back to direct/inline implementation per command's carve-out; quality-check failure → max 2 retry loops then ASK; context degradation → the single Context-Degradation Policy below (window-fraction primary: compress `>50%`, restart `>75%`; turn counts a coarse fallback). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work.
+Cross-command error-handling defaults: sub-agent failure → the 3-step ladder in `hatch3r-agent-orchestration` → Sub-agent-failure handling (retry once → re-spawn `hatch3r-fixer` → `BLOCKED_OTHER` + ASK; never inline — the `hatch3r-quick-change` Tier-1 carve-out is the sole exception); quality-check failure → max 2 retry loops then ASK; context degradation → the single Context-Degradation Policy below (window-fraction primary: compress `>50%`, restart `>75%`; turn counts a coarse fallback). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work.
 
 ## Context-Degradation Policy
 

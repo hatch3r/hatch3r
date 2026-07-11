@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 2
   rationale: Module-taxonomy discovery and audit-sub-issue authoring delegate to `hatch3r-implementer`; the cross-cutting security axis fans out in parallel to `hatch3r-security` (CQ3 OWASP ASI01-10 coverage + supply-chain + dependency-CVE posture). Fan-out is disjoint across module and cross-cutting axes; serialization would violate P8 B2 task decomposition. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

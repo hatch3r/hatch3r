@@ -345,7 +345,7 @@ Install commands:
 
 ## References
 
-This skill synthesizes 25 pre-existing in-repo per-tool skills (collapsed in v1.9.0 per the Decision #14 toolbox criterion in `.claude/rules/content-authoring.md`). The original source files (now removed) lived at the following paths (IDs intentionally un-backticked here so the cross-reference scanner does not treat removed standalone skills as broken canonical IDs):
+This skill synthesizes 25 pre-existing in-repo per-tool skills (collapsed in v1.9.0 under the toolbox criterion: a family of related single-purpose CLI-tool helpers is authored as one multi-tool skill rather than as N separate artifacts, for lean single-source coverage). The original source files (now removed) lived at the following paths (IDs intentionally un-backticked here so the cross-reference scanner does not treat removed standalone skills as broken canonical IDs):
 
 - skills/hatch3r-cli-aichat/SKILL.md
 - skills/hatch3r-cli-ast-grep/SKILL.md

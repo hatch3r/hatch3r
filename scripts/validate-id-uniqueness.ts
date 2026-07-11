@@ -51,6 +51,7 @@
  *        `tsx scripts/validate-id-uniqueness.ts`
  *        `tsx scripts/validate-id-uniqueness.ts --json`
  */
+import type { Dirent } from "node:fs";
 import { readdir } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -114,7 +115,7 @@ export function toBaseId(name: string): string {
 export async function discoverCommandBaseIds(rootDir: string): Promise<string[]> {
   const dir = join(rootDir, "commands");
   const ids: string[] = [];
-  let entries: Awaited<ReturnType<typeof readdir>> = [];
+  let entries: Dirent[] = [];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {
@@ -143,7 +144,7 @@ export async function discoverCommandBaseIds(rootDir: string): Promise<string[]>
 export async function discoverSkillBaseIds(rootDir: string): Promise<string[]> {
   const dir = join(rootDir, "skills");
   const ids: string[] = [];
-  let entries: Awaited<ReturnType<typeof readdir>> = [];
+  let entries: Dirent[] = [];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch {

@@ -12,7 +12,7 @@ If you discover a security vulnerability in hatch3r, please report it responsibl
 
 ### How to Report
 
-Send an email to **security@hatch3r.com** with:
+Use GitHub's private vulnerability reporting: open the repository's **Security** tab and click **Report a vulnerability**, or go directly to <https://github.com/hatch3r/hatch3r/security/advisories/new>. This opens a private advisory thread visible only to the maintainers. Include:
 
 - A description of the vulnerability
 - Steps to reproduce the issue

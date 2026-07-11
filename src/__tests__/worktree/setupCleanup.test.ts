@@ -12,8 +12,10 @@ import {
 import {
   mkdtempSync,
   writeFileSync,
+  readFileSync,
   mkdirSync,
   rmSync,
+  existsSync,
 } from "node:fs";
 import { execFileSync } from "node:child_process";
 import { join } from "node:path";
@@ -490,5 +492,111 @@ describe("cleanupWorktree", () => {
     // Regular directory should still exist since it's not a symlink
     const content = await readFile(join(worktreeDir, "data", "file.txt"), "utf-8");
     expect(content).toBe("content");
+  });
+});
+
+// ── setup → cleanup inverse property (D1-SA1.10-02) ───────────────────────────
+// The pre-receipt cleanup lstat()'d each raw `.worktreeinclude` pattern string,
+// so it could NOT invert two shapes setup routinely produces: a glob copy
+// (`.env.*` → the concrete `.env.mcp` plaintext secret) and a symlink-strategy
+// DIRECTORY that setup materialized as a per-file symlink tree. The setup
+// receipt records the concrete created paths so cleanup removes exactly them.
+// These run against a REAL `git worktree add` fixture because cleanup resolves
+// the main repo (for the copy byte-equal check) via the worktree's `.git`
+// pointer file.
+
+describe("setupWorktree + cleanupWorktree inverse property (D1-SA1.10-02)", () => {
+  let mainRepo: string;
+
+  beforeEach(() => {
+    mainRepo = makeTempGitRepo();
+  });
+
+  afterEach(() => {
+    rmSync(mainRepo, { recursive: true, force: true });
+  });
+
+  /** Real `git worktree add` on a fresh branch; returns the worktree path. */
+  function addRealWorktree(branch: string): string {
+    const wtPath = mkdtempSync(join(tmpdir(), "hatch3r-wt-inverse-"));
+    rmSync(wtPath, { recursive: true, force: true });
+    execFileSync("git", ["worktree", "add", "-b", branch, wtPath], {
+      cwd: mainRepo,
+      stdio: "ignore",
+    });
+    return wtPath;
+  }
+
+  function removeRealWorktree(wtPath: string): void {
+    try {
+      execFileSync("git", ["worktree", "remove", "--force", wtPath], {
+        cwd: mainRepo,
+        stdio: "ignore",
+      });
+    } catch (err) {
+      void err;
+    }
+    rmSync(wtPath, { recursive: true, force: true });
+  }
+
+  it("cleanup removes glob-copied secrets AND per-file symlink trees setup created", async () => {
+    writeFileSync(join(mainRepo, ".gitignore"), ".env.*\nshared/\n", "utf-8");
+    writeFileSync(join(mainRepo, ".env.mcp"), "SECRET=xyz\n", "utf-8");
+    mkdirSync(join(mainRepo, "shared", "nested"), { recursive: true });
+    writeFileSync(join(mainRepo, "shared", "a.js"), "//a", "utf-8");
+    writeFileSync(join(mainRepo, "shared", "nested", "b.js"), "//b", "utf-8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: mainRepo, stdio: "ignore" });
+
+    // A GLOB COPY entry (.env.* → .env.mcp) and a SYMLINK DIRECTORY entry
+    // (shared/ → per-file symlinks) — the two shapes the old cleanup leaked.
+    writeIncludeFile(mainRepo, [
+      { pattern: ".env.*", strategy: "copy", reason: "env glob (includes .env.mcp)" },
+      { pattern: "shared/", strategy: "symlink", reason: "shared dir" },
+    ]);
+
+    const wtPath = addRealWorktree("feat-inverse");
+    try {
+      const setup = await setupWorktree(mainRepo, wtPath);
+      // Setup materialized both shapes.
+      expect(setup.copied).toContain(".env.mcp");
+      expect(setup.symlinked).toContain("shared/a.js");
+      expect(setup.symlinked).toContain("shared/nested/b.js");
+      // Pre-cleanup: the residues the OLD cleanup left behind are present.
+      expect(existsSync(join(wtPath, ".env.mcp"))).toBe(true);
+      expect(existsSync(join(wtPath, "shared", "a.js"))).toBe(true);
+
+      await cleanupWorktree(wtPath);
+
+      // Inverse property: every setup-created path is gone.
+      expect(existsSync(join(wtPath, ".env.mcp"))).toBe(false);
+      expect(existsSync(join(wtPath, "shared", "a.js"))).toBe(false);
+      expect(existsSync(join(wtPath, "shared", "nested", "b.js"))).toBe(false);
+    } finally {
+      removeRealWorktree(wtPath);
+    }
+  });
+
+  it("preserves a user-modified copy during cleanup (byte-equal guard, receipt path)", async () => {
+    writeFileSync(join(mainRepo, ".gitignore"), ".env\n", "utf-8");
+    writeFileSync(join(mainRepo, ".env"), "SECRET=42\n", "utf-8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: mainRepo, stdio: "ignore" });
+    writeIncludeFile(mainRepo, [{ pattern: ".env", strategy: "copy" }]);
+
+    const wtPath = addRealWorktree("feat-inverse2");
+    try {
+      await setupWorktree(mainRepo, wtPath);
+      // User edits the copied .env after setup — it diverges from source.
+      writeFileSync(join(wtPath, ".env"), "SECRET=EDITED\n", "utf-8");
+
+      await cleanupWorktree(wtPath);
+
+      // The user-modified copy is preserved, never blind-deleted.
+      expect(existsSync(join(wtPath, ".env"))).toBe(true);
+      expect(readFileSync(join(wtPath, ".env"), "utf-8")).toBe("SECRET=EDITED\n");
+    } finally {
+      removeRealWorktree(wtPath);
+    }
   });
 });

@@ -1089,6 +1089,105 @@ describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
     expect(result.unresolvedCriticalFindings).toBe(0);
     expect(result.complete).toBe(true);
   });
+
+  it("fails closed when a triggered mandatory-on-match specialist TIMEOUTs with no criticalCount (D7-SA7.3-01)", () => {
+    // The central regression for D7-SA7.3-01: floors SUCCESS + validation pass
+    // green, but the triggered hatch3r-ui (CQ1, mandatory-on-match) timed out
+    // before setting criticalCount. Pre-sweep this returned complete:true —
+    // only the two floors' statuses were read and `criticalCount ?? 0`
+    // contributed 0 — so the dispatch-layer "non-skippable at Tier 2/3"
+    // mandate had no completion-layer backstop.
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-ui",
+      status: "TIMEOUT",
+      findingsCount: 0,
+      summary: "timed out before completing the CQ1 review",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(true);
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-ui (TIMEOUT)",
+    );
+  });
+
+  it("fails closed when a conditional specialist returns FAILED — the sweep covers the whole dispatched set (D7-SA7.3-01)", () => {
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-reliability",
+      status: "FAILED",
+      findingsCount: 0,
+      summary: "crashed before producing output",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-reliability (FAILED)",
+    );
+  });
+
+  it("accepts SKIPPED with a documented reason — a documented skip is not a crash (D7-SA7.3-01)", () => {
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-performance",
+      status: "SKIPPED",
+      findingsCount: 0,
+      summary: "Phase Skip Criteria: Tier 1 run — conditional specialist skipped per tier depth mapping",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(true);
+    expect(result.incompletionReason).toBeUndefined();
+  });
+
+  it("fails closed on SKIPPED without a documented reason — empty summary is an undocumented skip (D7-SA7.3-01)", () => {
+    // SpecialistResult has no `reason` field; the summary is the SKIPPED
+    // contract's citation channel. Whitespace-only counts as undocumented.
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-ux",
+      status: "SKIPPED",
+      findingsCount: 0,
+      summary: "   ",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-ux (SKIPPED without documented skip reason)",
+    );
+  });
+
+  it("reports the floor clause before the status sweep when both fail (clause priority preserved)", () => {
+    // Guards the D16-5 floor message: a TIMEOUT floor is reported via the
+    // floor clause, not folded into the generic sweep message.
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.status = "TIMEOUT";
+    q.specialists.push({
+      specialist: "hatch3r-ui",
+      status: "TIMEOUT",
+      findingsCount: 0,
+      summary: "timed out",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+    );
+  });
+
+  it("names every incomplete specialist when multiple fail the sweep (D7-SA7.3-01)", () => {
+    const q = passingQualityResults();
+    q.specialists.push(
+      { specialist: "hatch3r-ui", status: "TIMEOUT", findingsCount: 0, summary: "timed out" },
+      { specialist: "hatch3r-scalability", status: "PARTIAL", findingsCount: 1, summary: "half done" },
+    );
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-ui (TIMEOUT), hatch3r-scalability (PARTIAL)",
+    );
+  });
 });
 
 describe("mid-run tier upgrade (Finding D7-14)", () => {

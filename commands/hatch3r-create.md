@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 1
   rationale: Single hatch3r-creator delegation in Phase 2 — body composition plus the strict + gentle gate funnel run as one atomic Task per artifact; multi-artifact runs invoke one creator per artifact in parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

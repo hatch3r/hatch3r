@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 11
   rationale: Per-revision fanout — researcher (conditional, Tier 2/3 pre-implementation context per commands/revision/revision-delegation.md Step 6.pre), implementer, lint-fixer, testability (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality CQ specialists (security, docs-writer, ui, ux, performance — a triggered mandatory-on-match ui/ux each spawns as its own dedicated instance at Tier 2/3) bounded by max_phase4_parallel. Tier 1 cleanup-only revisions spawn a subset. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -168,7 +169,7 @@ Read all `scope: always` rules from `rules/`. These must be included in every su
 
 #### 1d. Consult Learnings
 
-If `.hatch3r/learnings/` exists, scan for learnings with matching areas or tags that overlap with the affected areas from Step 1a.5. Cache relevant learnings for Step 6.
+If `.hatch3r/learnings/` exists, scan for learnings whose `applies-to` glob matches the affected file paths from Step 1a.5 or whose `topic` matches the affected areas (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback). Cache relevant learnings for Step 6.
 
 ---
 

@@ -310,11 +310,9 @@ export async function validateCrossReferences(
   for (const item of index.items) {
     let content: string;
     try {
-      const filePath =
-        item.type === "skill"
-          ? join(contentRoot, item.relativePath, "SKILL.md")
-          : join(contentRoot, `${item.relativePath}`);
-      content = await readFile(filePath, "utf-8");
+      // D1-SA1.7-01: single-source-of-truth skill-path resolution (skills are
+      // indexed by directory; the readable file is <dir>/SKILL.md).
+      content = await readFile(resolveArtifactFilePath(contentRoot, item), "utf-8");
     } catch {
       continue;
     }
@@ -446,6 +444,29 @@ export interface CatalogItem {
    * meaningful for source: "user" items; empty / omitted = full parity.
    */
   adapters?: string[];
+}
+
+/**
+ * D1-SA1.7-01 (D1, P1): resolve a {@link CatalogItem} to its readable on-disk
+ * FILE path.
+ *
+ * Skills are indexed by their DIRECTORY (`skills/<id>`); the readable file is
+ * `<dir>/SKILL.md`. Every other type's `relativePath` already points at a file.
+ * Three consumers (`show`, `deps`, and the cross-reference scan in this module)
+ * each re-derived the "skill = dir + SKILL.md" convention independently — and
+ * `show` omitted the skill branch, so `hatch3r show <skill-id>` called
+ * `readFile()` on a directory and crashed with a raw EISDIR for every skill
+ * artifact. Centralizing here is the single source of truth (P4): pass the
+ * content root the item was scanned from (canonical or user) and get a path
+ * `readFile` accepts for any type.
+ */
+export function resolveArtifactFilePath(
+  contentRoot: string,
+  item: Pick<CatalogItem, "type" | "relativePath">,
+): string {
+  return item.type === "skill"
+    ? join(contentRoot, item.relativePath, "SKILL.md")
+    : join(contentRoot, item.relativePath);
 }
 
 export interface ContentCollision {

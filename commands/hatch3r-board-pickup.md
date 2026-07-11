@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 11
   rationale: Full delivery pipeline — researcher, implementer (one per independent issue in batch mode), reviewer ↔ fixer review loop, then a parallel final-quality batch (testability (CQ5), security (CQ3), docs-writer, lint-fixer, hatch3r-ui (CQ1), hatch3r-ux (CQ2), performance (CQ7)) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -327,7 +328,7 @@ Use the issue type to select the appropriate hatch3r skill: `type:bug` → the h
 
 #### 6.pre: Consult Learnings
 
-Before delegating: scan `.hatch3r/learnings/` for matching `area`/`tags`, include relevant learnings (especially `pitfall` category) in sub-agent context. Skip silently if no learnings directory exists.
+Before delegating: scan `.hatch3r/learnings/` for matches — test the issue's target file paths against each learning's `applies-to` glob and the work area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback) — and include relevant learnings (prioritise pitfall-type learnings) in sub-agent context. Skip silently if no learnings directory exists.
 
 **Cross-PR finding memory (D13-SA13.1-F08).** Also scan `.hatch3r/review-findings/` (skip silently if absent) for entries whose `applies-to` glob matches the issue's target files; carry the 5 most-recent matches (by `created` descending) forward into the Step 7a reviewer prompt as a `## Cross-PR Findings` block so the reviewer — which declares `consults_cross_pr_findings: true` — weighs prior same-file findings as organisational memory. After the Step 7a review loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved (atomic write via `src/merge/safeWrite.ts`), mirroring the Step 10 learnings-capture pattern — derive the entry from the findings-ledger fold and cite its `finding_id` (`rules/hatch3r-findings-ledger.md` → Store Boundaries).
 

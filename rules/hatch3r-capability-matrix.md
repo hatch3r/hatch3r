@@ -94,7 +94,6 @@ D09 SA 9.4 (Capability Matrix Verification, SEQUENTIAL) aggregates unutilized ca
 
 - The platform-adapters audit domain — its per-adapter SA-{Cursor, Claude, Copilot} per cycle runs this procedure
 - The CLI-tool-currency audit domain — sibling cycle for CLI tool currency
-- `.claude/rules/adapter-development.md` — adapter authoring conventions
 
 ## Pillar Service
 - P3 — currency + utilization measured every cycle, no implicit drift

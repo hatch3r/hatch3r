@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 4
   rationale: One researcher (merged reproduce + root-cause), one implementer (regression test + fix authored together, TDD-style), then a reviewer ↔ fixer loop on root-cause depth; the canonical four-phase Final Quality specialists collapse onto the implementer's bundled regression test plus the reviewer's root-cause-depth gate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

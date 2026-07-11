@@ -290,6 +290,59 @@ describe("ensureEnvMcp", () => {
     expect(content).toContain("SENTRY_AUTH_TOKEN=");
   });
 
+  // D1-SA1.2-02 (D1, P6): the pre-fix updater re-rendered `.env.mcp` from the
+  // template, emitting lines only for the currently-required var set — so
+  // switching servers destroyed a filled secret for a deselected server, a
+  // hand-added custom var, and every user comment (no VCS recovery: the file
+  // is gitignored by design). The true-merge updater must preserve all three
+  // and append only the newly-required var. Falsifiable: if any of the three
+  // survivors is absent after the update, the merge regressed.
+  it("preserves a deselected-server secret, a custom var, and comments when a new var is added (D1-SA1.2-02)", async () => {
+    const seeded = [
+      "# hatch3r MCP secrets",
+      "# my important note about rotation",
+      "GITHUB_PAT=ghp_FILLED_SECRET",
+      "",
+      "# a var I added by hand",
+      "MY_CUSTOM_VAR=custom_value",
+      "",
+    ].join("\n");
+    await writeFile(join(tempDir, ".env.mcp"), seeded, "utf-8");
+
+    // Re-pick to a server set that does NOT include github (its secret is now
+    // "deselected") but DOES add a new required var (linear → LINEAR_API_KEY).
+    const result = await ensureEnvMcp(tempDir, ["linear"]);
+    expect(result.action).toBe("updated");
+    expect(result.newVars).toEqual(["LINEAR_API_KEY"]);
+
+    const content = await readFile(join(tempDir, ".env.mcp"), "utf-8");
+    // Survivors: the deselected-server secret, the custom var, the comment.
+    expect(content).toContain("GITHUB_PAT=ghp_FILLED_SECRET");
+    expect(content).toContain("MY_CUSTOM_VAR=custom_value");
+    expect(content).toContain("# my important note about rotation");
+    // The newly-required var is appended.
+    expect(content).toContain("LINEAR_API_KEY=");
+
+    // The parser (what the operator's shell mimics) still recovers all three
+    // real assignments — nothing was dropped.
+    const parsed = parseEnvFile(content);
+    expect(parsed).toHaveProperty("GITHUB_PAT", "ghp_FILLED_SECRET");
+    expect(parsed).toHaveProperty("MY_CUSTOM_VAR", "custom_value");
+    expect(parsed).toHaveProperty("LINEAR_API_KEY", "");
+  });
+
+  it("never re-renders the template over an existing file — no duplicate header (D1-SA1.2-02)", async () => {
+    // First create renders the template (one header).
+    await ensureEnvMcp(tempDir, ["github"]);
+    // Update appends; it must NOT emit a second full template header block.
+    const result = await ensureEnvMcp(tempDir, ["github", "brave-search"]);
+    expect(result.action).toBe("updated");
+
+    const content = await readFile(join(tempDir, ".env.mcp"), "utf-8");
+    const headerCount = content.split("# hatch3r MCP secrets").length - 1;
+    expect(headerCount).toBe(1);
+  });
+
   // F1.7-H1 (D1, P6): `.env.mcp` is a secret-bearing file. ensureEnvMcp runs
   // `chmod(envPath, 0o600)` after the atomic write so the resulting file is
   // owner-read/write only on POSIX hosts (CWE-552 mitigation, matches

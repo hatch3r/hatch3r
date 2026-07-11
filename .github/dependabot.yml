@@ -9,6 +9,21 @@ updates:
         dependency-type: "production"
       development:
         dependency-type: "development"
+  # Cycle 12 H D4-SA4.2-02 (D4): the website/ Docusaurus site ships its own
+  # package.json + package-lock.json (committed 2026-03-02) that the root "/"
+  # npm entry above does not cover — dependabot `directory` scoping is exact,
+  # not recursive. Without this second entry website/ got no update PRs, so a
+  # critical shell-quote advisory (CVE-2026-9277) sat open 30 days unremediated.
+  # Grouped weekly, mirroring the root split.
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+    groups:
+      production:
+        dependency-type: "production"
+      development:
+        dependency-type: "development"
   # Cycle 11 H D4-3 (D4): GitHub Actions are SHA-pinned with a trailing
   # `# <version>` comment. dependabot rewrites the digest on a bump but mirrors
   # the existing comment granularity verbatim — a coarse `# v4` comment that was

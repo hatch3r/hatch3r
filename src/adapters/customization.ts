@@ -145,14 +145,25 @@ const DENY_PATTERNS: RegExp[] = [
  * mapped and would survive normalization intact).
  */
 
-// (b) Zero-width joiner U+200D / non-joiner U+200C signal. Matches a ZWJ/ZWNJ
-// inside (or adjacent to, within 12 chars of) any canonical override-keyword
-// span. We compute the spans by first stripping ZWJ/ZWNJ from a working copy
-// to locate the keyword, then verifying the original contained ZWJ/ZWNJ in
-// proximity. Implemented in scanForDeniedPatterns below for clarity over a
-// monolithic regex.
+// (b) Zero-width joiner U+200D / non-joiner U+200C signal. Fires when a ZWJ/ZWNJ
+// sits inside — or within ZWJ_KEYWORD_PROXIMITY chars of — an override-keyword
+// span. D2-SA2.3-01: implemented as the documented proximity semantics rather
+// than the earlier whole-document co-occurrence test, which fail-close-dropped
+// the entire customization whenever any ZWJ (e.g. an emoji joiner) and any
+// keyword SUBSTRING (".gitignore", "design system") both appeared anywhere.
+// scanZwjKeywordProximity() below: (1) locates keyword occurrences in a
+// ZWJ/ZWNJ-stripped copy, (2) requires each edge to be a real word boundary OR
+// a strip-point (splice attacks like "system<ZWNJ>instructions" stay in scope,
+// substring folds like ".gitignore"/"filesystem" are rejected — the \b intent),
+// (3) flags only when a ZWJ/ZWNJ that is NOT a valid UTS #51 emoji-sequence
+// joiner (👩‍💻) falls in the proximity window.
 const ZWJ_ZWNJ_CHARS = /[‌‍]/;
 const OVERRIDE_KEYWORDS_RAW = /(?:ignore|system|instructions?|disregard|override|forget|jailbreak)/i;
+// Documented span half-width (customization.ts pre-scan comment history + the
+// "within 12 characters" test contract in customization.test.ts).
+const ZWJ_KEYWORD_PROXIMITY = 12;
+const WORD_CHAR = /\w/;
+const EXTENDED_PICTOGRAPHIC = /\p{Extended_Pictographic}/u;
 
 // (d) Cyrillic confusable spelling of "ignore" / "system". Each letter position
 // admits ASCII OR a Cyrillic look-alike from the U+0400-U+04FF block. To avoid
@@ -529,19 +540,99 @@ function normalizeInputToFixedPoint(content: string): string {
   return current;
 }
 
-export function scanForDeniedPatterns(content: string): string[] {
+/**
+ * Code point immediately preceding UTF-16 index `idx`, surrogate-pair aware.
+ * Returns undefined at the start of the string.
+ */
+function codePointBefore(s: string, idx: number): number | undefined {
+  if (idx <= 0) return undefined;
+  const prevUnit = s.charCodeAt(idx - 1);
+  if (prevUnit >= 0xdc00 && prevUnit <= 0xdfff && idx - 2 >= 0) {
+    return s.codePointAt(idx - 2);
+  }
+  return s.codePointAt(idx - 1);
+}
+
+/**
+ * A ZWJ/ZWNJ at `idx` is a legitimate UTS #51 emoji-sequence joiner when both
+ * of its immediate neighbors are Extended_Pictographic (e.g. 👩‍💻, 🧑‍🤝‍🧑).
+ * Such joiners are exempt from the override-keyword proximity signal.
+ */
+function isEmojiJoiner(content: string, idx: number): boolean {
+  const before = codePointBefore(content, idx);
+  const after = content.codePointAt(idx + 1);
+  if (before === undefined || after === undefined) return false;
+  return (
+    EXTENDED_PICTOGRAPHIC.test(String.fromCodePoint(before)) &&
+    EXTENDED_PICTOGRAPHIC.test(String.fromCodePoint(after))
+  );
+}
+
+/**
+ * D2-SA2.3-01: ZWJ/ZWNJ smuggling pre-scan implementing the documented
+ * proximity semantics. Emits one violation per override-keyword occurrence that
+ * (a) sits at a word boundary in the ZWJ/ZWNJ-stripped copy OR is spliced by a
+ * removed ZWJ/ZWNJ at that edge, and (b) has a non-emoji-joiner ZWJ/ZWNJ within
+ * ZWJ_KEYWORD_PROXIMITY chars of its original span. Benign emoji joiners and
+ * distant/legitimate ZWNJ (Persian/Indic orthography) do not fire.
+ */
+function scanZwjKeywordProximity(content: string): string[] {
+  if (!ZWJ_ZWNJ_CHARS.test(content)) return [];
+  // Stripped copy + map: stripped UTF-16 index -> original UTF-16 index. ZWJ
+  // (U+200D) and ZWNJ (U+200C) are single BMP units, so a per-code-unit walk
+  // reconstructs surrogate pairs intact while recording strip points.
+  let stripped = "";
+  const origIndex: number[] = [];
+  for (let i = 0; i < content.length; i++) {
+    const code = content.charCodeAt(i);
+    if (code === 0x200c || code === 0x200d) continue;
+    origIndex.push(i);
+    stripped += content[i];
+  }
   const violations: string[] = [];
-  // C9-H5 pre-scan (b): ZWJ/ZWNJ smuggling. Strip ZWJ/ZWNJ to a working copy,
-  // locate any override keyword, then check whether the original content had
-  // a ZWJ/ZWNJ within the keyword span or within 12 chars of it. This catches
-  // both (i) ZWJ inserted INSIDE the keyword ("i‍gnore") and (ii) ZWJ
-  // adjacent to a contiguous keyword, before ZERO_WIDTH_CHARS strips them.
-  if (ZWJ_ZWNJ_CHARS.test(content)) {
-    const stripped = content.replace(/[‌‍]/g, "");
-    if (OVERRIDE_KEYWORDS_RAW.test(stripped)) {
-      violations.push("Denied pattern found: zero-width joiner/non-joiner adjacent to override keyword");
+  const seen = new Set<number>();
+  const re = new RegExp(OVERRIDE_KEYWORDS_RAW.source, "gi");
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(stripped)) !== null) {
+    const s = m.index;
+    const e = s + m[0].length; // exclusive, stripped coordinates
+    // ZWJ-aware word boundary: a real boundary OR a strip point (gap >1 between
+    // consecutive original indices) at each edge. Rejects substring folds
+    // (".gitignore", "filesystem") while admitting splice attacks.
+    const leftBoundary =
+      s === 0 ||
+      !WORD_CHAR.test(stripped[s - 1]) ||
+      origIndex[s] - origIndex[s - 1] > 1;
+    const rightBoundary =
+      e >= stripped.length ||
+      !WORD_CHAR.test(stripped[e]) ||
+      origIndex[e] - origIndex[e - 1] > 1;
+    if (!leftBoundary || !rightBoundary) continue;
+    const spanStart = origIndex[s];
+    const spanEnd = origIndex[e - 1] + 1;
+    const winStart = Math.max(0, spanStart - ZWJ_KEYWORD_PROXIMITY);
+    const winEnd = Math.min(content.length, spanEnd + ZWJ_KEYWORD_PROXIMITY);
+    for (let j = winStart; j < winEnd; j++) {
+      const cj = content.charCodeAt(j);
+      if ((cj === 0x200c || cj === 0x200d) && !isEmojiJoiner(content, j)) {
+        if (!seen.has(spanStart)) {
+          seen.add(spanStart);
+          violations.push(
+            `Denied pattern found: zero-width joiner/non-joiner within ${ZWJ_KEYWORD_PROXIMITY} chars of override keyword "${m[0]}" (offset ${spanStart})`,
+          );
+        }
+        break;
+      }
     }
   }
+  return violations;
+}
+
+export function scanForDeniedPatterns(content: string): string[] {
+  const violations: string[] = [];
+  // D2-SA2.3-01 pre-scan (b): ZWJ/ZWNJ near an override keyword (proximity +
+  // emoji-joiner exemption). See scanZwjKeywordProximity for the semantics.
+  violations.push(...scanZwjKeywordProximity(content));
   // C9-H5 pre-scan (d): Cyrillic confusable spelling of "ignore"/"system".
   // The combined keyword pattern accepts ASCII or Cyrillic per position; the
   // guard against false-positive on clean ASCII is verifying the matched

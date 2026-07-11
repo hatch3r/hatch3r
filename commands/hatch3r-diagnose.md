@@ -15,6 +15,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-researcher (root-cause mode against the captured state bundle) plus one hatch3r-fixer (applies the single proposed remediation). Independent symptom domains fan out to N parallel researchers; serialization holds only on the diagnose -> fix dependency edge. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes the diagnosis from the fix when both are needed.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

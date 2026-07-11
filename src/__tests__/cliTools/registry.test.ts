@@ -98,28 +98,33 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(qsv!.homepage).toContain("jqnatividad/qsv");
   });
 
-  it("jq entry carries a minVersion floor at 1.8.1 (D21-SA21.3-F-21.3.1, Cycle 10)", () => {
-    // Cycle 10 D21-SA21.3-F-21.3.1 (F-21.7.1 work-unit jq pin refresh):
-    // 1.8.1 (2025-07-01) remains the only tagged release at audit time;
-    // pinning the floor forces older 1.7.x installs (still on Ubuntu 22.04
-    // LTS apt) to upgrade past the 2024 CVE-2023-49355 / CVE-2024-53427
-    // cluster before exposure to the 2026 advisory pressure.
+  it("jq entry floors at >=1.8.2 for the 16-CVE cluster fixed in 1.8.2 (D21-SA21.3-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.3-01: jq 1.8.2 (2026-06-20) superseded 1.8.1 as the
+    // security release, fixing a 16-CVE stack/integer-overflow + NUL-truncation
+    // + use-after-free cluster (CVE-2026-32316 … CVE-2026-54679). The prior
+    // >=1.8.1 floor certified the exact vulnerable build as acceptable; the
+    // floor is raised to >=1.8.2, which still clears the 2024 CVE-2023-49355 /
+    // CVE-2024-53427 1.7.x cluster the prior comment cited.
     const jq = AVAILABLE_CLI_TOOLS.jq;
-    expect(jq.minVersion).toBe(">=1.8.1");
+    expect(jq.minVersion).toBe(">=1.8.2");
   });
 
-  it("jq securityNote points at the upstream advisories page as canonical roster (D21-SA21.3-F-21.3.2, Cycle 10)", () => {
-    // Cycle 10 D21-SA21.3-F-21.3.2 (F-21.7.1 work-unit jq pin refresh):
-    // the upstream tab is the canonical CVE roster (10+ GHSA entries at
-    // audit time, growing). Enumerating specific CVE IDs in the registry
-    // comment created maintenance debt that aged out within weeks — the
-    // refreshed note routes consumers to the stable URL plus an install-
-    // side mitigation contract while no tagged release supersedes 1.8.1.
+  it("jq securityNote names the 1.8.2-fixed CVE cluster and drops the stale unfixed-advisory framing (D21-SA21.3-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.3-01: the prior note called the 2026 advisories
+    // "unfixed" and prescribed external validation / sandboxing as the only
+    // mitigation — wrong once jq 1.8.2 shipped the fixes. The refreshed note
+    // names the cluster bounds (CVE-2026-32316 … CVE-2026-54679), the patched
+    // version, and reframes the sandbox guidance as for-un-upgradable-builds-only.
     const jq = AVAILABLE_CLI_TOOLS.jq;
     expect(jq.securityNote).toBeDefined();
-    expect(jq.securityNote).toContain("https://github.com/jqlang/jq/security/advisories");
-    expect(jq.securityNote).toContain("1.8.1");
-    expect(jq.securityNote).toMatch(/sandbox|isolat/i);
+    expect(jq.securityNote).toContain("1.8.2");
+    expect(jq.securityNote).toContain("CVE-2026-32316");
+    expect(jq.securityNote).toContain("CVE-2026-54679");
+    expect(jq.securityNote).toMatch(/16-CVE/);
+    // The discredited "unfixed advisories" framing and the now-dead
+    // advisories-page roster pointer are gone.
+    expect(jq.securityNote).not.toMatch(/unfixed advisories/i);
+    expect(jq.securityNote).not.toContain("the only tagged release as of 2026-05-27");
   });
 
   it("az-devops entry declares an extensionProbe for the azure-devops extension (D21-M6, Cycle 10)", () => {
@@ -137,18 +142,23 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(azDevops!.extensionProbe!.name).toBe("azure-devops");
   });
 
-  it("gh entry floors at >=2.93.0 + securityNote attributes the Authorization-header leak to CVE-2026-48501 (D21-1/D21-2, Cycle 11)", () => {
-    // Cycle 11 D21-1/D21-2 (SA21.5-F1/F2): the prior note misattributed the
-    // token leak to GHSA-crc3-h8v6-qh57. That advisory is CVE-2026-45803 (LOW
-    // terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0).
-    // The real Authorization-header leak to TUF mirrors is CVE-2026-48501 /
-    // GHSA-8xvp-7hj6-mcj9, fixed in 2.93.0 — so the floor is raised to >=2.93.0
-    // and the securityNote attributes each advisory to its correct CVE.
+  it("gh entry floors at >=2.96.0 for CVE-2026-59831 + securityNote enumerates the codespace-jupyter advisory (D21-SA21.5-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.5-01: GHSA-8cg3-r6g9-fpg2 / CVE-2026-59831 (CVSS 4.4,
+    // published 2026-07-02) makes `gh codespace jupyter` open an unvalidated
+    // `vscode://` URL from a malicious codespace → command execution on the
+    // host; affected v2.10.0+, patched only in v2.96.0. The prior >=2.93.0 floor
+    // recommended an affected build, so it is raised to >=2.96.0 and the
+    // advisory is appended while the Cycle-11 attributions are preserved.
     const gh = AVAILABLE_CLI_TOOLS.gh;
-    expect(gh.minVersion).toBe(">=2.93.0");
+    expect(gh.minVersion).toBe(">=2.96.0");
     expect(gh.securityNote).toBeDefined();
-    // The Authorization-header leak (the HIGH-impact token exposure) is the
-    // real CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9, fixed 2.93.0.
+    // The Cycle-12 codespace-jupyter advisory + its patched floor.
+    expect(gh.securityNote).toContain("CVE-2026-59831");
+    expect(gh.securityNote).toContain("GHSA-8cg3-r6g9-fpg2");
+    expect(gh.securityNote).toContain("2.96.0");
+    expect(gh.securityNote).toContain("codespace jupyter");
+    // The Cycle-11 Authorization-header leak (the HIGH-impact token exposure) is
+    // still the real CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9, fixed 2.93.0.
     expect(gh.securityNote).toContain("CVE-2026-48501");
     expect(gh.securityNote).toContain("GHSA-8xvp-7hj6-mcj9");
     expect(gh.securityNote).toContain("2.93.0");

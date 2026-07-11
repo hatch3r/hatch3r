@@ -33,6 +33,7 @@ import {
   scanCanonicalReadDiagnostics,
   validateSkillDescriptionVoice,
   toThirdPersonSingular,
+  validateEnvMcpGitignore,
   type ValidationResult,
 } from "../../cli/commands/validate.js";
 import type { CatalogItem } from "../../content/index.js";
@@ -494,6 +495,94 @@ describe("validateDocsCounts", () => {
       const result = await validateDocsCounts(tempDir);
       expect(result.mismatches.length).toBeGreaterThan(0);
       expect(result.checked).toBeGreaterThan(0);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// D11-SA11.3-01: `hatch3r validate` must NOT hard-fail on a correctly-filled
+// `.env.mcp` (the by-design, gitignored, chmod-600 secret store). The prior
+// content-scan routed a realistic GITHUB_PAT to result.errors → exit 64, a
+// guaranteed false-positive on the happy path. validateEnvMcpGitignore replaces
+// it with a gitignore-coverage check that never touches result.errors.
+// ═════════════════════════════════════════════════════════════════════
+describe("validateEnvMcpGitignore (D11-SA11.3-01)", () => {
+  // A realistic GitHub classic PAT: `ghp_` + 36 chars — the exact shape the old
+  // scanner routed to a CRITICAL exit-64 error.
+  const REALISTIC_PAT = "ghp_A1b2C3d4E5f6G7h8I9j0K1l2M3n4O5p6Q7r8";
+
+  it("does not error (and stays silent) on a filled .env.mcp that IS gitignore-covered", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-envmcp-"));
+    try {
+      await writeFile(
+        join(tempDir, ".env.mcp"),
+        `GITHUB_PAT=${REALISTIC_PAT}\nSENTRY_AUTH_TOKEN=sntrys_abcdef0123456789\n`,
+      );
+      await writeFile(join(tempDir, ".gitignore"), "node_modules/\n.env.mcp\n");
+      const result = makeResult();
+      await validateEnvMcpGitignore(tempDir, result);
+      // The regression this closes: a realistic GITHUB_PAT must NOT produce a
+      // validation error (the old scan routed it to result.errors → exit 64).
+      expect(result.errors).toEqual([]);
+      // Covered → no reminder noise either.
+      expect(result.warnings).toEqual([]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("treats the `.env.*` family glob as coverage (no warning)", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-envmcp-"));
+    try {
+      await writeFile(join(tempDir, ".env.mcp"), `GITHUB_PAT=${REALISTIC_PAT}\n`);
+      await writeFile(join(tempDir, ".gitignore"), ".env.*\n");
+      const result = makeResult();
+      await validateEnvMcpGitignore(tempDir, result);
+      expect(result.errors).toEqual([]);
+      expect(result.warnings).toEqual([]);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns (never errors) when .env.mcp exists but is NOT gitignore-covered", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-envmcp-"));
+    try {
+      await writeFile(join(tempDir, ".env.mcp"), `GITHUB_PAT=${REALISTIC_PAT}\n`);
+      await writeFile(join(tempDir, ".gitignore"), "node_modules/\n");
+      const result = makeResult();
+      await validateEnvMcpGitignore(tempDir, result);
+      expect(result.errors).toEqual([]);
+      expect(result.warnings).toHaveLength(1);
+      expect(result.warnings[0]).toContain(".gitignore");
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns (never errors) when .env.mcp exists and there is no .gitignore at all", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-envmcp-"));
+    try {
+      await writeFile(join(tempDir, ".env.mcp"), `GITHUB_PAT=${REALISTIC_PAT}\n`);
+      const result = makeResult();
+      await validateEnvMcpGitignore(tempDir, result);
+      expect(result.errors).toEqual([]);
+      expect(result.warnings).toHaveLength(1);
+    } finally {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("is a no-op when .env.mcp does not exist", async () => {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-envmcp-"));
+    try {
+      await writeFile(join(tempDir, ".gitignore"), "node_modules/\n");
+      const result = makeResult();
+      await validateEnvMcpGitignore(tempDir, result);
+      expect(result.errors).toEqual([]);
+      expect(result.warnings).toEqual([]);
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }

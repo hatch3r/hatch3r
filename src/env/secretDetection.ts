@@ -261,14 +261,16 @@ export function scanValueForSecrets(
 /**
  * Scan all environment variables in a parsed env file for secrets.
  *
- * This is the primary API for secret detection in MCP env configuration.
- * Wired into `hatch3r validate` only (`src/cli/commands/validate.ts`
- * validateEnvMcpSecrets). The `.env.mcp` writer (`src/env/mcpEnv.ts`
- * ensureEnvMcp) does NOT call this on write, so secrets pasted during
- * `mcp setup`/init are surfaced only on the next explicit `hatch3r validate`,
- * not at write time (D11-SA11.3-F6, Cycle 11 Wave 4 — docstring corrected to
- * match the actual wiring rather than claim a write-time hook that does not
- * exist).
+ * The secret-detection primitive for MCP env configuration. As of Cycle 12
+ * D11-SA11.3-01 it is NOT wired into `hatch3r validate`: that gate scanned
+ * `.env.mcp` — the framework's by-design, gitignored, chmod-600 secret store —
+ * and routed a correctly-filled `GITHUB_PAT=ghp_…` to a hard VALIDATION_ERROR
+ * (exit 64), a guaranteed false-positive on the happy path. The gate now
+ * verifies `.env.mcp` gitignore coverage instead (`validateEnvMcpGitignore`),
+ * the control that actually prevents a commit leak. This function is retained
+ * as the detection primitive for re-pointing at the COMMITTED generated configs
+ * (`.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json`), where a literal
+ * secret would be a real leak; it has no production caller at present.
  */
 export function detectSecrets(
   envVars: Record<string, string>,

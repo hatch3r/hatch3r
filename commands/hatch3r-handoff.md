@@ -15,6 +15,7 @@ triage_tiers: [1, 2]
 sub_agents_spawned:
   count: 1
   rationale: Single hatch3r-handoff-preparer delegation for the `prepare` Tier-2 subcommand; `resume`, `list`, `complete`, `prune` run inline with no sub-agent fan-out (filesystem-read or single-file rename per the Triage table). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

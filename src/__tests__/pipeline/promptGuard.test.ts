@@ -558,3 +558,45 @@ describe("promptGuard", () => {
     });
   });
 });
+
+// D1-SA1.9-01 (D1, P6): P-PIPE-03's interior was greedy `.*`, which backtracks
+// ~O(n^2) on a long brace run with no closing `}}` (~98s at the 250 KB user-
+// content cap, turning the ASI06 sanitizer into an availability sink). The
+// bounded `[^{}]*` interior keeps the ERB/Handlebars match but scans in linear
+// time. These cases pin both properties: detection of a real `{{...}}` span is
+// preserved AND the pathological input returns fast.
+describe("P-PIPE-03 ReDoS regression (D1-SA1.9-01)", () => {
+  it("still detects a Handlebars {{...}} template span (detection preserved)", () => {
+    const result = sanitizePipelineInput("greeting: {{ user.name }} rendered");
+    expect(result.violations).toEqual(
+      expect.arrayContaining([
+        expect.stringContaining("template literal injection"),
+      ]),
+    );
+  });
+
+  it("still quarantines {{...}} in user content (detection preserved)", () => {
+    const result = sanitizeUserContent("hello {{evil}} world");
+    expect(result.blocked).toBe(true);
+    expect(result.sanitized).not.toContain("{{evil}}");
+  });
+
+  it("returns well under 1s on a 250 KB pathological brace run (no super-linear backtracking)", () => {
+    const pathological = "{".repeat(MAX_USER_CONTENT_LENGTH);
+    const start = Date.now();
+    sanitizeUserContent(pathological);
+    const elapsedMs = Date.now() - start;
+    // Pre-fix this measured ~98_000ms; the bounded interior scans linearly. The
+    // 1s ceiling absorbs CI jitter while still failing hard on a quadratic
+    // regression (which would be tens of seconds).
+    expect(elapsedMs).toBeLessThan(1000);
+  });
+
+  it("returns well under 1s on the 500 KB pipeline-input path", () => {
+    const pathological = "{".repeat(MAX_PHASE_INPUT_LENGTH);
+    const start = Date.now();
+    sanitizePipelineInput(pathological);
+    const elapsedMs = Date.now() - start;
+    expect(elapsedMs).toBeLessThan(1000);
+  });
+});

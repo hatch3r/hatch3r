@@ -587,9 +587,17 @@ describe("resolveModelRate", () => {
     expect(opus.outputCostPer1M).toBe(25.0);
   });
 
-  it("every rate row carries an accessed date", () => {
-    for (const rate of Object.values(MODEL_RATES)) {
-      expect(rate.accessed).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+  it("every rate row carries a valid, non-future accessed date (D6-SA6.3-01)", () => {
+    const now = Date.now();
+    for (const [id, rate] of Object.entries(MODEL_RATES)) {
+      expect(rate.accessed, id).toMatch(/^\d{4}-\d{2}-\d{2}$/);
+      const ts = Date.parse(`${rate.accessed}T00:00:00Z`);
+      expect(Number.isNaN(ts), `${id} accessed not parseable`).toBe(false);
+      // A future provenance date is always wrong regardless of when this runs —
+      // a stable invariant, NOT a freshness time-bomb. Row freshness itself is
+      // gated by scripts/validate-pricing-currency.ts (D6-SA6.3-01), which now
+      // scans MODEL_RATES on the 90-day currency window rather than a unit test.
+      expect(ts, `${id} accessed is in the future`).toBeLessThanOrEqual(now);
     }
   });
 });

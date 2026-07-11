@@ -717,6 +717,26 @@ describe("agentToolAllowlist", () => {
     });
   });
 
+  // D2-SA2.4-03 (High, P3): the emitted PreToolUse hook's TOOL_TO_CATEGORY must
+  // stay current with the platform tool set (code.claude.com/docs/en/tools-reference,
+  // accessed 2026-07-10) so current tools are categorized rather than
+  // UNKNOWN_TOOL-denied. Lock the resolved-now subset; drift fails here.
+  describe("D2-SA2.4-03 hook TOOL_TO_CATEGORY platform currency", () => {
+    it("categorizes the current read/search/execute platform tools", () => {
+      const script = buildClaudePreToolUseHookScript();
+      const expected: ReadonlyArray<readonly [string, string]> = [
+        ["LSP", "read"],
+        ["ToolSearch", "search"],
+        ["PowerShell", "execute"],
+        ["EnterWorktree", "execute"],
+        ["ExitWorktree", "execute"],
+      ];
+      for (const [tool, category] of expected) {
+        expect(script, `${tool} -> ${category}`).toContain(`${tool}: "${category}"`);
+      }
+    });
+  });
+
   // D9-4 (Cycle 11 D9, P6): the Cursor `subagentStart` deny hook is the hard
   // runtime ASI02 block for Cursor, at parity with the Claude PreToolUse
   // NO_POLICY deny. cursor.com/docs/agent/hooks (accessed 2026-06-06) confirms

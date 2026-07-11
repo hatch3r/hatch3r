@@ -20,10 +20,9 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
-import { buildContentIndex, resolveUserContentRoot, type CatalogItem } from "../../content/index.js";
+import { buildContentIndex, resolveUserContentRoot, resolveArtifactFilePath, type CatalogItem } from "../../content/index.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { HatchError } from "../../types.js";
 import { label, error as logError, info } from "../shared/ui.js";
@@ -124,9 +123,24 @@ export async function showCommand(
 
   // Locate the file on disk to read frontmatter + body. `relativePath` is
   // relative to the content root the item was scanned from (canonical or user).
+  // D1-SA1.7-01 (D1, P1): skills are indexed by directory, so the readable file
+  // is <dir>/SKILL.md — resolve via the shared helper so `show` no longer does
+  // readFile() on a directory (raw EISDIR crash for every skill id). Wrap the
+  // read in an actionable FS_ERROR so any future path fault stays a HatchError,
+  // not an "unexpected"-classified exit 70.
   const fileRoot = item.source === "user" && userRoot ? userRoot : canonicalRoot;
-  const filePath = join(fileRoot, item.relativePath);
-  const raw = await readFile(filePath, "utf-8");
+  const filePath = resolveArtifactFilePath(fileRoot, item);
+  let raw: string;
+  try {
+    raw = await readFile(filePath, "utf-8");
+  } catch (err) {
+    throw new HatchError(
+      `Could not read ${item.type} "${item.id}" at ${filePath}: ${err instanceof Error ? err.message : String(err)}`,
+      undefined,
+      "FS_ERROR",
+      `Verify the bundled content root is intact, or re-run \`hatch3r list ${item.type}\` to confirm the id resolves.`,
+    );
+  }
   const { frontmatter, body } = parseFrontmatter(raw);
 
   const headerLines: string[] = [

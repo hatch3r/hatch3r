@@ -128,7 +128,7 @@ The orchestrating agent (not a hatch3r binary) walks the spec:
 5. Pause at every `checkpoint: true` step to ASK the user before proceeding.
 6. Emit the completion message.
 
-Guardrails the agent applies: never auto-proceed past a destructive-operation checkpoint (database migrations, deletions); reject a spec whose `depends_on` graph contains a cycle (report the cycle chain); reject a spec that references a `command:`/`skill:` id not in the bundled content inventory; treat every `{{ variable }}` value as untrusted input and never interpolate it into a shell command without quoting (P6 — `.claude/rules/security-patterns.md`).
+Guardrails the agent applies: never auto-proceed past a destructive-operation checkpoint (database migrations, deletions); reject a spec whose `depends_on` graph contains a cycle (report the cycle chain); reject a spec that references a `command:`/`skill:` id not in the bundled content inventory; treat every `{{ variable }}` value as untrusted input and never interpolate it into a shell command without quoting (P6 — `rules/hatch3r-security-patterns.md`).
 
 ## Step 3: Write Recipe YAML
 

@@ -48,9 +48,12 @@ describe("validateMcpEntry", () => {
   });
 
   it("returns no warnings for allowed command 'uvx'", () => {
+    // Pin the package: uvx is a non-npx launcher, so the D2-SA2.4-04 supply-chain
+    // gate now runs unconditionally (no -y needed) — an unpinned package would
+    // (correctly) warn. Pinning keeps this a focused command-allowlist test.
     const entry: McpServerEntry = {
       command: "uvx",
-      args: ["mcp-server-fetch"],
+      args: ["mcp-server-fetch@1.2.3"],
     };
     expect(validateMcpEntry("fetch", entry)).toEqual([]);
   });
@@ -967,14 +970,18 @@ describe("findLauncherPackageArg (C9-H53)", () => {
   });
 });
 
-describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
-  // POSITIVE cases — each launcher in ON_DEMAND_FETCH_LAUNCHERS must
-  // emit a version-pin warning when its package arg is unpinned.
+describe("validateMcpEntry multi-launcher version-pin (C9-H53 + D2-SA2.4-04)", () => {
+  // POSITIVE cases — each non-npx launcher in ON_DEMAND_FETCH_LAUNCHERS must
+  // emit a version-pin warning when its package arg is unpinned. D2-SA2.4-04:
+  // fixtures are FLAG-FREE (uvx/pipx/bunx/pnpm dlx/yarn dlx have no -y/--yes
+  // confirmation flag — they auto-fetch-and-execute), so these exercise the
+  // REACHABLE path rather than the impossible `<launcher> -y <pkg>` config the
+  // prior fixtures modeled.
 
-  it("warns on unpinned uvx package", () => {
+  it("warns on unpinned uvx package (no -y)", () => {
     const entry: McpServerEntry = {
       command: "uvx",
-      args: ["-y", "mcp-server-fetch"],
+      args: ["mcp-server-fetch"],
     };
     const warnings = validateMcpEntry("uvx-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -983,7 +990,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on uvx package pinned to @latest", () => {
     const entry: McpServerEntry = {
       command: "uvx",
-      args: ["-y", "mcp-server-fetch@latest"],
+      args: ["mcp-server-fetch@latest"],
     };
     const warnings = validateMcpEntry("uvx-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -992,18 +999,18 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on uvx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "uvx",
-      args: ["-y", "mcp-server-fetch@1.2.3"],
+      args: ["mcp-server-fetch@1.2.3"],
     };
     const warnings = validateMcpEntry("uvx-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
   });
 
   it("warns on unpinned pipx package", () => {
-    // pipx invocation pattern in MCP configs: `pipx -y <pkg>` —
-    // single-token launcher with the package as the first non-flag arg.
+    // pipx invocation pattern in MCP configs: `pipx <pkg>` — single-token
+    // launcher with the package as the first non-flag arg.
     const entry: McpServerEntry = {
       command: "pipx",
-      args: ["-y", "mcp-server-py"],
+      args: ["mcp-server-py"],
     };
     const warnings = validateMcpEntry("pipx-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1012,7 +1019,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on pipx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "pipx",
-      args: ["-y", "mcp-server-py@0.1.0"],
+      args: ["mcp-server-py@0.1.0"],
     };
     const warnings = validateMcpEntry("pipx-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1021,7 +1028,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on unpinned bunx package", () => {
     const entry: McpServerEntry = {
       command: "bunx",
-      args: ["-y", "@scope/mcp-server"],
+      args: ["@scope/mcp-server"],
     };
     const warnings = validateMcpEntry("bunx-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1030,7 +1037,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on bunx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "bunx",
-      args: ["-y", "@scope/mcp-server@1.0.0"],
+      args: ["@scope/mcp-server@1.0.0"],
     };
     const warnings = validateMcpEntry("bunx-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1039,7 +1046,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on unpinned pnpm dlx package", () => {
     const entry: McpServerEntry = {
       command: "pnpm",
-      args: ["-y", "dlx", "@scope/mcp-server"],
+      args: ["dlx", "@scope/mcp-server"],
     };
     const warnings = validateMcpEntry("pnpm-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1048,7 +1055,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on pnpm dlx package pinned to @latest", () => {
     const entry: McpServerEntry = {
       command: "pnpm",
-      args: ["-y", "dlx", "@scope/mcp-server@latest"],
+      args: ["dlx", "@scope/mcp-server@latest"],
     };
     const warnings = validateMcpEntry("pnpm-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1057,7 +1064,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on pnpm dlx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "pnpm",
-      args: ["-y", "dlx", "@scope/mcp-server@1.0.0"],
+      args: ["dlx", "@scope/mcp-server@1.0.0"],
     };
     const warnings = validateMcpEntry("pnpm-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1066,7 +1073,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on unpinned yarn dlx package", () => {
     const entry: McpServerEntry = {
       command: "yarn",
-      args: ["-y", "dlx", "@scope/mcp-server"],
+      args: ["dlx", "@scope/mcp-server"],
     };
     const warnings = validateMcpEntry("yarn-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1075,7 +1082,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on yarn dlx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "yarn",
-      args: ["-y", "dlx", "@scope/mcp-server@1.0.0"],
+      args: ["dlx", "@scope/mcp-server@1.0.0"],
     };
     const warnings = validateMcpEntry("yarn-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1087,7 +1094,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn for non-launcher 'node' regardless of args", () => {
     const entry: McpServerEntry = {
       command: "node",
-      args: ["-y", "server.js"],
+      args: ["server.js"],
     };
     const warnings = validateMcpEntry("node-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1096,7 +1103,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn for non-launcher 'docker' regardless of args", () => {
     const entry: McpServerEntry = {
       command: "docker",
-      args: ["-y", "run", "mcp-server:latest"],
+      args: ["run", "mcp-server:latest"],
     };
     const warnings = validateMcpEntry("docker-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1105,7 +1112,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn for pnpm without dlx subcommand", () => {
     const entry: McpServerEntry = {
       command: "pnpm",
-      args: ["-y", "install"],
+      args: ["install"],
     };
     const warnings = validateMcpEntry("pnpm-install", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1114,7 +1121,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn for yarn without dlx subcommand", () => {
     const entry: McpServerEntry = {
       command: "yarn",
-      args: ["-y", "install"],
+      args: ["install"],
     };
     const warnings = validateMcpEntry("yarn-install", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1123,21 +1130,33 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("detects launcher via Windows .bat shim and still warns when unpinned", () => {
     const entry: McpServerEntry = {
       command: "uvx.bat",
-      args: ["-y", "mcp-server-fetch"],
+      args: ["mcp-server-fetch"],
     };
     const warnings = validateMcpEntry("win-uvx", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
   });
 
-  it("preserves contract: -y absent ⇒ no pin warning (any launcher)", () => {
-    // Mirrors the original C7-H6 contract — version-pin warnings are
-    // emitted only under -y/--yes (auto-confirm) since interactive
-    // launches surface the package name to the operator.
+  // D2-SA2.4-04: the -y precondition is scoped to npx ONLY. A non-npx launcher
+  // never carries -y in a real config, so gating on it made the guard
+  // unreachable; it must now fire without -y (this is the finding's core fix).
+  it("D2-SA2.4-04: non-npx launcher WITHOUT -y still gets the pin warning (reachable path)", () => {
     const entry: McpServerEntry = {
       command: "uvx",
       args: ["mcp-server-fetch"],
     };
     const warnings = validateMcpEntry("uvx-no-y", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  // npx retains the interactive -y scoping (npx prompts before fetching an
+  // uncached package). npx-without-y ⇒ no warning is asserted at the
+  // "does not emit version-pin warning when -y flag is absent" case above.
+  it("npx WITHOUT -y ⇒ no pin warning (npx-only interactive scoping preserved)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["mcp-server-fetch"],
+    };
+    const warnings = validateMcpEntry("npx-no-y", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
   });
 });

@@ -17,11 +17,11 @@ External research and runtime measurement converged on the same conclusion: pipi
 
 hatch3r still supports MCP — the pivot is about defaults, not deprecation. Since 2.0.0 interactive `npx hatch3r init` does not prompt for MCP at all (the fifth prompt is the CLI-tools picker); opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` on demand.
 
-## The 29-tool catalog
+## The 34-tool catalog
 
 Three tiers. Tier-1 is default-on for every project. Tier-2 is pre-checked per detected project signals. Tier-3 is opt-in advanced.
 
-### Tier 1 — default-on (10 tools)
+### Tier 1 — default-on (11 tools)
 
 | Tool | Probe | Description |
 |------|-------|-------------|
@@ -35,8 +35,9 @@ Three tiers. Tier-1 is default-on for every project. Tier-2 is pre-checked per d
 | sd | `sd` | Intuitive sed replacement with literal string patterns |
 | ast-grep | `sg` | Structural search and rewrite for code via AST patterns |
 | zstd | `zstd` | Fast lossless compression with high ratio |
+| curl | `curl` | HTTP/S transfer tool — POST/GET/PUT, file upload, custom headers, cookies, scripting |
 
-### Tier 2 — conditional (11 tools)
+### Tier 2 — conditional (13 tools)
 
 Pre-checked when the matching trigger holds.
 
@@ -53,8 +54,10 @@ Pre-checked when the matching trigger holds.
 | fzf | `fzf` | `interactive-tty` | Interactive fuzzy finder for TTY pickers |
 | lazygit | `lazygit` | `interactive-tty` | Terminal UI for git with keyboard-driven workflows |
 | difftastic | `difft` | `interactive-tty` | Structural diff that understands syntax |
+| HTTPie | `http` | `web-project` | Human-friendly HTTP/S client with intuitive UI, JSON output, syntax highlighting, and session management |
+| xh | `xh` | `web-project` | Fast Rust HTTP/S client with HTTPie-compatible syntax — HTTP/2 + HTTP/3, single-binary install |
 
-### Tier 3 — opt-in advanced (8 tools)
+### Tier 3 — opt-in advanced (10 tools)
 
 Never pre-checked. Opt in informed.
 
@@ -68,6 +71,8 @@ Never pre-checked. Opt in informed.
 | miller | `mlr` | awk/sed/cut/join for CSV/TSV/JSON/Parquet streams |
 | csvkit | `csvlook` | Python CSV toolkit (csvlook, csvsql, csvjoin, csvstat) |
 | Podman | `podman` | Daemonless container engine, rootless by default (Docker alternative) |
+| dasel | `dasel` | Cross-format selector — JSON / YAML / TOML / XML / CSV under one path-query DSL |
+| container-use | `container-use` | Dagger sandbox runtime for agentic coding environments (pre-1.0; see caveat) |
 
 ## Install commands per OS
 

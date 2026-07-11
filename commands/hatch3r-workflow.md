@@ -41,6 +41,19 @@ Optional guided development lifecycle command that walks through structured phas
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above (multi-module implementers in Phase 3, the Phase-4b final-quality batch) holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
+### Phase Crosswalk (canonical integer ↔ workflow narrative)
+
+The canonical four-phase pipeline — **1 Research, 2 Implement, 3 Review Loop, 4 Final Quality** (`rules/hatch3r-agent-orchestration.md` → The Rule, typed as the `PipelineContext` phase slices in `src/pipeline/pipelineContext.ts`) — is the only coordinate system typed consumers accept: `validatePhaseTransition(context, targetPhase)`, `SnapshotRef.afterPhase`, `PHASE_SKIP_CRITERIA[].phase`, and the `[hatch3r-pipeline: phase N]` per-turn header all take the canonical integer. This command's narrative uses its own labels; translate at every typed boundary (Finding D7-SA7.1-01):
+
+| Canonical phase (typed integer) | Full Mode narrative | Quick Mode | Agent-Pipeline stage above |
+|---------------------------------|---------------------|------------|----------------------------|
+| **1 — Research** | Phase 1 (Analyze) + Phase 2 (Plan — the orchestrator plan gate inside canonical Phase 1) | Quick Step 1 | 1. Research |
+| **2 — Implement** | Phase 3 (Implement) | Quick Step 2 | 2. Implementation |
+| **3 — Review Loop** | Phase 4a (Review Loop) | Quick Step 3 Stage 1 | 3a. Review Loop |
+| **4 — Final Quality** | Phase 4b–4e (Final Quality) | Quick Step 3 Stage 2 | 3b–3e. Final Quality |
+
+Never feed a narrative phase number into a typed consumer: narrative "Phase 3 (Implement)" validates as `validatePhaseTransition(context, 2)`, and a checkpoint `SnapshotRef.afterPhase: 3` restores to post-Review-Loop state (narrative 4a complete), not post-Implement.
+
 ## Browser Automation
 
 At the start of this command, ask the user once:
@@ -569,7 +582,7 @@ workflow is long-running — a Tier 2/3 run walks the 4-phase delivery pipeline 
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for workflow: `1` = workflow intake + step decomposition, `2` = per-step sub-agent dispatch, `3` = aggregation + verification of step outputs, `4` = workflow report + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for workflow — the canonical integers per the Phase Crosswalk under Agent Pipeline, the same coordinate `validatePhaseTransition` / `SnapshotRef.afterPhase` consume (Finding D7-SA7.1-01): `1` = Research (narrative Analyze + Plan; Quick Step 1), `2` = Implement (narrative Phase 3; Quick Step 2), `3` = Review Loop (narrative Phase 4a; Quick Step 3 Stage 1), `4` = Final Quality (narrative Phase 4b–4e; Quick Step 3 Stage 2). Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 

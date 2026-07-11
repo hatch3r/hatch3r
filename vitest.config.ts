@@ -164,13 +164,25 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
+      // D3-SA3.5-02 (Cycle 12 Wave 2, D3): generate the coverage report and
+      // evaluate thresholds even when the suite has failing tests. The default
+      // (`false`) skips report generation on any test failure, so a
+      // coverage regression that rides along during a red window stays dark
+      // until the suite is green again — the threshold gate is blind exactly
+      // when the tree is unhealthy. Cost: report generation on failed runs.
+      reportOnFailure: true,
       reportsDirectory: coverageDir,
       // Do not wipe `reportsDirectory` at run start. The default `clean: true`
       // races with in-flight `forks` workers flushing into `coverage/.tmp/`
       // and removes the directory out from under them (D3-4). The dir is
       // .gitignore'd and overwritten per run, so a pre-run wipe buys nothing.
       clean: false,
-      all: true,
+      // `coverage.all` was removed in Vitest 4 (vitest.dev/guide/migration:
+      // "we have removed coverage.all completely and defaulted to include only
+      // covered files in the report"). It was dead config under vitest ^4 —
+      // silently ignored — and a type error once `scripts/` + root configs are
+      // type-checked (tsconfig.scripts.json). Removed D4-SA4.1-01 (Cycle 12);
+      // the `include` glob below already scopes the report surface.
       include: ["src/**/*.ts"],
       exclude: [
         "src/hooks/types.ts",
@@ -303,24 +315,31 @@ export default defineConfig({
         // the global tier so the protection comes from the per-directory scoping
         // rather than from raising every dimension on an aggregate that cannot be
         // re-measured inside a non-coverage work unit. These match the SA3.5-F3
-        // recommended floor verbatim. Orchestrator-confirmation step (snapshot.ts
-        // precedent above): the value pins are conservative; if the serialized
-        // final `npm test -- --coverage` gate reports any src/cli/** dimension
-        // below its pin here, lower that single dimension to the measured floor —
-        // a measured-floor pin still gates regression, which is the finding's
-        // intent. Do not lower below the global 78/65/80/80 (that would erase the
-        // gate). Re-measure-and-pin is pre-authorized for this row only.
+        // recommended floor verbatim. Policy for this row (reconciled by
+        // D3-SA3.2-03, Cycle 12 — the pre-authorization text below previously
+        // read "Do not lower below the global 78/65/80/80", which contradicted
+        // the applied sub-global pins and mis-led a top-down reader into
+        // "correcting" them upward): a measured-floor pin BELOW the global
+        // 78/65/80/80 tier is permitted ONLY when a serialized `--coverage`
+        // measurement disproves the above-global premise — as the correction
+        // below records. A sub-global pin still gates regression at its measured
+        // level; its restoration to the global tier is tracked as a registered
+        // finding (here D3-SA3.2-03), never silently raised. Hand-raising these
+        // pins without the backing test work reds all 9 CI cells, so re-measure
+        // first (a fresh `--coverage` run) before moving any dimension up.
+        // Re-measure-and-pin is pre-authorized for this row only.
         // Measured-floor correction (Cycle 11 close-out, serialized --coverage gate):
         // D3-11's pins above ASSUMED src/cli rode ABOVE the global 78/65/80/80 on
         // the post-D3-3 command-body tests. The serialized `npm test -- --coverage`
         // gate disproved that premise — src/cli/** measures 74.03/59.85/75.56/75.82
         // (stmts/branch/func/lines), genuinely BELOW the global tier (it is the
         // repo's lowest-covered surface; the global aggregate passes only on
-        // over-covered dirs elsewhere). Per the pre-authorized "re-measure-and-pin"
-        // step above, the floor is pinned to the measured level minus a ~1-2pt
-        // cross-platform-variance buffer, so it still trips on a real src/cli
-        // regression. Raising src/cli to the global 80-line floor is follow-up test
-        // work (a Cycle-12 testability finding), not a close-out blocker.
+        // over-covered dirs elsewhere). The floor is pinned to the measured level
+        // minus a ~1-2pt cross-platform-variance buffer, so it still trips on a
+        // real src/cli regression. Lifting src/cli to the global tier is follow-up
+        // test work tracked as Cycle-12 finding D3-SA3.2-03 (raise in <=2 waves:
+        // land the missing prompt-layer / cancel-branch / error-path tests,
+        // re-measure, then raise these pins to the new measured floor).
         "src/cli/**": {
           statements: 73,
           branches: 58,

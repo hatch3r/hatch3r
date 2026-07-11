@@ -374,8 +374,55 @@ export interface EnsureResult {
 }
 
 /**
+ * D1-SA1.2-02 (D1, P6): true-merge append for an EXISTING `.env.mcp`.
+ *
+ * `generateEnvMcpContent` renders lines ONLY for the currently-required var
+ * set, so re-rendering it over an existing file silently destroyed every
+ * KEY=VALUE line outside that set — a filled secret for a since-deselected
+ * server, a hand-added custom var, and every user comment — from the same
+ * command family (`mcp setup` / `config` re-pick) that told the user to fill
+ * the file. `.env.mcp` is gitignored by hatch3r's own design, so there was no
+ * VCS recovery. This helper is the updater: it preserves every existing byte
+ * verbatim and appends ONLY the required-but-absent vars under a labelled
+ * demarcation header. `ensureEnvMcp` skips the write when nothing is missing,
+ * so each var is appended at most once (idempotent by construction).
+ *
+ * Sources: OWASP Secrets Management Cheat Sheet
+ * (cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html,
+ * accessed 2026-07-09) — stored credentials are lifecycle-managed assets, not
+ * incidental deletion targets.
+ */
+function appendMissingEnvVars(existingRaw: string, missing: EnvVar[]): string {
+  if (missing.length === 0) return existingRaw;
+
+  const appended: string[] = [
+    "# --- hatch3r: appended MCP vars (existing values above are preserved) ---",
+  ];
+  for (const v of missing) {
+    // F10 parity: sanitize comment/url at the interpolation boundary so a
+    // pack-supplied value cannot smuggle an extra `KEY=value` line.
+    const comment = sanitizeEnvMcpComment(v.comment, `comment for ${v.name}`);
+    const url = v.url ? sanitizeEnvMcpComment(v.url, `url for ${v.name}`) : "";
+    const urlPart = url ? ` — ${url}` : "";
+    appended.push(`# ${comment}${urlPart}`);
+    appended.push(`${v.name}=`);
+    appended.push("");
+  }
+
+  // Preserve existing bytes; normalize only the trailing blank run so there is
+  // exactly one blank line before the appended block (never drops a value or
+  // comment — only collapses trailing empty lines).
+  const base = existingRaw.replace(/\n*$/, "");
+  return `${base}\n\n${appended.join("\n")}\n`;
+}
+
+/**
  * Creates or updates `.env.mcp` in the given root directory.
- * Never overwrites existing values — only appends missing vars.
+ *
+ * Create: renders the full template. Update: a true merge — existing bytes are
+ * preserved verbatim and only required-but-absent vars are appended (never a
+ * template re-render over an existing file). See {@link appendMissingEnvVars}
+ * (D1-SA1.2-02).
  */
 export async function ensureEnvMcp(
   rootDir: string,
@@ -388,22 +435,28 @@ export async function ensureEnvMcp(
     return { action: "skipped", path: ENV_MCP_FILE, newVars: [] };
   }
 
+  let existingRaw = "";
   let existing: Record<string, string> = {};
   let hadFile = false;
 
   if (existsSync(envPath)) {
     hadFile = true;
-    const raw = await readFile(envPath, "utf-8");
-    existing = parseEnvFile(raw);
+    existingRaw = await readFile(envPath, "utf-8");
+    existing = parseEnvFile(existingRaw);
   }
 
-  const newVars = vars.filter((v) => !(v.name in existing)).map((v) => v.name);
+  const missingVars = vars.filter((v) => !(v.name in existing));
+  const newVars = missingVars.map((v) => v.name);
 
   if (hadFile && newVars.length === 0) {
     return { action: "skipped", path: ENV_MCP_FILE, newVars: [] };
   }
 
-  const content = generateEnvMcpContent(vars, existing);
+  // D1-SA1.2-02: fresh file → render template; existing file → true-merge
+  // append so no user-owned line is ever overwritten.
+  const content = hadFile
+    ? appendMissingEnvVars(existingRaw, missingVars)
+    : generateEnvMcpContent(vars, existing);
   await atomicWriteFile(envPath, content);
   // F1.7-H1 (D1, P6): `.env.mcp` holds MCP API tokens. atomicWriteFile leaves
   // the file at the umask-derived default (typically `0o644` on POSIX with

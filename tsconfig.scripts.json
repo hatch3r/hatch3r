@@ -1,0 +1,22 @@
+{
+  // D3-SA3.5-01 / D4-SA4.1-01 (Cycle 12 Wave 2, D3/D4): the CI-enforcement
+  // layer — every gate under `scripts/` plus the root `vitest.config.ts` /
+  // `tsup.config.ts` — runs only via tsx/vitest, which strip types without
+  // checking them. The base `tsconfig.json` include is pinned to `src/**/*`,
+  // so this layer accumulated type drift unseen (fixture-vs-contract rot,
+  // annotation-vs-overload rot, a removed vitest option). This config extends
+  // the base compilerOptions and type-checks that layer; `npm run typecheck`
+  // chains it after the src pass (`tsc --noEmit && tsc -p tsconfig.scripts.json`).
+  // `rootDir` is widened to the repo root (the base pins it to `src`) and emit
+  // is disabled — this is a check-only pass, never a build.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "declaration": false,
+    "declarationMap": false,
+    "sourceMap": false
+  },
+  "include": ["scripts/**/*.ts", "vitest.config.ts", "tsup.config.ts"],
+  "exclude": ["node_modules", "dist"]
+}

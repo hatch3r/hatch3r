@@ -122,6 +122,7 @@ At the end of an auto session, generate a summary:
 > Platform-specific details: see `commands/board/pickup-azure-devops.md` (Error Handling)
 > Platform-specific details: see `commands/board/pickup-gitlab.md` (Error Handling)
 
+- **Implementer / sub-agent failure:** route through the shared sub-agent-failure clause (`rules/hatch3r-agent-orchestration.md` → Sub-agent-failure handling) — retry once; if the retry fails, re-spawn `hatch3r-fixer` with the failure reason + partial output as failure context; if the re-spawn also fails, emit `BLOCKED_OTHER` and ASK. Never fall back to inline implementation (issue #73 bypass mode).
 - **Issue listing/search failure:** retry once, then ask user for issue number.
 - **Issue update failure:** warn and continue (labels not blocking).
 - **Quality verification failure:** fix before creating PR/MR.

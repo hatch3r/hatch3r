@@ -203,6 +203,47 @@ describe("runSelfUpdate", () => {
     );
   });
 
+  it("does not refuse a global update when the audit cwd has no dependency tree (D1-SA1.3-01)", async () => {
+    // A global install audited in a non-Node repo (or any cwd without an
+    // installed dependency tree) makes `npm audit signatures` exit non-zero
+    // with "found no installed dependencies to audit". Pre-fix this was
+    // classified as a signature FAILURE and refused the update with an
+    // INTEGRITY_ERROR blaming compromised artifacts. It must now degrade to a
+    // warning and let the update proceed.
+    await seedGlobalInstall();
+    const fakeRoot = join(tempDir, "fake-global-root");
+    process.argv[1] = join(fakeRoot, "hatch3r", "dist", "cli", "index.js");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
+      const a = _args[1] as string[] | undefined;
+      if (Array.isArray(a) && a[0] === "root" && a[1] === "-g") {
+        return Buffer.from(`${fakeRoot}\n`);
+      }
+      if (Array.isArray(a) && a[0] === "audit" && a[1] === "signatures") {
+        throw new Error(
+          "npm error code ENOLOCK\nnpm error audit This command requires an existing lockfile.\nnpm error found no installed dependencies to audit",
+        );
+      }
+      return Buffer.from(""); // global install succeeds
+    });
+
+    // Must NOT throw an INTEGRITY refusal — the update proceeds.
+    const result = await runSelfUpdate(tempDir);
+    expect(result.updated.length).toBe(1);
+    expect(result.updated[0]?.kind).toBe("global");
+    expect(result.failed).toEqual([]);
+
+    // The warning states the package is not flagged compromised (no false
+    // "verification FAILED … compromised" message).
+    const stderr = errSpy.mock.calls.map((c: unknown[]) => c.join(" "));
+    expect(
+      stderr.some((line) => /Signature verification unavailable/.test(line)),
+    ).toBe(true);
+    expect(stderr.some((line) => /verification FAILED/.test(line))).toBe(false);
+    errSpy.mockRestore();
+  });
+
   it("degrades a secondary target failure to a warning, not a throw", async () => {
     // Primary = project-local (succeeds), secondary = global (fails).
     process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");

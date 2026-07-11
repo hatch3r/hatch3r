@@ -380,6 +380,22 @@ const ON_DEMAND_FETCH_LAUNCHER_SET: ReadonlySet<string> = new Set(
 );
 
 /**
+ * D2-SA2.4-04: launchers that resolve against the npm registry, where the
+ * `@scope/pkg` convention exists and the unscoped-name typosquat heuristic
+ * (with its "use a scoped package (@org/pkg)" advice) is valid. uvx and pipx
+ * resolve PyPI packages — `@scope/` is not a PyPI convention there, so applying
+ * the npm advice would be misleading. Their supply-chain signal is the
+ * version-pin + dependency-confusion escalation in checkVersionPin (which is
+ * already launcher-aware, D11-8), applied to every launcher below.
+ */
+const NPM_REGISTRY_LAUNCHERS: ReadonlySet<string> = new Set([
+  "npx",
+  "bunx",
+  "pnpm dlx",
+  "yarn dlx",
+]);
+
+/**
  * Detect whether an MCP server entry uses an on-demand fetch launcher and
  * return its canonical token (one of {@link ON_DEMAND_FETCH_LAUNCHERS}).
  *
@@ -535,37 +551,46 @@ export function validateMcpEntry(
       }
     }
 
-    const hasAutoYes = entry.args.some((a) => a === "-y" || a === "--yes");
-    if (hasAutoYes) {
-      const pkgArg = entry.args.find(
-        (a) => !a.startsWith("-") && a !== entry.command,
-      );
-      if (pkgArg && !pkgArg.startsWith("@")) {
-        warnings.push(
-          `MCP server "${name}" uses npx -y with unscoped package "${pkgArg}". ` +
-            `Unscoped packages are susceptible to typosquatting. Consider using a scoped package (@org/pkg).`,
-        );
-      }
-      // C7-H6 + C9-H53 (D15-SA15.5-F01, Pillar P6): Warn when an on-demand
-      // fetch launcher invokes a package without an immutable version
-      // pin. The 2025 npm supply-chain incident (qix maintainer compromise
-      // affecting 18 packages, 2.6B weekly downloads) and OWASP Top 10
-      // for Agentic Apps 2026 documented that unpinned launches resolve
-      // `latest` on every invocation and inherit any upstream compromise.
-      // `@latest` is treated as unpinned because it is a mutable tag,
-      // not an immutable version. The original gate covered npx only;
-      // C9-H53 extends coverage to uvx, pipx, bunx, pnpm dlx, and
-      // yarn dlx — every launcher in {@link ON_DEMAND_FETCH_LAUNCHERS}.
-      // Stays scoped to `-y`/`--yes` to preserve the prior contract that
-      // interactive (non-auto-confirm) invocations do not warn.
-      const launcher = detectFetchLauncher(entry.command, entry.args);
-      if (launcher !== null) {
+    // D2-SA2.4-04 (D15, P6): on-demand-fetch supply-chain gate (version pin +
+    // typosquat + dependency-confusion escalation). Detect the launcher FIRST,
+    // then scope the -y/--yes precondition to npx ONLY. Rationale: npx genuinely
+    // prompts before fetching an uncached package, so the historical C7-H6
+    // contract warns only for auto-confirmed npx. Every OTHER launcher
+    // (uvx/pipx/bunx/pnpm dlx/yarn dlx) auto-fetches-and-executes with no
+    // confirmation flag — uvx has no -y at all (astral-sh/uv#16600, accessed
+    // 2026-07-10) — so the prior `if (hasAutoYes)` guard made this gate (and the
+    // D15-25 unknown-name escalation) UNREACHABLE for 5 of its 6 launchers. Run
+    // it unconditionally for them. The package arg comes from
+    // findLauncherPackageArg (launcher-aware — the earlier ad-hoc first-non-flag
+    // find mis-identified `dlx` as the package for pnpm/yarn dlx).
+    // The 2025 npm supply-chain incident (qix maintainer compromise, 18 packages,
+    // 2.6B weekly downloads) and OWASP Top 10 for Agentic Apps 2026 motivate the
+    // gate; `@latest` is treated as unpinned (mutable tag, not an immutable pin).
+    const launcher = detectFetchLauncher(entry.command, entry.args);
+    if (launcher !== null) {
+      const hasAutoYes = entry.args.some((a) => a === "-y" || a === "--yes");
+      // npx is the only launcher that surfaces the package to the operator
+      // before fetching; the rest are non-interactive auto-fetch-and-execute.
+      const gateApplies = launcher !== "npx" || hasAutoYes;
+      if (gateApplies) {
         const launcherPkg = findLauncherPackageArg(
           entry.command,
           entry.args,
           launcher,
         );
         if (launcherPkg) {
+          // npm-registry launchers only: the "@scope/pkg" typosquat heuristic is
+          // npm-specific (uvx/pipx resolve PyPI, where checkVersionPin's
+          // escalation is the signal — see NPM_REGISTRY_LAUNCHERS).
+          if (
+            NPM_REGISTRY_LAUNCHERS.has(launcher) &&
+            !launcherPkg.startsWith("@")
+          ) {
+            warnings.push(
+              `MCP server "${name}" uses ${launcher} with unscoped package "${launcherPkg}". ` +
+                `Unscoped packages are susceptible to typosquatting. Consider using a scoped package (@org/pkg).`,
+            );
+          }
           const pinWarning = checkVersionPin(name, launcherPkg, launcher);
           if (pinWarning) warnings.push(pinWarning);
         }

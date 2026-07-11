@@ -68,9 +68,10 @@ describe("resolvePatterns", () => {
     rmSync(repoDir, { recursive: true, force: true });
   });
 
-  it("returns empty array when patterns list is empty", async () => {
+  it("returns empty paths when patterns list is empty", async () => {
     const result = await resolvePatterns(repoDir, []);
-    expect(result).toEqual([]);
+    expect(result.paths).toEqual([]);
+    expect(result.error).toBeUndefined();
   });
 
   it("resolves gitignored files matching a pattern", async () => {
@@ -89,7 +90,7 @@ describe("resolvePatterns", () => {
     });
 
     const result = await resolvePatterns(repoDir, [".env"]);
-    expect(result).toContain(".env");
+    expect(result.paths).toContain(".env");
   });
 
   it("resolves directory patterns with trailing slash", async () => {
@@ -107,7 +108,7 @@ describe("resolvePatterns", () => {
     });
 
     const result = await resolvePatterns(repoDir, ["build/"]);
-    expect(result).toContain("build/out.js");
+    expect(result.paths).toContain("build/out.js");
   });
 
   it("returns empty array when no files match", async () => {
@@ -121,7 +122,8 @@ describe("resolvePatterns", () => {
     });
 
     const result = await resolvePatterns(repoDir, ["*.log"]);
-    expect(result).toEqual([]);
+    expect(result.paths).toEqual([]);
+    expect(result.error).toBeUndefined();
   });
 
   it("resolves multiple patterns at once", async () => {
@@ -139,14 +141,20 @@ describe("resolvePatterns", () => {
     });
 
     const result = await resolvePatterns(repoDir, [".env", "*.log"]);
-    expect(result).toContain(".env");
-    expect(result).toContain("app.log");
+    expect(result.paths).toContain(".env");
+    expect(result.paths).toContain("app.log");
   });
 
-  it("returns empty array on git error (invalid directory)", async () => {
+  // D1-SA1.10-03 (D1, P2): a hard git failure must be RETURNED to the caller
+  // (as `error`), not just logged and returned as an empty array — that is how
+  // `setupWorktree` surfaces the failure in `result.errors` instead of printing
+  // a success box on an empty include set.
+  it("returns paths:[] AND a structured error on git failure (invalid directory)", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = await resolvePatterns("/nonexistent-dir-xyz", ["*.txt"]);
-    expect(result).toEqual([]);
+    expect(result.paths).toEqual([]);
+    expect(result.error).toBeTruthy();
+    expect(result.error).toMatch(/worktree pattern resolution/);
     consoleSpy.mockRestore();
   });
 });

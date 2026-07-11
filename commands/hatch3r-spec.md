@@ -3,7 +3,7 @@ id: hatch3r-spec
 type: command
 orchestrator: true
 agentPipeline: [hatch3r-greenfield-spec, hatch3r-brownfield-spec]
-description: Spec orchestrator — detects greenfield vs brownfield project state and runs the corresponding spec agent to produce requirements, acceptance criteria, risk inventory, and test plan (greenfield adds market/competitive/persona/tech-stack; brownfield adds codebase-map/pattern-detection/integration/migration).
+description: Spec orchestrator — detects greenfield vs brownfield project state and runs the corresponding spec agent to produce requirements, acceptance criteria, risk inventory, and test plan (greenfield adds market/competitive/persona/tech-stack; brownfield adds codebase-map/pattern-detection/integration/migration/non-destructive-check).
 tags: [spec, planning, orchestrator]
 pillars:
   governance: [P1, P2, P8]
@@ -22,7 +22,28 @@ sub_agents_spawned:
 
 # /hatch3r-spec
 
-Spec orchestrator that detects project state, picks the matching spec agent (`hatch3r-greenfield-spec` or `hatch3r-brownfield-spec`), and aggregates the 8-deliverable contract — shared core (requirements, acceptance criteria, risk inventory, test plan) plus state-specific deliverables (greenfield: market/competitive/persona/tech-stack; brownfield: codebase-map/pattern-detection/integration/migration). Routing is mutually exclusive — exactly one spec agent runs per invocation.
+Spec orchestrator that detects project state, picks the matching spec agent (`hatch3r-greenfield-spec` or `hatch3r-brownfield-spec`), and aggregates the per-state deliverable manifest — 8 deliverables greenfield, 9 brownfield: shared core (requirements, acceptance criteria, risk inventory, test plan) plus state-specific deliverables (greenfield: market/competitive/persona/tech-stack; brownfield: codebase-map/pattern-detection/integration/migration/non-destructive-check). The Deliverable Manifest below is the single source of truth for filenames and output location; both agents mirror it. Routing is mutually exclusive — exactly one spec agent runs per invocation.
+
+## Deliverable Manifest (single source of truth)
+
+This table is the one authoritative contract for what a spec run writes — filename, output location, and count. Both spec agents (`hatch3r-greenfield-spec`, `hatch3r-brownfield-spec`) mirror these filenames and write to the passed `output_root`; where an agent and this table disagree, this table wins. Agents cite this manifest rather than restating a divergent contract.
+
+**Output root:** `docs/specs/` — the project-spec location every downstream reader consumes (`hatch3r-roadmap`, `hatch3r-reviewer`, `hatch3r-researcher`, `hatch3r-implementer`, and `agents/shared/quality-charter.md` §Source Hierarchy read `docs/specs/`). Passed to the spec agent as the `output_root` input.
+
+**Shared core** — the requirements deliverable is a PRD on greenfield and a requirements doc on brownfield; the other three filenames are identical across states:
+
+| Deliverable | Greenfield file | Brownfield file |
+|-------------|-----------------|-----------------|
+| Requirements | `prd.md` | `requirements.md` |
+| Acceptance criteria | `acceptance-criteria.md` | `acceptance-criteria.md` |
+| Risk inventory | `risk-inventory.md` | `risk-inventory.md` |
+| Test plan | `test-plan.md` | `test-plan.md` |
+
+**Greenfield-specific** (`hatch3r-greenfield-spec` — 8 deliverables total): `market-research.md`, `competitive-analysis.md`, `personas.md`, `tech-stack.md`.
+
+**Brownfield-specific** (`hatch3r-brownfield-spec` — 9 deliverables total): `codebase-map.md`, `pattern-detection.md`, `integration-plan.md`, `migration-notes.md`, `non-destructive-check.md`.
+
+Deliverable totals are state-dependent — **greenfield = 8, brownfield = 9** (brownfield carries the extra non-destructive-adoption check). These two numbers are the only valid totals; every count reference in this command and both agents cites them.
 
 ## §0 Detect Ambiguity (P8 B1)
 
@@ -56,8 +77,8 @@ Cache the score, the matched signals, and the resolved state in the run context.
 Resolve the triage tier from scope answer (or auto-detect):
 
 - **Light** — single-feature spec. Skip optional deliverables (market sizing for greenfield, migration plan for brownfield) unless the user opts in. Default sub-agent input budget ~6,000 tokens.
-- **Standard** — subsystem-level spec covering a coherent module. All 8 deliverables produced. Default budget ~12,000 tokens.
-- **Deep** — full-project spec, multi-domain. All 8 deliverables plus depth on risk inventory (≥5 named risks with mitigation owners) and test plan (per-layer coverage matrix). Default budget ~24,000 tokens.
+- **Standard** — subsystem-level spec covering a coherent module. All manifest deliverables produced (8 greenfield / 9 brownfield). Default budget ~12,000 tokens.
+- **Deep** — full-project spec, multi-domain. All manifest deliverables plus depth on risk inventory (≥5 named risks with mitigation owners) and test plan (per-layer coverage matrix). Default budget ~24,000 tokens.
 
 ## Effort Override (Decision 17)
 
@@ -94,7 +115,7 @@ Spawn exactly one spec agent via the Task tool. Routing is mutually exclusive:
 | `project_state` | Phase 0 result (greenfield or brownfield + matched signals) |
 | `triage_tier` | Phase 1 result (light, standard, deep) |
 | `scope` | §0 answer (full project / named subsystem / single feature) |
-| `output_root` | `.hatch3r/spec/<ISO-8601-timestamp>/` |
+| `output_root` | `docs/specs/` (canonical project-spec location; see Deliverable Manifest) |
 | `mvp_or_full` | §0 answer (greenfield only); brownfield ignores |
 | `maturity_tier` | Read from `.hatch3r/hatch.json::maturity` (defaults to `solo` per Decision 16) |
 
@@ -102,29 +123,12 @@ No inline mutations from this orchestrator turn — the spec agent owns all file
 
 ## Phase 3 — Aggregate deliverables
 
-Wait for the spec agent's structured result. Verify all 8 deliverables landed:
+Wait for the spec agent's structured result, then verify every deliverable in the Deliverable Manifest for the resolved state landed under `output_root` (`docs/specs/`) and is non-empty:
 
-**Shared core (both states):**
-1. `requirements.md` — functional + non-functional requirements with priority labels.
-2. `acceptance-criteria.md` — testable acceptance criteria, one block per requirement.
-3. `risk-inventory.md` — named risks with likelihood × impact, mitigation owner, residual risk.
-4. `test-plan.md` — coverage by layer (unit / integration / E2E / contract / mutation per `rules/hatch3r-testing.md` mandate-map).
+- **Greenfield (8):** `market-research.md`, `competitive-analysis.md`, `personas.md`, `tech-stack.md`, `prd.md`, `acceptance-criteria.md`, `risk-inventory.md`, `test-plan.md`.
+- **Brownfield (9):** `codebase-map.md`, `pattern-detection.md`, `integration-plan.md`, `migration-notes.md`, `non-destructive-check.md`, `requirements.md`, `acceptance-criteria.md`, `risk-inventory.md`, `test-plan.md`.
 
-**Greenfield-specific (`hatch3r-greenfield-spec`):**
-
-5. `market-research.md` — addressable market, growth signals, ≥2 reputable sources ≤12 months old per `agents/shared/rigor-contract.md` (Web Research Mandate).
-6. `competitive-analysis.md` — named competitors, capability matrix, differentiation hypothesis.
-7. `personas.md` — ≥2 personas with jobs-to-be-done, current workaround, acceptance signal.
-8. `tech-stack.md` — chosen stack with rationale citing CQ7 (performance budgets) and CQ6 (scalability) impact.
-
-**Brownfield-specific (`hatch3r-brownfield-spec`):**
-
-5. `codebase-map.md` — directory tree summary, top 10 modules by LOC + churn, public interface inventory.
-6. `pattern-detection.md` — recurring patterns (naming, error handling, test style) the new work must follow per CQ8.
-7. `integration-plan.md` — touchpoint inventory (which existing files extend or wrap), expand-contract migration shape per CQ8.
-8. `migration-notes.md` — pre/post snapshot diff plan, rollback path, observability touchpoints per CQ4.
-
-If any deliverable is missing or empty, halt and surface the gap to the user — do not silently accept a partial spec. Resume via `--resume` per the resumability contract (Decision 27).
+Per-deliverable content specs live in the spec agents (`agents/hatch3r-greenfield-spec.md`, `agents/hatch3r-brownfield-spec.md`) — this gate checks presence + non-emptiness against the manifest, not content shape. If any manifest deliverable for the resolved state is missing or empty, halt and surface the gap to the user — do not silently accept a partial spec. Resume via `--resume` per the resumability contract (Decision 27).
 
 ## Phase 4 — Per-Turn Pipeline-State Header
 
@@ -140,25 +144,25 @@ Close the run with the recap-contract Iteration Summary per `rules/hatch3r-itera
 
 ```markdown
 ## Iteration Summary
-**SUCCESS** — Spec tree written to `.hatch3r/spec/<timestamp>/`; all 8 deliverables present, presence checks passed.
+**SUCCESS** — Spec deliverables written to `docs/specs/`; all 8 greenfield deliverables present, presence checks passed.
 files 8 (+412/−0) · sa 2/2 · gates 8/8 · cost Δ+6% tok / Δ−3% min · tier 2
-Next: /hatch3r-board-fill to convert acceptance criteria into a board.
+Next: /hatch3r-roadmap to sequence the specs into a dependency-ordered todo.md, then /hatch3r-board-fill.
 ```
 
 ## Output paths
 
-All deliverables land in a single timestamped directory:
+All deliverables land under `docs/specs/` per the Deliverable Manifest — the version-controlled project-spec location every downstream reader (`hatch3r-roadmap`, `hatch3r-reviewer`, `hatch3r-researcher`, `hatch3r-implementer`) consumes:
 
 ```
-.hatch3r/spec/<ISO-8601-timestamp>/
-├── requirements.md
-├── acceptance-criteria.md
-├── risk-inventory.md
-├── test-plan.md
-└── {state-specific 4 files per Phase 3}
+docs/specs/
+├── acceptance-criteria.md      # shared core
+├── risk-inventory.md           # shared core
+├── test-plan.md                # shared core
+├── prd.md | requirements.md    # requirements slot: prd.md greenfield / requirements.md brownfield
+└── {state-specific files per the Deliverable Manifest}
 ```
 
-The directory is the unit of versioning — re-running `/hatch3r-spec` produces a new timestamped tree, never overwriting prior runs.
+`docs/specs/` is the versioning unit under git — re-running `/hatch3r-spec` refreshes deliverables in place, with prior runs recoverable from git history. When spec files already exist, ASK before overwriting (supplement / replace / abort) per the §0 ambiguity gate — an overwrite is an irreversible action.
 
 ## Iteration Summary (mandatory output)
 
@@ -208,4 +212,5 @@ Both blocks land in the Iteration Summary recap (cost facet; full blocks on the 
 - `rules/hatch3r-iteration-summary.md` (canonical end-of-turn block)
 - `rules/hatch3r-cost-visibility.md` (Decision 24 cost_estimate / cost_actuals / delta field contract)
 - hatch3r design decision: `--effort` universal override + triage_tiers (Decision 17)
-- `commands/hatch3r-board-fill.md` (orchestrator pattern reference)
+- `commands/hatch3r-roadmap.md` (next step — reads `docs/specs/`, emits the board-fill-format `todo.md`)
+- `commands/hatch3r-board-fill.md` (orchestrator pattern reference; consumes roadmap's `todo.md`)

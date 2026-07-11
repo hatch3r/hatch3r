@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Three-stage pipeline per agentPipeline — researcher scans routes, docs-writer assembles the OpenAPI spec, reviewer validates structure; researcher and reviewer fanned out concurrently around the shared docs-writer dependency. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

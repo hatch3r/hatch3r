@@ -19,7 +19,7 @@ Task Progress:
 - [ ] Step 1: Gather session state (git_ref, files, tests, work_item)
 - [ ] Step 2: Compose body (8 required sections + user-tier markers)
 - [ ] Step 3: Validate against readiness rule
-- [ ] Step 4: Write atomically to .hatch3r/handoffs/active/<id>.md
+- [ ] Step 4: Write to .hatch3r/handoffs/active/<id>.md (through the capture gate when available)
 - [ ] Step 5: Confirm with path, summary, and Iteration Summary
 ```
 
@@ -104,7 +104,7 @@ A failed Required criterion is `errors[]` — refuse the write. A failed Recomme
 ## Step 4: Write
 
 1. Generate the id: `<YYYY-MM-DD>_T<HHmm>_<5hex>_<kebab-slug>` (e.g., `2026-05-17_T1430_a3f2c_issue-42-cache-refactor`). The 5-char hex segment is a random suffix that prevents accidental same-id overwrites within the same minute.
-2. Call `writeHandoff(agentsDir, handoff)` from `src/content/handoffs/index.ts`. The function performs an atomic temp+rename per the `safeWrite.ts` pattern under `HATCH3R_LOCK=1`.
+2. You are an LLM skill — you cannot call the `writeHandoff` TypeScript function (`src/content/handoffs/index.ts`) directly; it is the CLI-internal writer, not an agent call target. The durable route is the guarded shell entry point `hatch3r handoff capture --file <staged> --as <id>.md` (queued for authoring — D5-SA5.6-02), which re-verifies the `integrity:` digest, re-runs this readiness rule, and routes bytes through `writeHandoff` (atomic temp+rename per `src/merge/safeWrite.ts` under `HATCH3R_LOCK=1`). Until that command ships, execute the write with your platform tools: compose the file, `Write` it to `.hatch3r/handoffs/.staging/<id>.md`, re-check the readiness rule (criteria 1-7), then `Write` it to `.hatch3r/handoffs/active/<id>.md`. A raw `Write` does NOT carry the lock / atomic-rename guarantee — do not run concurrent handoff writes, and never assert atomicity you did not obtain.
 3. The handoff lands at `.hatch3r/handoffs/active/<id>.md`.
 
 **Status default:** `in-progress`. Use `open` if the work has not been started, or `handed-off` if explicitly transferring to another developer or agent.

@@ -454,6 +454,54 @@ describe("update command", () => {
       const result = await runUpdateDryRun(tempDir, manifest!);
       expect(result.adapterChanges.size).toBe(manifest!.tools.length);
     });
+
+    // D1-SA1.3-02 (Cycle 12, D1): a `--dry-run --pin-version` preview must not
+    // persist `versionConstraint`. Before the fix, the pin's writeManifest ran
+    // before the dry-run fork, so previewing a pin durably changed the install
+    // spec of every future update. The manifest must be byte-identical after.
+    it("does not persist --pin-version to the manifest under --dry-run (D1-SA1.3-02)", async () => {
+      await createTestProject(tempDir);
+      const manifestPath = join(tempDir, HATCH3R_DIR, "hatch.json");
+      const before = await readFile(manifestPath, "utf-8");
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ dryRun: true, pinVersion: "2.1.0" });
+
+      const after = await readFile(manifestPath, "utf-8");
+      // A no-op preview must not durably change future-update behavior.
+      expect(after).toBe(before);
+      expect(JSON.parse(after).versionConstraint).toBeUndefined();
+    });
+
+    // D1-SA1.3-02 (Cycle 12, D1): a `--dry-run` upgrade of a pre-worktree
+    // manifest triggers the worktree-config-init checkpoint, which wrote
+    // `.worktreeinclude` before the dry-run fork. Under --dry-run the checkpoint
+    // must preview only — no `.worktreeinclude` on disk, manifest untouched.
+    it("does not write .worktreeinclude for a pre-worktree manifest under --dry-run (D1-SA1.3-02)", async () => {
+      await createTestProject(tempDir, { worktree: undefined });
+      const manifestPath = join(tempDir, HATCH3R_DIR, "hatch.json");
+      const raw = JSON.parse(await readFile(manifestPath, "utf-8"));
+      delete raw.worktree;
+      const before = JSON.stringify(raw, null, 2);
+      await writeFile(manifestPath, before);
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ dryRun: true });
+
+      const { access } = await import("node:fs/promises");
+      const wtExists = await access(join(tempDir, ".worktreeinclude"))
+        .then(() => true)
+        .catch(() => false);
+      expect(wtExists).toBe(false);
+      // The checkpoint's in-memory mutation is discarded on the dry-run path.
+      expect(await readFile(manifestPath, "utf-8")).toBe(before);
+
+      const output = [
+        ...consoleSpy.mock.calls.map((c) => String(c[0])),
+        ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+      ].join("\n");
+      expect(output).toContain("would be generated");
+    });
   });
 
   // Multi-install self-update + re-exec into the freshly installed binary.

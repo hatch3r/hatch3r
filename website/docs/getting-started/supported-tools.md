@@ -72,9 +72,9 @@ Since 1.7.5 MCP is opt-in (default No during `init`). See the [MCP Setup guide](
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 24 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Claude Code, Cursor, Copilot).
+Since 1.7.5, hatch3r ships a 34-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 29 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Claude Code, Cursor, Copilot).
 
-### Tier-1 (default-on, 10 tools)
+### Tier-1 (default-on, 11 tools)
 
 | Tool | Probe | Purpose |
 |------|-------|---------|
@@ -88,8 +88,9 @@ Since 1.7.5, hatch3r ships a 29-tool CLI surface area as the token-efficient alt
 | sd | `sd` | Intuitive sed replacement with literal string patterns |
 | ast-grep | `sg` | Structural search and rewrite for code via AST patterns |
 | zstd | `zstd` | Fast lossless compression with high ratio |
+| curl | `curl` | HTTP/S transfer tool — POST/GET/PUT, file upload, custom headers, cookies, scripting |
 
-### Tier-2 (conditional, 11 tools)
+### Tier-2 (conditional, 13 tools)
 
 Pre-checked when the matching trigger holds against the active project.
 
@@ -106,8 +107,10 @@ Pre-checked when the matching trigger holds against the active project.
 | fzf | `interactive-tty` | Interactive fuzzy finder for TTY pickers |
 | lazygit | `interactive-tty` | Terminal UI for git with keyboard-driven workflows |
 | difftastic | `interactive-tty` | Structural diff that understands syntax |
+| HTTPie | `web-project` | Human-friendly HTTP/S client with intuitive UI, JSON output, syntax highlighting, and session management |
+| xh | `web-project` | Fast Rust HTTP/S client with HTTPie-compatible syntax — HTTP/2 + HTTP/3, single-binary install |
 
-### Tier-3 (opt-in advanced, 8 tools)
+### Tier-3 (opt-in advanced, 10 tools)
 
 Never pre-checked — opt in informed.
 
@@ -121,6 +124,8 @@ Never pre-checked — opt in informed.
 | miller | `mlr` | awk/sed/cut/join for CSV/TSV/JSON/Parquet streams |
 | csvkit | `csvlook` | Python CSV toolkit (csvlook, csvsql, csvjoin, csvstat) |
 | Podman | `podman` | Daemonless container engine, rootless by default |
+| dasel | `dasel` | Cross-format selector — JSON / YAML / TOML / XML / CSV under one path-query DSL |
+| container-use | `container-use` | Dagger sandbox runtime for agentic coding environments (pre-1.0; see caveat) |
 
 See [CLI Tools](./cli-tools) for the decision tree, install commands per OS, and the trade-off discussion vs MCP.
 

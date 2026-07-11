@@ -118,6 +118,6 @@ Homepage: https://github.com/jqlang/jq
 
 ## Security
 
-Minimum recommended version: `>=1.8.1`. Builds below this floor carry known unpatched advisories — upgrade before relying on the tool.
+Minimum recommended version: `>=1.8.2`. Builds below this floor carry known unpatched advisories — upgrade before relying on the tool.
 
-Multiple unfixed advisories on jq 1.8.1 (the only tagged release as of 2026-05-27). See https://github.com/jqlang/jq/security/advisories for the canonical roster — at audit time the upstream tab listed 10+ GHSA entries (April-May 2026), all stack-overflow / integer-overflow / NUL-truncation classes triggerable by attacker-controlled JSON or attacker-controlled jq filter paths. Validate JSON inputs externally (e.g. python json.tool or jaq) or sandbox jq in a network-isolated container before running on untrusted input.
+jq <1.8.2 carries a 16-CVE cluster (stack/integer-overflow + NUL-truncation + use-after-free, CVE-2026-32316 … CVE-2026-54679) triggerable by attacker-controlled JSON or filter paths; all fixed in 1.8.2 (2026-06-20). Upgrade to >=1.8.2 — the install-side validation/sandbox guidance is only for builds that cannot be upgraded.

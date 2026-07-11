@@ -163,6 +163,16 @@ const PER_PACKAGE_COUNT_CAP = 25;
 // measured fd-exhaustion headroom check.
 const PER_PACKAGE_WRITE_CONCURRENCY = 8;
 
+// D1-SA1.1-04 (D1, P2): named init checkpoint waves. `recordPhase` writes these
+// as the checkpoint `wave` field; the `--resume` reader distinguishes a mid-run
+// generation checkpoint (GENERATION — written by recordPhase after adapter
+// writes, before finalize) from a fully-finalized run (FINALIZE — written after
+// the manifest + seeds + mcp land). Requiring FINALIZE in the reader stops a
+// wave-1 `passed` checkpoint (the exact shape recordPhase leaves mid-run) from
+// being misreported as "already completed".
+const INIT_GENERATION_WAVE = 1;
+const INIT_FINALIZE_WAVE = 2;
+
 /**
  * D14-SA14.2-H1: run `task` over `items` with at most `limit` in flight at
  * once, preserving input order in the returned results array. Used to batch
@@ -871,7 +881,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
 
   // F16.1-C1: generation phase begins — an in-progress checkpoint so a
   // `--resume` after a crash mid-generation sees the run did not complete.
-  await recordPhase(1, "in-progress");
+  await recordPhase(INIT_GENERATION_WAVE, "in-progress");
 
   // Decision 27 (Bucket 2.2) wiring coordination: the pre-mutation
   // snapshot for init is captured below as part of F1.1-C1's two-pass
@@ -1223,7 +1233,17 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     : "Adapter output generated"));
 
   // F16.1-C1: adapter generation/write phase done.
-  await recordPhase(1, "passed");
+  await recordPhase(INIT_GENERATION_WAVE, "passed");
+
+  // D1-SA1.1-04 (D1, P2): mark entry to the finalize phase (worktree include +
+  // manifest + provenance + seeds + mcp + env + .gitignore). Without this
+  // marker a crash anywhere in finalize would leave the wave-1 `passed`
+  // checkpoint on disk, indistinguishable from a completed run to a naive
+  // reader; recording FINALIZE/in-progress here makes a finalize-window crash
+  // observable (the `--resume` reader treats a non-`passed` checkpoint as an
+  // interrupted run and re-executes). Overwritten by the FINALIZE/passed write
+  // below once finalize completes.
+  await recordPhase(INIT_FINALIZE_WAVE, "in-progress");
 
   for (const tool of tools) {
     const warnings = getUnsupportedFeatureWarnings(tool, manifest);
@@ -1352,9 +1372,10 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   s4.succeed(step(4, totalSteps, "Done"));
 
   // F16.1-C1: finalize phase (manifest + learnings/handoffs seeds + mcp +
-  // env) committed. Record wave 2 passed — the resumable "done" marker for
-  // init. A subsequent `init --resume` reads this and reports completion.
-  await recordPhase(2, "passed");
+  // env) committed. Record FINALIZE passed — the resumable "done" marker for
+  // init. A subsequent `init --resume` reads this (FINALIZE + passed +
+  // on-disk manifest) and reports completion.
+  await recordPhase(INIT_FINALIZE_WAVE, "passed");
 
   // D10-17 (D10, P1): record the primary SPACE metric `firstRunSuccessRate` at
   // the success terminus. Reaching this line means `runInitInner` completed
@@ -1519,8 +1540,11 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   //
   // The original C9-H29 multi-CTA contract is preserved — greenfield and
   // brownfield both still surface roadmap / feature-plan / quick-change /
-  // project-spec / codebase-map so the four-CTA substring assertions in
-  // init.test.ts (multi-CTA post-init hint) keep matching.
+  // project-spec / codebase-map. D10-SA10.3-01: every CTA id passed to
+  // `formatCommandHint` is the `hatch3r-`-prefixed command id (e.g.
+  // `hatch3r-roadmap`), matching the slash name the adapters emit
+  // (`toPrefixedId(cmd.id)` → `/hatch3r-roadmap`); the init.test.ts guards pin
+  // the prefixed `/hatch3r-<name>` form so a bare-name regression fails the build.
   // D10-M20 (Cycle 10 rollover): the lite path (no board) was previously
   // rendered as a single dimmed bullet under the primary CTA, so a user who
   // wanted feature-only work missed it on first scan. The board-less route is
@@ -1543,13 +1567,13 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     // (commands/hatch3r-spec.md "MVP vs full vision") that presumes the user can
     // describe a product. Name that up front so a greenfield user is not
     // surprised by the prompt and arrives with the scope decision ready.
-    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to define your new project (routes greenfield/brownfield automatically; you'll be asked to describe your product idea and MVP scope), then ${chalk.bold(formatCommandHint(tools, "roadmap"))}`);
-    summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "quick-change"))} for a tiny change`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "project-spec"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "codebase-map"))}`);
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to define your new project (routes greenfield/brownfield automatically; you'll be asked to describe your product idea and MVP scope), then ${chalk.bold(formatCommandHint(tools, "hatch3r-roadmap"))}`);
+    summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "hatch3r-feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "hatch3r-quick-change"))} for a tiny change`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "hatch3r-project-spec"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "hatch3r-codebase-map"))}`);
   } else {
     summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to map your existing codebase (routes greenfield/brownfield automatically)`);
-    summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "quick-change"))} for a tiny change`);
-    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "codebase-map"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "project-spec"))}`);
+    summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "hatch3r-feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "hatch3r-quick-change"))} for a tiny change`);
+    summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "hatch3r-codebase-map"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "hatch3r-project-spec"))}`);
   }
   // D10-25 (D10, P1): the CTAs above print `/`-prefixed invocations, but not
   // every named workflow is a slash command. Some (e.g. the board-init step the
@@ -2084,12 +2108,15 @@ export async function initCommand(
   }
   // F16.1-C1 / D11-H-7 (Decision 27 / Bucket 2.2): `--resume` reads the
   // checkpoint at `.init-workspace/checkpoint.json` (now written by
-  // `runInitInner` after each phase). A `passed` checkpoint at the current
-  // hatch3r version means the prior init completed — report it and exit
-  // early (re-running would re-prompt and re-overwrite managed files, which
-  // is wasteful and surprising on an explicit `--resume`). A baseline
-  // mismatch, a `failed`/`in-progress` checkpoint, or no checkpoint at all
-  // falls through to a fresh init (which captures a new rollback snapshot).
+  // `runInitInner` after each phase). Completion is asserted from EVIDENCE, not
+  // a bare `passed` status: a FINALIZE-wave `passed` checkpoint at the current
+  // hatch3r version WITH the on-disk manifest present means the prior init
+  // completed — report it and exit early (re-running would re-prompt and
+  // re-overwrite managed files, which is wasteful and surprising on an explicit
+  // `--resume`). A baseline mismatch, a `failed`/`in-progress` checkpoint, a
+  // generation-only `passed` checkpoint (finalize never ran — D1-SA1.1-04), or
+  // no checkpoint at all falls through to a fresh init (which captures a new
+  // rollback snapshot).
   if (opts.resume) {
     const cwd = process.cwd();
     const initWorkspace = join(cwd, ".init-workspace");
@@ -2101,32 +2128,53 @@ export async function initCommand(
         `Use \`hatch3r rollback --session=<id>\` after the run if you need to revert.`,
       );
     } else if (checkpoint.meta.baselineSha === HATCH3R_VERSION && checkpoint.status === "passed") {
-      // D1-15 (D1, P1): the human report goes through `info()`, which is
-      // suppressed under `--quiet`/`--json`. Without a machine-readable line a
-      // `--resume --json` short-circuit produced EMPTY stdout+stderr at exit 0,
-      // so a CI caller could not tell "already complete" from "did nothing".
-      // Emit a stable `{"status":"resumed",...}` line on stdout before the early
-      // return so the JSON consumer gets a parseable terminal signal that
-      // matches the success-box payload's status field convention.
-      if (isJson()) {
-        console.log(
-          JSON.stringify({
-            status: "resumed",
-            version: HATCH3R_VERSION,
-            phase: checkpoint.phase,
-            wave: checkpoint.wave,
-            checkpointPath: checkpointPath(initWorkspace),
-            message: "Prior init at this version already completed; nothing to resume.",
-          }),
+      // D1-SA1.1-04 (D1, P2): a `passed` status alone is NOT run-completion.
+      // `recordPhase(INIT_GENERATION_WAVE, "passed")` writes exactly this shape
+      // mid-run — after adapter generation, before the finalize phase writes the
+      // manifest — so a finalize-window crash (or a stray wave-1 checkpoint)
+      // would otherwise be reported as "already completed" with no manifest on
+      // disk. Require the FINALIZE wave marker AND corroborate against the
+      // on-disk manifest (evidence-backed sign-off) before declaring the prior
+      // run complete; otherwise fall through to a fresh init.
+      const manifestPresent = (await readManifest(cwd)) !== null;
+      const runComplete = checkpoint.wave === INIT_FINALIZE_WAVE && manifestPresent;
+      if (runComplete) {
+        // D1-15 (D1, P1): the human report goes through `info()`, which is
+        // suppressed under `--quiet`/`--json`. Without a machine-readable line a
+        // `--resume --json` short-circuit produced EMPTY stdout+stderr at exit 0,
+        // so a CI caller could not tell "already complete" from "did nothing".
+        // Emit a stable `{"status":"resumed",...}` line on stdout before the early
+        // return so the JSON consumer gets a parseable terminal signal that
+        // matches the success-box payload's status field convention.
+        if (isJson()) {
+          console.log(
+            JSON.stringify({
+              status: "resumed",
+              version: HATCH3R_VERSION,
+              phase: checkpoint.phase,
+              wave: checkpoint.wave,
+              checkpointPath: checkpointPath(initWorkspace),
+              message: "Prior init at this version already completed; nothing to resume.",
+            }),
+          );
+          return;
+        }
+        info(
+          `Resume: the last init at this hatch3r version (v${HATCH3R_VERSION}) completed ` +
+          `(phase=${checkpoint.phase} wave=${checkpoint.wave}). Nothing to resume — re-run ` +
+          `\`hatch3r init\` without --resume to re-initialize from scratch.`,
         );
         return;
       }
-      info(
-        `Resume: the last init at this hatch3r version (v${HATCH3R_VERSION}) completed ` +
-        `(phase=${checkpoint.phase} wave=${checkpoint.wave}). Nothing to resume — re-run ` +
-        `\`hatch3r init\` without --resume to re-initialize from scratch.`,
-      );
-      return;
+      // D1-SA1.1-04: passed generation checkpoint whose finalize phase never
+      // landed (no manifest on disk, or the marker never advanced to FINALIZE).
+      // Re-run from the start rather than falsely reporting completion — falls
+      // through to the fresh init below (no early return).
+      info(chalk.dim(
+        `Resume: prior init reached generation (wave=${checkpoint.wave}) but did not finalize ` +
+        `(${manifestPresent ? "manifest present but finalize marker missing" : "no manifest on disk"}). ` +
+        `Re-running from the start (init captures a fresh rollback snapshot).`,
+      ));
     } else if (checkpoint.meta.baselineSha !== HATCH3R_VERSION) {
       warn(
         `Resume: checkpoint baseline (v${checkpoint.meta.baselineSha}) differs from the ` +
@@ -2380,8 +2428,17 @@ export async function initCommand(
     warnBoardDroppedForSolo(teamSize, preset, projectType, index, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
     await checkExisting(rootDir, true, contentSelection, opts.dryRun);
-    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+    // D1-SA1.1-02 (D1, P1): run the `--import` step BEFORE adapter generation.
+    // runToolImport writes converted rules to `.hatch3r/overrides/rules/`, and
+    // runInit's generation reads that overrides tree (readCanonicalFiles with
+    // userRepoRoot). Importing first means the generated adapter output already
+    // contains the imported rules, so an immediate `hatch3r verify` reports zero
+    // drift; the prior tail-order left imported rules inert until an unadvertised
+    // `sync`. runToolImport needs only rootDir + a fresh content index (no
+    // manifest, no adapter output) and self-creates its target dir, so it runs
+    // safely ahead of runInit.
     await runToolImport(rootDir, opts.import, true, opts.dryRun);
+    await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: true, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
     return;
   }
 
@@ -2678,8 +2735,13 @@ export async function initCommand(
   warnBoardDroppedForSolo(teamSize, selectedPreset, projectType, filterIndex, projectLanguages, { role: cliRole, facets: cliFacets }, contentSelection);
 
   await checkExisting(rootDir, false, contentSelection, opts.dryRun);
-  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
+  // D1-SA1.1-02 (D1, P1): import before generation on the interactive path too,
+  // so the imported overrides are present when runInit generates adapter output
+  // (zero-drift immediately after init). The import's interactive dry-run
+  // preview + confirm now precede the generation spinner — acceptable per the
+  // finding, since a declined confirm still leaves disk untouched before init.
   await runToolImport(rootDir, opts.import, false, opts.dryRun);
+  await runInit({ rootDir, platform, owner, repo, namespace, project, defaultBranch, tools, features, mcpServers, repoInfo, contentSelection, worktreeEnabled, cliTools: cliToolsConfig, yes: false, maturity, perPackage: opts.perPackage, conflicts: conventionConflicts, dryRun: opts.dryRun });
 }
 
 // ── Tool import (--import) ─────────────────────────────────────────

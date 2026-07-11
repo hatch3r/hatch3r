@@ -16,6 +16,7 @@
  *        sub_agents_spawned:
  *          count: <positive integer>
  *          rationale: <non-empty string>
+ *          task_structure: parallelizable | sequential | mixed
  *
  *   2. SKILLS — every `SKILL.md` under `skills/hatch3r-<name>` whose
  *      body carries a Tier-2/3 Task-tool delegation contract MUST carry
@@ -26,7 +27,8 @@
  *      the skill instead instructs its runtime sub-agent to emit the
  *      field, matching the 34 skills that already carry the directive:
  *
- *        Emit `sub_agents_spawned: { count, rationale }` in your output.
+ *        Emit `sub_agents_spawned: { count, rationale, task_structure }`
+ *        in your output.
  *
  *      A skill that declares `Tier 1 reference card` (the rule's
  *      documented opt-out: "Tier 1 reference-card skills that neither
@@ -61,7 +63,15 @@
  *   > Sub-agent fan-out scales with task size; serialization is only
  *   > valid on dependency edges. Token cost is never a valid reason to
  *   > serialize independent work. Delegating artifacts emit sub-agent
- *   > count + rationale as a first-class output field.
+ *   > count + rationale as a first-class output field, with a
+ *   > task-structure classification (`parallelizable | sequential |
+ *   > mixed`) as its required companion.
+ *
+ * The `task_structure` companion (2026-07-09 CONSTITUTION §2 P8 amendment,
+ * run a2a16b59) is enforced as a WARNING during the corpus-backfill window
+ * — a missing/invalid companion flags the author without reding the gate,
+ * matching the D7-30 soft-heuristic pattern and the D7-SA7.6 "keep as
+ * warnings first" remediation; promote to ERROR once the corpus carries it.
  *
  * Failure modes (each emits one ERROR finding):
  *
@@ -105,8 +115,13 @@
  *                         decomposition basis ... so a reviewer can check
  *                         the count against the task without re-deriving
  *                         it"). Single-agent pipelines are exempt.
+ *   P8-FANOUT-TASKSTRUCT-MISS    command `sub_agents_spawned` omits the
+ *                                `task_structure` companion (P8 B2 2026-07-09
+ *                                amendment) — WARNING during corpus backfill
+ *   P8-FANOUT-TASKSTRUCT-INVALID command `task_structure` is present but not
+ *                                one of `parallelizable | sequential | mixed`
  *
- * Both heuristics are WARNINGS, not errors: they flag likely drift for
+ * The consistency heuristics are WARNINGS, not errors: they flag likely drift for
  * human review without failing the CI gate, matching the finding's "keep
  * as warnings first" remediation. The live command corpus (Cycle 11)
  * raises zero of either warning.
@@ -295,6 +310,9 @@ const isOrchestrator = (fm: Record<string, unknown>): boolean => fm.orchestrator
 interface FanoutShape {
   count: unknown;
   rationale: unknown;
+  /** `true` when the `task_structure` companion key is present (P8 B2, 2026-07-09 amendment). */
+  hasTaskStructure: boolean;
+  taskStructure: unknown;
 }
 
 function getFanout(fm: Record<string, unknown>): FanoutShape | "missing" | "wrong-shape" {
@@ -303,8 +321,22 @@ function getFanout(fm: Record<string, unknown>): FanoutShape | "missing" | "wron
   if (typeof v !== "object" || Array.isArray(v)) return "wrong-shape";
   const obj = v as Record<string, unknown>;
   if (!("count" in obj) || !("rationale" in obj)) return "wrong-shape";
-  return { count: obj.count, rationale: obj.rationale };
+  return {
+    count: obj.count,
+    rationale: obj.rationale,
+    hasTaskStructure: "task_structure" in obj,
+    taskStructure: (obj as { task_structure?: unknown }).task_structure,
+  };
 }
+
+// P8 B2 task-structure companion (CONSTITUTION §2 P8, 2026-07-09 amendment,
+// run a2a16b59): every delegating artifact classifies its fan-out topology so
+// a reviewer can tell parallel-safe fan-out from a true dependency chain.
+const VALID_TASK_STRUCTURES: ReadonlySet<string> = new Set([
+  "parallelizable",
+  "sequential",
+  "mixed",
+]);
 
 // `agentPipeline` is a YAML list of hatch3r-* agent ids. Non-array shapes
 // (absent, scalar) collapse to an empty list — the consistency heuristics
@@ -401,6 +433,35 @@ function checkFanoutEmission(file: ParsedFile): Finding[] {
     });
   }
 
+  // P8 B2 task-structure companion (CONSTITUTION §2 P8, 2026-07-09 amendment).
+  // WARNING (not error) during the corpus-backfill window: a missing/invalid
+  // companion flags the author without reding the gate, matching the D7-30
+  // soft-heuristic pattern and the D7-SA7.6 "keep as warnings first"
+  // remediation. Promote to error once the command corpus is fully backfilled.
+  if (!shape.hasTaskStructure) {
+    out.push({
+      level: "warning",
+      code: "P8-FANOUT-TASKSTRUCT-MISS",
+      file: file.relPath,
+      message:
+        "`sub_agents_spawned` omits the `task_structure` companion (P8 B2, 2026-07-09 amendment): " +
+        "add `task_structure: parallelizable | sequential | mixed` classifying the fan-out topology " +
+        "(`rules/hatch3r-fan-out-discipline.md` → Required output field).",
+    });
+  } else if (
+    typeof shape.taskStructure !== "string" ||
+    !VALID_TASK_STRUCTURES.has(shape.taskStructure)
+  ) {
+    out.push({
+      level: "warning",
+      code: "P8-FANOUT-TASKSTRUCT-INVALID",
+      file: file.relPath,
+      message:
+        "`sub_agents_spawned.task_structure` must be one of `parallelizable | sequential | mixed`, " +
+        `got ${JSON.stringify(shape.taskStructure)} (P8 B2 task-structure companion).`,
+    });
+  }
+
   // Soft consistency heuristics run only when the structural schema above is
   // sound (valid integer count + non-empty string rationale); a malformed
   // count/rationale already errored and would make the heuristics noise.
@@ -482,8 +543,13 @@ const SKILL_TIER1_EXEMPTION = /Tier 1 reference card/i;
 
 // Required directive when triggered and not exempt: the canonical
 // runtime-emission instruction. `count`/`rationale` may sit on one line
-// or be wrapped, so the keys are matched independently of layout.
-const SKILL_EMISSION_DIRECTIVE = /Emit\s+`sub_agents_spawned:\s*\{\s*count,\s*rationale\s*\}`/i;
+// or be wrapped, so the keys are matched independently of layout. The
+// `task_structure` companion (P8 B2, 2026-07-09 amendment) is accepted as
+// an OPTIONAL trailing key during the corpus-backfill window, so a skill
+// that adopts the constitution-current 3-key form is NOT hard-blocked —
+// the self-lock the 2-key-only regex created (D5-SA5.8-01 / D7-SA7.6-01).
+const SKILL_EMISSION_DIRECTIVE =
+  /Emit\s+`sub_agents_spawned:\s*\{\s*count,\s*rationale(?:,\s*task_structure)?\s*\}`/i;
 
 function checkSkillEmission(file: ParsedFile): Finding[] {
   if (SKILL_TIER1_EXEMPTION.test(file.body)) return [];
@@ -496,7 +562,7 @@ function checkSkillEmission(file: ParsedFile): Finding[] {
       file: file.relPath,
       message:
         "delegating skill omits the runtime-emission directive " +
-        "(P8 B2): add ``Emit `sub_agents_spawned: { count, rationale }` in your output.`` " +
+        "(P8 B2): add ``Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.`` " +
         "to the body, or mark the skill `Tier 1 reference card — no fan-out`",
     },
   ];
@@ -550,7 +616,7 @@ function checkMaintainerSkillEmission(file: ParsedFile): Finding[] {
       message:
         "delegating maintainer preset (grants Task or declares a Sub-Agent " +
         "Dispatch step) omits the runtime-emission directive (P8 B2): add " +
-        "``Emit `sub_agents_spawned: { count, rationale }` in your output.`` " +
+        "``Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.`` " +
         "to the body, or mark the preset `Tier 1 reference card — no fan-out`",
     },
   ];

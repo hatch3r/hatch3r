@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 8
   rationale: Eight parallel analyzer domains in Step 3 across business + technical dimensions (modules, dependencies, conventions, stack, technical-debt, business-domain, market-context, production-readiness); docs-writers fan out in a second parallel batch in Step 7 (one per document category). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

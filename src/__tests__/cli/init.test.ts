@@ -838,6 +838,128 @@ describe("init resumability checkpoints (F16.1-C1)", () => {
     // Fresh init completes.
     await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
   });
+
+  // D1-SA1.1-04: `recordPhase(1, "passed")` overwrites the single checkpoint.json
+  // AFTER adapter generation but BEFORE finalize writes the manifest. A reader
+  // keyed only on `status === "passed"` misreports that mid-run state as
+  // "already completed". The reader now requires the FINALIZE wave marker AND an
+  // on-disk manifest before short-circuiting.
+  it("D1-SA1.1-04: a wave-1 `passed` checkpoint with no manifest is NOT reported completed — resume runs a fresh init", async () => {
+    // Reproduce the exact on-disk state recordPhase leaves mid-run: generation
+    // recorded { wave: 1, status: "passed" }, then the process died before
+    // finalize wrote `.hatch3r/hatch.json`.
+    const wsDir = join(tempDir, ".init-workspace");
+    await mkdir(wsDir, { recursive: true });
+    await writeFile(
+      join(wsDir, "checkpoint.json"),
+      JSON.stringify(
+        {
+          schemaVersion: 1,
+          phase: "init",
+          wave: 1,
+          status: "passed",
+          meta: {
+            baselineSha: HATCH3R_VERSION,
+            lastPassedGateN: 1,
+            registrySha: "",
+            timestamp: new Date().toISOString(),
+          },
+        },
+        null,
+        2,
+      ) + "\n",
+      "utf-8",
+    );
+    // Precondition: finalize never ran, so no manifest exists yet.
+    await expect(
+      access(join(tempDir, AGENTS_DIR, "hatch.json")),
+    ).rejects.toMatchObject({ code: "ENOENT" });
+
+    await initCommand({ yes: true, resume: true, tools: "claude" });
+
+    const output = [
+      ...consoleSpy.mock.calls.map((c) => String(c[0])),
+      ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
+    ].join("\n");
+    // Must NOT falsely short-circuit as complete...
+    expect(output).not.toMatch(/Nothing to resume|already completed/i);
+    // ...a fresh init must have run to completion (manifest now on disk).
+    await expect(
+      access(join(tempDir, AGENTS_DIR, "hatch.json")),
+    ).resolves.toBeUndefined();
+  });
+});
+
+// D1-SA1.1-02 (D1, P1): a `--import` at init must feed the imported overrides
+// INTO adapter generation (not a detached tail step), so the generated tool
+// config already contains the imported rules and an immediate `verify` reports
+// zero drift. runToolImport now runs before runInit; this pins that ordering by
+// asserting the imported rule reaches the generated `.claude/rules/` output.
+describe("init --import feeds generation (D1-SA1.1-02)", () => {
+  let initCommand: (opts?: {
+    yes?: boolean;
+    tools?: string;
+    import?: string;
+  }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-import-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  });
+
+  it("imported cursor rule reaches generated .claude/rules output after a single init --import", async () => {
+    // Seed a valid cursor rule at the source path the importer reads.
+    const cursorRulesDir = join(tempDir, ".cursor", "rules");
+    await mkdir(cursorRulesDir, { recursive: true });
+    await writeFile(
+      join(cursorRulesDir, "team-style.mdc"),
+      [
+        "---",
+        "description: Team style guide",
+        'globs: ["**/*.ts"]',
+        "alwaysApply: false",
+        "---",
+        "# Team Style",
+        "",
+        "Prefer named exports.",
+        "",
+      ].join("\n"),
+      "utf-8",
+    );
+
+    await initCommand({ yes: true, tools: "claude", import: "cursor" });
+
+    // The importer namespaces the id as hatch3r-cursor-import-<name>; the claude
+    // adapter emits it under .claude/rules/. If import ran AFTER generation (the
+    // D1-SA1.1-02 defect) the rule would be absent here until a manual sync.
+    const { readdir } = await import("node:fs/promises");
+    const claudeRules = await readdir(join(tempDir, ".claude", "rules"));
+    expect(
+      claudeRules.some((f) => f.includes("hatch3r-cursor-import-team-style")),
+    ).toBe(true);
+  });
 });
 
 // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤6 prompts
@@ -2853,11 +2975,11 @@ describe("init multi-CTA post-init hint (C9-H29)", () => {
     // Empty tempDir = greenfield (no language detected, no existing agents).
     await initCommand({ yes: true });
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(stdout).toContain("project-spec");
-    expect(stdout).toContain("roadmap");
-    expect(stdout).toContain("codebase-map");
-    expect(stdout).toContain("feature-plan");
-    expect(stdout).toContain("quick-change");
+    expect(stdout).toContain("/hatch3r-project-spec");
+    expect(stdout).toContain("/hatch3r-roadmap");
+    expect(stdout).toContain("/hatch3r-codebase-map");
+    expect(stdout).toContain("/hatch3r-feature-plan");
+    expect(stdout).toContain("/hatch3r-quick-change");
   });
 
   it("brownfield repo surfaces codebase-map primary and all 3 alternates (feature-plan/quick-change/project-spec)", async () => {
@@ -2865,10 +2987,10 @@ describe("init multi-CTA post-init hint (C9-H29)", () => {
     await writeFile(join(tempDir, "tsconfig.json"), JSON.stringify({}));
     await initCommand({ yes: true });
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
-    expect(stdout).toContain("codebase-map");
-    expect(stdout).toContain("feature-plan");
-    expect(stdout).toContain("quick-change");
-    expect(stdout).toContain("project-spec");
+    expect(stdout).toContain("/hatch3r-codebase-map");
+    expect(stdout).toContain("/hatch3r-feature-plan");
+    expect(stdout).toContain("/hatch3r-quick-change");
+    expect(stdout).toContain("/hatch3r-project-spec");
   });
 });
 

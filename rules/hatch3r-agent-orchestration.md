@@ -179,7 +179,7 @@ ALL three must hold: (1) **read-only or disjoint writes, at file AND contract gr
 
 **Cost-Dominance Principle.** Token cost of sub-agent invocation never justifies serialization of independent work. The three safety conditions govern WHEN parallelism is safe; cost does not govern WHETHER to parallelize. When in doubt, fan out. Serialization is only valid on true dependency edges.
 
-**Scaling Heuristic.** Sub-agent count tracks task decomposition: N independent modules → N parallel Phase-2 implementers; M specialist gates → M parallel Phase-4 specialists; K independent research questions → K parallel `hatch3r-researcher` sub-agents (one per question, findings unioned post-Phase-1). The K-parallel-researcher path is mandatory only when Phase 1 decomposes into ≥2 questions whose answers do not depend on each other; a single-question task keeps one researcher running its mode set serially. Orchestrators emit `sub_agents_spawned: {count, rationale}` in their structured output.
+**Scaling Heuristic.** Sub-agent count tracks task decomposition: N independent modules → N parallel Phase-2 implementers; M specialist gates → M parallel Phase-4 specialists; K independent research questions → K parallel `hatch3r-researcher` sub-agents (one per question, findings unioned post-Phase-1). The K-parallel-researcher path is mandatory only when Phase 1 decomposes into ≥2 questions whose answers do not depend on each other; a single-question task keeps one researcher running its mode set serially. Orchestrators emit `sub_agents_spawned: {count, rationale, task_structure}` in their structured output.
 
 ### Concurrent Invocation Handling
 

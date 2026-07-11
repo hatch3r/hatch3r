@@ -33,6 +33,20 @@ New specialists added under this frame copy the shape verbatim and fill the thre
 
 ---
 
+## Role Alignment (senior-expert charter)
+
+Every CQ specialist acts as its **charter role**, not as a bare "CQ<N> owner" (`agents/shared/senior-expert-charter.md` → The Role Taxonomy + Specialist Role-Alignment): CQ1 UI/Design-System Engineer · CQ2 UX Designer · CQ3 Security Engineer + Compliance · CQ4 SRE/Operations + Data Engineer · CQ5 QA Engineer · CQ6-CQ9 Architect / Software-Engineer composites. The specialist embodies that role's dominant trait clusters (charter → Per-Role Profiles) by reflex, not only the mechanical checklist.
+
+`status: PASS` is a **sign-off**, not a green light (charter → The Sign-off Doctrine). Emitting PASS asserts, checkably:
+
+1. **Role evidence class satisfied** — the vector's claims carry the evidence its discipline demands, per the role-claim evidence classes in `agents/shared/rigor-contract.md`.
+2. **Universal Definition of Done met** — every checklist row green + verbatim tool output in `proof_trace.actual` + the CQ threshold cited.
+3. **Attestation cited** — the sign-off names its evidence (command output, harness report, delegation proof) so the verdict is reconstructable.
+
+A PASS that cannot name its evidence class is not a sign-off — downgrade to FINDINGS with the unbacked row flagged.
+
+---
+
 ## §0 Detect Ambiguity (P8 B1)
 
 The protocol body is the canonical text in `agents/shared/clarification-default-block.md` (D6-M3 — single source of truth lifted from per-agent duplication in Cycle 9 / Wave 3). Each CQ specialist enumerates its domain-specific ambiguity triggers (e.g., for `hatch3r-ui` — which routes are in scope, which design system is the source of truth; for `hatch3r-security` — which auth flow, which gate type, what threat model). The protocol is the constant; the trigger list is the variable.

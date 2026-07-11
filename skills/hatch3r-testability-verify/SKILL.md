@@ -63,7 +63,7 @@ No duplication: the agent decides WHEN, this skill defines HOW.
 ## Gate 3: Coverage thresholds met per file class
 
 - Global floor 78% statements / 65% branches / 80% functions / 80% lines from `vitest.config.ts` (or equivalent).
-- Critical modules in this repo: `src/merge/` 90/80/90/90; `src/content/` 85/70/85/85; `src/adapters/customization.ts` 85/75/85/85.
+- Critical / high-risk modules meet a stricter per-module floor than the global one (commonly ~85–90% statements/functions/lines with ~75–80% branches for the highest-risk paths), read from the project's own coverage config (`vitest.config.ts` / `jest.config.js` per-path threshold overrides) — not a fixed table.
 - Read coverage from `coverage/coverage-summary.json` (Istanbul/v8) or `coverage.xml` (Cobertura).
 - Below floor → FINDINGS with the specific module + metric named.
 
@@ -107,7 +107,7 @@ All 8 gates pass = the feature is "done". Anything less = not done.
 
 - Mandate-map class compliance: 100% on changed features.
 - Real-deal ratio: ≥80% per cycle.
-- Coverage floors: met per file class (global 78/65/80/80; critical modules per `.claude/rules/test-requirements.md`).
+- Coverage floors: met per file class (global thresholds from the project's coverage config; critical modules per that config's per-path overrides).
 - AI eval coverage: 100% on release-bound prompt or model changes.
 - Mutation kill rate: ≥80% on payment + auth + critical paths.
 - Property-test coverage: 100% of pure functions with stated invariants.
@@ -133,7 +133,7 @@ Failure escalation per `agents/hatch3r-testability.md` status mapping: Gate 1 fa
 - `rules/hatch3r-testing.md` — per-feature test-class mandate map.
 - `rules/hatch3r-ai-evals.md` — AI feature eval coverage.
 - `rules/hatch3r-contract-testing.md` — Pact + Schemathesis boundaries.
-- `.claude/rules/test-requirements.md` — coverage thresholds per file class.
+- The project's coverage config (`vitest.config.ts` / `jest.config.js`) — global + per-file-class coverage thresholds.
 - `agents/shared/quality-charter.md` §Testing depth — mock-justification budget.
 
 ## References

@@ -15,6 +15,11 @@ import { readdir, readFile, stat, writeFile } from "node:fs/promises";
 import { join, dirname, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  AVAILABLE_CLI_TOOLS,
+  type CliToolMeta,
+} from "../src/cliTools/registry.js";
+
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
@@ -77,6 +82,24 @@ interface InventoryCounts {
    * count under the CI inventory drift check so the D03 figure self-maintains.
    */
   testFiles: number;
+  /**
+   * CLI-tool registry catalog size, derived from `src/cliTools/registry.ts`
+   * `AVAILABLE_CLI_TOOLS` — the SSoT the picker / detect / install / skill-gen
+   * paths already read (and its contract test asserts 34 = 11/13/10). `cliTools`
+   * is the total; the three tier keys partition it by `CliToolMeta.tier`.
+   *
+   * D10-SA10.1-01 (Cycle 12): the doc surfaces (README, website
+   * supported-tools / cli-tools) hand-maintained a "29 / 10-11-8" enumeration
+   * that drifted 5 tools behind the registry (34 / 11-13-10) across 3 releases
+   * because no gate bound the docs to the registry. Counting the catalog here
+   * lets `--check-docs` probe the doc count literals against the registry so
+   * the enumeration self-maintains. Counts-only (no `InventoryFiles` list): the
+   * tools live in the registry module, not as per-file content artifacts.
+   */
+  cliTools: number;
+  cliToolsTier1: number;
+  cliToolsTier2: number;
+  cliToolsTier3: number;
 }
 
 interface InventoryFiles {
@@ -375,6 +398,17 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
 
   const cliSkills = listCliSkills(skills);
 
+  // CLI-tool catalog counts, derived from the registry the picker/detect/
+  // install paths read (D10-SA10.1-01). Tiers partition the catalog via
+  // `CliToolMeta.tier`, matching the registry contract test's own derivation
+  // (`Object.values(AVAILABLE_CLI_TOOLS).filter(t => t.tier === N)`) — this
+  // dedups tools listed under multiple tier-2 triggers (e.g. `taplo`), so a
+  // trigger-array sum would over-count.
+  const cliToolEntries = Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[];
+  const cliToolsTier1 = cliToolEntries.filter((t) => t.tier === 1).length;
+  const cliToolsTier2 = cliToolEntries.filter((t) => t.tier === 2).length;
+  const cliToolsTier3 = cliToolEntries.filter((t) => t.tier === 3).length;
+
   return {
     lastUpdated: today,
     counts: {
@@ -395,6 +429,10 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
       checks: checks.length,
       githubAgents: githubAgents.length,
       testFiles: testFiles.length,
+      cliTools: cliToolEntries.length,
+      cliToolsTier1,
+      cliToolsTier2,
+      cliToolsTier3,
     },
     files: {
       adapters,
@@ -663,6 +701,63 @@ const DRIFT_PROBES: DriftProbe[] = [
     label: "D05 SA5.7 github-agents count",
     expected: "githubAgents",
     regex: /\+\s*(\d+)\s+github-agents\)/,
+  },
+  // D10-SA10.1-01 (Cycle 12): bind the website CLI-tool doc counts to the
+  // registry (`counts.cliTools*`). The docs hand-maintained "29 / 10-11-8"
+  // while the registry grew to "34 / 11-13-10" (curl, httpie, xh, dasel,
+  // container-use), and no probe caught it. These 8 probes gate the two
+  // getting-started pages' total + per-tier headers. NOTE: README.md and the
+  // `src/cliTools/registry.ts` / `registry.test.ts` in-code comments also carry
+  // the stale counts, but those files are owned by a concurrent Wave-2 unit
+  // (file-lock); their probes + content fix land with that unit's change, not
+  // here — probing an uncorrected README would fail this gate closed.
+  {
+    file: "website/docs/getting-started/supported-tools.md",
+    label: "supported-tools CLI surface total",
+    expected: "cliTools",
+    regex: /(\d+)-tool CLI surface area/,
+  },
+  {
+    file: "website/docs/getting-started/supported-tools.md",
+    label: "supported-tools Tier-1 count",
+    expected: "cliToolsTier1",
+    regex: /Tier-1 \(default-on, (\d+) tools\)/,
+  },
+  {
+    file: "website/docs/getting-started/supported-tools.md",
+    label: "supported-tools Tier-2 count",
+    expected: "cliToolsTier2",
+    regex: /Tier-2 \(conditional, (\d+) tools\)/,
+  },
+  {
+    file: "website/docs/getting-started/supported-tools.md",
+    label: "supported-tools Tier-3 count",
+    expected: "cliToolsTier3",
+    regex: /Tier-3 \(opt-in advanced, (\d+) tools\)/,
+  },
+  {
+    file: "website/docs/getting-started/cli-tools.md",
+    label: "cli-tools catalog total",
+    expected: "cliTools",
+    regex: /The (\d+)-tool catalog/,
+  },
+  {
+    file: "website/docs/getting-started/cli-tools.md",
+    label: "cli-tools Tier 1 count",
+    expected: "cliToolsTier1",
+    regex: /Tier 1 — default-on \((\d+) tools\)/,
+  },
+  {
+    file: "website/docs/getting-started/cli-tools.md",
+    label: "cli-tools Tier 2 count",
+    expected: "cliToolsTier2",
+    regex: /Tier 2 — conditional \((\d+) tools\)/,
+  },
+  {
+    file: "website/docs/getting-started/cli-tools.md",
+    label: "cli-tools Tier 3 count",
+    expected: "cliToolsTier3",
+    regex: /Tier 3 — opt-in advanced \((\d+) tools\)/,
   },
 ];
 

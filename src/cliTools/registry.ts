@@ -208,18 +208,21 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install jq" }],
       win: [{ manager: "scoop", command: "scoop install jq" }],
     },
-    // Cycle 10 D21-SA21.3-F-21.3.1/F-21.3.2 (F-21.7.1): jq 1.8.1 (2025-07-01)
-    // remains the only tagged release at 2026-05-27 (330 days). The April-May
-    // 2026 disclosure cluster on https://github.com/jqlang/jq/security/advisories
-    // listed 10+ GHSA entries covering stack-overflow, integer-overflow, and
-    // NUL-truncation classes — all triggerable by attacker-controlled JSON or
-    // jq-filter inputs. Until a tagged release supersedes 1.8.1, mitigations
-    // are install-side (input validation, sandbox isolation) rather than
-    // tool-version-side. minVersion floors the install at the only tag that
-    // patches the 2024 CVE-2023-49355 + CVE-2024-53427 1.7.x cluster.
-    minVersion: ">=1.8.1",
+    // Cycle 12 D21-SA21.3-01 (SA21.7-03 hand-patch): jq 1.8.2 (2026-06-20)
+    // supersedes 1.8.1 as the security release. Its NEWS.md fixes a 16-CVE
+    // cluster (stack-overflow / integer-overflow / NUL-truncation / use-after-
+    // free, CVE-2026-32316 … CVE-2026-54679) triggerable by attacker-controlled
+    // JSON or jq-filter paths — the exact classes the prior >=1.8.1 note called
+    // "unfixed". Verified against the jqlang release tag + NEWS.md and
+    // corroborated by Red Hat RHSA-2026:18042 / Ubuntu CVE-2026-54679 / Mageia
+    // MGASA-2026-0188 (accessed 2026-07-10). Floor raised to >=1.8.2: it clears
+    // the 2026 cluster AND the 2024 CVE-2023-49355 + CVE-2024-53427 1.7.x
+    // cluster. The prior >=1.8.1 floor certified the exact 16-CVE build as
+    // acceptable, and its securityNote prescribed sandboxing a vulnerability the
+    // vendor has since patched.
+    minVersion: ">=1.8.2",
     securityNote:
-      "Multiple unfixed advisories on jq 1.8.1 (the only tagged release as of 2026-05-27). See https://github.com/jqlang/jq/security/advisories for the canonical roster — at audit time the upstream tab listed 10+ GHSA entries (April-May 2026), all stack-overflow / integer-overflow / NUL-truncation classes triggerable by attacker-controlled JSON or attacker-controlled jq filter paths. Validate JSON inputs externally (e.g. python json.tool or jaq) or sandbox jq in a network-isolated container before running on untrusted input.",
+      "jq <1.8.2 carries a 16-CVE cluster (stack/integer-overflow + NUL-truncation + use-after-free, CVE-2026-32316 … CVE-2026-54679) triggerable by attacker-controlled JSON or filter paths; all fixed in 1.8.2 (2026-06-20). Upgrade to >=1.8.2 — the install-side validation/sandbox guidance is only for builds that cannot be upgraded.",
     homepage: "https://github.com/jqlang/jq",
     sourceRepo: "https://github.com/jqlang/jq",
     license: "MIT",
@@ -276,14 +279,20 @@ export const AVAILABLE_CLI_TOOLS = {
     // Authorization-header leak is CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh
     // <=2.92.0 attaches the github.com (or GH_ENTERPRISE_TOKEN) Authorization
     // header to TUF repository-mirror requests via `gh attestation`,
-    // `gh release verify`, and `gh release verify-asset`, fixed in 2.93.0
-    // (2026-…). Floor raised to >=2.93.0 so installs clear the header leak.
-    minVersion: ">=2.93.0",
+    // `gh release verify`, and `gh release verify-asset`, fixed in 2.93.0.
+    // Cycle 12 D21-SA21.5-01 (SA21.7-03 hand-patch): GHSA-8cg3-r6g9-fpg2 /
+    // CVE-2026-59831 (CVSS 4.4, published 2026-07-02) makes `gh codespace jupyter`
+    // open an unvalidated `vscode://` URL supplied by a malicious codespace →
+    // command execution on the host; affected v2.10.0+, patched only in v2.96.0
+    // (verified against the cli/cli vendor advisory + the v2.96.0 release tag,
+    // accessed 2026-07-10). The >=2.93.0 floor recommended an affected build, so
+    // the floor is raised to >=2.96.0.
+    minVersion: ">=2.96.0",
     // Cycle 10 D21-SA21.5-F-21.5.2: gh ships at rapid cadence (~30-day mean,
     // 7 releases across 2025-06 → 2026-04), so a multi-week pause is itself a
     // currency signal worth re-checking each D21 cycle.
     securityNote:
-      "CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh CLI 2.92.0 and earlier attach the Authorization header (github.com token, or GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN) to TUF repository-mirror requests made by `gh attestation`, `gh release verify`, and `gh release verify-asset` — leaking the token to hosts such as tuf-repo.github.com / tuf-repo-cdn.sigstore.dev. Fixed in 2.93.0; upgrade before running attestation or release-verify commands. (Separately, CVE-2026-45803 / GHSA-crc3-h8v6-qh57 is a LOW terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0.)",
+      "CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh CLI 2.92.0 and earlier attach the Authorization header (github.com token, or GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN) to TUF repository-mirror requests made by `gh attestation`, `gh release verify`, and `gh release verify-asset` — leaking the token to hosts such as tuf-repo.github.com / tuf-repo-cdn.sigstore.dev. Fixed in 2.93.0; upgrade before running attestation or release-verify commands. CVE-2026-59831 / GHSA-8cg3-r6g9-fpg2 (CVSS 4.4): gh 2.10.0–2.95.0 `gh codespace jupyter` opens an unvalidated `vscode://` URL from a malicious codespace → command execution on the host; fixed in 2.96.0. Upgrade to >=2.96.0 before running `gh codespace jupyter`. (Separately, CVE-2026-45803 / GHSA-crc3-h8v6-qh57 is a LOW terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0.)",
     homepage: "https://cli.github.com/",
     sourceRepo: "https://github.com/cli/cli",
     license: "MIT",

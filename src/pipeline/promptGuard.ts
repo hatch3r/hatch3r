@@ -111,7 +111,16 @@ const INJECTION_PATTERNS: { patternId: string; pattern: RegExp; description: str
   },
   {
     patternId: "P-PIPE-03",
-    pattern: /<%[-=]?\s|%>|\{\{.*\}\}/,
+    // D1-SA1.9-01 (D1, P6): the interior was `.*` (greedy, unbounded), which
+    // backtracks super-linearly (~O(n^2)) on a long run of `{` with no closing
+    // `}}` — ~98s on the 250 KB MAX_USER_CONTENT_LENGTH cap, turning the ASI06
+    // user-content sanitizer into an availability sink. `[^{}]*` bounds the
+    // interior to non-brace characters, so the scan stops at the first `{`/`}`
+    // with no backtracking (linear time) while still matching ERB/Handlebars
+    // `{{...}}` spans. Sources: OWASP ReDoS (owasp.org/www-community/attacks/
+    // Regular_expression_Denial_of_Service_-_ReDoS), arxiv:2406.11618
+    // (accessed 2026-07-09).
+    pattern: /<%[-=]?\s|%>|\{\{[^{}]*\}\}/,
     description: "template literal injection (ERB/Handlebars)",
   },
   {

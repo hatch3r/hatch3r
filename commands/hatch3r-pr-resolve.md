@@ -16,6 +16,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 10
   rationale: Per-PR fanout — implementer, lint-fixer, testability (CQ5, FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security (CQ3), docs-writer, performance (CQ7), plus ui (CQ1) and ux (CQ2) as mandatory-on-match Tier 2/3 gates — a trigger-glob match requires a dedicated instance) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

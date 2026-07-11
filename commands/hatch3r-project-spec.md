@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 7
   rationale: Seven parallel hatch3r-researcher domains per vision brief in Step 3 — stack, features, architecture, pitfalls, UX, business-model-and-market, production-and-scale; docs-writers fan out in a second parallel batch in Step 7 (one per document category). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

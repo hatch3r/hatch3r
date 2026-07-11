@@ -59,7 +59,7 @@ Do NOT invoke when the repository already contains an implementation — that ca
 
 ## Deliverables
 
-Produce all eight as separate markdown files under `docs/specs/` (paths returned in the structured result):
+Produce all eight as separate markdown files at the orchestrator-provided `output_root` (default `docs/specs/`). Filenames follow the `/hatch3r-spec` **Deliverable Manifest** (`commands/hatch3r-spec.md` → Deliverable Manifest), the single source of truth — the headings below mirror it, and the manifest wins on any discrepancy. Paths are returned in the structured result:
 
 ### 1. Market Research (`docs/specs/market-research.md`)
 
@@ -120,7 +120,7 @@ Per-feature Given/When/Then blocks. Each criterion is:
 
 Avoid the anti-pattern: "Improve UX" — instead: "Persona A completes journey X in ≤3 clicks, axe-core reports 0 serious/critical violations on the journey routes."
 
-### 7. Risk Inventory (`docs/specs/risks.md`)
+### 7. Risk Inventory (`docs/specs/risk-inventory.md`)
 
 Per-risk row in a table:
 
@@ -198,7 +198,7 @@ deliverables:
   tech_stack: docs/specs/tech-stack.md
   prd: docs/specs/prd.md
   acceptance_criteria: docs/specs/acceptance-criteria.md
-  risks: docs/specs/risks.md
+  risk_inventory: docs/specs/risk-inventory.md
   test_plan: docs/specs/test-plan.md
 proof_trace:
   - claim: <state-dependent assertion>
@@ -219,7 +219,7 @@ confidence_aggregate:
   tech_stack: H | M | L
   prd: H | M | L
   acceptance_criteria: H | M | L
-  risks: H | M | L
+  risk_inventory: H | M | L
   test_plan: H | M | L
 open_questions: <list routed back to user per user-question-protocol.md>
 ```

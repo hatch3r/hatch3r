@@ -19,7 +19,9 @@ vi.mock("node:child_process", async (importOriginal) => {
 vi.mock("../../worktree/resolve.js", () => ({
   isInsideWorktree: vi.fn(() => false),
   findMainWorktree: vi.fn(() => "/fake/main"),
-  resolvePatterns: vi.fn(async () => []),
+  // D1-SA1.10-03: resolvePatterns now returns a structured { paths, error? }
+  // result so hard failures propagate to setupWorktree's result.errors.
+  resolvePatterns: vi.fn(async () => ({ paths: [] })),
 }));
 
 // Partial-mock worktree/index: replace git wrappers + ignore helper + name

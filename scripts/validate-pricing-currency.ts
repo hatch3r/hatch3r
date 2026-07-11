@@ -20,6 +20,13 @@
  * it parses every embedded price table's `accessed:` dates and flags any row
  * older than a 90-day window.
  *
+ * Second scan source (D6-SA6.3-01): the skills markdown table is not the only
+ * pricing home — `hatch3r explain --cost` resolves per-model rates from the
+ * `MODEL_RATES` constant in `src/pipeline/costEstimator.ts`, which the original
+ * D6-22 scan never saw. This gate now also parses that constant's `accessed:`
+ * rows on the same window, so the executable rate surface a user's cost command
+ * actually reads is covered, not just the documentation table.
+ *
  * Window rationale (90 days): the cost-tracking skill's own Step 2a sets a
  * 30-day re-fetch RECOMMENDATION for an author actively running a cost report.
  * This CI gate is the looser hard backstop — 90 days is the same staleness
@@ -56,7 +63,7 @@
  *   tsx scripts/validate-pricing-currency.ts --json
  */
 import { readdir, readFile, stat } from "node:fs/promises";
-import { dirname, join, posix, relative, resolve, sep } from "node:path";
+import { dirname, isAbsolute, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -65,6 +72,13 @@ const ROOT = resolve(__dirname, "..");
 
 // Canonical skills tree. Each `skills/<name>/SKILL.md` is one artifact.
 const DEFAULT_SKILLS_DIR = "skills";
+
+// Executable rate home (D6-SA6.3-01). `hatch3r explain --cost` reads per-model
+// rates from `MODEL_RATES` in this TS constant via `resolveModelRate`; D6-22
+// gated only the skills markdown table, so this surface drifted uncovered. The
+// gate now scans this file's `accessed:` rows as a second source on the same
+// window. A missing file is skipped (not a fault), like a missing skills dir.
+const DEFAULT_MODEL_RATES_FILE = "src/pipeline/costEstimator.ts";
 
 /** Default staleness window in days (see the window rationale in the header). */
 export const DEFAULT_WINDOW_DAYS = 90;
@@ -113,6 +127,13 @@ export interface RunOptions {
   rootDir?: string;
   /** Override the skills directory (relative to rootDir). */
   skillsDir?: string;
+  /**
+   * Override the MODEL_RATES source file (D6-SA6.3-01). Relative paths resolve
+   * against `rootDir`; absolute paths are used as-is. Defaults to
+   * {@link DEFAULT_MODEL_RATES_FILE}. A missing/unreadable file is skipped (not
+   * a fault), mirroring the missing-skills-dir behavior.
+   */
+  modelRatesFile?: string;
   /** Staleness window in days. Defaults to {@link DEFAULT_WINDOW_DAYS}. */
   windowDays?: number;
   /** Reference "now" timestamp (ms) for deterministic tests. Defaults to Date.now(). */
@@ -131,6 +152,11 @@ export interface RunResult {
   priceTables: number;
   /** Number of price-table data rows inspected. */
   priceRows: number;
+  /**
+   * Number of `MODEL_RATES` rows inspected in the code constant (D6-SA6.3-01).
+   * 0 when the source file is absent (e.g. a skills-only tmpdir fixture).
+   */
+  modelRateRows: number;
 }
 
 // ── Discovery ─────────────────────────────────────────────────────
@@ -253,6 +279,37 @@ function parseIsoDate(text: string): { ts: number; iso: string } | null {
   return { ts, iso };
 }
 
+// ── MODEL_RATES parsing (D6-SA6.3-01) ──────────────────────────────
+
+/**
+ * Extract the `accessed:` provenance rows from the `MODEL_RATES` object literal
+ * in a TypeScript source body. Scans ONLY between the `export const MODEL_RATES`
+ * declaration and its closing `} as const;` / `};` line, so the `accessed:
+ * string;` interface field and the surrounding doc-comment prose are never
+ * matched — only quoted `accessed: "YYYY-MM-DD"` row values. Returns each row's
+ * 1-based line number + accessed cell, reusing the {@link PriceRow} shape the
+ * skills scan already emits. A row with no `accessed:` value is not a row (the
+ * TS type requires one; a malformed literal is a compile error, not this gate's
+ * concern).
+ */
+function findModelRateRows(body: string): PriceRow[] {
+  const lines = body.split("\n");
+  const rows: PriceRow[] = [];
+  let inBlock = false;
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    if (!inBlock) {
+      if (/export\s+const\s+MODEL_RATES\b/.test(line)) inBlock = true;
+      continue;
+    }
+    // Close of the object literal ends the scan.
+    if (/^\s*}\s*as\s+const\s*;/.test(line) || /^\s*};\s*$/.test(line)) break;
+    const m = line.match(/\baccessed:\s*["']([^"']*)["']/);
+    if (m) rows.push({ line: i + 1, accessedCell: m[1] });
+  }
+  return rows;
+}
+
 // ── Core check ────────────────────────────────────────────────────
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
@@ -314,6 +371,60 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     }
   }
 
+  // ── MODEL_RATES scan (D6-SA6.3-01) ──────────────────────────────
+  // Second discovery source: the code constant `hatch3r explain --cost` reads
+  // per-model rates from. D6-22 gated only the skills markdown table, leaving
+  // this executable surface uncovered; scan its `accessed:` rows on the same
+  // window so a drift here reds `--strict` the same way a skill-table drift does.
+  let modelRateRows = 0;
+  const modelRatesRel = opts.modelRatesFile ?? DEFAULT_MODEL_RATES_FILE;
+  const absModelRates = isAbsolute(modelRatesRel)
+    ? modelRatesRel
+    : join(rootDir, modelRatesRel);
+  let modelRatesRaw: string | null = null;
+  try {
+    modelRatesRaw = await readFile(absModelRates, "utf-8");
+  } catch { // eslint-disable-line silent-failure/no-silent-catch
+    // Missing/unreadable MODEL_RATES file — skipped (not a fault), like a
+    // missing skills dir. A skills-only tmpdir fixture takes this branch.
+    modelRatesRaw = null;
+  }
+  if (modelRatesRaw !== null) {
+    const relPath = absModelRates.startsWith(rootDir)
+      ? toPosixRel(absModelRates, rootDir)
+      : modelRatesRel.split(sep).join(posix.sep);
+    for (const row of findModelRateRows(modelRatesRaw)) {
+      modelRateRows += 1;
+      const parsed = parseIsoDate(row.accessedCell);
+      if (!parsed) {
+        findings.push({
+          level: staleLevel,
+          code: "PRICING-NO-DATE",
+          file: relPath,
+          line: row.line,
+          message:
+            `MODEL_RATES row has no parseable \`accessed:\` ISO date ` +
+            `(D6-SA6.3-01). A per-model rate without a provenance date is ` +
+            `unverifiable — set accessed to the YYYY-MM-DD it was last verified.`,
+        });
+        continue;
+      }
+      const ageDays = Math.floor((nowTs - parsed.ts) / MS_PER_DAY);
+      if (ageDays > windowDays) {
+        findings.push({
+          level: staleLevel,
+          code: "PRICING-STALE",
+          file: relPath,
+          line: row.line,
+          message:
+            `MODEL_RATES row \`accessed: ${parsed.iso}\` is ${ageDays} day(s) ` +
+            `old (> ${windowDays}-day window, D6-SA6.3-01). Re-fetch the vendor's ` +
+            `current per-model pricing and update the row's rates + accessed date.`,
+        });
+      }
+    }
+  }
+
   let errorCount = 0;
   let warningCount = 0;
   for (const f of findings) {
@@ -328,6 +439,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     checkedSkills: skillFiles.length,
     priceTables,
     priceRows,
+    modelRateRows,
   };
 }
 
@@ -365,7 +477,8 @@ async function main(): Promise<void> {
     // eslint-disable-next-line no-console
     console.log(
       `validate-pricing-currency: ${result.checkedSkills} skill(s) checked ` +
-        `(${result.priceTables} price table(s), ${result.priceRows} row(s)); ` +
+        `(${result.priceTables} price table(s), ${result.priceRows} row(s); ` +
+        `${result.modelRateRows} MODEL_RATES row(s)); ` +
         `${result.errorCount} error(s), ${result.warningCount} warning(s)`,
     );
   }

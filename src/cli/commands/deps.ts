@@ -20,10 +20,9 @@
  */
 
 import { readFile } from "node:fs/promises";
-import { join } from "node:path";
 import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
-import { buildContentIndex, resolveUserContentRoot, type CatalogItem } from "../../content/index.js";
+import { buildContentIndex, resolveUserContentRoot, resolveArtifactFilePath, type CatalogItem } from "../../content/index.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { HatchError } from "../../types.js";
 import { printBox, label, error as logError, info } from "../shared/ui.js";
@@ -164,11 +163,9 @@ export async function depsCommand(
   }
 
   // Read this artifact's frontmatter to surface declared dependencies.
+  // D1-SA1.7-01: shared skill-path resolution (skill = <dir>/SKILL.md).
   const fileRoot = item.source === "user" && userRoot ? userRoot : canonicalRoot;
-  const filePath =
-    item.type === "skill"
-      ? join(fileRoot, item.relativePath, "SKILL.md")
-      : join(fileRoot, item.relativePath);
+  const filePath = resolveArtifactFilePath(fileRoot, item);
   let frontmatter: DepsFrontmatter = {};
   let body = "";
   try {
@@ -202,10 +199,7 @@ export async function depsCommand(
   for (const candidate of index.items) {
     if (candidate.id === item.id) continue;
     const candFileRoot = candidate.source === "user" && userRoot ? userRoot : canonicalRoot;
-    const candPath =
-      candidate.type === "skill"
-        ? join(candFileRoot, candidate.relativePath, "SKILL.md")
-        : join(candFileRoot, candidate.relativePath);
+    const candPath = resolveArtifactFilePath(candFileRoot, candidate);
     try {
       const candRaw = await readFile(candPath, "utf-8");
       const candFm = parseFrontmatter(candRaw, candidate.relativePath);

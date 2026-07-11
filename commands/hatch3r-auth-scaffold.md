@@ -15,6 +15,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-implementer writes the OAuth 2.1 / OIDC / PAT boilerplate (code mutation flows through the implementer per the Mandatory Delegation Directive); one hatch3r-security gates the result against the CQ3 auth-depth floor (PKCE, exact redirect-URI match, ID-token claim validation, token-secret hashing). Independent auth modes (interactive OAuth vs machine-to-machine PAT) fan out to parallel implementers; the implement -> security-gate edge is the only serialization. Cost-dominance per CONSTITUTION §2 P8.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

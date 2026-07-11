@@ -14,6 +14,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 13
   rationale: Four-stage core pipeline (implementer + lint-fixer + reviewer ↔ fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) dispatched conditionally per their trigger conditions; the always-on testing + security gates collapse onto `hatch3r-testability` (CQ5) and `hatch3r-security` (CQ3) respectively. Tier 1 trivial edits skip CQ specialists per Phase Skip Criteria. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -202,12 +203,12 @@ Quick Change Scope:
 If `.hatch3r/learnings/` exists:
 
 1. Collect the file paths from the affected areas identified in Step 1.
-2. Scan learning file frontmatter for `area` or `tags` that match the affected file paths or directories.
+2. Match each learning by testing those file paths against its `applies-to` glob and the work area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`); accept legacy `area`/`tags` frontmatter only as a transitional fallback.
 3. If matches found (max 3 learnings, highest confidence first), surface them as a brief heads-up:
 
    ```
    Heads up — relevant learnings:
-     - [{category}] {one-line learning summary} (from: {learning filename})
+     - [{topic}] {one-line learning summary} (from: {learning filename})
      - ...
    ```
 
@@ -464,7 +465,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 ## Error Handling
 
 - **Quality check failure after 2 retries**: Present the specific failures and ASK the user whether to commit partial progress, keep trying, or abort.
-- **Implementer sub-agent failure**: Retry once. If the retry fails, fall back to inline implementation for that item. If inline implementation also fails, report the item as unresolved and ASK.
+- **Implementer sub-agent failure** (nontrivial Step-4b items): route through the shared sub-agent-failure clause (`rules/hatch3r-agent-orchestration.md` → Sub-agent-failure handling) — retry once; if the retry fails, re-spawn `hatch3r-fixer` with the failure reason + partial output as failure context; if the re-spawn also fails, emit `BLOCKED_OTHER` with a one-sentence reason and ASK. Never fall back to inline implementation for a nontrivial item — that is the issue #73 bypass mode. Inline implementation stays sanctioned only for Step-4a trivial (Tier-1) items per this command's declared scope.
 - **Reviewer flags critical issues**: Present them and ASK whether to fix or proceed without fixing.
 - **Scope creep during implementation**: If actual changes exceed the soft guard thresholds (5 files / 200 lines), warn the user and suggest deferring remaining items to a `hatch3r-workflow` session.
 - **Push failure**: Present the error. Use `git push -u origin {branch}` for new branches. For diverged branches, suggest `git pull --rebase` and ASK before proceeding.

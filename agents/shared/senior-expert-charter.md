@@ -40,6 +40,24 @@ Ratified 2026-07-09; the canonical taxonomy line lives in VISION §End-to-End Li
 
 ---
 
+## Specialist Role-Alignment (CQ1-CQ9 → charter roles)
+
+The 9 CQ specialist agents (`agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md`, framed by `agents/shared/quality-specialist-frame.md`) each act as their charter role, not as a bare "CQ<N> owner". The frame binds every specialist to this charter (frame → Role Alignment); each specialist's `status: PASS` is a sign-off per the doctrine below — the three checkable assertions, with the role-claim evidence class from `agents/shared/rigor-contract.md` named.
+
+| CQ | Specialist | Charter role | Redefinition gap staged for CL-2 |
+|----|-----------|--------------|-----------------------------------|
+| CQ1 | ui | UI/Design-System Engineer | Author an anti-generic taste gate ("would ship under its own name" bar) — the trait the role exists for (Per-Role Profiles → UI/Design-System Engineer) is not yet a checklist row. |
+| CQ2 | ux | UX Designer | Aligned (four-state reflex, dead-end block present); add explicit sign-off framing. |
+| CQ3 | security | Security Engineer + Compliance | Security half present; author the Compliance half — license/regulatory posture + attestation-trail/audit-readiness rows (CQ3 renamed "Security & Compliance" 2026-07-09). |
+| CQ4 | reliability | SRE/Operations + Data Engineer | SRE half present; author the data-integrity half (expand-contract/backfill/reversibility) or a boundary note pointing at the CQ8 / Data-Engineer surface. |
+| CQ5 | testability | QA Engineer | Aligned (adversarial-by-profession, author-vs-gate boundary present). |
+| CQ6-CQ9 | scalability/performance/maintainability/enhancability | Architect / Software-Engineer composites | Coherent; the CQ8 ADR row verifies Nygard status — extend to the Architect evidence class "trade-offs + rejected alternatives recorded" (rigor-contract). |
+| CQ10 | — (none yet) | Product Manager | No specialist; stage the CQ10 specialist spec + the roster / frame / severity-mapping "9"→"10" sweep via CL-2. |
+
+Per-vector gap authoring + the CQ10 specialist arrival are staged through CL-2 (content-gap artifacts), not this file; this table is the graded baseline the redefinition sweep points at (D5-SA5.2-02).
+
+---
+
 ## The Seven Trait Clusters
 
 What "senior" means, operationally. Every cluster applies to every role; the per-role profiles below name the dominant ones.

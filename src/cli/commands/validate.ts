@@ -23,8 +23,6 @@ import { validateLearningsDirectory } from "../../content/learningsValidation.js
 import { validateHandoffsDirectory } from "../../content/handoffs/index.js";
 import { readCustomizationWithWarnings } from "../../models/customize.js";
 import type { CustomizableType } from "../../models/customize.js";
-import { parseEnvFile } from "../../env/mcpEnv.js";
-import { detectSecrets } from "../../env/secretDetection.js";
 import { runComplianceChecks } from "../../pipeline/complianceVerification.js";
 import { detectCliTools } from "../../cliTools/detect.js";
 import {
@@ -2986,8 +2984,9 @@ export async function validateCommand(opts?: {
       }
     }
 
-    // Secret detection in .env.mcp (#82 D15)
-    await validateEnvMcpSecrets(rootDir, result);
+    // Verify .env.mcp gitignore coverage (D11-SA11.3-01; supersedes the #82
+    // content-scan that hard-failed on the by-design filled secret store).
+    await validateEnvMcpGitignore(rootDir, result);
   }
 
   // F2.4-F1 (Cycle 10 Wave 1, D2 Critical, ASI02): every agents/*.md with
@@ -3166,33 +3165,57 @@ export async function validateCommand(opts?: {
 }
 
 /**
- * Scan .env.mcp for accidentally committed secrets (#82 D15).
+ * Verify the MCP secret store `.env.mcp` is gitignore-covered — the actual
+ * commit-leak-prevention control (D11-SA11.3-01).
+ *
+ * The prior implementation (#82) scanned `.env.mcp` for secrets and routed a
+ * filled `GITHUB_PAT=ghp_…` to `result.errors` (VALIDATION_ERROR → exit 64), a
+ * guaranteed false-positive on the happy path: `.env.mcp` is the framework's
+ * intended, by-design secret store — `src/env/mcpEnv.ts` creates it, chmod-600s
+ * it, and registers it in `.gitignore`, and its template instructs the user to
+ * "Fill in your values below". A filled GitHub PAT is therefore the CORRECT
+ * state, not a defect, so hard-failing `hatch3r validate` on it blocked the
+ * documented happy path (and any pre-commit hook running the gate) for the
+ * flagship `github` server. The commit-leak vector that scan named is already
+ * closed before it runs by the auto-gitignore; the residual control worth
+ * checking is that the gitignore coverage is actually present. A missing-cover
+ * case routes to `result.warnings` (actionable, non-blocking) — never to
+ * `result.errors`.
  */
-async function validateEnvMcpSecrets(
+export async function validateEnvMcpGitignore(
   rootDir: string,
   result: ValidationResult,
 ): Promise<void> {
   const envMcpPath = join(rootDir, ".env.mcp");
   if (!existsSync(envMcpPath)) return;
 
+  let gitignore = "";
   try {
-    const raw = await readFile(envMcpPath, "utf-8");
-    const vars = parseEnvFile(raw);
-    const detection = detectSecrets(vars);
-
-    for (const finding of detection.findings) {
-      const msg =
-        `Secret detected in .env.mcp: ${finding.variableName} contains a ${finding.secretType} ` +
-        `(${finding.maskedValue}). ${finding.guidance}`;
-      if (finding.severity === "critical") {
-        result.errors.push(msg);
-      } else {
-        result.warnings.push(msg);
-      }
-    }
+    gitignore = await readFile(join(rootDir, ".gitignore"), "utf-8");
   } catch (err) {
+    // .gitignore absent/unreadable → `.env.mcp` is not covered; fall through
+    // to the not-covered warning. Surfaced under --verbose so an unexpected
+    // read failure (permission) stays observable.
     const message = err instanceof Error ? err.message : String(err);
-    verbose(`validate: .env.mcp secret-scan readFile skipped — ${message}`);
+    verbose(`validate: .env.mcp gitignore-coverage readFile skipped — ${message}`);
+  }
+
+  // A dominating .gitignore line: the literal entry or a family glob that
+  // subsumes it (mirrors the `.env.*` coverage family in `src/env/mcpEnv.ts`
+  // isCoveredByGitignore).
+  const covered = gitignore
+    .split("\n")
+    .map((l) => l.trim())
+    .some(
+      (l) => l === ".env.mcp" || l === ".env.*" || l === ".env*" || l === ".env" || l === "*.mcp",
+    );
+
+  if (!covered) {
+    result.warnings.push(
+      "`.env.mcp` exists but is not covered by `.gitignore` — it is the intended MCP secret " +
+        "store and must never be committed. Add `.env.mcp` to `.gitignore` (or re-run " +
+        "`hatch3r setup`/`init` to restore coverage).",
+    );
   }
 }
 

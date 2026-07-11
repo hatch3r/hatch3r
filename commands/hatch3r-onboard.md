@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Three parallel hatch3r-researcher modes (codebase-overview, architecture-mapping, conventions-extraction) in Step 3 followed by one hatch3r-docs-writer to assemble the tailored onboarding guide; researchers fan out in a single Task batch. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -159,7 +160,7 @@ Answer these now, or say 'skip' for any where you'd rather I omit that section f
    - `.hatch3r/learnings/` — team learnings and institutional knowledge
    - CI config (`.github/workflows/`, `.gitlab-ci.yml`, etc.) — CI/CD pipeline
 2. Scan the top-level directory structure to understand project organization.
-3. If `.hatch3r/learnings/` exists, scan for learnings relevant to onboarding, common mistakes, and gotchas. Match by area and tags.
+3. If `.hatch3r/learnings/` exists, scan for learnings relevant to onboarding, common mistakes, and gotchas — test the developer's focus-area file paths against each learning's `applies-to` glob and the focus areas against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback).
 4. Present a context summary:
 
 ```

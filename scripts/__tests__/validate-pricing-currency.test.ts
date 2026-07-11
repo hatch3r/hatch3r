@@ -254,5 +254,129 @@ describe("validate-pricing-currency — shipped corpus", () => {
     expect(result.checkedSkills).toBeGreaterThan(0);
     expect(result.priceTables).toBeGreaterThan(0);
     expect(result.priceRows).toBeGreaterThan(0);
+    // D6-SA6.3-01: the real src/pipeline/costEstimator.ts::MODEL_RATES constant is
+    // now discovered too — a parser regression that stopped seeing it (0 rows)
+    // cannot pass green. Not pinned to wall-clock freshness (warnings, not errors).
+    expect(result.modelRateRows).toBeGreaterThan(0);
+  });
+});
+
+// ── MODEL_RATES code-constant scan (D6-SA6.3-01) ─────────────────────
+//
+// D6-22 gated only the skills markdown price table; `hatch3r explain --cost`
+// resolves per-model rates from the `MODEL_RATES` constant in
+// src/pipeline/costEstimator.ts, which sat outside every gate. These tests use a
+// tmpdir fixture + a fixed `nowTs`, so they assert the new second-source scan
+// deterministically without depending on the repo's real rate dates.
+
+/** Write a fixture `src/pipeline/costEstimator.ts` under `rootDir`. */
+async function writeRatesSource(rootDir: string, content: string): Promise<void> {
+  const dir = join(rootDir, "src", "pipeline");
+  await mkdir(dir, { recursive: true });
+  await writeFile(join(dir, "costEstimator.ts"), content, "utf-8");
+}
+
+/** Wrap rate rows in a minimal `export const MODEL_RATES = { ... } as const;`. */
+function ratesBlock(rows: string): string {
+  return `export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {\n${rows}\n} as const;\n`;
+}
+
+describe("validate-pricing-currency — MODEL_RATES code constant (D6-SA6.3-01)", () => {
+  let fx: Fixture;
+
+  beforeEach(async () => {
+    fx = await makeFixture();
+  });
+
+  afterEach(async () => {
+    await rm(fx.rootDir, { recursive: true, force: true });
+  });
+
+  it("discovers MODEL_RATES accessed rows and counts them (fresh → no findings)", async () => {
+    await writeRatesSource(
+      fx.rootDir,
+      ratesBlock(
+        `  "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-05-20" },\n` +
+          `  "claude-sonnet-4-6": { inputCostPer1M: 3.0, outputCostPer1M: 15.0, accessed: "2026-05-20" },`,
+      ),
+    );
+    const result = await runValidator({ rootDir: fx.rootDir, nowTs: NOW });
+    expect(result.modelRateRows).toBe(2); // 2026-05-20 is 17 days before NOW
+    expect(result.findings).toHaveLength(0);
+  });
+
+  it("WARNs PRICING-STALE on a MODEL_RATES row older than the 90-day window", async () => {
+    await writeRatesSource(
+      fx.rootDir,
+      ratesBlock(
+        `  "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-01-01" },\n` +
+          `  "claude-sonnet-4-6": { inputCostPer1M: 3.0, outputCostPer1M: 15.0, accessed: "2026-05-20" },`,
+      ),
+    );
+    const result = await runValidator({ rootDir: fx.rootDir, nowTs: NOW });
+    expect(result.modelRateRows).toBe(2);
+    expect(result.warningCount).toBe(1);
+    expect(result.errorCount).toBe(0);
+    expect(result.findings[0].code).toBe("PRICING-STALE");
+    expect(result.findings[0].file).toMatch(/src\/pipeline\/costEstimator\.ts$/);
+    expect(result.findings[0].message).toMatch(/2026-01-01/);
+    expect(result.findings[0].message).toMatch(/MODEL_RATES/);
+  });
+
+  it("WARNs PRICING-NO-DATE on a MODEL_RATES row with an unparseable accessed cell", async () => {
+    await writeRatesSource(
+      fx.rootDir,
+      ratesBlock(
+        `  "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "TBD" },`,
+      ),
+    );
+    const result = await runValidator({ rootDir: fx.rootDir, nowTs: NOW });
+    expect(result.modelRateRows).toBe(1);
+    expect(result.findings[0].code).toBe("PRICING-NO-DATE");
+  });
+
+  it("--strict promotes a stale MODEL_RATES row to an error", async () => {
+    await writeRatesSource(
+      fx.rootDir,
+      ratesBlock(
+        `  "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-01-01" },`,
+      ),
+    );
+    const strict = await runValidator({ rootDir: fx.rootDir, nowTs: NOW, strict: true });
+    expect(strict.errorCount).toBe(1);
+    expect(strict.findings[0].level).toBe("error");
+    expect(strict.findings[0].code).toBe("PRICING-STALE");
+  });
+
+  it("bounds the scan to the object literal — ignores the interface field + comments", async () => {
+    // `accessed: string;` (interface) and an `accessed: "..."` inside a comment
+    // sit OUTSIDE any `export const MODEL_RATES` literal, so the scan yields 0 rows.
+    await writeRatesSource(
+      fx.rootDir,
+      `// historical note: accessed: "2020-01-01"\ninterface ModelRate { accessed: string; }\n`,
+    );
+    const result = await runValidator({ rootDir: fx.rootDir, nowTs: NOW });
+    expect(result.modelRateRows).toBe(0);
+    expect(result.findings).toHaveLength(0);
+  });
+
+  it("skips silently when the MODEL_RATES source file is absent", async () => {
+    const result = await runValidator({ rootDir: fx.rootDir, nowTs: NOW });
+    expect(result.modelRateRows).toBe(0);
+    expect(result.findings).toHaveLength(0);
+  });
+
+  it("honours an explicit modelRatesFile override (absolute path)", async () => {
+    const custom = join(fx.rootDir, "custom-rates.ts");
+    await writeFile(
+      custom,
+      ratesBlock(
+        `  "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-01-01" },`,
+      ),
+      "utf-8",
+    );
+    const result = await runValidator({ rootDir: fx.rootDir, nowTs: NOW, modelRatesFile: custom });
+    expect(result.modelRateRows).toBe(1);
+    expect(result.findings[0].code).toBe("PRICING-STALE");
   });
 });

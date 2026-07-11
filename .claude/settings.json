@@ -28,7 +28,7 @@
     ],
     "ConfigChange": [
       {
-        "matcher": "user_settings",
+        "matcher": "project_settings",
         "hooks": [
           {
             "type": "command",

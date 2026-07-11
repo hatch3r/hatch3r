@@ -65,6 +65,27 @@ describe("adapterToolTranslator", () => {
     // in this file.
   });
 
+  describe("D2-SA2.4-03 platform-tool currency (tools-reference accessed 2026-07-10)", () => {
+    it("emits the current read/search/execute platform tools for an execute-granted agent", () => {
+      // A specified Claude `tools:` list EXCLUDES anything not enumerated, so the
+      // current tool set must be present or those tools are unreachable at runtime.
+      const fm = toClaudeToolsFrontmatter("hatch3r-implementer") ?? "";
+      expect(fm).toContain("LSP"); // read
+      expect(fm).toContain("ToolSearch"); // search
+      expect(fm).toContain("PowerShell"); // execute (Windows shell parity with Bash)
+      expect(fm).toContain("EnterWorktree"); // execute
+      expect(fm).toContain("ExitWorktree"); // execute
+    });
+
+    it("grants read/search currency tools to a read+search agent but no execute-class tool (monotonic privilege)", () => {
+      const fm = toClaudeToolsFrontmatter("hatch3r-reviewer") ?? "";
+      expect(fm).toContain("LSP");
+      expect(fm).toContain("ToolSearch");
+      expect(fm).not.toContain("PowerShell");
+      expect(fm).not.toContain("EnterWorktree");
+    });
+  });
+
   describe("toCopilotToolsFrontmatter", () => {
     it("returns null for unknown agents", () => {
       expect(toCopilotToolsFrontmatter("unknown-agent")).toBeNull();

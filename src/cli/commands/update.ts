@@ -950,7 +950,12 @@ export async function runUpdate(
 interface MigrationCheckpoint {
   id: string;
   condition: (manifest: HatchManifest, rootDir: string) => Promise<boolean>;
-  execute: (manifest: HatchManifest, rootDir: string, headless: boolean) => Promise<{ manifest: HatchManifest; notices: string[] }>;
+  // D1-SA1.3-02 (Cycle 12, D1, P2): `dryRun` lets a checkpoint suppress its
+  // disk write during a `--dry-run` preview while still returning the
+  // in-memory manifest mutation + a preview notice. Only the worktree
+  // checkpoint (the sole disk-writing checkpoint) reads it; the others accept
+  // the argument via structural typing and ignore it.
+  execute: (manifest: HatchManifest, rootDir: string, headless: boolean, dryRun: boolean) => Promise<{ manifest: HatchManifest; notices: string[] }>;
 }
 
 const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
@@ -1034,6 +1039,16 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
             default: "github",
           },
         ]);
+        // D3-SA3.2-01 (Cycle 12, D3/D1, CQ5): `update` is in BACKABLE_COMMANDS
+        // (src/cli/index.ts), so Shift+Tab resolves this select to the BACK
+        // sentinel. Without this guard the sentinel is assigned to `platform`,
+        // routing the user into the GitLab/ADO identity branch and ultimately
+        // failing manifest validation with a CONFIG_ERROR — mirror the
+        // content-selections-init guard above and cancel cleanly instead.
+        if (isBack(answer.platform)) {
+          info("Update cancelled (Shift+Tab).");
+          throw new HatchError("Update cancelled.", 0);
+        }
         platform = answer.platform;
       }
 
@@ -1050,6 +1065,16 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
           { type: "input", name: "project", message: platform === "azure-devops" ? "Azure DevOps project:" : "Project name:", default: updated.repo || undefined },
           { type: "input", name: "repo", message: "Repository name:", default: updated.repo || undefined },
         ]);
+        // D3-SA3.2-01 (Cycle 12, D3/D1, CQ5): guard every identity input for the
+        // Shift+Tab BACK sentinel before assigning. Without this, a BACK symbol
+        // is written to owner/repo/namespace/project and then silently dropped
+        // by JSON.stringify at manifest-write time (symbols do not serialize) —
+        // fail-silent identity loss, a Silent Failure Contract violation.
+        // Cancel cleanly instead.
+        if (isBack(answers.namespace) || isBack(answers.project) || isBack(answers.repo)) {
+          info("Update cancelled (Shift+Tab).");
+          throw new HatchError("Update cancelled.", 0);
+        }
         updated.owner = answers.namespace;
         updated.repo = answers.repo;
         updated.namespace = answers.namespace;
@@ -1113,9 +1138,22 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
       if (manifest.worktree !== undefined) return false;
       return manifest.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     },
-    execute: async (manifest, rootDir, _headless) => {
+    execute: async (manifest, rootDir, _headless, dryRun) => {
       const enabled = true;
       const updated = { ...manifest, worktree: { enabled } };
+      // D1-SA1.3-02 (Cycle 12, D1, P2): this checkpoint runs BEFORE the dry-run
+      // fork in updateCommand, so a `--dry-run` upgrade of a pre-worktree
+      // manifest would write `.worktreeinclude` into the working tree despite
+      // the command's printed "without writing files" contract. Preview-only
+      // under dry-run: return the enabled manifest (so the dry-run adapter
+      // enumeration reflects it) but skip the disk write and report the
+      // would-be action.
+      if (dryRun) {
+        return {
+          manifest: updated,
+          notices: ["Worktree isolation would be enabled — .worktreeinclude would be generated (dry-run: not written)"],
+        };
+      }
       const wtContent = await generateWorktreeInclude(updated, rootDir);
       await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
         appendIfNoBlock: true,
@@ -1125,13 +1163,13 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
   },
 ];
 
-async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string, headless = false): Promise<{ manifest: HatchManifest; allNotices: string[] }> {
+async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string, headless = false, dryRun = false): Promise<{ manifest: HatchManifest; allNotices: string[] }> {
   let current = manifest;
   const allNotices: string[] = [];
 
   for (const checkpoint of MIGRATION_CHECKPOINTS) {
     if (await checkpoint.condition(current, rootDir)) {
-      const { manifest: updated, notices } = await checkpoint.execute(current, rootDir, headless);
+      const { manifest: updated, notices } = await checkpoint.execute(current, rootDir, headless, dryRun);
       current = updated;
       allNotices.push(...notices);
     }
@@ -1286,6 +1324,17 @@ export async function updateCommand(
   // Guidelines (clig.dev#output) cite for showing elapsed time.
   const updateStartMs = Date.now();
   // Wave 6: relocate pre-1.9 `.agents/` state before reading the manifest.
+  // D1-SA1.3-02 (Cycle 12, D1, P2): this relocation runs unconditionally,
+  // including under `--dry-run` — a deliberate, graded exception to the
+  // "without writing files" contract. It is load-bearing: a pre-1.9 manifest
+  // physically cannot be read from its new `.hatch3r/` location without first
+  // relocating it (the `readManifest` on the next line depends on it), and the
+  // shim is a no-op on an already-migrated tree. The two NON-load-bearing
+  // writes that also once fired before the dry-run fork — the `--pin-version`
+  // manifest persist and the worktree-config-init `.worktreeinclude` write —
+  // ARE now gated on `!dryRun`. A read-only legacy-location fallback in
+  // `readManifest` would remove even this write, but that is a manifest-reader
+  // design change outside this fix's file scope.
   await migrateAgentsToHatch3r(rootDir);
   const manifest = await readManifest(rootDir);
 
@@ -1325,7 +1374,10 @@ export async function updateCommand(
   }
 
   const headless = !!(_opts?.yes);
-  const { manifest: migrated, allNotices } = await runMigrationCheckpoints(manifest, rootDir, headless);
+  // D1-SA1.3-02 (Cycle 12, D1, P2): thread the dry-run flag so the
+  // disk-writing worktree checkpoint previews instead of writing. This call
+  // precedes the `dryRun` const below, so read `_opts?.dryRun` directly.
+  const { manifest: migrated, allNotices } = await runMigrationCheckpoints(manifest, rootDir, headless, !!_opts?.dryRun);
   const m = migrated;
 
   for (const notice of allNotices) {
@@ -1390,13 +1442,28 @@ export async function updateCommand(
   if (_opts?.pinVersion) {
     if (_opts.pinVersion === "latest") {
       versionConstraint = undefined;
-      info("Cleared version pin: future `hatch3r update` runs will install hatch3r@latest.");
+      info(
+        dryRun
+          ? "Dry-run: would clear the version pin — future `hatch3r update` runs would install hatch3r@latest. No manifest write."
+          : "Cleared version pin: future `hatch3r update` runs will install hatch3r@latest.",
+      );
     } else {
-      info(`Pinning hatch3r to '${_opts.pinVersion}' (persisted to .hatch3r/hatch.json::versionConstraint).`);
+      info(
+        dryRun
+          ? `Dry-run: would pin hatch3r to '${_opts.pinVersion}' (.hatch3r/hatch.json::versionConstraint). No manifest write.`
+          : `Pinning hatch3r to '${_opts.pinVersion}' (persisted to .hatch3r/hatch.json::versionConstraint).`,
+      );
     }
-    const persisted: HatchManifest = { ...m, versionConstraint };
-    await writeManifest(rootDir, persisted);
-    m.versionConstraint = versionConstraint;
+    // D1-SA1.3-02 (Cycle 12, D1, P2): persist the pin only on a real run. A
+    // `--dry-run --pin-version` preview must not durably change the install
+    // spec of every FUTURE `update` — that is the opposite of a no-op preview
+    // and contradicts the "without writing files" contract printed at the
+    // dry-run banner. The info() line above previews the pin either way.
+    if (!dryRun) {
+      const persisted: HatchManifest = { ...m, versionConstraint };
+      await writeManifest(rootDir, persisted);
+      m.versionConstraint = versionConstraint;
+    }
   } else if (versionConstraint) {
     info(`Using pinned version '${versionConstraint}' from .hatch3r/hatch.json. Pass --pin-version latest to remove the pin.`);
   }

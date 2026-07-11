@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Three-stage pipeline per agentPipeline — researcher gathers prior baselines, performance (CQ7) executes the suite, docs-writer assembles the report; each receives the run cache and emits a structured slice. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

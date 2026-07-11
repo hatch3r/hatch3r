@@ -114,6 +114,13 @@ export interface SpecialistResult {
    * count threaded through a separate options argument that the typed
    * `SpecialistResult` record did not carry. The severity-descending Phase 4
    * batch scheduler reads the same field as its typed input.
+   *
+   * The absent → 0 default is trusted only for a specialist that passes the
+   * Phase 4 triggered-specialist status sweep (`status: "SUCCESS"`, or
+   * `"SKIPPED"` with the skip criterion documented in `summary`); a
+   * non-SUCCESS specialist blocks completion before its count is consulted
+   * (Finding D7-SA7.3-01, Cycle 12), so a specialist that crashed or timed
+   * out before setting `criticalCount` can no longer read as "reviewed clean".
    */
   criticalCount?: number;
 }
@@ -240,10 +247,17 @@ export interface QualityResults {
  * 3. `mandatoryFloorsSatisfied === true` (always-mode floor specialists —
  *    `hatch3r-security` and `hatch3r-testability` — returned `SUCCESS` per
  *    `rules/hatch3r-agent-orchestration.md` Specialist Success Criteria).
- * 4. `reReviewIterations <= 1` (at most one lightweight re-review after
+ * 4. Every dispatched specialist completed (Finding D7-SA7.3-01): each
+ *    `SpecialistResult` in `qualityResults.specialists` — conditional and
+ *    mandatory-on-match specialists included — has `status: "SUCCESS"`, or
+ *    `"SKIPPED"` with the skip criterion documented in a non-empty `summary`.
+ *    A specialist that returned TIMEOUT / FAILED / PARTIAL /
+ *    BLOCKED_PREMISE_CHALLENGE, or skipped without documenting why, forces
+ *    `complete: false` with the specialist named in `incompletionReason`.
+ * 5. `reReviewIterations <= 1` (at most one lightweight re-review after
  *    specialists produced code fixes, per Phase 4 Validation Pass; Critical
  *    findings trigger a single fixer pass).
- * 5. `unresolvedCriticalFindings === 0` (no Phase-4 specialist surfaced
+ * 6. `unresolvedCriticalFindings === 0` (no Phase-4 specialist surfaced
  *    Critical-severity findings that were not resolved by the fixer pass).
  *    Derived by default from `qualityResults.specialists` (sum of each
  *    `SpecialistResult.criticalCount`) per Finding D7-19; an explicit
@@ -290,6 +304,22 @@ export interface Phase4CompletionContract {
  * returns `undefined`, never an implicit pass), so a security gate that times
  * out can never be reported as complete. The detail rule cites this function by
  * name so the prose and the typed gate are one authority, not two.
+ *
+ * Finding D7-SA7.3-01 (Cycle 12): the triggered-specialist status sweep
+ * (clause 4) extends the D16-5 fail-closed posture from the two floors to the
+ * whole dispatched set. Before the sweep, every non-floor specialist
+ * contributed to the gate solely via the optional `criticalCount` sum
+ * (absent → 0), so a conditional or mandatory-on-match specialist that
+ * returned TIMEOUT/FAILED — or crashed before setting `criticalCount` — was
+ * indistinguishable from one that reviewed clean, and the dispatch-layer
+ * mandate ("skipping a triggered mandatory-on-match specialist at Tier >= 2
+ * is a gate failure", see {@link SpecialistTrigger.mode}) had no
+ * completion-layer backstop. With the sweep, a triggered `hatch3r-ui` that
+ * timed out yields `complete: false` naming the specialist and its status;
+ * `SKIPPED` is accepted only with a non-empty `summary` because
+ * `SpecialistResult` carries no `reason` field — the summary is the SKIPPED
+ * contract's citation channel (see {@link AgentStatus}), and an undocumented
+ * skip is indistinguishable from a crash.
  */
 export function evaluatePhase4Completion(
   qualityResults: QualityResults,
@@ -319,6 +349,21 @@ export function evaluatePhase4Completion(
   );
   const mandatoryFloorsSatisfied =
     securitySpec?.status === "SUCCESS" && testabilitySpec?.status === "SUCCESS";
+
+  // Finding D7-SA7.3-01 (Cycle 12): triggered-specialist status sweep — every
+  // dispatched specialist must terminate in SUCCESS, or SKIPPED with the skip
+  // criterion documented in `summary` (SpecialistResult has no `reason` field,
+  // so the summary carries the AgentStatus SKIPPED citation; an empty summary
+  // is an undocumented skip, indistinguishable from a crash, and blocks).
+  // Evaluated after the floor clause so a failing floor keeps its specific
+  // incompletionReason; this sweep is the completion-layer backstop for the
+  // conditional / mandatory-on-match specialists whose status the gate
+  // previously never read.
+  const incompleteSpecialists = qualityResults.specialists.filter(
+    (s) =>
+      s.status !== "SUCCESS" &&
+      !(s.status === "SKIPPED" && s.summary.trim().length > 0),
+  );
 
   const v = qualityResults.validationPass;
 
@@ -361,6 +406,23 @@ export function evaluatePhase4Completion(
       codeMutatingSpecialists,
       incompletionReason:
         "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+    };
+  }
+  if (incompleteSpecialists.length > 0) {
+    return {
+      complete: false,
+      mandatoryFloorsSatisfied,
+      reReviewIterations,
+      unresolvedCriticalFindings,
+      codeMutatingSpecialists,
+      incompletionReason: `dispatched specialist(s) did not complete: ${incompleteSpecialists
+        .map(
+          (s) =>
+            `${s.specialist} (${
+              s.status === "SKIPPED" ? "SKIPPED without documented skip reason" : s.status
+            })`,
+        )
+        .join(", ")}`,
     };
   }
   if (reReviewIterations > 1) {

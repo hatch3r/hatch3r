@@ -129,7 +129,7 @@ Failure escalation per `agents/hatch3r-enhancability.md` status mapping: Gate 1 
 - Reviewer on any PR modifying user-visible behavior, public API surfaces (OpenAPI / GraphQL SDL / AsyncAPI), config schema, or extension-point interfaces.
 - Implementer pre-write when authoring a new user-visible behavior.
 - Verifier pre-merge gate before `gh pr merge` on protected branches touching public API or behavior-toggle surface.
-- API change audit during a `D14` or `D22` cycle, or whenever the maturity tier increases.
+- API change audit during a scheduled API-change review, or whenever the maturity tier increases.
 - Plugin / extension-point surface review before declaring an interface stable.
 
 ## Cross-References

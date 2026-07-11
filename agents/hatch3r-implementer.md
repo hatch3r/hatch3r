@@ -339,10 +339,10 @@ After the review loop, Phase 4 specialists run bounded by the orchestrator-honor
 **Phase 4 specialist enumeration** — 9 CQ floor specialists + 4 SSOT specialists (`hatch3r-docs-writer`, `hatch3r-lint-fixer`, `hatch3r-architect`, `hatch3r-devops`) dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9), KDD #22, and `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` (always/evaluate/conditional/mandatory-on-match modes; a triggered mandatory-on-match specialist — `hatch3r-ui` CQ1 / `hatch3r-ux` CQ2 — MUST spawn as its own dedicated instance at Tier 2/3). The pre-2.0.0 legacy meta-agents were retired in 2.0.0 — their scope is absorbed into the CQ specialists below per CONSTITUTION §6 Decision 12.
 
 - `hatch3r-ui` (CQ1) — dispatch when implementer touches `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` (covers WCAG criteria, ARIA, reduced-motion scope). Surface a UI marker in implementer Notes when these globs are changed so the orchestrator schedules `hatch3r-ui` in the earliest Phase 4 batch.
-- `hatch3r-ux` (CQ2) — dispatch when route handlers, page components, form components, navigation, or empty/error/loading-state surfaces change.
-- `hatch3r-security` (CQ3) — dispatch when `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline files, or dependency manifest/lockfile changes (covers OWASP, supply-chain, OAuth 2.1, OIDC, DPoP, WebAuthn server, dependency review).
+- `hatch3r-ux` (CQ2, mandatory-on-match) — dispatch when route handlers, page components, form components, navigation, empty/error/loading-state surfaces, or microcopy / i18n strings / locale-catalog files (`locales/` / `i18n/`) change.
+- `hatch3r-security` (CQ3, always-mode floor) — dispatch on any code change (absorbs legacy security-auditor scope); coverage focus: `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline files, dependency manifest/lockfile, and DB rules / data flows / privacy invariants (covers OWASP, supply-chain, OAuth 2.1, OIDC, DPoP, WebAuthn server, dependency review).
 - `hatch3r-reliability` (CQ4) — dispatch when service handlers, OTel instrumentation, SLO files, or RFC 9457 error-response code changes.
-- `hatch3r-testability` (CQ5) — dispatch when parsers, payment flows, RPC contracts, AI feature handlers, or test files change (per-feature mandate-map from CONSTITUTION §2B CQ5).
+- `hatch3r-testability` (CQ5, always-mode floor) — dispatch on any code change (absorbs legacy test-writer scope); coverage focus: parsers, payment flows, RPC contracts, AI feature handlers, test files (per-feature mandate-map from CONSTITUTION §2B CQ5).
 - `hatch3r-scalability` (CQ6) — dispatch when stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, or connection-pool config changes.
 - `hatch3r-performance` (CQ7) — dispatch when LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size-affecting imports, or N+1 query candidates change (CQ7 enforces budget thresholds and runs measurement when a budget breach is detected).
 - `hatch3r-maintainability` (CQ8) — dispatch when expand-contract migrations, API breaking-change candidates, duplication-risk patterns, or high cyclomatic-complexity branches change.
@@ -351,7 +351,7 @@ After the review loop, Phase 4 specialists run bounded by the orchestrator-honor
 SSOT specialists from `SPECIALIST_TRIGGER_TABLE` dispatched alongside the CQ vector:
 
 - `hatch3r-docs-writer` (evaluate) — dispatch when implementer-changed files touch public API, CLI surface, or end-user docs.
-- `hatch3r-lint-fixer` (always) — dispatch on every code mutation to apply project-configured linters and type-check.
+- `hatch3r-lint-fixer` (conditional) — dispatch when lint or type errors are present after implementation, to apply project-configured linters and type-check.
 - `hatch3r-architect` (conditional) — dispatch when implementer-changed files cross architectural seams (new module, dependency-graph change, cross-layer call).
 - `hatch3r-devops` (conditional) — dispatch when `.github/workflows/*.yml`, infrastructure manifests, or release pipeline files change.
 

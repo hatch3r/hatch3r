@@ -954,8 +954,12 @@ export interface ModelRate {
  * `haiku`) resolve to the current model in each tier via {@link resolveModelRate}.
  *
  * Source: Anthropic published pricing (https://www.anthropic.com/pricing,
- * accessed 2026-06-06). Re-fetch and update `accessed` before a release when any
- * row is older than 30 days — rates drift between model releases.
+ * accessed 2026-06-06). Currency policy (single window, reconciled D6-SA6.3-01):
+ * 30 days is the author re-fetch recommendation before a release; the enforced
+ * CI backstop is `scripts/validate-pricing-currency.ts`, which scans these
+ * `accessed:` rows (a second source alongside the cost-tracking skill table) and
+ * warns — or, under `--strict`, errors — when a row crosses its 90-day window.
+ * Update the row's rates + `accessed` date together when re-fetching.
  */
 export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {
   "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },

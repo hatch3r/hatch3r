@@ -46,6 +46,10 @@ function makeDoc(
       checks: 6,
       githubAgents: 4,
       testFiles: 2,
+      cliTools: 34,
+      cliToolsTier1: 11,
+      cliToolsTier2: 13,
+      cliToolsTier3: 10,
     },
     files: {
       adapters: ["claude.ts", "copilot.ts", "cursor.ts"],

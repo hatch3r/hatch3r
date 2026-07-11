@@ -844,16 +844,26 @@ const POLICY_FILE = join(__dirname, "agent-tool-policies.json");
 
 // Claude Code tool → hatch3r category. Mirrors CLAUDE_CATEGORY_MAP
 // in src/pipeline/adapterToolTranslator.ts (reverse direction).
+// D2-SA2.4-03 currency: keep in lockstep with CLAUDE_CATEGORY_MAP; verified
+// against code.claude.com/docs/en/tools-reference (accessed 2026-07-10). The
+// task/session tools (TaskCreate/TaskGet/TaskList/TaskUpdate/TaskOutput/TaskStop)
+// and Skill are DEFERRED to a B1 maintainer decision (see the finding results
+// file) and remain UNKNOWN_TOOL deny-by-default.
 const TOOL_TO_CATEGORY = {
   Read: "read",
   NotebookRead: "read",
+  LSP: "read",
   Grep: "search",
   Glob: "search",
+  ToolSearch: "search",
   Edit: "write",
   MultiEdit: "write",
   Write: "write",
   NotebookEdit: "write",
   Bash: "execute",
+  PowerShell: "execute",
+  EnterWorktree: "execute",
+  ExitWorktree: "execute",
   WebSearch: "web",
   WebFetch: "web",
 };

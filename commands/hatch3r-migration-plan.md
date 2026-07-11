@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Two parallel hatch3r-researcher modes (changelog-analysis + breaking-change-inventory) in Step 3 followed by a hatch3r-architect for codebase impact mapping and a hatch3r-docs-writer for the plan; serialization only on the research → impact-mapping dependency edge. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

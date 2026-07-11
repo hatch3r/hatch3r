@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 5
   rationale: Five parallel hatch3r-researcher modes per test-planning brief — coverage-analysis, complexity-and-risk, test-pattern, boundary-analysis, risk-prioritization — dispatched concurrently in Step 3; a docs-writer composes the test plan on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

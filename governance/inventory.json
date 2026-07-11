@@ -1,5 +1,5 @@
 {
-  "lastUpdated": "2026-07-09",
+  "lastUpdated": "2026-07-11",
   "counts": {
     "adapters": 3,
     "agents": 29,
@@ -17,7 +17,11 @@
     "commandsRevision": 4,
     "checks": 5,
     "githubAgents": 4,
-    "testFiles": 237
+    "testFiles": 240,
+    "cliTools": 34,
+    "cliToolsTier1": 11,
+    "cliToolsTier2": 13,
+    "cliToolsTier3": 10
   },
   "files": {
     "adapters": [
@@ -563,12 +567,14 @@
       "src/__tests__/content/monorepoEmission.test.ts",
       "src/__tests__/content/orphanScan.test.ts",
       "src/__tests__/content/presets.test.ts",
+      "src/__tests__/content/resolveArtifactFilePath.test.ts",
       "src/__tests__/content/routing.test.ts",
       "src/__tests__/content/tags.test.ts",
       "src/__tests__/content/tierAdmission.test.ts",
       "src/__tests__/content/userContent.test.ts",
       "src/__tests__/detect/conventionConflict.test.ts",
       "src/__tests__/detect/installContext.test.ts",
+      "src/__tests__/detect/packageManager.test.ts",
       "src/__tests__/detect/projectType.test.ts",
       "src/__tests__/detect/repoAnalyzer.test.ts",
       "src/__tests__/detect/stackSupport.test.ts",
@@ -658,6 +664,7 @@
       "src/__tests__/workspace/manifest.test.ts",
       "src/__tests__/workspace/resolve.test.ts",
       "src/__tests__/workspace/scale.test.ts",
+      "src/__tests__/workspace/sync.publishedLayout.test.ts",
       "src/__tests__/workspace/sync.test.ts",
       "src/__tests__/worktree/generate.test.ts",
       "src/__tests__/worktree/resolve.test.ts",

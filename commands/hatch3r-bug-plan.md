@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 4
   rationale: Four parallel hatch3r-researcher modes per bug brief — symptom-trace, root-cause-hypothesis, impact-assessment, regression-research — dispatched concurrently in Step 3; a docs-writer assembles the investigation report on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -134,7 +135,7 @@ Bug Brief:
    - `.hatch3r/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the bug. Note duplicates, related bugs, or prior investigations.
-3. If `.hatch3r/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug brief.
+3. If `.hatch3r/learnings/` exists, scan for relevant learnings — test the affected file paths against each learning's `applies-to` glob and the affected area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback).
 4. Present a context summary:
 
 ```
@@ -144,7 +145,7 @@ Context Loaded:
   Prior investigations: {N} in docs/investigations/ ({related ones listed})
   Existing todo.md:   {found with N items / not found}
   Related issues:     {N} open issues with overlap ({list issue numbers})
-  Learnings:          {N} relevant learnings ({areas})
+  Learnings:          {N} relevant learnings ({topics})
   Gaps:               {list any missing context}
 ```
 

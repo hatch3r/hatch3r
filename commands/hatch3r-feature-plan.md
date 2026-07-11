@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 13
   rationale: Four parallel hatch3r-researcher modes per feature brief — codebase-impact, feature-design, architecture, risk-pitfalls — dispatched concurrently in Step 3; a docs-writer composes the spec on their merged output; the 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) advise pre-write on the measurable floors that the spec must encode (axe-core threshold, OAuth depth, OTel + SLO scaffolding, mandate-map test class, etc.). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -158,7 +159,7 @@ Answer these now, or say 'use defaults' for any where you're comfortable with a 
    - `.hatch3r/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the feature. Note duplicates or partial overlaps.
-3. If `.hatch3r/learnings/` exists, scan for learnings relevant to the feature area. Match by area and tags against the feature brief.
+3. If `.hatch3r/learnings/` exists, scan for relevant learnings — test the feature's target file paths against each learning's `applies-to` glob and the feature area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback).
 4. Present a context summary:
 
 ```
@@ -167,7 +168,7 @@ Context Loaded:
   ADRs:             {N} files in docs/adr/ ({relevant ones listed})
   Existing todo.md: {found with N items / not found}
   Related issues:   {N} open issues with overlap ({list issue numbers})
-  Learnings:        {N} relevant learnings ({areas})
+  Learnings:        {N} relevant learnings ({topics})
   Gaps:             {list any missing context}
 ```
 

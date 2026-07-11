@@ -41,6 +41,17 @@ jobs:
     name: Supply chain security
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    # Cycle 12 H D4-SA4.2-01 (D4): SOCKET_API_KEY is declared here at JOB scope,
+    # not only on the Socket step below, because GitHub evaluates a step's `if:`
+    # BEFORE applying that step's own `env:` mapping — a step-level secret is
+    # invisible to its own guard, so `env.SOCKET_API_KEY != ''` was permanently
+    # false and the scan was skipped on every run (silent-failure shape). Per
+    # GitHub's secrets-in-conditionals guidance a secret must be a job-level env
+    # var to be readable in a step `if`. Positive-control once the maintainer
+    # provisions the org secret: `gh run view <id>` shows the Socket step
+    # conclusion != skipped on a same-repo PR run (D04 §4.2 checklist item).
+    env:
+      SOCKET_API_KEY: ${{ secrets.SOCKET_API_KEY }}
     steps:
       - name: Harden Runner
         uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
@@ -111,6 +122,23 @@ jobs:
         continue-on-error: true
         run: npm audit --audit-level=moderate
 
+      # Cycle 12 H D4-SA4.2-02 (D4): website/ ships its own package-lock.json
+      # (Docusaurus site, committed 2026-03-02) that the three root audit steps
+      # above never see — they run at repo root. This brings the website lockfile
+      # under the same >=high dev-tier floor. `--package-lock-only` audits from
+      # the committed lockfile without a website `npm ci` (this job installs only
+      # the root deps). The report-only moderate tier mirrors the root policy:
+      # moderate dev-only CVEs in the static-site build toolchain drain via the
+      # /website dependabot PRs (.github/dependabot.yml), not by blocking PRs.
+      - name: Security audit (website deps, fail >=high)
+        working-directory: website
+        run: npm audit --package-lock-only --audit-level=high
+
+      - name: Security audit (website deps, report >=moderate)
+        continue-on-error: true
+        working-directory: website
+        run: npm audit --package-lock-only --audit-level=moderate
+
       # Cycle 8 C8-D4-M1: `npm audit` only flags packages that already
       # have a published advisory; it misses the malicious-install class
       # (typosquats, compromised maintainer accounts -- e.g. the
@@ -167,13 +195,13 @@ jobs:
       # against the base ref) and guarded on SOCKET_API_KEY availability so it
       # is a clean no-op on fork PRs (where secrets are withheld) and until the
       # maintainer provisions the org secret — it never fails closed for
-      # external contributors. Pinned to the v1.3.2 commit SHA (2026-03-27);
-      # SocketDev/socket-security-action from the finding was superseded by
-      # SocketDev/action. Vendor-decision record: D04 next cycle.
+      # external contributors. The `if` guard reads SOCKET_API_KEY from the
+      # job-level `env:` block (see the supply-chain job header) — a step-level
+      # declaration is invisible to its own `if` (D4-SA4.2-01). Pinned to the
+      # v1.3.2 commit SHA (2026-03-27); SocketDev/socket-security-action from the
+      # finding was superseded by SocketDev/action. Vendor-decision record: D04.
       - name: Socket supply-chain scan
         if: github.event_name == 'pull_request' && env.SOCKET_API_KEY != ''
-        env:
-          SOCKET_API_KEY: ${{ secrets.SOCKET_API_KEY }}
         uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2
         with:
           socket-token: ${{ secrets.SOCKET_API_KEY }}

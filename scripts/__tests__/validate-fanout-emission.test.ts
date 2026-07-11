@@ -88,7 +88,7 @@ describe("validate-fanout-emission", () => {
 
   // ── Happy path ───────────────────────────────────────────────────
 
-  it("PASSes when orchestrator command emits sub_agents_spawned {count, rationale}", async () => {
+  it("PASSes when orchestrator command emits sub_agents_spawned {count, rationale, task_structure}", async () => {
     await writeArtifact(
       join(fx.commandsDir, "hatch3r-workflow.md"),
       `id: hatch3r-workflow
@@ -100,7 +100,8 @@ agentPipeline: [hatch3r-implementer, hatch3r-reviewer]
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
-  rationale: One implementer per independent module plus a reviewer for the post-write quality pass`,
+  rationale: One implementer per independent module plus a reviewer for the post-write quality pass
+  task_structure: mixed`,
       `# Workflow\n\nBody.\n`,
     );
 
@@ -409,7 +410,8 @@ orchestrator: true
 agentPipeline: [hatch3r-greenfield-spec, hatch3r-brownfield-spec]
 sub_agents_spawned:
   count: 1
-  rationale: One spec sub-agent per invocation chosen between greenfield and brownfield by project-state detection — mutually exclusive, not parallel`,
+  rationale: One spec sub-agent per invocation chosen between greenfield and brownfield by project-state detection — mutually exclusive, not parallel
+  task_structure: sequential`,
       `# Spec\n`,
     );
 
@@ -429,7 +431,8 @@ orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer]
 sub_agents_spawned:
   count: 4
-  rationale: A four-stage pipeline — researcher, implementer, reviewer, fixer — each a distinct worker`,
+  rationale: A four-stage pipeline — researcher, implementer, reviewer, fixer — each a distinct worker
+  task_structure: sequential`,
       `# Bug pipeline\n`,
     );
 
@@ -491,7 +494,8 @@ orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 sub_agents_spawned:
   count: 4
-  rationale: Four parallel researcher modes — symptom-trace, root-cause-hypothesis, impact-assessment, regression-research — dispatched concurrently; a docs-writer assembles the report`,
+  rationale: Four parallel researcher modes — symptom-trace, root-cause-hypothesis, impact-assessment, regression-research — dispatched concurrently; a docs-writer assembles the report
+  task_structure: parallelizable`,
       `# Bug plan\n`,
     );
 
@@ -511,7 +515,8 @@ orchestrator: true
 agentPipeline: [hatch3r-creator]
 sub_agents_spawned:
   count: 1
-  rationale: A single creator scaffolds the artifact`,
+  rationale: A single creator scaffolds the artifact
+  task_structure: sequential`,
       `# Create\n`,
     );
 
@@ -519,6 +524,92 @@ sub_agents_spawned:
     expect(result.errorCount).toBe(0);
     expect(result.warningCount).toBe(0);
     expect(result.findings).toHaveLength(0);
+  });
+
+  // ── P8 B2 task_structure companion (2026-07-09 amendment) ────────
+  //
+  // Enforced as a WARNING during the corpus-backfill window (D5-SA5.8-01 /
+  // D7-SA7.6-01): a missing/invalid companion flags the author without reding
+  // the gate, and the widened skill-directive regex no longer hard-blocks the
+  // constitution-current 3-key form (the self-lock the 2-key-only regex created).
+
+  it("WARNs (not errors) when an orchestrator command omits the task_structure companion", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-onboard.md"),
+      `id: hatch3r-onboard
+type: command
+description: Onboard
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
+sub_agents_spawned:
+  count: 3
+  rationale: Three parallel researcher modes dispatched concurrently; a docs-writer assembles the guide`,
+      `# Onboard\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    const miss = result.findings.find((f) => f.code === "P8-FANOUT-TASKSTRUCT-MISS");
+    expect(miss).toBeDefined();
+    expect(miss?.level).toBe("warning");
+  });
+
+  it("WARNs (not errors) on an invalid task_structure value", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-onboard.md"),
+      `id: hatch3r-onboard
+type: command
+description: Onboard
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
+sub_agents_spawned:
+  count: 3
+  rationale: Three parallel researcher modes dispatched concurrently; a docs-writer assembles the guide
+  task_structure: parallel`,
+      `# Onboard\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    const bad = result.findings.find((f) => f.code === "P8-FANOUT-TASKSTRUCT-INVALID");
+    expect(bad).toBeDefined();
+    expect(bad?.level).toBe("warning");
+  });
+
+  it("PASSes clean with a valid task_structure companion", async () => {
+    await writeArtifact(
+      join(fx.commandsDir, "hatch3r-onboard.md"),
+      `id: hatch3r-onboard
+type: command
+description: Onboard
+orchestrator: true
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
+sub_agents_spawned:
+  count: 3
+  rationale: Three parallel researcher modes dispatched concurrently; a docs-writer assembles the guide
+  task_structure: parallelizable`,
+      `# Onboard\n`,
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.errorCount).toBe(0);
+    expect(result.warningCount).toBe(0);
+    expect(result.findings).toHaveLength(0);
+  });
+
+  it("accepts the 3-key skill emission directive { count, rationale, task_structure } (self-lock removed)", async () => {
+    await writeSkill(
+      fx.skillsDir,
+      "hatch3r-feature",
+      SKILL_FM,
+      `# Feature\n\n${TIER23_DELEGATION}\n` +
+        "Never under-fan-out to save tokens. Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.\n",
+    );
+
+    const result = await runValidator({ commandsDir: fx.commandsDir, skillsDir: fx.skillsDir });
+    expect(result.checkedSkills).toBe(1);
+    expect(result.errorCount).toBe(0);
+    expect(result.findings.some((f) => f.code === "P8-FANOUT-SKILL-MISS")).toBe(false);
   });
 });
 

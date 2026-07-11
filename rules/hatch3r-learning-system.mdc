@@ -62,7 +62,7 @@ Migration targets — fields some consumers still emit or scan that MUST converg
 | `source` + `author` (learnings-loader) | derive from capture context; not part of the match schema |
 | `supersedes` vs `superseded_by`/`deprecated` (learn skill) | `supersedes: [<id>, ...]` |
 
-Enforcement gap (open): no validator binds learning files to this schema. A schema check (proposed for `scripts/` alongside `validate-rule-parity.ts`) must assert every `.hatch3r/learnings/*.md` carries `id`/`topic`/`applies-to`/`confidence`/`created` and rejects the divergent field names above. Until that validator ships, schema conformance is audit-time only.
+Enforcement (D6-SA6.5-01, partial): the **consuming-artifact** half is gated — `scripts/validate-learnings-consultation-keys.ts` (wired into `npm run validate:efficiency`) fails when any shipped artifact under `commands/`, `agents/`, `skills/`, `rules/` keys a learnings consultation on retired `area`/`tags` without naming canonical `applies-to`/`topic`, so a future half-migration cannot pass green. The **learning-file** half is partly open: `src/content/learningsValidation.ts` gates file structure + injection patterns on the read/materialization path, but no validator yet asserts every `.hatch3r/learnings/*.md` carries `id`/`topic`/`applies-to`/`confidence`/`created` or rejects the divergent field names above — that frontmatter-schema check stays audit-time only.
 
 ## Integrity Hash — Single Source of Truth (D13-SA13.4-F10)
 

@@ -14,6 +14,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-incident-responder specialist drives the live lifecycle (triage → bounded-autonomy mitigation → communication → blameless post-mortem); one hatch3r-reliability specialist runs the post-incident telemetry/SLO reconstruction in parallel once the incident is stabilized. Tier 1 spawns only the incident-response specialist (count 1); a security-suspected incident adds hatch3r-security. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

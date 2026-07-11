@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Module-taxonomy discovery and audit-sub-issue authoring delegate to `hatch3r-implementer`; the two cross-cutting QA axes fan out in parallel to `hatch3r-ui` (CQ1 — accessibility / axe-core / design-token / four-state coverage gaps) and `hatch3r-security` (CQ3 — dependency-CVE + supply-chain regression risks). Fan-out is disjoint across the two audit axes; serialization would not preserve P8 B2 task decomposition. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

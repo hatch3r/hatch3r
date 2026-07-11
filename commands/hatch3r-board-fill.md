@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 11
   rationale: Per-issue review cycle (reviewer + fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) consulted on readiness assessment so that issue acceptance criteria encode the measurable floors the implementation must meet; batch mode scales reviewer count to N issues with serialization only on the per-issue reviewer→fixer hand-off. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -336,7 +337,7 @@ Use explore subagents or direct file reads to understand the current state of so
 #### 4b.5. Consult Project Learnings
 
 1. If `.hatch3r/learnings/` exists, scan for learnings relevant to the areas touched by the todo items.
-2. Match by `area` and `tags` in learning frontmatter against the area labels assigned in Step 3.
+2. Match each learning by testing the touched file paths against its `applies-to` glob and the assigned area labels (Step 3) against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`); accept legacy `area`/`tags` frontmatter only as a transitional fallback.
 3. Surface relevant learnings in the Context Summary output:
    - **Pitfalls** for areas being touched (highest priority -- include specific warnings)
    - **Patterns** that could inform issue scoping or acceptance criteria

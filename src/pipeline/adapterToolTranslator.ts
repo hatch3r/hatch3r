@@ -51,11 +51,30 @@ import { getAgentToolPolicy } from "./agentToolAllowlist.js";
  * implement it. Grouped per `code.claude.com/docs/en/sub-agents`
  * available tools section.
  */
+// D2-SA2.4-03 platform-tool currency: verified against
+// https://code.claude.com/docs/en/tools-reference (accessed 2026-07-10). When
+// the Claude Code tool set drifts, extend BOTH this map AND the emitted hook's
+// TOOL_TO_CATEGORY (src/pipeline/agentToolAllowlist.ts) — they are one logical
+// table split across two surfaces. The currency lock tests
+// (adapterToolTranslator.test.ts + agentToolAllowlist.test.ts) fail when a
+// known-current tool stops being emitted/categorized, so drift is caught at
+// audit time, not user runtime.
+//
+// DEFERRED (D2-SA2.4-03 remainder → B1 maintainer decision, see the finding's
+// results file): the task/session tools TaskCreate/TaskGet/TaskList/TaskUpdate/
+// TaskOutput/TaskStop (TodoWrite is disabled since v2.1.142 in favor of these)
+// and `Skill` are intentionally NOT mapped here. They require a product decision
+// this implementation cannot self-authorize — whether to introduce a dedicated
+// `session` category (ripples through FUNCTIONAL_TOOL_CATEGORIES + the over-grant
+// gate + every policy) versus a universal base set, and whether/where to grant
+// the privilege-expanding `Skill` tool. Until decided they stay deny-by-default
+// (the secure posture). MultiEdit/NotebookRead retained for back-compat rather
+// than dropped, to avoid a privilege reduction against older platform builds.
 const CLAUDE_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
-  read: ["Read", "NotebookRead"],
-  search: ["Grep", "Glob"],
+  read: ["Read", "NotebookRead", "LSP"],
+  search: ["Grep", "Glob", "ToolSearch"],
   write: ["Edit", "MultiEdit", "Write", "NotebookEdit"],
-  execute: ["Bash"],
+  execute: ["Bash", "PowerShell", "EnterWorktree", "ExitWorktree"],
   web: ["WebSearch", "WebFetch"],
   mcp: [], // MCP tools are scoped via the `mcpServers` frontmatter field, not `tools`.
   // Reserved categories (RESERVED_TOOL_CATEGORIES in agentToolAllowlist.ts):

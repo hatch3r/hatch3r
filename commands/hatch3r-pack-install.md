@@ -15,6 +15,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One trust-verification pass (hatch3r-security, CQ3 supply-chain gate) then one install pass (hatch3r-pack-installer); the install depends on a clean verification verdict, so the two run on a dependency edge, not in parallel — per CONSTITUTION §2 P8 token cost never serializes independent work, but a true dependency does.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

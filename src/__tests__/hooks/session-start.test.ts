@@ -18,9 +18,10 @@
  */
 
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   extractCycle,
   summarizeRegistry,
@@ -280,5 +281,44 @@ describe("readAndSummarize", () => {
     await writeFile(path, "{ not valid json", "utf8");
 
     await expect(readAndSummarize(path)).rejects.toBeInstanceOf(SyntaxError);
+  });
+});
+
+describe("dev-env ConfigChange hook wiring (D19-SA19.4-01 regression)", () => {
+  // The ConfigChange config-tamper guard documents watching the PROJECT
+  // .claude/settings.json (a committed, shared-team file — .claude/README.md).
+  // Per the Claude Code hooks reference the ConfigChange matcher selects a
+  // configuration SOURCE: `project_settings` = the project .claude/settings.json,
+  // `user_settings` = the user-global ~/.claude/settings.json. Binding the guard
+  // to user_settings meant it never fired on the file its message names.
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..", "..");
+  const settingsPath = join(repoRoot, ".claude", "settings.json");
+
+  async function readConfigChangeEntry(): Promise<{
+    matcher?: string;
+    command?: string;
+  }> {
+    const raw = await readFile(settingsPath, "utf8");
+    const settings = JSON.parse(raw) as {
+      hooks?: {
+        ConfigChange?: Array<{
+          matcher?: string;
+          hooks?: Array<{ command?: string }>;
+        }>;
+      };
+    };
+    const entry = settings.hooks?.ConfigChange?.[0];
+    return { matcher: entry?.matcher, command: entry?.hooks?.[0]?.command };
+  }
+
+  it("binds the ConfigChange guard to project_settings, not user_settings", async () => {
+    const { matcher } = await readConfigChangeEntry();
+    expect(matcher).toBe("project_settings");
+  });
+
+  it("keeps the guard's matcher target and message coherent", async () => {
+    const { matcher, command } = await readConfigChangeEntry();
+    expect(matcher).toBe("project_settings");
+    expect(command ?? "").toContain(".claude/settings.json");
   });
 });
