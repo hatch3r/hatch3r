@@ -1,6 +1,6 @@
 {
   "name": "hatch3r",
-  "version": "2.2.0",
+  "version": "2.5.0",
   "description": "Agentic coding setup framework audited each release across 24 governance domains. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for Claude Code, Cursor, and GitHub Copilot.",
   "type": "module",
   "bin": {

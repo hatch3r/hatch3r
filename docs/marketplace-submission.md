@@ -77,7 +77,7 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 {
   "name": "hatch3r",
   "description": "10-cycle-audited agentic coding setup: 29 agents, 53 skills, 70 rules, 31 commands, 7 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
-  "version": "2.2.0",
+  "version": "2.5.0",
   "author": {
     "name": "hatch3r",
     "email": "support@hatch3r.com"

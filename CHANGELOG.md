@@ -2,6 +2,12 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.5.0] - 2026-07-11
+
+### Headline
+
+Executes the Cycle-12 framework audit drain: 832 post-dedup findings (2 Critical, 96 High, 319 Medium, 289 Low, 126 Info) across the 4-wave progressive execution model with 19-check regression gates. Section is seeded at wave start; per-category entries are reconciled at release prep from the wave summaries.
+
 ## [2.2.0] - 2026-07-08
 
 ### Headline
