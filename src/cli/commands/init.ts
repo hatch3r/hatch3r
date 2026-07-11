@@ -112,7 +112,7 @@ import {
 } from "../../importers/index.js";
 import { createSnapshot } from "../../pipeline/snapshot.js";
 import { countTrackedFiles, estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
-import { recordFirstRunSuccess } from "../../pipeline/spaceTelemetry.js";
+import { recordFirstRunSuccess, recordSpaceMetric } from "../../pipeline/spaceTelemetry.js";
 import { readCheckpoint, writeCheckpoint, checkpointPath, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { execFileSync } from "node:child_process";
 
@@ -491,17 +491,38 @@ function deriveWorkspacePlatform(identities: Array<{ platform: Platform }>): Pla
 }
 
 /**
+ * D1-SA1.1-07 (D1, P2): GitHub App bots (dependabot, renovate, github-actions,
+ * …) author commits under a distinct `<name>[bot]@users.noreply.github.com`
+ * email, so a solo repo with automation enabled carries ≥2 distinct author
+ * emails and mis-infers as `team`. Exclude any author whose email carries the
+ * `[bot]` App marker before counting. Human GitHub noreply addresses
+ * (`<id>+<user>@users.noreply.github.com`, no `[bot]`) are kept — they are real
+ * contributors masking their email, not bots — matching the finding's
+ * "match on `[bot]` specifically" disposition.
+ */
+function isBotAuthorEmail(email: string): boolean {
+  return /\[bot\]/i.test(email);
+}
+
+/**
  * F10.3-2 (D10, P1): infer team size from git history instead of prompting.
  * The interactive `teamSize` prompt was dropped to keep the first-run flow
  * within the P1 prompt ceiling (Decision 25 / Vercel-Heroku benchmark; the
  * ceiling is ≤6 as of 2.1.0, the 6th being the maturity prompt). teamSize is
- * still inferred, not prompted. We count distinct commit authors via `git log`
- * — `>1` distinct author email implies a
- * `team` repo; a single author (or an unreadable / empty / non-git history)
- * falls back to `solo`, which matches the prior prompt default and the `--yes`
- * default. Degradation mirrors `parseGitDefaultBranch`: any git error returns
- * the safe default rather than throwing. Overridable post-init via
- * `hatch3r config`.
+ * still inferred, not prompted. We count distinct NON-bot commit authors via
+ * `git log` (D1-SA1.1-07: `isBotAuthorEmail` drops `[bot]` App authors first) —
+ * `>1` distinct human author email implies a `team` repo; a single author (or
+ * an unreadable / empty / non-git / bots-only history) falls back to `solo`.
+ * Degradation mirrors `parseGitDefaultBranch`: any git error returns the safe
+ * default rather than throwing. Overridable post-init via `hatch3r config`.
+ *
+ * D1-SA1.1-07 divergence note (unification deferred): only the interactive path
+ * calls this; the `--yes`/headless path hard-defaults `solo` (see the
+ * `validateFlag(opts.teamSize, …, "solo", …)` sites in `initCommand`). Making
+ * both paths infer the SAME default is a user-visible behavior change (CI
+ * `--yes` installs on a multi-author repo would gain team-only content), so it
+ * is gated behind a B1 maintainer decision (`.claude/rules/clarification-default.md`)
+ * and NOT flipped here.
  */
 function inferTeamSizeFromGit(cwd: string): "solo" | "team" {
   try {
@@ -516,7 +537,10 @@ function inferTeamSizeFromGit(cwd: string): "solo" | "team" {
       out
         .split(/\r?\n/)
         .map((line) => line.trim().toLowerCase())
-        .filter((line) => line.length > 0),
+        .filter((line) => line.length > 0)
+        // D1-SA1.1-07: exclude bot authors so automation does not inflate a
+        // solo repo to "team".
+        .filter((email) => !isBotAuthorEmail(email)),
     );
     return distinct.size > 1 ? "team" : "solo";
   } catch (err) {
@@ -969,6 +993,21 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
             tools: tools.join("+"),
           },
         });
+        // D10-SA10.8-01 (D10, P5): record the init wall-clock to the SPACE
+        // `efficiency` axis at the FAILURE terminus too (time-to-failure), so
+        // the efficiency signal is not survivorship-biased to successful runs.
+        // Reuses the same JSONL sink + Silent Failure Contract; dry-run-gated by
+        // the enclosing block (telemetry writes a file, dry-run promises none).
+        recordSpaceMetric(
+          {
+            metricId: "timeToFirstValueMs",
+            axis: "efficiency",
+            value: Date.now() - initStartMs,
+            source: "hatch3r-init",
+            tags: { outcome: "failed", tools: tools.join("+") },
+          },
+          rootDir,
+        );
       }
       throw new HatchError(
         "All adapters failed",
@@ -1398,6 +1437,35 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
       preset: contentSelection.preset,
     },
   });
+
+  // D10-SA10.8-01 (D10, P5): wire the two feasible SPACE axes the CONSTITUTION
+  // §2 P1 line names but that had no feeder — raising the realized surface from
+  // 1/5 (performance only) to 3/5. `efficiency`: time-to-first-value, computed
+  // from `initStartMs` and otherwise only console.log'd by printTimingSummary
+  // and discarded. `activity`: the count of adapters that generated output this
+  // run. Both reuse recordFirstRunSuccess's JSONL sink + Silent Failure Contract
+  // (never throws); `status` surfaces them via its per-axis rollup. Unreachable
+  // under dry-run (that terminus returns before this line), so no extra gate.
+  recordSpaceMetric(
+    {
+      metricId: "timeToFirstValueMs",
+      axis: "efficiency",
+      value: Date.now() - initStartMs,
+      source: "hatch3r-init",
+      tags: { outcome: "success", tools: tools.join("+") },
+    },
+    rootDir,
+  );
+  recordSpaceMetric(
+    {
+      metricId: "adaptersGenerated",
+      axis: "activity",
+      value: tools.length - adapterFailures.length,
+      source: "hatch3r-init",
+      tags: { tools: tools.join("+") },
+    },
+    rootDir,
+  );
 
   const enabledFeatures = Object.entries(features)
     .filter(([, v]) => v)
@@ -2240,9 +2308,33 @@ export async function initCommand(
   // there (verified: `--workspace --role reviewer` resolved 168 items vs the
   // single-repo 69). `cliRole`/`cliFacets` are threaded into all four selection
   // calls below; an undefined role / empty facets collapses to no filtering.
-  const cliRole: RoleId | undefined = opts.role
+  let cliRole: RoleId | undefined = opts.role
     ? (validateFlag(opts.role, [...KNOWN_ROLES], KNOWN_ROLES[0], "role") as RoleId)
     : undefined;
+  // D14-SA14.3-01 (D14, CQ9): keep `--role` latent until the corpus backs it.
+  // KNOWN_ROLES ships three role ids but no canonical artifact carries a
+  // `role:<id>` tag yet, so resolveSelection's Stage-6 role filter would
+  // collapse every role value to the identical floor+protected set — a live,
+  // `--help`-documented flag with no distinguishing effect, plus a misleading
+  // reduced item count. Probe the canonical index once (only when --role is
+  // passed): when no artifact carries the role tag, drop the filter (leaving the
+  // preset selection intact) and tell the user the flag had no effect, rather
+  // than silently installing a floor-only bundle the flag never actually
+  // selected. Once the corpus is role-tagged this guard lifts automatically.
+  // Extends `setup`'s existing discipline (it never exposes --role) to raw init.
+  if (cliRole !== undefined) {
+    const roleProbeIndex = await buildContentIndex(CONTENT_ROOT);
+    const roleTag = `role:${cliRole}`;
+    const roleTaggedCount = roleProbeIndex.items.filter((i) => i.tags.includes(roleTag)).length;
+    if (roleTaggedCount === 0) {
+      warn(
+        `--role ${cliRole} matched 0 role-tagged artifacts — no canonical content ` +
+          `carries a "${roleTag}" tag yet, so role filtering has no effect. ` +
+          `Installing your preset selection unchanged (--role is ignored).`,
+      );
+      cliRole = undefined;
+    }
+  }
   const cliFacets: FacetId[] = opts.facets
     ? opts.facets
         .split(",")
@@ -2327,6 +2419,32 @@ export async function initCommand(
   if (repoInfo.isMonorepo) detected.push("monorepo");
   if (detected.length > 0) {
     info(chalk.dim(`Detected: ${detected.join(", ")}`));
+  }
+
+  // D14-SA14.4-02 (D14, P1): surface the migration bridge at the one moment the
+  // CLI knows a competitor config is present. `detectExistingTools` already
+  // found a cursor/copilot config on disk, but `existingTools` was consumed only
+  // to seed tool DEFAULTS — the `--import` capability stayed invisible on the
+  // interactive happy path (flag-only; discoverable only if the user already
+  // knew the flag existed). Emit a dim, zero-prompt, opt-in pointer alongside
+  // the `Detected:` line above. Skipped when `--import` was already passed
+  // (migration is in flight) and when no detected tool is an importable FORMAT
+  // (a claude-only config is hatch3r's own output, not an import source — claude
+  // is not in IMPORT_TARGETS). `info()` is a no-op under quiet/json, so headless
+  // CI callers see nothing.
+  if (!opts.import) {
+    const importableDetected = repoInfo.existingTools.filter((t) =>
+      (IMPORT_TARGETS as readonly string[]).includes(t),
+    );
+    if (importableDetected.length > 0) {
+      const target = importableDetected.length === 1 ? importableDetected[0] : "auto";
+      info(
+        chalk.dim(
+          `Detected ${importableDetected.join(", ")} config — carry your rules across with ` +
+            `\`hatch3r init --import ${target}\` (or \`--import auto\`).`,
+        ),
+      );
+    }
   }
 
   // D14-13 (D14-SA14.4-F3, P1/P4): warn when the repo carries two or more
@@ -2501,11 +2619,17 @@ export async function initCommand(
   // interactive mode — the inference outcome is observable without chrome in
   // the structured/quiet paths.
   info(chalk.dim(`Detected default branch: ${inferredDefaultBranch}`));
+  // D1-SA1.1-07 (D1, P1): name the CONSEQUENCE of the inferred team size — it is
+  // not cosmetic; it gates WHICH artifacts install (team-only workflows such as
+  // the board cluster are filtered out at teamSize=solo). The prior line stated
+  // the value without saying what it changes, so a user who disagreed had no
+  // signal to re-run with `--team-size`.
   info(
     chalk.dim(
-      opts.maturity === undefined
+      (opts.maturity === undefined
         ? `Inferred maturity: ${inferredMaturity} (team size: ${inferredTeamSize})`
-        : `Maturity: ${inferredMaturity} (from --maturity); team size: ${inferredTeamSize}`,
+        : `Maturity: ${inferredMaturity} (from --maturity); team size: ${inferredTeamSize}`) +
+        ` — team size filters team-only workflows (e.g. board); override with --team-size.`,
     ),
   );
 

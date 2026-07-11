@@ -31,6 +31,8 @@ When this hook fires, the assigned agent should:
 
 ## Configuration
 
+`globs` is the one machine-parsed knob — it is a real frontmatter field. The severity behavior below is an agent-runtime default, not a config-file setting; to change it, state your preference in your prompt when the hook fires.
+
 - **Globs**: Controlled by the `globs` frontmatter field. Adjust to match your project's source file extensions.
 - **Tooling**: The agent auto-detects the project's lint/format stack from config files (`eslint.config.*`, `.prettierrc`, `biome.json`, etc.).
-- **Severity**: By default, only errors block the commit. Set `blockOnWarnings: true` in the hook config to also block on warnings.
+- **Severity**: By default, only errors block the commit. Ask the agent in your prompt to also block on warnings.

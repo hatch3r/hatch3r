@@ -9,73 +9,75 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: false
 
+# Cycle 12 M D4-SA4.4-02 (D4): least-privilege default at workflow scope. The
+# gates job below inherits contents: read (checkout only); the publish job
+# elevates to contents: write + id-token: write + attestations: write. Holding
+# id-token off the workflow scope keeps the npm trusted-publishing OIDC token
+# out of any job that runs third-party build code (tsup/eslint/tsc/vitest/
+# cyclonedx) — mirrors the deploy-docs.yml F4.3.6 per-job narrowing for Pages.
 permissions:
-  contents: write
-  id-token: write
-  # attestations: write lets actions/attest-sbom record a signed SBOM
-  # attestation through the same Sigstore/OIDC path that backs npm
-  # provenance (id-token: write), tying the component inventory to the
-  # published tarball (Cycle 10 H F4.3.1+F4.4.3 — CONSTITUTION §2 P5
-  # + §CQ3 supply-chain floor: npm provenance + SBOM + SHA-pinned actions).
-  attestations: write
+  contents: read
 
 jobs:
-  release:
+  # ── Job 1: gates + pack (NO id-token, NO publish credential) ──────────────
+  # Cycle 12 M D4-SA4.4-02 (D4): all third-party build code runs here on the
+  # exact shipping commit — Cycle-10 F4.3.8's gates-on-the-shipping-commit
+  # strength is preserved — but this job holds no OIDC token, so a compromised
+  # gate-step dependency cannot mint a trusted-publishing credential. It hands
+  # the packed tarball + SBOM to the publish job via a digest-checked artifact.
+  gates:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    environment: npm-publish
+    permissions:
+      contents: read
+    outputs:
+      version: ${{ steps.validate_version.outputs.version }}
 
     steps:
-      # Cycle 10 H F4.3.2 (D4): step-security/harden-runner installed as the
-      # first step so the release job — the only workflow holding the npm OIDC
-      # token (id-token: write) and contents: write — gets the same runtime
-      # egress/process monitoring already present on every ci.yml job. Pinned
-      # to the v2.19.3 commit SHA (2026-05-14) per the actions-pinning policy
-      # applied to every third-party action in this repo.
-      #
-      # Cycle 11 H D4-5 (D4): the Cycle-10 deferred-to-block cutover is taken.
-      # StepSecurity documents that only egress-policy: block with an explicit
-      # allowed-endpoints allowlist (host:port) prevents OIDC-token exfiltration
-      # — audit mode is detect-only and a token-bearing job that runs
-      # third-party code (npm ci/test, npx cyclonedx, npm pack/publish) must
-      # fail closed on any unlisted destination. disable-sudo: true removes the
+      # Cycle 10 H F4.3.2 + Cycle 11 H D4-5 (D4): step-security/harden-runner as
+      # the first step with egress-policy: block. This job executes third-party
+      # devDependency binaries (tsup, eslint, tsc, tsx validators, vitest, npx
+      # cyclonedx) on the shipping commit, so it fails closed on any unlisted
+      # destination. Pinned to the v2.19.3 commit SHA (2026-05-14) per the
+      # repo-wide actions-pinning policy. disable-sudo: true removes the
       # runner's privilege-escalation path.
       #
-      # Allowlist derivation (every entry maps to a step's required egress; a
-      # missing entry fails the release closed, so each is load-bearing):
-      #   github.com, api.github.com        — Checkout + `git fetch origin main`
+      # Cycle 12 M D4-SA4.4-02 (D4): this job holds NO id-token and NO publish
+      # credential (the OIDC token lives only on the publish job below), so its
+      # allowlist drops the token.actions, sigstore, and uploads.github.com
+      # hosts the single pre-split job carried — none are reachable from here.
+      #
+      # Allowlist (least privilege for this job; each entry maps to a step's
+      # egress, a missing entry fails the job closed):
+      #   api.github.com, github.com        — Checkout + `git fetch origin main`
       #                                       + setup-node version manifest
-      #                                       + attest-sbom + action-gh-release
       #   nodejs.org                        — actions/setup-node Node 22 download
       #   objects.githubusercontent.com     — GitHub object/manifest CDN
-      #   registry.npmjs.org                — npm ci / publish / npx cyclonedx
-      #                                       / `npm audit signatures`
-      #   token.actions.githubusercontent.com — GitHub OIDC token (id-token)
-      #   fulcio.sigstore.dev, rekor.sigstore.dev, tuf-repo-cdn.sigstore.dev
-      #                                       — npm provenance + SBOM attestation
-      #   uploads.github.com                — GitHub Release asset upload (SBOM)
-      # The five-host list in the Cycle-10 finding text is the npm/Sigstore core;
-      # the github.com / nodejs.org / token.actions / tuf / uploads hosts are
-      # added because Checkout, setup-node, the OIDC mint, the Sigstore trust
-      # bootstrap, and the Release asset upload each require them — verify against
-      # the harden-runner audit baseline (Insights → Recommended Policy) and
-      # trim if a host proves unused before the next release.
+      #   registry.npmjs.org                — npm ci / npx cyclonedx / npm audit
+      #   results-receiver.actions.githubusercontent.com,
+      #   *.blob.core.windows.net           — actions/upload-artifact (v7)
+      #                                       hand-off to the publish job (Actions
+      #                                       results service + Azure blob artifact
+      #                                       storage). New with the D4-SA4.4-02
+      #                                       split — verify against the
+      #                                       harden-runner audit baseline
+      #                                       (Insights → Recommended Policy) on
+      #                                       the first release run and pin the
+      #                                       observed blob subdomain if the
+      #                                       wildcard proves broader than needed.
       - name: Harden Runner
         uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
         with:
           egress-policy: block
           disable-sudo: true
           allowed-endpoints: >
+            *.blob.core.windows.net:443
             api.github.com:443
-            fulcio.sigstore.dev:443
             github.com:443
             nodejs.org:443
             objects.githubusercontent.com:443
             registry.npmjs.org:443
-            rekor.sigstore.dev:443
-            token.actions.githubusercontent.com:443
-            tuf-repo-cdn.sigstore.dev:443
-            uploads.github.com:443
+            results-receiver.actions.githubusercontent.com:443
 
       - name: Checkout
         uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
@@ -87,21 +89,31 @@ jobs:
           # cannot resolve.
           fetch-depth: 0
 
-      # Cycle 10 M D4-M4 (D4): a `v*` tag pushed from any branch will trigger
-      # this workflow and publish to npm. The "Validate version" step below
-      # asserts that the tag string matches package.json, but nothing prevents
-      # a tag placed on a feature branch (or a side branch a maintainer never
-      # reviewed) from reaching the publish step. `git merge-base --is-ancestor`
-      # is non-zero unless the tagged commit is reachable from `origin/main`,
-      # closing the side-channel where an attacker with write access could push
-      # `v2.1.0` to a branch they control and ship malicious code under the
-      # hatch3r npm name. Mirrors the GitHub Docs "trusted publishing — tag
-      # provenance" recommendation (2025-10).
+      # Cycle 10 M D4-M4 (D4): a `v*` tag pushed from any branch triggers this
+      # workflow. "Validate version" below asserts the tag string matches
+      # package.json, but nothing in the workflow prevents a tag placed on an
+      # unreviewed side branch from reaching the gates. `git merge-base
+      # --is-ancestor` is non-zero unless the tagged commit is reachable from
+      # `origin/main`, so this step blocks a tag whose commit never landed on
+      # main.
+      #
+      # Cycle 12 M D4-SA4.4-01 (D4) — honesty boundary: this guard REDUCES but
+      # does not by itself CLOSE the write-access rogue-tag channel. A
+      # tag-triggered run executes the release.yml present AT THE TAGGED COMMIT,
+      # so a write-access attacker who tags a branch carrying a release.yml with
+      # this step deleted is not stopped by it — the guard lives inside the
+      # artifact it guards. The durable, platform-side closures are (1) an
+      # `npm-publish` environment required-reviewer + a `v*` deployment tag
+      # policy and a `v*` tag ruleset (GitHub repo settings, not expressible in
+      # this file — tracked in D4-SA4.4-01), and (2) the gates/publish job split
+      # in this workflow (D4-SA4.4-02) that keeps the npm OIDC token out of any
+      # job running third-party build code. Mirrors the D4-14 SBOM
+      # floor-honesty precedent — name the residual path, do not overclaim.
       - name: Verify tag commit is on main
         run: |
           TAG_SHA=$(git rev-list -n 1 "$GITHUB_REF")
           echo "Tag $GITHUB_REF -> commit $TAG_SHA"
-          # actions/checkout@v4 with fetch-depth: 0 fetches all branches and
+          # actions/checkout@v7 with fetch-depth: 0 fetches all branches and
           # tags but does NOT create a local tracking branch for `main` unless
           # explicitly asked. Resolve via the remote ref directly.
           git fetch --no-tags origin main
@@ -117,10 +129,12 @@ jobs:
           node-version: "22"
           registry-url: "https://registry.npmjs.org"
 
-      - name: Upgrade npm for trusted publishing
-        run: npm install -g npm@11.5.1
-
+      # Cycle 12 M D4-SA4.4-02 (D4): the validated tag version is exported as a
+      # job output so the publish job — which does not check out the repo and so
+      # has no package.json — can name the exact published version for the
+      # `npm audit signatures` provenance re-check.
       - name: Validate version
+        id: validate_version
         run: |
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
           PKG_VERSION=$(node -p "require('./package.json').version")
@@ -128,17 +142,18 @@ jobs:
             echo "::error::Tag version ($TAG_VERSION) does not match package.json version ($PKG_VERSION)"
             exit 1
           fi
+          echo "version=$TAG_VERSION" >> "$GITHUB_OUTPUT"
           echo "Version validated: $TAG_VERSION"
 
       # Cycle 11 H D4-3 (D4): extract the CHANGELOG section for this tag BEFORE
-      # any irreversible step (npm pack/publish below). `npm publish` is
-      # immutable — npm blocks unpublish after 72h — so a missing or misnamed
+      # any irreversible step (npm pack/publish). `npm publish` is immutable —
+      # npm blocks unpublish after 72h — so a missing or misnamed
       # `## [<version>]` header that previously aborted only at the post-publish
       # release-notes step left npm published while the GitHub Release was never
       # created, desyncing the two. Failing closed here (alongside Validate
-      # version) keeps the precondition entirely ahead of the irreversible
-      # boundary; the Create GitHub Release step below merely consumes the
-      # already-validated release-notes.md file.
+      # version, and now entirely inside the gates job that gates publish) keeps
+      # the precondition ahead of the irreversible boundary; release-notes.md
+      # rides the artifact to the publish job's Create GitHub Release step.
       - name: Extract CHANGELOG section for release notes
         run: |
           TAG_VERSION="${GITHUB_REF#refs/tags/v}"
@@ -156,22 +171,22 @@ jobs:
 
       # Cycle 10 M D4-M2 (D4): NPM_CONFIG_IGNORE_SCRIPTS=true takes precedence
       # over .npmrc (npm 11 config order: cli > env > project rc > user rc >
-      # global rc). The release job holds id-token: write + npm publish creds —
-      # the highest-value secrets in the repo — so the lifecycle-script deny is
-      # enforced via env on every `npm ci`, not only via .npmrc which a malicious
-      # transitive Git-dep can rewrite mid-install with an `installconfig` key.
+      # global rc). The gates job runs the highest-value third-party code in the
+      # release path, so the lifecycle-script deny is enforced via env on every
+      # `npm ci`, not only via .npmrc which a malicious transitive Git-dep can
+      # rewrite mid-install with an `installconfig` key.
       #
       # Cycle 11 M D4-13 (D4): this env is scoped to install steps only, but
       # `prepublishOnly` (package.json) is INTENTIONALLY INERT in this pipeline
       # regardless of this env, on both axes: (1) .npmrc carries
       # `ignore-scripts=true` repo-wide, so even the unscoped `npm pack` below
-      # runs no `prepack`/`prepublishOnly`; (2) the Publish step ships the
+      # runs no `prepack`/`prepublishOnly`; (2) the publish job ships the
       # pre-packed `$TARBALL` file (`npm publish "$TARBALL"`), and publishing a
       # tarball file never runs `prepublishOnly`. The explicit Build step below
       # is the real dist/ guarantee for this CI path. `prepublishOnly` is kept
       # in package.json solely as the dist-rebuild safety net for a local
       # emergency `npm publish` (no tarball arg, no .npmrc ignore-scripts) — see
-      # the Publish step's provenance comment.
+      # the publish job's Publish step provenance comment.
       - name: Install dependencies
         env:
           NPM_CONFIG_IGNORE_SCRIPTS: "true"
@@ -207,12 +222,11 @@ jobs:
       # anti-slop, specialist-roster, severity-vocabulary, canonical,
       # adapter-parity) gate push/PR-to-main in ci.yml's D16-1 umbrella step, but
       # a `v*` tag pushed to an older or out-of-band main commit would otherwise
-      # reach `npm publish` below WITHOUT re-running them on the exact shipping
-      # commit. validate-canonical throws on any canonical-read warning (degraded
-      # YAML, PERMISSION_DENIED, TYPE_MISMATCH, promptGuard injection token), so a
+      # reach `npm publish` WITHOUT re-running them on the exact shipping commit.
+      # validate-canonical throws on any canonical-read warning (degraded YAML,
+      # PERMISSION_DENIED, TYPE_MISMATCH, promptGuard injection token), so a
       # tarball that silently lost canonical files cannot pass this step. Placed
-      # before the irreversible Pack/Publish boundary (npm publish is immutable —
-      # npm blocks unpublish after 72h), mirroring the Lint/Typecheck/Test
+      # before the irreversible Pack boundary, mirroring the Lint/Typecheck/Test
       # defense-in-depth steps above. The whole chain runs offline via tsx against
       # source + the bundled content root (no network host), so it is compatible
       # with the egress-policy: block allowlist — no allowed-endpoint entry added.
@@ -226,15 +240,21 @@ jobs:
         run: npm audit --audit-level=moderate --omit=dev
 
       # Pack the exact tarball that will be published so the SBOM attestation
-      # subject digest matches the artifact npm receives (publish uses this
-      # same file below). --pack-destination keeps it at the workspace root
-      # for the attestation glob and the GitHub Release upload.
+      # subject digest matches the artifact npm receives (the publish job ships
+      # this same file). --pack-destination keeps it at the workspace root for
+      # the SBOM subject and the artifact upload.
+      #
+      # Cycle 12 M D4-SA4.4-02 (D4): record a SHA-256 of the packed tarball so
+      # the publish job can verify byte-for-byte that it publishes exactly what
+      # the gates ran against, across the artifact hand-off boundary.
       - name: Pack tarball
+        id: pack
         run: |
           npm pack --pack-destination .
           TARBALL=$(ls -1 *.tgz | head -1)
-          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+          sha256sum "$TARBALL" > "$TARBALL.sha256"
           echo "Packed: $TARBALL ($(wc -c < "$TARBALL") bytes)"
+          echo "Digest: $(cat "$TARBALL.sha256")"
 
       # Cycle 10 H F4.3.1+F4.4.3 (D4): emit a CycloneDX SBOM of the package
       # that is about to be published so end users can verify the component
@@ -243,7 +263,9 @@ jobs:
       # pinned actions + cosign). @cyclonedx/cyclonedx-npm walks the installed
       # dependency tree (npm ci ran above) and writes CycloneDX 1.6 JSON.
       # --omit dev keeps the SBOM scoped to what actually ships in the
-      # published package (the same scope as `npm publish`).
+      # published package (the same scope as `npm publish`). Generated in the
+      # gates job because `npx cyclonedx` is third-party code — the publish job
+      # attests this SBOM but never runs the generator.
       #
       # Cycle 11 M D4-14 (D4): floor honesty — this generation step (SBOM
       # produced + uploaded to the Release) is the hard-floor guarantee; npm
@@ -263,13 +285,136 @@ jobs:
             --output-file sbom.cdx.json
           echo "SBOM generated: $(wc -c < sbom.cdx.json) bytes"
 
+      # Cycle 12 M D4-SA4.4-02 (D4): hand the packed tarball, its SHA-256, the
+      # CycloneDX SBOM, and the validated release notes to the publish job. This
+      # is the split's privilege boundary — nothing token-capable ran to produce
+      # these artifacts, and the publish job verifies the tarball digest before
+      # it publishes. retention-days: 1 because the artifact only needs to
+      # survive the gates -> publish hand-off inside this one run.
+      - name: Upload release artifacts
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: release-dist
+          path: |
+            *.tgz
+            *.tgz.sha256
+            sbom.cdx.json
+            release-notes.md
+          if-no-files-found: error
+          retention-days: 1
+
+  # ── Job 2: publish (id-token + attestations + Release write; minimal steps) ─
+  # Cycle 12 M D4-SA4.4-02 (D4): the ONLY job holding the npm trusted-publishing
+  # OIDC token. It runs no build/test/lint/SBOM code — only npm (publish /
+  # install / audit-signatures) and pinned first-party actions against the
+  # digest-verified tarball the gates job packed. `needs: gates` makes every
+  # gate (including the tag-ancestry probe) a precondition of publish, and
+  # `environment: npm-publish` is the single approval point once its
+  # protection rules are configured per D4-SA4.4-01.
+  publish:
+    needs: gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: npm-publish
+    # Cycle 12 M D4-SA4.4-02 (D4): the npm OIDC + attestation + Release-write
+    # grants live only here, not at workflow scope.
+    # attestations: write lets actions/attest-sbom record a signed SBOM
+    # attestation through the same Sigstore/OIDC path that backs npm provenance
+    # (id-token: write), tying the component inventory to the published tarball
+    # (Cycle 10 H F4.3.1+F4.4.3 — CONSTITUTION §2 P5 + §CQ3 supply-chain floor:
+    # npm provenance + SBOM + SHA-pinned actions). contents: write is required
+    # by softprops/action-gh-release to create the GitHub Release.
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    steps:
+      # Cycle 10 H F4.3.2 + Cycle 11 H D4-5 (D4): harden-runner egress-policy:
+      # block on the publish job too — it holds id-token: write, the
+      # highest-value credential in the repo. Pinned to the v2.19.3 commit SHA;
+      # disable-sudo: true.
+      #
+      # Cycle 12 M D4-SA4.4-02 (D4): allowlist is the publish-capability subset
+      # plus the artifact-download endpoints — the gates job already ran all
+      # third-party build code, so nothing here can convert a devDependency
+      # compromise into an OIDC mint.
+      #
+      # Allowlist (each entry maps to a step's egress; a missing entry fails the
+      # publish closed):
+      #   api.github.com, github.com        — setup-node manifest + attest-sbom
+      #                                       + action-gh-release
+      #   nodejs.org                        — actions/setup-node Node 22 download
+      #   objects.githubusercontent.com     — GitHub object/manifest CDN
+      #   registry.npmjs.org                — npm publish / install / audit
+      #                                       signatures / global npm upgrade
+      #   token.actions.githubusercontent.com — GitHub OIDC token (id-token)
+      #   fulcio.sigstore.dev, rekor.sigstore.dev, tuf-repo-cdn.sigstore.dev
+      #                                       — npm provenance + SBOM attestation
+      #   uploads.github.com                — GitHub Release asset upload (SBOM)
+      #   results-receiver.actions.githubusercontent.com,
+      #   *.blob.core.windows.net           — actions/download-artifact (v8) of
+      #                                       the packed tarball + SBOM from the
+      #                                       gates job. New with the D4-SA4.4-02
+      #                                       split — verify against the
+      #                                       harden-runner audit baseline on the
+      #                                       first release run.
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            *.blob.core.windows.net:443
+            api.github.com:443
+            fulcio.sigstore.dev:443
+            github.com:443
+            nodejs.org:443
+            objects.githubusercontent.com:443
+            registry.npmjs.org:443
+            rekor.sigstore.dev:443
+            results-receiver.actions.githubusercontent.com:443
+            token.actions.githubusercontent.com:443
+            tuf-repo-cdn.sigstore.dev:443
+            uploads.github.com:443
+
+      - name: Setup Node.js
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
+        with:
+          node-version: "22"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Upgrade npm for trusted publishing
+        run: npm install -g npm@11.5.1
+
+      # Cycle 12 M D4-SA4.4-02 (D4): download the gates job's packed tarball,
+      # SBOM, digest, and release notes. No repo checkout runs in this job —
+      # npm provenance is generated from the GitHub Actions OIDC context and env
+      # (GITHUB_REPOSITORY/SHA/WORKFLOW_REF), not from a local .git tree, so the
+      # publish stays isolated from the source tree the gates ran against.
+      - name: Download release artifacts
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: release-dist
+
+      # Cycle 12 M D4-SA4.4-02 (D4): verify the tarball is byte-for-byte the one
+      # the gates ran against before the irreversible npm publish. `sha256sum
+      # -c` fails the release closed on any mismatch or missing file. Export the
+      # verified tarball name for the Publish + Attest steps below.
+      - name: Verify tarball digest
+        run: |
+          TARBALL=$(ls -1 *.tgz | head -1)
+          echo "TARBALL=$TARBALL" >> "$GITHUB_ENV"
+          sha256sum -c "$TARBALL.sha256"
+          echo "Digest verified: $TARBALL"
+
       # Cycle 10 L F4.4.2 (D4): provenance is generated by npm trusted
       # publishing (OIDC) — the `environment: npm-publish` + `id-token: write`
-      # + npm@11.5.1 path above is the source of truth, GA since 2025-07-31
-      # (GitHub Changelog). The explicit `--provenance` flag is a belt-and-
-      # suspenders fallback in case the trust config is rebuilt locally for an
-      # emergency publish; it does NOT enforce OIDC use, so the trust config
-      # remains the attestation mechanism of record.
+      # + npm@11.5.1 path on this job is the source of truth, GA since
+      # 2025-07-31 (GitHub Changelog). The explicit `--provenance` flag is a
+      # belt-and-suspenders fallback in case the trust config is rebuilt locally
+      # for an emergency publish; it does NOT enforce OIDC use, so the trust
+      # config remains the attestation mechanism of record.
       - name: Publish to npm (with provenance)
         run: npm publish "$TARBALL" --access public --provenance
 
@@ -282,11 +427,13 @@ jobs:
       # and registry/Rekor indexing can lag a few seconds, so a transient
       # verification miss must not fail an otherwise-clean release; the step
       # output is the signal. Runs in a throwaway dir so it audits the
-      # published artifact, not the local workspace tree.
+      # published artifact, not the local workspace tree. PKG_VERSION comes from
+      # the gates job output (this job has no checked-out package.json).
       - name: Verify published provenance (npm audit signatures)
         continue-on-error: true
+        env:
+          PKG_VERSION: ${{ needs.gates.outputs.version }}
         run: |
-          PKG_VERSION=$(node -p "require('./package.json').version")
           VERIFY_DIR="$(mktemp -d)"
           cd "$VERIFY_DIR"
           npm init -y >/dev/null 2>&1
@@ -297,10 +444,10 @@ jobs:
 
       # Attest the SBOM through the same Sigstore/OIDC path that backs npm
       # provenance, binding the signed component inventory to the exact
-      # published tarball (packed above, published as-is). Runs after publish
-      # so a release is not blocked on a transient Sigstore outage during
-      # attestation; the attestation is recorded against the immutable
-      # packed artifact regardless.
+      # published tarball (packed in the gates job, digest-verified above,
+      # published as-is). Runs after publish so a release is not blocked on a
+      # transient Sigstore outage during attestation; the attestation is
+      # recorded against the immutable packed artifact regardless.
       #
       # Cycle 11 M D4-14 (D4): kept non-blocking (continue-on-error) for
       # Sigstore availability, but the failure is no longer silent. The
@@ -345,18 +492,19 @@ jobs:
       # workflow (F4.3.1+F4.4.3 recommendation step 2 — SBOM as a release
       # artifact). The tarball is attested above; the SBOM rides alongside it.
       #
-      # release-notes.md was extracted and validated near "Validate version"
-      # above (Cycle 11 H D4-3), BEFORE the irreversible npm publish. The
-      # release-prep skill (Step 6) writes a Keep-a-Changelog section per
-      # release; this body_path consumes that single source so CHANGELOG.md and
-      # the GitHub release page cannot diverge (no GitHub auto-generation).
+      # release-notes.md was extracted and validated in the gates job (Cycle 11
+      # H D4-3), BEFORE the irreversible npm publish, and rides the artifact to
+      # this step. The release-prep skill (Step 6) writes a Keep-a-Changelog
+      # section per release; this body_path consumes that single source so
+      # CHANGELOG.md and the GitHub release page cannot diverge (no GitHub
+      # auto-generation).
       #
       # Cycle 10 L F4.4.6 (D4): release-notes.md lives in the runner workspace.
-      # No cleanup is needed because the workflow targets GitHub-hosted runners
-      # only (`runs-on: ubuntu-latest`), whose workspace is ephemeral and
-      # discarded after the job — a stale release-notes.md from a prior run
-      # cannot survive. If this workflow ever moves to a self-hosted runner, add
-      # an `rm -f release-notes.md` cleanup (or switch action-gh-release to a
+      # No cleanup is needed because both jobs target GitHub-hosted runners only
+      # (`runs-on: ubuntu-latest`), whose workspace is ephemeral and discarded
+      # after the job — a stale release-notes.md from a prior run cannot survive.
+      # If this workflow ever moves to a self-hosted runner, add an
+      # `rm -f release-notes.md` cleanup (or switch action-gh-release to a
       # `body:` step output) before relying on it, because self-hosted
       # workspaces persist between runs.
       - name: Create GitHub Release

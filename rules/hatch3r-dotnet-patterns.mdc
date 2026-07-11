@@ -11,7 +11,7 @@ alwaysApply: false
 
 ## .NET / C# Language Floor
 
-- Target .NET 9.0 (LTS-supporting upgrade path) or the current LTS (.NET 8). Pin via `global.json` (`sdk.version`) and `*.csproj` `<TargetFramework>net9.0</TargetFramework>`.
+- Target .NET 10.0 (the current LTS — GA Nov 2025, supported to Nov 2028). .NET 9 (STS) left support 2026-05-12 and .NET 8 (LTS) reaches end of support 2026-11-10, so treat any project still on 8/9 as an upgrade candidate, not a floor. Pin via `global.json` (`sdk.version`) and `*.csproj` `<TargetFramework>net10.0</TargetFramework>`.
 - Use C# 13+ features: collection expressions (`[1, 2, 3]`), primary constructors on non-record classes, `params Span<T>`. Avoid mixing older syntax with new — pick the modern form across the codebase.
 - Enable nullable reference types (`<Nullable>enable</Nullable>` in `*.csproj`). Treat warnings as errors: `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>`.
 - Use `Directory.Build.props` to centralize SDK version, lang version, code-analysis rules, and shared package versions across all projects.
@@ -87,6 +87,7 @@ alwaysApply: false
 
 ## References
 
+- .NET support policy (LTS/STS lifecycle + EOL dates — check this vendor lifecycle page, not only the docs, at each refresh): https://dotnet.microsoft.com/en-us/platform/support/policy (accessed 2026-07-11, official-docs) — grounds the .NET 10 current-LTS floor and the .NET 8/9 EOL dates above.
 - .NET 9 release notes: https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-9 (accessed 2026-05-27, official-docs)
 - ASP.NET Core Minimal APIs: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/ (accessed 2026-05-27, official-docs)
 - EF Core 9.x: https://learn.microsoft.com/en-us/ef/core/what-is-new/ (accessed 2026-05-27, official-docs)

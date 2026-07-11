@@ -471,4 +471,65 @@ describe("verify command", () => {
     expect(human).toContain("verify: PASS");
     expect(human).not.toContain("Managed-block structural warnings");
   });
+
+  // D1-SA1.4-04 (D1, P1): verify (a CI drift gate) never read the manifest's
+  // recorded writer version, so a stale (older) global install followed verify's
+  // `sync`/`--fix` hint and silently DOWNGRADED the outputs. verify now surfaces
+  // the writer version + skew direction (JSON) and flips the recovery hint to
+  // `update`-first when the running CLI is older than the writer.
+  it("exposes manifestHatch3rVersion + versionSkewDirection installed-newer in --json (D1-SA1.4-04)", async () => {
+    // Fixture writer is 1.9.0; the running CLI is newer. Sync → clean PASS.
+    await createTestProject(tempDir);
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      const { verifyCommand } = await import("../../cli/commands/verify.js");
+      await expect(verifyCommand({ format: "json" })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    const combined = stdoutChunks.join("");
+    const parsed = JSON.parse(combined.slice(combined.indexOf("{")).trim()) as {
+      manifestHatch3rVersion: string;
+      versionSkew: boolean;
+      versionSkewDirection: string;
+    };
+    expect(parsed.manifestHatch3rVersion).toBe("1.9.0");
+    expect(parsed.versionSkew).toBe(true);
+    expect(parsed.versionSkewDirection).toBe("installed-newer");
+  });
+
+  it("flips the recovery hint + human disclosure to update-first when installed-older (D1-SA1.4-04)", async () => {
+    // Writer 99.0.0 (above any real CLI) → installed-older. No sync → the cursor
+    // outputs are missing (syncable drift), so verify FAILS: the recovery hint
+    // must direct at `update` (sync would regenerate from the older set and
+    // downgrade), not the default `sync`/`--fix`.
+    await createTestProject(tempDir, { hatch3rVersion: "99.0.0" });
+    consoleSpy.mockClear();
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    let thrown: unknown;
+    try {
+      await verifyCommand();
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(HatchError);
+    const hint = (thrown as HatchError).recoveryHint ?? "";
+    expect(hint).toContain("hatch3r update");
+    expect(hint).toContain("would downgrade");
+    expect(hint).not.toMatch(/Run `hatch3r sync` to regenerate drifted\/missing files/);
+
+    // The human path also prints the one-line skew disclosure.
+    const human = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(human).toContain("is older than the version that generated these files");
+  });
 });

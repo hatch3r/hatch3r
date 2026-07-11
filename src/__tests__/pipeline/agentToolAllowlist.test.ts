@@ -781,4 +781,52 @@ describe("agentToolAllowlist", () => {
       expect(script).toContain("payload.subagent_type");
     });
   });
+
+  // D2-SA2.4-09 (Medium, P6): the generated PreToolUse / subagentStart scripts
+  // must fail CLOSED on a wrong-shape policy doc, not only on an unreadable one.
+  // A crash exit on Claude is NON-BLOCKING (code.claude.com/docs/en/hooks,
+  // accessed 2026-07-10), so an unguarded `.policies.find` on `{"policies":null}`
+  // or a future schema-v2 layout would silently disable the ASI02 gate. The fix
+  // validates the emitted `schema` discriminator + `Array.isArray(policies)` and
+  // wraps the body in a top-level deny-on-throw catch. Both are asserted here.
+  describe("D2-SA2.4-09 policy-file shape/schema fail-closed", () => {
+    it("Claude hook validates the schema discriminator + policies array shape before the lookup", () => {
+      const script = buildClaudePreToolUseHookScript();
+      expect(script).toContain('policiesDoc.schema !== "hatch3r/agent-tool-policies/v1"');
+      expect(script).toContain("Array.isArray(policiesDoc.policies)");
+      // The shape check must GUARD the previously-unguarded `.policies.find`:
+      // it has to appear before the lookup in the emitted source.
+      const shapeIdx = script.indexOf('policiesDoc.schema !== "hatch3r/agent-tool-policies/v1"');
+      const findIdx = script.indexOf("policiesDoc.policies.find");
+      expect(shapeIdx).toBeGreaterThan(-1);
+      expect(findIdx).toBeGreaterThan(shapeIdx);
+    });
+
+    it("Claude hook denies wrong-shape and unexpected-throw via POLICY_FILE_INVALID (explicit check + top-level catch-all)", () => {
+      const script = buildClaudePreToolUseHookScript();
+      // Two emitters: the explicit schema/shape branch and the fail-closed
+      // catch-all that converts any throw into an exit-0 deny.
+      const invalidDenies = script.split('reasonCode: "POLICY_FILE_INVALID"').length - 1;
+      expect(invalidDenies).toBe(2);
+      // The catch-all deny is uniquely identified by its reason string.
+      expect(script).toContain("policy evaluation failed");
+    });
+
+    it("Cursor guard validates schema + policies array shape before the lookup", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      expect(script).toContain('policiesDoc.schema !== "hatch3r/agent-tool-policies/v1"');
+      expect(script).toContain("Array.isArray(policiesDoc.policies)");
+      const shapeIdx = script.indexOf('policiesDoc.schema !== "hatch3r/agent-tool-policies/v1"');
+      const findIdx = script.indexOf("policiesDoc.policies.find");
+      expect(shapeIdx).toBeGreaterThan(-1);
+      expect(findIdx).toBeGreaterThan(shapeIdx);
+    });
+
+    it("Cursor guard denies wrong-shape and unexpected-throw via POLICY_FILE_INVALID (explicit check + top-level catch-all)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      const invalidDenies = script.split('reasonCode: "POLICY_FILE_INVALID"').length - 1;
+      expect(invalidDenies).toBe(2);
+      expect(script).toContain("policy evaluation failed");
+    });
+  });
 });

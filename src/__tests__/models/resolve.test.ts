@@ -84,6 +84,19 @@ describe("resolveAgentModel", () => {
     expect(result).toBe("gemini-3.1-pro");
   });
 
+  it("resolves haiku to the current GA haiku model (D1-SA1.6-03 currency pin extension)", () => {
+    // D1-25 pinned only the tier that failed in Cycle 11 (opus); D1-SA1.6-03
+    // found the guard gap let the sonnet row go stale undetected. Pin haiku
+    // here (current per the vendor model table, verified 2026-07-11). The
+    // sonnet pin joins when the queued alias bump lands — `sonnet` currently
+    // resolves to the previous-generation claude-sonnet-4-6, and the bump to
+    // claude-sonnet-5 must move in lock-step with costEstimator.ts
+    // TIER_ALIASES/MODEL_RATES and docs/model-selection.md (aliases.ts:10-14).
+    const agent = makeAgent({ model: "haiku" });
+    const manifest = makeManifest();
+    expect(resolveAgentModel("hatch3r-implementer", agent, manifest)).toBe("claude-haiku-4-5");
+  });
+
   it("resolves opus to the current GA opus model (D1-25 currency)", () => {
     // The `opus` row was two GA generations stale (`claude-opus-4-6`) until the
     // D1-25 bump; lock the current target so a future stale value fails here.

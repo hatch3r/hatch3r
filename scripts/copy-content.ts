@@ -1,10 +1,14 @@
 #!/usr/bin/env tsx
 /**
- * postbuild: copy canonical content directories into `dist/content/` so the
- * published npm tarball can ship a single `dist/` tree containing both the
- * compiled CLI (`dist/cli/`) and the canonical content (`dist/content/`).
+ * Copies canonical content directories into `dist/content/` so the published
+ * npm tarball ships a single `dist/` tree containing both the compiled CLI
+ * (`dist/cli/`) and the canonical content (`dist/content/`).
  *
- * Runs after `tsup` via the `postbuild` npm script. Resolved at runtime by
+ * Invoked inline by the `build` npm script (`tsup && tsx
+ * scripts/copy-content.ts`) — NOT by a `postbuild` lifecycle hook. The
+ * committed `.npmrc` pins `ignore-scripts=true` repo-wide, so npm skips every
+ * pre/post lifecycle script (npm config docs); the inline `&&` chain is the
+ * live, environment-independent invocation path. Resolved at runtime by
  * `src/content/contentRoot.ts::resolveBundledContentRoot`.
  *
  * Pure stdlib (Node 22+): `node:fs/promises`, `node:path`, `node:url`.

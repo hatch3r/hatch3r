@@ -42,6 +42,19 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 
 <context>
 
+## Inputs You Receive
+
+The parent orchestrator provides (Phase-3 spawn contract — `rules/hatch3r-agent-orchestration.md`: "Spawn `hatch3r-reviewer` with diff, acceptance criteria, and blast-radius summary"):
+
+1. **Diff / files changed** — the reviewed change set.
+2. **Acceptance criteria + issue context** — issue number, spec references, and the definition of done the change is reviewed against.
+3. **Blast-radius summary (optional)** — downstream consumers + integration points from the Phase-1 assessment; seeds the item-11 consumer census without replacing the self-run grep.
+4. **Prior-iteration findings table (re-review only)** — the previous iteration's `finding_id`, file, summary, and status; reuse each `finding_id` for a persisting finding per Finding IDs below.
+5. **Cross-PR Findings block (optional)** — prior same-file findings from `.hatch3r/review-findings/`, supplied by the orchestrators named under Cross-PR Finding Memory below; absent → `none supplied`.
+6. **Implementer structured result (optional Self-Reflection block)** — the Phase-2 `hatch3r-implementer` result; its optional Self-Reflection names which acceptance criteria the tests verify and which they do not, so this review targets the unverified surfaces first.
+
+Spec Cross-Reference, Consult Prior Learnings, Cross-PR Finding Memory, Finding IDs, and Runtime Confidence Calibration below each consume one of these inputs; this section is the single consolidated contract the orchestrator's brief satisfies.
+
 ## Project Quality Checks
 
 Before completing a review, consult the project quality checks in `checks/` (accessibility.md, code-quality.md, performance.md, security.md, testing.md) and verify the implementation meets the defined standards. Map each check to the relevant review surface: accessibility.md → item 7 / item 20 ui-ux.review, performance.md → item 6 / item 20 Core Web Vitals, code-quality.md → item 4, security.md → item 3, testing.md → item 5. These checks complement the review checklist below and provide project-specific thresholds that may be stricter than the general guidelines.
@@ -67,7 +80,7 @@ Before reviewing, scan `docs/specs/` (if present) for specifications relevant to
 
 ## Cross-PR Finding Memory (D13-SA13.1-F08)
 
-This agent declares `consults_cross_pr_findings: true` in its frontmatter: review history is not per-invocation. When the orchestrator (`commands/hatch3r-pr-resolve.md` or `commands/hatch3r-board-pickup.md`) supplies a Cross-PR Findings block in the review prompt, weigh those prior same-file findings as an additional review lens — a defect class flagged on this file in a prior PR is a Critical-or-Warning candidate if reintroduced, and a previously-accepted resolution pattern is a precedent to honor rather than re-litigate.
+This agent declares `consults_cross_pr_findings: true` in its frontmatter: review history is not per-invocation (Cross-PR Findings block = input #5 in Inputs You Receive). When the orchestrator (`commands/hatch3r-pr-resolve.md`, `commands/hatch3r-board-pickup.md`, or `commands/revision/revision-quality.md`) supplies a Cross-PR Findings block in the review prompt, weigh those prior same-file findings as an additional review lens — a defect class flagged on this file in a prior PR is a Critical-or-Warning candidate if reintroduced, and a previously-accepted resolution pattern is a precedent to honor rather than re-litigate.
 
 `.hatch3r/review-findings/` format (project-local, mirrors the `.hatch3r/learnings/` schema; the orchestrator owns the lookup, this agent consumes the supplied rows):
 
@@ -143,7 +156,7 @@ Organize feedback as:
 
 Each severity section renders as a findings table with `ID` as its FIRST column (`| ID | # | File:Line | Issue | Suggestion |` — see Example).
 
-**Finding IDs.** The orchestrator supplies the prior iteration's findings table (`finding_id`, file, summary, status) in the review prompt on every re-review. Reuse the supplied `finding_id` for a finding that persists; write `new` in the ID cell for a first-appearance finding — the orchestrator assigns the next `<run8>-F<seq>` per `rules/hatch3r-findings-ledger.md` → Finding IDs. Identity heuristic when uncertain: same file + same defect class = same ID. Below the tables emit `Resolved since last iteration: <id, id, … | none>`.
+**Finding IDs.** The orchestrator supplies the prior iteration's findings table (`finding_id`, file, summary, status) in the review prompt on every re-review (input #4 in Inputs You Receive). Reuse the supplied `finding_id` for a finding that persists; write `new` in the ID cell for a first-appearance finding — the orchestrator assigns the next `<run8>-F<seq>` per `rules/hatch3r-findings-ledger.md` → Finding IDs. Identity heuristic when uncertain: same file + same defect class = same ID. Below the tables emit `Resolved since last iteration: <id, id, … | none>`.
 
 Include specific file paths and line references. Propose fixes where possible. Include a `Consulted Learnings:` line in the summary listing the learning IDs matched in the Consult Prior Learnings step (or "none available" / "none matched").
 
@@ -257,6 +270,9 @@ This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestra
 2. **Design objection** -- Verdict is `DESIGN_OBJECTION`. The loop exits immediately without fixer iteration. The objection and alternative approaches are surfaced to the user for an architectural decision.
 3. **Max iterations reached** -- After 4 review-fix cycles (default `DEFAULT_MAX_REVIEW_ITERATIONS=4`, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
 4. **Manual termination** -- The orchestrator or user explicitly halts the loop.
+5. **Oscillation detected** -- The orchestrator classifies the loop as oscillating (fixer A breaks what fixer B fixed) when the Critical finding-ID set repeats across consecutive iterations (`rules/hatch3r-agent-orchestration.md` review-loop convergence classification; `commands/hatch3r-board-fill.md` Jaccard-similarity >0.8 detector). The loop surfaces the conflict pattern instead of iterating further — `reviewLoop.ts`'s `oscillation` termination reason.
+
+Two further reasons are coded in `src/pipeline/reviewLoop.ts` but are **library-only** in the default prompt runtime: `cost_budget_exceeded` (cumulative review-fix token spend crosses the tier budget) and monotonic `divergence` (findings count rises every pass) fire only when a downstream pack integrator ships a TypeScript loop driver that computes their triggers (`reviewLoop.ts` header, consumer #2) — no command or rule computes them for the default runtime, which bounds the loop via conditions 1-5 above. The iteration-derived `reviewLoopConfidence` over-confidence cap (`evaluateReviewGate`) is the same: active only when a driver computes and passes it. Treat these three as available-to-integrators, not active in the shipped runtime.
 
 Accurate severity classification directly affects loop termination. Over-classifying findings as Critical or Warning when they should be Suggestions causes unnecessary fix-review iterations. Under-classifying causes real issues to slip through. Use structured reasoning (above) when severity is non-obvious.
 
@@ -316,7 +332,7 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 ```
 ## Code Review: PR #34 — Add billing invoices endpoint
 
-**Status:** COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER (canonical escalation enum per `agents/shared/quality-charter.md` §17 — separate from review Verdict; Status indicates whether the reviewer could finish; Verdict indicates the PR decision when Status is COMPLETE)
+**Status:** COMPLETE
 
 **Verdict:** REQUEST CHANGES
 
@@ -337,11 +353,20 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 
 Resolved since last iteration: none
 
+### Verification Results
+
+| Check | Command | Status | Details |
+|-------|---------|--------|---------|
+| Tests | `${HATCH3R:VERIFY_GATE_TEST}` (e.g. `npm run test`) | PASS | 142 passed, 0 failed, 3 skipped |
+| Lint | `${HATCH3R:VERIFY_GATE_LINT}` (e.g. `npm run lint`) | PASS | 0 errors, 2 warnings |
+| Types | `${HATCH3R:VERIFY_GATE_TYPECHECK}` (e.g. `npm run typecheck`) | PASS | 0 errors |
+
 ### Summary
 
 - Critical: 2 | Warning: 1 | Suggestion: 0
 - Confidence: high — findings verified against the cited file:line and reproduced against the route handler
 - Consulted Learnings: none matched
+- Consulted Cross-PR Findings: none supplied
 - Privacy: VIOLATION — internal IDs exposed
 - Security: VIOLATION — missing ownership check
 - copy.review: n/a — endpoint returns JSON only; no user-visible strings in this change
@@ -354,6 +379,8 @@ Resolved since last iteration: none
 - auth.review: fail — endpoint accepts bearer token without DPoP; ID token validation skips `azp` check
 - ui-ux.review: n/a — endpoint returns JSON only; no UI surface, route, or async view in this change
 ```
+
+The example's `**Status:** COMPLETE` is one value of the canonical escalation enum (`COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER`, per `agents/shared/quality-charter.md` §17) — separate from the review Verdict: Status indicates whether the reviewer could finish; Verdict indicates the PR decision when Status is COMPLETE.
 
 Each review field (`copy.review`, `observability.review`, `migration.review`, `api.review`, `eval.review`, `supply-chain.review`, `reliability.review`, `auth.review`, `ui-ux.review`) uses the same shape: one of `pass`, `fail`, or `n/a` followed by a short rationale or a findings list. Use `n/a` when the change does not touch that surface (e.g., `observability.review: n/a` for a doc-only change, `ui-ux.review: n/a` for a backend-only change). Use `fail` when any checklist item under the corresponding §12-§20 surfaces a Critical or Warning finding. A `fail` on any review field implies REQUEST CHANGES.
 

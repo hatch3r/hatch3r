@@ -186,6 +186,24 @@ export interface UpdateResult {
    * files the regenerate genuinely produced.
    */
   copiedFiles: number;
+  /**
+   * D10-SA10.4-02 (Cycle 12, D10, P1): per-write disposition tally for the
+   * regenerate's adapter writes — `created` / `merged` (managed-block merge,
+   * user edits outside the markers preserved) / `regenerated` (full-file
+   * rewrite) / `unchanged` / `skipped`. The five counters sum to
+   * {@link copiedFiles}. Lets `update`'s and `config`'s summaries answer
+   * "did it keep my edits?" the way sync's D10-M11 tally does, instead of a
+   * bare file count. Always populated by `runRegenerate`; optional so
+   * callers that stub an UpdateResult (test fixtures) stay source-compatible
+   * — consumers must guard for absence.
+   */
+  writeActions?: {
+    created: number;
+    merged: number;
+    regenerated: number;
+    unchanged: number;
+    skipped: number;
+  };
   syncedTools: number;
   failedTools: number;
   version: string;
@@ -460,6 +478,18 @@ export async function runRegenerate(
     ? { ...manifest.managedFilesByAdapter }
     : {};
   const newManagedByAdapter: Record<string, string[]> = {};
+  // D10-SA10.4-02 (Cycle 12, D10, P1): tally each write's user-visible
+  // disposition (same merged/regenerated split sync's D10-M11 summary uses)
+  // so update/config can render "M merged (your edits preserved) · K
+  // regenerated (full overwrite)" instead of a bare file count. The prior
+  // loop discarded safeWriteFile's return entirely.
+  const writeActions: NonNullable<UpdateResult["writeActions"]> = {
+    created: 0,
+    merged: 0,
+    regenerated: 0,
+    unchanged: 0,
+    skipped: 0,
+  };
   const orphanEntries: OrphanCleanupEntry[] = [];
   // D12-4 (Cycle 11 Wave 2, D12, P2): collect each successful adapter's
   // outputs so `writeProvenance` can refresh `.hatch3r/provenance.json` after
@@ -579,13 +609,43 @@ export async function runRegenerate(
           // managed file even if the user stripped its HATCH3R:BEGIN/END
           // markers. Without `--force`, the safeWrite filename-prefix guard
           // still protects unmarked files.
-          if (out.managedContent) {
-            await safeWriteFile(fullPath, out.content, {
-              managedContent: out.managedContent,
-              force: options.force,
-            });
-          } else {
-            await safeWriteFile(fullPath, out.content, { force: options.force });
+          const writeResult = out.managedContent
+            ? await safeWriteFile(fullPath, out.content, {
+                managedContent: out.managedContent,
+                // D10-SA10.4-01 (Cycle 12, D10, P1): splice the managed block
+                // back into a file whose HATCH3R:BEGIN/END markers were
+                // stripped, matching sync.ts's D11-H-3 write. Without this,
+                // update/config/verify --fix (which all regenerate through
+                // this loop) hit safeWrite's no-marker branch and returned
+                // action "skipped" on every run — the managed block silently
+                // stayed at the OLD canonical version after a version bump,
+                // and only `hatch3r sync` could recover the file.
+                appendIfNoBlock: true,
+                force: options.force,
+              })
+            : await safeWriteFile(fullPath, out.content, { force: options.force });
+          // Surface per-write warnings (marker recovery, managed-block
+          // auto-repair, forced overwrite) exactly like sync does — dropping
+          // them violates the Silent Failure Contract (CONSTITUTION §2 P5).
+          if (writeResult.warning) warn(writeResult.warning);
+          // D10-SA10.4-02: record the disposition. `updated` splits into
+          // merged (managed-block merge, user edits preserved) vs regenerated
+          // (full-file rewrite) via out.managedContent — the same
+          // classification sync.ts::renderAction applies.
+          switch (writeResult.action) {
+            case "created":
+              writeActions.created += 1;
+              break;
+            case "updated":
+              if (out.managedContent) writeActions.merged += 1;
+              else writeActions.regenerated += 1;
+              break;
+            case "unchanged":
+              writeActions.unchanged += 1;
+              break;
+            case "skipped":
+              writeActions.skipped += 1;
+              break;
           }
           addManagedFile(manifest, out.path);
           toolPaths.push(out.path);
@@ -821,6 +881,7 @@ export async function runRegenerate(
 
   return {
     copiedFiles: filesWritten,
+    writeActions,
     syncedTools: manifest.tools.length - adapterFailures.length,
     failedTools: adapterFailures.length,
     version: HATCH3R_VERSION,
@@ -1306,7 +1367,22 @@ export async function updateCommand(
   // implies quiet) so info()/box chrome cannot interleave with the single
   // JSON document on stdout. `--verbose` is intentionally NOT registered on
   // `update` (program.ts), so beginCommand's verbose wiring stays inert here.
-  const format: CliOutputFormat = beginCommand(_opts ?? {}, { banner: "compact" });
+  // D1-SA1.3-04 (Cycle 12, D1, P1): declare interactivity so beginCommand rejects
+  // `--format json` without `--yes` (exit 2) BEFORE a migration-checkpoint prompt can
+  // interleave with the single JSON document / hang non-TTY CI. `update` prompts via
+  // the `content-selections-init` and `platform-selection` checkpoints whenever the
+  // run is NOT headless and the manifest predates content-tracking / multi-platform
+  // (manifest.content === undefined || !manifest.platform). Those checkpoints gate
+  // ONLY on `headless` (= !--yes) and ignore the dryRun arg (see MIGRATION_CHECKPOINTS
+  // + runMigrationCheckpoints), so — unlike rollback/clean, whose dry-run never
+  // prompts — the discriminator here is `--yes`, not `--dry-run`: a `--format json
+  // --dry-run` run on a legacy manifest would still reach a prompt. The manifest is
+  // read only after this call, so the declaration is command-level (mirrors setup.ts's
+  // `!headless`); `--format json --yes` is the headless CI escape.
+  const format: CliOutputFormat = beginCommand(_opts ?? {}, {
+    banner: "compact",
+    interactive: _opts?.yes !== true,
+  });
   const jsonMode = format === "json";
 
   // F8.3.4 (D8): the pipeline wall-clock deadman now lives inside
@@ -1623,6 +1699,23 @@ export async function updateCommand(
     label("Tools", `${compactedResult.syncedTools} tool(s) re-synced`),
     label("Version", `v${compactedResult.version}`),
   ];
+  // D10-SA10.4-02 (Cycle 12, D10, P1): render the same preserved-vs-overwritten
+  // tally sync's D10-M11 summary shows, so the upgrader — the user most afraid
+  // a version bump wiped their hand edits — reads "did it keep my edits?"
+  // directly instead of a bare file count (clig.dev: "if you change state,
+  // tell the user"; NN/g visibility-of-system-status).
+  const wa = result.writeActions;
+  const changeParts: string[] = [];
+  if (wa) {
+    if (wa.created) changeParts.push(chalk.green(`${wa.created} created`));
+    if (wa.merged) changeParts.push(chalk.cyan(`${wa.merged} merged (your edits preserved)`));
+    if (wa.regenerated) changeParts.push(chalk.yellow(`${wa.regenerated} regenerated (full overwrite)`));
+    if (wa.unchanged) changeParts.push(chalk.dim(`${wa.unchanged} unchanged`));
+    if (wa.skipped) changeParts.push(chalk.dim(`${wa.skipped} skipped`));
+  }
+  if (changeParts.length > 0) {
+    updateSummaryLines.splice(1, 0, label("Changes", changeParts.join(chalk.dim(" · "))));
+  }
   if (result.snapshotSessionId) {
     updateSummaryLines.push(
       label(
@@ -1648,6 +1741,10 @@ export async function updateCommand(
     json: {
       status: result.failedTools > 0 ? "partial" : "passed",
       copiedFiles: result.copiedFiles,
+      // D10-SA10.4-02: additive field — CI consumers can branch on the
+      // preserved-vs-overwritten split without parsing the human tally line.
+      // Explicit null when a stubbed result omitted the tally.
+      writeActions: result.writeActions ?? null,
       syncedTools: result.syncedTools,
       failedTools: result.failedTools,
       version: result.version,

@@ -1,7 +1,10 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { join } from "node:path";
 import { mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
+import { mkdtempSync, mkdirSync, writeFileSync, rmSync, lstatSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
+import { WORKTREE_INCLUDE_FILE, MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 
 // ---------------------------------------------------------------------------
 // Tests for atomicWriteFile error paths: ENOSPC, EBUSY retry, fdatasync EPERM
@@ -740,5 +743,83 @@ describe("safeWriteFile additional branches", () => {
       expect(result.warning).toContain("managed block markers");
       expect(result.warning).toContain("HATCH3R:BEGIN/END");
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// D3-SA3.4-06: worktree symlink EPERM→copy fallback
+// setupWorktree symlinks shared dirs; on Windows without developer mode /
+// elevation, symlink() fails EPERM and setup falls back to an atomic
+// COPYFILE_EXCL copy (worktree/index.ts:373-385). No test on any platform
+// reaches this branch — POSIX grants symlinks and GitHub-hosted Windows runners
+// run elevated — so a regression in the fallback (dropping COPYFILE_EXCL,
+// mishandling EEXIST, recording the wrong strategy) ships to the exact
+// population that depends on it, unobserved by CI. Inject EPERM into
+// node:fs/promises.symlink (reusing the mkErrno helper above) to drive the
+// fallback deterministically — the same errno-injection technique the
+// atomicWriteFile suite uses, applied to the worktree layer.
+// ---------------------------------------------------------------------------
+
+describe("setupWorktree symlink EPERM→copy fallback (D3-SA3.4-06)", () => {
+  let mainRepo: string;
+  let worktreeDir: string;
+
+  beforeEach(() => {
+    mainRepo = mkdtempSync(join(tmpdir(), "hatch3r-wt-eperm-main-"));
+    execFileSync("git", ["init", "--initial-branch=main"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.email", "test@test.com"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["config", "user.name", "Test"], { cwd: mainRepo, stdio: "ignore" });
+    worktreeDir = mkdtempSync(join(tmpdir(), "hatch3r-wt-eperm-target-"));
+  });
+
+  afterEach(() => {
+    vi.doUnmock("node:fs/promises");
+    vi.resetModules();
+    rmSync(mainRepo, { recursive: true, force: true });
+    rmSync(worktreeDir, { recursive: true, force: true });
+  });
+
+  it("copies (never symlinks) when symlink() rejects EPERM, and skips the copy on re-run (EEXIST)", async () => {
+    // Gitignored source a symlink-strategy entry would normally link.
+    writeFileSync(join(mainRepo, ".gitignore"), "node_modules/\n", "utf-8");
+    mkdirSync(join(mainRepo, "node_modules"));
+    writeFileSync(join(mainRepo, "node_modules", "pkg.js"), "module.exports = {};", "utf-8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: mainRepo, stdio: "ignore" });
+    writeFileSync(
+      join(mainRepo, WORKTREE_INCLUDE_FILE),
+      [MANAGED_BLOCK_START, "# shared deps", "node_modules/  # hatch3r:symlink", MANAGED_BLOCK_END, ""].join("\n"),
+      "utf-8",
+    );
+
+    // Mock ONLY symlink → EPERM; copyFile/mkdir/readFile stay real via ...actual.
+    vi.resetModules();
+    vi.doMock("node:fs/promises", async (importOriginal) => {
+      const actual = await importOriginal<typeof import("node:fs/promises")>();
+      return {
+        ...actual,
+        symlink: vi.fn<(...args: unknown[]) => Promise<void>>().mockRejectedValue(mkErrno("EPERM")),
+      };
+    });
+    const { setupWorktree } = await import("../../worktree/index.js");
+
+    const result = await setupWorktree(mainRepo, worktreeDir);
+    // The EPERM fallback records a COPY, never a symlink.
+    expect(result.copied).toContain("node_modules/pkg.js");
+    expect(result.symlinked).not.toContain("node_modules/pkg.js");
+
+    // The materialized path is a regular file (byte-equal to source), not a link.
+    const st = lstatSync(join(worktreeDir, "node_modules", "pkg.js"));
+    expect(st.isSymbolicLink()).toBe(false);
+    expect(st.isFile()).toBe(true);
+    expect(readFileSync(join(worktreeDir, "node_modules", "pkg.js"), "utf-8")).toBe(
+      "module.exports = {};",
+    );
+
+    // Re-run: symlink still EPERMs → copyFile(COPYFILE_EXCL) hits EEXIST →
+    // recorded as skipped (the idempotent "exists" branch), not re-copied.
+    const rerun = await setupWorktree(mainRepo, worktreeDir);
+    expect(rerun.skipped).toContain("node_modules/pkg.js");
+    expect(rerun.copied).not.toContain("node_modules/pkg.js");
   });
 });

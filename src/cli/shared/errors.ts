@@ -166,11 +166,18 @@ export function formatActionableError(
       };
     }
     // No explicit hint AND no default for this errorCode (e.g.
-    // UNKNOWN_ERROR) — keep parity with the pre-funnel behavior (silent exit
-    // with structured code) so an unclassified failure does not emit a
-    // misleading generic hint.
+    // UNKNOWN_ERROR) — surface the message + run id WITHOUT a fabricated
+    // hint. D1-SA1.8-02 (Cycle 12 Wave 3, D1, P1): the prior `lines: []`
+    // return printed zero bytes for this class, dropping the message AND the
+    // SA12.1-F-D12-M3 run-id line the pre-funnel code emitted (the else-if
+    // "Run id:" branch at edb5216~1 src/cli/index.ts) — an exit-70 with no
+    // output is undebuggable, and `new HatchError(message)` is the
+    // constructor's DEFAULT shape (errorCode falls back to UNKNOWN_ERROR).
+    // The no-misleading-hint intent stands: no "Try:" line is invented for an
+    // unclassified failure (DEFAULT_RECOVERY_HINT deliberately has no
+    // UNKNOWN_ERROR row); only the what-failed floor + correlation id print.
     return {
-      lines: [],
+      lines: ["", `hatch3r error: ${err.message}`, `  Run id: ${runId}`],
       exitCode: err.exitCode,
       kind: "hatch-error",
       runId,

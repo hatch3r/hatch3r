@@ -19,7 +19,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any version bump or write, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, ask via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Release-specific triggers (per `.claude/rules/clarification-default.md`):
+Before any version bump or write, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, ask via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Release-specific triggers (per `rules/hatch3r-clarification-default.md`):
 
 - **Ambiguous scope** — release line unclear (patch vs minor vs major per SemVer §below); breaking-adapter-contract scope undeclared; whether `.claude-plugin/plugin.json` + `docs/marketplace-submission.md` manifests bump in lock-step.
 - **Multiple valid interpretations** — changelog grouping (Added / Changed / Deprecated / Removed / Fixed / Security) when a PR could land in two groups; whether to roll up multiple unreleased patch PRs into one minor.
@@ -133,7 +133,7 @@ Post-execution actuals + `delta_percent` land in the Iteration Summary recap (co
 
 Establish a clean, branch-correct starting state. All commands here are read-only.
 
-1. **Clean tree:** `git status --porcelain`. A non-empty result halts with the actionable error below (P1, `.claude/rules/cli-ux-standards.md`):
+1. **Clean tree:** `git status --porcelain`. A non-empty result halts with the actionable error below (P1 actionable-error contract):
 
    ```
    Working tree is not clean — release requires a clean tree.
@@ -145,7 +145,7 @@ Establish a clean, branch-correct starting state. All commands here are read-onl
 
    Exit code 2 (usage error).
 
-2. **Branch policy:** `git branch --show-current`. Per `.claude/rules/commit-conventions.md` (no force-push to `main`; feature branches only) and the repo's release norm, the release commit lands on a `release/X.Y.Z` branch — never on `board.defaultBranch`. If the current branch equals `board.defaultBranch` (fallback `main`), halt with:
+2. **Branch policy:** `git branch --show-current`. Per the repo's commit conventions (no force-push to `main`; feature branches only) and its release norm, the release commit lands on a `release/X.Y.Z` branch — never on `board.defaultBranch`. If the current branch equals `board.defaultBranch` (fallback `main`), halt with:
 
    ```
    On the default branch '{defaultBranch}'. Releases run on a release branch.
@@ -224,10 +224,10 @@ Record the implementer `delegation_proof_id`. If no SBOM tooling is configured, 
 
 ## Step 5: Adapter-Output Verification (read-only)
 
-Verify the bundled canonical content regenerates the on-disk adapter outputs with no drift. This is inline and read-only (no `.integrity.json` checksum file exists — drift detection regenerates and diffs per `.claude/rules/security-patterns.md`).
+Verify the bundled canonical content regenerates the on-disk adapter outputs with no drift. This is inline and read-only (no `.integrity.json` checksum file exists — drift detection regenerates and diffs per `rules/hatch3r-security-patterns.md`).
 
 1. Run `npx hatch3r verify` — adapter outputs regenerated from bundled content match on-disk copies (0 drift required).
-2. Confirm all 3 supported adapters (claude, cursor, copilot) are registered in `src/adapters/index.ts` and `ADAPTER_CAPABILITIES` has no undefined entries (count auto-derived at `governance/inventory.json::counts.adapters` per CONSTITUTION §6 Decision 12).
+2. Confirm all 3 supported adapters (claude, cursor, copilot) are registered in `src/adapters/index.ts` and `ADAPTER_CAPABILITIES` has no undefined entries (3 supported adapters — claude, cursor, copilot — fixed by the 1.9.0 adapter hard-cut).
 3. Confirm `package.json` `files` includes every content directory shipped in the npm package (`agents/`, `checks/`, `commands/`, `rules/`, `skills/`, `prompts/`, `github-agents/`, `mcp/`, `hooks/`).
 
 Any drift or missing registration halts and routes the specific failure into Step 6 (or back to Step 2/3 implementer when caused by a stale generated file).
@@ -299,7 +299,7 @@ Terminus alignment (D10-14): this command and its id-sharing inline sibling `ski
 
 #### 9a. Stage + commit on the release branch (DCO)
 
-When release files changed, stage and commit on the current `release/*` branch with a Conventional-Commit, DCO-signed message (`-s`) per `.claude/rules/commit-conventions.md`:
+When release files changed, stage and commit on the current `release/*` branch with a Conventional-Commit, DCO-signed message (`git commit -s` adds the `Signed-off-by:` footer):
 
 ```bash
 git add -A
@@ -374,7 +374,7 @@ Per-tier `expected_sa_count` (from frontmatter `sub_agents_spawned.count: 7` × 
 1. **Never publish.** `npm publish` is run by CI on a human-pushed tag, never by this command.
 2. **Never merge or push to the default branch.** Step 9 commits to the `release/*` branch only; pushing the branch + opening the PR is the human's action.
 3. **Never force-push, never push a tag.** Tag creation + push is the human-approved publish trigger.
-4. **DCO sign-off required** on the Step 9a release commit (`git commit -s`) per `.claude/rules/commit-conventions.md`.
+4. **DCO sign-off required** on the Step 9a release commit (`git commit -s` adds the `Signed-off-by:` footer).
 5. **Clean tree + release branch are preconditions** (Step 1) — halt with an actionable error otherwise.
 6. **Changelog header must match `package.json` version exactly** — the CI release body extraction depends on it (Step 8).
 7. **No inline implementation.** Every file mutation is delegated to a pipeline sub-agent (Mandatory Delegation Directive, `rules/hatch3r-agent-orchestration.md`); the orchestrator performs only read-only inspections and the Step 9a branch commit.

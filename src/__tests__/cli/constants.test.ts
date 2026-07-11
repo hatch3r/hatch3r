@@ -161,4 +161,21 @@ describe("TOOL_SECRET_NOTES", () => {
       if (note) expect(note).toMatch(/\.env\.mcp|sourcing|settings/);
     }
   });
+
+  it("cursor note does not claim .env.mcp auto-load and states the source-before-launch requirement (D10-SA10.5-02)", () => {
+    // The cursor adapter emits bare ${env:NAME} passthrough (src/adapters/cursor.ts),
+    // which Cursor resolves from the launching PROCESS environment — it does not read
+    // .env.mcp from disk. The note must match that shipped behavior and both doc
+    // surfaces (adapter-capability-matrix, customization guide), not claim auto-load.
+    const cursorNote = TOOL_SECRET_NOTES.cursor;
+    expect(cursorNote).toBeDefined();
+    expect(cursorNote!.toLowerCase()).not.toContain("auto-load");
+    expect(cursorNote).toMatch(/process environment|source .env.mcp|\$\{env:/i);
+  });
+
+  it("copilot note may keep 'auto-loads' — its envFile loader is real (D10-SA10.5-02 scope guard)", () => {
+    // Guards against an over-broad fix: unlike cursor, the copilot/VS Code adapter
+    // emits a real .env.mcp envFile loader, so 'auto-loads' is accurate there.
+    expect(TOOL_SECRET_NOTES.copilot).toMatch(/auto-load/i);
+  });
 });

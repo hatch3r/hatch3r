@@ -18,7 +18,7 @@ import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
-import { HatchError } from "../../types.js";
+import { HatchError, type HatchManifest } from "../../types.js";
 import { findPackageRoot } from "../../cli/shared/paths.js";
 import {
   validateCommandOrchestratorFrontmatter,
@@ -30,12 +30,16 @@ import {
   bodyHasDecision13Handoff,
   checkAmbiguityGate,
   requiresAmbiguityGate,
+  COMPANION_SUBDIRS,
   scanCanonicalReadDiagnostics,
+  validateMcp,
+  runSubValidator,
   validateSkillDescriptionVoice,
   toThirdPersonSingular,
   validateEnvMcpGitignore,
   type ValidationResult,
 } from "../../cli/commands/validate.js";
+import type { spawnSync } from "node:child_process";
 import type { CatalogItem } from "../../content/index.js";
 
 function makeResult(): ValidationResult {
@@ -778,6 +782,45 @@ describe("validateCommand E2E", () => {
     }
   });
 
+  it("runs the manifest-independent content checks with AND without a manifest (D1-SA1.4-05 A/B)", async () => {
+    const { validateCommand } = await import("../../cli/commands/validate.js");
+    const pillarCount = (o: { warnings: string[] }): number =>
+      o.warnings.filter((w) => w.includes("missing pillar reference")).length;
+
+    // Run A — no manifest in the temp cwd. The pillar-reference / anti-slop body
+    // scan reads only the bundled canonical corpus, so it must still run.
+    stdoutSpy.mockClear();
+    try {
+      await validateCommand({ format: "json" });
+    } catch {
+      /* tolerate a 0-error return or a mocked process.exit */
+    }
+    const noManifest = JSON.parse(capturedStdout().trim()) as {
+      warnings: string[];
+      summary: { warningCount: number };
+    };
+
+    // Run B — same cwd + identical bundled corpus, now with a manifest.
+    await createMinimalManifest(tempDir);
+    stdoutSpy.mockClear();
+    try {
+      await validateCommand({ format: "json" });
+    } catch {
+      /* tolerate */
+    }
+    const withManifest = JSON.parse(capturedStdout().trim()) as { warnings: string[] };
+
+    // The manifest-independent pillar-reference finding count is invariant to
+    // manifest presence. Before the D1-SA1.4-05 hoist, the no-manifest run
+    // skipped validateContentBody entirely, so this count was 0 vs many.
+    expect(pillarCount(noManifest)).toBe(pillarCount(withManifest));
+    // Guard against a vacuous pass: the corpus must actually exercise the check
+    // (no-manifest emitted ~2 warnings pre-hoist; now it emits the full body /
+    // cross-ref set), and the no-manifest path is confirmed by the advisory.
+    expect(noManifest.summary.warningCount).toBeGreaterThan(20);
+    expect(noManifest.warnings.some((w) => /Missing hatch\.json manifest/.test(w))).toBe(true);
+  });
+
   it("throws HatchError with VALIDATION_ERROR code when validation finds errors (human mode)", async () => {
     await createMinimalManifest(tempDir);
     // Plant a deny-pattern user agent to force the strict gate to error.
@@ -1047,6 +1090,25 @@ describe("checkAmbiguityGate", () => {
     expect(checkAmbiguityGate("## Step 0 — Ambiguity gate\nbody").hasMarker).toBe(true);
   });
 
+  // ── D5-SA5.9-02: the §0 heading must also carry an "ambiguity" label ──
+
+  it("does NOT treat a bare `## §0 Preflight` heading (no ambiguity label) as a marker (D5-SA5.9-02)", () => {
+    // A §0 heading with no ambiguity semantics is not the ambiguity gate. Before
+    // this tightening, disjunct 1 matched any `§0` heading regardless of label;
+    // now the label must be on the same heading line so a mislabeled §0 section
+    // fails hasMarker (→ the missing-gate ERROR fires) instead of passing.
+    expect(checkAmbiguityGate("## §0 Preflight\nbody").hasMarker).toBe(false);
+    expect(checkAmbiguityGate("## §0 — Cost Model\nMore prose.\n").hasMarker).toBe(false);
+  });
+
+  it("still accepts a labeled `## §0 Detect Ambiguity` heading (D5-SA5.9-02 regression)", () => {
+    // The canonical form (all 76 in-corpus §0 gate headings carry the label)
+    // must keep matching — the tightening closes a latent gap, it does not
+    // narrow the accepted real-world gate headings.
+    expect(checkAmbiguityGate("## §0 Detect Ambiguity (P8 B1)\nbody").hasMarker).toBe(true);
+    expect(checkAmbiguityGate("### §0 — Ambiguity & Safety Gate\nbody").hasMarker).toBe(true);
+  });
+
   // ── D5-36: every marker disjunct is heading-anchored ──────────────
 
   it("does NOT treat an inline `> **Ambiguity detection (P8 B1):**` blockquote as a marker (D5-36)", () => {
@@ -1123,6 +1185,28 @@ describe("requiresAmbiguityGate", () => {
     expect(requiresAmbiguityGate("skills", "skills/hatch3r-foo/references/x.md")).toBe(false);
     expect(requiresAmbiguityGate("rules", "rules/hatch3r-x.md")).toBe(false);
   });
+
+  // ── D22-SA22.4-01: COMPANION_SUBDIRS is the single in-code companion set ──
+
+  it("exempts every COMPANION_SUBDIRS prefix (single source of truth, D22-SA22.4-01)", () => {
+    // requiresAmbiguityGate derives its exemption list from COMPANION_SUBDIRS,
+    // so a member added to the constant is exempted without a second edit. The
+    // dir passed must be a gate-required class (agents/commands/skills) for the
+    // exemption to be reachable; derive it from the prefix.
+    for (const prefix of COMPANION_SUBDIRS) {
+      const dir = prefix.split("/")[0];
+      expect(requiresAmbiguityGate(dir, `${prefix}some-file.md`)).toBe(false);
+    }
+  });
+
+  it("does NOT fold checks/ into the companion set (checks is a first-class 2b class, D22-SA22.4-01)", () => {
+    // The finding's core correction: checks/ is a published `type: check` class
+    // (content-authoring §2 exception 2b), NOT companion material, so it must be
+    // absent from COMPANION_SUBDIRS. (checks is not an agents/commands/skills
+    // dir, so requiresAmbiguityGate returns false for it via the class guard —
+    // but that must not be because it was mis-listed as a companion.)
+    expect(COMPANION_SUBDIRS.some((p) => p.startsWith("checks"))).toBe(false);
+  });
 });
 
 // ═════════════════════════════════════════════════════════════════════
@@ -1180,6 +1264,238 @@ describe("scanCanonicalReadDiagnostics", () => {
     const r = makeResult();
     await scanCanonicalReadDiagnostics(dir, r);
     expect(r.warnings.some((w) => w.includes("TYPE_MISMATCH"))).toBe(true);
+  });
+
+  it("scans the checks/ class through the hardened reader (D11-SA11.1-01)", async () => {
+    // Before D11-SA11.1-01, `checks` was absent from the deep-scan type list, so
+    // a malformed `checks/*.md` file surfaced no diagnostic (checks/ was the one
+    // published class no validate path read for a BOM / invalid byte / injection
+    // token / field-type mismatch). A numeric id is the same field-type defect
+    // the agent case above uses; the reader flags it as TYPE_MISMATCH — proving
+    // checks/ is now routed through the fatal-decode + BOM-strip + injection-scan
+    // read-and-harden reader like every other content class here.
+    await mkdir(join(dir, "checks"), { recursive: true });
+    await writeFile(
+      join(dir, "checks", "accessibility.md"),
+      "---\nid: 42\ntype: check\ndescription: x\ntags: [accessibility]\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(
+      r.warnings.some((w) => w.includes("TYPE_MISMATCH") && w.includes("checks/accessibility.md")),
+    ).toBe(true);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("is silent for a well-formed checks/ file (D11-SA11.1-01 — no false positive)", async () => {
+    await mkdir(join(dir, "checks"), { recursive: true });
+    await writeFile(
+      join(dir, "checks", "security.md"),
+      "---\nid: security\ntype: check\ndescription: A clean security check.\ntags: [security]\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(r.warnings).toHaveLength(0);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("scans the hooks/ class through the hardened reader (D2-SA2.2-02)", async () => {
+    // Before D2-SA2.2-02, `hooks` was absent from the deep-scan type list, so a
+    // malformed hooks/*.md surfaced no TYPE_MISMATCH / injection / encoding
+    // diagnostic on `hatch3r validate` even though the release gate's
+    // SCANNED_TYPES already covered it. A numeric id is the same field-type
+    // defect the agent/checks cases use; the shared reader flags it as
+    // TYPE_MISMATCH — proving hooks/ now routes through the same read-and-harden
+    // reader as every other content class here.
+    await mkdir(join(dir, "hooks"), { recursive: true });
+    await writeFile(
+      join(dir, "hooks", "hatch3r-bad.md"),
+      "---\nid: 7\ntype: hook\ndescription: x\ntags: [orchestration]\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(
+      r.warnings.some((w) => w.includes("TYPE_MISMATCH") && w.includes("hooks/hatch3r-bad.md")),
+    ).toBe(true);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("is silent for a well-formed hooks/ file (D2-SA2.2-02 — no false positive)", async () => {
+    await mkdir(join(dir, "hooks"), { recursive: true });
+    await writeFile(
+      join(dir, "hooks", "hatch3r-clean.md"),
+      "---\nid: hatch3r-clean\ntype: hook\ndescription: A clean hook.\ntags: [orchestration]\n---\nBody.\n",
+      "utf-8",
+    );
+    const r = makeResult();
+    await scanCanonicalReadDiagnostics(dir, r);
+    expect(r.warnings).toHaveLength(0);
+    expect(r.errors).toHaveLength(0);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: validateMcp (D2-SA2.4-05 — full-bundle per-entry wiring)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("validateMcp (D2-SA2.4-05)", () => {
+  let dir: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "validate-mcp-"));
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  // Minimal manifest satisfying validateMcp's guard — only `features.mcp` and
+  // `mcp.servers.length` are read; the double-cast is the file's fixture idiom.
+  function mcpManifest(): HatchManifest {
+    return {
+      features: { mcp: true },
+      mcp: { servers: [{ name: "x" }] },
+    } as unknown as HatchManifest;
+  }
+
+  async function writeMcp(config: unknown): Promise<void> {
+    await mkdir(join(dir, "mcp"), { recursive: true });
+    await writeFile(join(dir, "mcp", "mcp.json"), JSON.stringify(config), "utf-8");
+  }
+
+  it("surfaces the full-bundle per-entry warning the shallow shape check misses", async () => {
+    // An unrecognized command is a warn-only validateMcpEntry diagnostic that
+    // ONLY the default (validateEntries: true) readMcpConfig pass emits — the
+    // old shape-only body saw a present `mcpServers` key and stayed silent.
+    await writeMcp({ mcpServers: { badserver: { command: "totally-not-allowed" } } });
+    const r = makeResult();
+    await validateMcp(dir, mcpManifest(), r);
+    expect(
+      r.warnings.some((w) => w.includes("badserver") && w.includes("unrecognized command")),
+    ).toBe(true);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("is silent for a well-formed single-server bundle", async () => {
+    await writeMcp({ mcpServers: { good: { command: "node" } } });
+    const r = makeResult();
+    await validateMcp(dir, mcpManifest(), r);
+    expect(r.warnings).toHaveLength(0);
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("still reports the shape error when mcpServers is missing and skips the per-entry pass", async () => {
+    await writeMcp({ notMcpServers: {} });
+    const r = makeResult();
+    await validateMcp(dir, mcpManifest(), r);
+    expect(r.errors).toContain("MCP config missing 'mcpServers' key");
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  it("reports invalid JSON as an error without a duplicate read-failure warning", async () => {
+    await mkdir(join(dir, "mcp"), { recursive: true });
+    await writeFile(join(dir, "mcp", "mcp.json"), "{ not valid json", "utf-8");
+    const r = makeResult();
+    await validateMcp(dir, mcpManifest(), r);
+    expect(r.errors).toContain("Invalid JSON in mcp/mcp.json (bundled content root)");
+    expect(r.warnings).toHaveLength(0);
+  });
+});
+
+// ═════════════════════════════════════════════════════════════════════
+// Unit: runSubValidator error routing (D12-SA12.1-02)
+// ═════════════════════════════════════════════════════════════════════
+
+describe("runSubValidator (D12-SA12.1-02)", () => {
+  let dir: string;
+  let scriptPath: string;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "validate-d12-"));
+    // The existsSync guard requires the script to exist on disk; the injected
+    // spawn never actually runs it, so any file at the path is sufficient.
+    await mkdir(join(dir, "scripts"), { recursive: true });
+    scriptPath = join(dir, "scripts", "fake-validator.ts");
+    await writeFile(scriptPath, "// fake sub-validator\n", "utf-8");
+  });
+
+  afterEach(async () => {
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  // A minimal SpawnSyncReturns<string> stand-in. `as unknown as` (not `as any`)
+  // satisfies the overloaded `typeof spawnSync` parameter without pulling in the
+  // real spawner, so the test stays fast and deterministic.
+  function fakeSpawn(ret: {
+    status?: number | null;
+    stdout?: string;
+    stderr?: string;
+    error?: Error;
+  }): typeof spawnSync {
+    return (() => ({
+      pid: 0,
+      output: [],
+      stdout: ret.stdout ?? "",
+      stderr: ret.stderr ?? "",
+      status: ret.status ?? null,
+      signal: null,
+      error: ret.error,
+    })) as unknown as typeof spawnSync;
+  }
+
+  it("routes a ran-and-failed (status!=0) sub-validator to errors[], not warnings[]", () => {
+    // The finding's core: a non-zero exit means the script RAN and found a real
+    // violation, so `hatch3r validate` must fail (VALIDATION_ERROR) rather than
+    // demote it to a warning under a green pass.
+    const r = makeResult();
+    runSubValidator(
+      scriptPath,
+      "validate:fake",
+      r,
+      fakeSpawn({ status: 1, stdout: "validate:fake: 3 pairs checked, 2 drift", stderr: "" }),
+    );
+    expect(r.errors).toHaveLength(1);
+    expect(r.errors[0]).toContain("validate:fake reported issues");
+    expect(r.errors[0]).toContain("2 drift");
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  it("adds nothing on a passing (status===0) sub-validator", () => {
+    const r = makeResult();
+    runSubValidator(scriptPath, "validate:fake", r, fakeSpawn({ status: 0, stdout: "0 drift" }));
+    expect(r.errors).toHaveLength(0);
+    expect(r.warnings).toHaveLength(0);
+  });
+
+  it("keeps a launch failure (child.error) a warning, never an error", () => {
+    // A launch failure (e.g. missing tsx) could not evaluate the invariant, so
+    // it stays advisory — the ran-and-failed vs could-not-launch distinction is
+    // exactly what the fix preserves.
+    const r = makeResult();
+    runSubValidator(
+      scriptPath,
+      "validate:fake",
+      r,
+      fakeSpawn({ error: new Error("spawn npx ENOENT") }),
+    );
+    expect(r.warnings).toHaveLength(1);
+    expect(r.warnings[0]).toContain("failed to launch");
+    expect(r.errors).toHaveLength(0);
+  });
+
+  it("skips (no error, no warning) when the script is absent — consumer-repo install", () => {
+    const r = makeResult();
+    runSubValidator(
+      join(dir, "scripts", "does-not-exist.ts"),
+      "validate:fake",
+      r,
+      fakeSpawn({ status: 1, stdout: "should never run" }),
+    );
+    expect(r.errors).toHaveLength(0);
+    expect(r.warnings).toHaveLength(0);
   });
 });
 

@@ -169,6 +169,20 @@ jobs:
       - name: MCP package CVE check
         run: npm run mcp:cve-check
 
+      # Cycle 12 M D15-SA15.5-02 (D15): the CVE step above queries OSV.dev for
+      # CVEs only — it never calls `npm view deprecated`, so a bundled MCP pin
+      # newly deprecated/archived upstream AFTER a cycle ships was invisible to
+      # every automated gate (the static name-lock in
+      # src/__tests__/mcp/mcp-package-resolution.test.ts is backward-looking).
+      # scripts/check-mcp-deprecation.ts discovers the same launcher packages
+      # and runs `npm view <pkg>@<ver> deprecated` for each, failing the gate on
+      # a non-empty deprecation string, plus a non-blocking currency warning when
+      # a pin is >1 minor / a major / >90 days behind dist-tags.latest. Network
+      # call to the npm registry is required; transient failures surface as
+      # warnings (queryErrors), not gate failures — mirrors the CVE step.
+      - name: MCP package deprecation check
+        run: npm run mcp:deprecation-check
+
       # Cycle 10 H F15.7-H1 (D15-SA15.7): CLI tools selected during `init`
       # (ripgrep, fd, gh, jq, ... — declared in src/cliTools/registry.ts) are
       # installed by the end user from their package manager and never enter

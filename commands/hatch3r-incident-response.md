@@ -2,7 +2,7 @@
 id: hatch3r-incident-response
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-incident-responder, hatch3r-reliability]
+agentPipeline: [hatch3r-incident-responder, hatch3r-reliability, hatch3r-security]
 description: Drive a live production incident through a structured lifecycle -- triage + topology, bounded-autonomy mitigation, stakeholder communication, then a blameless post-mortem with runbook -- via delegated sub-agents.
 tags: [devops, orchestration]
 quality_charter: agents/shared/quality-charter.md

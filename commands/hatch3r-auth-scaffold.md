@@ -20,7 +20,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the request for unresolved questions in auth mode, threat model, and identity provider. If the request does not name which flow(s) to scaffold (interactive sign-in via OAuth 2.1, machine-to-machine via PAT, or both), the OIDC provider / issuer, or the client type (public SPA vs confidential server), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — the token-binding decision (DPoP for browser vs bare bearer) and the redirect-URI allowlist depend on these, and a wrong assumption ships an exploitable flow. Proceed without asking ONLY when the flow set, provider, and client type are all explicit. Scaffolding auth boilerplate is high-blast-radius; default to asking. Source: `.claude/rules/clarification-default.md`.
+Before any action, scan the request for unresolved questions in auth mode, threat model, and identity provider. If the request does not name which flow(s) to scaffold (interactive sign-in via OAuth 2.1, machine-to-machine via PAT, or both), the OIDC provider / issuer, or the client type (public SPA vs confidential server), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — the token-binding decision (DPoP for browser vs bare bearer) and the redirect-URI allowlist depend on these, and a wrong assumption ships an exploitable flow. Proceed without asking ONLY when the flow set, provider, and client type are all explicit. Scaffolding auth boilerplate is high-blast-radius; default to asking. Source: `rules/hatch3r-clarification-default.md`.
 
 ## Agent Pipeline
 
@@ -155,7 +155,7 @@ Each implementer prompt MUST include the resolved spec, the target module paths,
 
 **PAT issuance/verification (`src/auth/pat/`):** generate a 256-bit cryptographically-random token, return it to the caller exactly once at issue time, and store only its Argon2id hash (bcrypt fallback) — never the plaintext. On verification, hash the presented token and compare against the stored hash in constant time. Tokens carry a scope set and an expiry; revocation is a hash-table delete.
 
-**Secrets:** the client secret, issuer URL, and signing keys are referenced via `${env:VAR}` and emitted to `.env.example` with placeholder values — never inlined. (Project secret convention: `.claude/rules/security-patterns.md` rule 3.)
+**Secrets:** the client secret, issuer URL, and signing keys are referenced via `${env:VAR}` and emitted to `.env.example` with placeholder values — never inlined. (Project secret convention: `rules/hatch3r-security-patterns.md` — `${env:VAR}` placeholders for secrets.)
 
 Also include in the prompt: all `scope: always` rule directives; the confidence expression requirement (verbatim, high/medium/low per `agents/shared/quality-charter.md` §1); the implementer's standing test obligation (unit tests for token validation: positive = valid token reaches the resource, negative = `alg:none`/expired/wrong-`aud` token is rejected); and the boundary "do NOT create branches, commits, or PRs". Await the structured result; capture `Files changed`, `Tests written`, and the `Delegation proof ID` per file.
 

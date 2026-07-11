@@ -2,7 +2,7 @@
 id: hatch3r-capability-matrix
 type: rule
 description: Per-cycle adapter capability matrix audit — twin metric currency + utilization. Surfaces unutilized platform-native features per adapter each cycle.
-tags: [adapters, currency, capability, floor:content-quality]
+tags: [adapters, currency, capability]
 precedence: high
 scope: conditional
 globs: "src/adapters/**,docs/adapter-capability-matrix.md"
@@ -10,6 +10,8 @@ globs: "src/adapters/**,docs/adapter-capability-matrix.md"
 # hatch3r Capability Matrix
 
 **Pillars:** P3 (Adapter & External Tool Currency), CQ9 (Enhancability Quality)
+
+> **Framework-internal rule (scope boundary).** This rule governs the hatch3r framework repo's own per-cycle adapter-capability audit (`src/adapters/*`, `docs/adapter-capability-matrix.md`) — it does NOT govern end-user application code. Its procedures name D09 audit sub-agents, the audit execution-insights store, and CL-2 routing, none of which exist in a consumer repo, so its globs (`src/adapters/**`) match by construction only inside this repository. A future cycle relocates it to the framework-dev surface (paired with `hatch3r-tool-currency`) or adds an adapter emission-exclusion class; until then it ships as canonical content but is inert outside this repo.
 
 ## Twin Metric Model
 

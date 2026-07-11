@@ -174,14 +174,38 @@ async function runExtensionProbe(binary: string, args: readonly string[]): Promi
  * `installed: true` is returned. A missing extension surfaces as
  * `installed: false` with `extensionMissing` set so the installer prints
  * the extension-add step rather than silently treating the tool as ready.
+ *
+ * D21-SA21.2-03 (Cycle 12): when the registry entry declares `probeFallbacks`
+ * and the primary probe misses, each fallback binary name is tried before the
+ * tool is reported absent — closing the Debian/Ubuntu package-rename
+ * false-negative (`bat`→`batcat`, `fd`→`fdfind`). `path` reports the resolved
+ * binary so the caller can hint the alias.
  */
 export async function detectCliTool(id: CliToolId): Promise<CliToolDetectionResult> {
   const meta = (AVAILABLE_CLI_TOOLS as Record<string, {
     probe: string;
+    probeFallbacks?: readonly string[];
     extensionProbe?: { args: readonly string[]; expectInStdout: string; name: string };
   } | undefined>)[id];
   const probe = meta?.probe ?? id;
-  const path = await probeBin(probe);
+  let resolved = probe;
+  let path = await probeBin(probe);
+  // D21-SA21.2-03 (Cycle 12): when the primary probe misses, try the registry's
+  // fallback binary names before reporting the tool absent. Covers Debian/Ubuntu
+  // package renames (`bat`→`batcat`, `fd`→`fdfind`) where the apt channel this
+  // registry recommends installs a differently-named binary than the upstream
+  // default. `resolved`/`path` reflect the binary that actually answered so the
+  // installer can hint the alias, while the returned `probe` stays canonical.
+  if (path.length === 0 && meta?.probeFallbacks) {
+    for (const alt of meta.probeFallbacks) {
+      const altPath = await probeBin(alt);
+      if (altPath.length > 0) {
+        resolved = alt;
+        path = altPath;
+        break;
+      }
+    }
+  }
   if (path.length === 0) {
     return { id, probe, installed: false, path };
   }
@@ -189,7 +213,7 @@ export async function detectCliTool(id: CliToolId): Promise<CliToolDetectionResu
   if (!extensionProbe) {
     return { id, probe, installed: true, path };
   }
-  const stdout = await runExtensionProbe(probe, extensionProbe.args);
+  const stdout = await runExtensionProbe(resolved, extensionProbe.args);
   if (stdout.includes(extensionProbe.expectInStdout)) {
     return { id, probe, installed: true, path };
   }

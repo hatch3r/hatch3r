@@ -35,7 +35,7 @@ npm run lint                # eslint
 npx tsc --noEmit            # typecheck
 npm run build               # tsup
 npx hatch3r validate        # content structure + frontmatter + cross-ref
-npm run validate:canonical  # strict canonical-read gate: 0 warnings across published content types (release integrity)
+npm run validate:canonical  # strict canonical-read gate: 0 warnings across every published content class incl. github-agents — SCANNED_TYPES in scripts/validate-canonical.ts is the SSoT (release integrity)
 ```
 
 Critical module thresholds: `src/merge/` (90/80/90/90), `src/content/` (85/70/85/85), `src/adapters/customization.ts` (85/75/85/85).

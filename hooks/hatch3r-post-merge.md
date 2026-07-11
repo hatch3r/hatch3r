@@ -30,6 +30,8 @@ When this hook fires, the assigned agent should:
 
 ## Configuration
 
-- **CI provider**: Auto-detected from repository config (`.github/workflows/`, `.circleci/`, etc.). Override with `ciProvider` in hook config.
-- **Timeout**: Default 15 minutes. Adjust via `timeoutMinutes` in hook config.
-- **Notifications**: Set `notifyOnFailure: true` to post a comment on the merge PR when CI fails.
+The values below are agent-runtime defaults, not entries in a config file. To change one, state the value in your prompt when the hook fires.
+
+- **CI provider**: Auto-detected from repository config (`.github/workflows/`, `.circleci/`, etc.). Name a specific provider in your prompt to pin it.
+- **Timeout**: The agent waits up to 15 minutes for the pipeline by default. Ask for a longer or shorter budget in your prompt.
+- **Notifications**: The agent does not post to the PR by default. Ask it to comment on the merge PR when CI fails.

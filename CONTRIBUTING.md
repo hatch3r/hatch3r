@@ -68,10 +68,12 @@ The list below is the full set of `src/` subsystems (run `ls -d src/*/` to regen
 
 ## Pull request conventions
 
-- Use [Conventional Commits](https://www.conventionalcommits.org/) style (e.g. `feat: add X`, `fix: resolve Y`)
+- Use [Conventional Commits](https://www.conventionalcommits.org/) style for the **PR title** (`type(scope): message`, e.g. `feat: add X`, `fix: resolve Y`) — CI validates it
+- Sign off every commit with `git commit -s` (DCO) — CI rejects any commit missing a `Signed-off-by` trailer
 - Keep PRs focused on a single change or feature
 - Include tests for new features
-- Ensure `npm test`, `npm run lint`, and `npm run typecheck` pass before submitting
+- Run `npm test`, `npm run lint`, `npm run typecheck`, and `npm run validate` (the content + governance validation umbrella) and confirm all pass before submitting
+- The authoritative merge-gate list (CI gates, DCO, PR-title format) is [GOVERNANCE.md § Landing rules](GOVERNANCE.md#landing-rules)
 
 ## Pack authoring
 

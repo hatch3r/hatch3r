@@ -30,6 +30,8 @@ When this hook fires, the assigned agent should:
 
 ## Configuration
 
+`globs` is the one machine-parsed knob — it is a real frontmatter field. The debounce timing below is an agent-runtime default, not a config-file setting; to use a different window, state it in your prompt when the hook fires.
+
 - **Globs**: Controlled by the `globs` frontmatter field. Adjust to match your project's source file extensions.
 - **Rule sources**: Reads from `rules/`. Rules with matching `globs` or `scope: always` are activated.
-- **Debounce**: To avoid excessive processing during rapid saves, the agent debounces with a 2-second window (configurable via `debounceMs`). Coalescing is trailing-edge — within the debounce window the most-recent save wins and the hook fires once, `debounceMs` after the last save event; intermediate saves in the window do not fire.
+- **Debounce**: The agent coalesces rapid saves with a 2-second trailing-edge window by default — within the window the most-recent save wins and the hook fires once, after the last save event; intermediate saves do not fire. Ask for a different window in your prompt.

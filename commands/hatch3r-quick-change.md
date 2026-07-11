@@ -2,7 +2,7 @@
 id: hatch3r-quick-change
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security]
 description: "Lightweight workflow for small changes not tracked on the board: adaptive ceremony, inline or sub-agent implementation, batch support."
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -12,8 +12,8 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
-  count: 13
-  rationale: Four-stage core pipeline (implementer + lint-fixer + reviewer ↔ fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) dispatched conditionally per their trigger conditions; the always-on testing + security gates collapse onto `hatch3r-testability` (CQ5) and `hatch3r-security` (CQ3) respectively. Tier 1 trivial edits skip CQ specialists per Phase Skip Criteria. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 7
+  rationale: Nontrivial-path fan-out, every agent conditional per Phase Skip Criteria — `hatch3r-researcher` (`similar-implementation` quick depth, Step 4b), `hatch3r-implementer` (Step 4b), `hatch3r-lint-fixer` (Step 5 on lint/type errors), the `hatch3r-reviewer` ↔ `hatch3r-fixer` review loop (Step 6a), and the two final-quality gates `hatch3r-testability` (CQ5) + `hatch3r-security` (CQ3) (Step 6b). quick-change's lightweight scope dispatches no other CQ vector specialist (ui/ux/reliability/scalability/performance/maintainability/enhancability); Tier 1 trivial edits skip all sub-agents. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
   task_structure: mixed
 ---
 
@@ -108,7 +108,7 @@ Before any sub-agent dispatch (Step 4b implementer), surface the cost preview so
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <Tier 1 inline ~0, Tier 2 ~3 (researcher + implementer + reviewer), up to 13 when CQ specialists trigger>
+  expected_sa_count: <Tier 1 inline ~0, Tier 2 ~3 (researcher + implementer + reviewer), up to 7 on the full nontrivial path (adds lint-fixer, fixer, testability, security)>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
@@ -458,7 +458,7 @@ This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and 
 - **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first sub-agent dispatch.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 13` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 trivial inline ≈ 0 (no sub-agent); Tier 2 ≈ 3 (researcher + implementer + reviewer, plus lint-fixer/fixer/testability/security when triggered); up to 13 when the conditional CQ vector specialists fire per their trigger conditions. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 7` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 trivial inline ≈ 0 (no sub-agent); Tier 2 ≈ 3 (researcher + implementer + reviewer, plus lint-fixer/fixer/testability/security when triggered); up to 7 when the full nontrivial path fires — the two mandatory final-quality gates (testability, security) plus lint-fixer and fixer. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 

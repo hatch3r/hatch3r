@@ -132,7 +132,7 @@ The Step 3 user-feedback interview is user-driven and excluded from the duration
 
 ### Review-Only Mode (D13-SA13.1-F2)
 
-`--review-only` turns this command into a **read-only code-review surface** — the standalone "review this code, no changes" entry for development-workflow activity (3) Code review (`governance/audit/domains/D13-human-ai-collaboration.md` §13.1). It runs Steps 1–5 + a single `hatch3r-reviewer` pass and emits a review report, then stops: Step 6 fix delegation, Step 7 fixer/re-review loop and Stage 2 specialists, Step 8 commit/push, and Step 10 learnings write are all skipped, so the run mutates nothing. Full behavior table, report format, and `--auto` interaction: `commands/revision/revision-modes.md` -> Review-Only Mode.
+`--review-only` turns this command into a **read-only code-review surface** — the standalone "review this code, no changes" entry for development-workflow activity (3) Code review. It runs Steps 1–5 + a single `hatch3r-reviewer` pass and emits a review report, then stops: Step 6 fix delegation, Step 7 fixer/re-review loop and Stage 2 specialists, Step 8 commit/push, and Step 10 learnings write are all skipped, so the run mutates nothing. Full behavior table, report format, and `--auto` interaction: `commands/revision/revision-modes.md` -> Review-Only Mode.
 
 ---
 

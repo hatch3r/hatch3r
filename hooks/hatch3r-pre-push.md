@@ -29,6 +29,8 @@ When this hook fires, the assigned agent should:
 
 ## Configuration
 
+The allowlist and pattern files below are real end-user config the agent reads from your repo. The scan scope is an agent-runtime default, not a config-file setting; to widen it, state that in your prompt when the hook fires.
+
 - **Allowlist**: Add known false positives to `.hatch3r/security/secret-allowlist.json` (patterns or file paths to ignore).
 - **Pattern extensions**: The agent uses built-in patterns for common secret types. Add project-specific patterns via `.hatch3r/security/custom-patterns.json`.
-- **Scope**: By default, scans only the diff of outgoing commits. Set `scanFullHistory: true` to scan all files (slower, useful for initial audits).
+- **Scope**: By default, scans only the diff of outgoing commits. Ask the agent in your prompt to scan the full history instead (slower, useful for initial audits).

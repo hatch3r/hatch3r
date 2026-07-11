@@ -157,11 +157,23 @@ export interface AuditSignaturesResult {
  * steps. This helper returns a structured result instead so the caller
  * controls the failure mode.
  *
- * Context:
- * - Mini Shai-Hulud (May 2026) — 170+ npm packages, 518M downloads
- *   compromised via maintainer-credential takeover.
- * - CVE-2026-45321 — TanStack provenance-bypass; `npm audit signatures`
- *   is the consumer-side detection that closes that class of attack.
+ * Scope (governance/pack-trust-model.md §2.1 — authorship vs
+ * publish-authorization; corrected under D15-SA15.4-02):
+ * - What this PROVES: npm's REGISTRY signature (Sigstore + Rekor inclusion) is
+ *   present and valid across the audited tree, and no attestation is
+ *   `tampered`/`invalid`. Catches a registry-served-without-signature artifact
+ *   and a Rekor mismatch.
+ * - What it CANNOT prove, by construction: that the human holding the signing
+ *   credential authorized the publish. A compromised-but-valid maintainer
+ *   credential (Mini Shai-Hulud, May 2026 — 170+ packages / 518M downloads via
+ *   credential takeover) or a worm in a compromised CI runner (the May 19 2026
+ *   Sigstore-bypass worm; CVE-2026-45321 shipped valid SLSA Build L3
+ *   provenance) mints a valid signature that PASSES this check. That class is
+ *   addressed by `hatch3r update --pin-version <semver>` (freeze to a
+ *   known-good version; update only after the registry revokes the malicious
+ *   release) plus registry/marketplace revocation — NOT by this check. Treat
+ *   signature verification as authorship attestation, never as
+ *   publish-authorization proof.
  */
 export async function runAuditSignatures(
   cwd: string,
@@ -233,9 +245,15 @@ function formatSignatureFailureMessage(
   }
   return (
     `npm audit signatures verification FAILED for ${label}. ` +
-    `Refusing to regenerate adapter outputs from an unverified package — ` +
-    `this is the consumer-side defense against compromised registry artifacts ` +
-    `(Shai-Hulud / Mini-Shai-Hulud / CVE-2026-45321 class). Next steps: ` +
+    `Refusing to regenerate adapter outputs from a package whose registry ` +
+    `signature could not be verified (missing/invalid signature, or a ` +
+    `\`tampered\` Sigstore/Rekor mismatch). Scope: this gate verifies npm ` +
+    `REGISTRY-signature integrity; it does NOT by itself detect the ` +
+    `credential-theft / forged-provenance class (Shai-Hulud / Mini-Shai-Hulud ` +
+    `/ CVE-2026-45321), which ships valid signatures — pin a known-good ` +
+    `version with \`hatch3r update --pin-version <semver>\` and update only ` +
+    `after the registry revokes the malicious release to defend that class. ` +
+    `Next steps: ` +
     `(1) run \`npm audit signatures\` manually to inspect the failure, ` +
     `(2) clear the package cache and retry: \`npm cache clean --force && hatch3r update\`, ` +
     `(3) if you have verified the package out-of-band, re-run with --skip-audit-signatures. ` +

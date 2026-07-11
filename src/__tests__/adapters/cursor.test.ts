@@ -1,6 +1,7 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { tmpdir } from "node:os";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { createManifest } from "../../manifest/hatchJson.js";
@@ -847,6 +848,145 @@ Low priority rule body.
         .flat()
         .map((e) => e.command);
       expect(allCommands.some((c) => c.includes("review-loop-cap"))).toBe(false);
+    });
+  });
+
+  // D9-SA9.2-01 (Cycle 12, D9, P3/P6): two additive project-global Cursor hook
+  // guards that need no agent identity — `beforeMCPExecution` (mcp-guard.mjs, a
+  // hard allowlist over the resolved `.cursor/mcp.json` set) and a
+  // `beforeReadFile`+`beforeShellExecution` working-directory boundary
+  // (workdir-guard.mjs). Closes the currency gap where Cursor documented both
+  // events but the adapter left them unwired (cursor.com/docs/hooks +
+  // cursor.com/docs/agent/hooks, accessed 2026-07-10). Both fail open on
+  // ambiguity and ship with failClosed:false so a guard crash on these
+  // high-frequency events cannot brick the session.
+  describe("D9-SA9.2-01 project-global MCP + working-directory hook guards", () => {
+    it("emits .cursor/hooks/mcp-guard.mjs wired to beforeMCPExecution (failClosed:false)", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const guard = outputs.find((o) => o.path === ".cursor/hooks/mcp-guard.mjs");
+      expect(guard).toBeDefined();
+      expect(guard!.content).toContain("beforeMCPExecution");
+      expect(guard!.content).toContain('permission: "deny"');
+      expect(guard!.content).toContain("mcp.json");
+      expect(guard!.content).toContain("MCP_SERVER_NOT_IN_MANIFEST");
+      // Fails open when no manifest is readable, so a configured server is
+      // never blocked — pin the guard clause so the fail-open posture cannot
+      // silently flip to fail-closed.
+      expect(guard!.content).toContain("if (!manifestSeen) allow();");
+
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      const parsed = JSON.parse(hooksFile!.content);
+      expect(Array.isArray(parsed.hooks.beforeMCPExecution)).toBe(true);
+      const entry = parsed.hooks.beforeMCPExecution.find(
+        (e: { command: string }) => e.command === "node ./.cursor/hooks/mcp-guard.mjs",
+      );
+      expect(entry).toBeDefined();
+      expect(entry.failClosed).toBe(false);
+    });
+
+    it("emits .cursor/hooks/workdir-guard.mjs wired to beforeReadFile and beforeShellExecution", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const guard = outputs.find((o) => o.path === ".cursor/hooks/workdir-guard.mjs");
+      expect(guard).toBeDefined();
+      expect(guard!.content).toContain("realpathSync");
+      expect(guard!.content).toContain("PATH_ESCAPES_PROJECT_ROOT");
+      expect(guard!.content).toContain('permission: "deny"');
+      // Reads file_path (beforeReadFile) and cwd (beforeShellExecution).
+      expect(guard!.content).toContain("payload.file_path");
+      expect(guard!.content).toContain("payload.cwd");
+
+      const hooksFile = outputs.find((o) => o.path === ".cursor/hooks.json");
+      const parsed = JSON.parse(hooksFile!.content);
+      const cmd = "node ./.cursor/hooks/workdir-guard.mjs";
+      const onReadFile = parsed.hooks.beforeReadFile.find(
+        (e: { command: string }) => e.command === cmd,
+      );
+      const onShell = parsed.hooks.beforeShellExecution.find(
+        (e: { command: string }) => e.command === cmd,
+      );
+      expect(onReadFile).toBeDefined();
+      expect(onReadFile.failClosed).toBe(false);
+      expect(onShell).toBeDefined();
+      expect(onShell.failClosed).toBe(false);
+    });
+
+    it("appends the workdir guard after the mapped lifecycle entries on beforeShellExecution (D9-14 [0]-index preserved)", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const parsed = JSON.parse(
+        outputs.find((o) => o.path === ".cursor/hooks.json")!.content,
+      );
+      // The mapped lifecycle entries (printf directives) precede the appended
+      // guard, so the D9-14 `beforeShellExecution[0]` assertions stay valid.
+      expect(parsed.hooks.beforeShellExecution[0].command).toMatch(/^printf /);
+      expect(parsed.hooks.beforeShellExecution.at(-1).command).toBe(
+        "node ./.cursor/hooks/workdir-guard.mjs",
+      );
+    });
+
+    it("ships both guards even when no canonical lifecycle hooks map (features.hooks off)", async () => {
+      // Same trust-artifact posture as the subagentStart guard: the guards must
+      // ship even when no pre-commit/session-start hook produced a lifecycle
+      // entry, otherwise the runtime block silently disappears.
+      const outputs = await adapter.generate(
+        FIXTURES_DIR,
+        makeManifest({ features: { hooks: false } }),
+      );
+      expect(outputs.find((o) => o.path === ".cursor/hooks/mcp-guard.mjs")).toBeDefined();
+      expect(outputs.find((o) => o.path === ".cursor/hooks/workdir-guard.mjs")).toBeDefined();
+      const parsed = JSON.parse(
+        outputs.find((o) => o.path === ".cursor/hooks.json")!.content,
+      );
+      expect(
+        parsed.hooks.beforeMCPExecution.some((e: { command: string }) =>
+          e.command.includes("mcp-guard.mjs"),
+        ),
+      ).toBe(true);
+      expect(
+        parsed.hooks.beforeReadFile.some((e: { command: string }) =>
+          e.command.includes("workdir-guard.mjs"),
+        ),
+      ).toBe(true);
+    });
+  });
+
+  // D2-SA2.4-10 (Cycle 12, D2, P6): doc-parity guard for SECURITY.md's ASI02
+  // enforcement surface. Operators size compensating controls and auditors
+  // grade enforcement classifications from that document; a control surface
+  // added to the code but not to SECURITY.md leaves it describing a weaker
+  // system than the one shipped. The Cursor `subagentStart` hard guard
+  // (buildCursorSubagentGuardHookScript) was absent from SECURITY.md pre-fix
+  // while cursor.ts emitted it. Pin every ASI02 adapter emission helper into
+  // SECURITY.md so the next helper that skips the doc fails here.
+  describe("D2-SA2.4-10 SECURITY.md ASI02 emission-helper doc-parity", () => {
+    const SECURITY_MD = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "..",
+      "SECURITY.md",
+    );
+    const EMISSION_HELPERS = [
+      "buildAgentToolPoliciesJson",
+      "buildClaudePreToolUseHookScript",
+      "buildCursorAllowlistRule",
+      "buildCursorSubagentGuardHookScript",
+    ];
+
+    it("names every ASI02 adapter emission helper", async () => {
+      const doc = await readFile(SECURITY_MD, "utf-8");
+      for (const helper of EMISSION_HELPERS) {
+        expect(doc, `SECURITY.md must reference ${helper}`).toContain(helper);
+      }
+    });
+
+    it("documents the Cursor subagentStart hard deny (not 'no PreToolUse -> rule-delegated only')", async () => {
+      const doc = await readFile(SECURITY_MD, "utf-8");
+      expect(doc).toContain("subagent-guard.mjs");
+      expect(doc).toContain("subagentStart");
+      // The retracted absolute framing must not resurface for Cursor.
+      expect(doc).not.toContain("Cursor lacks a PreToolUse hook surface");
+      expect(doc).not.toContain("Cursor has no PreToolUse hook surface");
+      expect(doc).not.toContain("Cursor exposes no PreToolUse hook surface");
     });
   });
 

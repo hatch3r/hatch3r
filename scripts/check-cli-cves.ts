@@ -324,8 +324,8 @@ const SCAN_EXEMPT_TOOLS: Record<string, string> = {
   // registry securityNote + the per-cycle D21 currency review. Re-map (with a
   // version-matched distro coordinate) only if OSV gains an upstream-versioned package.
   jq: "jq (jqlang/jq) has no OSV advisory package under the `Linux` ecosystem (live Linux/jq@1.8.1=0); OSV keys its advisories under distro ecosystems (Debian/Ubuntu) whose version namespace cannot match the upstream 1.8.1 pin — upstream risk is tracked in the registry securityNote + the per-cycle D21 currency review",
-  curl: "curl (curl/curl) has no OSV advisory package under the `Linux` ecosystem (live Linux/curl=0); OSV keys its advisories under distro ecosystems (Debian/Ubuntu) whose version namespace cannot match the upstream 8.20.0 pin — upstream risk is tracked in the registry securityNote (curl.se/docs/security.html) + the per-cycle D21 currency review",
-  zstd: "zstd (facebook/zstd) has no OSV advisory package under the `Linux` ecosystem (live Linux/zstd=0) and no Debian/Ubuntu OSV record either — upstream risk is tracked via the per-cycle D21 currency review",
+  curl: "curl (curl/curl) has no OSV advisory package under the `Linux` ecosystem (live Linux/curl=0); OSV keys its advisories under distro ecosystems (Debian/Ubuntu) whose version namespace cannot match the upstream 8.21.0 pin — upstream risk is tracked in the registry securityNote (curl.se/docs/security.html) + the per-cycle D21 currency review",
+  zstd: "zstd (facebook/zstd) has no OSV advisory package under the `Linux` ecosystem (live Linux/zstd=0) and no Debian/Ubuntu OSV record either — upstream risk is now tracked in the registry securityNote (CVE-2022-4899, cleared by the pinned 1.5.7 drift-baseline) + the per-cycle D21 currency review",
 };
 
 /**

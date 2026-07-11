@@ -85,13 +85,28 @@ function detectMarkers(
     ? [preferred, ...MANAGED_BLOCK_VARIANTS.filter((v) => v.start !== preferred.start)]
     : MANAGED_BLOCK_VARIANTS;
 
+  // D1-SA1.5-02 (Cycle 12 Wave 3, D1, P6): host-syntax awareness — when the
+  // host is markdown, lines inside fenced code regions are excluded from
+  // marker detection. Line-anchoring (D1-7/D11-4) made a QUOTED mid-line token
+  // inert, but a fenced example documenting the marker format puts the token
+  // on its own line, which trims to exactly the bare token — so the fence
+  // interior detected as a real block and insertManagedBlock spliced canonical
+  // content into the user's example. Computed once per scan and shared with
+  // both marker searches below.
+  const fenced = isMarkdownHost(filePath) ? computeFencedLineRanges(content) : undefined;
+
   for (const variant of ordered) {
-    const startIdx = lineAnchoredIndexOf(content, variant.start);
+    const startIdx = lineAnchoredIndexOf(content, variant.start, 0, fenced);
     if (startIdx === -1) continue;
     // Require the END to be a line-anchored token AFTER the start line so a
     // quoted token before the real start (or no real end at all) cannot be
     // mistaken for the block boundary.
-    const endIdx = lineAnchoredIndexOf(content, variant.end, startIdx + variant.start.length);
+    const endIdx = lineAnchoredIndexOf(
+      content,
+      variant.end,
+      startIdx + variant.start.length,
+      fenced,
+    );
     if (endIdx === -1) continue;
     // D1-34 (Cycle 11 Wave 3, D1, P6+CQ8) — explicit start-before-end guard at
     // the return site. The `fromIdx = startIdx + variant.start.length` argument
@@ -115,6 +130,88 @@ function detectMarkers(
 }
 
 /**
+ * True when {@link filePath} names a markdown-family file — the only host
+ * syntax where ``` / ~~~ code fences delimit literal regions. An omitted path
+ * keeps the historical markdown assumption: {@link getMarkersForPath} defaults
+ * the same way (HTML-comment markers), and the optional-path entry points are
+ * documented as "correct for markdown" only (see {@link wrapInManagedBlock}).
+ */
+function isMarkdownHost(filePath?: string): boolean {
+  if (filePath === undefined) return true;
+  return /\.(md|mdc|markdown)$/i.test(filePath);
+}
+
+/** A fenced-code character range `[start, end)` within the scanned content. */
+interface FencedRange {
+  start: number;
+  end: number;
+}
+
+/**
+ * D1-SA1.5-02 (Cycle 12 Wave 3, D1, P6): compute the character ranges of
+ * fenced code regions (backtick or tilde fences) in a markdown document, so
+ * marker tokens QUOTED whole-line inside a fence are excluded from
+ * line-anchored detection and duplicate counting.
+ *
+ * CommonMark-lite semantics, deliberately conservative:
+ *   - An opening fence is a line whose trimmed form starts with >=3 backticks
+ *     or >=3 tildes (info string allowed after the fence characters).
+ *   - The region closes at the next line of the same fence character, at
+ *     least as long, with nothing else on the line — fences do not nest, so
+ *     other fence-looking lines inside stay inert (matching CommonMark).
+ *   - A range covers the opening fence line through the closing fence line
+ *     inclusive (the fence lines themselves never trim to a bare marker, but
+ *     including them keeps the ranges contiguous).
+ *   - An unterminated fence extends to end-of-content. Fail-closed: shielding
+ *     the remainder means detection returns "no managed block" and
+ *     safeWriteFile SKIPS non-destructively, rather than a quoted token
+ *     corrupting the merge.
+ */
+function computeFencedLineRanges(content: string): FencedRange[] {
+  const ranges: FencedRange[] = [];
+  let open: { char: string; len: number; rangeStart: number } | null = null;
+
+  let lineStart = 0;
+  while (lineStart <= content.length) {
+    const nlIdx = content.indexOf("\n", lineStart);
+    const lineEnd = nlIdx === -1 ? content.length : nlIdx;
+    const trimmed = content.slice(lineStart, lineEnd).trim();
+
+    if (open === null) {
+      const m = /^(`{3,}|~{3,})/.exec(trimmed);
+      if (m) {
+        open = { char: m[1][0], len: m[1].length, rangeStart: lineStart };
+      }
+    } else {
+      // Closing fence: same character, at least the opening length, and
+      // nothing else on the line.
+      const escaped = open.char === "`" ? "`" : "~";
+      const closeRe = new RegExp(`^${escaped}{${open.len},}$`);
+      if (closeRe.test(trimmed)) {
+        ranges.push({ start: open.rangeStart, end: lineEnd });
+        open = null;
+      }
+    }
+
+    if (nlIdx === -1) break;
+    lineStart = nlIdx + 1;
+  }
+
+  // Unterminated fence shields through end-of-content (fail-closed).
+  if (open !== null) ranges.push({ start: open.rangeStart, end: content.length });
+
+  return ranges;
+}
+
+/** True when character index {@link idx} falls inside any of {@link ranges}. */
+function insideFencedRange(ranges: FencedRange[], idx: number): boolean {
+  for (const r of ranges) {
+    if (idx >= r.start && idx < r.end) return true;
+  }
+  return false;
+}
+
+/**
  * Find the character index of the first line that — after trimming leading and
  * trailing whitespace — equals {@link marker} exactly, scanning from
  * {@link fromIdx}. Returns the index of the marker token within that line (the
@@ -124,8 +221,16 @@ function detectMarkers(
  * Anchoring to a whole line is what makes detection collision-proof: a marker
  * token embedded in prose or quoted inside a YAML/JSON value lives on a line
  * with other characters, so its trimmed line never equals the bare token.
+ * When {@link fencedRanges} is supplied (markdown hosts — D1-SA1.5-02), lines
+ * inside fenced code regions are skipped too, so a whole-line token quoted in
+ * a ``` example never matches.
  */
-function lineAnchoredIndexOf(content: string, marker: string, fromIdx = 0): number {
+function lineAnchoredIndexOf(
+  content: string,
+  marker: string,
+  fromIdx = 0,
+  fencedRanges?: FencedRange[],
+): number {
   // Walk line boundaries from fromIdx. A line spans [lineStart, lineEnd).
   // Back up to the start of the line that fromIdx falls inside so a marker on
   // that same line is still considered (start+end never share a line in
@@ -134,6 +239,11 @@ function lineAnchoredIndexOf(content: string, marker: string, fromIdx = 0): numb
   while (lineStart <= content.length) {
     const nlIdx = content.indexOf("\n", lineStart);
     const lineEnd = nlIdx === -1 ? content.length : nlIdx;
+    if (fencedRanges && insideFencedRange(fencedRanges, lineStart)) {
+      if (nlIdx === -1) break;
+      lineStart = nlIdx + 1;
+      continue;
+    }
     const line = content.slice(lineStart, lineEnd);
     if (line.trim() === marker) {
       const tokenIdx = lineStart + (line.length - line.trimStart().length);
@@ -152,11 +262,23 @@ function lineAnchoredIndexOf(content: string, marker: string, fromIdx = 0): numb
  * {@link insertManagedBlock} for duplicate-marker detection so a marker token
  * quoted inside user content (which lives on a line with other characters and
  * therefore never trims to the bare token) is not miscounted as a duplicate.
+ * {@link fencedRanges} (markdown hosts — D1-SA1.5-02) additionally excludes
+ * whole-line tokens quoted inside fenced code regions: before this, a real
+ * HTML block plus a fenced example of the same tokens tripped the duplicate
+ * check and routed safeWrite to the `.bak` auto-repair path, displacing
+ * out-of-block user content.
  */
-function countLineAnchored(content: string, marker: string): number {
+function countLineAnchored(content: string, marker: string, fencedRanges?: FencedRange[]): number {
   let count = 0;
-  for (const line of content.split("\n")) {
-    if (line.trim() === marker) count++;
+  let lineStart = 0;
+  while (lineStart <= content.length) {
+    const nlIdx = content.indexOf("\n", lineStart);
+    const lineEnd = nlIdx === -1 ? content.length : nlIdx;
+    if (!(fencedRanges && insideFencedRange(fencedRanges, lineStart))) {
+      if (content.slice(lineStart, lineEnd).trim() === marker) count++;
+    }
+    if (nlIdx === -1) break;
+    lineStart = nlIdx + 1;
   }
   return count;
 }
@@ -202,8 +324,12 @@ export function insertManagedBlock(
   // error — which routed safeWrite to the `.bak` auto-repair path that
   // overwrites out-of-block user content. Counting whole-line tokens only,
   // exactly as detection does, removes that false positive at the root.
-  const startCount = countLineAnchored(existingContent, variant.start);
-  const endCount = countLineAnchored(existingContent, variant.end);
+  // D1-SA1.5-02 (Cycle 12 Wave 3): the count is additionally fence-aware on
+  // markdown hosts, again exactly as detection is — a whole-line token quoted
+  // inside a ``` example is neither a block boundary nor a duplicate.
+  const fenced = isMarkdownHost(filePath) ? computeFencedLineRanges(existingContent) : undefined;
+  const startCount = countLineAnchored(existingContent, variant.start, fenced);
+  const endCount = countLineAnchored(existingContent, variant.end, fenced);
   if (startCount > 1) {
     throw new HatchError(
       "Corrupted managed block: duplicate start marker found. Remove the duplicate before syncing.",

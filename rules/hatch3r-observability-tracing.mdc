@@ -1,6 +1,5 @@
 ---
 description: Distributed tracing, OpenTelemetry conventions, and AI agent instrumentation for the project
-globs: ["**/*trac*", "**/*span*", "**/*telemetry*", "**/*otel*", "**/*agent*", "**/observability/**", "**/routes/**", "**/handlers/**", "**/services/**", "**/api/**", "**/middleware/**", "**/controllers/**", "**/lib/**"]
 alwaysApply: false
 precedence: high
 ---

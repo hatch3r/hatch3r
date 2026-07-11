@@ -85,6 +85,7 @@ import {
   TAG_LANG_GO,
   TAG_LANG_RUST,
   TAG_LANG_JAVA,
+  TAG_LANG_KOTLIN,
   TAG_LANG_RUBY,
   // Role (D14-M6)
   TAG_ROLE_REVIEWER,
@@ -255,7 +256,7 @@ describe("TAG_REGISTRY consistency", () => {
       TAG_CAT_EDIT, TAG_CAT_ARCHIVE, TAG_CAT_DATA, TAG_CAT_FORGE,
       TAG_CAT_BROWSER, TAG_CAT_CONTAINER, TAG_CAT_AI, TAG_CAT_INTERACTIVE,
       TAG_LANG_TYPESCRIPT, TAG_LANG_PYTHON, TAG_LANG_GO, TAG_LANG_RUST,
-      TAG_LANG_JAVA, TAG_LANG_RUBY,
+      TAG_LANG_JAVA, TAG_LANG_KOTLIN, TAG_LANG_RUBY,
     ];
     for (const tag of exportedTagValues) {
       expect(TAG_REGISTRY[tag], `expected TAG_REGISTRY to contain ${tag}`).toBeDefined();
@@ -271,8 +272,8 @@ describe("TAG_REGISTRY consistency", () => {
     expect(unique.size).toBe(ALL_TAGS.length);
   });
 
-  it("ALL_TAGS contains exactly 80 elements (41 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language + 3 role) — tier facet retired, right-sizing capability added", () => {
-    expect(ALL_TAGS).toHaveLength(80);
+  it("ALL_TAGS contains exactly 81 elements (41 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 7 language + 3 role) — lang:kotlin split from lang:java (D14-SA14.1-03)", () => {
+    expect(ALL_TAGS).toHaveLength(81);
   });
 
   it("facetOf returns 'capability' for every capability tag", () => {
@@ -344,6 +345,7 @@ describe("TAG_REGISTRY consistency", () => {
     expect(facetOf(TAG_LANG_GO)).toBe("language");
     expect(facetOf(TAG_LANG_RUST)).toBe("language");
     expect(facetOf(TAG_LANG_JAVA)).toBe("language");
+    expect(facetOf(TAG_LANG_KOTLIN)).toBe("language");
     expect(facetOf(TAG_LANG_RUBY)).toBe("language");
   });
 
@@ -440,9 +442,10 @@ describe("tagsForFacet", () => {
     expect(TAG_CAT_AI).toBe("ai-cat");
   });
 
-  it("returns the 6 language tags", () => {
+  it("returns the 7 language tags (lang:kotlin split from lang:java — D14-SA14.1-03)", () => {
     const result = tagsForFacet("language");
-    expect(result).toHaveLength(6);
+    expect(result).toHaveLength(7);
+    expect(result).toContain(TAG_LANG_KOTLIN);
     for (const t of result) {
       expect(t).toMatch(/^lang:/);
     }
@@ -700,8 +703,13 @@ describe("LANGUAGE_TO_TAG", () => {
     expect(LANGUAGE_TO_TAG["java"]).toBe(TAG_LANG_JAVA);
   });
 
-  it("maps kotlin to lang:java (shared ecosystem)", () => {
-    expect(LANGUAGE_TO_TAG["kotlin"]).toBe(TAG_LANG_JAVA);
+  it("maps kotlin to lang:kotlin — distinct from java (D14-SA14.1-03)", () => {
+    expect(LANGUAGE_TO_TAG["kotlin"]).toBe(TAG_LANG_KOTLIN);
+    // Kotlin and Java are no longer collapsed onto one JVM tag: a Kotlin repo
+    // resolves lang:kotlin (the retagged android-patterns rule), a Java repo
+    // resolves lang:java, and the two never alias.
+    expect(LANGUAGE_TO_TAG["kotlin"]).not.toBe(LANGUAGE_TO_TAG["java"]);
+    expect(TAG_LANG_KOTLIN).not.toBe(TAG_LANG_JAVA);
   });
 
   it("maps ruby to lang:ruby", () => {
@@ -1004,5 +1012,95 @@ describe("weightedPillarTally (D22 §22.3 reproducible tally)", () => {
       { tags: [TAG_OBSERVABILITY] },
     ]);
     expect(tally.CQ4).toBe(1.2);
+  });
+});
+
+// ── Property-based invariants (D3-SA3.5-04) ──────────────────────
+//
+// CQ5 self-application: rules/hatch3r-testing.md §Property-Based Testing binds
+// framework-dev on invariant-bearing pure functions. These suites pin two of
+// tags.ts's invariants as properties over generated inputs rather than fixed
+// fixtures: weightedPillarTally reproducibility (D22-SA22.3-01) and
+// filterByLanguages idempotency + universal-floor preservation. A seeded
+// vitest-native generator (mulberry32) stands in for `fast-check` until that
+// devDependency is added. Policy: .claude/rules/test-requirements.md → CQ5
+// self-application scope.
+describe("weightedPillarTally + filterByLanguages — property-based invariants (D3-SA3.5-04)", () => {
+  function makePrng(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function pick<T>(rng: () => number, xs: readonly T[]): T {
+    return xs[Math.floor(rng() * xs.length)];
+  }
+  function shuffle<T>(rng: () => number, xs: readonly T[]): T[] {
+    const a = [...xs];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  function genTagBag(rng: () => number): string[] {
+    const n = 1 + Math.floor(rng() * 4);
+    return Array.from({ length: n }, () => pick(rng, ALL_TAGS));
+  }
+
+  it("weightedPillarTally is deterministic AND order-independent over 200 generated corpora", () => {
+    const rng = makePrng(0x7a3c);
+    for (let i = 0; i < 200; i++) {
+      const size = 1 + Math.floor(rng() * 11); // 1..12 artifacts
+      const corpus = Array.from({ length: size }, () => ({ tags: genTagBag(rng) }));
+      const base = weightedPillarTally(corpus);
+      // Determinism: identical input yields an identical tally.
+      expect(weightedPillarTally(corpus), `nondeterministic on iter ${i}`).toEqual(base);
+      // Order-independence: per-artifact contribution is a MAX (order-free) and
+      // the cross-corpus combine is summation with 3dp rounding, so a permuted
+      // corpus yields the same tally — the D22-SA22.3-01 reproducibility
+      // property generalized past its fixed fixtures.
+      expect(
+        weightedPillarTally(shuffle(rng, corpus)),
+        `order-dependent on iter ${i}`,
+      ).toEqual(base);
+    }
+  });
+
+  const LANG_POOL = ["typescript", "python", "go", "java", "kotlin", "php"] as const;
+
+  it("filterByLanguages is idempotent AND preserves every unconditionally-admitted item (200 cases)", () => {
+    const rng = makePrng(0x2f19);
+    for (let i = 0; i < 200; i++) {
+      const nItems = 1 + Math.floor(rng() * 6);
+      const items = Array.from({ length: nItems }, (_unused, k) => ({
+        id: `item-${k}`,
+        tags: genTagBag(rng),
+        protected: rng() > 0.8,
+      }));
+      const nLangs = Math.floor(rng() * 3);
+      const langs = Array.from({ length: nLangs }, () => pick(rng, LANG_POOL));
+
+      const once = filterByLanguages(items, langs);
+      const twice = filterByLanguages(once, langs);
+      // Idempotency: re-filtering an already-filtered set with the same
+      // languages is a no-op (the predicate depends only on item tags + langs).
+      expect(twice.map((x) => x.id), `not idempotent on iter ${i}`).toEqual(
+        once.map((x) => x.id),
+      );
+      // Universal-floor preservation: any protected OR floor-tagged item
+      // survives every language set (D16-2).
+      for (const it of items) {
+        if (admitsUnconditionally(it)) {
+          expect(
+            once.some((x) => x.id === it.id),
+            `dropped floor/protected item on iter ${i}`,
+          ).toBe(true);
+        }
+      }
+    }
   });
 });

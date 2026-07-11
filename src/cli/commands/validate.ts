@@ -13,6 +13,7 @@ import { HATCH3R_VERSION } from "../../version.js";
 import { scanForDeniedPatterns } from "../../adapters/customization.js";
 import { readCanonicalFilesDetailed } from "../../adapters/canonical.js";
 import type { CanonicalType, CanonicalReadError } from "../../adapters/canonical.js";
+import { readMcpConfig } from "../../adapters/mcp-utils.js";
 import { ALL_TAGS, facetOf } from "../../content/tags.js";
 import { buildContentIndex, validateCrossReferences, validateOrchestrationDependencies, resolveUserContentRoot } from "../../content/index.js";
 import type { CatalogItem, ContentIndex } from "../../content/index.js";
@@ -113,7 +114,8 @@ async function validateDirectories(
   result: ValidationResult,
 ): Promise<void> {
   const requiredDirs = ["agents", "skills", "rules"];
-  const optionalDirs = ["commands", "prompts", "mcp", "policy", "github-agents"];
+  // D2-SA2.2-02: hooks + checks join the optional-dir set (10 published classes, not 8).
+  const optionalDirs = ["commands", "prompts", "mcp", "policy", "github-agents", "hooks", "checks"];
 
   for (const dir of requiredDirs) {
     try {
@@ -139,7 +141,10 @@ async function validateFrontmatter(
   result: ValidationResult,
 ): Promise<void> {
   const requiredDirs = ["agents", "skills", "rules"];
-  const optionalDirs = ["commands", "prompts", "mcp", "policy", "github-agents"];
+  // D2-SA2.2-02 (Cycle 12 Wave 3, D2 Medium, P5): hooks + checks join the
+  // frontmatter dir list so hooks/*.md + checks/*.md get the id/type, efficiency,
+  // and tag-registry checks. The deep scan below + release-gate SCANNED_TYPES already cover both.
+  const optionalDirs = ["commands", "prompts", "mcp", "policy", "github-agents", "hooks", "checks"];
 
   for (const dir of [...requiredDirs, ...optionalDirs]) {
     const dirPath = join(canonicalRoot, dir);
@@ -253,6 +258,22 @@ export async function scanCanonicalReadDiagnostics(
 ): Promise<void> {
   // Canonical types that overlap the frontmatter-bearing content dirs above.
   // `mcp` is intentionally absent (JSON config, not a CanonicalType).
+  //
+  // D11-SA11.1-01 (Cycle 12 Wave 3, D11 Medium, P6/CQ4): `checks` is included so
+  // `checks/*.md` is routed through the hardened `readSingleMd` reader (fatal
+  // UTF-8 decode, leading-BOM strip+warn, `scanCanonicalInjectionTokens`) — the
+  // same read-and-harden pass every other content class already gets here.
+  // `checks/` is a first-class published class (`type: check`, adapter-emitted)
+  // that `validateContentBody`'s anti-slop/pillar scan does NOT cover (its
+  // `scanDirs` omits `checks`), so before this addition `checks/` was the one
+  // class no validate path scanned for a BOM, an invalid byte, or an injection
+  // token. (The emit-time companion read path — `base.ts::processCompanionSubdir`
+  // — still needs its own read-and-harden fix; that is tracked separately as the
+  // adapter-side half of this finding.)
+  //
+  // D2-SA2.2-02 (Cycle 12 Wave 3, D2 Medium, P5): `hooks` completes the list —
+  // all 10 published canonical classes now route through the hardened reader
+  // here, matching the release gate's SCANNED_TYPES (scripts/validate-canonical.ts).
   const types: CanonicalType[] = [
     "agents",
     "skills",
@@ -261,6 +282,8 @@ export async function scanCanonicalReadDiagnostics(
     "prompts",
     "policy",
     "github-agents",
+    "hooks",
+    "checks",
   ];
   for (const type of types) {
     let results;
@@ -600,7 +623,18 @@ async function validateHooks(
   }
 }
 
-async function validateMcp(
+/**
+ * D2-SA2.4-05 (Cycle 12 Wave 3, D2 Medium, P5): keep the JSON-shape errors AND
+ * run the full-bundle per-entry pass via `readMcpConfig` default mode
+ * (`validateEntries: true`). The old body re-implemented only the shape check, so
+ * the default full-bundle pass the D11-16 JSDoc names as `hatch3r validate`'s
+ * surface had no production caller (base.ts passes `validateEntries: false`). The
+ * pass is warn-only, so its output merges into `result.warnings`; shape defects
+ * stay errors. On an unreadable / invalid-JSON / missing-key config the function
+ * returns before the per-entry pass so `readMcpConfig` cannot double-report it.
+ * Exported for unit coverage.
+ */
+export async function validateMcp(
   canonicalRoot: string,
   manifest: HatchManifest,
   result: ValidationResult,
@@ -613,6 +647,7 @@ async function validateMcp(
     const mcpParsed = JSON.parse(mcpContent);
     if (!mcpParsed.mcpServers || typeof mcpParsed.mcpServers !== "object") {
       result.errors.push("MCP config missing 'mcpServers' key");
+      return;
     }
   } catch (err) {
     if (err instanceof SyntaxError) {
@@ -620,7 +655,16 @@ async function validateMcp(
     } else {
       result.warnings.push("MCP servers configured but mcp/mcp.json not found in bundled content root");
     }
+    return;
   }
+
+  // Full-bundle per-entry validation (default mode). readMcpConfig re-reads the
+  // same file; on a well-formed bundle it returns warn-only diagnostics
+  // (unrecognized command, invalid URL scheme, shell-metachar args, injection
+  // tokens in descriptions) over EVERY entry — the surface the shape check above
+  // cannot see. The refusal-grade drop gates inside readMcpConfig also run.
+  const { warnings } = await readMcpConfig(canonicalRoot);
+  for (const w of warnings) result.warnings.push(w);
 }
 
 /**
@@ -1819,11 +1863,12 @@ async function validateContentBody(
       // every published agent / command / skill by
       // `rules/hatch3r-clarification-default.md`. Enforce it here so an artifact
       // that drops the gate fails CI rather than silently shipping without
-      // clarification-default behavior. Reference subdirectories
-      // (agents/shared, agents/modes, commands/board, commands/revision,
-      // commands/shared) are companion material, not standalone mutating
-      // artifacts, so they are exempt — matching the prefix-exemption split in
-      // content-authoring.
+      // clarification-default behavior. Companion material — the
+      // COMPANION_SUBDIRS reference subdirectories plus a skill's non-SKILL.md
+      // files — is exempt via requiresAmbiguityGate. COMPANION_SUBDIRS is the
+      // authoritative in-code set (D22-SA22.4-01); the `.claude/rules/content-
+      // authoring.md` §2a prefix-exemption list is a governance mirror that has
+      // drifted from it, so do NOT treat the two as guaranteed-identical.
       if (requiresAmbiguityGate(dir, fileLabel)) {
         const gate = checkAmbiguityGate(body);
         if (!gate.hasMarker) {
@@ -1847,24 +1892,47 @@ async function validateContentBody(
 }
 
 /**
+ * D22-SA22.4-01 (Cycle 12 Wave 3, D22 Medium, P4): the code-canonical set of
+ * companion subdirectories — reference/boilerplate material that lives under a
+ * content dir but is NOT a standalone, user-invocable, mutating artifact (it is
+ * cited by a parent agent/command/skill). This is the single in-code source of
+ * truth for the set; `requiresAmbiguityGate` derives its exemption list from it
+ * instead of re-listing the members inline (the earlier `EXEMPT_SUBDIRS` local
+ * + two prose comments each re-listed the same dirs, a P4 single-source-of-
+ * truth miss).
+ *
+ * NOT in this set, deliberately:
+ *  - `checks/` — a first-class published class (`type: check`, adapter-emitted;
+ *    content-authoring §2 exception 2b), NOT companion material, so it is
+ *    neither prefix-exempt-as-companion nor subject to the orphan/promote test.
+ *  - `skills/<id>/references/**` — companion reference material, but keyed off
+ *    the `!/SKILL.md` filename rule in `requiresAmbiguityGate` (a per-skill
+ *    `references/` dir carries no fixed top-level prefix), not this prefix list.
+ *
+ * The two governance mirrors of this set (`.claude/rules/content-authoring.md`
+ * §2a and `governance/audit/domains/D22-content-architecture.md` SA 22.4 item
+ * 1) drifted from this list and from each other; reconciling them to this
+ * constant is a governance-doc edit tracked as the other half of this finding.
+ */
+export const COMPANION_SUBDIRS: readonly string[] = [
+  "agents/shared/",
+  "agents/modes/",
+  "commands/board/",
+  "commands/revision/",
+  "commands/shared/", // shared command boilerplate (e.g. orchestration-frame.md, type: shared-context) — cited by orchestrators, not a standalone mutating command
+  "skills/hatch3r-board-shared/", // board companion skill (parity with commands/board/)
+];
+
+/**
  * F13.5-F01 (D13): which scanned files must carry the §0 ambiguity gate.
  * Applies to top-level published agents, commands, and skills. Companion
- * material under reference subdirectories (agents/shared, agents/modes,
- * commands/board, commands/revision, commands/shared) is exempt — it is not a
- * standalone mutating artifact, mirroring the filename-prefix exemption in
- * `.claude/rules/content-authoring.md`.
+ * material under the {@link COMPANION_SUBDIRS} reference subdirectories — and
+ * any non-`SKILL.md` file under a skill (its `references/**`) — is exempt: it is
+ * cited by a parent artifact, not a standalone mutating entry point.
  */
 export function requiresAmbiguityGate(dir: string, fileLabel: string): boolean {
   if (dir !== "agents" && dir !== "commands" && dir !== "skills") return false;
-  const EXEMPT_SUBDIRS = [
-    "agents/shared/",
-    "agents/modes/",
-    "commands/board/",
-    "commands/revision/",
-    "commands/shared/", // shared command boilerplate (e.g. orchestration-frame.md, type: shared-context) — companion material cited by orchestrators, not a standalone mutating command
-    "skills/hatch3r-board-shared/", // board companion skill (parity with commands/board/)
-  ];
-  if (EXEMPT_SUBDIRS.some((prefix) => fileLabel.startsWith(prefix))) return false;
+  if (COMPANION_SUBDIRS.some((prefix) => fileLabel.startsWith(prefix))) return false;
   // Skill reference material is companion content, not a standalone mutating
   // entry point: only the top-level SKILL.md carries the §0 gate. This exempts
   // every `skills/<id>/references/**` (and any non-SKILL.md file under a skill).
@@ -1906,7 +1974,15 @@ export function checkAmbiguityGate(body: string): { hasMarker: boolean; referenc
   // `(?!\.\d)` lookahead on the §0 disjunct still rejects a `§0.5` subsection.
   const HEADING = String.raw`^\s{0,3}#{1,4}\s*`;
   const hasMarker =
-    new RegExp(HEADING + String.raw`§\s*0\b(?!\.\d)`, "m").test(body) ||
+    // D5-SA5.9-02 (Cycle 12 Wave 3, D5 Medium, P5): the §0 heading must also
+    // carry an "ambiguity" label on the same line, so a bare `## §0 Preflight`
+    // (a §0 heading with no ambiguity semantics) no longer registers as the
+    // gate marker. The lookahead asserts a `§0` token — rejecting `§0.5` via
+    // `(?!\.\d)` — is present on the heading line; the trailing `ambig`
+    // requires the label too, in either order on that line. Corpus-verified
+    // 2026-07-11: all 76 canonical `§0` gate headings already carry the label,
+    // so this closes a latent gap without failing any current file.
+    new RegExp(HEADING + String.raw`(?=[^\n]*§\s*0\b(?!\.\d))[^\n]*ambig`, "im").test(body) ||
     new RegExp(HEADING + String.raw`[^\n]*\bstep\s*0\b[^\n]*ambig`, "im").test(body) ||
     new RegExp(HEADING + String.raw`[^\n]*\bambiguity[- ](detection|gate|&)`, "im").test(body) ||
     new RegExp(HEADING + String.raw`[^\n]*\bambiguity\b[^\n]*\bgate\b`, "im").test(body);
@@ -2592,8 +2668,10 @@ interface ValidateJsonOutput {
  * script under `<packageRoot>/scripts/` via `spawnSync("npx", ["tsx", path])`
  * and fold its findings into the shared `ValidationResult`. Sub-validators
  * exit non-zero on error, zero on pass; their stdout/stderr is captured and,
- * on failure, the first non-empty line is surfaced as the error message with
- * the full transcript appended in verbose mode.
+ * on a ran-and-failed exit, the first non-empty line is surfaced as a
+ * validation ERROR (D12-SA12.1-02) with the full transcript appended in
+ * verbose mode. A *launch* failure (child.error, e.g. missing tsx) stays a
+ * warning — the invariant could not be evaluated, so it is not a hard fail.
  *
  * The wrapper is gated on script presence: published npm bundles ship only
  * `dist/` (per package.json `files`), so `scripts/` is absent in consumer
@@ -2607,11 +2685,15 @@ interface ValidateJsonOutput {
  * An in-process import would terminate the whole `hatch3r validate` process
  * mid-run, losing every subsequent check's findings. Spawning isolates the
  * exit semantics.
+ *
+ * `spawn` is injectable for unit tests (default `spawnSync`); production call
+ * sites pass three args, so the default binds the real spawner unchanged.
  */
-function runSubValidator(
+export function runSubValidator(
   scriptPath: string,
   scriptLabel: string,
   result: ValidationResult,
+  spawn: typeof spawnSync = spawnSync,
 ): void {
   if (!existsSync(scriptPath)) {
     verbose(
@@ -2620,7 +2702,7 @@ function runSubValidator(
     return;
   }
 
-  const child = spawnSync("npx", ["tsx", scriptPath], {
+  const child = spawn("npx", ["tsx", scriptPath], {
     encoding: "utf-8",
     stdio: ["ignore", "pipe", "pipe"],
     cwd: dirname(dirname(scriptPath)),
@@ -2646,16 +2728,27 @@ function runSubValidator(
     return;
   }
 
-  // Non-zero exit: fold the first non-empty stderr/stdout line into warnings[]
-  // (not errors[]) so a single `hatch3r validate` surfaces the failure summary
-  // for operator visibility without failing validate-command when the cwd is
-  // a user-content sandbox missing the canonical content tree. Append the full
-  // transcript as a verbose log line so --verbose preserves detail.
+  // D12-SA12.1-02 (Cycle 12 Wave 3, D12 Medium, P5): a non-zero exit means the
+  // sub-validator RAN and found a real violation of the package's own canonical
+  // content (e.g. `.md`/`.mdc` rule-parity drift, a P7 efficiency-invariant
+  // miss) — route it to errors[] so `hatch3r validate` fails with the same
+  // VALIDATION_ERROR exit the umbrella `npm run validate` uses, keeping the two
+  // gates in agreement rather than painting a genuine drift green.
+  //
+  // The prior code demoted this to warnings[] under a "user-content sandbox
+  // missing the canonical content tree" rationale the code path cannot reach:
+  // the spawn cwd is the package root (`dirname(dirname(scriptPath))`), not the
+  // user's `process.cwd()`, and consumer-repo installs (no `scripts/` shipped)
+  // are already handled by the `existsSync` skip at the top of this function —
+  // so the sandbox scenario never arises here. A *launch* failure
+  // (`child.error`, e.g. missing tsx) is a distinct case handled above and
+  // stays a warning; only a ran-and-failed status reaches this branch. Append
+  // the full transcript as a verbose log line so --verbose preserves detail.
   const firstLine =
     [...stderr.split("\n"), ...stdout.split("\n")]
       .map((l) => l.trim())
       .find((l) => l.length > 0) ?? `${scriptLabel} exited with status ${status}`;
-  result.warnings.push(`${scriptLabel} reported issues: ${firstLine}`);
+  result.errors.push(`${scriptLabel} reported issues: ${firstLine}`);
   const transcript = [stderr, stdout].filter((s) => s.length > 0).join("\n");
   if (transcript) {
     verbose(`${scriptLabel} transcript:\n${transcript}`);
@@ -2879,115 +2972,130 @@ export async function validateCommand(opts?: {
     await validateCostTracking(manifest, result);
     verbose("Checking customizations...");
     await validateCustomizations(rootDir, canonicalRoot, manifest, result);
-    await validateCustomizeYaml(rootDir, result);
     verbose("Checking content consistency...");
     await validateContentConsistency(rootDir, canonicalRoot, manifest, result);
+  }
 
-    // C9-M29: scan canonical content bodies for anti-slop wordlist hits and
-    // missing pillar references. Default emission = warnings; --strict-content
-    // escalates to errors so author skills can hard-gate new artifacts.
-    verbose("Checking content body (anti-slop + pillar references)...");
-    await validateContentBody(canonicalRoot, result, strictContent);
+  // D1-SA1.4-05 (Cycle 12 Wave 3, D1 Medium, P5): the checks from here to the
+  // end of this hoisted section read only the bundled canonical corpus + rootDir
+  // — never manifest fields — so they must run whether or not the repo is
+  // hatch3r-initialized. They were previously gated inside `if (manifest)`, which
+  // silently skipped ~half the advertised checks on a pre-init repo (anti-slop,
+  // cross-references, ID collisions, user-content gates, the customize.yaml lint,
+  // and the .env.mcp gitignore scan) and still printed a green "Validation
+  // passed" over an unscanned corpus (Silent Failure Contract, CONSTITUTION §2
+  // P5). validateManifest already downgrades a missing manifest to a warning "so
+  // bundled-canonical validation can still run for tooling"; hoisting these makes
+  // that intent real. The manifest-DEPENDENT checks above stay gated, and the
+  // orchestration-dependency check below re-guards on `manifest?.content`.
+  await validateCustomizeYaml(rootDir, result);
 
-    // Cross-reference validation runs against the bundled canonical index.
-    // Wave 5 will reintroduce the `.hatch3r/overrides/` user-tier subtree;
-    // until then, the index is canonical-only.
-    try {
-      const index = await buildContentIndex(canonicalRoot, {
-        userRoot: resolveUserContentRoot(rootDir),
-      });
-      if (index.items.length > 0) {
-        const crossRefResult = await validateCrossReferences(canonicalRoot, index);
-        for (const w of crossRefResult.warnings) {
-          result.warnings.push(w);
-        }
-        // Description-quality lint on the bundled content — when this runs,
-        // we skip the canonical-package pass below to avoid duplicate findings.
-        runDescriptionQualityChecks(index, result);
-        descriptionLintRan = true;
-      }
-      // D20: strict + gentle gates for user-authored content under the new
-      // `.hatch3r/overrides/` root (Wave 5). The function no-ops when the user
-      // root is absent, so projects that never authored overrides incur no
-      // findings.
-      verbose("Checking user content (D20 gates)...");
-      await validateUserContent(rootDir, canonicalRoot, result, index);
+  // C9-M29: scan canonical content bodies for anti-slop wordlist hits and
+  // missing pillar references. Default emission = warnings; --strict-content
+  // escalates to errors so author skills can hard-gate new artifacts.
+  verbose("Checking content body (anti-slop + pillar references)...");
+  await validateContentBody(canonicalRoot, result, strictContent);
 
-      // Content ID collision validation.
-      //
-      // F16.3-H3 (D16) / D5-H8 / D16-H10 / Decision 13: a command↔skill ID
-      // pair is legitimate ONLY when BOTH (1) the command genuinely
-      // orchestrates — `orchestrator: true` with a non-empty `agentPipeline`
-      // — so the command (delegation) and the skill (inline execution) are
-      // distinct artifacts, AND (2) the skill twin carries the Decision-13
-      // handoff section documenting the split. Either gap is a finding:
-      //   - command does NOT orchestrate -> Decision-13 duplicate (collapse
-      //     to one artifact or promote the command to a real orchestrator).
-      //   - command orchestrates but the skill twin OMITS the handoff doc ->
-      //     the slash-name collision (Claude resolves `/hatch3r-X` to the
-      //     skill, shadowing the command) ships undocumented. The fix is the
-      //     `## Relationship to ... (Decision 13 handoff)` section, modeled
-      //     on `skills/hatch3r-api-spec/SKILL.md`.
-      // Previously a qualifying command silently exempted the pair, which let
-      // the undocumented twin ship (D5-H8: "no artifact documents it").
-      // Same-type duplicates and other cross-type pairs are always warnings.
-      for (const collision of index.collisions) {
-        if (collision.kind === "cross-type") {
-          const types = new Set([collision.existingType, collision.duplicateType]);
-          if (types.size === 2 && types.has("command") && types.has("skill")) {
-            const commandPath = collision.existingType === "command"
-              ? collision.existingPath
-              : collision.duplicatePath;
-            const skillPath = collision.existingType === "skill"
-              ? collision.existingPath
-              : collision.duplicatePath;
-            const qualifies = await commandOrchestrates(join(canonicalRoot, commandPath), result);
-            if (!qualifies) {
-              result.warnings.push(
-                `Content ID collision: "${collision.id}" exists as both a command (${commandPath}) and a skill (${skillPath}), but the command is not orchestrator:true with a non-empty agentPipeline — per Decision 13 this is a duplicate: collapse to one artifact or promote the command to a real orchestrator (.claude/rules/content-authoring.md item 9)`,
-              );
-              continue;
-            }
-            const documented = await skillDocumentsDecision13Split(
-              join(canonicalRoot, skillPath),
-              result,
-            );
-            if (!documented) {
-              result.warnings.push(
-                `Content ID collision: "${collision.id}" — command ${commandPath} orchestrates, but its id-sharing skill ${skillPath} omits the Decision-13 handoff section, so the command↔skill split is undocumented (Claude Code resolves /hatch3r-${collision.id.replace(/^hatch3r-/, "")} to the skill, shadowing the command). Add a "## Relationship to \`${commandPath}\` (Decision 13 handoff)" section to the skill (model: skills/hatch3r-api-spec/SKILL.md), OR collapse the pair to one artifact.`,
-              );
-              continue;
-            }
-            // Legitimate, documented Decision-13 command/skill pair — the
-            // command delegates via agentPipeline; the skill is its inline
-            // sibling and records the split.
-            continue;
-          }
-        }
-        result.warnings.push(
-          `Content ID collision: "${collision.id}" exists as ${collision.existingType} (${collision.existingPath}) and ${collision.duplicateType} (${collision.duplicatePath})`,
-        );
-      }
-    } catch (err) {
-      // #252 (D8-8.19): Log content scanning errors instead of silently swallowing them.
-      // This helps diagnose broken cross-references or index build failures.
-      result.warnings.push(
-        `Content scanning failed — cross-reference and collision validation skipped: ${err instanceof Error ? err.message : String(err)}`,
-      );
-    }
-
-    // Orchestration dependency validation: check required agents are selected
-    if (manifest.content) {
-      const orchWarnings = validateOrchestrationDependencies(manifest.content);
-      for (const w of orchWarnings) {
+  // Cross-reference validation runs against the bundled canonical index.
+  // Wave 5 will reintroduce the `.hatch3r/overrides/` user-tier subtree;
+  // until then, the index is canonical-only.
+  try {
+    const index = await buildContentIndex(canonicalRoot, {
+      userRoot: resolveUserContentRoot(rootDir),
+    });
+    if (index.items.length > 0) {
+      const crossRefResult = await validateCrossReferences(canonicalRoot, index);
+      for (const w of crossRefResult.warnings) {
         result.warnings.push(w);
       }
+      // Description-quality lint on the bundled content — when this runs,
+      // we skip the canonical-package pass below to avoid duplicate findings.
+      runDescriptionQualityChecks(index, result);
+      descriptionLintRan = true;
     }
+    // D20: strict + gentle gates for user-authored content under the new
+    // `.hatch3r/overrides/` root (Wave 5). The function no-ops when the user
+    // root is absent, so projects that never authored overrides incur no
+    // findings.
+    verbose("Checking user content (D20 gates)...");
+    await validateUserContent(rootDir, canonicalRoot, result, index);
 
-    // Verify .env.mcp gitignore coverage (D11-SA11.3-01; supersedes the #82
-    // content-scan that hard-failed on the by-design filled secret store).
-    await validateEnvMcpGitignore(rootDir, result);
+    // Content ID collision validation.
+    //
+    // F16.3-H3 (D16) / D5-H8 / D16-H10 / Decision 13: a command↔skill ID
+    // pair is legitimate ONLY when BOTH (1) the command genuinely
+    // orchestrates — `orchestrator: true` with a non-empty `agentPipeline`
+    // — so the command (delegation) and the skill (inline execution) are
+    // distinct artifacts, AND (2) the skill twin carries the Decision-13
+    // handoff section documenting the split. Either gap is a finding:
+    //   - command does NOT orchestrate -> Decision-13 duplicate (collapse
+    //     to one artifact or promote the command to a real orchestrator).
+    //   - command orchestrates but the skill twin OMITS the handoff doc ->
+    //     the slash-name collision (Claude resolves `/hatch3r-X` to the
+    //     skill, shadowing the command) ships undocumented. The fix is the
+    //     `## Relationship to ... (Decision 13 handoff)` section, modeled
+    //     on `skills/hatch3r-api-spec/SKILL.md`.
+    // Previously a qualifying command silently exempted the pair, which let
+    // the undocumented twin ship (D5-H8: "no artifact documents it").
+    // Same-type duplicates and other cross-type pairs are always warnings.
+    for (const collision of index.collisions) {
+      if (collision.kind === "cross-type") {
+        const types = new Set([collision.existingType, collision.duplicateType]);
+        if (types.size === 2 && types.has("command") && types.has("skill")) {
+          const commandPath = collision.existingType === "command"
+            ? collision.existingPath
+            : collision.duplicatePath;
+          const skillPath = collision.existingType === "skill"
+            ? collision.existingPath
+            : collision.duplicatePath;
+          const qualifies = await commandOrchestrates(join(canonicalRoot, commandPath), result);
+          if (!qualifies) {
+            result.warnings.push(
+              `Content ID collision: "${collision.id}" exists as both a command (${commandPath}) and a skill (${skillPath}), but the command is not orchestrator:true with a non-empty agentPipeline — per Decision 13 this is a duplicate: collapse to one artifact or promote the command to a real orchestrator (.claude/rules/content-authoring.md item 9)`,
+            );
+            continue;
+          }
+          const documented = await skillDocumentsDecision13Split(
+            join(canonicalRoot, skillPath),
+            result,
+          );
+          if (!documented) {
+            result.warnings.push(
+              `Content ID collision: "${collision.id}" — command ${commandPath} orchestrates, but its id-sharing skill ${skillPath} omits the Decision-13 handoff section, so the command↔skill split is undocumented (Claude Code resolves /hatch3r-${collision.id.replace(/^hatch3r-/, "")} to the skill, shadowing the command). Add a "## Relationship to \`${commandPath}\` (Decision 13 handoff)" section to the skill (model: skills/hatch3r-api-spec/SKILL.md), OR collapse the pair to one artifact.`,
+            );
+            continue;
+          }
+          // Legitimate, documented Decision-13 command/skill pair — the
+          // command delegates via agentPipeline; the skill is its inline
+          // sibling and records the split.
+          continue;
+        }
+      }
+      result.warnings.push(
+        `Content ID collision: "${collision.id}" exists as ${collision.existingType} (${collision.existingPath}) and ${collision.duplicateType} (${collision.duplicatePath})`,
+      );
+    }
+  } catch (err) {
+    // #252 (D8-8.19): Log content scanning errors instead of silently swallowing them.
+    // This helps diagnose broken cross-references or index build failures.
+    result.warnings.push(
+      `Content scanning failed — cross-reference and collision validation skipped: ${err instanceof Error ? err.message : String(err)}`,
+    );
   }
+
+  // Orchestration dependency validation: check required agents are selected.
+  // Manifest-DEPENDENT (reads manifest.content), so re-gated on its presence
+  // now that the surrounding block no longer requires a manifest (D1-SA1.4-05).
+  if (manifest?.content) {
+    const orchWarnings = validateOrchestrationDependencies(manifest.content);
+    for (const w of orchWarnings) {
+      result.warnings.push(w);
+    }
+  }
+
+  // Verify .env.mcp gitignore coverage (D11-SA11.3-01; supersedes the #82
+  // content-scan that hard-failed on the by-design filled secret store).
+  await validateEnvMcpGitignore(rootDir, result);
 
   // F2.4-F1 (Cycle 10 Wave 1, D2 Critical, ASI02): every agents/*.md with
   // frontmatter `type: agent` must have a registered AGENT_TOOL_POLICIES

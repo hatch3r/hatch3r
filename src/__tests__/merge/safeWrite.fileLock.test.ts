@@ -3,11 +3,14 @@ import { readFile, writeFile, rm, access, mkdtemp } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
+  acquireWriteLock,
   atomicWriteFile,
   enableDefaultCrossProcessLocking,
   resetDefaultCrossProcessLocking,
 } from "../../merge/safeWrite.js";
 import { HatchError } from "../../types.js";
+
+const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
 // ──────────────────────────────────────────────────────────────────────────
 // D1-SA1.5.1: File-locking primitive for concurrent hatch3r processes.
@@ -98,22 +101,26 @@ describe("atomicWriteFile — HATCH3R_LOCK opt-in file locking (D1-SA1.5.1)", ()
       expect(await readFile(filePath, "utf-8")).toBe("third");
     });
 
-    it("serialises concurrent writes — the last write wins, none silently lost", async () => {
+    it("serialises concurrent writes — every writer completes and the final bytes are the LAST completer's (D1-SA1.5-03)", async () => {
       process.env.HATCH3R_LOCK = "1";
       const filePath = join(tempDir, "concurrent.md");
 
-      // Fire 3 concurrent writes. With locking, each blocks until the prior
-      // completes. Without locking, the tmp+rename race could drop writes.
+      // Fire 3 concurrent writes. Pre-Cycle-12 the 2nd/3rd calls bypassed the
+      // held lock with a path-keyed no-op release, so writes overlapped and
+      // the final content was ANY of A/B/C regardless of completion order —
+      // and this test asserted only membership, so the bypass was invisible.
+      // With the in-process queue, writes genuinely serialize: the last
+      // writer to complete performs the last rename, so its bytes are final.
+      const completionOrder: string[] = [];
       await Promise.all([
-        atomicWriteFile(filePath, "A"),
-        atomicWriteFile(filePath, "B"),
-        atomicWriteFile(filePath, "C"),
+        atomicWriteFile(filePath, "A").then(() => completionOrder.push("A")),
+        atomicWriteFile(filePath, "B").then(() => completionOrder.push("B")),
+        atomicWriteFile(filePath, "C").then(() => completionOrder.push("C")),
       ]);
 
       const final = await readFile(filePath, "utf-8");
-      // The order isn't deterministic, but each write must have completed
-      // without throwing (i.e. the lock properly serialized them).
-      expect(["A", "B", "C"]).toContain(final);
+      expect(completionOrder).toHaveLength(3);
+      expect(final).toBe(completionOrder[completionOrder.length - 1]);
     });
 
     it("creates the parent directory before acquiring the lock", async () => {
@@ -143,6 +150,108 @@ describe("atomicWriteFile — HATCH3R_LOCK opt-in file locking (D1-SA1.5.1)", ()
       // must have been released. Re-use goodPath which is known writable.
       await atomicWriteFile(goodPath, "second write after failure");
       expect(await readFile(goodPath, "utf-8")).toBe("second write after failure");
+    });
+  });
+
+  // D1-SA1.5-03 (Cycle 12): ownership-scoped reentrancy. A sibling acquire on
+  // a held path must BLOCK until the holder releases (pre-fix it returned a
+  // mutual-exclusion-bypassing no-op in ~0ms), while the nested-write shape
+  // (atomicWriteFile under an externally held lock, i.e. writeManifest under
+  // configCommand) stays reentrant.
+  describe("D1-SA1.5-03 sibling acquires block; nested writes stay reentrant", () => {
+    it("a sibling acquireWriteLock on a held path blocks until the holder releases", async () => {
+      process.env.HATCH3R_LOCK = "1";
+      const filePath = join(tempDir, "sibling.md");
+
+      const releaseA = await acquireWriteLock(filePath);
+      let siblingAcquired = false;
+      const siblingPromise = acquireWriteLock(filePath).then((release) => {
+        siblingAcquired = true;
+        return release;
+      });
+
+      // The finding's probe: pre-fix the sibling acquire returned in ~0ms.
+      await sleep(150);
+      expect(siblingAcquired).toBe(false);
+
+      await releaseA();
+      const releaseB = await siblingPromise;
+      expect(siblingAcquired).toBe(true);
+      await releaseB();
+    });
+
+    it("a woken sibling genuinely holds the lock — a third acquirer waits for IT", async () => {
+      process.env.HATCH3R_LOCK = "1";
+      const filePath = join(tempDir, "three-way.md");
+      const order: string[] = [];
+
+      const releaseA = await acquireWriteLock(filePath);
+      const bPromise = acquireWriteLock(filePath).then((release) => {
+        order.push("B");
+        return release;
+      });
+      await sleep(100);
+      await releaseA();
+      const releaseB = await bPromise;
+
+      // Pre-fix, B's release was a no-op and A's release deleted the on-disk
+      // lock, so a third acquirer succeeded IMMEDIATELY while B still wrote —
+      // the broken-mutual-exclusion half of the finding's probe.
+      let cAcquired = false;
+      const cPromise = acquireWriteLock(filePath).then((release) => {
+        cAcquired = true;
+        order.push("C");
+        return release;
+      });
+      await sleep(150);
+      expect(cAcquired).toBe(false);
+
+      await releaseB();
+      const releaseC = await cPromise;
+      await releaseC();
+      expect(order).toEqual(["B", "C"]);
+    });
+
+    it("a queued sibling times out with LOCK_TIMEOUT when the holder never releases (~5s in-process budget)", async () => {
+      process.env.HATCH3R_LOCK = "1";
+      const filePath = join(tempDir, "never-released.md");
+
+      const releaseA = await acquireWriteLock(filePath);
+      let caught: unknown;
+      try {
+        await acquireWriteLock(filePath);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      expect((caught as HatchError).errorCode).toBe("LOCK_TIMEOUT");
+      expect((caught as HatchError).message).toContain("in-process");
+      expect((caught as HatchError).message).toContain(filePath);
+      await releaseA();
+    }, 20_000);
+
+    it("atomicWriteFile under an externally held lock stays reentrant — no deadlock, the outer holder owns the lifecycle (F1.2-H1)", async () => {
+      process.env.HATCH3R_LOCK = "1";
+      const filePath = join(tempDir, "nested.md");
+
+      const release = await acquireWriteLock(filePath);
+      // The nested-write shape (writeManifest -> atomicWriteFile under
+      // configCommand's held lock) must not self-deadlock.
+      await atomicWriteFile(filePath, "written under outer lock");
+      expect(await readFile(filePath, "utf-8")).toBe("written under outer lock");
+
+      // The on-disk lock is still the OUTER holder's — the nested write's
+      // no-op release must not have removed it.
+      const lockDuring = await access(filePath + ".hatch3r.lock")
+        .then(() => true)
+        .catch(() => false);
+      expect(lockDuring).toBe(true);
+
+      await release();
+      const lockAfter = await access(filePath + ".hatch3r.lock")
+        .then(() => true)
+        .catch(() => false);
+      expect(lockAfter).toBe(false);
     });
   });
 

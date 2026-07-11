@@ -11,6 +11,9 @@ Brief description of the changes in this PR.
 
 ## Checklist
 
+- [ ] Commits signed off with `git commit -s` (DCO — CI rejects any commit missing a `Signed-off-by` trailer)
+- [ ] PR title follows Conventional Commits — `type(scope): message` (CI-validated)
+- [ ] `npm test` and `npm run validate` pass locally
 - [ ] Tests added for new features
 - [ ] `npm run lint` passes
 - [ ] `npm run typecheck` passes

@@ -25,11 +25,18 @@ Before any action, scan the user's bug description and provided context for unre
 
 Standalone debug-and-fix command that instruments the codebase with strategic debug logging, pauses for the user to reproduce the issue and provide runtime logs, performs root cause analysis from the collected evidence, implements the fix, and removes all debug artifacts. Five-stage workflow: Gather Context → Add Debug Logging → Collect Logs (user checkpoint) → Root Cause Analysis → Implement Fix. Works independently — no board integration, no GitHub issue required.
 
-**When to use this command vs. other bug-related commands:**
+## Which bug command?
 
-- Use `hatch3r-debug` when: the bug is reproducible but the root cause is unclear, you need runtime evidence (log output) to diagnose, or static analysis alone is insufficient.
-- Use `hatch3r-bug-plan` when: the bug is complex/ambiguous and needs a structured investigation plan with multiple researchers, phased fix items, and board integration.
-- Use `hatch3r-bug-fix` skill directly when: the root cause is already known and the fix is localized.
+Four bug surfaces route on two signals — **is the root cause known?** and **how wide is the fix?** Pick the matching row; each names its siblings so the selection boundary never requires opening a second command body.
+
+| Use | Root cause | Scope / fix shape |
+|-----|-----------|-------------------|
+| **`hatch3r-debug`** (this command) | unknown — needs runtime log evidence to locate | reproducible bug, 1–4 files; instrument → collect logs → root-cause → fix |
+| **`hatch3r-bug-fix`** skill | known and localized | Tier-1 minimal fix + regression test, single obvious change |
+| **`hatch3r-bug-pipeline`** | known or strongly hypothesized, fix in hand | nontrivial (multi-file, behavior change, security-adjacent); delegated test-first 3-phase pipeline |
+| **`hatch3r-bug-plan`** | unknown across multiple modules | needs an investigation plan (report, not a fix) with phased items and board integration |
+
+Framework fault, not application code? If the problem is the hatch3r install itself — setup, config, adapter wiring, or `hatch3r status`/`verify` drift — use `hatch3r-diagnose` instead. Despite the verb, `diagnose` troubleshoots hatch3r, not your application.
 
 ---
 

@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { HatchError, type HatchManifest } from "../../types.js";
 
 // ── Mock all external dependencies before imports ─────────────
@@ -124,10 +124,26 @@ function makeManifest(servers: string[] = [], platform: string = "github"): Hatc
 // ── mcpSetupCommand ───────────────────────────────────────────
 
 describe("mcpSetupCommand", () => {
+  let originalStdinIsTTY: boolean | undefined;
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(writeManifest).mockResolvedValue(undefined);
     vi.mocked(isWSL).mockReturnValue(false);
+    // D1-SA1.2-07: `mcp setup` now refuses to run under a non-TTY stdin. Under
+    // vitest stdin is not a TTY, so mark it interactive for the picker-driven
+    // cases; the dedicated non-TTY test below sets it false explicitly.
+    // Restored in afterEach.
+    originalStdinIsTTY = process.stdin.isTTY;
+    (process.stdin as { isTTY?: boolean }).isTTY = true;
+  });
+
+  afterEach(() => {
+    if (originalStdinIsTTY === undefined) {
+      delete (process.stdin as { isTTY?: boolean }).isTTY;
+    } else {
+      (process.stdin as { isTTY?: boolean }).isTTY = originalStdinIsTTY;
+    }
   });
 
   it("opens picker, persists selection, and reports newly-required env vars", async () => {
@@ -256,6 +272,51 @@ describe("mcpSetupCommand", () => {
     expect(lines).toContain("github");
     expect(lines).toContain("features.mcp: true");
     expect(lines).toContain("not written");
+  });
+
+  // D1-SA1.2-07: non-TTY preflight. `mcp setup` always opens the interactive
+  // picker; under a pipe/redirect/CI stdin is not a TTY, so it fails fast with a
+  // usage-code (exit 2) error BEFORE the picker instead of rendering ANSI junk
+  // and misclassifying the stdin-EOF abort as a clean cancel (exit 130).
+  it("throws a usage-code (exit 2) HatchError when stdin is not a TTY (D1-SA1.2-07)", async () => {
+    (process.stdin as { isTTY?: boolean }).isTTY = false;
+    vi.mocked(readManifest).mockResolvedValue(makeManifest([], "github"));
+
+    await expect(mcpSetupCommand()).rejects.toThrow(HatchError);
+    try {
+      await mcpSetupCommand();
+      throw new Error("expected mcpSetupCommand to throw under non-TTY stdin");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      expect((e as HatchError).exitCode).toBe(2);
+      expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+    }
+
+    // The picker must NOT have been reached, and nothing was persisted.
+    expect(pickMcpServers).not.toHaveBeenCalled();
+    expect(writeManifest).not.toHaveBeenCalled();
+  });
+
+  // D1-SA1.2-04: whole-object replacement dropped operator-set optional McpConfig
+  // fields (protocolVersion) on every write. The spread now round-trips them.
+  it("preserves an operator-pinned mcp.protocolVersion across setup (D1-SA1.2-04 round-trip)", async () => {
+    const manifest = makeManifest(["github"], "github");
+    manifest.mcp.protocolVersion = "2026-07-28";
+    vi.mocked(readManifest).mockResolvedValue(manifest);
+    vi.mocked(pickMcpServers).mockResolvedValue(["github", "context7"]);
+    vi.mocked(ensureEnvMcp).mockResolvedValue({
+      action: "skipped",
+      path: ".env.mcp",
+      newVars: [],
+    });
+    vi.mocked(ensureGitignoreEntry).mockResolvedValue(undefined);
+
+    await mcpSetupCommand();
+
+    const written = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
+    expect(written.mcp.servers).toEqual(["github", "context7"]);
+    // Pre-fix this was dropped by `manifest.mcp = { servers: selected }`.
+    expect(written.mcp.protocolVersion).toBe("2026-07-28");
   });
 });
 
@@ -410,6 +471,22 @@ describe("mcpRemoveCommand", () => {
     expect(lines).toContain("Would remove: github");
     expect(lines).toContain("context7");
     expect(lines).toContain("features.mcp: true");
+  });
+
+  // D1-SA1.2-04: removing a server must not silently drop an operator-pinned
+  // mcp.protocolVersion — the spread carries every optional McpConfig field
+  // through alongside the shrunk server list.
+  it("preserves an operator-pinned mcp.protocolVersion across remove (D1-SA1.2-04 round-trip)", async () => {
+    const manifest = makeManifest(["github", "context7"], "github");
+    manifest.mcp.protocolVersion = "2026-07-28";
+    vi.mocked(readManifest).mockResolvedValue(manifest);
+
+    await mcpRemoveCommand("github");
+
+    const written = vi.mocked(writeManifest).mock.calls[0]?.[1] as HatchManifest;
+    expect(written.mcp.servers).toEqual(["context7"]);
+    // Pre-fix this was dropped by `manifest.mcp = { servers: before.filter(...) }`.
+    expect(written.mcp.protocolVersion).toBe("2026-07-28");
   });
 });
 

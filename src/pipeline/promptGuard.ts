@@ -19,6 +19,35 @@ export const MAX_PHASE_INPUT_LENGTH = 500_000;
 /** Maximum length for agent output in characters. */
 export const MAX_AGENT_OUTPUT_LENGTH = 1_000_000;
 
+/**
+ * Invisible / default-ignorable format characters used to smuggle instruction
+ * overrides past a deny scan. Stripping these BEFORE the pattern scan collapses
+ * a keyword split by an invisible codepoint (e.g. `ig⁠nore`) back to its
+ * visible form so it can neither hide an override from detection nor survive
+ * into emitted adapter content, where a downstream tokenizer treats the
+ * codepoint as absent and reads the override.
+ *
+ * D2-SA2.3-02 (Cycle 12 Wave 3, D2, P6): the prior strip paths covered
+ * U+200B–U+200F + U+FEFF but omitted U+2060–U+2064 (WORD JOINER + the invisible
+ * math operators), so a canonical invisible codepoint passed verbatim through
+ * the one control built to defend against invisible-character smuggling. This
+ * single class covers the full default-ignorable band this control targets:
+ * U+00AD (soft hyphen), U+180E (Mongolian vowel separator), U+200B–U+200D
+ * (zero-width space/non-joiner/joiner), U+200E–U+200F (LRM/RLM bidi marks),
+ * U+2060–U+2064 (word joiner + invisible operators), U+FEFF (ZWNBSP / BOM).
+ * Unicode UTS #39 classes U+2060–U+2064 as default-ignorable format characters
+ * with no legitimate use in inter-agent text (https://www.unicode.org/reports/
+ * tr39/, accessed 2026-07-10).
+ *
+ * Explicit `\u` escapes (not literal invisible glyphs) so the character class
+ * is reviewable in a diff and matches this file's non-unicode-flag regex
+ * convention (see P-PIPE-08). Global flag: apply only via
+ * `String.prototype.replace`, which resets `lastIndex` — never `.test()` on
+ * this regex (stateful `lastIndex` footgun).
+ */
+export const INVISIBLE_SMUGGLING_CHARS =
+  /[\u00AD\u180E\u200B-\u200F\u2060-\u2064\uFEFF]/g;
+
 // ── Boundary Markers ─────────────────────────────────────────────
 
 /**
@@ -258,6 +287,17 @@ export function sanitizePipelineInput(
     violations.push("Null bytes stripped from input");
   }
 
+  // Strip invisible / default-ignorable format characters BEFORE the pattern
+  // scan (D2-SA2.3-02) so a keyword split by an invisible codepoint
+  // ("ig⁠nore") is normalized and cannot smuggle an override past
+  // detection or survive into emitted content. Compare pre/post rather than
+  // `.test()` the global regex (its `lastIndex` is stateful across calls).
+  const beforeInvisibleStrip = sanitized;
+  sanitized = sanitized.replace(INVISIBLE_SMUGGLING_CHARS, "");
+  if (sanitized !== beforeInvisibleStrip) {
+    violations.push("Invisible format characters stripped from input");
+  }
+
   // Check for injection patterns
   for (const { pattern, description } of INJECTION_PATTERNS) {
     if (pattern.test(sanitized)) {
@@ -350,6 +390,20 @@ export function sanitizeUserContent(
     sanitized = sanitized.replace(/\0/g, "");
     reasons.push(
       `source=${sourceTag}${refTag} pattern=P-PIPE-05 null byte stripped`,
+    );
+    blocked = true;
+  }
+
+  // Strip invisible / default-ignorable format characters (D2-SA2.3-02) —
+  // the same omission the pipeline path carried. User-tier content (learnings,
+  // handoffs, customize bodies) is a trust boundary, so a smuggled invisible
+  // codepoint quarantines the entry (blocked=true) as with a null byte.
+  // Compare pre/post rather than `.test()` the stateful global regex.
+  const beforeInvisibleStrip = sanitized;
+  sanitized = sanitized.replace(INVISIBLE_SMUGGLING_CHARS, "");
+  if (sanitized !== beforeInvisibleStrip) {
+    reasons.push(
+      `source=${sourceTag}${refTag} invisible format characters stripped`,
     );
     blocked = true;
   }

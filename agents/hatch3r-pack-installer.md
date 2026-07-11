@@ -59,7 +59,7 @@ A failure on any row is a hard stop. The only bypass is an explicit `--allow-unt
 ### 3. Dry-run the write set
 
 - Compute the exact file set the pack would write (adapter-native paths + `.hatch3r/overrides/` files) and emit it as a preview table — no writes yet.
-- Run `hatch3r add --dry-run <pack>` where available to confirm the preview matches the tool's planned write set.
+- Run `hatch3r add --dry-run <pack>` to confirm the preview matches the tool's planned write set. **Unavailable-tool branch:** `hatch3r add` is SPEC ONLY until wired (its stub prints a "coming in a future release" notice and performs no install), so the `--dry-run` cross-check may return that placeholder notice instead of a write-set preview, or exit non-zero as unimplemented. When it does, do NOT treat that as a pack failure — compute the write-set preview from the pack manifest (`pack-manifest.json` declared file set + `tool_footprint` caps) alone, cap the install decision at **medium** confidence (no tool-confirmed preview), and record "dry-run cross-check unavailable — preview derived from manifest" in the Confidence basis of the output.
 - If the write set collides with an existing managed block or user-owned file, surface the collision and ask (P8 B1) before continuing.
 
 ### 4. Atomic apply + rollback

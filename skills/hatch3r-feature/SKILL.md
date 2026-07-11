@@ -153,7 +153,7 @@ Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 > **Note:** When this skill is invoked via the orchestration pipeline (board-pickup or workflow commands), skip this section — the orchestrator handles agent delegation in Phases 3 and 4.
 
-You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
+You MUST spawn these agents via the Task tool (`subagent_type: "general-purpose"`) at the appropriate points:
 
 - **`hatch3r-researcher`** — MUST spawn before implementation with modes `codebase-impact`, `feature-design`, `architecture`. For Tier 2+ tasks (per `hatch3r-deep-context`), also include `similar-implementation` and `requirements-elicitation`. Skip only for trivially simple features (`risk:low` AND `priority:p3`).
 - **`hatch3r-implementer`** — MUST spawn one per sub-issue when the feature is decomposed into multiple tasks. Each implementer receives its own sub-issue context, plus reference conventions and resolved requirements from the researcher output.

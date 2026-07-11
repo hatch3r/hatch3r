@@ -1,8 +1,8 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { filterMcpJsonOnDisk } from "../../manifest/mcpFilter.js";
+import { filterMcpJsonOnDisk, materializeUserMcpJson } from "../../manifest/mcpFilter.js";
 
 /**
  * D3-M5 (Cycle 10 Wave-3 Medium rollover): `src/manifest/mcpFilter.ts`
@@ -102,5 +102,114 @@ describe("filterMcpJsonOnDisk", () => {
     expect(parsed.$schema).toBe("https://example.com/mcp.schema.json");
     // mcpServers is filtered as before.
     expect(Object.keys(parsed.mcpServers)).toEqual(["github"]);
+  });
+});
+
+/**
+ * D1-SA1.2-08 (Cycle 12 Wave 3): `materializeUserMcpJson` is the shared
+ * materialization point for `.hatch3r/mcp/mcp.json` — extracted from init's
+ * Wave-6 copy-then-filter block so post-init server-set changes (mcp
+ * setup/remove, runRegenerate) can refresh the copy agents are pointed at.
+ * Each branch below pins one contract from the helper's JSDoc.
+ */
+describe("materializeUserMcpJson", () => {
+  const TARGET_REL = join(".hatch3r", "mcp", "mcp.json");
+
+  async function writeBundled(servers: Record<string, unknown>, siblings: Record<string, unknown> = {}) {
+    const bundledPath = join(tmpDir, "bundled-mcp.json");
+    await writeFile(bundledPath, JSON.stringify({ ...siblings, mcpServers: servers }));
+    return bundledPath;
+  }
+
+  it("materializes a fresh filtered copy (drops _disabled, excludes unselected)", async () => {
+    const bundledMcpPath = await writeBundled({
+      github: { command: "npx", _disabled: true },
+      gitlab: { command: "npx" },
+    });
+
+    const written = await materializeUserMcpJson(tmpDir, new Set(["github"]), { bundledMcpPath });
+
+    expect(written).toBe(true);
+    const parsed = JSON.parse(await readFile(join(tmpDir, TARGET_REL), "utf-8"));
+    expect(Object.keys(parsed.mcpServers)).toEqual(["github"]);
+    expect(parsed.mcpServers.github).toEqual({ command: "npx" }); // _disabled dropped
+  });
+
+  it("refresh: replaces mcpServers from the bundled template while preserving user sibling keys (D11-M6)", async () => {
+    const bundledMcpPath = await writeBundled({
+      github: { command: "npx", version: "2" },
+      gitlab: { command: "npx" },
+    });
+    await mkdir(join(tmpDir, ".hatch3r", "mcp"), { recursive: true });
+    await writeFile(
+      join(tmpDir, TARGET_REL),
+      JSON.stringify({
+        userNote: "hand-edited",
+        mcpServers: { github: { command: "npx", version: "1" }, stale: { command: "old" } },
+      }),
+    );
+
+    const written = await materializeUserMcpJson(tmpDir, new Set(["github", "gitlab"]), { bundledMcpPath });
+
+    expect(written).toBe(true);
+    const parsed = JSON.parse(await readFile(join(tmpDir, TARGET_REL), "utf-8"));
+    expect(parsed.userNote).toBe("hand-edited"); // user sibling preserved
+    expect(Object.keys(parsed.mcpServers).sort()).toEqual(["github", "gitlab"]);
+    expect(parsed.mcpServers.github.version).toBe("2"); // fresh bundled definition wins
+    expect(parsed.mcpServers.stale).toBeUndefined(); // stale entry gone
+  });
+
+  it("empty selection + absent target: no write (directory stays absent)", async () => {
+    const bundledMcpPath = await writeBundled({ github: { command: "npx" } });
+
+    const written = await materializeUserMcpJson(tmpDir, new Set(), { bundledMcpPath });
+
+    expect(written).toBe(false);
+    await expect(readFile(join(tmpDir, TARGET_REL), "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("empty selection + existing target: rewrites to zero servers so the copy stays truthful", async () => {
+    const bundledMcpPath = await writeBundled({ github: { command: "npx" } });
+    await mkdir(join(tmpDir, ".hatch3r", "mcp"), { recursive: true });
+    await writeFile(
+      join(tmpDir, TARGET_REL),
+      JSON.stringify({ keepMe: 1, mcpServers: { github: { command: "npx" } } }),
+    );
+
+    const written = await materializeUserMcpJson(tmpDir, new Set(), { bundledMcpPath });
+
+    expect(written).toBe(true);
+    const parsed = JSON.parse(await readFile(join(tmpDir, TARGET_REL), "utf-8"));
+    expect(parsed.mcpServers).toEqual({});
+    expect(parsed.keepMe).toBe(1);
+  });
+
+  it("missing bundled template: warns and returns false without writing", async () => {
+    const warnings: string[] = [];
+
+    const written = await materializeUserMcpJson(tmpDir, new Set(["github"]), {
+      bundledMcpPath: join(tmpDir, "no-such-template.json"),
+      onWarn: (m) => warnings.push(m),
+    });
+
+    expect(written).toBe(false);
+    expect(warnings.some((w) => w.includes("not found"))).toBe(true);
+    await expect(readFile(join(tmpDir, TARGET_REL), "utf-8")).rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  it("unparseable existing target: warns and never clobbers the user file", async () => {
+    const bundledMcpPath = await writeBundled({ github: { command: "npx" } });
+    await mkdir(join(tmpDir, ".hatch3r", "mcp"), { recursive: true });
+    await writeFile(join(tmpDir, TARGET_REL), "{ not valid json");
+    const warnings: string[] = [];
+
+    const written = await materializeUserMcpJson(tmpDir, new Set(["github"]), {
+      bundledMcpPath,
+      onWarn: (m) => warnings.push(m),
+    });
+
+    expect(written).toBe(false);
+    expect(warnings.some((w) => w.includes("not valid JSON"))).toBe(true);
+    expect(await readFile(join(tmpDir, TARGET_REL), "utf-8")).toBe("{ not valid json");
   });
 });

@@ -29,7 +29,7 @@ export default defineConfig({
   // size delta has not been A/B-measured this cycle — re-run the benchmark
   // (build with `treeshake: true` vs this baseline, compare `dist/cli/index.js`
   // size) and flip to `treeshake: true` only if the measured gain exceeds 5%.
-  // See governance/audit/domains/D04-build-cicd.md SA 4.1 "Tree-shaking".
+  // See governance/audit/domains/D04-build-cicd.md SA 4.1 (Output hygiene bullet; registry F4.1.F6).
   treeshake: false,
   // Cycle 10 M D4-M1 (D4): the previous `sourcemap: true` produced
   // dist/cli/index.js.map at 2.49 MB — 271 % of the 919 KB runtime bundle —
@@ -39,8 +39,8 @@ export default defineConfig({
   // without serving end-user debugging value (npm package consumers cannot
   // step through a CLI invocation). Setting sourcemap to false drops the
   // .map file from `dist/` and from the published tarball — see
-  // governance/audit/domains/D04-build-cicd.md SA 4.1 "Sourcemaps" + 4.2
-  // "Minimal dependency surface". Local debugging during development can
+  // governance/audit/domains/D04-build-cicd.md SA 4.1 (Output hygiene /
+  // sourcemap posture; registry D4-M1). Local debugging during development can
   // re-enable via `npm run dev` (tsup --watch) + the TSX REPL, which both
   // run unbundled source.
   sourcemap: false,

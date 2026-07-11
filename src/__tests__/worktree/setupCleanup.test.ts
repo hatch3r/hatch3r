@@ -399,6 +399,47 @@ describe("setupWorktree", () => {
     const content = await readFile(join(worktreeDir, ".env"), "utf-8");
     expect(content).toBe("NEW=value\n");
   });
+
+  // ─────────────────────────────────────────────────────────────────────────
+  // D3-SA3.4-04 — overlapping-pattern strategy resolution at the setup seam.
+  // The D1-12 isolation mechanism relies on the resolver taking the LAST
+  // matching `.worktreeinclude` entry (not the most-specific): a specific copy
+  // override emitted AFTER a broad symlink pattern must win for its own path,
+  // while a sibling under the broad pattern stays symlinked. The generation
+  // layer pins entry ORDER (generate.test.ts); this pins the resolver APPLYING
+  // that order — the seam a "break on first match" refactor would silently
+  // regress, de-linking or clobbering the main repo's manifest through a symlink.
+  // ─────────────────────────────────────────────────────────────────────────
+  it("last-matching copy override wins for its path while siblings stay symlinked (D1-12 seam)", async () => {
+    writeFileSync(join(mainRepo, ".gitignore"), ".hatch3r/\n", "utf-8");
+    mkdirSync(join(mainRepo, ".hatch3r"));
+    writeFileSync(join(mainRepo, ".hatch3r", "hatch.json"), '{"version":"1"}\n', "utf-8");
+    writeFileSync(join(mainRepo, ".hatch3r", "overrides.txt"), "shared\n", "utf-8");
+    execFileSync("git", ["add", ".gitignore"], { cwd: mainRepo, stdio: "ignore" });
+    execFileSync("git", ["commit", "-m", "init"], { cwd: mainRepo, stdio: "ignore" });
+
+    // Broad symlink pattern FIRST, specific copy override AFTER — the exact
+    // ordering generateWorktreeInclude emits for the .hatch3r/ manifest override.
+    writeIncludeFile(mainRepo, [
+      { pattern: ".hatch3r/", strategy: "symlink", reason: "shared hatch3r state" },
+      { pattern: ".hatch3r/hatch.json", strategy: "copy", reason: "per-worktree manifest" },
+    ]);
+
+    const result = await setupWorktree(mainRepo, worktreeDir);
+
+    // The specific override wins for hatch.json (last matching entry = copy).
+    expect(result.copied).toContain(".hatch3r/hatch.json");
+    expect(result.symlinked).not.toContain(".hatch3r/hatch.json");
+    const manifestStat = await lstat(join(worktreeDir, ".hatch3r", "hatch.json"));
+    expect(manifestStat.isSymbolicLink()).toBe(false);
+    expect(manifestStat.isFile()).toBe(true);
+
+    // The sibling under the broad pattern (no override) stays symlinked.
+    expect(result.symlinked).toContain(".hatch3r/overrides.txt");
+    expect(result.copied).not.toContain(".hatch3r/overrides.txt");
+    const siblingStat = await lstat(join(worktreeDir, ".hatch3r", "overrides.txt"));
+    expect(siblingStat.isSymbolicLink()).toBe(true);
+  });
 });
 
 // ── cleanupWorktree ──────────────────────────────────────────────────────────

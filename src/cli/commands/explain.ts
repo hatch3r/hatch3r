@@ -55,6 +55,14 @@ import {
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { findPackageRoot } from "../shared/paths.js";
+// D1-SA1.7-05: shared artifact resolution — same index show/deps use, so
+// `--cost` sees user-authored and overridden commands, not only the bundle.
+import {
+  buildContentIndex,
+  resolveUserContentRoot,
+  resolveArtifactFilePath,
+} from "../../content/index.js";
+import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { printBox, label, info, error as logError, isQuiet, verbose } from "../shared/ui.js";
 import { emitJson, type CliOutputFormat } from "../shared/output.js";
 import { beginCommand, finishCommand } from "../shared/commandOutput.js";
@@ -97,14 +105,29 @@ interface TierCostRow {
 }
 
 /**
- * Resolve a user-supplied command id to an on-disk `.md` path. The lookup
- * order matches the canonical-vs-installed split that the rest of the CLI
- * uses: prefer `.agents/commands/` inside the user's repo (the installed
- * copy), fall back to the canonical `commands/` directory bundled with the
- * hatch3r package (dev-mode / framework-development).
+ * Resolve a user-supplied command id to an on-disk `.md` path.
  *
- * The id is normalized to allow either `hatch3r-quick-change` or
- * `quick-change`; both map to `commands/hatch3r-quick-change.md`.
+ * D1-SA1.7-05 (Cycle 12 Wave 3, D1, P4): resolution routes through the shared
+ * content index — the same `buildContentIndex` + 4-candidate id lookup that
+ * `show`/`deps` use (`src/cli/commands/show.ts:103`) — so `.hatch3r/overrides/
+ * commands/` user commands and canonical overrides resolve for `--cost`
+ * instead of silently costing the bundled copy (or "Command not found"). The
+ * index scans user content AFTER canonical, so `byId.get()` returns the
+ * user-tier item when it shadows a canonical id (`src/content/index.ts:785`).
+ * This also removes the forced `hatch3r-` prefix for index-resolved ids: the
+ * bare id is the first candidate, so user commands without the prefix resolve.
+ *
+ * Lookup order:
+ *   1. Legacy `.agents/commands/` probe — Wave-7 back-compat for pre-1.9
+ *      installs that still ship a project-side canonical tree (kept first;
+ *      the probe order is deliberate, only the missing overrides leg was the
+ *      defect).
+ *   2. Content index (canonical `commands/` + `.hatch3r/overrides/commands/`),
+ *      candidates: bare, `hatch3r-`, `cmd-`, `cmd-hatch3r-` (command ids are
+ *      `cmd-`-prefixed during indexing per `applyCommandPrefix`).
+ *   3. Raw bundled-path probe — a command file whose filename does not match
+ *      its frontmatter id is invisible to the index but still costable by
+ *      filename (pre-fix behavior preserved as the final fallback).
  */
 async function resolveCommandPath(rootDir: string, commandId: string): Promise<string> {
   const normalized = commandId.startsWith("hatch3r-")
@@ -112,28 +135,47 @@ async function resolveCommandPath(rootDir: string, commandId: string): Promise<s
     : `hatch3r-${commandId}`;
   const filename = `${normalized}.md`;
 
-  const candidates = [
-    // Wave 7: legacy `.agents/commands/` probe for pre-1.9 installs that
-    // still ship a project-side canonical tree. New installs resolve via
-    // the bundled package root (second candidate).
-    join(rootDir, ".agents", "commands", filename),
-    join(findPackageRoot(__dirname), "commands", filename),
-  ];
+  // 1. Legacy `.agents/commands/` probe (pre-1.9 installs).
+  const legacyCandidate = join(rootDir, ".agents", "commands", filename);
+  try {
+    await access(legacyCandidate);
+    return legacyCandidate;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
 
-  for (const candidate of candidates) {
-    try {
-      await access(candidate);
-      return candidate;
-    } catch (err) {
-      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  // 2. Shared content index — canonical + user override tiers.
+  const canonicalRoot = resolveBundledContentRoot();
+  const userRoot = resolveUserContentRoot(rootDir);
+  const index = await buildContentIndex(canonicalRoot, userRoot ? { userRoot } : undefined);
+  const idCandidates = [
+    commandId,
+    `hatch3r-${commandId}`,
+    `cmd-${commandId}`,
+    `cmd-hatch3r-${commandId}`,
+  ];
+  for (const cand of idCandidates) {
+    const item = index.byId.get(cand);
+    if (item && item.type === "command") {
+      const fileRoot = item.source === "user" && userRoot ? userRoot : canonicalRoot;
+      return resolveArtifactFilePath(fileRoot, item);
     }
   }
 
+  // 3. Raw bundled-path fallback (filename-based).
+  const bundledCandidate = join(findPackageRoot(__dirname), "commands", filename);
+  try {
+    await access(bundledCandidate);
+    return bundledCandidate;
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
+
   throw new HatchError(
-    `Command not found: ${commandId}. Looked in ${candidates.join(" and ")}.`,
+    `Command not found: ${commandId}. Looked in ${legacyCandidate}, the content index (canonical commands/ + .hatch3r/overrides/commands/), and ${bundledCandidate}.`,
     undefined,
     "FS_ERROR",
-    "Run `hatch3r explain --cost <id>` with a known command id (e.g. hatch3r-quick-change), or check the `commands/` directory for the exact filename.",
+    "Run `hatch3r explain --cost <id>` with a known command id (e.g. hatch3r-quick-change), or `hatch3r list command` to enumerate available ids.",
   );
 }
 

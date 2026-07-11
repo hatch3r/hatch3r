@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { execFileSync, spawnSync } from "node:child_process";
+import inquirer from "inquirer";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { _resetNpmGlobalRootCacheForTesting } from "../../detect/installContext.js";
@@ -11,6 +12,14 @@ vi.mock("node:child_process", async (importOriginal) => {
   const actual = await importOriginal<typeof import("node:child_process")>();
   return { ...actual, execFileSync: vi.fn(), spawnSync: vi.fn() };
 });
+
+// D1-SA1.3-04: mock inquirer so the interactivity-gate tests can assert that the
+// migration-checkpoint prompts are NEVER reached (beginCommand rejects json+no-yes
+// first). Inert for every other test — the modern manifest createTestProject writes
+// satisfies both checkpoint conditions, so no prompt fires there.
+vi.mock("inquirer", () => ({
+  default: { prompt: vi.fn() },
+}));
 
 // Wave 7 (1.9.0) rewrite contract for `update`:
 //   - Manifest lives at `.hatch3r/hatch.json` (Wave 6 relocation).
@@ -353,6 +362,94 @@ describe("update command", () => {
     });
   });
 
+  // D10-SA10.4-01 / D10-SA10.4-02 (Cycle 12, D10, P1): marker recovery parity
+  // with sync (appendIfNoBlock threaded into runRegenerate's adapter write
+  // loop) and the per-write disposition tally replacing the bare file count.
+  describe("marker recovery + write-disposition tally (D10-SA10.4-01/-02)", () => {
+    it("runRegenerate re-splices a managed block whose markers the user stripped (parity with sync's D11-H-3)", async () => {
+      await createTestProject(tempDir, { tools: ["claude"] });
+      vi.mocked(execFileSync).mockClear();
+
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+
+      const manifest = await readManifest(tempDir);
+      const first = await runRegenerate(tempDir, manifest!);
+      expect(first.failedTools).toBe(0);
+      const claudeMdPath = join(tempDir, "CLAUDE.md");
+      expect(await readFile(claudeMdPath, "utf-8")).toContain("HATCH3R:BEGIN");
+
+      // The user strips the markers (intentionally or by accident): the file
+      // becomes marker-less user content.
+      await writeFile(claudeMdPath, "# My own notes\n\nKeep these.\n", "utf-8");
+
+      const manifest2 = await readManifest(tempDir);
+      const second = await runRegenerate(tempDir, manifest2!);
+      expect(second.failedTools).toBe(0);
+      const recovered = await readFile(claudeMdPath, "utf-8");
+      // Pre-fix: this write loop had no appendIfNoBlock, so safeWrite's
+      // no-marker branch returned action "skipped" on every update run —
+      // the managed block silently stayed stale and only `hatch3r sync`
+      // could recover the file.
+      expect(recovered).toContain("HATCH3R:BEGIN");
+      expect(recovered).toContain("# My own notes");
+      expect(second.writeActions!.merged).toBeGreaterThanOrEqual(1);
+    });
+
+    it("runRegenerate reports a per-write disposition tally that sums to copiedFiles (D10-SA10.4-02)", async () => {
+      await createTestProject(tempDir);
+      vi.mocked(execFileSync).mockClear();
+
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+
+      const manifest = await readManifest(tempDir);
+      const first = await runRegenerate(tempDir, manifest!);
+      const wa1 = first.writeActions!;
+      expect(wa1.created).toBeGreaterThanOrEqual(1);
+      expect(
+        wa1.created + wa1.merged + wa1.regenerated + wa1.unchanged + wa1.skipped,
+      ).toBe(first.copiedFiles);
+
+      // Second regenerate with nothing changed: idempotent writes report
+      // unchanged (G3 skipIfUnchanged), never a fresh "created".
+      const manifest2 = await readManifest(tempDir);
+      const second = await runRegenerate(tempDir, manifest2!);
+      const wa2 = second.writeActions!;
+      expect(wa2.created).toBe(0);
+      expect(wa2.unchanged).toBeGreaterThanOrEqual(1);
+      expect(
+        wa2.created + wa2.merged + wa2.regenerated + wa2.unchanged + wa2.skipped,
+      ).toBe(second.copiedFiles);
+    });
+
+    it("update summary renders the Changes tally (D10-SA10.4-02)", async () => {
+      await createTestProject(tempDir);
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ backup: false });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Changes");
+      expect(output).toContain("created");
+    });
+
+    it("update summary shows 'merged (your edits preserved)' after recovering a stripped-marker file", async () => {
+      await createTestProject(tempDir, { tools: ["claude"] });
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      await updateCommand({ backup: false });
+
+      // Strip markers between runs — the exact fearful-upgrader scenario.
+      await writeFile(join(tempDir, "CLAUDE.md"), "# Mine\n", "utf-8");
+      consoleSpy.mockClear();
+
+      await updateCommand({ backup: false });
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("merged (your edits preserved)");
+    });
+  });
+
   // C8-D1-M6 (D1): --offline / --skip-fetch flag
   describe("--offline flag", () => {
     it("skips the package-fetch step when --offline is set", async () => {
@@ -501,6 +598,66 @@ describe("update command", () => {
         ...consoleErrorSpy.mock.calls.map((c) => String(c[0])),
       ].join("\n");
       expect(output).toContain("would be generated");
+    });
+  });
+
+  // D1-SA1.3-04 (Cycle 12, D1, P1): `update` prompts via the content-selections-init
+  // and platform-selection migration checkpoints on a legacy manifest. beginCommand
+  // must reject `--format json` without `--yes` (exit 2) BEFORE any prompt runs, so a
+  // prompt cannot interleave with the single JSON document / hang non-TTY CI.
+  describe("--format json interactivity gate (D1-SA1.3-04)", () => {
+    // A pre-content-tracking, pre-multi-platform manifest: both migration-checkpoint
+    // conditions (manifest.content === undefined, !manifest.platform) hold, so a live
+    // non-headless update WOULD reach the inquirer prompts.
+    async function createLegacyProject(): Promise<void> {
+      await createTestProject(tempDir, { content: undefined, platform: undefined });
+    }
+
+    beforeEach(() => {
+      vi.mocked(inquirer.prompt).mockClear();
+    });
+
+    it("rejects `--format json` without `--yes` (exit 2) on a legacy manifest — no prompt interleaves", async () => {
+      await createLegacyProject();
+      const { updateCommand } = await import("../../cli/commands/update.js");
+
+      const err = await updateCommand({ format: "json" }).catch((e) => e as HatchError);
+      expect(err).toBeInstanceOf(HatchError);
+      expect((err as HatchError).exitCode).toBe(2);
+      expect((err as HatchError).recoveryHint).toContain("--yes");
+      // The gate fires in beginCommand BEFORE the manifest read + runMigrationCheckpoints,
+      // so the inquirer prompts are never reached.
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+    });
+
+    it("rejects `--format json --dry-run` without `--yes` (exit 2) — update's checkpoints prompt on the dry-run path too", async () => {
+      // Regression guard for the discriminator choice: unlike rollback/clean, update's
+      // migration checkpoints ignore dryRun (they gate only on headless), so the
+      // interactive flag keys off `--yes`, not `--dry-run`. A `_opts?.dryRun !== true`
+      // form would let this json+dry-run+no-yes run reach a prompt on a legacy manifest.
+      await createLegacyProject();
+      const { updateCommand } = await import("../../cli/commands/update.js");
+
+      const err = await updateCommand({ format: "json", dryRun: true }).catch((e) => e as HatchError);
+      expect(err).toBeInstanceOf(HatchError);
+      expect((err as HatchError).exitCode).toBe(2);
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+    });
+
+    it("`--format json --yes` passes the interactivity gate (headless escape, no over-rejection)", async () => {
+      // The `--yes` escape must NOT be rejected at beginCommand: a headless json update
+      // takes checkpoint defaults (no prompt) and proceeds. It may still terminate later
+      // in the mocked pipeline, but never with the exit-2 interactive-prompt-flow gate.
+      await createLegacyProject();
+      const { updateCommand } = await import("../../cli/commands/update.js");
+
+      const err = await updateCommand({ format: "json", yes: true }).catch((e) => e as HatchError);
+      const hitInteractivityGate =
+        err instanceof HatchError &&
+        err.exitCode === 2 &&
+        /interactive prompt flow/.test(err.message);
+      expect(hitInteractivityGate).toBe(false);
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
     });
   });
 

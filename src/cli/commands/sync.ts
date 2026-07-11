@@ -887,16 +887,32 @@ export async function syncCommand(
         { maxAttempts: 2 },
       );
       if (!generationResult.completed) {
+        // D8-SA8.4-02 / D1-SA1.9-02 (Cycle 12, D8/D1): single-count this
+        // adapter-incomplete/timeout failure. The prior shape called
+        // `recordFailure` here AND threw a synthetic HatchError that the
+        // enclosing per-tool catch (below) caught and passed to `recordFailure`
+        // a SECOND time on the same failure event. An AdapterTimeoutError
+        // message classifies `transient` (circuitBreaker.ts classifyFailure
+        // `/timeout|timed out/i`), so one timed-out adapter advanced
+        // `consecutiveFailures` by 2 — the breaker reached OPEN after 2 failing
+        // invocations instead of the configured `failureThreshold` (default 3),
+        // and `totalFailures` telemetry over-reported. Mirror the
+        // `--strict-budget` branch above (record once → set → push → append →
+        // continue): this path now owns its own single count and no longer
+        // round-trips through the catch, which is left to own only
+        // genuinely-thrown generic errors. The prior synthetic HatchError's
+        // recovery hint was already discarded by that catch (it stored only
+        // `err.message`), so removing the throw loses no surfaced guidance —
+        // the aggregate `getRecoveryGuidance` block still reconstructs
+        // actionable guidance from the recorded error string.
         const errMessage = generationResult.error ?? `Adapter ${tool} did not complete`;
         for (const w of generationResult.warnings) { warn(w); }
+        s.fail(step(currentStep, totalSteps, `Failed to generate ${tool} output`));
         breaker = recordFailure(breaker, classifyFailure(new Error(errMessage)));
         breakers.set(tool, breaker);
-        throw new HatchError(
-          errMessage,
-          undefined,
-          "ADAPTER_ERROR",
-          `Re-run with --verbose for ${tool} detail, or run \`npx hatch3r validate\` to check canonical content.`,
-        );
+        adapterFailures.push({ tool, error: errMessage });
+        await appendFailure(hatch3rDir, "sync:adapter-generate", new Error(errMessage), tool);
+        continue;
       }
       const outputs = generationResult.outputs ?? [];
       for (const w of generationResult.warnings) { warn(w); }

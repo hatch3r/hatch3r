@@ -284,14 +284,14 @@ The agent's job is to assemble the artifact so every strict gate above passes on
 
 ## Tool Allowlist
 
-Minimum tools the agent needs to run end-to-end:
+Minimum tools the agent needs to run end-to-end. The runtime deny-by-default policy (`src/pipeline/agentToolAllowlist.ts`, `hatch3r-creator`) grants four coarse categories — `read`, `search`, `write`, `execute`; each bullet names the category it draws on so the documented surface matches the enforced grant (D20-SA20.1-03):
 
-- **Read** — to read `agents/shared/user-content-templates.md` and any reference content.
-- **Glob** — to detect existing `.hatch3r/overrides/{type}/{name}.md` and prevent collision before the gate funnel runs.
-- **Grep** — to scan for ID collision against canonical content during composition.
-- **Bash** — limited to `mkdir -p .hatch3r/overrides/{type}` and `mkdir -p .hatch3r/overrides/skills/{name}` for directory creation. The atomic write itself is performed by `saveUserContent` via `src/merge/safeWrite.ts` (no shell `mv`/`cp`).
+- **Read** (`read`) — read `agents/shared/user-content-templates.md` and any reference content.
+- **Glob** + **Grep** (`search`) — detect an existing `.hatch3r/overrides/{type}/{name}.md` (collision check) and scan for ID collision against canonical content before the gate funnel runs.
+- **write** (`write`) — atomic artifact creation under `.hatch3r/overrides/{type}/` via `saveUserContent` → `src/merge/safeWrite.ts` (temp-file + rename; no shell `mv`/`cp`). The category authorizes create/modify/delete on files; the creator writes only the one artifact per invocation, never canonical content (see Hard Rules).
+- **Bash** (`execute`) — the `execute` category authorizes any shell command; the creator uses it only for `mkdir -p .hatch3r/overrides/{type}` and `mkdir -p .hatch3r/overrides/skills/{name}`, not general shell.
 
-The agent does **not** need WebFetch or WebSearch. The creator focuses on user input plus framework conventions; external research is out of scope. Adapters and platform research belong to `hatch3r-researcher`.
+The agent does **not** need the `web` or `mcp` categories (no WebFetch/WebSearch) — external research is out of scope and belongs to `hatch3r-researcher`.
 
 ---
 

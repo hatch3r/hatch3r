@@ -71,6 +71,16 @@ Confidence appears on every audit-checklist row, every finding's `proof_trace`, 
 
 ---
 
+## Tier calibration
+
+Per `rules/hatch3r-right-sizing.md`, calibrate the depth of every CQ vector to the project's `maturity` (read from the adapter header or `.hatch3r/hatch.json`; absent → solo). The **solo column is the universal floor and never relaxes**; the **enterprise column is the absolute threshold** (each specialist's §Audit checklist targets). Do not demand a higher column than the tier — flag enterprise-grade depth on a solo/team project as over-investment (right-sizing Info→Medium); under-investment relative to tier is the symmetric finding. Tier escalation raises thresholds: a maturity increase resets the baseline and the previous reading does not survive without re-measurement.
+
+Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
+
+Each specialist keeps only its per-CQ depth table (`| Tier | <Vector> depth target |`) and cites this section via `See agents/shared/quality-specialist-frame.md → §Tier calibration` for the constant framing above — the framing is not copy-pasted into the 9 specialist bodies.
+
+---
+
 ## Sub-agent delegation
 
 When the review surface decomposes into independent units (routes, flows, services, dependency layers, mandate classes, surfaces), fan out one sub-agent per unit:
@@ -121,6 +131,7 @@ findings:
       accessed: <ISO date>
     impact_horizon: short | medium | long
     progress_toward_pillar: content-quality.CQ<N>+<delta>
+    fix_suggestion: <one-line corrective action>   # OPTIONAL — smallest-blast-radius, stays in-vector
 status: PASS | FINDINGS | CRITICAL
 ```
 
@@ -134,9 +145,27 @@ The `sub_agents_spawned` field is MANDATORY on every specialist output — not o
 
 The `PASS | FINDINGS | CRITICAL` status maps to canonical audit severity via the **Specialist Status** column in `agents/shared/severity-mapping.md` — `CRITICAL → Critical`, `FINDINGS → High + Medium`, `PASS → Low + Info`. Map through that table when escalating to `hatch3r-fixer` or feeding the release decision.
 
+### Fix suggestion (optional)
+
+`fix_suggestion` is an OPTIONAL findings row carrying a one-line corrective action — the smallest-blast-radius change that closes the measured gap (e.g., "swap the disabled-state token from `--color-fg-muted` to `--color-fg-default`" — name the token to change, not a redesign). It stays inside the specialist's vector lane: do not prescribe a change another CQ owner governs. `hatch3r-fixer` consumes it alongside the severity mapping (`agents/shared/severity-mapping.md` → Consumer Contract) so a finding carries both the measured gap (`proof_trace.expected` vs `actual`) and the direction that closes it, instead of forcing the fixer to re-derive intent from the claim. Omit the row when the corrective action is not expressible in one line rather than guessing.
+
 ### Verification harness
 
-Each CQ specialist names its executable verification harness in `skills/hatch3r-<harness>` (e.g., `hatch3r-ui-ux-verify` for CQ1+CQ2, `hatch3r-reliability-verify` for CQ4). The specialist owns the budget decision (thresholds, calibration); the skill owns the measurement (the inverse-citation appears under that skill's `## Invoked by`).
+Each CQ specialist names its executable verification harness in its §Output contract and cites that harness's gate results in every High-confidence finding. The specialist owns the budget decision (thresholds, calibration); the skill owns the measurement (the inverse-citation appears under that skill's `## Invoked by`). Cite the row for your CQ from this canonical vector→harness map (single source — a specialist cites its mapped skill, never an ad-hoc skill name):
+
+| CQ | Vector | Verification harness skill |
+|----|--------|----------------------------|
+| CQ1 | UI | `skills/hatch3r-ui-ux-verify` |
+| CQ2 | UX | `skills/hatch3r-ui-ux-verify` |
+| CQ3 | Security | `skills/hatch3r-security-verify` |
+| CQ4 | Reliability | `skills/hatch3r-reliability-verify` (+ `skills/hatch3r-observability-verify`) |
+| CQ5 | Testability | `skills/hatch3r-testability-verify` |
+| CQ6 | Scalability | `skills/hatch3r-scalability-verify` |
+| CQ7 | Performance | **no dedicated harness** — interim: `skills/hatch3r-browser-verify` (declares CQ7 in its pillars) + `skills/hatch3r-observability-verify` (OTel latency/SLO); a dedicated `skills/hatch3r-performance-verify` (Lighthouse CI + bundle-analyzer + OTel-histogram gates) is the documented CQ7 gap |
+| CQ8 | Maintainability | `skills/hatch3r-maintainability-verify` |
+| CQ9 | Enhancability | `skills/hatch3r-enhancability-verify` |
+
+CQ7 is the single exception: it has no vector-dedicated harness skill, so a CQ7 High-confidence finding cites the interim shared harnesses above until `skills/hatch3r-performance-verify` is authored. Every other vector cites its own row.
 
 ---
 

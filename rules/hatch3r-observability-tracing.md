@@ -2,8 +2,7 @@
 id: hatch3r-observability-tracing
 type: rule
 description: Distributed tracing, OpenTelemetry conventions, and AI agent instrumentation for the project
-scope: conditional
-globs: "**/*trac*,**/*span*,**/*telemetry*,**/*otel*,**/*agent*,**/observability/**,**/routes/**,**/handlers/**,**/services/**,**/api/**,**/middleware/**,**/controllers/**,**/lib/**"
+scope: agent-requested
 tags: [devops, observability]
 precedence: high
 quality_charter: agents/shared/quality-charter.md

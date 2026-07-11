@@ -121,7 +121,13 @@ export interface RuleGlobOverrides {
  * explicit keyword, this shape was reachable only via the deprecated
  * globs-less-`conditional` form, so a large optional rule with no natural file
  * glob (e.g. a 200-line workflow rule) was forced to `scope: always` and loaded
- * on every Cursor turn (~23 KB of the 30.7 KB budget). Returning [] here routes
+ * on every Cursor turn (~23 KB against Cursor's ~30.7 KB always-apply
+ * performance guidance — a soft per-turn ceiling for always-loaded rule
+ * content, a DIFFERENT quantity from the window-fit context budget the runtime
+ * gate enforces via `CONTEXT_BUDGET_TOKENS` in `src/adapters/contextBudget.ts`
+ * (~120K tokens for Cursor). The two figures are ~15x apart by design: one
+ * measures always-apply responsiveness, the other single-window fit — see the
+ * `CONTEXT_BUDGET_TOKENS` docstring, D6-SA6.1-02). Returning [] here routes
  * an `agent-requested` rule to the same no-glob emission as `always` for glob
  * purposes; the `alwaysApply` distinction (true vs false) is applied by each
  * adapter's frontmatter builder, not here. Claude Code and Copilot have no
@@ -138,10 +144,16 @@ export interface RuleGlobOverrides {
  * `scope === "conditional"` and emitted `["conditional"]` as the glob, dropping
  * the real patterns for 52/65 conditional rules (incl. `floor:security` /
  * `precedence: critical` `hatch3r-security-patterns`).
+ *
+ * D2-SA2.3-06 (D2 Medium, P6): pass an optional `warnings` array to receive an
+ * advisory when the effective scope is neither a known keyword nor glob-shaped
+ * — the case where a `.customize.yaml` typo (`scope: alway`) would otherwise
+ * silently turn an always-on rule into a dead glob. Emission is unchanged.
  */
 export function resolveRuleGlobs(
   rule: Pick<CanonicalFile, "scope" | "globs">,
   overrides?: RuleGlobOverrides,
+  warnings?: string[],
 ): string[] {
   const scope = overrides?.scope ?? rule.scope;
   if (!scope || scope === "always" || scope === "agent-requested") return [];
@@ -151,6 +163,21 @@ export function resolveRuleGlobs(
   // Legacy inline-CSV form (`scope: "src/**/*.ts,*.md"` or a single bare
   // glob like `scope: "**/*.ts"`): the glob patterns live in the scope
   // string itself. Parse it directly so back-compat rules keep working.
+  //
+  // D2-SA2.3-06 (D2 Medium): a scope value that is neither a known keyword nor
+  // glob-shaped (contains none of `* / . ,`) parses here as a literal
+  // one-token CSV glob that matches no file — silently converting an always-on
+  // rule (including a `precedence: critical` security rule re-scoped via a
+  // `.customize.yaml` override) into a dead glob. When a `warnings` channel is
+  // supplied, surface the near-miss so a `scope: alway` typo is caught instead
+  // of dropping the rule from every session; emission stays unchanged.
+  if (warnings && !/[*/.,]/.test(scope)) {
+    warnings.push(
+      `Scope override "${scope}" is not one of always|agent-requested|conditional ` +
+        `and is not glob-shaped — the rule will match no files. ` +
+        `Did you mean one of those keywords?`,
+    );
+  }
   return csvToGlobList(scope);
 }
 
@@ -561,6 +588,22 @@ export function parseFrontmatter(
           `tools.deny field must be an array of strings, got ${describeYamlType(denyRaw)} (value: ${JSON.stringify(denyRaw)})`,
         );
       }
+      // D20-SA20.1-02 (D20 Medium, P6): surface a near-miss/typo `tools`
+      // sub-key. The four recognized sub-keys are `allowed`/`denied` (D20-1
+      // category grant) and `allow`/`deny` (D15-3 tool-name grant). Any other
+      // key (e.g. `allowd`, `denyed`) silently declares no grant, so the
+      // width-based security-baseline gate reads `undefined` and requires no
+      // baseline citation. Emit a warning so the misspelling surfaces instead
+      // of silently disabling the grant.
+      if (typeMismatches) {
+        for (const key of Object.keys(toolsObj)) {
+          if (key !== "allowed" && key !== "denied" && key !== "allow" && key !== "deny") {
+            typeMismatches.push(
+              `tools.${key} is not a recognized sub-key (expected allowed | denied | allow | deny); its grant is ignored`,
+            );
+          }
+        }
+      }
     } else if (toolsRaw !== undefined && typeMismatches) {
       typeMismatches.push(
         `tools field must be an object of shape { allowed?: string[], denied?: string[] }, got ${describeYamlType(toolsRaw)} (value: ${JSON.stringify(toolsRaw)})`,
@@ -855,12 +898,34 @@ async function readSingleMd(
       ? [...result.typeMismatches, ...injectionEntries]
       : injectionEntries;
   }
+  // D2-SA2.2-03 (D2 Medium, P6): extend the smoking-gun injection detector to
+  // the frontmatter half of the file. A chat-template/ANSI/null-byte token
+  // placed in a frontmatter string value (e.g. `description:`) evaded the
+  // body-only scan above yet still propagates into generated output —
+  // `description` is re-emitted into `.mdc`/agent frontmatter and picker text,
+  // and `rawContent` (which includes the frontmatter block) is re-emitted
+  // verbatim on some Copilot paths (see the F2.2-F3 note above). Scan the raw
+  // frontmatter block so a token moved one line up from the body no longer
+  // skips the detector. Legitimate frontmatter never carries these structural
+  // tokens (zero false positives on the current corpus).
+  const frontmatterBlock = rawContent.match(FRONTMATTER_REGEX)?.[1] ?? "";
+  if (frontmatterBlock) {
+    const fmInjectionScan = scanCanonicalInjectionTokens(frontmatterBlock, "frontmatter");
+    if (fmInjectionScan.length > 0) {
+      const fmInjectionEntries = fmInjectionScan.map(
+        (v) => ({ code: "INJECTION_TOKEN" as const, message: `${fullPath}: promptGuard: ${v}` }),
+      );
+      result.typeMismatches = result.typeMismatches
+        ? [...result.typeMismatches, ...fmInjectionEntries]
+        : fmInjectionEntries;
+    }
+  }
   return result;
 }
 
 /**
  * C7.5-W2B2-H43: narrow subset of pipeline promptGuard checks applied to
- * canonical file bodies. Returns a list of human-readable violation
+ * canonical file content. Returns a list of human-readable violation
  * descriptions. Skips the template-literal and role-colon checks that the
  * general pipeline guard runs because legitimate canonical docs contain
  * Handlebars examples and RFC-style role markers. The retained checks
@@ -868,23 +933,32 @@ async function readSingleMd(
  * canonical markdown and therefore produce zero false positives on the
  * hatch3r content library.
  *
+ * D2-SA2.2-03 (D2 Medium, P6): `location` distinguishes the body scan from
+ * the frontmatter scan so the emitted message pinpoints which half of the
+ * file carried the token. Callers scan both halves (`readSingleMd`) because
+ * a frontmatter string value (e.g. `description:`) reaches generated output
+ * just as the body does.
+ *
  * The trust delegation that justifies this narrow scope — canonical content
  * is trusted at the npm-tarball-signature layer, not by per-file body
  * inspection — is governed in governance/pack-trust-model.md §3.4
  * (D11-SA11.1-07).
  */
-function scanCanonicalInjectionTokens(body: string): string[] {
+function scanCanonicalInjectionTokens(
+  text: string,
+  location: "body" | "frontmatter" = "body",
+): string[] {
   const violations: string[] = [];
-  if (/\x00/.test(body)) violations.push("null byte in canonical body");
-  if (/\x1b\[/.test(body)) violations.push("ANSI escape sequence in canonical body");
-  if (/\[INST\]|\[\/INST\]|<\|im_start\|>|<\|im_end\|>/i.test(body)) {
-    violations.push("chat template injection tokens in canonical body");
+  if (/\x00/.test(text)) violations.push(`null byte in canonical ${location}`);
+  if (/\x1b\[/.test(text)) violations.push(`ANSI escape sequence in canonical ${location}`);
+  if (/\[INST\]|\[\/INST\]|<\|im_start\|>|<\|im_end\|>/i.test(text)) {
+    violations.push(`chat template injection tokens in canonical ${location}`);
   }
-  if (/<\|(?:tool|function|plugin)\|>/i.test(body)) {
-    violations.push("tool delimiter injection token in canonical body");
+  if (/<\|(?:tool|function|plugin)\|>/i.test(text)) {
+    violations.push(`tool delimiter injection token in canonical ${location}`);
   }
-  if (/<!--\s*(?:SYSTEM|ADMIN|ROOT)\s*-->/i.test(body)) {
-    violations.push("HTML comment role escalation in canonical body");
+  if (/<!--\s*(?:SYSTEM|ADMIN|ROOT)\s*-->/i.test(text)) {
+    violations.push(`HTML comment role escalation in canonical ${location}`);
   }
   return violations;
 }

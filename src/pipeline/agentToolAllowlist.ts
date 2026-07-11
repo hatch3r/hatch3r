@@ -945,54 +945,97 @@ if (!category) {
   );
 }
 
-let policiesDoc;
+// Wrap policy evaluation in a top-level try/catch (D2-SA2.4-09) so a
+// malformed policy row or a future schema-shape drift fails CLOSED. On
+// Claude a non-zero crash exit is NON-BLOCKING ("Execution continues"),
+// so any throw here would silently let the tool call proceed — every path
+// below must instead deny explicitly with exit 0.
 try {
-  policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+  let policiesDoc;
+  try {
+    policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+  } catch (err) {
+    denyToolCall(
+      {
+        reasonCode: "POLICY_FILE_MISSING",
+        agentId: agentType,
+        agentInstanceId,
+        tool: toolName,
+        message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+      },
+      \`hatch3r ASI02 allowlist: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+    );
+  }
+
+  // Shape + schema validation (D2-SA2.4-09): the unreadable-file branch
+  // above and this wrong-shape branch give the two adjacent corruption
+  // modes the SAME fail-closed outcome. \`schema\` is the discriminator
+  // emitted by buildAgentToolPoliciesJson, so a future v2 layout is denied
+  // here rather than crashing the unguarded \`.policies.find\` below.
+  if (
+    policiesDoc.schema !== "hatch3r/agent-tool-policies/v1" ||
+    !Array.isArray(policiesDoc.policies)
+  ) {
+    denyToolCall(
+      {
+        reasonCode: "POLICY_FILE_INVALID",
+        agentId: agentType,
+        agentInstanceId,
+        tool: toolName,
+        message: \`Policy file \${POLICY_FILE} failed schema/shape validation; deny-by-default.\`,
+      },
+      \`hatch3r ASI02 allowlist: policy file \${POLICY_FILE} failed schema/shape validation; deny-by-default.\`,
+    );
+  }
+
+  const policy = policiesDoc.policies.find((p) => p.agentId === agentType);
+  if (!policy) {
+    denyToolCall(
+      {
+        reasonCode: "NO_POLICY",
+        agentId: agentType,
+        agentInstanceId,
+        tool: toolName,
+        message: \`No policy registered for agent "\${agentType}"; deny-by-default.\`,
+      },
+      \`hatch3r ASI02 allowlist: no policy registered for agent "\${agentType}"; deny-by-default.\`,
+    );
+  }
+
+  if (!policy.allowedTools.includes(category)) {
+    denyToolCall(
+      {
+        reasonCode: "TOOL_NOT_ALLOWED",
+        agentId: agentType,
+        agentInstanceId,
+        tool: toolName,
+        category,
+        allowedTools: policy.allowedTools,
+        message: \`Agent "\${agentType}" not allowed to use category "\${category}" (tool "\${toolName}"). Allowed: \${policy.allowedTools.join(", ")}.\`,
+      },
+      \`hatch3r ASI02 allowlist: agent "\${agentType}" not allowed to use category "\${category}" (tool "\${toolName}"). Allowed: \${policy.allowedTools.join(", ")}.\`,
+    );
+  }
+
+  // Allowed — exit 0 with empty stdout lets Claude Code's normal
+  // permission flow apply.
+  process.exit(0);
 } catch (err) {
+  // Fail-closed catch-all (D2-SA2.4-09): any unexpected throw while
+  // evaluating the policy (malformed row, unforeseen shape) must deny on
+  // Claude, where a crash exit would otherwise be non-blocking and let the
+  // tool call proceed.
   denyToolCall(
     {
-      reasonCode: "POLICY_FILE_MISSING",
+      reasonCode: "POLICY_FILE_INVALID",
       agentId: agentType,
       agentInstanceId,
       tool: toolName,
-      message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+      message: \`Unexpected error evaluating policy for agent "\${agentType}": \${err && err.message ? err.message : String(err)}; deny-by-default.\`,
     },
-    \`hatch3r ASI02 allowlist: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+    \`hatch3r ASI02 allowlist: policy evaluation failed for agent "\${agentType}"; deny-by-default.\`,
   );
 }
-
-const policy = policiesDoc.policies.find((p) => p.agentId === agentType);
-if (!policy) {
-  denyToolCall(
-    {
-      reasonCode: "NO_POLICY",
-      agentId: agentType,
-      agentInstanceId,
-      tool: toolName,
-      message: \`No policy registered for agent "\${agentType}"; deny-by-default.\`,
-    },
-    \`hatch3r ASI02 allowlist: no policy registered for agent "\${agentType}"; deny-by-default.\`,
-  );
-}
-
-if (!policy.allowedTools.includes(category)) {
-  denyToolCall(
-    {
-      reasonCode: "TOOL_NOT_ALLOWED",
-      agentId: agentType,
-      agentInstanceId,
-      tool: toolName,
-      category,
-      allowedTools: policy.allowedTools,
-      message: \`Agent "\${agentType}" not allowed to use category "\${category}" (tool "\${toolName}"). Allowed: \${policy.allowedTools.join(", ")}.\`,
-    },
-    \`hatch3r ASI02 allowlist: agent "\${agentType}" not allowed to use category "\${category}" (tool "\${toolName}"). Allowed: \${policy.allowedTools.join(", ")}.\`,
-  );
-}
-
-// Allowed — exit 0 with empty stdout lets Claude Code's normal
-// permission flow apply.
-process.exit(0);
 `;
 }
 
@@ -1107,39 +1150,76 @@ if (!subagentType.startsWith("hatch3r-")) {
   process.exit(0);
 }
 
-let policiesDoc;
+// Wrap policy evaluation in a top-level try/catch (D2-SA2.4-09) so a
+// malformed policy row or a future schema-shape drift fails CLOSED, at
+// parity with the Claude hook. The hook entry is registered failClosed:true,
+// but the in-script deny keeps the two adjacent corruption modes (unreadable
+// vs wrong-shape) on one explicit deny path rather than a bare crash.
 try {
-  policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+  let policiesDoc;
+  try {
+    policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+  } catch (err) {
+    denySubagent(
+      {
+        reasonCode: "POLICY_FILE_MISSING",
+        agentId: subagentType,
+        subagentInstanceId,
+        message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+      },
+      \`hatch3r ASI02 guard: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+    );
+  }
+
+  // Shape + schema validation (D2-SA2.4-09): deny on a wrong-shape policy
+  // doc with the same fail-closed outcome as the unreadable branch, before
+  // the unguarded \`.policies.find\` below can throw.
+  if (
+    policiesDoc.schema !== "hatch3r/agent-tool-policies/v1" ||
+    !Array.isArray(policiesDoc.policies)
+  ) {
+    denySubagent(
+      {
+        reasonCode: "POLICY_FILE_INVALID",
+        agentId: subagentType,
+        subagentInstanceId,
+        message: \`Policy file \${POLICY_FILE} failed schema/shape validation; deny-by-default.\`,
+      },
+      \`hatch3r ASI02 guard: policy file \${POLICY_FILE} failed schema/shape validation; deny-by-default.\`,
+    );
+  }
+
+  const policy = policiesDoc.policies.find((p) => p.agentId === subagentType);
+  if (!policy) {
+    denySubagent(
+      {
+        reasonCode: "NO_POLICY",
+        agentId: subagentType,
+        subagentInstanceId,
+        message: \`No policy registered for agent "\${subagentType}"; deny-by-default.\`,
+      },
+      \`hatch3r ASI02 guard: no policy registered for agent "\${subagentType}"; deny-by-default. Add it to src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES and re-run \\\`npx hatch3r sync\\\`.\`,
+    );
+  }
+
+  // A registered hatch3r agent with a policy row is allowed to start; its
+  // per-tool-category envelope is enforced by the allowlist rule + the
+  // \`readonly: true\` frontmatter guard (preToolUse cannot see agent identity,
+  // so category granularity cannot bind at the tool-call boundary on Cursor).
+  process.exit(0);
 } catch (err) {
+  // Fail-closed catch-all (D2-SA2.4-09): deny on any unexpected throw so a
+  // malformed policy row cannot crash the guard into an unintended spawn.
   denySubagent(
     {
-      reasonCode: "POLICY_FILE_MISSING",
+      reasonCode: "POLICY_FILE_INVALID",
       agentId: subagentType,
       subagentInstanceId,
-      message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+      message: \`Unexpected error evaluating policy for agent "\${subagentType}": \${err && err.message ? err.message : String(err)}; deny-by-default.\`,
     },
-    \`hatch3r ASI02 guard: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+    \`hatch3r ASI02 guard: policy evaluation failed for agent "\${subagentType}"; deny-by-default.\`,
   );
 }
-
-const policy = policiesDoc.policies.find((p) => p.agentId === subagentType);
-if (!policy) {
-  denySubagent(
-    {
-      reasonCode: "NO_POLICY",
-      agentId: subagentType,
-      subagentInstanceId,
-      message: \`No policy registered for agent "\${subagentType}"; deny-by-default.\`,
-    },
-    \`hatch3r ASI02 guard: no policy registered for agent "\${subagentType}"; deny-by-default. Add it to src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES and re-run \\\`npx hatch3r sync\\\`.\`,
-  );
-}
-
-// A registered hatch3r agent with a policy row is allowed to start; its
-// per-tool-category envelope is enforced by the allowlist rule + the
-// \`readonly: true\` frontmatter guard (preToolUse cannot see agent identity,
-// so category granularity cannot bind at the tool-call boundary on Cursor).
-process.exit(0);
 `;
 }
 

@@ -1,10 +1,12 @@
 import { describe, it, expect, vi, beforeAll, beforeEach, afterEach, type MockInstance } from "vitest";
 import inquirer from "inquirer";
 import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
+import { execFileSync } from "node:child_process";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
 import { HATCH3R_VERSION } from "../../version.js";
+import { mockPromptsByName } from "./inquirerMock.js";
 
 // Mock inquirer so interactive paths can be exercised. The --yes paths in
 // initCommand do not call inquirer.prompt, so existing non-interactive tests
@@ -355,6 +357,34 @@ describe("init command", () => {
     // A clean (non-partial) init tags the record so the aggregator can segment
     // partial-failure runs.
     expect(firstRun?.tags?.partialAdapterFailure).toBe("false");
+  });
+
+  // D10-SA10.8-01 (D10, P5): init also feeds the SPACE `efficiency`
+  // (time-to-first-value, previously computed then discarded by
+  // printTimingSummary) and `activity` (adapters generated) axes — raising the
+  // realized SPACE surface from 1/5 (performance only) to 3/5. Both persist to
+  // the same JSONL sink as firstRunSuccessRate.
+  it("records efficiency (timeToFirstValueMs) and activity (adaptersGenerated) SPACE telemetry on a successful init", async () => {
+    await initCommand({ yes: true });
+
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryPath = join(tempDir, AGENTS_DIR, "telemetry", `space-${today}.jsonl`);
+    const records = (await readFile(telemetryPath, "utf-8"))
+      .trim()
+      .split("\n")
+      .map((line) => JSON.parse(line) as { metricId: string; axis: string; value: number; source?: string });
+
+    const efficiency = records.find((r) => r.metricId === "timeToFirstValueMs");
+    expect(efficiency).toBeDefined();
+    expect(efficiency?.axis).toBe("efficiency");
+    expect(efficiency?.value).toBeGreaterThanOrEqual(0);
+    expect(efficiency?.source).toBe("hatch3r-init");
+
+    const activity = records.find((r) => r.metricId === "adaptersGenerated");
+    expect(activity).toBeDefined();
+    expect(activity?.axis).toBe("activity");
+    // At least one adapter generated output on a successful init.
+    expect(activity?.value).toBeGreaterThanOrEqual(1);
   });
 
   it("should display sourcing hint in success box when --mcp is passed", async () => {
@@ -962,6 +992,159 @@ describe("init --import feeds generation (D1-SA1.1-02)", () => {
   });
 });
 
+// D14-SA14.3-01 (D14, CQ9): --role is latent until the canonical corpus carries
+// role:* tags. No artifact does yet, so a role value must NOT collapse the
+// selection to floor+protected — init warns and IGNORES the flag, leaving the
+// preset selection intact (matching setup's discipline of keeping the incomplete
+// feature off the surface).
+describe("init --role latent gate (D14-SA14.3-01)", () => {
+  let initCommand: (opts?: {
+    yes?: boolean;
+    role?: string;
+    tools?: string;
+    format?: string;
+  }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-role-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  });
+
+  it("warns that --role matched 0 role-tagged artifacts and still completes the install", async () => {
+    await initCommand({ yes: true, role: "reviewer", tools: "claude" });
+
+    const errOutput = consoleErrorSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(errOutput).toContain("matched 0 role-tagged artifacts");
+    expect(errOutput).toContain("--role is ignored");
+
+    // The flag is ignored, not fatal — the install still wrote its manifest.
+    const manifestExists = await access(join(tempDir, AGENTS_DIR, "hatch.json"))
+      .then(() => true)
+      .catch(() => false);
+    expect(manifestExists).toBe(true);
+  });
+
+  it("resolves the same item count with --role as without it (no floor+protected collapse)", async () => {
+    // Capture the JSON payload's contentItemCount for a plain init (no role).
+    const readCount = async (opts: { yes: boolean; tools: string; format: string; role?: string }): Promise<number> => {
+      const chunks: string[] = [];
+      const stdoutSpy = vi
+        .spyOn(process.stdout, "write")
+        .mockImplementation(((c: string | Uint8Array): boolean => {
+          chunks.push(typeof c === "string" ? c : Buffer.from(c).toString("utf-8"));
+          return true;
+        }) as never);
+      try {
+        await initCommand(opts);
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+      const combined = chunks.join("");
+      return (JSON.parse(combined.slice(combined.indexOf("{")).trim()) as { contentItemCount: number }).contentItemCount;
+    };
+
+    const baseCount = await readCount({ yes: true, tools: "claude", format: "json" });
+
+    // Fresh dir for the role run so the second init is not an overwrite.
+    const dir2 = await mkdtemp(join(tmpdir(), "hatch3r-init-role2-"));
+    cwdSpy.mockReturnValue(dir2);
+    const roleCount = await readCount({ yes: true, role: "reviewer", tools: "claude", format: "json" });
+    await rm(dir2, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+
+    expect(baseCount).toBeGreaterThan(0);
+    // No collapse: an unbacked --role leaves the selection identical to no-role.
+    expect(roleCount).toBe(baseCount);
+  });
+});
+
+// D14-SA14.4-02 (D14, P1): interactive init detects a competitor tool config
+// but historically surfaced the --import migration bridge only via the flag
+// (invisible on the happy path). A dim, zero-prompt pointer now fires at the
+// Detected: moment, and is suppressed when --import was already passed.
+describe("init competitor-config import pointer (D14-SA14.4-02)", () => {
+  let initCommand: (opts?: {
+    yes?: boolean;
+    tools?: string;
+    import?: string;
+  }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-pointer-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  });
+
+  async function seedCursorConfig(): Promise<void> {
+    const dir = join(tempDir, ".cursor", "rules");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "team-style.mdc"),
+      "---\ndescription: Team style\nalwaysApply: false\n---\n# Team Style\n\nPrefer named exports.\n",
+      "utf-8",
+    );
+  }
+
+  it("emits an import pointer when a cursor config is detected and --import was not passed", async () => {
+    await seedCursorConfig();
+    await initCommand({ yes: true });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("carry your rules across");
+    expect(output).toContain("hatch3r init --import cursor");
+  });
+
+  it("suppresses the import pointer when --import was already passed", async () => {
+    await seedCursorConfig();
+    await initCommand({ yes: true, tools: "claude", import: "cursor" });
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).not.toContain("carry your rules across");
+  });
+});
+
 // F10.3-2 (D10, P1): the interactive first-run flow is capped at ≤6 prompts
 // (Decision 25 raised the ceiling 5→6 in 2.1.0 to add the maturity prompt).
 describe("init interactive ≤6-prompt ceiling (F10.3-2)", () => {
@@ -1189,6 +1372,202 @@ describe("init interactive maturity prompt + inferred-default feedback (C/F, 2.1
     const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(stdout).not.toContain("Detected default branch:");
     expect(stdout).not.toContain("Inferred maturity:");
+  });
+});
+
+// D1-SA1.1-07 (D1, P2/P1): `inferTeamSizeFromGit` counted distinct commit-author
+// emails with no bot filtering, so a solo repo with dependabot/renovate/
+// github-actions automation carried ≥2 distinct authors and mis-inferred as
+// "team" — silently admitting team-only content. The fix drops `[bot]` App
+// authors before counting. These tests drive the real resolution path: the
+// inferred team size seeds the maturity prompt's default, so the 4th prompt's
+// `default` reflects it. The disclosure line naming the consequence
+// (recommendation 3) is asserted too.
+describe("init team-size inference — bot-author filtering + consequence disclosure (D1-SA1.1-07)", () => {
+  let initCommand: (opts?: { tools?: string; teamSize?: string; maturity?: string }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-teamsize-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  });
+
+  // Build a real git repo whose commits carry the given author emails. `-c
+  // commit.gpgsign=false` neutralizes a globally-signed environment; `-c
+  // user.*` supplies a per-commit author identity so no global git config is
+  // required. `%ae` (author email) is what `inferTeamSizeFromGit` reads.
+  function initGitRepoWithAuthors(dir: string, authors: Array<{ email: string; name: string }>): void {
+    execFileSync("git", ["init", "-q"], { cwd: dir, stdio: "pipe" });
+    authors.forEach((a, i) => {
+      execFileSync(
+        "git",
+        [
+          "-c",
+          "commit.gpgsign=false",
+          "-c",
+          `user.email=${a.email}`,
+          "-c",
+          `user.name=${a.name}`,
+          "commit",
+          "--allow-empty",
+          "-q",
+          "-m",
+          `commit ${i}`,
+        ],
+        { cwd: dir, stdio: "pipe" },
+      );
+    });
+  }
+
+  function queueSixPrompts(): void {
+    const inq = vi.mocked(inquirer.prompt);
+    inq.mockResolvedValueOnce({ platform: "github" });
+    inq.mockResolvedValueOnce({ owner: "o", repo: "r" });
+    inq.mockResolvedValueOnce({ preset: "minimal" });
+    inq.mockResolvedValueOnce({ maturity: "solo" });
+    inq.mockResolvedValueOnce({ tools: ["claude"] });
+    inq.mockResolvedValueOnce({ tools: [] });
+  }
+
+  it("excludes [bot] commit authors so a solo repo with dependabot infers teamSize solo", async () => {
+    // 1 human + 1 GitHub App bot in the real dependabot author-email format.
+    // Pre-fix: 2 distinct authors → "team"; post-fix: 1 human → "solo".
+    initGitRepoWithAuthors(tempDir, [
+      { email: "solo-dev@example.com", name: "Solo Dev" },
+      { email: "49699333+dependabot[bot]@users.noreply.github.com", name: "dependabot[bot]" },
+    ]);
+    queueSixPrompts();
+
+    await initCommand({});
+
+    // The maturity prompt (4th call, index 3) is seeded from the inferred team
+    // size — bot excluded → single human → "solo".
+    const inq = vi.mocked(inquirer.prompt);
+    const maturityQuestion = (inq.mock.calls[3][0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
+    expect(maturityQuestion.name).toBe("maturity");
+    expect(maturityQuestion.default).toBe("solo");
+
+    // D1-SA1.1-07 recommendation (3): the inference line names the CONSEQUENCE.
+    const stdout = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(stdout).toContain("team size filters team-only workflows");
+  });
+
+  it("still infers team for two distinct human authors (bot filter does not over-exclude)", async () => {
+    initGitRepoWithAuthors(tempDir, [
+      { email: "alice@example.com", name: "Alice" },
+      { email: "bob@example.com", name: "Bob" },
+    ]);
+    queueSixPrompts();
+
+    await initCommand({});
+
+    const inq = vi.mocked(inquirer.prompt);
+    const maturityQuestion = (inq.mock.calls[3][0] as unknown as Array<{ name?: string; default?: unknown }>)[0];
+    expect(maturityQuestion.name).toBe("maturity");
+    expect(maturityQuestion.default).toBe("team");
+  });
+});
+
+// D3-SA3.2-12 (D3, CQ5): the interactive suite answers prompts with an
+// order-based positional queue, so a conditionally-inserted prompt shifts every
+// downstream answer by one (the documented CI-fragility scar tissue). The shared
+// name-keyed `mockPromptsByName` helper removes the order coupling and converts
+// silent shifts into NAMED failures. These tests (a) adopt it to drive a real,
+// collision-free init flow and (b) pin its anti-fragility contract. Retrofitting
+// the `name:"tools"` collision flows + the source-side `cliTools` rename is the
+// remaining half (source pickers/flowSteps + config.test.ts are outside this
+// unit's lock scope).
+describe("init name-keyed prompt mock (D3-SA3.2-12)", () => {
+  let initCommand: (opts?: { noCliTools?: boolean }) => Promise<void>;
+  let tempDir: string;
+  let cwdSpy: MockInstance;
+  let exitSpy: MockInstance;
+  let consoleSpy: MockInstance;
+  let consoleErrorSpy: MockInstance;
+
+  beforeAll(async () => {
+    ({ initCommand } = await import("../../cli/commands/init.js"));
+  });
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-init-namekey-"));
+    cwdSpy = vi.spyOn(process, "cwd").mockReturnValue(tempDir);
+    exitSpy = vi.spyOn(process, "exit").mockImplementation((() => {
+      throw new Error("process.exit called");
+    }) as never);
+    consoleSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.mocked(inquirer.prompt).mockReset();
+  });
+
+  afterEach(async () => {
+    cwdSpy.mockRestore();
+    exitSpy.mockRestore();
+    consoleSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  });
+
+  it("drives a full collision-free interactive init flow by prompt name (--no-cli-tools)", async () => {
+    // --no-cli-tools skips the CLI-tools picker, so there is one `tools` prompt
+    // (editor) and no name:"tools" collision — the flow the helper drives today.
+    mockPromptsByName({
+      platform: "github",
+      owner: "o",
+      repo: "r",
+      preset: "minimal",
+      maturity: "solo",
+      tools: ["claude"],
+    });
+
+    await initCommand({ noCliTools: true });
+
+    const manifest = JSON.parse(await readFile(join(tempDir, AGENTS_DIR, "hatch.json"), "utf-8"));
+    expect(manifest.maturity).toBe("solo");
+    // --no-cli-tools resolved without prompting for the picker.
+    expect(manifest.cliTools).toEqual({ enabled: false, selected: [] });
+  });
+
+  it("throws a NAMED error when a prompt has no registered answer (anti-fragility contract)", async () => {
+    // A mis-ordered / newly-inserted prompt fails by NAME instead of landing an
+    // undefined answer that destructures opaquely downstream.
+    mockPromptsByName({ platform: "github" });
+    await expect(
+      (inquirer.prompt as unknown as (q: unknown) => Promise<unknown>)([{ name: "maturity", type: "list" }]),
+    ).rejects.toThrow(/no mock answer registered for prompt 'maturity'/);
+  });
+
+  it("answers each question by its own name, not queue position", async () => {
+    mockPromptsByName({ platform: "github", owner: "o", repo: "r" });
+    // A two-question identity-style call resolves BOTH by name in one prompt call
+    // — position-independent.
+    const answer = await (inquirer.prompt as unknown as (q: unknown) => Promise<Record<string, unknown>>)([
+      { name: "owner", type: "input" },
+      { name: "repo", type: "input" },
+    ]);
+    expect(answer).toEqual({ owner: "o", repo: "r" });
   });
 });
 

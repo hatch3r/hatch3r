@@ -35,9 +35,17 @@ export function getAdapter(tool: Tool): Adapter {
   const factory = adapterFactories[tool];
   if (!factory) {
     const supported = Object.keys(adapterFactories).sort().join(", ");
+    // D2-SA2.5-01 (Cycle 12 Wave 3, D2, P1): pass `undefined` (not a literal
+    // `1`) as the exitCode so `HatchError` derives it from
+    // `ERROR_CODE_TO_EXIT_CODE["VALIDATION_ERROR"]` (= 64, the sysexits
+    // EX_USAGE the docs/troubleshooting.md Exit Codes contract promises). A
+    // literal `1` overrode the single-source-of-truth mapping and contradicted
+    // that contract ("no exit 1 for command failures"); `undefined` keeps this
+    // call site aligned with the documented `--tools` path (init.ts) that
+    // already resolves to 64.
     throw new HatchError(
       `Unknown tool: ${tool}`,
-      1,
+      undefined,
       "VALIDATION_ERROR",
       `Supported tools: ${supported}. Re-run with one of these via \`--tools\`.`,
     );

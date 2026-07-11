@@ -1289,3 +1289,149 @@ describe("adapter-capability-matrix rule-path rows <-> adapter ground truth (D9-
     });
   }
 });
+
+// D2-SA2.1-02 (Cycle 12 Wave 3, D2, P2): `getOutputPaths` was 2-arg
+// (canonical-only) while real generation threads `userRepoRoot`, so `update.ts`'s
+// D1-4 rollback pre-enumeration recorded a strict subset of the real output set —
+// a newly-created user-override output escaped tombstoning and survived a
+// rollback. The fix widens `getOutputPaths(canonicalRoot, manifest, userRepoRoot?)`
+// and forwards the arg to `generate`. D3-SA3.1-03: the memo is now keyed on the
+// full argument tuple (the prior cache was argument-insensitive).
+
+// Minimal adapter that enumerates one output per user-facing agent, so a
+// user-tier override at `${userRoot}/.hatch3r/overrides/agents/<id>.md`
+// produces a distinct output path. `doGenerateCalls` pins the cache hit/miss
+// pattern for the D3-SA3.1-03 memo test.
+class AgentEnumAdapter extends BaseAdapter {
+  readonly name = "agent-enum";
+  doGenerateCalls = 0;
+  protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+    this.doGenerateCalls += 1;
+    const agents = await this.readUserFacingCanonicalFiles(
+      ctx.canonicalRoot,
+      "agents",
+      ctx.userRepoRoot,
+    );
+    return agents.map((a) => output(`agents/${a.id}.md`, `# ${a.id}\n`));
+  }
+}
+
+// Stage a valid user-tier agent override (mirrors userContentParity.test.ts's
+// seedUserAgent: id/type/description/tags/pillars, description long enough to
+// clear the adapter description gate) at `${userRoot}/.hatch3r/overrides/agents/`.
+async function seedUserAgentFile(userRoot: string, id: string): Promise<void> {
+  const dir = join(userRoot, ".hatch3r", "overrides", "agents");
+  await mkdir(dir, { recursive: true });
+  const desc =
+    "User-tier agent fixture with a description long enough to clear the adapter description gate.";
+  await writeFile(
+    join(dir, `${id}.md`),
+    `---\nid: ${id}\ntype: agent\ndescription: ${desc}\ntags: [customize]\nquality_charter: agents/shared/quality-charter.md\npillars: [P4]\n---\nUser body for ${id}.\n`,
+  );
+}
+
+describe("getOutputPaths threads userRepoRoot for user-tier parity (D2-SA2.1-02)", () => {
+  it("enumerates user-override outputs only when userRepoRoot is threaded, matching generate()", async () => {
+    const userRoot = await mkdtemp(join(tmpdir(), "hatch3r-getoutputpaths-uc-"));
+    try {
+      await seedUserAgentFile(userRoot, "user-extra");
+      const manifest = makeManifest();
+
+      // getOutputPaths WITH userRepoRoot must equal the real generate() path set
+      // AND include the user-override-derived output (the D1-4 tombstone gap).
+      const enumWithUser = await new AgentEnumAdapter().getOutputPaths(FIXTURES_DIR, manifest, userRoot);
+      const genWithUser = (await new AgentEnumAdapter().generate(FIXTURES_DIR, manifest, userRoot)).map(
+        (o) => o.path,
+      );
+      expect(new Set(enumWithUser)).toEqual(new Set(genWithUser));
+      expect(enumWithUser).toContain("agents/user-extra.md");
+
+      // Omitting userRepoRoot enumerates the canonical-only subset (no user path).
+      const enumNoUser = await new AgentEnumAdapter().getOutputPaths(FIXTURES_DIR, manifest);
+      expect(enumNoUser).not.toContain("agents/user-extra.md");
+      // The user path is exactly what threading the arg adds — nothing else moves.
+      expect(new Set(enumWithUser)).toEqual(new Set([...enumNoUser, "agents/user-extra.md"]));
+    } finally {
+      await rm(userRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("getOutputPaths cache is keyed on its arguments (D3-SA3.1-03)", () => {
+  it("memoises identical calls but recomputes when userRepoRoot differs", async () => {
+    const userRoot = await mkdtemp(join(tmpdir(), "hatch3r-getoutputpaths-cache-"));
+    try {
+      await seedUserAgentFile(userRoot, "cache-user");
+      const adapter = new AgentEnumAdapter();
+      const manifest = makeManifest();
+
+      // Two identical calls → a single generation (the second is a cache hit).
+      const first = await adapter.getOutputPaths(FIXTURES_DIR, manifest, userRoot);
+      const second = await adapter.getOutputPaths(FIXTURES_DIR, manifest, userRoot);
+      expect(adapter.doGenerateCalls).toBe(1);
+      expect(second).toEqual(first);
+      expect(first).toContain("agents/cache-user.md");
+
+      // A call with a DIFFERENT userRepoRoot (omitted) must recompute — the
+      // pre-fix argument-insensitive cache returned the memoised user-tier set.
+      const canonicalOnly = await adapter.getOutputPaths(FIXTURES_DIR, manifest);
+      expect(adapter.doGenerateCalls).toBe(2);
+      expect(canonicalOnly).not.toContain("agents/cache-user.md");
+    } finally {
+      await rm(userRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+// D3-SA3.1-01 (Cycle 12 Wave 3, D3, CQ5): `generate()` falls back to
+// `process.cwd()` for projectRoot when userRepoRoot is omitted, and
+// applyCustomization probes `.hatch3r/{type}/{id}.customize.*` against it — so a
+// call that omits the arg reads customization from the developer's live repo
+// `.hatch3r/`. This guards the base-level isolation contract: when userRepoRoot
+// IS passed, the customization outcome is a function of that directory alone, so
+// a `.hatch3r/agents/*.customize.yaml` sitting in any OTHER directory (including
+// cwd) has zero effect. (The 127-call test-site sweep that omits the arg lives in
+// the claude/cursor/copilot/snapshots adapter test files, out of this file's scope.)
+describe("customization probes resolve against the passed userRepoRoot, not cwd (D3-SA3.1-01)", () => {
+  class InlineAgentsProbe extends BaseAdapter {
+    readonly name = "inline-agents-probe";
+    protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+      const lines = await this.inlineAgents(ctx);
+      return [output("agents-out.md", lines.join("\n") || "empty")];
+    }
+  }
+
+  it("a .hatch3r/agents customize file only affects generate() when userRepoRoot points at its directory", async () => {
+    const dirWithCustomize = await mkdtemp(join(tmpdir(), "hatch3r-cwd-probe-with-"));
+    const dirWithoutCustomize = await mkdtemp(join(tmpdir(), "hatch3r-cwd-probe-none-"));
+    try {
+      // A customize file that disables the canonical test-agent (non-protected,
+      // non-floor → `enabled: false` is honored as a skip).
+      const customizeDir = join(dirWithCustomize, ".hatch3r", "agents");
+      await mkdir(customizeDir, { recursive: true });
+      await writeFile(join(customizeDir, "test-agent.customize.yaml"), "enabled: false\n");
+
+      const manifest = makeManifest();
+      const marker = "## Agent: test-agent";
+
+      // userRepoRoot = the dir WITH the customize file → projectRoot resolves
+      // there → test-agent is disabled (skip) → marker absent. Proves the file
+      // is genuinely effective (so the isolation assertion below is non-vacuous).
+      const disabled = (
+        await new InlineAgentsProbe().generate(FIXTURES_DIR, manifest, dirWithCustomize)
+      )[0]!.content;
+      expect(disabled).not.toContain(marker);
+
+      // userRepoRoot = a DIFFERENT dir with no customization → the customize file
+      // in dirWithCustomize (analogue of a cwd `.hatch3r/`) has zero effect →
+      // output is unchanged from the un-customized baseline (marker present).
+      const unaffected = (
+        await new InlineAgentsProbe().generate(FIXTURES_DIR, manifest, dirWithoutCustomize)
+      )[0]!.content;
+      expect(unaffected).toContain(marker);
+    } finally {
+      await rm(dirWithCustomize, { recursive: true, force: true });
+      await rm(dirWithoutCustomize, { recursive: true, force: true });
+    }
+  });
+});

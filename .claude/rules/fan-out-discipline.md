@@ -35,6 +35,14 @@ When work is independent under the three parallel-safety conditions (read-only o
 
 Past ~8 concurrent sub-agents, keep the task-derived count but split it into a two-level tree per `rules/hatch3r-fan-out-discipline.md` → Hierarchical delegation; never compress the count to ease integration.
 
+## Topology & single-writer
+
+Source: `governance/CONSTITUTION.md` §2 P8 (Topology rule + Single-writer synthesis).
+
+**Topology rule:** one accountable orchestrator per flow; supervisor layers above it require a named, measured justification; peer-to-peer coordination is reserved for dynamic-environment work whose decomposition shifts mid-flight. The two-level tree above IS such a supervisor layer — admissible past ~8 width only with the reviewability-ceiling justification recorded in the orchestrator's fan-out rationale; below the ceiling, one accountable orchestrator per flow is the default.
+
+**Single-writer synthesis:** fan out reads; exactly one writer merges results into a given artifact — parallel writers on one file are a P8 violation. This is the disjoint-writes safety condition applied at synthesis time: N sub-agents may READ in parallel, but the merge into any one artifact stays single-writer. Framework-dev multi-SA flows are its subject — audit fan-out writing `.audit-workspace/` files included: each SA writes only its own results file, and one orchestrator merges into shared registries and SUMMARY files.
+
 ## Cost-dominance clause
 
 Token cost of sub-agent invocation never justifies under-fan-out. Cost governs HOW MUCH context each sub-agent receives (P7 static-first prompt frame); it does not govern WHETHER to spawn the sub-agent at all. When in doubt, fan out.

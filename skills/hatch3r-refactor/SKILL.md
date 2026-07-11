@@ -88,7 +88,7 @@ Use the project's PR template. Include:
 
 > **Note:** When this skill is invoked via the orchestration pipeline (board-pickup or workflow commands), skip this section — the orchestrator handles agent delegation in Phases 3 and 4.
 
-You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
+You MUST spawn these agents via the Task tool (`subagent_type: "general-purpose"`) at the appropriate points:
 
 - **`hatch3r-researcher`** — MUST spawn before implementation with modes `current-state`, `refactoring-strategy`, `migration-path`. For Tier 2+ tasks (per `hatch3r-deep-context`), also include `similar-implementation` (refactors benefit most from convention alignment — ensures the refactored code follows established patterns) and `requirements-elicitation`. Skip only for trivially simple refactors (`risk:low` AND `priority:p3`).
 - **`hatch3r-reviewer`** — MUST spawn after implementation for code review, verifying behavioral preservation.

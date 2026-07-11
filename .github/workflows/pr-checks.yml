@@ -143,7 +143,7 @@ jobs:
       # whose growth is intentional, so it is excluded by construction (not
       # netted out). Regenerate the baseline after a justified bundle increase
       # per the note in .github/bundle-size-baseline.json. See
-      # governance/audit/domains/D04-build-cicd.md SA 4.1 "Bundle size analysis".
+      # governance/audit/domains/D04-build-cicd.md SA 4.1 (Bundle size bullet; registry D4-8).
       - name: Bundle size regression gate
         run: |
           node -e '

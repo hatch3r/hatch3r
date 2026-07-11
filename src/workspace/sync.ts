@@ -18,6 +18,7 @@ import {
   addManagedFile,
 } from "../manifest/hatchJson.js";
 import { safeWriteFile, acquireWriteLock } from "../merge/safeWrite.js";
+import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../merge/orphanCleanup.js";
 import { HATCH3R_DIR } from "../types.js";
 import { migrateAgentsToHatch3r } from "../migration/agentsToHatch3r.js";
 import { HATCH3R_VERSION } from "../version.js";
@@ -545,6 +546,18 @@ async function syncSingleRepo(
     existingManifest?.workspace?.excludedCliTools,
   );
 
+  // D1-SA1.10-05 (Cycle 12, D1): snapshot the member's prior per-adapter
+  // output paths BEFORE createManifest rebuilds a fresh manifest (whose
+  // managedFilesByAdapter starts empty). The adapter loop below diffs the
+  // current emission against this baseline and sweeps files a shrunk selection
+  // (excluded rule, removed tool/group) no longer emits — otherwise the member
+  // repo keeps loading a "ghost" adapter output the workspace lead believes is
+  // gone, and the fresh per-run manifest drops it from tracking so
+  // `hatch3r clean` can never reclaim it. Mirrors src/cli/commands/sync.ts.
+  const previousManagedByAdapter: Record<string, string[]> = existingManifest?.managedFilesByAdapter
+    ? { ...existingManifest.managedFilesByAdapter }
+    : {};
+
   const manifest = createManifest({
     platform: gitPlatform ?? resolved.platform,
     owner: gitOwner,
@@ -590,6 +603,11 @@ async function syncSingleRepo(
   // Run adapter generation
   const canonicalContentRoot = resolveBundledContentRoot();
   const toolsSynced: string[] = [];
+  // D1-SA1.10-05 (Cycle 12, D1): assemble the new per-adapter path map as
+  // adapters succeed, and collect orphan-sweep entries to surface after the
+  // loop. Mirrors the single-repo collectors in src/cli/commands/sync.ts.
+  const newManagedByAdapter: Record<string, string[]> = {};
+  const orphanEntries: OrphanCleanupEntry[] = [];
   for (const tool of resolved.tools) {
     try {
       const adapter = getAdapter(tool);
@@ -616,6 +634,19 @@ async function syncSingleRepo(
         });
         addManagedFile(manifest, out.path);
       }
+      // D1-SA1.10-05 (Cycle 12, D1): record this adapter's emitted paths and
+      // sweep the member's stale outputs. `previousManagedByAdapter[tool]` is
+      // the prior-run baseline; a path in it this run no longer emits is
+      // unlinked (subject to the user-wrapped / adapter-root safety checks in
+      // sweepOrphansForAdapter). Root-only containment (no packageRoots
+      // argument): workspace members do not emit monorepo per-package copies.
+      const currentPaths = outputs.map((o) => o.path);
+      newManagedByAdapter[tool] = currentPaths;
+      const priorPaths = previousManagedByAdapter[tool];
+      if (priorPaths && priorPaths.length > 0) {
+        const entries = await sweepOrphansForAdapter(tool, repoDir, priorPaths, currentPaths);
+        orphanEntries.push(...entries);
+      }
       toolsSynced.push(tool);
     } catch (err) {
       options.onWarn?.(
@@ -624,8 +655,26 @@ async function syncSingleRepo(
     }
   }
 
-  // Write manifest again with managedFiles populated
+  // D1-SA1.10-05 (Cycle 12, D1): persist managedFilesByAdapter so the NEXT
+  // sync has a per-adapter history to diff against — createManifest above built
+  // a fresh manifest with none. Merge: a failed adapter keeps its prior paths
+  // (its outputs were not re-verified this run); a successful adapter
+  // overwrites with the fresh list. Mirrors the end-of-run merge in
+  // src/cli/commands/sync.ts.
+  const mergedByAdapter: Record<string, string[]> = { ...previousManagedByAdapter };
+  for (const [tool, paths] of Object.entries(newManagedByAdapter)) {
+    mergedByAdapter[tool] = [...paths];
+  }
+  manifest.managedFilesByAdapter = mergedByAdapter;
+
+  // Write manifest again with managedFiles + managedFilesByAdapter populated
   await writeManifest(repoDir, manifest);
+
+  // D1-SA1.10-05 (Cycle 12, D1): surface swept/skipped orphan outputs so the
+  // workspace operator sees which stale member files were reclaimed (or refused
+  // for safety) this run.
+  const orphanDiag = formatOrphanCleanupDiagnostic(orphanEntries);
+  if (orphanDiag) options.onWarn?.(orphanDiag);
 
   // Wave 3: integrity manifest writes removed; Wave 7 will reintroduce a
   // bundled-content integrity model. Surface partial-adapter outcomes via

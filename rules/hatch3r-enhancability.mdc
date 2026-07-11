@@ -42,7 +42,7 @@ Every user-visible behavior change MUST ship behind an OpenFeature (or vendor-eq
 2. **Flag-key inventory** — every flag key is registered in `flags.yaml` (or equivalent) with metadata: owner, description, default-value, kill-switch flag.
 3. **Evaluation context** — flag evaluations carry a documented attribute schema (user-id, account-id, org-id, environment, locale, beta-cohort).
 4. **Kill-switch** — every behavior-changing flag has a documented kill-switch path: setting the flag to OFF reverts to the previous behavior without code rollback.
-5. **Cleanup window** — flags retired ≤90 days after 100% rollout per `rules/hatch3r-feature-flags.md`.
+5. **Cleanup window** — flags retired ≤30 days after 100% rollout per `rules/hatch3r-feature-flags.md` (which sets the max-30-day cleanup deadline; kill switches are permanent operational flags exempt from it).
 
 Behavior changes shipped without a flag are CRITICAL findings.
 

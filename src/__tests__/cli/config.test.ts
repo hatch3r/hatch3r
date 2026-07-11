@@ -885,7 +885,7 @@ describe("config command", () => {
       expect(agentsWrites).toHaveLength(0);
     });
 
-    it("should archive customize overrides when preset resolves fewer items", async () => {
+    it("should NOT archive customize overrides on preset downgrade (D10-SA10.6-02: item still emits under Decision 16, so its override stays live)", async () => {
       const contentItems = makeContentSelection({
         items: { agents: ["hatch3r-implementer", "hatch3r-reviewer"], skills: [], rules: [], commands: [], prompts: [], hooks: [], githubAgents: [] },
       });
@@ -900,10 +900,13 @@ describe("config command", () => {
 
       await (await importConfigCommand())();
 
-      expect(vi.mocked(archiveCustomizeOverrides)).toHaveBeenCalledWith(
-        tempDir,
-        expect.objectContaining({ id: "hatch3r-reviewer" }),
-      );
+      // D10-SA10.6-02: dropping hatch3r-reviewer from the tracked selection does
+      // NOT stop the adapters emitting it (readTrackedCanonicalFiles ignores the
+      // selection — Decision 16 "dial not gate"). Archiving its `.customize.*`
+      // override would detach a live customization from a still-emitted artifact
+      // and silently revert it to canonical, so config no longer archives on
+      // removal; the override is left live where the user placed it.
+      expect(vi.mocked(archiveCustomizeOverrides)).not.toHaveBeenCalled();
     });
 
     it("should never create a .agents/ tree when content items are added (regression, v1.9.0 hard-cut)", async () => {

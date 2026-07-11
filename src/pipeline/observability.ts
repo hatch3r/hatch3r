@@ -18,11 +18,27 @@
  *    debugging failed pipeline executions, including environment snapshot
  *    and git ref capture.
  *
+ * 5. **Spawn-telemetry reachability** -- probes that the default-on sub-agent
+ *    spawn audit trail has a writable sink (D15-SA15.3-03, OWASP 2026
+ *    Strong-Observability).
+ *
+ * 6. **Observed output:input token ratio** -- derives the output:input token
+ *    ratio from recorded EfficiencyEvent telemetry so cost estimates can
+ *    replace the unbased 0.25 constant with measurement (D6-SA6.3-05).
+ *
  * Metric naming convention: all exported interfaces use `{Scope}{Metric}`
  * format (e.g. `PhaseTokenEstimate`, `PipelineTokenSummary`, `CostEstimate`).
  */
 
-import { appendFileSync, mkdirSync } from "node:fs";
+import {
+  accessSync,
+  appendFileSync,
+  constants as fsConstants,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 
 import { createFailureLogEntry, formatLogEntry, FAILURE_LOG_FILE } from "./failureLog.js";
@@ -576,10 +592,21 @@ export function formatReplayGuidance(guidance: ReplayGuidance): string {
   return lines.join("\n");
 }
 
-// ─── Efficiency telemetry (opt-in via HATCH3R_EFFICIENCY_TELEMETRY=1) ───
-// Pillar P7. Records token-level and latency telemetry for end-user agentic
-// flows. Disabled by default; failures are reported to the failureLog channel
-// per the Silent Failure Contract (CONSTITUTION.md §2 P5).
+// ─── Efficiency telemetry (HATCH3R_EFFICIENCY_TELEMETRY: "1" opt-in / "0" opt-out) ───
+// Pillars P7 + P6. Two channels share the JSONL sink with split default
+// postures (D15-SA15.3-03, OWASP 2026 Strong-Observability):
+//
+// - Token/latency telemetry (`recordEfficiencyEvent`, `recordPhaseDuration`,
+//   `recordTokenCost`) is higher-volume and stays OPT-IN — it records only
+//   when HATCH3R_EFFICIENCY_TELEMETRY=1.
+// - Sub-agent spawn telemetry (`recordSubAgentSpawn`) is low-volume (one
+//   JSONL line per Task-tool fan-out), structured, and is the framework-owned
+//   audit trail for how many agents ran with what delegated authority — it
+//   records BY DEFAULT and is disabled only by the explicit opt-out
+//   HATCH3R_EFFICIENCY_TELEMETRY=0.
+//
+// Failures on either channel are reported to the failureLog channel per the
+// Silent Failure Contract (CONSTITUTION.md §2 P5).
 
 export interface EfficiencyEvent {
   artifactId: string;       // canonical artifact ID, e.g. "hatch3r-quick-change"
@@ -596,6 +623,23 @@ const EFFICIENCY_LOG_RELATIVE = ".hatch3r/efficiency-events.jsonl";
 
 export function isEfficiencyTelemetryEnabled(): boolean {
   return process.env[EFFICIENCY_TELEMETRY_ENV] === "1";
+}
+
+/**
+ * Spawn-telemetry gate — default ON (D15-SA15.3-03).
+ *
+ * The OWASP 2026 Strong-Observability principle asks that tool-use patterns
+ * and decision pathways be logged with enough fidelity to reconstruct agent
+ * behavior post-hoc (genai.owasp.org, OWASP Top 10 for Agentic Applications
+ * 2026, accessed 2026-07-11). Sub-agent spawn events (count + P8 B2
+ * rationale) are the lowest-volume hatch3r-owned observable meeting that bar
+ * — one JSONL line per fan-out — so they record by default. Setting
+ * `HATCH3R_EFFICIENCY_TELEMETRY=0` is the explicit opt-out; any other value
+ * (unset, "1", ...) leaves spawn telemetry on. Token/latency telemetry keeps
+ * the stricter `=1` opt-in gate ({@link isEfficiencyTelemetryEnabled}).
+ */
+export function isSpawnTelemetryEnabled(): boolean {
+  return process.env[EFFICIENCY_TELEMETRY_ENV] !== "0";
 }
 
 /**
@@ -677,8 +721,10 @@ export interface PhaseDurationEvent {
 /**
  * Record that an orchestrator spawned `count` sub-agents in a single
  * Task-tool invocation. Persists a JSONL entry under
- * `<projectRoot>/.hatch3r/efficiency-events.jsonl` when the env-gate is
- * set; otherwise no-op. Silent Failure Contract on I/O failure.
+ * `<projectRoot>/.hatch3r/efficiency-events.jsonl`. Records BY DEFAULT
+ * (D15-SA15.3-03 — Strong-Observability default posture); no-op only under
+ * the explicit `HATCH3R_EFFICIENCY_TELEMETRY=0` opt-out
+ * ({@link isSpawnTelemetryEnabled}). Silent Failure Contract on I/O failure.
  *
  * The orchestrator passes its own artifact id (e.g. `hatch3r-feature-plan`)
  * so consumers can attribute spawns to a specific command.
@@ -690,7 +736,7 @@ export function recordSubAgentSpawn(
   rationale: string,
   projectRoot: string = process.cwd(),
 ): void {
-  if (!isEfficiencyTelemetryEnabled()) return;
+  if (!isSpawnTelemetryEnabled()) return;
   const event: SubAgentSpawnEvent = {
     type: "subagent_spawn",
     sessionId,
@@ -787,6 +833,241 @@ function appendCostTelemetry(
       void err;
     }
   }
+}
+
+// ─── Spawn-telemetry sink reachability (D15-SA15.3-03) ───
+// Strong-Observability check surface: an unreachable sink means the
+// default-on spawn audit trail silently records nothing (the Silent Failure
+// Contract swallows the write error), so the posture claim "spawn telemetry
+// is on by default" needs a probe that asserts the sink is actually
+// writable. Designed for the compliance report
+// (src/pipeline/complianceVerification.ts::runComplianceChecks) to consume
+// as a named check.
+
+/** Result of probing the spawn-telemetry sink. */
+export interface SpawnTelemetryReachability {
+  /** True when the spawn channel is enabled (no `HATCH3R_EFFICIENCY_TELEMETRY=0` opt-out). */
+  enabled: boolean;
+  /** True when the sink path can be created or appended to from this process. */
+  sinkWritable: boolean;
+  /** The Strong-Observability assertion: `enabled && sinkWritable`. */
+  reachable: boolean;
+  /** Absolute path of the JSONL sink probed. */
+  sinkPath: string;
+  /** One-line human-readable probe outcome. */
+  detail: string;
+}
+
+/**
+ * Probe whether the spawn-telemetry sink is reachable WITHOUT mutating it:
+ * an existing sink file is checked for append access; a not-yet-created sink
+ * is reachable when its nearest existing ancestor is a writable + traversable
+ * directory (`mkdir -p` descends from there). Never throws — probe failures
+ * report `sinkWritable: false` with the failure detail.
+ *
+ * Best-effort on Windows: `accessSync` write checks on directories are
+ * advisory there (Node fs docs), but the structural checks (non-directory
+ * ancestor, sink-is-a-directory) are exact on every platform.
+ */
+export function checkSpawnTelemetryReachability(
+  projectRoot: string = process.cwd(),
+): SpawnTelemetryReachability {
+  const sinkPath = join(projectRoot, EFFICIENCY_LOG_RELATIVE);
+  const enabled = isSpawnTelemetryEnabled();
+  let sinkWritable = false;
+  let detail: string;
+
+  try {
+    if (existsSync(sinkPath)) {
+      if (!statSync(sinkPath).isFile()) {
+        detail = `sink exists but is not a regular file: ${sinkPath}`;
+      } else {
+        accessSync(sinkPath, fsConstants.W_OK);
+        sinkWritable = true;
+        detail = "sink file exists and is appendable";
+      }
+    } else {
+      const ancestor = nearestExistingAncestor(dirname(sinkPath));
+      if (ancestor === null) {
+        detail = `no existing ancestor directory for ${sinkPath}`;
+      } else if (!statSync(ancestor).isDirectory()) {
+        detail = `path blocked by non-directory ancestor: ${ancestor}`;
+      } else {
+        accessSync(ancestor, fsConstants.W_OK | fsConstants.X_OK);
+        sinkWritable = true;
+        detail = `sink creatable under ${ancestor}`;
+      }
+    }
+  } catch (err) {
+    sinkWritable = false;
+    detail = `sink probe failed: ${err instanceof Error ? err.message : String(err)}`;
+  }
+
+  return {
+    enabled,
+    sinkWritable,
+    reachable: enabled && sinkWritable,
+    sinkPath,
+    detail: enabled
+      ? detail
+      : `spawn telemetry opted out (${EFFICIENCY_TELEMETRY_ENV}=0); ${detail}`,
+  };
+}
+
+/** Walk up from `p` to the nearest path segment that exists on disk. */
+function nearestExistingAncestor(p: string): string | null {
+  let current = p;
+  for (;;) {
+    if (existsSync(current)) return current;
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+// ─── Observed output:input token ratio (D6-SA6.3-05) ───
+// Pillar CQ7 (Performance) + P2 (measurable criteria). `explain --cost`
+// previously fixed output tokens at input/4 — a constant with no published
+// basis: Anthropic's token-counting endpoint returns INPUT token counts only,
+// so an output:input ratio cannot be pre-computed from vendor tooling and
+// must be observed from runtime usage
+// (platform.claude.com/docs/en/docs/build-with-claude/token-counting,
+// accessed 2026-07-11 — the 301 target of the former docs.anthropic.com
+// path). This helper derives the ratio from the EfficiencyEvent telemetry
+// this module records, falling back to the labeled heuristic constant when
+// the sample is too small.
+
+/**
+ * Fallback output:input token ratio used when no (or too little) observed
+ * telemetry exists.
+ *
+ * Basis: heuristic assumption (one part output per four parts input),
+ * retained for continuity with the pre-existing `explain --cost` estimate
+ * surface — NOT a vendor-published figure. No output:input ratio is
+ * published for Claude-family models; the token-counting endpoint counts
+ * input tokens only (platform.claude.com/docs/en/docs/build-with-claude/
+ * token-counting, accessed 2026-07-11), so output volume must be measured
+ * from runtime usage — which is what {@link recordEfficiencyEvent} captures.
+ * Code-heavy tasks can invert the ratio past 1.0; consumers should prefer
+ * {@link observedOutputInputRatio}, which supersedes this constant as soon
+ * as enough events are recorded.
+ */
+export const DEFAULT_OUTPUT_INPUT_TOKEN_RATIO = 0.25;
+
+/** Minimum token-bearing events before the observed ratio supersedes the default. */
+const RATIO_MIN_SAMPLE_EVENTS = 5;
+
+/** Recency window: only the most recent N token-bearing events are aggregated. */
+const RATIO_MAX_RECENT_EVENTS = 200;
+
+/** Outcome of deriving the output:input token ratio from telemetry. */
+export interface ObservedTokenRatio {
+  /** Output:input ratio — observed when the sample sufficed, else the default. */
+  ratio: number;
+  /** Whether `ratio` came from telemetry or the fallback constant. */
+  basis: "observed" | "default";
+  /**
+   * Token-bearing EfficiencyEvent lines inside the recency window — also
+   * populated when the sample was too small for the observed basis.
+   */
+  sampleEvents: number;
+  /** Sum of `tokensIn` across the aggregated sample. */
+  totalTokensIn: number;
+  /** Sum of `tokensOut` across the aggregated sample. */
+  totalTokensOut: number;
+  /**
+   * Populated when the sink existed but could not be read (the fallback
+   * ratio still applies) — Silent Failure Contract diagnostic channel.
+   * Absent on the normal paths (no sink yet, or a clean read).
+   */
+  detail?: string;
+}
+
+/**
+ * Derive the output:input token ratio from recorded EfficiencyEvent
+ * telemetry (`<projectRoot>/.hatch3r/efficiency-events.jsonl`).
+ *
+ * Aggregates the most recent `maxEvents` token-bearing EfficiencyEvent lines
+ * (spawn / phase-duration lines carry a `type` discriminant and are skipped;
+ * malformed lines are tolerated, mirroring the read-side tolerance of
+ * `explain --efficiency`). When fewer than `minSampleEvents` qualifying
+ * events exist, returns {@link DEFAULT_OUTPUT_INPUT_TOKEN_RATIO} with
+ * `basis: "default"`. Never throws — a missing or unreadable sink yields the
+ * fallback.
+ */
+export function observedOutputInputRatio(
+  projectRoot: string = process.cwd(),
+  options: { minSampleEvents?: number; maxEvents?: number } = {},
+): ObservedTokenRatio {
+  const minSample = options.minSampleEvents ?? RATIO_MIN_SAMPLE_EVENTS;
+  const maxEvents = options.maxEvents ?? RATIO_MAX_RECENT_EVENTS;
+  const fallback: ObservedTokenRatio = {
+    ratio: DEFAULT_OUTPUT_INPUT_TOKEN_RATIO,
+    basis: "default",
+    sampleEvents: 0,
+    totalTokensIn: 0,
+    totalTokensOut: 0,
+  };
+
+  let raw: string;
+  try {
+    raw = readFileSync(join(projectRoot, EFFICIENCY_LOG_RELATIVE), "utf-8");
+  } catch (err) {
+    // ENOENT = no telemetry recorded yet — the designed fallback path, not a
+    // failure. Any other read error is surfaced to the caller via `detail`
+    // (Silent Failure Contract — CONSTITUTION.md §2 P5).
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") {
+      return fallback;
+    }
+    return {
+      ...fallback,
+      detail: `telemetry sink unreadable: ${err instanceof Error ? err.message : String(err)}`,
+    };
+  }
+
+  const samples: Array<{ tokensIn: number; tokensOut: number }> = [];
+  for (const line of raw.split("\n")) {
+    if (line.trim().length === 0) continue;
+    let evt: Record<string, unknown>;
+    try {
+      evt = JSON.parse(line) as Record<string, unknown>;
+    } catch {
+      continue;
+    }
+    if (typeof evt.type === "string") continue; // spawn / phase-duration event
+    const { tokensIn, tokensOut } = evt;
+    if (
+      typeof tokensIn !== "number" ||
+      !Number.isFinite(tokensIn) ||
+      tokensIn <= 0 ||
+      typeof tokensOut !== "number" ||
+      !Number.isFinite(tokensOut) ||
+      tokensOut < 0
+    ) {
+      continue;
+    }
+    samples.push({ tokensIn, tokensOut });
+  }
+
+  const recent = samples.slice(-Math.max(1, Math.floor(maxEvents)));
+  let totalTokensIn = 0;
+  let totalTokensOut = 0;
+  for (const s of recent) {
+    totalTokensIn += s.tokensIn;
+    totalTokensOut += s.tokensOut;
+  }
+
+  if (recent.length < minSample || totalTokensIn <= 0) {
+    return { ...fallback, sampleEvents: recent.length, totalTokensIn, totalTokensOut };
+  }
+
+  return {
+    ratio: totalTokensOut / totalTokensIn,
+    basis: "observed",
+    sampleEvents: recent.length,
+    totalTokensIn,
+    totalTokensOut,
+  };
 }
 
 // ─── Structured cost-block serialisation (Decision 24, 2.0.0 #29) ───

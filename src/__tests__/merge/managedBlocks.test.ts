@@ -580,4 +580,102 @@ describe("managedBlocks", () => {
       expect(extractCustomContent(oneLine)).toBe(oneLine);
     });
   });
+
+  // D1-SA1.5-02 (Cycle 12 Wave 3, D1, P6): whole-line marker tokens QUOTED
+  // inside markdown code fences must be invisible to detection and to the
+  // duplicate-marker count. Line-anchoring (D1-7/D11-4) handled mid-line
+  // quoting; a fenced example documenting the marker format puts the token on
+  // its own line — before this fix the fence interior detected as a real block
+  // and insertManagedBlock spliced canonical content into the user's example
+  // (or the duplicate count tripped the `.bak` auto-repair path).
+  describe("fenced code blocks shield quoted marker tokens (D1-SA1.5-02)", () => {
+    const YAML_START = "# HATCH3R:BEGIN";
+    const YAML_END = "# HATCH3R:END";
+
+    it("does not detect a block when the only marker-shaped lines sit inside a ```yaml fence (.md host)", () => {
+      const content = [
+        "# My notes",
+        "hatch3r wraps its output like this:",
+        "```yaml",
+        YAML_START,
+        "managed: true",
+        YAML_END,
+        "```",
+        "That is the whole format.",
+      ].join("\n");
+      expect(hasManagedBlock(content, "CLAUDE.md")).toBe(false);
+      expect(extractManagedBlock(content, "CLAUDE.md")).toBeNull();
+      // No block → the user's fence content is returned untouched, never merged into.
+      expect(extractCustomContent(content, "CLAUDE.md")).toBe(content);
+      expect(() => insertManagedBlock(content, "NEW BODY", "CLAUDE.md")).toThrow(
+        "Content must contain managed block markers",
+      );
+    });
+
+    it("does not detect HTML-variant tokens quoted whole-line inside a fence (.md host)", () => {
+      const content = ["```", START, "example body", END, "```"].join("\n");
+      expect(hasManagedBlock(content, "notes.md")).toBe(false);
+      expect(extractCustomContent(content, "notes.md")).toBe(content);
+    });
+
+    it("merges the REAL block and preserves a fenced example of the same variant byte-for-byte", () => {
+      // Real HTML block + a fenced example quoting the same HTML tokens: the
+      // duplicate count must ignore the fenced pair (no false "duplicate
+      // marker" throw → no .bak auto-repair), and the merge must only touch
+      // the real block.
+      const fence = ["```", START, "example only", END, "```"].join("\n");
+      const content = [START, "old body", END, "", "## Docs", fence, ""].join("\n");
+      const result = insertManagedBlock(content, "new body", "CLAUDE.md");
+      expect(result).toContain("new body");
+      expect(result).not.toContain("old body");
+      expect(result).toContain(fence); // fence interior byte-identical
+      expect(extractManagedBlock(result, "CLAUDE.md")).toBe("new body");
+    });
+
+    it("does not flip the variant when the OTHER variant is quoted in a fence next to a real block", () => {
+      // Real HTML block in a .md file + fenced YAML-token example: detection
+      // must lock onto the real HTML pair, so no variant flip is reported.
+      const content = [
+        START,
+        "body",
+        END,
+        "",
+        "```yaml",
+        YAML_START,
+        "quoted: example",
+        YAML_END,
+        "```",
+      ].join("\n");
+      expect(hasManagedBlock(content, "CLAUDE.md")).toBe(true);
+      expect(wouldChangeMarkerVariant(content, "CLAUDE.md")).toBe(false);
+      expect(extractManagedBlock(content, "CLAUDE.md")).toBe("body");
+    });
+
+    it("handles tilde (~~~) fences the same as backtick fences", () => {
+      const content = ["~~~", START, "example", END, "~~~"].join("\n");
+      expect(hasManagedBlock(content, "notes.md")).toBe(false);
+    });
+
+    it("an unterminated fence shields the remainder (fail-closed to no-block)", () => {
+      const content = ["intro", "```", START, "body", END].join("\n");
+      // The fence never closes: everything after ``` is shielded, detection
+      // reports no block, and safeWriteFile's no-block branch SKIPS the file
+      // non-destructively.
+      expect(hasManagedBlock(content, "notes.md")).toBe(false);
+      expect(extractCustomContent(content, "notes.md")).toBe(content);
+    });
+
+    it("keeps fence-skipping OFF for non-markdown hosts (backtick lines in YAML are plain content)", () => {
+      // A .yml file whose body happens to contain ``` lines: fences are a
+      // markdown concept, so the real YAML markers must still be detected.
+      const content = ["```", YAML_START, "managed: true", YAML_END, "```"].join("\n");
+      expect(hasManagedBlock(content, "workflow.yml")).toBe(true);
+      expect(extractManagedBlock(content, "workflow.yml")).toBe("managed: true");
+    });
+
+    it("omitted filePath keeps the historical markdown assumption (fence-aware)", () => {
+      const content = ["```", START, "example", END, "```"].join("\n");
+      expect(hasManagedBlock(content)).toBe(false);
+    });
+  });
 });

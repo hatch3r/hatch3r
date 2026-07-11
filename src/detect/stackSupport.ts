@@ -34,12 +34,18 @@ export interface StackSupport {
  * compile error — closing the silent-drift gap where a newly detected framework
  * would surface no support signal in the `init` pointer or the matrix.
  *
- * Source for "full": the on-disk `rules/hatch3r-*-patterns.md` set (9 dedicated
- * stack rules as of 2.0.0). JS/TS web frameworks resolve to "partial" — they
- * are covered by `hatch3r-component-conventions`, `hatch3r-accessibility-standards`,
+ * Source for "full": the on-disk `rules/hatch3r-*-patterns.md` set (11 dedicated
+ * stack rules on disk as of 2.5.0; 10 are tier-mapped across FRAMEWORK_SUPPORT +
+ * LANGUAGE_SUPPORT, and `hatch3r-react-native-patterns` reaches repos by file
+ * glob only — no dedicated `Framework` member exists yet, so an RN app detects
+ * as `react`; see docs/stack-support-matrix.md). JS/TS web frameworks resolve to
+ * "partial" on THIS (framework) axis — they carry no framework-idiom rule and are
+ * covered by `hatch3r-component-conventions`, `hatch3r-accessibility-standards`,
  * `hatch3r-ux-states-and-flows`, `hatch3r-theming`, and `hatch3r-design-system-detection`
- * via `.tsx` / `.jsx` / `.vue` / `.svelte` file globs, but carry no
- * framework-idiom rule.
+ * via `.tsx` / `.jsx` / `.vue` / `.svelte` file globs — even though the underlying
+ * `typescript`/`javascript` LANGUAGE tier is "full" via `hatch3r-typescript-patterns`
+ * in LANGUAGE_SUPPORT (a distinct axis; the framework row reports the missing
+ * App-Router/hooks/Composition-API idioms, not the language rule) (D1-SA1.6-04).
  */
 export const FRAMEWORK_SUPPORT: Record<Framework, StackSupport> = {
   // Full — dedicated stack rule (Python request-path + ORM N+1 floor).
@@ -106,6 +112,23 @@ export const LANGUAGE_SUPPORT: Record<string, StackSupport> = {
   // the honest "no dedicated rule" pointer instead of a false "full → Android"
   // routing (D14-SA14.1-01).
   kotlin: { tier: "full", rule: "hatch3r-android-patterns" },
+  // TypeScript / JavaScript: `hatch3r-typescript-patterns` is a dedicated stack
+  // rule glob-scoped to **/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs} — "TypeScript and
+  // JavaScript typing mechanics", so it covers BOTH languages. Both map to "full"
+  // on the language axis (D1-SA1.6-04). This is independent of the framework
+  // axis: JS/TS *frameworks* (next/react/…) stay "partial" in FRAMEWORK_SUPPORT
+  // because they lack a framework-idiom rule, while the language they run on is
+  // fully covered here. Promotion authorized by D1-SA1.6-04: `hatch3r-go-patterns`
+  // is the precedent — a language promoted to "full" with no framework, so
+  // LANGUAGE_SUPPORT is rule-existence-driven, not framework-axis-driven.
+  typescript: { tier: "full", rule: "hatch3r-typescript-patterns" },
+  javascript: { tier: "full", rule: "hatch3r-typescript-patterns" },
+  // Swift: `hatch3r-swiftui-patterns` is glob-scoped to **/*.swift (Swift 6
+  // concurrency, @Observable/@Bindable, navigation stacks, SPM, XCTest). The
+  // `swift` language probe (Package.swift) fires with no Swift `Framework`
+  // member, so the promotion lives on the language axis (D1-SA1.6-04, superseding
+  // the "tracked for promotion" SwiftUI note in docs/stack-support-matrix.md).
+  swift: { tier: "full", rule: "hatch3r-swiftui-patterns" },
 };
 
 /** Classify a single detected framework. Unknown -> partial (cross-cutting). */

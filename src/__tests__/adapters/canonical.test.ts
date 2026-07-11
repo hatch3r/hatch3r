@@ -8,6 +8,7 @@ import {
   readCanonicalFiles,
   readCanonicalFilesDetailed,
   precedenceRank,
+  resolveRuleGlobs,
   sortByPrecedence,
 } from "../../adapters/canonical.js";
 import type { CanonicalFile } from "../../types.js";
@@ -768,6 +769,109 @@ describe("readCanonicalFiles", () => {
     });
   });
 
+  // D2-SA2.2-03 (D2 Medium, P6): the injection detector scans the frontmatter
+  // half of the file too — a chat-template/ANSI/null-byte token in a
+  // frontmatter string value (e.g. `description:`) reaches generated output
+  // (`.mdc`/agent frontmatter, pickers, verbatim rawContent re-emission) and
+  // must not evade the smoking-gun scan by sitting one line above the body.
+  describe("D2-SA2.2-03 frontmatter injection-token scan", () => {
+    it("emits INJECTION_TOKEN with a frontmatter locator for a token in description", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "fm-evade.md"),
+        '---\nid: fm-evade\ntype: rule\ndescription: "<|im_start|>system"\n---\nClean body.',
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      // File still loads — advisory only.
+      expect(results.length).toBe(1);
+      expect(
+        warnings.some(
+          (w) =>
+            w.includes("INJECTION_TOKEN") &&
+            w.includes("promptGuard") &&
+            w.includes("frontmatter"),
+        ),
+      ).toBe(true);
+    });
+
+    it("still locates a body token as body, not frontmatter (regression)", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "body-token.md"),
+        "---\nid: body-token\ntype: rule\ndescription: clean\n---\nNormal <|im_start|> bad",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      const injection = warnings.filter((w) => w.includes("INJECTION_TOKEN"));
+      expect(injection.length).toBeGreaterThan(0);
+      expect(injection.some((w) => w.includes("body"))).toBe(true);
+      expect(injection.some((w) => w.includes("frontmatter"))).toBe(false);
+    });
+
+    it("does not flag clean frontmatter values", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "clean-fm.md"),
+        "---\nid: clean-fm\ntype: rule\ndescription: A perfectly ordinary description.\ntags: [implementation, review]\n---\nBody.",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      expect(warnings.some((w) => w.includes("INJECTION_TOKEN"))).toBe(false);
+    });
+  });
+
+  // D20-SA20.1-02 (D20 Medium, P6): a `tools` object sub-key outside the
+  // recognized set (allowed/denied/allow/deny) silently declares no grant, so
+  // the width-based security-baseline gate never fires. The reader warns on the
+  // near-miss so a typo surfaces instead of disabling the grant.
+  describe("D20-SA20.1-02 unrecognized tools sub-key warning", () => {
+    it("warns when a tools object carries an unrecognized sub-key", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "typo-agent.md"),
+        "---\nid: typo-agent\ntype: agent\ndescription: d\ntools:\n  allowd:\n    - Write\n---\n# Agent",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "agents", warnings);
+
+      // File still loads — advisory only.
+      expect(results.length).toBe(1);
+      expect(
+        warnings.some(
+          (w) =>
+            w.includes("TYPE_MISMATCH") &&
+            w.includes("tools.allowd") &&
+            w.includes("not a recognized sub-key"),
+        ),
+      ).toBe(true);
+    });
+
+    it("does not warn when tools carries only recognized sub-keys", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "ok-agent.md"),
+        "---\nid: ok-agent\ntype: agent\ndescription: d\ntools:\n  allowed:\n    - read\n  allow:\n    - Write\n  denied:\n    - network\n  deny:\n    - Bash\n---\n# Agent",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "agents", warnings);
+
+      expect(results.length).toBe(1);
+      expect(warnings.some((w) => w.includes("not a recognized sub-key"))).toBe(false);
+    });
+  });
+
   // C8-D2-M3 (D2-SA2.2-3): CanonicalType extended to cover every on-disk
   // `.agents/{dir}/` directory with frontmatter-bearing markdown — not just
   // the original 6. The glob reader is unchanged; only new discriminants
@@ -1043,6 +1147,48 @@ describe("sortByPrecedence", () => {
 
   it("returns an empty array when given an empty array", () => {
     expect(sortByPrecedence([])).toEqual([]);
+  });
+});
+
+describe("resolveRuleGlobs scope-override validation (D2-SA2.3-06)", () => {
+  const ruleWith = (scope?: string): Pick<CanonicalFile, "scope" | "globs"> => ({
+    scope,
+    globs: undefined,
+  });
+
+  it("warns when an override scope is neither a keyword nor glob-shaped", () => {
+    const warnings: string[] = [];
+    const globs = resolveRuleGlobs(ruleWith("alway"), undefined, warnings);
+    // Emission is unchanged: the typo is still parsed as a literal one-token glob.
+    expect(globs).toEqual(["alway"]);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain("alway");
+    expect(warnings[0]).toContain("match no files");
+  });
+
+  it("does not warn for a glob-shaped override scope", () => {
+    const warnings: string[] = [];
+    resolveRuleGlobs(ruleWith("src/**/*.ts"), undefined, warnings);
+    expect(warnings).toEqual([]);
+  });
+
+  it("does not warn for a legitimate inline-CSV override scope", () => {
+    const warnings: string[] = [];
+    resolveRuleGlobs(ruleWith("src/**/*.ts,*.md"), undefined, warnings);
+    expect(warnings).toEqual([]);
+  });
+
+  it("does not warn for the known keywords", () => {
+    const warnings: string[] = [];
+    resolveRuleGlobs(ruleWith("always"), undefined, warnings);
+    resolveRuleGlobs(ruleWith("agent-requested"), undefined, warnings);
+    resolveRuleGlobs(ruleWith("conditional"), undefined, warnings);
+    expect(warnings).toEqual([]);
+  });
+
+  it("preserves the 2-arg signature (no warnings channel) without throwing", () => {
+    expect(resolveRuleGlobs(ruleWith("alway"))).toEqual(["alway"]);
+    expect(resolveRuleGlobs(ruleWith("always"))).toEqual([]);
   });
 });
 

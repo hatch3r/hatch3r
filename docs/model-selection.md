@@ -61,6 +61,8 @@ You can use short aliases instead of full model IDs. hatch3r resolves them befor
 
 Unknown values are passed through as-is.
 
+> **Currency note (verified 2026-07-11 against the vendor model reference; D1-SA1.6-03).** Anthropic's current Sonnet-tier model is `claude-sonnet-5` ($3/$15 per 1M in/out; introductory $2/$10 through 2026-08-31); `claude-sonnet-4-6` — the `sonnet` alias target above — is vendor-designated previous-generation but remains fully available at $3/$15. The current top model, `claude-fable-5` ($10/$50), has no short alias. Exact ids pass through unchanged, so you can pin either today (e.g. `"model": "claude-sonnet-5"` in `hatch.json`) without waiting for an alias bump; `explain --cost --model` rate lookup covers aliased/rated ids only, so pass-through ids cost-estimate at default rates. The `sonnet` alias bump lands as one coordinated sweep across `src/models/aliases.ts`, the `costEstimator.ts` rate/tier rows, and this table (the lock-step contract in `aliases.ts`).
+
 ## Examples
 
 ### hatch.json

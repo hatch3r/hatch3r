@@ -86,6 +86,28 @@ function runGit(args: string[], cwd: string): void {
 }
 
 /**
+ * True when a `git` binary is invocable on PATH. D1-SA1.1-06 (Cycle 12 Wave 3,
+ * D1, P1): git is setup's one hard prerequisite beyond Node itself (docstring
+ * above + `src/cli/program.ts` registration text), but `runGit`'s bare
+ * `execFileSync` gave a missing binary no dependency-failure strategy — the
+ * ENOENT fell through to the generic funnel as a raw `spawnSync git ENOENT`
+ * crash. Probe shape mirrors `isGhReady` below; the difference is policy:
+ * `gh` is optional and degrades to a warning, git is load-bearing so absence
+ * aborts with an actionable CONFIG_ERROR at the preflight call site.
+ */
+function isGitAvailable(): boolean {
+  try {
+    execFileSync("git", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    return true;
+  } catch (err) {
+    verbose(
+      `setup: git availability probe failed — ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
+}
+
+/**
  * True when the GitHub CLI is installed AND authenticated. `gh auth status`
  * exits 0 only when a logged-in account exists; a missing binary throws
  * (ENOENT) and an unauthenticated CLI exits non-zero — both resolve to `false`
@@ -203,6 +225,23 @@ export async function setupCommand(
       startMs,
     });
     return;
+  }
+
+  // ── Preflight: git (D1-SA1.1-06) ──────────────────────────────────────────
+  // Probe only when this run will actually spawn git (`git init`, or the
+  // `runGit(["status"])` readability check before `gh repo create`) so the
+  // no-git-needed path stays free of extra subprocess calls, mirroring the
+  // gated `isGhReady()` probe above. A missing binary aborts BEFORE any
+  // directory is created, with what failed + why + next step instead of the
+  // raw `spawnSync git ENOENT` the generic funnel previously emitted.
+  const needsGit = willGitInit || (opts.remote === true && ghReady);
+  if (needsGit && !isGitAvailable()) {
+    throw new HatchError(
+      "git is required by `hatch3r setup` but was not found on PATH.",
+      undefined,
+      "CONFIG_ERROR",
+      "Install git (https://git-scm.com/downloads) and re-run, or run `hatch3r init` inside an existing git repository instead.",
+    );
   }
 
   // ── Scaffold ──────────────────────────────────────────────────────────────

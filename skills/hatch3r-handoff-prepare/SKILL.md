@@ -152,6 +152,6 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 
 - **Skill:** `hatch3r-handoff-resume` — load and resume a previously written handoff
 - **Agent:** `hatch3r-handoff-loader` — session-start agent that surfaces active handoffs
-- **Agent:** `hatch3r-handoff-preparer` — orchestrates this skill; invoked by `on-context-switch` hook and `/hatch3r-handoff prepare`
+- **Agent:** `hatch3r-handoff-preparer` — orchestrates this skill; invoked by `/hatch3r-handoff prepare` and by the context-health skill's Orange/Red delegation step
 - **Rule:** `hatch3r-handoff-readiness` — the pre-write checklist applied in Step 3
 - **Rule:** `hatch3r-iteration-summary` — source of the `Work Done` / `Work Remaining` / `Blockers` content

@@ -1,4 +1,4 @@
-import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -29,11 +29,18 @@ import {
   type EfficiencyEvent,
 
   // Decision 24 — Cost-visibility telemetry hooks
+  // D15-SA15.3-03 — default-on spawn telemetry + sink reachability
+  isSpawnTelemetryEnabled,
   recordSubAgentSpawn,
   recordPhaseDuration,
   recordTokenCost,
+  checkSpawnTelemetryReachability,
   type SubAgentSpawnEvent,
   type PhaseDurationEvent,
+
+  // D6-SA6.3-05 — observed output:input token ratio
+  DEFAULT_OUTPUT_INPUT_TOKEN_RATIO,
+  observedOutputInputRatio,
 
   // D7-SA7.4-F-6 / D7-25 — Phase handoff metrics
   createPhaseHandoffMetrics,
@@ -530,10 +537,40 @@ describe("recordSubAgentSpawn", () => {
     rmSync(tmpRoot, { recursive: true, force: true });
   });
 
-  it("is a no-op when the telemetry env-gate is unset", () => {
+  // D15-SA15.3-03: spawn telemetry is ON by default (Strong-Observability
+  // posture) — the old contract (no-op when the env-gate is unset) is
+  // deliberately inverted here.
+  it("records by default when the telemetry env var is unset", () => {
+    expect(isSpawnTelemetryEnabled()).toBe(true);
+    recordSubAgentSpawn("session-1", "hatch3r-feature-plan", 3, "parallel slices", tmpRoot);
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    expect(existsSync(logPath)).toBe(true);
+    const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim()) as SubAgentSpawnEvent;
+    expect(parsed.type).toBe("subagent_spawn");
+    expect(parsed.count).toBe(3);
+    expect(parsed.rationale).toBe("parallel slices");
+  });
+
+  it("is a no-op under the explicit HATCH3R_EFFICIENCY_TELEMETRY=0 opt-out", () => {
+    process.env[ENV_KEY] = "0";
+    expect(isSpawnTelemetryEnabled()).toBe(false);
     recordSubAgentSpawn("session-1", "hatch3r-feature-plan", 3, "parallel slices", tmpRoot);
     const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
     expect(existsSync(logPath)).toBe(false);
+  });
+
+  it("keeps spawn ON while token/latency events stay opt-in when the env var is unset", () => {
+    // Split-posture contract: with the env var unset, one spawn + one
+    // efficiency event must yield exactly ONE line — the spawn.
+    recordSubAgentSpawn("split-sess", "hatch3r-x", 2, "two slices", tmpRoot);
+    recordEfficiencyEvent(
+      { artifactId: "hatch3r-x", phase: "act", tokensIn: 100, tokensOut: 25, latencyMs: 10 },
+      tmpRoot,
+    );
+    const logPath = join(tmpRoot, ".hatch3r", "efficiency-events.jsonl");
+    const lines = readFileSync(logPath, "utf-8").split("\n").filter(Boolean);
+    expect(lines).toHaveLength(1);
+    expect((JSON.parse(lines[0]) as SubAgentSpawnEvent).type).toBe("subagent_spawn");
   });
 
   it("appends a subagent_spawn JSONL line when telemetry is enabled", () => {
@@ -686,6 +723,247 @@ describe("recordTokenCost", () => {
     const parsed = JSON.parse(readFileSync(logPath, "utf-8").trim()) as EfficiencyEvent;
     expect(parsed.tokensIn).toBe(0);
     expect(parsed.tokensOut).toBe(0);
+  });
+});
+
+// ── Telemetry gates (D15-SA15.3-03 split posture) ────────────────
+
+describe("isSpawnTelemetryEnabled", () => {
+  const ENV_KEY = "HATCH3R_EFFICIENCY_TELEMETRY";
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    originalEnv = process.env[ENV_KEY];
+    delete process.env[ENV_KEY];
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = originalEnv;
+  });
+
+  it("defaults to true when the env var is unset", () => {
+    expect(isSpawnTelemetryEnabled()).toBe(true);
+  });
+
+  it("is false only under the explicit '0' opt-out", () => {
+    process.env[ENV_KEY] = "0";
+    expect(isSpawnTelemetryEnabled()).toBe(false);
+  });
+
+  it("stays true for '1' and other values", () => {
+    process.env[ENV_KEY] = "1";
+    expect(isSpawnTelemetryEnabled()).toBe(true);
+    process.env[ENV_KEY] = "off";
+    expect(isSpawnTelemetryEnabled()).toBe(true);
+  });
+
+  it("token/latency gate stays strict opt-in (unset and '0' both disable)", () => {
+    expect(isEfficiencyTelemetryEnabled()).toBe(false);
+    process.env[ENV_KEY] = "0";
+    expect(isEfficiencyTelemetryEnabled()).toBe(false);
+    process.env[ENV_KEY] = "1";
+    expect(isEfficiencyTelemetryEnabled()).toBe(true);
+  });
+});
+
+// ── Spawn-telemetry sink reachability (D15-SA15.3-03) ────────────
+
+describe("checkSpawnTelemetryReachability", () => {
+  const ENV_KEY = "HATCH3R_EFFICIENCY_TELEMETRY";
+  let tmpRoot: string;
+  let originalEnv: string | undefined;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "hatch3r-reach-"));
+    originalEnv = process.env[ENV_KEY];
+    delete process.env[ENV_KEY];
+  });
+
+  afterEach(() => {
+    if (originalEnv === undefined) delete process.env[ENV_KEY];
+    else process.env[ENV_KEY] = originalEnv;
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("reports reachable for a writable project root at default posture", () => {
+    const result = checkSpawnTelemetryReachability(tmpRoot);
+    expect(result.enabled).toBe(true);
+    expect(result.sinkWritable).toBe(true);
+    expect(result.reachable).toBe(true);
+    expect(result.sinkPath).toBe(join(tmpRoot, ".hatch3r", "efficiency-events.jsonl"));
+  });
+
+  it("does not create the sink as a probe side effect", () => {
+    checkSpawnTelemetryReachability(tmpRoot);
+    expect(existsSync(join(tmpRoot, ".hatch3r"))).toBe(false);
+  });
+
+  it("reports reachable when the sink file already exists", () => {
+    mkdirSync(join(tmpRoot, ".hatch3r"), { recursive: true });
+    writeFileSync(join(tmpRoot, ".hatch3r", "efficiency-events.jsonl"), "");
+    const result = checkSpawnTelemetryReachability(tmpRoot);
+    expect(result.reachable).toBe(true);
+    expect(result.detail).toContain("appendable");
+  });
+
+  it("reports not reachable under the '0' opt-out even when the sink is writable", () => {
+    process.env[ENV_KEY] = "0";
+    const result = checkSpawnTelemetryReachability(tmpRoot);
+    expect(result.enabled).toBe(false);
+    expect(result.sinkWritable).toBe(true);
+    expect(result.reachable).toBe(false);
+    expect(result.detail).toContain("opted out");
+  });
+
+  it("reports sink not writable when a file blocks the ancestor path", () => {
+    // tmpRoot/blocker is a FILE, so .hatch3r/ can never be created below it.
+    const blocker = join(tmpRoot, "blocker");
+    writeFileSync(blocker, "");
+    const result = checkSpawnTelemetryReachability(join(blocker, "sub"));
+    expect(result.sinkWritable).toBe(false);
+    expect(result.reachable).toBe(false);
+    expect(result.detail).toContain("non-directory ancestor");
+  });
+
+  it("reports sink not writable when the sink path exists as a directory", () => {
+    mkdirSync(join(tmpRoot, ".hatch3r", "efficiency-events.jsonl"), { recursive: true });
+    const result = checkSpawnTelemetryReachability(tmpRoot);
+    expect(result.sinkWritable).toBe(false);
+    expect(result.detail).toContain("not a regular file");
+  });
+
+  it("never throws on hostile roots", () => {
+    expect(() =>
+      checkSpawnTelemetryReachability("/dev/null/definitely-not-a-directory"),
+    ).not.toThrow();
+  });
+});
+
+// ── Observed output:input token ratio (D6-SA6.3-05) ──────────────
+
+describe("observedOutputInputRatio", () => {
+  let tmpRoot: string;
+
+  beforeEach(() => {
+    tmpRoot = mkdtempSync(join(tmpdir(), "hatch3r-ratio-"));
+  });
+
+  afterEach(() => {
+    rmSync(tmpRoot, { recursive: true, force: true });
+  });
+
+  function writeEvents(lines: string[]): void {
+    mkdirSync(join(tmpRoot, ".hatch3r"), { recursive: true });
+    writeFileSync(
+      join(tmpRoot, ".hatch3r", "efficiency-events.jsonl"),
+      lines.join("\n") + "\n",
+    );
+  }
+
+  function tokenLine(tokensIn: number, tokensOut: number): string {
+    return JSON.stringify({
+      artifactId: "hatch3r-x",
+      phase: "act",
+      tokensIn,
+      tokensOut,
+      latencyMs: 10,
+    });
+  }
+
+  it("exports the fallback constant at its documented value", () => {
+    expect(DEFAULT_OUTPUT_INPUT_TOKEN_RATIO).toBe(0.25);
+  });
+
+  it("falls back to the default when no sink exists", () => {
+    const result = observedOutputInputRatio(tmpRoot);
+    expect(result.basis).toBe("default");
+    expect(result.ratio).toBe(DEFAULT_OUTPUT_INPUT_TOKEN_RATIO);
+    expect(result.sampleEvents).toBe(0);
+  });
+
+  it("derives the observed ratio once the minimum sample is met", () => {
+    writeEvents([
+      tokenLine(1000, 500),
+      tokenLine(1000, 500),
+      tokenLine(1000, 500),
+      tokenLine(1000, 500),
+      tokenLine(1000, 500),
+    ]);
+    const result = observedOutputInputRatio(tmpRoot);
+    expect(result.basis).toBe("observed");
+    expect(result.ratio).toBeCloseTo(0.5, 5);
+    expect(result.sampleEvents).toBe(5);
+    expect(result.totalTokensIn).toBe(5000);
+    expect(result.totalTokensOut).toBe(2500);
+  });
+
+  it("stays on the default basis below the minimum sample", () => {
+    writeEvents([tokenLine(1000, 900), tokenLine(1000, 900), tokenLine(1000, 900)]);
+    const result = observedOutputInputRatio(tmpRoot);
+    expect(result.basis).toBe("default");
+    expect(result.ratio).toBe(DEFAULT_OUTPUT_INPUT_TOKEN_RATIO);
+    expect(result.sampleEvents).toBe(3);
+  });
+
+  it("skips spawn/duration events and malformed lines", () => {
+    writeEvents([
+      JSON.stringify({ type: "subagent_spawn", sessionId: "s", artifactId: "a", count: 9, rationale: "r", timestamp: "t" }),
+      "{not json",
+      JSON.stringify({ type: "phase_duration", sessionId: "s", artifactId: "a", phase: "act", durationMs: 5, timestamp: "t" }),
+      tokenLine(100, 80),
+      tokenLine(100, 80),
+    ]);
+    const result = observedOutputInputRatio(tmpRoot, { minSampleEvents: 2 });
+    expect(result.basis).toBe("observed");
+    expect(result.sampleEvents).toBe(2);
+    expect(result.ratio).toBeCloseTo(0.8, 5);
+  });
+
+  it("aggregates only the most recent maxEvents lines", () => {
+    writeEvents([tokenLine(1000, 100), tokenLine(1000, 500), tokenLine(1000, 500)]);
+    const result = observedOutputInputRatio(tmpRoot, { minSampleEvents: 2, maxEvents: 2 });
+    expect(result.sampleEvents).toBe(2);
+    expect(result.ratio).toBeCloseTo(0.5, 5); // the 0.1-ratio line fell outside the window
+  });
+
+  it("ignores non-positive or non-finite token fields", () => {
+    writeEvents([
+      tokenLine(0, 500),
+      JSON.stringify({ artifactId: "a", phase: "p", tokensIn: "many", tokensOut: 5, latencyMs: 1 }),
+      tokenLine(200, 100),
+      tokenLine(200, 100),
+    ]);
+    const result = observedOutputInputRatio(tmpRoot, { minSampleEvents: 2 });
+    expect(result.sampleEvents).toBe(2);
+    expect(result.ratio).toBeCloseTo(0.5, 5);
+  });
+
+  it("can report an observed ratio above 1.0 for output-heavy workloads", () => {
+    writeEvents([
+      tokenLine(100, 300),
+      tokenLine(100, 300),
+      tokenLine(100, 300),
+      tokenLine(100, 300),
+      tokenLine(100, 300),
+    ]);
+    const result = observedOutputInputRatio(tmpRoot);
+    expect(result.basis).toBe("observed");
+    expect(result.ratio).toBeCloseTo(3.0, 5);
+  });
+
+  it("surfaces a detail diagnostic when the sink exists but is unreadable", () => {
+    // A directory at the sink path exists (so not ENOENT) but cannot be read
+    // as a file — the fallback applies AND the failure is surfaced.
+    mkdirSync(join(tmpRoot, ".hatch3r", "efficiency-events.jsonl"), { recursive: true });
+    const result = observedOutputInputRatio(tmpRoot);
+    expect(result.basis).toBe("default");
+    expect(result.ratio).toBe(DEFAULT_OUTPUT_INPUT_TOKEN_RATIO);
+    expect(result.detail).toContain("telemetry sink unreadable");
+  });
+
+  it("never throws on hostile roots", () => {
+    expect(() => observedOutputInputRatio("/dev/null/not-a-dir")).not.toThrow();
   });
 });
 

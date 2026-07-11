@@ -73,7 +73,6 @@ import { findMissingCliTools } from "../../cliTools/detect.js";
 import { offerInstaller, printMissingCliToolsDisclaimer } from "../../cliTools/install.js";
 import {
   buildContentIndex,
-  archiveCustomizeOverrides,
   countSelectionItems,
   selectionSummary,
   extractContentReferences,
@@ -1186,11 +1185,6 @@ async function configCommandImpl(
 
   // --- Content management ---
   const contentChanges: { added: Array<{ type: string; id: string }>; removed: Array<{ type: string; id: string }> } = { added: [], removed: [] };
-  // D10-35 (Cycle 11 Wave 3, D10, P1): repo-relative paths of `.customize.*`
-  // overrides that content removal rescued into `.hatch3r-archive/customize/`
-  // instead of hard-deleting. Surfaced in the success summary so a preset
-  // downgrade no longer silently destroys hand-authored overrides.
-  const archivedCustomizeFiles: string[] = [];
   let contentMetadataChanged = false;
   if (manifest.content) {
     const previousContent = manifest.content;
@@ -1318,13 +1312,18 @@ async function configCommandImpl(
         const item = index.byId.get(id);
         if (item) {
           contentChanges.removed.push({ type: item.type, id: item.id });
-          // W5-bigfour: the override rescue moves `.customize.*` files into
-          // the archive — a write — so `--dry-run` skips it (the removed-item
-          // diff row still renders below).
-          if (cliOpts?.dryRun !== true) {
-            const { archivedCustomizeFiles: rescued } = await archiveCustomizeOverrides(rootDir, item);
-            archivedCustomizeFiles.push(...rescued);
-          }
+          // D10-SA10.6-02 (Cycle 12, D10, P1): do NOT archive this item's
+          // `.customize.*` overrides. Under Decision 16 ("dial not gate") a
+          // preset/capability "removal" only drops the id from
+          // `manifest.content`; the adapters still emit the artifact
+          // (`src/adapters/base.ts::readTrackedCanonicalFiles` filters by
+          // adapter-scope, never by the tracked selection). Moving the override
+          // into `.hatch3r-archive/` while the artifact keeps emitting silently
+          // reverted a still-installed artifact to canonical and reported it
+          // "removed". Leaving the override live keeps the customization applied
+          // to the artifact that never actually left. Re-enable archival only
+          // for a genuine emission-dropping removal — an allowlist the emission
+          // layer honors (D10-SA10.6-01).
         }
       }
     }
@@ -1693,23 +1692,6 @@ async function configCommandImpl(
   if (allArchivedFiles.length > 0) {
     summaryLines.push("");
     summaryLines.push(label("Archived", `${allArchivedFiles.length} files to .hatch3r-archive/`));
-  }
-
-  // D10-35 (Cycle 11 Wave 3, D10, P1): name the `.customize.*` overrides that
-  // content removal rescued. Pre-fix these were hard-deleted with no preview;
-  // now they are listed here AND the bytes survive under
-  // `.hatch3r/archive/customize/` for manual restore. Cap the enumeration the
-  // same way the tool-removal preview does so the box stays readable.
-  if (archivedCustomizeFiles.length > 0) {
-    summaryLines.push("");
-    summaryLines.push(
-      label("Overrides archived", `${archivedCustomizeFiles.length} .customize file(s) → ${ARCHIVE_DIR}/customize/ (restore by moving back to .hatch3r/)`),
-    );
-    const shown = archivedCustomizeFiles.slice(0, 10);
-    for (const p of shown) summaryLines.push(`    ${chalk.dim(p)}`);
-    if (archivedCustomizeFiles.length > 10) {
-      summaryLines.push(`    ${chalk.dim(`… and ${archivedCustomizeFiles.length - 10} more`)}`);
-    }
   }
 
   // D1-3 (Cycle 11 Wave 2, D1, P1): honour the partial-adapter-failure contract

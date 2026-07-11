@@ -1,6 +1,7 @@
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -670,5 +671,88 @@ describe("estimateUsdCost cache + model rates", () => {
       outputCostPer1M: DEFAULT_OUTPUT_COST_PER_1M,
     });
     expect(cost.outputCost).toBeCloseTo(15.0, 6);
+  });
+});
+
+// ── MODEL_RATES ↔ cost-tracking SKILL.md parity (D6-SA6.3-02) ─────
+//
+// MODEL_RATES (the code-side rate home) and the price table in
+// skills/hatch3r-cost-tracking/SKILL.md (the human-facing home) are two physical
+// copies, not one generated source. Before this test they had already drifted on
+// their `accessed` provenance date (skill 2026-06-05 vs code 2026-06-06). This
+// binds them: every model id the SKILL table prices must carry an identical input
+// rate, output rate, and accessed date in MODEL_RATES. A re-price applied to one
+// home without the other — the realized D6-6 3-5x mispricing class — fails here.
+
+describe("MODEL_RATES ↔ cost-tracking SKILL.md parity (D6-SA6.3-02)", () => {
+  interface SkillRateRow {
+    id: string;
+    inputCostPer1M: number;
+    outputCostPer1M: number;
+    accessed: string;
+  }
+
+  // Path anchored at this test file's own location (not process.cwd()) so it is
+  // immune to any chdir a sibling test performs. repo root is three levels up
+  // from src/__tests__/pipeline/.
+  function parseSkillRateTable(): SkillRateRow[] {
+    const skillPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "..",
+      "skills",
+      "hatch3r-cost-tracking",
+      "SKILL.md",
+    );
+    const md = readFileSync(skillPath, "utf-8");
+    // Match one pricing row: | <name> | `claude-…` | $<in> | $<out> | <YYYY-MM-DD> |
+    const rowRe =
+      /`(claude-[a-z0-9-]+)`\s*\|\s*\$([\d.]+)\s*\|\s*\$([\d.]+)\s*\|\s*(\d{4}-\d{2}-\d{2})/g;
+    const rows: SkillRateRow[] = [];
+    let m: RegExpExecArray | null;
+    while ((m = rowRe.exec(md)) !== null) {
+      rows.push({
+        id: m[1],
+        inputCostPer1M: Number.parseFloat(m[2]),
+        outputCostPer1M: Number.parseFloat(m[3]),
+        accessed: m[4],
+      });
+    }
+    return rows;
+  }
+
+  it("parses the SKILL.md price table (guards against a vacuous match)", () => {
+    const rows = parseSkillRateTable();
+    // A zero-length parse would make the parity assertions below vacuously pass,
+    // so assert the three current tier models were actually extracted.
+    expect(rows.length).toBeGreaterThanOrEqual(3);
+    const ids = rows.map((r) => r.id);
+    expect(ids).toContain("claude-opus-4-8");
+    expect(ids).toContain("claude-sonnet-4-6");
+    expect(ids).toContain("claude-haiku-4-5");
+  });
+
+  it("binds every SKILL.md model id to an identical MODEL_RATES row (rates + accessed date)", () => {
+    for (const row of parseSkillRateTable()) {
+      const codeRate = MODEL_RATES[row.id];
+      // Every model the skill table prices must have a code-side home.
+      expect(
+        codeRate,
+        `${row.id} present in SKILL.md price table but missing from MODEL_RATES`,
+      ).toBeDefined();
+      // Type-narrow for the property assertions (the toBeDefined above already
+      // failed the test when codeRate is undefined, so this never continues).
+      if (!codeRate) continue;
+      expect(codeRate.inputCostPer1M, `${row.id} input rate drift (SKILL vs MODEL_RATES)`).toBe(
+        row.inputCostPer1M,
+      );
+      expect(codeRate.outputCostPer1M, `${row.id} output rate drift (SKILL vs MODEL_RATES)`).toBe(
+        row.outputCostPer1M,
+      );
+      expect(codeRate.accessed, `${row.id} accessed-date drift (SKILL vs MODEL_RATES)`).toBe(
+        row.accessed,
+      );
+    }
   });
 });

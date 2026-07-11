@@ -246,3 +246,83 @@ describe("archiveToolOutputs — same-millisecond collision (D2-23)", () => {
     }
   });
 });
+
+// ───────────────────────────────────────────────────────────────────────────
+// D2-SA2.7-02 (Cycle 12 Wave 3): pruneArchives must NOT treat the reserved
+// `customize` child of ARCHIVE_DIR as a tool run-dir. archiveCustomizeOverrides
+// (src/content/index.ts) writes the "never hard-delete" user-override rescue
+// store as stable `customize/<type>/` dirs under the same root. Before the
+// reserved-name guard, pruneArchives count-capped those type dirs, so a low
+// HATCH3R_MAX_ARCHIVE_ENTRIES override recursively deleted the only copy of
+// hand-authored overrides (the D10-35 archive-never-hard-delete contract).
+// ───────────────────────────────────────────────────────────────────────────
+
+describe("pruneArchives — reserved customize store guard (D2-SA2.7-02)", () => {
+  const origEnv = process.env.HATCH3R_MAX_ARCHIVE_ENTRIES;
+  let tempDir: string;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-archive-customize-"));
+  });
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    if (origEnv === undefined) delete process.env.HATCH3R_MAX_ARCHIVE_ENTRIES;
+    else process.env.HATCH3R_MAX_ARCHIVE_ENTRIES = origEnv;
+    vi.resetModules();
+  });
+
+  async function seedCustomizeStore(types: string[]): Promise<void> {
+    // Stable per-type dirs under `.hatch3r-archive/customize/<type>/`, NOT
+    // timestamped run dirs — the shape archiveCustomizeOverrides writes.
+    const customizeRoot = join(tempDir, ARCHIVE_DIR, "customize");
+    for (const type of types) {
+      await mkdir(join(customizeRoot, type), { recursive: true });
+      await writeFile(
+        join(customizeRoot, type, "example.customize.yaml"),
+        `# rescued override for ${type}\n`,
+      );
+    }
+  }
+
+  it("never prunes the customize rescue store even at the lowest retention override", async () => {
+    // Repro of the deletion: with MAX=1 and 4 type dirs, the unguarded pruner
+    // would evict 3. The guard skips the reserved child, so all 4 survive and
+    // no customize entry is ever reported as pruned.
+    process.env.HATCH3R_MAX_ARCHIVE_ENTRIES = "1";
+    const { pruneArchives } = await import("../../archive/index.js");
+
+    const types = ["agents", "commands", "rules", "skills"];
+    await seedCustomizeStore(types);
+    const pruned = await pruneArchives(tempDir);
+
+    expect(pruned.filter((p) => p.startsWith("customize/"))).toEqual([]);
+    const remaining = await readdir(join(tempDir, ARCHIVE_DIR, "customize"));
+    expect(remaining.sort()).toEqual(types);
+  });
+
+  it("still prunes real tool run-dirs alongside a preserved customize store", async () => {
+    // The guard is scoped to the reserved name only — real tool archives still
+    // prune normally in the same sweep.
+    process.env.HATCH3R_MAX_ARCHIVE_ENTRIES = "1";
+    const { pruneArchives } = await import("../../archive/index.js");
+
+    await seedCustomizeStore(["agents", "rules"]);
+    const toolPath = join(tempDir, ARCHIVE_DIR, "cursor");
+    for (let i = 0; i < 3; i++) {
+      const ts = `2026-04-01T00-00-0${i}-000Z`;
+      await mkdir(join(toolPath, ts), { recursive: true });
+      await writeFile(join(toolPath, ts, "snapshot.txt"), `entry-${i}`);
+    }
+
+    const pruned = await pruneArchives(tempDir);
+
+    expect(pruned.filter((p) => p.startsWith("customize/"))).toEqual([]);
+    expect(pruned.filter((p) => p.startsWith("cursor/"))).toHaveLength(2);
+    expect(
+      (await readdir(join(tempDir, ARCHIVE_DIR, "customize"))).sort(),
+    ).toEqual(["agents", "rules"]);
+    expect(await readdir(toolPath)).toHaveLength(1);
+  });
+});

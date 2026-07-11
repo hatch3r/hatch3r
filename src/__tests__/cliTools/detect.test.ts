@@ -398,4 +398,108 @@ describe("detectCliTool extensionProbe (D21-M6, Cycle 10)", () => {
     // Only the base /bin/sh probe should have been invoked.
     expect(spawnCalls.every((c) => c.cmd === "/bin/sh")).toBe(true);
   });
+
+  it("ast-grep: sg resolves to shadow-utils setgroups -> installed:false + extensionMissing (D21-SA21.1-01)", async () => {
+    setPlatform("linux");
+    // Base probe resolves /usr/bin/sg (shadow-utils setgroups, shipped in the
+    // Debian/Ubuntu base system); the extension probe `sg --version` does not
+    // print "ast-grep" (setgroups rejects the flag), so ast-grep is correctly
+    // reported absent even though `command -v sg` succeeded.
+    spawnHandler = (cmd, args) => {
+      if (cmd === "/bin/sh") {
+        return { stdout: "/usr/bin/sg\n", code: 0 };
+      }
+      if (cmd === "sg" && args[0] === "--version") {
+        return { stdout: "sg: unrecognized option '--version'\n", code: 1 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("ast-grep");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(false);
+    expect(result.extensionMissing).toBe("ast-grep");
+    expect(result.path).toBe("/usr/bin/sg");
+  });
+
+  it("ast-grep: sg resolves to the real ast-grep binary -> installed:true (D21-SA21.1-01)", async () => {
+    setPlatform("darwin");
+    spawnHandler = (cmd, args) => {
+      if (cmd === "/bin/sh") {
+        return { stdout: "/opt/homebrew/bin/sg\n", code: 0 };
+      }
+      if (cmd === "sg" && args[0] === "--version") {
+        return { stdout: "ast-grep 0.42.2\n", code: 0 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("ast-grep");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(true);
+    expect(result.extensionMissing).toBeUndefined();
+    expect(result.path).toBe("/opt/homebrew/bin/sg");
+  });
+});
+
+describe("detectCliTool probeFallbacks (D21-SA21.2-03, Cycle 12)", () => {
+  it("resolves bat via the batcat fallback when the primary `bat` probe misses (Debian rename)", async () => {
+    setPlatform("linux");
+    // `command -v -- "bat"` misses (Debian ships the binary as batcat), but
+    // `command -v -- "batcat"` resolves — detect.ts reports bat installed with
+    // the resolved batcat path while the returned `probe` stays canonical.
+    spawnHandler = (cmd, args) => {
+      const probed = String(args[args.length - 1] ?? "");
+      if (probed === 'command -v -- "batcat"') {
+        return { stdout: "/usr/bin/batcat\n", code: 0 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("bat");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(true);
+    expect(result.path).toBe("/usr/bin/batcat");
+    expect(result.probe).toBe("bat");
+  });
+
+  it("resolves fd via the fdfind fallback when the primary `fd` probe misses", async () => {
+    setPlatform("linux");
+    spawnHandler = (cmd, args) => {
+      const probed = String(args[args.length - 1] ?? "");
+      if (probed === 'command -v -- "fdfind"') {
+        return { stdout: "/usr/bin/fdfind\n", code: 0 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("fd");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(true);
+    expect(result.path).toBe("/usr/bin/fdfind");
+    expect(result.probe).toBe("fd");
+  });
+
+  it("reports bat absent when neither `bat` nor `batcat` resolves (both probed)", async () => {
+    setPlatform("linux");
+    spawnHandler = () => ({ stdout: "", code: 1 });
+
+    const promise = detectMod.detectCliTool("bat");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(false);
+    expect(result.path).toBe("");
+    const probed = spawnCalls.map((c) => String(c.args[c.args.length - 1] ?? ""));
+    expect(probed).toContain('command -v -- "bat"');
+    expect(probed).toContain('command -v -- "batcat"');
+  });
 });

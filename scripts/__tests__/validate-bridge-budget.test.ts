@@ -17,18 +17,18 @@ import {
 
 interface Fixture {
   rootDir: string;
-  agentsDir: string;
 }
 
 async function makeFixture(): Promise<Fixture> {
   const rootDir = await mkdtemp(join(tmpdir(), "p7-bridge-budget-"));
-  const agentsDir = join(rootDir, "agents");
-  await mkdir(agentsDir, { recursive: true });
-  return { rootDir, agentsDir };
+  return { rootDir };
 }
 
-async function seedSkill(agentsDir: string, id: string, description: string): Promise<void> {
-  const skillDir = join(agentsDir, "skills", id);
+// D6-SA6.1-03: seed skills at `<root>/skills/<id>` — the REAL repo layout the
+// generator reads (`join(contentRoot, "skills")`), not the `<root>/agents/skills`
+// layout the prior masking fixture used to match the validator's wrong root.
+async function seedSkill(rootDir: string, id: string, description: string): Promise<void> {
+  const skillDir = join(rootDir, "skills", id);
   await mkdir(skillDir, { recursive: true });
   await writeFile(
     join(skillDir, "SKILL.md"),
@@ -51,7 +51,7 @@ describe("validate-bridge-budget", () => {
   // ── Static measurement ──────────────────────────────────────────
 
   it("measures the static BRIDGE_ORCHESTRATION constant in tokens", async () => {
-    const report = await measureBridgeBudget({ agentsDir: fx.agentsDir });
+    const report = await measureBridgeBudget({ contentRoot: fx.rootDir });
     const expected = estimateTokens(BRIDGE_ORCHESTRATION.length);
     expect(report.staticTokens).toBe(expected);
     // No skills in fixture → dynamic falls back to static, so the two
@@ -63,7 +63,7 @@ describe("validate-bridge-budget", () => {
   // ── Default ceiling: every adapter under 10% with current bridge content ─
 
   it("PASSes the 10% ceiling for every adapter at the current bridge size", async () => {
-    const report = await measureBridgeBudget({ agentsDir: fx.agentsDir });
+    const report = await measureBridgeBudget({ contentRoot: fx.rootDir });
     expect(report.maxPercent).toBe(10);
     expect(report.violations).toEqual([]);
     for (const adapter of report.perAdapter) {
@@ -75,14 +75,14 @@ describe("validate-bridge-budget", () => {
   // ── Per-adapter coverage ────────────────────────────────────────
 
   it("reports one entry per adapter in CONTEXT_BUDGET_TOKENS", async () => {
-    const report = await measureBridgeBudget({ agentsDir: fx.agentsDir });
+    const report = await measureBridgeBudget({ contentRoot: fx.rootDir });
     const reportTools = report.perAdapter.map((a) => a.tool).sort();
     const expectedTools = Object.keys(CONTEXT_BUDGET_TOKENS).sort();
     expect(reportTools).toEqual(expectedTools);
   });
 
   it("sorts per-adapter results by utilization percent descending", async () => {
-    const report = await measureBridgeBudget({ agentsDir: fx.agentsDir });
+    const report = await measureBridgeBudget({ contentRoot: fx.rootDir });
     for (let i = 1; i < report.perAdapter.length; i++) {
       expect(report.perAdapter[i - 1].utilizationPercent).toBeGreaterThanOrEqual(
         report.perAdapter[i].utilizationPercent,
@@ -103,14 +103,28 @@ describe("validate-bridge-budget", () => {
     // Seed enough skills that the dynamic content exceeds the static.
     for (let i = 0; i < 20; i++) {
       await seedSkill(
-        fx.agentsDir,
+        fx.rootDir,
         `hatch3r-skill-${i}`,
         `Skill number ${i} description used to grow the dispatch table beyond the static constant.`,
       );
     }
-    const report = await measureBridgeBudget({ agentsDir: fx.agentsDir });
+    const report = await measureBridgeBudget({ contentRoot: fx.rootDir });
     // Dynamic should now exceed static because the dispatch + routing
     // tables get inlined into the rendered output.
+    expect(report.dynamicTokens).toBeGreaterThan(report.staticTokens);
+    expect(report.measuredTokens).toBe(report.dynamicTokens);
+  });
+
+  // ── Real-repo wiring guard (no override) ────────────────────────
+
+  it("real repo root (default contentRoot): dynamic skill table exceeds the static base", async () => {
+    // D6-SA6.1-03 regression guard: with no override, contentRoot defaults to
+    // the repo ROOT, which holds the real 53-dir skills/ catalogue, so the
+    // dynamic bridge (skill dispatch + routing tables) MUST exceed the static
+    // constant. If the default is re-pointed at `agents/` (no `skills/` child),
+    // readSkillDirs returns [] and dynamic collapses to static — this assertion
+    // fails, catching the wiring regression the masking fixture used to hide.
+    const report = await measureBridgeBudget();
     expect(report.dynamicTokens).toBeGreaterThan(report.staticTokens);
     expect(report.measuredTokens).toBe(report.dynamicTokens);
   });
@@ -120,7 +134,7 @@ describe("validate-bridge-budget", () => {
   it("flags violations when ceiling is tightened below current utilization", async () => {
     // Tighten the ceiling to 0.001% so every adapter exceeds.
     const report = await measureBridgeBudget({
-      agentsDir: fx.agentsDir,
+      contentRoot: fx.rootDir,
       maxPercent: 0.001,
     });
     expect(report.maxPercent).toBe(0.001);
@@ -132,7 +146,7 @@ describe("validate-bridge-budget", () => {
 
   it("clears violations when ceiling is loosened above all utilization", async () => {
     const report = await measureBridgeBudget({
-      agentsDir: fx.agentsDir,
+      contentRoot: fx.rootDir,
       maxPercent: 99,
     });
     expect(report.violations).toEqual([]);
@@ -140,9 +154,9 @@ describe("validate-bridge-budget", () => {
 
   // ── Missing agents directory fallback ───────────────────────────
 
-  it("falls back to the static bridge content when agentsDir is unavailable", async () => {
+  it("falls back to the static bridge content when contentRoot is unavailable", async () => {
     const report = await measureBridgeBudget({
-      agentsDir: join(fx.rootDir, "does-not-exist"),
+      contentRoot: join(fx.rootDir, "does-not-exist"),
     });
     expect(report.staticTokens).toBe(estimateTokens(BRIDGE_ORCHESTRATION.length));
     // No skill dirs to read → dynamic generation returns static base.
@@ -153,7 +167,7 @@ describe("validate-bridge-budget", () => {
   // ── Text formatter ──────────────────────────────────────────────
 
   it("formats a human-readable report with adapter rows and a status footer", async () => {
-    const report = await measureBridgeBudget({ agentsDir: fx.agentsDir });
+    const report = await measureBridgeBudget({ contentRoot: fx.rootDir });
     const text = formatTextReport(report);
     expect(text).toMatch(/validate-bridge-budget:/);
     expect(text).toMatch(/static BRIDGE_ORCHESTRATION:/);
@@ -168,7 +182,7 @@ describe("validate-bridge-budget", () => {
 
   it("text formatter surfaces the FAIL marker and remediation hint on overage", async () => {
     const report = await measureBridgeBudget({
-      agentsDir: fx.agentsDir,
+      contentRoot: fx.rootDir,
       maxPercent: 0.001,
     });
     const text = formatTextReport(report);

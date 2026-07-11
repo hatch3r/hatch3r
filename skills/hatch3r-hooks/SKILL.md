@@ -83,19 +83,19 @@ Present available events with descriptions:
 
 ### 2b. Select Agent
 
-Present available hatch3r agents:
+First run `ls agents/` to read the current agent roster. The list below is the canonical set at authoring time, but agents may be added or renamed — verify each id against the live roster before presenting, and drop any that no longer resolve to `agents/<id>.md`. Present available hatch3r agents (every id below carries the `hatch3r-` prefix and must exist as `agents/<id>.md`):
 
-- `lint-fixer` — Automatic lint error resolution
+- `hatch3r-lint-fixer` — Automatic lint error resolution
 - `hatch3r-testability` — Test generation for new or changed code
-- `reviewer` — Code review and quality checks
+- `hatch3r-reviewer` — Code review and quality checks
 - `hatch3r-security` — Security vulnerability scanning
-- `ci-watcher` — CI/CD pipeline monitoring and diagnosis
-- `a11y-auditor` — Accessibility compliance checks
+- `hatch3r-ci-watcher` — CI/CD pipeline monitoring and diagnosis
+- `hatch3r-ui` — Accessibility and UI-quality checks
 - `hatch3r-performance` — Performance analysis and optimization
-- `dependency-auditor` — Dependency security and update checks
-- `docs-writer` — Documentation generation and updates
+- `hatch3r-dependency-drafter` — Dependency security and update checks
+- `hatch3r-docs-writer` — Documentation generation and updates
 
-If the user wants a custom agent name not in this list, accept it but warn that the agent must exist in `agents/`.
+If the user names an agent not shown, confirm it against the `ls agents/` roster: accept a real id, and warn that any name absent from `agents/` must be created there before the hook can fire. The `agent:` value is emitted verbatim into the hook definition — no id normalization resolves a short or misspelled name, so a value that is not an exact `agents/<id>.md` id activates nothing.
 
 **ASK:** "Select an agent to activate when this event fires."
 

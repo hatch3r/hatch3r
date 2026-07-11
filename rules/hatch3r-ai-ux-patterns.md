@@ -31,10 +31,11 @@ Detection: this rule activates when the project imports an AI SDK (`ai`, `@ai-sd
 - Non-streaming responses on LLM-driven surfaces are a regression. The narrow exception is structured-output endpoints that must return a single validated JSON payload (`useObject` already streams partial objects — prefer that).
 - Typing indicator policy: show only while no token has arrived; switch to streamed content the moment the first delta lands. Two-second indicator timeouts that linger past first-token are a regression.
 - Backpressure: when the model emits faster than the renderer can paint, batch deltas to one paint per animation frame (`requestAnimationFrame`) rather than dropping tokens or queuing into an unbounded buffer.
+- **Message model — AI SDK 6+ breaking change (verify before pinning a version):** since AI SDK 6 (GA 2025-12) and retained in AI SDK 7 (current stable major, GA 2026-06), every `useChat` message is an ordered `parts` array (each entry typed `text` | `tool-call` | `tool-result` | `reasoning`), not a flat `content` string, and `handleSubmit` / `handleInputChange` are replaced by `sendMessage({ text })`. Render by iterating `message.parts`; code that reads `message.content` silently drops the cards the §Tool-Call UI Cards section mandates — text still renders but the tool call never appears. Re-check `ai-sdk.dev/docs/ai-sdk-ui` for the current major before adopting a pinned version.
 
 ## Generative UI (RSC Streaming)
 
-- For dynamic dashboards, cards, and surfaces driven by tool calls, use the `streamUI()` RSC pattern (or framework equivalent). The model returns a tool invocation, the server renders an RSC fragment per tool, the client merges fragments into the thread without re-hydrating.
+- For dynamic dashboards, cards, and surfaces driven by tool calls, render the `tool-call` / `tool-result` entries of the `message.parts` stream into Vercel AI Elements components — the production path in AI SDK UI. The `ai/rsc` `streamUI()` RSC pattern (model returns a tool invocation, the server renders an RSC fragment per tool, the client merges fragments without re-hydrating) is experimental with development paused (`ai-sdk.dev/docs/ai-sdk-rsc`) — reach for it only on RSC-committed stacks that keep model-rendered UI server-side, not as the default.
 - Build on shadcn primitives via Vercel AI Elements — 20+ shadcn-based React components for AI surfaces: messages, input, reasoning panel, tool-call display, response actions. Reuse before authoring; bespoke equivalents are a duplication regression.
 - Keep AI-generated UI off the client JS bundle. RSC streaming keeps the payload server-side; do not ship a client-side renderer that duplicates server-rendered output.
 - Each RSC fragment is independently hydratable — never wrap two tool outputs in a single fragment that requires both to complete before render.
@@ -72,6 +73,8 @@ Read-only tools (search, fetch, list, read) do not require approval — gating t
 Destructive irreversible actions (drop table, delete repo, permanent send) disclose irreversibility on the approval card with a typed-confirmation pattern (user types the named target to enable the confirm button).
 
 Auto-approve scopes (the "trusted tool" pattern) live behind a per-tool setting with a named scope ("Auto-approve git status, never git push"). Default to opt-in, never opt-out. Scopes are revocable from a single settings surface and revocation takes effect for in-flight runs, not just future runs.
+
+Native primitive: on the Vercel AI SDK (6+, retained in 7), this gate maps to the built-in `needsApproval` flag on a tool definition — the SDK pauses the tool call for human confirmation with no hand-rolled pause/resume state. Wire the approval card to that primitive on AI SDK stacks; hand-roll the gate only on stacks without an equivalent.
 
 ## Cancel / Abort / Undo
 
@@ -128,7 +131,8 @@ These 7 checks are operationalized as Gate 8 of `skills/hatch3r-ui-ux-verify` �
 
 - Vercel — Introducing AI Elements (`vercel.com/changelog/introducing-ai-elements`)
 - Vercel AI SDK UI docs (`ai-sdk.dev/docs/ai-sdk-ui`) — `useChat`, `useCompletion`, `useObject`
-- Vercel — AI SDK 3 Generative UI / `streamUI()` (`vercel.com/blog/ai-sdk-3-generative-ui`)
+- Vercel — AI SDK 6 (`vercel.com/blog/ai-sdk-6`) and AI SDK 7 (`vercel.com/blog/ai-sdk-7`, current stable major) — `message.parts` model, `sendMessage`, `needsApproval` human-in-the-loop, `Agent`/`ToolLoopAgent`
+- Vercel AI SDK RSC — `streamUI()` (`ai-sdk.dev/docs/ai-sdk-rsc`; experimental, development paused — AI SDK UI is the production path)
 - Anthropic — Building agents with the Claude Agent SDK (`anthropic.com/engineering/building-agents-with-the-claude-agent-sdk`)
 - OpenAI Apps SDK — UI guidelines (`developers.openai.com/apps-sdk/concepts/ui-guidelines`)
 - ClarityArc — Hallucination, grounding, and citation in enterprise systems

@@ -151,10 +151,20 @@ export function formatCommandHint(tools: Tool[], commandName: string): string {
  * the `.env.mcp` envFile loader, and HTTP/header secrets via VS Code's
  * `${input:NAME}` prompt (top-level `inputs[]`), which VS Code prompts for
  * on first use rather than reading from `.env.mcp`.
+ *
+ * D10-SA10.5-02 (Cycle 12 D10, P1): the cursor note previously claimed
+ * ".env.mcp auto-loads from project root", contradicting the cursor adapter's
+ * `${env:NAME}` passthrough (`src/adapters/cursor.ts`) — Cursor resolves
+ * `${env:...}` from the launching process environment, not from any file it
+ * reads — and both doc surfaces (`docs/adapter-capability-matrix.md`,
+ * `website/docs/guides/customization.md`, which say "user must source"). The
+ * note now states the source-before-launch requirement, matching the claude
+ * sibling. The copilot note's "auto-loads" is accurate (real envFile loader)
+ * and is intentionally left unchanged.
  */
 export const TOOL_SECRET_NOTES: Partial<Record<Tool, string>> = {
   claude: "Claude Code: reads .env.mcp via shell sourcing (run `set -a && source .env.mcp && set +a` before starting; macOS GUI launchers do not inherit shell env)",
-  cursor: "Cursor: auto-loads .env.mcp from project root (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var)",
+  cursor: "Cursor: reads MCP secrets from its process environment via ${env:VAR}; it does NOT read .env.mcp from disk. Source .env.mcp before launch (set -a && source .env.mcp && set +a && cursor .). macOS Dock/Finder launches need `launchctl setenv` per var.",
   copilot: "VS Code / Copilot: STDIO server env auto-loads from .env.mcp (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var); MCP header secrets are prompted via VS Code ${input:NAME} variables on first use",
 };
 

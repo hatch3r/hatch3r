@@ -107,6 +107,35 @@ describe("learn capture command (D13-5)", () => {
     expect(out).toContain("sha256:");
   });
 
+  it("success copy states the true INDEX side-effect (no auto-consult claim; INDEX.md not written)", async () => {
+    // D13-SA13.4-02: the old success line claimed the learning was "consulted
+    // automatically via INDEX.md", but capture writes the file WITHOUT touching
+    // INDEX.md — an agent-maintained file ("no CLI writes it" per the INDEX.md
+    // Format contract in rules/hatch3r-learning-system.md). Because the runtime
+    // consultation path is INDEX-first (it skips non-INDEXed rows), the success
+    // copy must match that actual side-effect rather than over-promise.
+    const body = "## Context\n\nA.\n\n## Learning\n\nHonest post-condition.\n";
+    const src = await stage("2026-06-06-honest.md", learningFile(body));
+
+    const { learnCaptureCommand } = await import("../../../cli/commands/learn.js");
+    await learnCaptureCommand({ file: src });
+
+    // The learning file lands on disk …
+    const onDisk = await readFile(learnedPath("2026-06-06-honest.md"), "utf-8");
+    expect(onDisk).toContain("Honest post-condition");
+    // … but capture does NOT regenerate INDEX.md.
+    await expect(readFile(learnedPath("INDEX.md"), "utf-8")).rejects.toMatchObject({
+      code: "ENOENT",
+    });
+
+    const out = combinedOutput();
+    // No over-promise of automatic consultation …
+    expect(out).not.toMatch(/consulted automatically/i);
+    // … and an actionable instruction to regenerate INDEX so the INDEX-first
+    // gate can surface the just-captured learning.
+    expect(out).toMatch(/Regenerate INDEX/i);
+  });
+
   it("honors --as for the destination filename", async () => {
     const body = "## Context\n\nA.\n\n## Learning\n\nB.\n";
     const src = await stage("draft.md", learningFile(body));

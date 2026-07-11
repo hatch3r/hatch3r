@@ -9,16 +9,17 @@ hatch3r is designed to be extended without conflicting with managed updates.
 
 ## When to use which mechanism
 
-Three mechanisms separate hatch3r-managed content from your project's customizations. Pick by intent, not by file type:
+Five mechanisms separate hatch3r-managed content from your project's customizations. Pick by intent, not by file type:
 
 | Intent | Mechanism | Where it lives | What survives `hatch3r sync` |
 |--------|-----------|----------------|-------------------------------|
 | Add a project-specific rule / agent / skill that hatch3r does not ship | **Non-prefixed file** (no `hatch3r-` prefix) | `.cursor/rules/my-rule.mdc`, `.claude/agents/my-agent.md`, etc. | The whole file — hatch3r never reads or writes it |
 | Append project-specific guidance to a hatch3r-managed file (e.g. notes under `CLAUDE.md`) | **Managed block** | Outside the `<!-- HATCH3R:BEGIN -->` / `<!-- HATCH3R:END -->` markers in the managed file | Everything outside the markers |
 | Override a single field on a hatch3r-shipped artifact (model, scope, frontmatter) without forking it | **`.customize.yaml`** | `.hatch3r/{agents,skills,rules,commands}/{id}.customize.yaml` | The override file — hatch3r reads it on every sync |
+| Append project-specific guidance to a hatch3r-shipped artifact's body from a separate override file (survives full regeneration) | **`.customize.md`** | `.hatch3r/{agents,skills,commands,rules}/{id}.customize.md` | The override file — hatch3r re-appends its content to the artifact body on every sync |
 | Replace a hatch3r-shipped artifact's body entirely | **Canonical override** | `.hatch3r/overrides/{type}/{id}.md` | The override file — adapters prefer this over the bundled canonical |
 
-Rule of thumb: use `.customize.yaml` for narrow field overrides (model selection, tag tweak), use canonical overrides for whole-body rewrites, use managed blocks for free-form notes alongside generated content, and use non-prefixed files for original project artifacts.
+Rule of thumb: use `.customize.yaml` for narrow field overrides (model selection, scope tweak), use `.customize.md` to append project-specific guidance to a shipped artifact's body, use canonical overrides for whole-body rewrites, use managed blocks for free-form notes alongside generated content, and use non-prefixed files for original project artifacts.
 
 ## Managed vs. Custom Files
 
@@ -51,7 +52,20 @@ Config files (JSON, TOML, YAML) are fully regenerated on sync. For details on ho
 
 ## Per-Component Customization
 
-hatch3r provides `.customize.yaml` files for fine-grained overrides without modifying managed definitions.
+hatch3r provides two per-artifact override files under `.hatch3r/{type}/`, both read on every `hatch3r sync` without modifying the managed definitions: `.customize.yaml` for narrow field overrides (`model`, `scope`, `description`, `enabled`) and `.customize.md` for appending content to the artifact body. Four override layers compose in a fixed order.
+
+### Override precedence
+
+A higher layer wins on conflict; a lower-layer attempt to change a field a higher layer locks is dropped with a warning.
+
+| Layer | Source | Governs | Notes |
+|-------|--------|---------|-------|
+| 1 (highest) | Canonical frontmatter — `protected: true` and `floor:*` tags | Whether lower layers may change `scope`, `description`, `enabled` | `protected` locks all three; a `floor:*` tag locks `enabled` only. A blocked field warns and is ignored. |
+| 2 | `.customize.yaml` fields (`model`, `scope`, `description`, `enabled`) | Narrow field overrides | `scope` is honored on rules only; `enabled: false` only when the artifact is neither protected nor floor-tagged; `model` only after passing the deny-pattern scan. |
+| 3 | `.customize.md` body | Content appended to the artifact body | Byte caps and the fail-closed deny scan are covered in [Content append](#content-append-customizemd). |
+| 4 (lowest) | Manifest `customization` payload in `hatch.json` | Round-trips layer-2 fields across `clean` → re-init | Superseded by `.customize.yaml` on the same field whenever both are present. |
+
+Model selection resolves on its own four-level axis (`.customize.yaml` → manifest per-artifact → canonical frontmatter → manifest default, agents only); see [Model Selection](./model-selection) for that axis and the per-adapter emission surfaces.
 
 ### Agents
 
@@ -65,9 +79,10 @@ Run the `/hatch3r-customize` skill (an AI-tool slash command inside Cursor or Cl
 
 ### Skills
 
-Create `.hatch3r/skills/{skill-id}.customize.yaml`. Skills accept `description` and `enabled`:
+Create `.hatch3r/skills/{skill-id}.customize.yaml`. Skills accept `model`, `description`, and `enabled` (the `model` value is emitted only on adapters that support a per-skill model — see [Model Selection](./model-selection)):
 
 ```yaml
+model: sonnet
 description: Feature workflow tuned for our service conventions
 ```
 
@@ -91,13 +106,27 @@ Validate with `npx hatch3r validate`. Parity between `.md` and `.mdc` variants i
 
 ### Commands
 
-Create `.hatch3r/commands/{command-id}.customize.yaml`. Commands accept `description` and `enabled`:
+Create `.hatch3r/commands/{command-id}.customize.yaml`. Commands accept `model`, `description`, and `enabled` (the `model` value is emitted only on adapters that support a per-command model — see [Model Selection](./model-selection)):
 
 ```yaml
 enabled: false
 ```
 
 The `/hatch3r-customize` skill handles commands too — pass the command id when it asks what to customize.
+
+### Content append (`.customize.md`)
+
+`.customize.yaml` overrides individual frontmatter fields; `.customize.md` appends free-form markdown to the artifact's body. Use it to add project-specific guidance to a hatch3r-shipped agent, skill, command, or rule without forking the canonical file — house conventions an agent should follow, or repo-specific context for a rule.
+
+Create `.hatch3r/{type}/{id}.customize.md` (for example `.hatch3r/agents/hatch3r-reviewer.customize.md`). On every `hatch3r sync`, hatch3r appends the file's content inside the artifact's managed body as override Layer 3.
+
+Three guards run on every append, in order:
+
+- **Byte cap.** 10,240 bytes (10 KB) for ordinary artifacts; 2,048 bytes (2 KB) for `protected` artifacts (security floors). Content over the cap is truncated on a codepoint boundary and a warning names the file.
+- **Injection and deny-pattern scan (fail-closed).** The append passes through the same prompt-injection guard and deny-pattern scan hatch3r runs on pipeline input. A single hit drops the entire append — not only the matched span — and reports each violation as a warning.
+- **Marker neutralization.** Embedded `HATCH3R:BEGIN`/`END` or `USER-CUSTOMIZATION:BEGIN`/`END` markers are rewritten to inert comments so appended text cannot forge hatch3r's managed-block trust boundary.
+
+Because the append is applied at sync time from a separate file, it survives full regeneration of the artifact — unlike a hand-edit to the generated file, which survives only when placed outside the managed block.
 
 ## Authoring New User-Tier Artifacts
 

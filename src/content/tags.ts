@@ -144,6 +144,7 @@ export const TAG_LANG_PYTHON     = "lang:python";
 export const TAG_LANG_GO         = "lang:go";
 export const TAG_LANG_RUST       = "lang:rust";
 export const TAG_LANG_JAVA       = "lang:java";
+export const TAG_LANG_KOTLIN     = "lang:kotlin";
 export const TAG_LANG_RUBY       = "lang:ruby";
 
 // ── Role tags (D14-M6, Cycle 10 rollover) ────────────────────────
@@ -277,6 +278,7 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_LANG_GO]:         "language",
   [TAG_LANG_RUST]:       "language",
   [TAG_LANG_JAVA]:       "language",
+  [TAG_LANG_KOTLIN]:     "language",
   [TAG_LANG_RUBY]:       "language",
 
   // D14-M6 (Cycle 10 rollover) — role admission tags.
@@ -382,7 +384,11 @@ export const LANGUAGE_TO_TAG: Record<string, string> = {
   go:         TAG_LANG_GO,
   rust:       TAG_LANG_RUST,
   java:       TAG_LANG_JAVA,
-  kotlin:     TAG_LANG_JAVA,       // Kotlin shares Java ecosystem
+  // D14-SA14.1-03: Kotlin is a distinct language with its own `lang:kotlin`
+  // tag — not a Java alias. `java` keeps its own tag so a detected Java repo
+  // filters to lang:java (currently carrier-less) + language-agnostic content,
+  // correctly EXCLUDING the Kotlin/Android rule rather than pulling it in.
+  kotlin:     TAG_LANG_KOTLIN,
   ruby:       TAG_LANG_RUBY,
 };
 

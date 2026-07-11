@@ -40,14 +40,20 @@ describe("getAdapter", () => {
 
   // C7-H14: getAdapter throws HatchError (not plain Error) so the CLI can
   // surface a structured exitCode for unknown tool selections.
-  it("throws HatchError with VALIDATION_ERROR code for unknown tool", () => {
+  // D2-SA2.5-01 (Cycle 12 Wave 3): the exitCode is DERIVED from the
+  // errorCode via ERROR_CODE_TO_EXIT_CODE (VALIDATION_ERROR -> 64, sysexits
+  // EX_USAGE), not a literal. The prior pin asserted `1`, which contradicted
+  // the docs/troubleshooting.md "no exit 1 for command failures" contract and
+  // froze the wrong value in CI. Pinning 64 keeps the mapping the single
+  // source of truth for this call site.
+  it("throws HatchError with VALIDATION_ERROR code (exit 64) for unknown tool", () => {
     try {
       getAdapter("unknown" as Tool);
       throw new Error("expected throw did not occur");
     } catch (e) {
       expect(e).toBeInstanceOf(HatchError);
       expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
-      expect((e as HatchError).exitCode).toBe(1);
+      expect((e as HatchError).exitCode).toBe(64);
     }
   });
 

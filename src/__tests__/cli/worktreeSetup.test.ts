@@ -214,6 +214,29 @@ describe("worktreeSetupCommand", () => {
     await expect(worktreeSetupCommand("feat-syncfail")).rejects.toThrow(/Adapter sync failed/);
   });
 
+  // ── Auto-sync spawn shape (D1-SA1.10-04) ─────────────────────
+
+  it("spawns the running CLI directly (process.execPath + argv[1]) for auto-sync — never npx", async () => {
+    // D1-SA1.10-04 (Cycle 12 Wave 3, D1, P1): `execFileSync("npx", ...)`
+    // fails on native Windows (npx is `npx.cmd`; .cmd files cannot be
+    // launched via execFile without a shell per the Node child_process docs
+    // and the CVE-2024-27980 hardening), so every Windows worktree-setup run
+    // exited FS_ERROR at the sync step. Same-binary re-invocation is
+    // platform-independent and needs no npx resolution or install prompt.
+    const includeContent = [MANAGED_BLOCK_START, ".env", MANAGED_BLOCK_END].join("\n");
+    await writeFile(join(tempDir, WORKTREE_INCLUDE_FILE), includeContent);
+
+    await worktreeSetupCommand("feat-spawnshape", { yes: true });
+
+    const syncCall = execFileSyncMock.mock.calls.find(
+      (c) => Array.isArray(c[1]) && (c[1] as string[]).includes("sync"),
+    );
+    expect(syncCall).toBeDefined();
+    expect(syncCall![0]).toBe(process.execPath); // the running node binary
+    expect(syncCall![1]).toEqual([process.argv[1], "sync"]); // this CLI's entry script
+    expect(syncCall![0]).not.toBe("npx");
+  });
+
   // ── --from-path legacy mode ──────────────────────────────────
 
   it("--from-path skips git worktree add and populates the existing path", async () => {

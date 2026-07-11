@@ -3,7 +3,7 @@ import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
 import { realpathSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { detectWorkspaceContext } from "../../workspace/detect.js";
+import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.js";
 import { createWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 import { HATCH3R_DIR, DEFAULT_FEATURES } from "../../types.js";
 import { WORKSPACE_MANIFEST_FILE } from "../../workspace/types.js";
@@ -171,5 +171,66 @@ describe("detectWorkspaceContext registration-based membership (D1-31)", () => {
     const ctx = await detectWorkspaceContext(member);
     expect(ctx.type).toBe("workspace-member");
     expect(ctx.workspaceRoot).toBe(tempDir);
+  });
+});
+
+/**
+ * D1-SA1.10-06 (Cycle 12 Wave 3, D1, P2): the D14-M3 nested sub-repo scan
+ * (depth-capped recursion + rel-path registration) had zero nested-layout
+ * tests — every prior fixture was one level deep, so a regression
+ * re-flattening the scan or emitting `name` instead of the rel-path would
+ * have passed the suite. The rel-path contract is load-bearing: it feeds
+ * manifest `repos[].path`, which sync joins onto the workspace root and
+ * membership classification matches against.
+ */
+describe("detectSubRepos nested layouts (D1-SA1.10-06)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  /** Create `<root>/<relPath>/.git` (directory form) — a discoverable repo. */
+  async function makeGitRepo(root: string, relPath: string): Promise<void> {
+    await mkdir(join(root, relPath, ".git"), { recursive: true });
+  }
+
+  it("discovers a depth-3 monorepo member and registers the FULL rel-path (apps/area/name)", async () => {
+    tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-subrepos-nested-")));
+    await makeGitRepo(tempDir, join("apps", "area", "name"));
+
+    const repos = await detectSubRepos(tempDir);
+
+    expect(repos).toHaveLength(1);
+    // Rel-path (not the bare directory name) — sync.ts joins this onto the
+    // workspace root and confirmRegisteredMember matches against it.
+    expect(repos[0].path).toBe("apps/area/name");
+    expect(repos[0].name).toBe("name");
+  });
+
+  it("holds the MAX_SUBREPO_DESCEND_DEPTH cap: depth-4 discovered, depth-5 not", async () => {
+    tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-subrepos-cap-")));
+    // Depth 4 (a/b/c/deep4): parent dir is visited at recursion depth 3 — the
+    // deepest visit the cap admits — so this repo IS discovered.
+    await makeGitRepo(tempDir, join("a", "b", "c", "deep4"));
+    // Depth 5 (v/w/x/y/deep5): visiting its parent would need recursion depth
+    // 4, which the cap rejects — NOT discovered.
+    await makeGitRepo(tempDir, join("v", "w", "x", "y", "deep5"));
+
+    const repos = await detectSubRepos(tempDir);
+
+    expect(repos.map((r) => r.path)).toEqual(["a/b/c/deep4"]);
+  });
+
+  it("terminates recursion at a git repo: an inner nested repo is NOT listed separately", async () => {
+    tempDir = realpathSync.native(await mkdtemp(join(tmpdir(), "hatch3r-subrepos-inner-")));
+    await makeGitRepo(tempDir, join("vendor", "lib"));
+    // Inner repo BELOW an already-discovered repo: its subtree belongs to the
+    // outer repo, not the workspace — the scan must not descend into it.
+    await makeGitRepo(tempDir, join("vendor", "lib", "third_party", "dep"));
+
+    const repos = await detectSubRepos(tempDir);
+
+    expect(repos.map((r) => r.path)).toEqual(["vendor/lib"]);
   });
 });

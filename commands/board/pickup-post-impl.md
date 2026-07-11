@@ -83,6 +83,23 @@ Follow the project's PR/MR creation skill or conventions:
 
 ---
 
+## Step 8b: Merge Readiness (Consolidated Confidence)
+
+**This step is mandatory. Do not skip.** It realizes the Confidence Propagation Contract's merge-readiness requirement (`commands/hatch3r-board-pickup.md` → Confidence Propagation Contract): the PR is the output block the user acts on, so it MUST carry a consolidated confidence verdict — dropping the signal before this surface is a gate failure.
+
+Emit a final `Merge Readiness` block sourced from the LOWEST upstream confidence across the reviewer verdict, `hatch3r-testability`, `hatch3r-security`, and the Step 7 acceptance-criteria checks — parity with `commands/hatch3r-workflow.md` Review Results / Quick Mode Overall Confidence, so board-pickup's terminal surface carries the same signal as the other core orchestrators:
+
+```
+Merge Readiness:
+  Overall Confidence: {high/medium/low}
+  Lowest-confidence area: {description or "none"}
+  Review independence: {different-family = provider-independent | same-family or not-declared = self-preference bias possible, clean PASS is not provider-independent}
+```
+
+Surface the `Overall Confidence` line into the PR body (append to the Testing or Rollout section from Step 8) so the merge-decision surface itself carries the signal, not only the run transcript.
+
+---
+
 ## Step 9: Post-PR Housekeeping
 
 1. If all sub-issues addressed, confirm the PR body uses `Closes #<epic-number>` so the epic will auto-close on merge and transition to Done.

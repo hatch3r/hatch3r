@@ -18,7 +18,7 @@ This rule fires whenever a feature wires together ≥2 domain entities, or whene
 
 - **Plan:** before writing code, enumerate edge cases from the taxonomy below for every entity and every cross-entity relationship the feature touches. List them as explicit named cases (e.g. `case: two contacts collide on email + linked property`), never the placeholder "handle edge cases".
 - **Implement:** each enumerated case is handled in code OR explicitly recorded out-of-scope with a one-line reason. No silent omission — an unlisted case is a gap, an unhandled-but-listed case needs the recorded reason.
-- **Review:** reject the change if any taxonomy category was not enumerated for an entity-wiring feature, or an enumerated case has neither handling nor a recorded out-of-scope reason. Maps to a Medium-or-higher finding per `agents/shared/quality-charter.md` §14.
+- **Review:** reject the change if any taxonomy category was not enumerated for an entity-wiring feature, or an enumerated case has neither handling nor a recorded out-of-scope reason. Maps to a Medium-or-higher finding per `agents/shared/quality-charter.md` §14. Measurable bar on the changed surface: ≥90% edge-case enumeration coverage across the seven classes, and 100% illegal-state-prevention on state machines and discriminated unions.
 
 ## Domain Edge-Case Taxonomy
 
@@ -26,7 +26,7 @@ Seven categories. For each: the question to ask, then a worked example in the re
 
 1. **Cardinality & duplicates** — for each relationship, what happens at zero, exactly-one, and N? Can two records collide on a natural key? Worked example: two contacts share the same email AND the same linked property but carry a different status — decide the dedup key and the tie-break rule (latest-updated wins, or merge) before writing the join, or the query returns a nondeterministic row.
 
-2. **Null / empty / zero / boundary** — apply boundary-value analysis (Min−1, Min, Max, Max+1) and equivalence partitioning to every numeric, string, and collection input. Worked example: a deal with `amount = 0`, a reservation with an empty date range (`start == end`), a property with zero linked contacts, a name string at the column-length limit and one byte over.
+2. **Null / empty / zero / boundary / overflow** — apply boundary-value analysis (Min−1, Min, Max, Max+1) and equivalence partitioning to every numeric, string, and collection input; **overflow** (a value or count crossing a typed or storage cap — the Max+1 boundary made explicit) is its own enumeration class. Worked example: a deal with `amount = 0`, a reservation with an empty date range (`start == end`), a property with zero linked contacts, a name string at the column-length limit and one byte over; overflow sub-case: a summed deal amount that exceeds the column's numeric precision, or a linked-contacts count that passes a typed cap (e.g. `SMALLINT`) and wraps — enumerate the cap and the on-overflow behavior (reject, saturate, or widen the type) before the write.
 
 3. **Cross-entity consistency & referential integrity** — if A references B, can B be missing, deleted, or in an invalid state when A is read? Worked example: a reservation pointing at an archived property; a deal whose contact was merged into another contact. Define cascade vs restrict vs orphan handling explicitly for each foreign reference; the default of an unhandled dangling reference is a 500 at read time.
 

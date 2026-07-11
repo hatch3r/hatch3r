@@ -18,9 +18,12 @@
  * ceiling cycle 9 (D6-SA6.1-F1) keeps headroom for canonical content,
  * inlined rules, and project files.
  *
- * Token estimate uses the standard 1 token ≈ 4 chars heuristic — matches
- * `src/adapters/contextBudget.ts:estimateTokens`. Provider-specific
- * tokenizers are out of scope; this gate is model-agnostic per D6.6.
+ * Token estimate uses `src/adapters/contextBudget.ts:charsPerTokenFor(tool)`
+ * per adapter (D6-SA6.1-03): claude tokenises denser (~3.6 chars/token) than
+ * the generic ~4, so its column biases UP the same way the runtime
+ * context-budget gate does, instead of the two gates disagreeing on claude.
+ * Exact provider tokenisation is out of scope; this stays a model-agnostic
+ * char-ratio estimate per D6.6.
  *
  * Usage:
  *   `npm run validate:efficiency`  (wired as the second leg)
@@ -37,13 +40,21 @@ import {
 } from "../src/cli/shared/agentsContent.js";
 import {
   CONTEXT_BUDGET_TOKENS,
+  charsPerTokenFor,
   estimateTokens,
 } from "../src/adapters/contextBudget.js";
+import type { Tool } from "../src/types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
+// D6-SA6.1-03 (Cycle 12): the content root is the REPO ROOT — it contains
+// `skills/` (53 dirs), which `generateBridgeOrchestration` reads via
+// `join(contentRoot, "skills")`. The prior `AGENTS_DIR = resolve(ROOT,
+// "agents")` pointed the generator at `agents/skills` (which does not exist),
+// so `readSkillDirs` returned [] and the dynamic bridge collapsed to the static
+// base — the gate measured a bridge shape that never ships. Pass ROOT so the
+// real skill-dispatch + routing tables load and the gate measures them.
 const ROOT = resolve(__dirname, "..");
-const AGENTS_DIR = resolve(ROOT, "agents");
 
 const DEFAULT_MAX_PERCENT = 10;
 
@@ -73,8 +84,14 @@ export interface AdapterUtilization {
 }
 
 export interface RunOptions {
-  /** Absolute path to the agents directory used for dynamic bridge generation. */
-  agentsDir?: string;
+  /**
+   * Absolute path to the content root that CONTAINS `skills/` (repo root or
+   * bundled content root) — threaded to `generateBridgeOrchestration` as its
+   * `canonicalRoot`. Defaults to the repo root. D6-SA6.1-03: MUST NOT be the
+   * `agents/` directory; that layout has no `skills/` child and silently
+   * collapses the dynamic bridge to the static base.
+   */
+  contentRoot?: string;
   /** Override the default ceiling (10). Pass via `--max-percent`. */
   maxPercent?: number;
 }
@@ -120,13 +137,13 @@ export async function measureBridgeBudget(
   opts: RunOptions = {},
 ): Promise<BridgeBudgetReport> {
   const maxPercent = opts.maxPercent ?? DEFAULT_MAX_PERCENT;
-  const agentsDir = opts.agentsDir ?? AGENTS_DIR;
+  const contentRoot = opts.contentRoot ?? ROOT;
 
-  const staticTokens = estimateTokens(BRIDGE_ORCHESTRATION.length);
+  const staticChars = BRIDGE_ORCHESTRATION.length;
 
   let dynamicContent: string;
   try {
-    dynamicContent = await generateBridgeOrchestration(agentsDir);
+    dynamicContent = await generateBridgeOrchestration(contentRoot);
     // Generation falls back to the static constant on errors (missing
     // dirs, unreadable skill files). The fallback is not a failure of
     // this validator — the static constant is itself a valid bridge
@@ -135,22 +152,31 @@ export async function measureBridgeBudget(
   } catch {
     dynamicContent = BRIDGE_ORCHESTRATION;
   }
-  const dynamicTokens = estimateTokens(dynamicContent.length);
+  const dynamicChars = dynamicContent.length;
 
   // The worst-case bridge cost is the larger of the two: dynamic adds
   // skill table rows, but a minimal-preset install or empty skills/
   // dir falls back to the static constant. Measuring against max keeps
-  // the gate honest across both shapes.
-  const measuredTokens = Math.max(staticTokens, dynamicTokens);
+  // the gate honest across both shapes. The top-line token counts use the
+  // generic divisor for a single diagnostic figure; the per-adapter columns
+  // below use each adapter's own divisor (D6-SA6.1-03).
+  const measuredChars = Math.max(staticChars, dynamicChars);
+  const staticTokens = estimateTokens(staticChars);
+  const dynamicTokens = estimateTokens(dynamicChars);
+  const measuredTokens = estimateTokens(measuredChars);
 
   const perAdapter: AdapterUtilization[] = [];
-  for (const [tool, budgetTokens] of Object.entries(CONTEXT_BUDGET_TOKENS)) {
+  for (const [tool, budgetTokens] of Object.entries(CONTEXT_BUDGET_TOKENS) as [Tool, number][]) {
+    // D6-SA6.1-03: estimate each adapter's bridge cost with its own
+    // chars/token divisor (claude ~3.6, cursor/copilot ~4) so this gate and
+    // the runtime context-budget gate agree on claude instead of diverging.
+    const bridgeTokens = estimateTokens(measuredChars, charsPerTokenFor(tool));
     const utilizationPercent =
-      Math.round((measuredTokens / budgetTokens) * 10_000) / 100; // 2dp
+      Math.round((bridgeTokens / budgetTokens) * 10_000) / 100; // 2dp
     perAdapter.push({
       tool,
       budgetTokens,
-      bridgeTokens: measuredTokens,
+      bridgeTokens,
       utilizationPercent,
       exceedsCeiling: utilizationPercent > maxPercent,
     });

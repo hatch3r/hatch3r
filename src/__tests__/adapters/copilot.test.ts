@@ -1023,6 +1023,90 @@ You are a test agent.`,
     });
   });
 
+  // D9-SA9.3-02 (Cycle 12, D9, P6): the copilot adapter's two P6 enforcement
+  // controls carried zero assertions before this suite — (a) the D9-H-7
+  // orchestrator-only invocation gate (`disable-model-invocation: true` +
+  // `user-invocable: true` on the 5 orchestrator-driven agents, which stops
+  // Copilot auto-spawning implementer/fixer/reviewer/testability/security and
+  // bypassing the delegation protocol — the CHANGELOG #73 failure mode) and
+  // (b) the `## Copilot Enforcement Model` addendum inlined into
+  // copilot-instructions.md. A refactor that reordered the frontmatter builder,
+  // renamed COPILOT_ORCHESTRATOR_ONLY_AGENTS, or dropped the addendum from
+  // innerContent would remove a security control with a green suite; the
+  // snapshot tests are byte-diff (routinely regenerated with -u), so only a
+  // named assertion states the invariant. Field names verified against
+  // https://docs.github.com/en/copilot/reference/custom-agents-configuration
+  // (accessed 2026-07-10).
+  describe("P6 enforcement controls (D9-SA9.3-02)", () => {
+    async function runWithAgentId(
+      agentId: string,
+    ): Promise<Awaited<ReturnType<typeof adapter.generate>>> {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-p6gate-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", `${agentId}.md`),
+        `---\nid: ${agentId}\ntype: agent\ndescription: ${agentId} description\n---\n# ${agentId}\n\nBody.`,
+        "utf-8",
+      );
+      try {
+        return await adapter.generate(agentsDir, makeManifest());
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    // (a) invocation gate — present on every orchestrator-only agent so Copilot
+    // cannot auto-select it (both fields required: disable removes it from the
+    // model pool, user-invocable keeps deliberate human selection).
+    for (const agentId of ["reviewer", "implementer"] as const) {
+      it(`gates auto-invocation on orchestrator-only agent ${agentId} (D9-H-7)`, async () => {
+        const outputs = await runWithAgentId(agentId);
+        const file = outputs.find(
+          (o) => o.path === `.github/agents/hatch3r-${agentId}.agent.md`,
+        );
+        expect(file).toBeDefined();
+        const fm = file!.content.slice(0, file!.content.indexOf(MANAGED_BLOCK_START));
+        expect(fm).toContain("disable-model-invocation: true");
+        expect(fm).toContain("user-invocable: true");
+      });
+    }
+
+    // (a) negative — a non-orchestrator agent keeps neither gate field, so it
+    // stays model-auto-invocable (the gate is scoped to the 5 roles, not blanket).
+    it("does NOT gate a non-orchestrator agent (test-agent gets neither field)", async () => {
+      const outputs = await runWithAgentId("test-agent");
+      const file = outputs.find(
+        (o) => o.path === ".github/agents/hatch3r-test-agent.agent.md",
+      );
+      expect(file).toBeDefined();
+      const fm = file!.content.slice(0, file!.content.indexOf(MANAGED_BLOCK_START));
+      expect(fm).not.toContain("disable-model-invocation");
+      expect(fm).not.toContain("user-invocable");
+    });
+
+    // (b) enforcement addendum — the section header, its normative declaration,
+    // and all three self-detectable drift indicators reach copilot-instructions.md.
+    it("inlines the Copilot Enforcement Model addendum + all three drift indicators", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const instructions = outputs.find(
+        (o) => o.path === ".github/copilot-instructions.md",
+      );
+      expect(instructions).toBeDefined();
+      const body = instructions!.content;
+      expect(body).toContain("## Copilot Enforcement Model");
+      expect(body).toContain("are normative, not advisory");
+      expect(body).toContain("Self-detectable drift indicators");
+      // Indicator 1: missing pipeline-state header on a tracked Tier 2+ task.
+      expect(body).toContain("Missing pipeline-state header on a tracked Tier 2+ task");
+      // Indicator 2: a code-writing tool call before the Tier 3 Pre-Impl Summary.
+      expect(body).toContain("replace_string_in_file");
+      expect(body).toContain("Pre-Implementation Summary on a Tier 3 task");
+      // Indicator 3: an orchestrator Edit/Write not following an implementer SUCCESS.
+      expect(body).toContain("did not immediately follow a SUCCESS report from");
+    });
+  });
+
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
   // Copilot's skills surface is filtered by `manifest.cliTools.selected` via

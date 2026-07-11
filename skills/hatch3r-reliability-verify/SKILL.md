@@ -3,7 +3,7 @@ id: hatch3r-reliability-verify
 name: hatch3r-reliability-verify
 type: skill
 description: Reliability verification gate before declaring an agent-produced service done — SLO defined, kill switch, timeouts, retries, probes, runbook, staged rollout
-tags: [review, devops]
+tags: [reliability, review, devops]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

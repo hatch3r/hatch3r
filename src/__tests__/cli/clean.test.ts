@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach, type MockInstance } from "vitest";
-import { HatchError, type HatchManifest } from "../../types.js";
+import { HatchError, ERROR_CODE_TO_EXIT_CODE, type HatchManifest } from "../../types.js";
 
 // ── Mock all external dependencies before imports ─────────────
 
@@ -186,7 +186,12 @@ describe("cleanCommand", () => {
     );
     vi.mocked(inquirer.prompt).mockResolvedValueOnce({ proceed: false });
 
-    await expect(cleanCommand()).rejects.toThrow(HatchError);
+    // D3-SA3.2-10: assert the differentiated exit code, not just the error
+    // type. A user-declined clean is a clean cancel → exit 0 (cli-ux-standards:
+    // "0 = success / clean user cancel"), distinct from any real-failure exit.
+    const err = await cleanCommand().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HatchError);
+    expect((err as HatchError).exitCode).toBe(0);
 
     expect(inquirer.prompt).toHaveBeenCalledWith(
       expect.arrayContaining([
@@ -695,6 +700,98 @@ describe("cleanCommand", () => {
       expect(consoleSpy).not.toHaveBeenCalled();
     } finally {
       stdoutSpy.mockRestore();
+    }
+  });
+
+  // ── D3-SA3.2-10: differentiated exit codes on failure paths ──────────────
+  //
+  // The cancel path (asserted above) exits 0; the reinit-failure path throws
+  // CLEAN_ERROR (exit 74). Assert the differentiated code at the throw site,
+  // not just the HatchError type — a regression swapping CLEAN_ERROR for
+  // UNKNOWN_ERROR (70) would break the documented CI exit-code contract
+  // (docs/troubleshooting.md → Exit Codes) while still passing a type-only
+  // assertion.
+  it("reinit failure throws CLEAN_ERROR with the mapped exit code (D3-SA3.2-10)", async () => {
+    const manifest = makeManifest();
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      hatch3rDir: true,
+      manifest,
+    });
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [],
+      errors: [],
+    });
+    vi.mocked(analyzeRepo).mockResolvedValue(makeRepoInfo());
+    // A non-cancel failure inside runInit → clean wraps it as CLEAN_ERROR.
+    vi.mocked(runInit).mockRejectedValue(new Error("init boom"));
+    vi.mocked(inquirer.prompt)
+      .mockResolvedValueOnce({ proceed: true })
+      .mockResolvedValueOnce({ reinit: true });
+
+    const err = await cleanCommand().catch((e: unknown) => e);
+    expect(err).toBeInstanceOf(HatchError);
+    expect((err as HatchError).errorCode).toBe("CLEAN_ERROR");
+    expect((err as HatchError).exitCode).toBe(ERROR_CODE_TO_EXIT_CODE.CLEAN_ERROR);
+  });
+
+  // ── D1-SA1.3-07: `--learnings` snapshot must restore the wiped user state ──
+  //
+  // Before the fix, cleanSnapshotPaths covered only adapter outputs + manifest,
+  // so the "Revert with: hatch3r rollback" line the summary prints on a
+  // --learnings run was a false recovery promise — a rollback restored the
+  // adapter files but the wiped learnings/handoffs stayed gone. This exercises
+  // the REAL snapshot module against a temp repo: wipe real learnings/handoffs,
+  // then roll back and assert the files return byte-for-byte.
+  it("--learnings captures wiped learnings/handoffs into the snapshot so rollback restores them (D1-SA1.3-07)", async () => {
+    const os = await import("node:os");
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const { listSnapshots, applyRollback } = await import("../../pipeline/snapshot.js");
+
+    const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), "hatch3r-clean-learnings-"));
+    try {
+      const learningFile = path.join(tmpRoot, ".hatch3r", "learnings", "LRN-1.md");
+      const handoffFile = path.join(tmpRoot, ".hatch3r", "handoffs", "h-42.json");
+      await fs.mkdir(path.dirname(learningFile), { recursive: true });
+      await fs.mkdir(path.dirname(handoffFile), { recursive: true });
+      await fs.writeFile(learningFile, "learning body\n");
+      await fs.writeFile(handoffFile, '{"id":42}\n');
+
+      // Run cleanCommand against the real temp repo (not the /fake/repo stub).
+      cwdSpy.mockReturnValue(tmpRoot);
+
+      const inv = makeInventory({
+        adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+        hatch3rDir: true,
+      });
+      vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+      vi.mocked(executeClean).mockResolvedValue({ removed: [], kept: [], errors: [] });
+
+      await cleanCommand({ yes: true, learnings: true });
+
+      // The wipe removed both user-state files from disk.
+      await expect(fs.access(learningFile)).rejects.toThrow();
+      await expect(fs.access(handoffFile)).rejects.toThrow();
+
+      // A single pre-clean snapshot exists and its captured paths include the
+      // wiped learnings + handoff (the fix — previously absent from the set).
+      const sessions = await listSnapshots({ projectRoot: tmpRoot });
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0].paths).toEqual(
+        expect.arrayContaining([learningFile, handoffFile]),
+      );
+
+      // The advertised rollback actually restores the wiped user state.
+      const rollback = await applyRollback(sessions[0].sessionId, { projectRoot: tmpRoot });
+      expect(rollback.errors).toEqual([]);
+      expect(await fs.readFile(learningFile, "utf-8")).toBe("learning body\n");
+      expect(await fs.readFile(handoffFile, "utf-8")).toBe('{"id":42}\n');
+    } finally {
+      const { rm: rmReal } = await import("node:fs/promises");
+      await rmReal(tmpRoot, { recursive: true, force: true });
     }
   });
 });

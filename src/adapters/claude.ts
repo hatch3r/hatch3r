@@ -595,14 +595,36 @@ function isClaudeRecognizableModel(model: string): boolean {
  * `.claude/agents/` directory; `permissionMode` is ignored ONLY for plugin
  * subagents (same source), which is not the emission path here.
  *
- * Deferred to a CL-2 content-gap candidate (per the D9-11 fix's "spawn as a
- * CL-2 candidate" directive): the remaining native fields need per-agent design
- * rather than a one-line policy derivation — the `mcpServers:` frontmatter field
- * for `hatch3r-researcher` (whether to inline per-server config vs reference
- * `.mcp.json`), `memory: project` for `hatch3r-learnings-loader` (which also
- * auto-enables Write/Edit, in tension with that agent's readonly policy + the
- * plan mode set here — the conflict is the design question), `maxTurns` ceilings,
- * and `skills:` preload lists. Those are intentionally NOT emitted in this wave.
+ * CL-2 capability-utilization inventory (D9-SA9.1-05, Cycle 12) — the tracking
+ * home for the deferred Claude Code subagent surface. Before this inventory the
+ * deferral (per the D9-11 fix's "spawn as a CL-2 candidate" directive) was an
+ * unanchored prose note invisible to the next cycle's D9 scan; anchoring the full
+ * unused-field set to D9-SA9.1-05 makes it greppable so it surfaces as a CL-2
+ * candidate instead of silently re-deferring each wave. The adapter emits 5
+ * subagent frontmatter fields today (`description`, `tools`, `disallowedTools`,
+ * `model`, `permissionMode`) against a documented surface of ~15
+ * (code.claude.com/docs/en/sub-agents, accessed 2026-07-10). Documented-but-
+ * unemitted, each needing per-agent design rather than a one-line policy
+ * derivation, in priority order:
+ *   1. `maxTurns` — HIGHEST priority: a per-subagent turn ceiling. No field the
+ *      adapter emits today bounds sub-agent turn count, so this is the one
+ *      runaway-cost guard for every spawned hatch3r sub-agent.
+ *   2. `memory: project` — for `hatch3r-learnings-loader` (also auto-enables
+ *      Write/Edit, in tension with that agent's readonly policy + the plan mode
+ *      set here — that conflict IS the design question this candidate resolves).
+ *   3. `mcpServers:` — inline per-server config vs referencing `.mcp.json`. Only
+ *      the frontmatter-field half remains; the tool-reachability half is closed
+ *      (see the D2-SA2.4-01 note below).
+ *   4. `skills:`, `hooks:`, `background`, `isolation`, `effort`, `initialPrompt`,
+ *      and the requested `cwd`/`additionalDirectories`
+ *      (github.com/anthropics/claude-code/issues/31940, accessed 2026-07-10).
+ * Native hook events documented but not mapped by {@link mapToClaudeEvent}:
+ * `InstructionsLoaded` (the docs' recommended debugging hook — reports which
+ * instruction files actually loaded), `PreCompact`, `TaskCreated`,
+ * `SubagentStop`, `PostToolUseFailure`, `StopFailure`. All intentionally NOT
+ * emitted in this wave; recorded here as CL-2 enhancement candidates, not removal
+ * candidates (≥10 unused rows → escalate per the web-comparison-content-audit
+ * routing, not prune).
  *
  * D2-SA2.4-01 (Cycle 12, P3) — the MCP *reachability* half of the `mcpServers:`
  * deferral is no longer open: an enumerated Claude `tools:` list excludes every

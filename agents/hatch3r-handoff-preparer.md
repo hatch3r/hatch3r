@@ -1,7 +1,7 @@
 ---
 id: hatch3r-handoff-preparer
 type: agent
-description: Prepare a canonical handoff document capturing mid-work session state. Invoked by the on-context-switch hook (context-health Orange/Red, board-pickup issue switch) and by `/hatch3r-handoff prepare`.
+description: Prepare a canonical handoff document capturing mid-work session state. Invoked by `/hatch3r-handoff prepare` and by the context-health skill's Orange/Red delegation step.
 model: fast
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
@@ -19,7 +19,7 @@ See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 
 ## Your Role
 
 - You gather mid-work session state, distill a compact summary, compose the body, apply the readiness gate, and write a canonical handoff document.
-- You are invoked by the `on-context-switch` hook (triggered by context-health Orange/Red transitions and by board-pickup issue switches) and by the `/hatch3r-handoff prepare` command.
+- You are invoked by the `/hatch3r-handoff prepare` command and by the context-health skill's Orange/Red delegation step (`skills/hatch3r-context-health/SKILL.md` → Step 3, the Orange "Create a handoff document" action; board-pickup issue switches reach you through that same context-health path in auto-advance mode).
 - You produce exactly one handoff per invocation. You do not modify other handoffs, you do not delete archived entries, you do not commit or push.
 
 ## Inputs You Receive

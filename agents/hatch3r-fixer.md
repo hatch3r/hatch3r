@@ -168,7 +168,7 @@ The placeholder above is rewritten by the adapter pipeline (`substituteVerifyGat
 
 Report back to the parent orchestrator with:
 
-The `Delegation proof ID` field below is a short identifier the orchestrator quotes verbatim in its closing End-of-Turn Delegation Attestation (defined in `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation). Set it to a memorable token derived from the review iteration or task (e.g., `fix-#34-pr-iter2` or `fix-feat-followup-stream-1`); the orchestrator cannot fabricate a plausible value without spawning this agent first, so the field functions as a forgery-resistant attribution token for files mutated by Phase 3 (closes the gap previously left by emitting no analogue to the implementer's proof field — audit Cycle 10 F5.1-H1).
+The `Delegation proof ID` field below is a short identifier the orchestrator quotes verbatim in its closing End-of-Turn Delegation Attestation (defined in `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation). Derive it so the token co-varies with the work product, not with values the orchestrator already holds: a memorable prefix plus a short hash (6-8 hex chars) of the `Files changed` list below concatenated with a one-line digest of the fix content — e.g., `fix-#34-pr-iter2-a3f9c1`. Do NOT derive it from only the issue number and iteration index (a bare `fix-#34-pr-iter2`): those are known to the orchestrator a priori, so such a token attributes nothing. Binding the hash to the actual diff is what raises forgery friction — an orchestrator that skipped spawning this agent has no fix output to hash, so a fabricated value cannot match the files it claims. Treat the field as a self-quoted (class-3) attribution signal: it raises the cost of a forged attestation but is not unforgeable, so when a stronger evidence class exists cite that instead — the on-disk fix-result file (class 2) or a platform-recorded Task invocation (class 1). It attributes files mutated by Phase 3 (closes the gap previously left by emitting no analogue to the implementer's proof field — audit Cycle 10 F5.1-H1).
 
 The `Reviewer re-run required` field is an **advisory** signal to the parent orchestrator; its authoritative value is **derived**, not self-asserted. The single source of truth is the `Files changed` list below (itself attested by the `Delegation proof ID`): the orchestrator computes `reRunRequired = (Files changed is non-empty)` and MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean whenever that derivation is `true` — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. The orchestrator honor-rule that performs this derivation and overrides a contradictory self-report lives at `rules/hatch3r-agent-orchestration.md` -> Post-Implementation Quality Pipeline -> Phase 3 step 2. Set the advisory boolean to match: `false` ONLY when `Files changed` is empty (e.g., all findings reported BLOCKED); a `false` printed alongside a non-empty `Files changed` is a self-declared protocol violation the orchestrator overrides to `true`. This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by binding the reviewer-loop continuation signal to the SSOT `Files changed` list rather than relying on a free-standing self-asserted boolean or the orchestrator-LLM to remember the protocol.
 
@@ -177,7 +177,7 @@ The `Reviewer re-run required` field is an **advisory** signal to the parent orc
 
 **Status:** SUCCESS | PARTIAL | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER (canonical escalation enum per `agents/shared/quality-charter.md` §17)
 
-**Delegation proof ID:** <short identifier — orchestrator quotes this verbatim in its End-of-Turn Delegation Attestation>
+**Delegation proof ID:** <memorable prefix + short hash of the Files changed list + fix content — orchestrator quotes this verbatim in its End-of-Turn Delegation Attestation>
 
 **Reviewer re-run required:** true | false (advisory — orchestrator derives the authoritative value as `Files changed` non-empty; print `true` whenever the `Files changed` list below has ≥1 entry, `false` only when it is empty)
 
@@ -251,7 +251,7 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 
 **Status:** SUCCESS
 
-**Delegation proof ID:** fix-#34-pr-iter2
+**Delegation proof ID:** fix-#34-pr-iter2-a3f9c1
 
 **Reviewer re-run required:** true
 

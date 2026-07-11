@@ -2305,3 +2305,87 @@ describe("hatchJson", () => {
     });
   });
 });
+
+// ── Property-based invariants (D3-SA3.5-04) ──────────────────────
+//
+// CQ5 self-application: rules/hatch3r-testing.md §Property-Based Testing binds
+// framework-dev on invariant-bearing functions. migrateManifest documents an
+// idempotency contract in its source ("running the registry twice on the same
+// input MUST produce the same output"); this suite pins that contract as a
+// property over generated raw manifests instead of a handful of fixed cases.
+// A seeded vitest-native generator (mulberry32) stands in for `fast-check`
+// until that devDependency is added to package.json. Policy split:
+// .claude/rules/test-requirements.md → "CQ5 self-application scope".
+describe("migrateManifest — property-based idempotency (D3-SA3.5-04)", () => {
+  // Deterministic PRNG (mulberry32) — no Math.random / wall-clock, so the
+  // suite is reproducible per the Determinism Contract.
+  function makePrng(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  function pick<T>(rng: () => number, xs: readonly T[]): T {
+    return xs[Math.floor(rng() * xs.length)];
+  }
+
+  // Generate a varied raw (pre-migration) manifest exercising every migration
+  // branch: version bumps (1->2->3), namespace/project defaulting, agents-md
+  // tool removal, and the _shared sentinel drop.
+  function genRawManifest(rng: () => number): Record<string, unknown> {
+    const m: Record<string, unknown> = {};
+    if (rng() > 0.2) m.version = pick(rng, ["1.0.0", "2.0.0", "3.0.0"]);
+    if (rng() > 0.3) m.owner = pick(rng, ["acme", "octo", ""]);
+    if (rng() > 0.3) m.repo = pick(rng, ["app", "svc", ""]);
+    if (rng() > 0.6) m.namespace = pick(rng, ["ns", "custom-ns"]);
+    if (rng() > 0.6) m.project = pick(rng, ["proj", "custom-proj"]);
+    if (rng() > 0.4) {
+      m.tools = ["cursor", "claude", "copilot", "agents-md"].filter(() => rng() > 0.5);
+    }
+    if (rng() > 0.5) {
+      const mfba: Record<string, unknown> = { cursor: [".cursor/rules/x.mdc"] };
+      if (rng() > 0.5) mfba._shared = ["AGENTS.md"];
+      m.managedFilesByAdapter = mfba;
+    }
+    return m;
+  }
+
+  it("is idempotent — migrate(migrate(x)) deep-equals migrate(x) over 300 generated manifests", () => {
+    const rng = makePrng(0x51ed);
+    for (let i = 0; i < 300; i++) {
+      const raw = genRawManifest(rng);
+      const once = migrateManifest(raw);
+      const twice = migrateManifest(once);
+      expect(twice, `idempotency broke on iteration ${i}: ${JSON.stringify(raw)}`).toEqual(once);
+    }
+  });
+
+  it("holds the terminal migration invariants for every generated input", () => {
+    const rng = makePrng(0x9c17);
+    for (let i = 0; i < 300; i++) {
+      const raw = genRawManifest(rng);
+      const out = migrateManifest(raw);
+      // A versioned input always lands on 3.0.0 (chained 1->2->3).
+      if (raw.version !== undefined) {
+        expect(out.version, `version not terminal on iter ${i}`).toBe("3.0.0");
+      }
+      // namespace/project are always defined strings post-migration.
+      expect(typeof out.namespace).toBe("string");
+      expect(typeof out.project).toBe("string");
+      // agents-md is stripped from tools[].
+      if (Array.isArray(out.tools)) {
+        expect(out.tools).not.toContain("agents-md");
+      }
+      // The _shared sentinel bucket is dropped from managedFilesByAdapter.
+      if (out.managedFilesByAdapter && typeof out.managedFilesByAdapter === "object") {
+        expect(
+          Object.keys(out.managedFilesByAdapter as Record<string, unknown>),
+        ).not.toContain("_shared");
+      }
+    }
+  });
+});

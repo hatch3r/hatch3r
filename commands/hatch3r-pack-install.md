@@ -98,7 +98,7 @@ Read the pack's `pack-manifest.json` (§5.1): `pack_id`, `version`, `hatch3r_min
 
 #### 1c. Halt on missing source
 
-If no `<pack-source>` was supplied, halt verbatim (P1 actionable-error contract, `.claude/rules/cli-ux-standards.md`):
+If no `<pack-source>` was supplied, halt verbatim (P1 actionable-error contract):
 
 ```
 No pack source supplied.

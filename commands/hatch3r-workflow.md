@@ -2,7 +2,7 @@
 id: hatch3r-workflow
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability, hatch3r-edge-case-analyst]
 description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -14,7 +14,7 @@ triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:
   count: 15
-  rationale: Full 4-phase delivery pipeline — researcher (Phase 1), implementer (one per independent module, Phase 3), reviewer ↔ fixer review loop (Phase 4a), then a parallel Phase-4b final-quality batch (docs-writer + lint-fixer + CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability — testability and security cover the always-on test + security gates) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  rationale: Full delivery pipeline across the canonical phases (1 Research → 2 Implement → 3 Review Loop → 4 Final Quality per the Phase Crosswalk) — researcher (canonical phase 1), implementer (one per independent module, canonical phase 2), reviewer ↔ fixer review loop (canonical phase 3), then a parallel Final-Quality batch (canonical phase 4 — docs-writer + lint-fixer + CQ1-CQ9 vector specialists ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability — testability and security cover the always-on test + security gates) bounded by max_phase4_parallel. The count of 15 is the standard Full Tier 3 fan-out; `hatch3r-edge-case-analyst` is listed as a conditional CQ4/CQ5 supporting analyst (phase_4_trigger-gated on multi-entity wiring), spawned beyond the baseline only when the diff wires ≥2 domain entities. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -23,7 +23,7 @@ sub_agents_spawned:
 
 # Development Workflow -- Guided Lifecycle for Structured Implementation
 
-Optional guided development lifecycle command that walks through structured phases — Analyze, Plan, Implement, Review — using hatch3r's existing agents and skills. Includes a Quick Mode that collapses phases for small tasks. Scale-adaptive: detects task complexity and recommends the appropriate mode. Works standalone or when invoked from `hatch3r-board-pickup`.
+Optional guided development lifecycle command that walks through structured phases — Analyze, Plan, Implement, Review — using hatch3r's existing agents and skills. Includes a Quick Mode that collapses phases for small tasks. Scale-adaptive: detects task complexity and recommends the appropriate mode. `/workflow` is the standalone (no-board) delivery path; `hatch3r-board-pickup` runs this same 4-phase pipeline inline (see `commands/board/pickup-delegation.md`) rather than invoking this command — same pipeline shape, separate entry points.
 
 ---
 
@@ -181,7 +181,7 @@ Auto-tiering (Step 0 mode selection) can misclassify — a single-file edit scor
 
 - **GitHub issue:** Read issue body, acceptance criteria, labels, parent epic context using `gh issue view` (fall back to `issue_read` MCP).
 - **User description:** Extract requirements, scope, constraints from the provided description.
-- **Board-pickup invocation:** Use the issue context already gathered by board-pickup. Skip re-fetching.
+- **No board-pickup handoff:** `/workflow` runs standalone, so Phase 1a always fetches issue context fresh; `hatch3r-board-pickup` gathers its own context inside its inline pipeline and does not invoke this command (see Integration with Board Workflow).
 
 #### 1b. Complexity Scoring and Deep Context
 
@@ -307,7 +307,7 @@ You MUST spawn a `hatch3r-researcher` sub-agent via the Task tool (`subagent_typ
 You MUST spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Do NOT implement inline — always delegate to a dedicated implementer.
 
 1. Read the matching hatch3r skill file and include it in the implementer prompt.
-2. Do NOT execute the skill's PR creation steps if invoked from `hatch3r-board-pickup` (board-pickup handles PR creation in its own Steps 7a–8).
+2. Do NOT execute the skill's PR creation steps inline — standalone `/workflow` leaves the PR decision to the user at the end of Phase 4 (see Integration with Board Workflow). (`hatch3r-board-pickup` owns PR creation in its own inline pipeline, Steps 7a–8 — not via this command.)
 3. For tasks spanning multiple independent parts, spawn one `hatch3r-implementer` per independent module. Launch as many in parallel as the platform supports.
 4. Coordinate changes across files to avoid conflicts.
 
@@ -353,16 +353,17 @@ Fix any issues before proceeding. If quality checks fail, loop back and resolve 
 
 Spawn a `hatch3r-reviewer` sub-agent via the Task tool (`subagent_type: "generalPurpose"`). Include the diff and acceptance criteria in the prompt.
 
-1. **Review:** Await the reviewer result. Extract Critical and Warning findings AND the reviewer's top-level `confidence` field (high/medium/low).
-2. **Confidence-aware gate** (the second-pass trigger tightens with the `--confidence-floor` set in Step 0.7 — `any` = default below, `medium`/`high` raise the bar). First resolve the reviewer `confidence` field per the Confidence Propagation Contract absent-confidence clause: an absent or unparseable value is treated as `low` (it does NOT satisfy `!= low`), matching the code gate where `unknown` ranks below `low`.
-   - **0 Critical + 0 Warning AND reviewer confidence == high or medium:** Review loop is clean. Proceed to 4b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
-   - **0 Critical + 0 Warning AND reviewer confidence == low (including absent/unparseable, resolved to `low` above):** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns high/medium confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
-3. **If Critical or Warning findings exist:** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points).
+1. **Review:** Await the reviewer result. Extract Critical and Warning findings, the reviewer verdict (`APPROVE` / `REQUEST CHANGES` / `DESIGN_OBJECTION`), AND the reviewer's top-level `confidence` field (high/medium/low).
+   - **Design-objection early exit (before the confidence gate and any fixer dispatch):** If the reviewer verdict is `DESIGN_OBJECTION` — a fundamental design flaw that cannot be fixed by iterating on the current code, distinct from Critical/Warning findings (`agents/hatch3r-reviewer.md` → Review Verdicts; Review Loop Termination Conditions #2) — do NOT run the confidence gate and do NOT spawn `hatch3r-fixer`. Terminate the review loop immediately and **ASK** the user with the objection rationale plus the reviewer's ≥1 alternative approach, mirroring the `hatch3r-board-fill` forced-termination branch and the `terminateReviewLoopDesignObjection` helper in `src/pipeline/reviewLoop.ts`. This routes the objection to the architectural decision the reviewer requested instead of cycling the fixer on an unfixable premise. On exit, reconcile the findings ledger per step 5's run-exit invariant.
+2. **Confidence-aware gate** (the second-pass trigger tightens with the `--confidence-floor` set in Step 0.7 — `any` = default below, `medium`/`high` raise the bar). First resolve the reviewer `confidence` field per the Confidence Propagation Contract absent-confidence clause: an absent or unparseable value is treated as `low` (it does NOT satisfy `!= low`), matching the code gate where `unknown` ranks below `low`. **Then reconcile (D13-21):** derive the deterministic iteration signal `reviewLoopConfidence` (`low` if the loop took ≥3 iterations or terminated non-clean, else `high`/`medium` by iteration count; `src/pipeline/reviewLoop.ts`) and evaluate the floor against `effectiveConfidence = min(reviewLoopConfidence, self-assigned reviewer confidence)` by rank, mirroring `evaluateReviewGate` and `agents/shared/confidence-gate.md`. Read the bullets below against `effectiveConfidence` — the reconciled value — not the raw self-rating; the deterministic signal caps an over-confident self-rating, so a `medium` self-rating on a 3-iteration loop reconciles to `low` and forces the second pass.
+   - **0 Critical + 0 Warning AND effective confidence == high or medium:** Review loop is clean. Proceed to 4b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
+   - **0 Critical + 0 Warning AND effective confidence == low (including absent/unparseable, resolved to `low` above):** Trigger a second reviewer pass before exiting. Do not proceed to 4b until the second pass returns high/medium confidence OR the user explicitly accepts the low-confidence PASS at the ASK checkpoint in step 5.
+3. **If Critical or Warning findings exist (and the verdict is NOT `DESIGN_OBJECTION` — see the design-objection early exit under step 1):** Spawn a `hatch3r-fixer` sub-agent with the reviewer output. The fixer applies fixes for all Critical and Warning findings — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points).
 4. **Re-review:** After the fixer completes, spawn `hatch3r-reviewer` again to verify fixes.
 5. **Repeat** steps 2-4 for a maximum of **3 iterations** (code-class cap). If still not clean after 3 iterations, **ASK** the user how to proceed (force continue / manual fix / abort). The ASK lists each open `finding_id` with its legal closures (fix manually / defer → todo.md anchor / accept risk — user-attested only); on exit, reconcile the ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`); in `--auto` mode record open findings as `escalated` and exit PARTIAL.
    - **Suggestion terminalization (W5):** every Suggestion row goes terminal at loop exit — `surfaced` (ID on the recap's `Open findings:` line), `deferred` (todo.md anchor), or `declined` (quoted user reply); unattended default is `surfaced` (`rules/hatch3r-findings-ledger.md`).
 
-> **Iteration-cap rationale (D10-SA10.7-F10.7.7).** Code reviews diverge faster than spec reviews — a code finding can spawn a regression the next iteration must catch — so the code-class loop here caps at 3. The spec-class loop in `hatch3r-board-fill` Step 7.9d caps at 4 because issue-spec reviews converge more slowly and deterministically (text refinement, no runtime regressions). Both are bounded below `DEFAULT_MAX_REVIEW_ITERATIONS` (4) in `src/pipeline/reviewLoop.ts`, which keeps the oscillation detector reachable in default config. Expected convergence is 1–2 iterations; the cap is the divergence backstop, not the target.
+> **Iteration-cap rationale (D10-SA10.7-F10.7.7).** Code reviews diverge faster than spec reviews — a code finding can spawn a regression the next iteration must catch — so the code-class loop here caps at 3. The spec-class loop in `hatch3r-board-fill` Step 7.9d caps at 4 because issue-spec reviews converge more slowly and deterministically (text refinement, no runtime regressions). The code-class cap (3) sits one below `DEFAULT_MAX_REVIEW_ITERATIONS` (4) in `src/pipeline/reviewLoop.ts`; the spec-class cap (4) equals it. The cap is set from convergence economics (Finding D7-16), not from oscillation-detector reachability — the detector is decoupled and fires at `history.length >= 3` independent of the cap. Expected convergence is 1–2 iterations; the cap is the divergence backstop, not the target.
 
 After each reviewer iteration, assess the reviewer's findings confidence: if the reviewer rates any finding as low-confidence, flag it separately in the ASK prompt so the user can prioritize human review of uncertain findings. The reviewer sub-agent output MUST include a top-level `confidence: high | medium | low` field (not just per-finding) so step 2 can evaluate it deterministically.
 
@@ -402,6 +403,8 @@ Spawn **all triggered CQ specialists (CQ1-CQ9) per `SPECIALIST_TRIGGER_TABLE`** 
 
 (`hatch3r-architect` and `hatch3r-devops` are also conditional in `SPECIALIST_TRIGGER_TABLE` but are not CQ-vector specialists; spawn them too when their architectural / CI-CD triggers match.)
 
+**Supporting edge-case analyst (conditional, not in `SPECIALIST_TRIGGER_TABLE`):** spawn `hatch3r-edge-case-analyst` when its own `phase_4_trigger` conditions match — the diff wires ≥2 domain entities, or adds a state-machine / uniqueness / data-mutation path reachable by more than one actor. It enumerates the domain edge-case + error-handling ledger and verifies zero dropped cases between Plan, Implement, and Review, handing the missing-test subset to `hatch3r-testability` and the missing-handling subset to `hatch3r-fixer`. It is a CQ4/CQ5 supporting analyst, not a CQ primary (`hatch3r-reliability` / `hatch3r-testability` retain ownership). This realizes the reviewer's MAY-delegate path (`agents/hatch3r-reviewer.md`) through the workflow `agentPipeline`, so the analyst is no longer the only trigger-bearing agent the command omits.
+
 > **Single source of truth for triggers (D6-M11):** the canonical trigger map lives in `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` and the predicate `shouldTriggerSpecialist(specialist, changedFiles, projectType)` returns `{ triggered, reasons, mandatory? }` for any specialist. The brief prose list above is a quick reference only; for the authoritative trigger evaluation at runtime, call `shouldTriggerSpecialist` from the orchestrator harness (or the equivalent mirror in `rules/hatch3r-agent-orchestration.md` → Phase 4 Specialist Trigger Table). Adding a specialist to the prose without updating the TS table is rejected by `npm run validate:specialist-roster`.
 
 Each specialist sub-agent prompt MUST include:
@@ -424,7 +427,15 @@ Before clearing the review gate, run a duplication scan on the working-tree diff
 
 1. Run `npx jscpd --min-lines 40 --threshold 80 --reporters json --silent <changed-paths>` (or the project's configured duplication tool). The gate fires when any cross-file clone block is **≥40 lines OR ≥80% byte-similar**.
 2. **If a clone is detected:** route the duplication report back to `hatch3r-fixer` to extract the shared logic (DRY refactor), then re-run 4b.1 re-review on the refactored files. Max 1 duplication-fix iteration; if it persists, surface to the user with the clone locations.
-3. **If no clone is detected:** proceed to 4c. Skip silently when the diff touches a single file (no cross-file clone possible).
+3. **If no clone is detected:** proceed to 4b.3. Skip silently when the diff touches a single file (no cross-file clone possible).
+
+#### 4b.3. Consolidate Cross-Specialist Findings (D7-SA7.3-04)
+
+The Phase-4b batch fans out up to 13 specialists over one diff, and adjacent CQ vectors own overlapping surfaces (ui + ux both cover the four-state / error-state surface; performance + scalability both cover the query / connection-pool path; maintainability + enhancability both cover the API-surface change), so ≥2 specialists can surface the same underlying finding. §4b.2 dedups *code* (jscpd); this step dedups *findings*. After awaiting all specialists and before §4c, consolidate the union of specialist findings:
+
+1. Two findings are the same finding when at least **2 of 3** signals match: same **File**, same **Root Cause**, same **Recommendation**.
+2. For each duplicate cluster, keep the highest-severity instance and record the co-reporting specialists as sub-points (reuse the `rules/hatch3r-findings-ledger.md` finding vocabulary) — the user sees one finding attributed to N specialists in §4d, not N near-identical rows.
+3. Count distinct Criticals from the consolidated set: a Critical that two specialists both surface is **one** unresolved Critical, not two. Feed the deduplicated distinct-Critical count into §4d and attribute each shared Critical to a single `SpecialistResult.criticalCount`. (The typed `evaluatePhase4Completion` gate in `src/pipeline/pipelineContext.ts` sums `criticalCount` per specialist; attributing a shared Critical once here keeps that sum at the distinct count.)
 
 #### 4c. Verify Against Acceptance Criteria
 
@@ -444,7 +455,10 @@ Review Results:
   Performance: {pass/issues}
   Overall Confidence: {high/medium/low}
     Lowest-confidence area: {description or "none"}
+    Review independence: {different-family = provider-independent | same-family or not-declared = self-preference bias possible, clean PASS is not provider-independent}
 ```
+
+The `Review independence` line reports the reviewer↔fixer `verdictIndependence` (`src/pipeline/reviewLoop.ts`). hatch3r's default routes both agents to one model family, so a clean PASS carries LLM self-preference bias — treat it as a weaker merge signal and prefer independent human review before merge. It reads `different-family` only when a pack integrator routes the two agents to distinct providers. This mirrors the `Review independence` exception line in `rules/hatch3r-iteration-summary.md`, surfacing the caveat at the merge-readiness decision point rather than only in the audit trail.
 
 **ASK:** "Review complete. {summary}. Ready to finalize? (yes / address review issues / request human review)"
 
@@ -483,7 +497,7 @@ Same two-stage pipeline as Full Mode, with lighter prompts:
 **Stage 1 — Review Loop:**
 
 1. Spawn **`hatch3r-reviewer`** with a focused prompt covering correctness and quality. Extract Critical/Warning findings AND the reviewer's top-level `confidence` field.
-2. If Critical or Warning findings exist, spawn **`hatch3r-fixer`**, then re-review. Max 3 iterations.
+2. If the reviewer verdict is `DESIGN_OBJECTION`, do NOT spawn the fixer — terminate the loop and **ASK** the user with the objection rationale plus the reviewer's ≥1 alternative approach (parity with Full Mode 4a design-objection early exit). Otherwise, if Critical or Warning findings exist, spawn **`hatch3r-fixer`**, then re-review. Max 3 iterations.
 3. **Confidence-aware gate (parity with Full Mode 4a step 2 — the `--confidence-floor` from Step 0.7 is NOT inert in Quick Mode):** resolve an absent/unparseable reviewer `confidence` to `low` per the Confidence Propagation Contract, then apply the same floor branch as Full Mode 4a:
    - **0 Critical + 0 Warning AND confidence == high or medium:** clean — proceed to Stage 2. (Floor `medium`: also force a second pass on any finding `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
    - **0 Critical + 0 Warning AND confidence == low (including absent/unparseable):** trigger a second reviewer pass before exiting; do not proceed to Stage 2 until it returns high/medium confidence OR the user accepts the low-confidence PASS at the finalize ASK.
@@ -496,11 +510,12 @@ Same two-stage pipeline as Full Mode, with lighter prompts:
 7. Verify acceptance criteria are met (rate each criterion high/medium/low per Full Mode 4c).
 8. Confirm lint/typecheck/test pass.
 
-Before the finalize ASK, emit an `Overall Confidence` line (parity with Full Mode 4d) sourced from the lowest upstream confidence across reviewer, testability, security, and the acceptance-criteria checks:
+Before the finalize ASK, emit an `Overall Confidence` line (parity with Full Mode 4d, including its `Review independence` caveat) sourced from the lowest upstream confidence across reviewer, testability, security, and the acceptance-criteria checks:
 
 ```
 Overall Confidence: {high/medium/low}
   Lowest-confidence area: {description or "none"}
+  Review independence: {different-family = provider-independent | same-family or not-declared = self-preference bias possible, clean PASS is not provider-independent}
 ```
 
 **ASK:** "Changes complete. Quality checks pass. Overall confidence: {high/medium/low}. Finalize? (yes / deeper review needed → switch to Full Mode Phase 4)"
@@ -509,18 +524,19 @@ Overall Confidence: {high/medium/low}
 
 ## Integration with Board Workflow
 
-### Invoked from `hatch3r-board-pickup`
+`/workflow` and `hatch3r-board-pickup` share the same 4-phase pipeline **shape** but not a call edge — board-pickup does NOT invoke this command. They are two separate entry points into the same Research → Implement → Review-Loop → Final-Quality pipeline:
 
-- Phase 1 uses the issue context already gathered by board-pickup — skip re-fetching.
-- Phase 3 skips PR creation — board-pickup handles it in its own Steps 7a–8.
-- Phase 4 results feed into board-pickup's quality verification (Step 7).
+### `hatch3r-board-pickup` — board work, pipeline runs inline
 
-When operating with board context, all issue operations MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
+- board-pickup reimplements this identical pipeline **inline** via `commands/board/pickup-delegation.md`: it spawns `hatch3r-researcher`, then `hatch3r-implementer` (with the type-matched skill), then its own `hatch3r-reviewer` ↔ `hatch3r-fixer` review loop, then the final-quality specialists — directly, never by invoking `/workflow`.
+- It gathers its own issue context, runs its own review loop, and owns PR creation in its own later steps (Steps 7a–8).
+- Consequence for maintainers: an edit to this command's phase logic does NOT reach the board path. Mirror any cross-cutting pipeline change into `pickup-delegation.md` as well.
 
-### Invoked Standalone
+### `/workflow` — standalone (no-board) equivalent
 
-- All phases run independently with full context loading.
+- All phases run independently with full context loading; Phase 1 fetches issue context fresh.
 - User decides whether to create a PR at the end of Phase 4.
+- When `/workflow` operates on an issue that lives on a Projects v2 board, all issue operations MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
 
 ---
 
@@ -556,9 +572,9 @@ These checkpoints are NEVER skipped, even in auto mode:
 /hatch3r workflow --auto --mode=quick
 ```
 
-### Auto Mode with Board Pickup
+### Auto Mode Under Board Pickup
 
-When invoked from `hatch3r board-pickup --auto`, the workflow inherits the auto flag. All non-safety ASK checkpoints are automatically resolved. The workflow reports its structured result back to board-pickup for PR creation.
+`hatch3r-board-pickup --auto` does NOT invoke `/workflow` — it runs the same pipeline inline (see Integration with Board Workflow) with its own `--auto` handling. The reduced-checkpoint behavior and Safety Guardrails above apply within board-pickup's inline pipeline, and board-pickup owns PR creation in its Steps 7a–8.
 
 ### Session Report
 
@@ -577,6 +593,8 @@ At the end of an auto workflow session, generate a summary:
 workflow is long-running — a Tier 2/3 run walks the 4-phase delivery pipeline (Analyze → Plan → Implement → Review), fans out one implementer per independent module in Phase 3, and runs a reviewer ↔ fixer loop plus Phase 4b CQ1–CQ9 specialist batch in Phase 4. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed phase rather than re-running researchers or re-implementing already-applied module changes.
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.workflow-workspace/`; step range the command's step progression; `wave` = per-module implementer batch index for Phase 3 and reviewer-fixer iteration count for Phase 4a; snapshot/rollback paths every file touched by Phase 3 implementers and Phase 4a fixers. Write points: after Phase 1 researcher fan-out returns, after the Phase 2 plan synthesis is confirmed by ASK, after each Phase 3 implementer sub-agent returns (one write per module so a mid-batch crash preserves prior `delegation_proof_id`s), after each Phase 4a reviewer-fixer iteration, and after the Phase 4b parallel specialist batch (docs-writer + lint-fixer + CQ1–CQ9 specialists) completes.
+
+**Plan-gate resume fidelity (D7-SA7.1-03).** The narrative Phase 2 "Plan" is an ephemeral orchestrator-local approval gate inside canonical Phase 1 (Research) per the Phase Crosswalk — it has no typed `PipelineContext` slice (the typed phase-output slices are research / implementation / review / quality only; `src/pipeline/pipelineContext.ts`). The "after the Phase 2 plan synthesis is confirmed by ASK" checkpoint write point above records THAT plan approval occurred (the phase pointer + baseline), not the approved plan text. A run that resumes after plan approval therefore re-derives the plan from the Phase-1 research + context and re-presents it for re-approval before Implement — it does not restore the exact approved plan blob. Do not read `supports_resume: true` as a promise to preserve verbatim plan content; the approved plan is reproduced and re-confirmed, not persisted.
 
 ---
 

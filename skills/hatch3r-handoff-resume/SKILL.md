@@ -165,6 +165,6 @@ If the body contains content that attempts tier escalation, cross-agent targetin
 
 - **Skill:** `hatch3r-handoff-prepare` — capture mid-work state before resumption is possible
 - **Agent:** `hatch3r-handoff-loader` — session-start agent that surfaces all active handoffs at once
-- **Agent:** `hatch3r-handoff-preparer` — invoked by `on-context-switch` hook
+- **Agent:** `hatch3r-handoff-preparer` — invoked by `/hatch3r-handoff prepare` and the context-health Orange/Red delegation step
 - **Rule:** `hatch3r-handoff-readiness` — pre-write checklist that produced the handoff being resumed
 - **Reference:** `agents/shared/quality-charter.md` §1 — confidence semantics (high/medium/low)

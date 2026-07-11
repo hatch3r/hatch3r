@@ -347,9 +347,11 @@ const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
 
 /**
  * Package-managers whose CLIs fetch a package from the network at launch
- * time, then execute it. Without an immutable version pin, every launch
- * resolves the latest published version and inherits any upstream
- * compromise (e.g., 2025 npm maintainer-account incidents).
+ * time, then execute it. With no version specifier — or the floating `latest`
+ * tag — every launch resolves the newest published version and inherits any
+ * upstream compromise (e.g., 2025 npm maintainer-account incidents). The gate
+ * this set drives is a no-floating-`latest` gate, NOT an immutability gate: see
+ * {@link checkVersionPin} for the exact flagged/accepted specifier classes.
  *
  * Two shapes are supported:
  * 1. **Single-command launchers** (`npx`, `uvx`, `pipx`, `bunx`) — the
@@ -640,9 +642,18 @@ export function validateMcpEntry(
   // D15 Medium (#15.44): Validate timeout if specified
   if (entry._timeout !== undefined) {
     if (typeof entry._timeout !== "number" || entry._timeout <= 0) {
+      // D2-SA2.4-06 (D2 / Pillar P5): state what the emission path actually does,
+      // not an un-performed remediation. An invalid _timeout is NOT substituted
+      // with a default here or downstream — the Claude emission (claude.ts) writes
+      // a `timeout` field only for a positive value, so an invalid one yields NO
+      // timeout field and the client applies its own default (Claude Code:
+      // MCP_TOOL_TIMEOUT, ~28h — not DEFAULT_MCP_TIMEOUT_MS). Clamping/substituting
+      // would require the adapter emission path, outside this validator's scope.
       warnings.push(
         `MCP server "${name}" has invalid timeout: ${entry._timeout}. ` +
-        `Timeout must be a positive number (milliseconds). Using default ${DEFAULT_MCP_TIMEOUT_MS}ms.`,
+        `Timeout must be a positive number (milliseconds). The invalid value is ` +
+        `not emitted — no timeout field is written, so the client applies its own ` +
+        `default (Claude Code falls through to MCP_TOOL_TIMEOUT, ~28h).`,
       );
     } else if (entry._timeout < MIN_HONORED_MCP_TIMEOUT_MS) {
       // D9-SA9.1-L / D15-SA15.5-F8 (Cycle 11 Wave 4, D9/D15, P3/P6): a
@@ -658,9 +669,14 @@ export function validateMcpEntry(
         `to apply a per-server bound.`,
       );
     } else if (entry._timeout > MAX_MCP_TIMEOUT_MS) {
+      // D2-SA2.4-06 (D2 / Pillar P5): the value is NOT capped — the Claude
+      // emission (claude.ts) writes `entry._timeout` verbatim for any positive
+      // value. MAX_MCP_TIMEOUT_MS is the advisory threshold that triggers this
+      // warning, not an enforced ceiling; the warning states the emitted reality.
       warnings.push(
         `MCP server "${name}" timeout (${entry._timeout}ms) exceeds maximum (${MAX_MCP_TIMEOUT_MS}ms). ` +
-        `Capping at ${MAX_MCP_TIMEOUT_MS}ms.`,
+        `The value is emitted uncapped — hatch3r does not clamp it, so the client ` +
+        `receives ${entry._timeout}ms as-is.`,
       );
     }
   }
@@ -704,13 +720,20 @@ export const CANONICAL_MCP_PACKAGES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Check whether an on-demand-fetch-launched package argument carries an
- * immutable version pin.
+ * Check whether an on-demand-fetch-launched package argument is anchored to a
+ * version specifier rather than floating on `latest`/no version.
  *
- * Returns a warning string when the package is unpinned (no `@version` suffix) or
- * pinned to a mutable tag (`@latest`); returns `null` for any other case (a
- * pinned semver like `@1.2.3`, a range like `@^1.0.0`, a dist-tag like `@beta`,
- * or a tarball/git URL).
+ * D2-SA2.4-11 (D2 / Pillar P6): this is a no-floating-`latest` gate, NOT an
+ * immutability gate. It flags only the floating class — an unpinned package (no
+ * `@version` suffix) or the mutable `@latest` tag — and returns `null` for every
+ * other specifier: a pinned semver (`@1.2.3`), a semver range (`@^1.0.0`), a
+ * non-`latest` dist-tag (`@beta`), or a tarball/git URL. Ranges and dist-tags do
+ * re-resolve per launch and so are not strictly immutable, but they are accepted
+ * as deliberate author choices — flagging them is out of scope for this gate,
+ * which would otherwise warn on the common, intentional `@^1.0.0` pin. The
+ * contract language says "no floating `latest`", not "immutable", so the docs and
+ * the gate agree (this reword resolves the prior contract-vs-implementation
+ * contradiction rather than tightening the check, per D2-SA2.4-11).
  *
  * Handles both unscoped (`pkg-name`) and scoped (`@scope/pkg`) package arguments
  * by detecting the package version separator after the optional scope prefix.
@@ -944,12 +967,17 @@ const VALID_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
  *     character classes for spawn-based command construction.
  */
 export const DANGEROUS_ARG_CHARS =
-  // Explicit set: NUL through unit-separator (control chars including \n, \r, \t),
-  // DEL (0x7f), then shell metacharacters `| ; & ` $ ( )`, redirection/quoting
-  // `< > \ ' "`. Implemented as a single regex character class — no ranges over
-  // printable bytes, so the pattern cannot inadvertently subsume legitimate
-  // argument characters.
-  /[ -|;&`$()<>\\'"]/;
+  // Encoded with \x escapes, NOT raw control bytes (D2-SA2.4-08): a raw NUL byte
+  // made the whole file grep-blind (tooling classified it as binary) and left the
+  // class one editor/formatter pass from silent semantic corruption. The class is
+  // the C0 control block `\x00-\x1f` — its ONE range, and it spans control bytes
+  // only (\n \r \t included) — plus DEL `\x7f`, then the shell metacharacters
+  // `| ; & ` $ ( )` and redirection/quoting `< > \ ' "` enumerated individually.
+  // No range spans printable bytes, so the class cannot subsume a legitimate
+  // argument character. `DANGEROUS_ARG_CHARS.source` is pinned in the test suite,
+  // so any re-encoding (raw bytes, or a formatter that rewrites the escapes)
+  // trips a test rather than silently weakening or over-broadening the gate.
+  /[\x00-\x1f\x7f|;&`$()<>\\'"]/;
 
 /**
  * Result of {@link validateMcpServerArgs} — `ok: true` when every arg in the
@@ -970,6 +998,45 @@ export interface McpServerArgsResult {
 }
 
 /**
+ * Documented-legitimate `args[]` idioms that carry a {@link DANGEROUS_ARG_CHARS}
+ * byte yet are not injection vectors (D2-SA2.4-07, D2 / Pillar P2). Both patterns
+ * full-match the WHOLE arg and exclude every OTHER dangerous byte, so a ref- or
+ * path-prefixed injection (`${env:V:-;rm}`, `C:\x;rm`) is NOT exempt and still
+ * refuses.
+ *
+ * (a) {@link CANONICAL_ENV_REF_ARG} — a canonical MCP env-var reference,
+ *     `${env:NAME}` or `${env:NAME:-default}`. Its only dangerous byte is `$`
+ *     (`{`/`}` are not in the class). This is the exact idiom the module's own
+ *     transformation layer emits into the whole entry ({@link transformEnvVarSyntax};
+ *     the whole-entry transform at cursor.ts / claude.ts) and that the MCP/Cursor
+ *     interpolation surface documents (cursor.com/docs/context/model-context-protocol),
+ *     so refusing it here contradicts the module's own design. NAME is a POSIX env
+ *     key ({@link VALID_ENV_KEY} body); the optional `:-default` excludes dangerous
+ *     bytes so a metacharacter smuggled into a default value still refuses.
+ * (b) {@link WINDOWS_PATH_ARG} — a Windows path, drive-letter (`C:\...`) or UNC
+ *     (`\\host\share`). Its only dangerous byte is `\`. Mirrors the C7.5-W2B2-H3
+ *     Windows posture already accepted for the `command` field of the SAME entries
+ *     — the asymmetry (command `C:\Program Files\nodejs\node.exe` accepted, the
+ *     identical path in args refused) is the finding. The tail excludes control
+ *     bytes and every dangerous byte except the `\` path separator.
+ */
+const CANONICAL_ENV_REF_ARG =
+  /^\$\{env:[A-Za-z_][A-Za-z0-9_]*(?::-[^}|;&`$()<>\\'"\x00-\x1f\x7f]*)?\}$/;
+const WINDOWS_PATH_ARG =
+  /^(?:[A-Za-z]:\\|\\\\)[^\x00-\x1f\x7f|;&`$()<>'"]*$/;
+
+/**
+ * Whether `arg` is one of the two documented-legitimate idioms
+ * ({@link CANONICAL_ENV_REF_ARG} / {@link WINDOWS_PATH_ARG}) exempt from the
+ * {@link DANGEROUS_ARG_CHARS} refusal despite carrying a dangerous byte. Consulted
+ * only AFTER a dangerous byte is found, so clean args never pay for the two extra
+ * regex tests.
+ */
+function isExemptArgIdiom(arg: string): boolean {
+  return CANONICAL_ENV_REF_ARG.test(arg) || WINDOWS_PATH_ARG.test(arg);
+}
+
+/**
  * Scan an MCP server entry's `args[]` for characters that no legitimate MCP
  * argument needs but every adversarial argv-injection payload requires.
  *
@@ -982,8 +1049,10 @@ export interface McpServerArgsResult {
  *
  * Returns `{ ok: true }` when:
  * - `entry.args` is absent or empty (nothing to scan), OR
- * - every arg is a string AND contains no character matched by
- *   {@link DANGEROUS_ARG_CHARS}.
+ * - every arg is a string AND either contains no character matched by
+ *   {@link DANGEROUS_ARG_CHARS}, OR is a documented-legitimate idiom exempted by
+ *   {@link isExemptArgIdiom} — a whole-arg `${env:NAME}` reference or a Windows
+ *   path — even though it carries a dangerous byte (D2-SA2.4-07).
  *
  * Returns `{ ok: false, reason, offendingArg, offendingIndex }` when:
  * - any arg is not a string (type-coercion guard), OR
@@ -1026,6 +1095,14 @@ export function validateMcpServerArgs(
     }
 
     if (DANGEROUS_ARG_CHARS.test(arg)) {
+      // D2-SA2.4-07 (D2 / Pillar P2): before refusing, exempt the two
+      // documented-legitimate idioms whose only dangerous byte is `$` (a whole-arg
+      // `${env:NAME}` / `${env:NAME:-default}` reference) or `\` (a Windows path).
+      // Both full-match the arg and exclude every other dangerous byte, so a
+      // ref-/path-prefixed injection still falls through to the refusal below.
+      if (isExemptArgIdiom(arg)) {
+        continue;
+      }
       // Truncate the offender so a binary blob does not flood the warning
       // stream — operators only need enough context to locate the entry.
       const display = arg.length > 64 ? arg.slice(0, 61) + "..." : arg;

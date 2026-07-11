@@ -571,6 +571,18 @@ const DRIFT_PROBES: DriftProbe[] = [
     expected: "commands",
     regex: /\|\s*\*\*Commands\*\*\s*\|\s*(\d+)\s*\|/,
   },
+  // D1-SA1.4-03 (Cycle 12 Wave 3, D1, P4): README's "Supported Tools (N
+  // Adapters)" header is the one adapters count literal that only validate.ts's
+  // (CLI-unreachable) validateDocsCounts probed — inventory --check-docs had no
+  // README adapters probe. Add it so --check-docs strictly subsumes
+  // validateDocsCounts and that dead docs branch can be deleted without losing
+  // README adapters-count coverage.
+  {
+    file: "README.md",
+    label: "README Supported-Tools adapters count",
+    expected: "adapters",
+    regex: /Supported Tools\s*\((\d+)\s+Adapters\)/,
+  },
   // CLAUDE.md architecture table
   {
     file: "CLAUDE.md",

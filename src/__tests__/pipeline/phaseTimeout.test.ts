@@ -1,4 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import {
   clampTimeout,
   getDefaultPhaseTimeout,
@@ -9,6 +11,7 @@ import {
   MIN_PHASE_TIMEOUT_MS,
   MAX_PHASE_TIMEOUT_MS,
 } from "../../pipeline/phaseTimeout.js";
+import type { PhaseName } from "../../pipeline/phaseTimeout.js";
 
 describe("phaseTimeout", () => {
   describe("clampTimeout", () => {
@@ -37,7 +40,7 @@ describe("phaseTimeout", () => {
       expect(getDefaultPhaseTimeout("generation")).toBe(5 * 60 * 1000);
       expect(getDefaultPhaseTimeout("merge")).toBe(2 * 60 * 1000);
       expect(getDefaultPhaseTimeout("review")).toBe(10 * 60 * 1000);
-      expect(getDefaultPhaseTimeout("fix")).toBe(10 * 60 * 1000);
+      expect(getDefaultPhaseTimeout("fix")).toBe(15 * 60 * 1000);
       expect(getDefaultPhaseTimeout("validation")).toBe(2 * 60 * 1000);
       expect(getDefaultPhaseTimeout("integrity")).toBe(1 * 60 * 1000);
       expect(getDefaultPhaseTimeout("adapter")).toBe(3 * 60 * 1000);
@@ -243,4 +246,36 @@ describe("phaseTimeout", () => {
       expect(err.message).toContain("review");
     });
   });
+});
+
+// ── D5-SA5.1-06: wall-clock advisory ↔ phase-budget parity ─────────
+//
+// Each pipeline agent whose prose cites a named DEFAULT_PHASE_TIMEOUTS budget
+// must carry a frontmatter `wall_clock_advisory_ms` that does not exceed that
+// budget — otherwise the agent's self-monitoring outer bound is unreachable
+// under its own advisory. The audit found the fixer (advisory 900000) citing
+// the `fix` budget while `fix` was 600000; raising `fix` to 900000 restores
+// the invariant. This registry pins the pairing so a future advisory bump or
+// budget cut that re-opens the gap fails here (CAP_SURFACE_REGISTRY pattern).
+//
+// hatch3r-implementer.md is intentionally absent: its prose explicitly states
+// no phase key binds it (bounded by the frontmatter ceiling alone), so it has
+// no phase budget to pair against.
+describe("agent wall_clock_advisory_ms ≤ cited phase budget (D5-SA5.1-06)", () => {
+  const AGENT_PHASE_REGISTRY: ReadonlyArray<{ file: string; phase: PhaseName }> = [
+    { file: "hatch3r-researcher.md", phase: "research" },
+    { file: "hatch3r-reviewer.md", phase: "review" },
+    { file: "hatch3r-fixer.md", phase: "fix" },
+  ];
+
+  it.each(AGENT_PHASE_REGISTRY)(
+    "$file advisory does not exceed its cited $phase phase budget",
+    ({ file, phase }) => {
+      const body = readFileSync(join(process.cwd(), "agents", file), "utf8");
+      const match = body.match(/wall_clock_advisory_ms:\s*(\d+)/);
+      expect(match, `${file} must declare wall_clock_advisory_ms`).not.toBeNull();
+      const advisoryMs = Number(match![1]);
+      expect(advisoryMs).toBeLessThanOrEqual(getDefaultPhaseTimeout(phase));
+    },
+  );
 });

@@ -43,7 +43,18 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 
-// ── Wordlist (verbatim from CLAUDE.md "## Anti-Slop Wordlist") ─────
+// ── Wordlist (scoped marketing-surface subset — NOT a row-for-row mirror) ────
+//
+// D24-SA24.1-03: this array is DERIVED from the canonical wordlist (CLAUDE.md
+// "## Anti-Slop Wordlist" / .claude/rules/anti-slop-enforcement.md / CONSTITUTION
+// §2 P5) but is deliberately NOT identical to it. It keeps only the phrases that
+// plausibly ship on the marketing surfaces scanned above and ADDS marketing-only
+// patterns with no canonical wordlist row (battle-tested, ship-ready, "all 15
+// adapters", seamless, cutting-edge, state-of-the-art). The canonical prose rows
+// (ensure/properly/correctly/as-needed/scalable/carefully/note-phrases/
+// might-affect/successfully-completed) are omitted here — they false-positive on
+// qualified README/SECURITY usage and are enforced inside the six content dirs by
+// the audit cycle, not by this gate. This file header defines the pattern set.
 //
 // Each entry is matched case-insensitively as a whole-phrase regex. Phrases
 // that the wordlist allows "with a measurable qualifier" are still listed

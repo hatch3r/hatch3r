@@ -76,9 +76,9 @@ flowchart TB
     classDef accent fill:#0f3460,stroke:#4ecdc4,color:#fff
     classDef highlight fill:#3aafa9,stroke:#4ecdc4,color:#0f0f1a
 
-    init["hatch3r-board-init\nBootstrap GitHub Projects V2 board\n- Create/connect project\n- Configure status fields\n- Create label taxonomy\n- Write IDs to hatch.json"]:::highlight
+    init["hatch3r-board-init\nBootstrap project board\n(GitHub / Azure Boards / GitLab)\n- Create/connect project\n- Configure status fields\n- Create label taxonomy\n- Write IDs to hatch.json"]:::highlight
 
-    spec["hatch3r-project-spec\nor hatch3r-codebase-map\nGenerate todo.md"]
+    spec["hatch3r-spec\n(auto-detects greenfield/brownfield)\nGenerate todo.md"]
 
     fill["hatch3r-board-fill\nPopulate the board\n- Parse todo.md\n- Classify items\n- Build dependency DAG\n- Create GitHub issues\n- Mark ready items"]:::accent
 
@@ -88,8 +88,8 @@ flowchart TB
 
     refresh["hatch3r-board-refresh\nUpdate dashboard\n- Compute health metrics\n- Update board overview\n- Recommend models"]
 
-    init --> spec
-    spec --> fill
+    spec --> init
+    init --> fill
     fill --> groom
     groom --> pickup
     pickup --> refresh

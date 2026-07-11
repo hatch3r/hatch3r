@@ -2,8 +2,10 @@
  * C9-M17 tests: `formatActionableError(err)` is the single funnel for
  * all 14 CLI command error paths. These tests fix the contract:
  *   - HatchError with a recoveryHint → boxed stderr with hint
- *   - HatchError without a hint (or exitCode 0) → silent structured
- *     return (no stderr output)
+ *   - HatchError without a hint → plain stderr lines: message + run id,
+ *     no fabricated hint (D1-SA1.8-02; the pre-fix silent return violated
+ *     the D12-M3 run-id guarantee)
+ *   - HatchError with exitCode 0 → silent clean cancellation
  *   - generic Error / unknown → multi-line stderr classified by
  *     `errorClassification.ts`
  *   - unhandled rejection scenario (caller passes shuttingDown=true) →
@@ -21,7 +23,7 @@ import {
   DEFAULT_RECOVERY_HINT,
   type FormattedCliError,
 } from "../../../cli/shared/errors.js";
-import { HatchError, ERROR_CODE_TO_EXIT_CODE } from "../../../types.js";
+import { HatchError, ERROR_CODE_TO_EXIT_CODE, type HatchErrorCode } from "../../../types.js";
 
 describe("formatActionableError() — HatchError with recoveryHint", () => {
   it("emits a boxed stderr block when the hint is present", () => {
@@ -57,17 +59,28 @@ describe("formatActionableError() — HatchError with recoveryHint", () => {
 });
 
 describe("formatActionableError() — HatchError without recoveryHint", () => {
-  it("returns the structured exitCode silently for UNKNOWN_ERROR (no default hint)", () => {
-    // UNKNOWN_ERROR intentionally has NO entry in DEFAULT_RECOVERY_HINT, so a
-    // hint-less UNKNOWN_ERROR keeps the legacy silent-structured behavior.
+  it("emits message + run id (no fabricated hint) for a hintless UNKNOWN_ERROR (D1-SA1.8-02)", () => {
+    // UNKNOWN_ERROR intentionally has NO entry in DEFAULT_RECOVERY_HINT — no
+    // "Try:" line is invented. But the pre-fix `lines: []` return printed
+    // ZERO bytes for this class, dropping the message AND the
+    // SA12.1-F-D12-M3 run-id guarantee ("Run id:" line, pre-funnel
+    // src/cli/index.ts at edb5216~1) — an exit-70 with no output is
+    // undebuggable. `new HatchError(message)` is the constructor DEFAULT
+    // shape, so this branch guards every future unclassified call site.
     const err = new HatchError("something opaque failed", undefined, "UNKNOWN_ERROR");
     const result = formatActionableError(err);
     expect(result.kind).toBe("hatch-error");
     // SA12.1-F-D12-M1: UNKNOWN_ERROR maps to sysexits.h EX_SOFTWARE (70).
     expect(result.exitCode).toBe(70);
-    expect(result.lines).toEqual([]);
+    // What-failed floor: the message renders.
+    expect(result.lines.some((l) => l.includes("something opaque failed"))).toBe(true);
+    // D12-M3 run-id guarantee: the correlation id renders.
+    expect(result.runId).toBeDefined();
+    expect(result.lines.some((l) => l.includes(`Run id: ${result.runId}`))).toBe(true);
+    // Still no fabricated hint: no box, no hint field, no "Try:" line.
     expect(result.box).toBeUndefined();
     expect(result.hint).toBeUndefined();
+    expect(result.lines.some((l) => l.includes("Try:"))).toBe(false);
   });
 
   it("treats HatchError with exitCode 0 as a clean cancellation (no output)", () => {
@@ -77,6 +90,38 @@ describe("formatActionableError() — HatchError without recoveryHint", () => {
     expect(result.exitCode).toBe(0);
     expect(result.lines).toEqual([]);
     expect(result.box).toBeUndefined();
+  });
+
+  it("never renders zero bytes for ANY non-cancellation outcome (funnel floor, D1-SA1.8-02)", () => {
+    // Sweep every HatchErrorCode (explicit-hint, default-hint, and no-hint
+    // classes) plus generic/unknown throwables: every outcome that is not a
+    // clean cancellation must produce a box OR at least one non-empty line —
+    // writeFormattedCliError printing nothing for a fatal outcome is the
+    // silent-exit failure mode the funnel exists to close.
+    const codes: HatchErrorCode[] = [
+      "VALIDATION_ERROR",
+      "CONFIG_ERROR",
+      "FS_ERROR",
+      "INTEGRITY_ERROR",
+      "ADAPTER_ERROR",
+      "NETWORK_ERROR",
+      "CLEAN_ERROR",
+      "LOCK_TIMEOUT",
+      "UNKNOWN_ERROR",
+    ];
+    const cases: unknown[] = [
+      ...codes.map((code) => new HatchError(`fatal ${code}`, undefined, code)),
+      new HatchError("bare default-constructor form"),
+      new Error("generic unexpected"),
+      "a raw string was thrown",
+    ];
+    for (const err of cases) {
+      const result = formatActionableError(err);
+      expect(result.exitCode).not.toBe(0);
+      const rendersSomething =
+        result.box !== undefined || result.lines.some((l) => l.trim().length > 0);
+      expect(rendersSomething).toBe(true);
+    }
   });
 });
 

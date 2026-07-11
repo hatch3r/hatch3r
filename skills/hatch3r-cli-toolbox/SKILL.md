@@ -42,7 +42,6 @@ Tier 1 reference card — no fan-out. This skill is a category-indexed selection
 | Forges (non-GitHub) | `glab` (GitLab), `az-devops` (Azure DevOps) |
 | Browser automation | `playwright`, `stagehand` |
 | Compression | `zstd` |
-| React state | `rtk` (caveat — see below) |
 
 (Some tools appear in two cells when their best use spans categories.)
 
@@ -57,7 +56,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### curl
 - **When to use:** scripted HTTP/S transfers across any platform — file upload (`--upload-file`), header injection (`-H`), cookie sessions (`-b`/`-c`), OAuth flows, custom write-out templates (`-w`). Tier-1 default-on.
 - **Recipe:** `curl -sS -H "Authorization: Bearer $TOKEN" https://api.example.com/v1/runs | jq '.runs[] | {id, status}'`
-- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.20.0 (released 2026-04-29) clears the cumulative advisory backlog of every earlier release. The advisories specific to 8.20.0 are CVE-2026-5773 / CVE-2026-5545 / CVE-2026-4873; earlier builds also carry a High-severity advisory (CVE-2026-6253) plus credential-leak and connection-reuse issues fixed across 8.17.0–8.19.0. See curl.se/docs/security.html for the per-version roster.
+- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.21.0 (released 2026-06-24) — curl.se/docs/vuln-8.21.0.html lists 0 published problems for that build. The prior 8.20.0 floor is now advisory-affected (18 published problems per curl.se/docs/vuln-8.20.0.html, including CVE-2026-11856, fixed in 8.21.0). Earlier builds also carry the CVE-2026-5773 / CVE-2026-5545 / CVE-2026-4873 cluster and a High-severity advisory (CVE-2026-6253). See curl.se/docs/security.html for the per-version roster.
 
 ### httpie
 - **When to use:** human-readable HTTP/S exploration — JSON-first defaults, syntax highlighting, persistent named sessions, intuitive expression DSL for query params and headers.
@@ -101,9 +100,9 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ## Structural search & rewrite
 
 ### ast-grep
-- **Binary:** `sg` (the `ast-grep` package installs the binary as `sg` — run `command -v sg` to detect it, not `command -v ast-grep`).
+- **Binary:** the `ast-grep` package installs both `ast-grep` and `sg` (aliases for the same tool). **Detection caveat (D21-SA21.1-01 / D5-SA5.6-09):** on Linux the shadow-utils `login` package ships an unrelated `/usr/bin/sg` (setgroups) in the base system, so `command -v sg` alone false-positives when ast-grep is absent — on Linux detect and invoke via the `ast-grep` binary (`command -v ast-grep`), never via `sg`. When a caller uses the registry `sg` probe, disambiguate with `sg --version` (the real tool prints `ast-grep <version>`). Upstream is deprecating the `sg` alias for exactly this collision (ast-grep issue #1659).
 - **When to use:** Tree-sitter AST pattern matches and rewrites scoped to a single grammar (TS, Python, Rust, Go).
-- **Recipe:** `sg run -p 'await $FN()' -r 'await ($FN()).catch(e => log(e))' --update-all src/`
+- **Recipe:** `ast-grep run -p 'await $FN()' -r 'await ($FN()).catch(e => log(e))' --update-all src/` (the `ast-grep` binary is collision-free on Linux; `sg run` there may hit setgroups)
 - **Wrong choice when:** plain literal text — use `hatch3r-cli-ripgrep`; multi-language SAST rule packs — use `semgrep`.
 
 ### comby
@@ -204,6 +203,15 @@ docker run --rm --read-only --tmpfs /tmp \
 - **Recipe:** `container-use env create --git-ref refs/heads/main --image node:22 --workdir /repo` then `cu exec npm test`.
 - **Wrong choice when:** general-purpose container runtime — use `docker` or `podman`; stable D15 sandbox-escape boundary required — use `podman` rootless + selinux relabel.
 
+#### Sandbox callout — boundary is upstream-unverified
+
+container-use runs each environment as a Dagger-managed container, but the project is pre-1.0 with no published `SECURITY.md` and no CVE-disclosure path (see caveat above), so treat its isolation as unverified rather than a hardened boundary (D15-SA15.7-04). Item 6 of the D15 sandbox checklist names container-use alongside docker and playwright; unlike those two it had no callout until now. Before running agent-generated or untrusted work through `container-use env create` / `cu exec`, confirm what the invocation does and does not isolate:
+
+- **Host container socket:** container-use drives a container runtime — if it reaches a host `/var/run/docker.sock`, a task inside the environment reaches the host daemon (host-root equivalent). Point it at a rootless backend (podman rootless, or Dagger's own engine) so no host-root socket is exposed.
+- **Credential inheritance:** the environment can inherit the host user's environment (`AWS_*`, `GH_TOKEN`, `~/.npmrc`, `~/.aws`, `.hatch3r/learnings/`). Pass only the env vars the task needs; do not export a credential-bearing shell into `cu exec`.
+- **`--workdir /repo` mount semantics:** the `--git-ref` checkout is writable inside the environment — scope it to the sub-tree the task needs and review any write-back before it merges into the host branch.
+- **Untrusted workloads:** prefer `podman` rootless + SELinux relabel (`:Z`) as the stable D15 sandbox-escape boundary until container-use ships a `SECURITY.md` and a tagged post-1.0 release. Reference: https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/ (AAI sandbox-escape controls), https://github.com/dagger/container-use.
+
 ---
 
 ## Git TUI / diff viewers
@@ -290,6 +298,7 @@ docker run --rm --network none -v "$PWD:/work:ro" -w /work \
 ### zstd
 - **When to use:** high-ratio compression with single-digit-millisecond decompress speeds — cold-storage payloads, CI artifact upload.
 - **Recipe:** `tar --zstd -cf bundle.tar.zst dist/ docs/`
+- **Version floor:** 1.5.7 (2025-02-19, the current release) — a documentation drift-baseline pin (Meta ships zstd on a ~annual tag cadence), not a live-CVE floor. Any current build clears CVE-2022-4899 (HIGH, CVSS 7.5, empty-string CLI argument → buffer overrun in the 1.4.x era).
 - **Wrong choice when:** distribution where every byte counts and decompress speed is irrelevant — use `xz -9e`; legacy Windows recipients — use `zip`; already-compressed payloads — skip compression.
 
 ---
@@ -315,12 +324,12 @@ Install commands:
 |------|--------------|--------------------------------|
 | `aichat` | `brew install aichat` | `cargo install aichat` |
 | `ast-grep` | `brew install ast-grep` | `cargo install ast-grep --locked` |
-| `az-devops` | `brew install azure-cli && az extension add --name azure-devops` | `apt install azure-cli && az extension add --name azure-devops` |
+| `az-devops` | `brew install azure-cli && az extension add --name azure-devops` | `curl -sL https://aka.ms/InstallAzureCLIDeb \| sudo bash && az extension add --name azure-devops` (unsigned — prefer the signed apt repo per Install posture) |
 | `bat` | `brew install bat` | `apt install bat` (binary may be `batcat`) |
 | `comby` | `brew install comby` | `bash <(curl -sL get.comby.dev)` |
 | `container-use` | `brew install dagger/tap/container-use` | `curl -fsSL https://raw.githubusercontent.com/dagger/container-use/main/install.sh \| bash` |
 | `csvkit` | `pipx install csvkit` | `pipx install csvkit` |
-| `curl` | `brew install curl` (pin >=8.20.0) | `apt install curl` (verify >=8.20.0) |
+| `curl` | `brew install curl` (pin >=8.21.0) | `apt install curl` (verify >=8.21.0) |
 | `dasel` | `brew install dasel` (pin >=3.11.0) | `go install github.com/tomwright/dasel/v3/cmd/dasel@latest` |
 | `delta` | `brew install git-delta` | `apt install git-delta` (or download release) |
 | `difftastic` | `brew install difftastic` | `cargo install difftastic` |
@@ -373,4 +382,4 @@ This skill synthesizes 25 pre-existing in-repo per-tool skills (collapsed in v1.
 - skills/hatch3r-cli-yq/SKILL.md
 - skills/hatch3r-cli-zstd/SKILL.md
 
-Per hatch3r's artifact-inventory and redundancy analysis, the rejected merge alternative (keep every tool as a standalone skill) was rejected because the 25 collapsed entries averaged 75 lines each (1.9k lines total) with >70% structural duplication of the same "When to Use / Token Cost / Recipes / Wrong Choice / Alternatives / Install" frame — collapse into a single category-indexed reference cuts the surface to ~250 lines while preserving the discriminator that picks one tool over another.
+Per hatch3r's artifact-inventory and redundancy analysis, the rejected merge alternative (keep every tool as a standalone skill) was rejected because the 25 collapsed entries averaged 75 lines each (1.9k lines total) with >70% structural duplication of the same "When to Use / Token Cost / Recipes / Wrong Choice / Alternatives / Install" frame — collapse into a single category-indexed reference cuts the surface to ~385 lines — grown from the initial ~250-line target as per-tool security and sandbox callouts were added, still far below the ~1.9k lines of 25 standalone skills — while preserving the discriminator that picks one tool over another.

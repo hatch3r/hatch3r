@@ -22,6 +22,7 @@ Emit at plan time, before fan-out begins:
 cost_estimate:
   expected_sa_count: <int>
   estimated_input_tokens_static_frame: <int>
+  estimated_output_tokens: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
   estimated_duration_min: <int>
@@ -33,6 +34,7 @@ Derived from:
 - Triage-tier heuristics: Light = 1-3 SAs, Standard = 4-9 SAs, Deep = 10+ SAs.
 - Past-cycle telemetry baseline from `src/pipeline/observability.ts` — phase-level `inputTokens` + `outputTokens` averaged across recent runs of the same artifact ID.
 - Static-prompt frame character count divided by `CHARS_PER_TOKEN` (default 4) per `src/pipeline/observability.ts::estimateTokens`.
+- `estimated_output_tokens` = `estimated_input_tokens_static_frame` × the output:input token ratio from `src/pipeline/observability.ts::observedOutputInputRatio` (telemetry-observed once ≥5 token-bearing `EfficiencyEvent` records exist), falling back to `DEFAULT_OUTPUT_INPUT_TOKEN_RATIO = 0.25` below that sample floor. No output:input ratio is vendor-published — Claude's token-counting endpoint returns input counts only — so output volume is observed from runtime usage, not pre-computed (D6-SA6.3-05).
 
 Triage tier maps directly to `triage_tiers` frontmatter declared per Decision 17 (CONSTITUTION §6 Decision #20 in 2.0.0 mapping) — the runtime-selected tier is the one emitted in the estimate block.
 
@@ -43,17 +45,18 @@ Emit at completion time, after the last sub-agent returns:
 ```yaml
 cost_actuals:
   actual_sa_count: <int>
-  actual_input_tokens: <int>
+  actual_input_tokens_static_frame: <int>
   actual_output_tokens: <int>
   actual_web_research_queries: <int>
   actual_duration_min: <float>
 delta:
   sa_count_delta: <int>
   input_tokens_delta_percent: <float>
+  output_tokens_delta_percent: <float>
   duration_delta_percent: <float>
 ```
 
-`sa_count_delta` is `actual_sa_count - expected_sa_count` (signed integer). `input_tokens_delta_percent` is `(actual - estimated) / estimated * 100` rounded to one decimal. `duration_delta_percent` follows the same formula on duration.
+`sa_count_delta` is `actual_sa_count - expected_sa_count` (signed integer). `input_tokens_delta_percent` is `(actual_input_tokens_static_frame - estimated_input_tokens_static_frame) / estimated_input_tokens_static_frame * 100` rounded to one decimal — both terms are the static-frame quantity, so the ratio measures estimation error, not a scope mismatch between an input-only estimate and a total-input actual. `output_tokens_delta_percent` applies the same formula to `actual_output_tokens` vs `estimated_output_tokens`, and `duration_delta_percent` to duration. The `actual_input_tokens_static_frame` / `estimated_input_tokens_static_frame` names match `CostActuals` / `CostEstimate` in `src/pipeline/costEstimator.ts`, so `computeDelta` compares like-for-like.
 
 ## Surfacing in Iteration Summary
 
@@ -69,6 +72,7 @@ A Tier 2 capability-add run that spawns 5 sub-agents (1 researcher + 4 implement
 cost_estimate:
   expected_sa_count: 5
   estimated_input_tokens_static_frame: 18000
+  estimated_output_tokens: 4500
   estimated_web_research_queries: 2
   triage_tier: standard
   estimated_duration_min: 12
@@ -79,19 +83,20 @@ At completion (one extra implementer spawned due to scope expansion discovered m
 ```yaml
 cost_actuals:
   actual_sa_count: 6
-  actual_input_tokens: 22400
+  actual_input_tokens_static_frame: 22400
   actual_output_tokens: 8900
   actual_web_research_queries: 4
   actual_duration_min: 15.3
 delta:
   sa_count_delta: 1
   input_tokens_delta_percent: 24.4
+  output_tokens_delta_percent: 97.8
   duration_delta_percent: 27.5
 ```
 
-`duration_delta_percent` exceeds 25% — flagged informational for next-cycle EVOLVE review. `input_tokens_delta_percent` is 24.4% — under threshold, no flag.
+`input_tokens_delta_percent` is 24.4% — under threshold. `output_tokens_delta_percent` (97.8%) and `duration_delta_percent` (27.5%) both exceed 25% — flagged informational for next-cycle EVOLVE review. The output overrun is the larger signal: the 0.25 default ratio under-estimated a code-heavy run whose actual output:input landed near 0.40, which is the accuracy the `estimated_output_tokens` field exists to expose.
 
-In the closing recap these actuals surface as the cost facet, and the >25% duration delta fires the `Cost:` exception line (the fenced `cost_actuals` + `delta` blocks above follow it):
+In the closing recap these actuals surface as the cost facet — the `tok` figure is the static-frame `input_tokens_delta_percent`, while the output and duration deltas surface in the fenced `delta` block on the `Cost:` exception line:
 
 ```
 files 4 (+310/−22) · sa 6/5 · gates 6/6 · cost Δ24.4% tok / Δ27.5% min · tier 2

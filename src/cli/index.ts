@@ -1,6 +1,7 @@
 // Sync I/O (execFileSync) is used intentionally in init/update for package
 // manager operations where async would add complexity without benefit.
 
+import { resolve } from "node:path";
 import { createProgram } from "./program.js";
 import { classifyCliError } from "./errorClassification.js";
 import { formatActionableError, writeFormattedCliError } from "./shared/errors.js";
@@ -8,6 +9,8 @@ import { checkForUpdates } from "./shared/updateNotifier.js";
 import { registerBackablePrompts } from "./shared/backablePrompts.js";
 import { resolveInvokedCommand } from "./shared/invokedCommand.js";
 import { getRunId } from "./shared/runId.js";
+import { writeFailureLog } from "../pipeline/failureLog.js";
+import { HATCH3R_VERSION } from "../version.js";
 
 // SA12.1-F-D12-M3 (D12, P1): mint the per-run correlation id once at startup
 // so every subsequent log line / error block / failure log entry references
@@ -15,21 +18,23 @@ import { getRunId } from "./shared/runId.js";
 // inject a build-correlated id; otherwise mints a fresh hr-... suffix.
 getRunId();
 
-// Shift+Tab → back-nav. Each entry has been audited to either route every
-// prompt through the step machine in `cli/shared/initSteps.ts` (which
-// translates BACK into walk-back) or to defensively check `isBack` at each
-// inquirer.prompt site (which translates BACK into graceful cancellation).
-// Commands not in this set keep inquirer's stock prompts — a stray Shift+Tab
-// there has no special meaning, preventing the BACK sentinel from leaking
-// into string consumers like sanitizeInput().
+// Shift+Tab → back-nav. Each entry either routes every prompt through the step
+// machine in `cli/shared/initSteps.ts` (which translates BACK into walk-back)
+// or defensively checks `isBack` at each inquirer.prompt site (which translates
+// BACK into graceful cancellation). Commands not in this set keep inquirer's
+// stock prompts — a stray Shift+Tab there has no special meaning, preventing
+// the BACK sentinel from leaking into string consumers like sanitizeInput().
 //
-//   init             — full step machine (single-repo + workspace flows)
-//   config           — step machine (main flow); defensive guards in the
-//                      workspace sub-flow at end of file
-//   worktree-cleanup — step machine (mode → picks → proceed)
-//   clean            — defensive (2 confirms, flat sequence)
-//   update           — defensive (2 prompts inside a migration checkpoint)
-//   mcp / cliTools   — defensive (single picker invocation each)
+// D3-SA3.2-04 (Cycle 12 Wave 3, D3, P5): this invariant is machine-enforced,
+// not self-certified. The "BACKABLE back-nav guard invariant" suite in
+// `src/__tests__/cli/index.test.ts` reads this set and asserts, per member,
+// that its command source EITHER uses `runStepMachine` OR guards every
+// `inquirer.prompt` site with an `isBack` check that cancels rather than falls
+// through — so a command added here without wiring BACK handling fails that
+// test. A hand-maintained per-command prose census used to live here and
+// drifted (it claimed "update — 2 prompts" after update grew to 4 guarded
+// sites); the test is the invariant's single home now, so there is no census
+// to re-stale.
 const BACKABLE_COMMANDS = new Set([
   "init",
   "config",
@@ -81,47 +86,72 @@ for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"] as const) {
   });
 }
 
-process.on("unhandledRejection", (reason) => {
-  // D1-M17 (Cycle 10 Wave-3 Medium): apply the same stdout/stderr flush
-  // pattern used by the SIGINT/SIGTERM handlers above. A naked
-  // `process.exit(1)` truncates the diagnostic on slow stderr sinks
-  // (CI logs, piped redirection), so the operator never learns which
-  // promise rejected. Drain both streams before exiting.
-  console.error(
-    `\nhatch3r: unhandled promise rejection: ${reason instanceof Error ? reason.message : String(reason)}`,
-  );
-  if (process.env.DEBUG) {
-    console.error(reason);
-  }
-  process.stdout.write("", () => {
-    process.stderr.write("", () => {
-      process.exit(1);
-    });
-  });
-});
+// ── Last-resort fault nets (uncaughtException / unhandledRejection) ──────────
+//
+// These catch a throw/rejection that escapes the `program.parseAsync()`
+// try/catch below: a synchronous throw from an emitter / timer / stream
+// callback, and a detached-promise rejection (the update-notifier child,
+// best-effort failure-log / telemetry writes). Both nets share three helpers so
+// they cannot drift apart (D8-SA8.1-02) and so the failure-log recovery pointer
+// they print resolves to a real entry (D12-SA12.1-01).
 
-// D1-9 (Cycle 11 Wave 2, P1): uncaughtException safety net. The signal handlers
-// and unhandledRejection handler above do not cover a synchronous throw raised
-// from an emitter / timer / stream callback — such a throw escapes the
-// `program.parseAsync()` try/catch below, so its run-id block + failure-log
-// pointer (the operator's only triangulation handles) are never printed and
-// Node exits with a bare uncaught-exception trace. Mirror the catch block:
-// classify clean user cancellations (Ctrl-C during a prompt, in-flight
-// shutdown) as exit code 130 with no banner, and surface getRunId() + the
-// failure-log pointer for genuine faults before draining and exiting 1.
-process.on("uncaughtException", (err) => {
+/**
+ * D12-SA12.1-01 (Cycle 12 Wave 3, D12, CQ2): append a top-level fault to
+ * `.hatch3r/.failure-log.jsonl` for the current run so the "Check
+ * .failure-log.jsonl for recent failure details" pointer the fault footer +
+ * error funnel print resolves to a real entry — previously index.ts named the
+ * file as a recovery surface but never wrote it, so an operator (or a CI
+ * consumer grepping the run id) who followed the guidance found nothing. Returns
+ * whether the entry actually persisted. `writeFailureLog` is contracted never to
+ * throw and does NOT create `.hatch3r/`; on a fresh repo whose state dir was
+ * never created (e.g. `init` crashed first) the append no-ops, this returns
+ * false, and the caller suppresses the pointer rather than dangling it at an
+ * absent file.
+ */
+async function recordTopLevelFailure(phase: string, err: unknown): Promise<boolean> {
+  const hatch3rDir = resolve(process.cwd(), ".hatch3r");
+  const result = await writeFailureLog(hatch3rDir, phase, err, {
+    correlationId: getRunId(),
+    version: HATCH3R_VERSION,
+  });
+  return result.written;
+}
+
+/**
+ * Shared operator-facing fault footer (D8-SA8.1-02): troubleshooting URL, the
+ * failure-log pointer (only when the entry persisted, so it never dangles), the
+ * DEBUG hint, and the per-run correlation id. Both last-resort nets emit it
+ * through this one helper so a future line addition cannot drift between them.
+ */
+function emitFaultFooter(runId: string, failureLogPersisted: boolean): void {
+  console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
+  if (failureLogPersisted) {
+    console.error("  Check .hatch3r/.failure-log.jsonl for recent failure details.");
+  }
+  console.error("  Set DEBUG=1 for a full stack trace.");
+  console.error(`  Run id: ${runId}`);
+}
+
+/**
+ * D1-9 (Cycle 11) + D1-M17 (Cycle 10) + D8-SA8.1-02 (Cycle 12): shared body for
+ * both last-resort nets. Classify clean user cancellations (Ctrl-C during a
+ * prompt, in-flight shutdown) as exit 130 with no banner; for a genuine fault,
+ * print the headline, persist the failure-log entry, emit the shared footer, and
+ * drain stdout+stderr before exiting 1 (a naked `process.exit(1)` truncates the
+ * diagnostic on slow stderr sinks — CI logs, piped redirection — so the operator
+ * never learns which throw/rejection fired). Kept async so the failure-log write
+ * completes before the drain+exit; invoked via `void` from the synchronous
+ * `process.on` callbacks so the handler signature stays synchronous.
+ */
+async function reportFatal(err: unknown, phase: string, headline: string): Promise<void> {
   const kind = classifyCliError(err, { shuttingDown });
   if (kind === "exit-prompt" || kind === "shutting-down") {
     process.exit(SIGNAL_EXIT_CODES.SIGINT);
   }
   const runId = getRunId();
-  console.error(
-    `\nhatch3r encountered an unexpected error: ${err instanceof Error ? err.message : String(err)}`,
-  );
-  console.error("  For help, see: https://github.com/hatch3r/hatch3r#troubleshooting");
-  console.error("  Check .hatch3r/.failure-log.jsonl for recent failure details.");
-  console.error("  Set DEBUG=1 for a full stack trace.");
-  console.error(`  Run id: ${runId}`);
+  console.error(`\n${headline}: ${err instanceof Error ? err.message : String(err)}`);
+  const failureLogPersisted = await recordTopLevelFailure(phase, err);
+  emitFaultFooter(runId, failureLogPersisted);
   if (process.env.DEBUG) {
     console.error(err);
   }
@@ -130,6 +160,21 @@ process.on("uncaughtException", (err) => {
       process.exit(1);
     });
   });
+}
+
+// D8-SA8.1-02 (Cycle 12 Wave 3, P1): the `unhandledRejection` net was
+// diagnostically inferior to its `uncaughtException` sibling — it printed only a
+// bare "unhandled promise rejection" line with no run id, no failure-log
+// pointer, and no clean-cancellation classification, so a rejection surfacing
+// during Ctrl-C teardown was mislabeled a bug (exit 1) instead of a clean 130
+// and a genuine detached-promise rejection handed the operator no correlation
+// handle. Routing both nets through `reportFatal` brings them to parity; only
+// the headline differs (a rejection vs a thrown error).
+process.on("unhandledRejection", (reason) => {
+  void reportFatal(reason, "cli:unhandled-rejection", "hatch3r: unhandled promise rejection");
+});
+process.on("uncaughtException", (err) => {
+  void reportFatal(err, "cli:uncaught-exception", "hatch3r encountered an unexpected error");
 });
 
 // --no-update-check: a quiet global flag that maps to HATCH3R_NO_UPDATE_CHECK=1
@@ -200,9 +245,34 @@ try {
   // renders the box (or the multi-line footer) to stderr; we keep
   // `process.exit` here so the handler retains control of flush timing.
   const formatted = formatActionableError(err, { shuttingDown });
+  // D12-SA12.1-01 (Cycle 12 Wave 3, D12, CQ2): the funnel's unexpected-fault
+  // path prints "Check .hatch3r/.failure-log.jsonl for recent failure details."
+  // Append this fault to that log for the current run so the pointer resolves to
+  // a real entry (index.ts previously named the file but never wrote it). Skip
+  // clean cancellations (exit 0 / 130) and usage typos — those emit no pointer.
+  if (
+    formatted.exitCode !== 0 &&
+    formatted.kind !== "usage" &&
+    formatted.kind !== "exit-prompt" &&
+    formatted.kind !== "shutting-down"
+  ) {
+    await recordTopLevelFailure("cli:top-level", err);
+  }
   writeFormattedCliError(formatted);
   if (process.env.DEBUG) {
     console.error(err);
   }
-  process.exit(formatted.exitCode);
+  // D1-SA1.4-01 (Cycle 12 Wave 3, D1, P1): drain stdout+stderr before exiting.
+  // A command that already wrote a JSON document to stdout (verify/status
+  // --format json) then threw lands here; `process.exit` truncates pending async
+  // stdout writes past the OS pipe buffer (Node docs: process.exit "will force
+  // the process to exit ... even if there are still asynchronous operations
+  // pending ... including I/O operations to process.stdout"), corrupting the
+  // machine-parsed payload exactly when the command failed. The same drain idiom
+  // the signal/crash nets use guarantees the buffered payload flushes first.
+  process.stdout.write("", () => {
+    process.stderr.write("", () => {
+      process.exit(formatted.exitCode);
+    });
+  });
 }

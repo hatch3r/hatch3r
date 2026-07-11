@@ -1,6 +1,6 @@
 # Stack Support Matrix
 
-> **Last verified**: 2026-07-11 | **hatch3r version**: 2.0.0
+> **Last verified**: 2026-07-11 | **hatch3r version**: 2.5.0
 
 Per-stack portability reference: which tech stacks hatch3r covers with a **dedicated stack rule**, which it covers only with **cross-cutting rules** applied by glob, and where the gaps are. The source of truth for these tiers is `src/detect/stackSupport.ts` (`FRAMEWORK_SUPPORT`, `LANGUAGE_SUPPORT`); the `init` summary reads the same map to print a one-line pointer when a detected stack has no dedicated rule.
 
@@ -77,9 +77,9 @@ For repos where a language is detected but no framework indicator fired (a bare 
 | **csharp** | full | `hatch3r-dotnet-patterns` | minimal APIs, EF Core, DI, xUnit (detected via `.cs` scan) |
 | **dart** | full | `hatch3r-flutter-patterns` | null safety, Riverpod/Bloc, Material 3, integration tests |
 | **kotlin** | full | `hatch3r-android-patterns` | Jetpack Compose, coroutines + Flow, Hilt, Room, Gradle |
-| **typescript** | partial | — | `hatch3r-typescript-patterns` exists (TS-idiom rule, glob-scoped to `**/*.ts*`) but is not tier-mapped here; tier stays partial because `LANGUAGE_SUPPORT` promotion is framework-axis-driven, not rule-existence-driven. Also covered by always-on + frontend/backend cross-cutting rules |
-| **javascript** | partial | — | same as TypeScript (JS repos receive the `hatch3r-typescript-patterns` rule by glob) |
-| **swift** | partial | — | `hatch3r-swiftui-patterns` exists but is glob-scoped, not tier-mapped here; see [SwiftUI note](#swiftui-note) |
+| **typescript** | full | `hatch3r-typescript-patterns` | TS/JS typing mechanics (satisfies-over-as, discriminated/branded types, strict utility types, barrel + import order), glob-scoped to `**/*.{ts,tsx,mts,cts,js,jsx,mjs,cjs}`. Also covered by always-on + frontend/backend cross-cutting rules |
+| **javascript** | full | `hatch3r-typescript-patterns` | same dedicated rule as TypeScript — it globs `**/*.js*` as well and covers "TypeScript **and JavaScript** typing mechanics" |
+| **swift** | full | `hatch3r-swiftui-patterns` | Swift 6 concurrency, `@Observable`/`@Bindable`, navigation stacks, SPM, XCTest, glob-scoped to `**/*.swift`; see [SwiftUI note](#swiftui-note) |
 | **java** | partial | — | server-side Java (Spring Boot / Jakarta EE / Quarkus) is the dominant use; the Android Kotlin rule (Compose/Room/Hilt) does not cover it and no rule globs `**/*.java`. Covered by language-agnostic + backend cross-cutting rules and the `lang:java` tag. **Gap:** Spring DI, JPA, records, virtual threads |
 | **elixir** | none | — | maps to no `lang:*` tag; language-agnostic rules only |
 | **scala** | none | — | no dedicated rule, no `lang:*` tag |
@@ -89,9 +89,15 @@ For repos where a language is detected but no framework indicator fired (a bare 
 | **clojure** | none | — | no dedicated rule, no `lang:*` tag |
 | **lua** | none | — | no dedicated rule, no `lang:*` tag |
 
+> **React Native** ships a dedicated rule but has no row above — it detects as `react` (partial framework), not as a stack of its own. See the [React Native note](#react-native-note).
+
 ### SwiftUI note
 
-`rules/hatch3r-swiftui-patterns.md` is a dedicated rule covering Swift 6 concurrency, `@Observable`/`@Bindable`, navigation stacks, SPM, and XCTest, applied to `**/*.swift` files. It is not yet wired into `LANGUAGE_SUPPORT` because Swift is detected by the `swift` language probe but no Swift-specific `Framework` value exists, so the framework axis cannot promote it to `full`. Tracked for promotion once a Swift framework indicator (SwiftPM target type) is added to detection — until then a Swift repo sees the rule applied by glob but the `init` pointer reports `swift` as partial. This is the only stack where the matrix tier understates on-disk coverage.
+`rules/hatch3r-swiftui-patterns.md` is a dedicated rule covering Swift 6 concurrency, `@Observable`/`@Bindable`, navigation stacks, SPM, and XCTest, applied to `**/*.swift` files. Since 2.5.0 (D1-SA1.6-04) the `swift` language maps to it in `LANGUAGE_SUPPORT` at tier `full`. `LANGUAGE_SUPPORT` is rule-existence-driven — `go` is the precedent (a language promoted to `full` with no framework) — so a dedicated `swift` `Framework` member is not required for the promotion. Adding a Swift framework indicator (SwiftPM target type) to detection would additionally surface a Swift *framework* on the framework axis, but the language-axis promotion already gives a Swift repo the honest `full` signal in the `init` pointer.
+
+### React Native note
+
+`rules/hatch3r-react-native-patterns.md` is a dedicated rule covering the New Architecture (Fabric + TurboModules), Hermes, Expo Router/SDK, native module bridging, and platform-specific UI, glob-scoped to `App.tsx` / `metro.config.*` / `app.config.*` / `*.native.*` and the `ios/` + `android/` workspace folders. It applies to an RN repo by glob whenever those files are present. It is not tier-mapped: React Native has no dedicated `Framework` union member, so `react-native` in `package.json` detects as the `react` framework (tier `partial`) and the `init` pointer reports `react`, not `react-native`. Promoting react-native to a first-class detected framework — a `react-native` `Framework` member plus a `package.json` dependency indicator in `src/detect/repoAnalyzer.ts` — is tracked (D1-SA1.6-04 item 2a); until then the rule's coverage is real but the support signal names `react`.
 
 ---
 

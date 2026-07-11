@@ -83,4 +83,4 @@ Before declaring lifecycle work complete, run every gate below — orchestrator 
 - `npm run validate:efficiency`
 - B1 gate present (clarification-default rule applied; user-question-protocol referenced)
 - B2 rationale present (sub-agent count + rationale emitted by orchestrator)
-- `/h4tcher-evolve` sessions are the authorized governance-edit path — in-session per-file owner consent constitutes CONSTITUTION §8 approval for all governance layers (pillars, §3 matrix, §6 decisions, §8 itself carry an explicit §8-amendment label in the consent ASK); out-of-session changes keep CL-3 / §8-queue routes.
+- `/h4tcher-evolve` sessions are the authorized governance-edit path — in-session per-file owner consent constitutes CONSTITUTION §8 approval for all governance layers (pillars, §3 matrix, §6 decisions, §8 itself carry an explicit §8-amendment label in the consent ASK); §8-labeled consents follow the CONSTITUTION §8 cooling-off clause — recorded in-session, landed only after re-confirmation in a second session or a ≥48-hour interval; out-of-session changes keep CL-3 / §8-queue routes.

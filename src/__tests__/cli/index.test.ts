@@ -1,9 +1,10 @@
 import { describe, it, expect } from "vitest";
-import { readFileSync } from "node:fs";
+import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { CommanderError, type Command } from "commander";
-import { createProgram } from "../../cli/program.js";
+import { createProgram, AGENT_COMMAND_NAMES } from "../../cli/program.js";
+import { HatchError } from "../../types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 // src/__tests__/cli → repo root is three levels up.
@@ -464,5 +465,274 @@ describe("parse-error funnel via exitOverride (D10-5)", () => {
     const src = readSource("src/cli/program.ts");
     expect(src).toContain("showHelpAfterError");
     expect(src).toContain("program.exitOverride()");
+  });
+});
+
+// D1-SA1.8-01 (Cycle 12 Wave 3, D1, P1): AGENT_COMMAND_NAMES (program.ts) is the
+// hand-maintained redirect set the `command:*` handler uses to tell a user who
+// types an editor slash-command at the terminal to run it in their AI editor
+// instead of printing the generic "unknown command". Before this guard it had
+// drifted from the corpus (4 artifacts deleted in v1.9.0 still listed; 11 on-disk
+// commands — incl. 2.2.0 headline features like design-system-create — missing)
+// with nothing to catch it, and `.claude/rules/capability-lifecycle.md` reuses
+// the set as a reachability signal, so stale entries fed wrong removal decisions.
+// This guard fails on the next drift.
+describe("AGENT_COMMAND_NAMES ↔ corpus drift guard (D1-SA1.8-01)", () => {
+  // commands/hatch3r-<name>.md basenames — editor-only orchestrators by
+  // construction (none collide with a registered terminal CLI command).
+  const commandBasenames = new Set(
+    readdirSync(resolve(REPO_ROOT, "commands"))
+      .filter((n) => n.startsWith("hatch3r-") && n.endsWith(".md"))
+      .map((n) => n.replace(/^hatch3r-/, "").replace(/\.md$/, "")),
+  );
+  // skills/hatch3r-<name>/ directory names.
+  const skillNames = new Set(
+    readdirSync(resolve(REPO_ROOT, "skills"), { withFileTypes: true })
+      .filter((e) => e.isDirectory() && e.name.startsWith("hatch3r-"))
+      .map((e) => e.name.replace(/^hatch3r-/, "")),
+  );
+  // Command basenames that ARE real terminal CLI commands (must NOT redirect).
+  // `learn` is the documented member (D13-5 promoted it to `hatch3r learn
+  // capture`); there is no commands/hatch3r-learn.md today, so this allowlist has
+  // no live collisions but is kept for future terminal-command additions.
+  const TERMINAL_ALLOWLIST = new Set<string>(["learn"]);
+
+  it("lists every commands/hatch3r-*.md basename (minus the terminal allowlist)", () => {
+    const missing = [...commandBasenames]
+      .filter((b) => !TERMINAL_ALLOWLIST.has(b) && !AGENT_COMMAND_NAMES.has(b))
+      .sort();
+    expect(
+      missing,
+      `commands/hatch3r-*.md basenames absent from AGENT_COMMAND_NAMES (src/cli/program.ts): ` +
+        `[${missing.join(", ")}]. A user typing one at the terminal gets the generic "unknown ` +
+        `command" message instead of the editor redirect. Add each to AGENT_COMMAND_NAMES, or to ` +
+        `TERMINAL_ALLOWLIST here if it became a real CLI command.`,
+    ).toEqual([]);
+  });
+
+  it("carries no phantom entry — every name resolves to an on-disk command or skill", () => {
+    const phantom = [...AGENT_COMMAND_NAMES]
+      .filter((name) => !commandBasenames.has(name) && !skillNames.has(name))
+      .sort();
+    expect(
+      phantom,
+      `AGENT_COMMAND_NAMES entries with no commands/hatch3r-<name>.md or skills/hatch3r-<name>/ on ` +
+        `disk: [${phantom.join(", ")}]. The CLI tells the user to run a slash command that no longer ` +
+        `exists. Remove each stale entry from src/cli/program.ts.`,
+    ).toEqual([]);
+  });
+});
+
+// D1-SA1.4-01 (Cycle 12 Wave 3, D1, P1): the top-level parseAsync catch is the
+// funnel exit for verify/status --format json failures, which write their JSON
+// document to stdout before throwing. A bare `process.exit(formatted.exitCode)`
+// truncates that buffered stdout past the OS pipe buffer (Node docs), corrupting
+// the machine-parsed payload exactly when the command fails. The catch must drain
+// stdout+stderr before exiting — the same idiom the signal/crash nets use. (The
+// three validate.ts JSON-error sites the finding also names are owned by a
+// concurrent Wave-3 file-lock unit; this guard covers the index.ts exit only.)
+describe("top-level catch drains stdout before exit (D1-SA1.4-01)", () => {
+  const indexSource = readSource("src/cli/index.ts");
+
+  it("wraps the funnel exit in the stdout→stderr drain idiom, not a bare process.exit", () => {
+    const marker = "process.exit(formatted.exitCode)";
+    const idx = indexSource.lastIndexOf(marker);
+    expect(idx).toBeGreaterThan(-1);
+    // The 200 chars before the funnel exit must contain the inner stderr drain
+    // callback — present only when the exit is nested inside the
+    // process.stdout.write("", () => process.stderr.write("", () => ...)) idiom.
+    // A bare synchronous exit would show writeFormattedCliError/DEBUG here.
+    const preceding = indexSource.slice(Math.max(0, idx - 200), idx);
+    expect(preceding).toContain('process.stderr.write("",');
+  });
+});
+
+// D12-SA12.1-01 + D8-SA8.1-02 (Cycle 12 Wave 3): index.ts named
+// .hatch3r/.failure-log.jsonl as a recovery surface but never wrote it, and its
+// unhandledRejection net was diagnostically inferior to the uncaughtException
+// sibling (no run id, no failure-log pointer, no clean-cancel classification).
+// Both nets + the parseAsync catch now record the fault, the pointer is gated so
+// it never dangles, and both nets share one fault footer via reportFatal.
+describe("crash-net parity + failure-log recording (D8-SA8.1-02, D12-SA12.1-01)", () => {
+  const indexSource = readSource("src/cli/index.ts");
+
+  it("appends genuine top-level faults to the failure log from all three fault sites (D12-SA12.1-01)", () => {
+    expect(indexSource).toContain("writeFailureLog");
+    expect(indexSource).toContain('"cli:uncaught-exception"');
+    expect(indexSource).toContain('"cli:unhandled-rejection"');
+    expect(indexSource).toContain('"cli:top-level"');
+  });
+
+  it("gates the failure-log pointer on the entry persisting so it never dangles (D12-SA12.1-01)", () => {
+    const start = indexSource.indexOf("function emitFaultFooter");
+    expect(start).toBeGreaterThan(-1);
+    const footer = indexSource.slice(start, start + 500);
+    // The ".failure-log.jsonl" pointer sits inside a conditional (emitted only
+    // when the entry persisted), not unconditionally at the handler top level.
+    expect(footer).toMatch(/if\s*\([\s\S]*?\)\s*\{[\s\S]*?failure-log\.jsonl/);
+  });
+
+  it("routes both last-resort nets through the shared reportFatal helper with parity (D8-SA8.1-02)", () => {
+    expect(indexSource).toContain('process.on("unhandledRejection"');
+    expect(indexSource).toContain('process.on("uncaughtException"');
+    expect(indexSource).toMatch(/function reportFatal\b/);
+    expect(indexSource).toMatch(/reportFatal\([^)]*"cli:unhandled-rejection"/);
+    expect(indexSource).toMatch(/reportFatal\([^)]*"cli:uncaught-exception"/);
+    // Parity: reportFatal classifies clean cancellations (exit 130) and emits
+    // the shared footer (run id + gated pointer) for both nets.
+    expect(indexSource).toContain("classifyCliError(");
+    expect(indexSource).toContain("emitFaultFooter(");
+  });
+});
+
+// D3-SA3.2-04 (Cycle 12 Wave 3, D3, P5): the BACKABLE_COMMANDS set in
+// src/cli/index.ts carried a prose "audited" census asserting each member
+// guards Shift+Tab→BACK, but nothing enforced it and the census drifted (it
+// claimed update had 2 prompts after it grew to 4 guarded sites). This scan
+// converts that self-certification into a machine-checked invariant — the same
+// source-scan pattern errors.test.ts (C8-D1-M5) applies to exitCode call sites.
+// It reads the live BACKABLE set from index.ts, maps each command to its
+// source, and asserts the source either routes prompts through runStepMachine
+// (step-machine commands) or guards every inquirer.prompt site with an isBack
+// check that cancels (defensive commands). Adding a command to the set without
+// a spec entry here, or a defensive prompt without an isBack+cancel guard,
+// fails this suite.
+describe("BACKABLE back-nav guard invariant (D3-SA3.2-04)", () => {
+  const indexSource = readSource("src/cli/index.ts");
+
+  // Command name → { source file, back-handling mode }. Kept beside the scan so
+  // adding a BACKABLE command forces an explicit classification here; the first
+  // test fails when index.ts and this map drift.
+  const BACKABLE_SPEC: Record<string, { file: string; mode: "step-machine" | "defensive" }> = {
+    init: { file: "src/cli/commands/init.ts", mode: "step-machine" },
+    config: { file: "src/cli/commands/config.ts", mode: "step-machine" },
+    "worktree-cleanup": { file: "src/cli/commands/worktreeCleanup.ts", mode: "step-machine" },
+    clean: { file: "src/cli/commands/clean.ts", mode: "defensive" },
+    update: { file: "src/cli/commands/update.ts", mode: "defensive" },
+    mcp: { file: "src/cli/commands/mcp.ts", mode: "defensive" },
+    "cli-tools": { file: "src/cli/commands/cliTools.ts", mode: "defensive" },
+  };
+
+  // Cancel shapes a BACK-guard body may use: an early `return`, `process.exit(0)`,
+  // a `throw new HatchError(..., 0)` (update's shape), or a "cancelled" message.
+  const CANCELS = /\breturn\b|process\.exit\(0\)|HatchError\([^)]*,\s*0\)|cancelled/i;
+
+  // Parse the live BACKABLE_COMMANDS membership out of index.ts source so the
+  // invariant tracks the runtime set, not a copy that could drift.
+  function readBackableSet(): string[] {
+    const m = indexSource.match(/const BACKABLE_COMMANDS = new Set\(\[([\s\S]*?)\]\)/);
+    if (!m) throw new Error("Could not locate BACKABLE_COMMANDS in src/cli/index.ts");
+    return [...m[1].matchAll(/"([^"]+)"/g)].map((x) => x[1]);
+  }
+
+  it("every BACKABLE_COMMANDS member has a back-handling spec (index.ts ↔ scan drift guard)", () => {
+    const live = readBackableSet().sort();
+    const spec = Object.keys(BACKABLE_SPEC).sort();
+    expect(
+      live,
+      `BACKABLE_COMMANDS in src/cli/index.ts and BACKABLE_SPEC here have drifted: ` +
+        `[${live.join(", ")}] vs [${spec.join(", ")}]. Add every new set member to ` +
+        `BACKABLE_SPEC (source file + step-machine|defensive mode) so the back-nav ` +
+        `guard invariant covers it.`,
+    ).toEqual(spec);
+  });
+
+  it("step-machine commands route their prompts through runStepMachine", () => {
+    const offenders: string[] = [];
+    for (const [name, { file, mode }] of Object.entries(BACKABLE_SPEC)) {
+      if (mode !== "step-machine") continue;
+      if (!/runStepMachine/.test(readSource(file))) {
+        offenders.push(`${name} (${file}): declared step-machine but source has no runStepMachine call`);
+      }
+    }
+    expect(offenders).toEqual([]);
+  });
+
+  it("defensive commands guard every inquirer.prompt site with an isBack check that cancels", () => {
+    const offenders: string[] = [];
+    for (const [name, { file, mode }] of Object.entries(BACKABLE_SPEC)) {
+      if (mode !== "defensive") continue;
+      const src = readSource(file);
+      const promptIdxs = [...src.matchAll(/inquirer\.prompt/g)].map((x) => x.index ?? 0);
+      if (promptIdxs.length === 0) {
+        // Delegates prompting to a backable picker helper (pickMcpServers /
+        // pickCliTools); it must still guard the returned selection with isBack.
+        if (!/isBack\(/.test(src)) {
+          offenders.push(`${name} (${file}): defensive command with no isBack guard on its picker result`);
+        }
+        continue;
+      }
+      for (let i = 0; i < promptIdxs.length; i++) {
+        const start = promptIdxs[i];
+        const end = i + 1 < promptIdxs.length ? promptIdxs[i + 1] : src.length;
+        const region = src.slice(start, end);
+        const line = src.slice(0, start).split("\n").length;
+        if (!/isBack\(/.test(region)) {
+          offenders.push(`${file}:${line}: inquirer.prompt site with no isBack guard before the next prompt`);
+        } else if (!CANCELS.test(region)) {
+          offenders.push(
+            `${file}:${line}: isBack guard present but no graceful-cancel (return/exit 0/cancelled) in the prompt region`,
+          );
+        }
+      }
+    }
+    expect(
+      offenders,
+      `BACKABLE defensive command(s) have an unguarded or non-cancelling Shift+Tab→BACK prompt site:\n  ` +
+        offenders.join("\n  "),
+    ).toEqual([]);
+  });
+});
+
+// D1-SA1.4-02 (Cycle 12 Wave 3, D1, P1): `validate` predated the shared output
+// module and hand-rolled `opts?.format === "json" ? "json" : "human"`, so
+// `--format JSON` (wrong case) or `--format jsom` (typo) silently degraded to
+// human mode and exited 0 — the D10-22 defect the framework closed everywhere
+// else. The fix routes validate's --format through parseFormatOption at
+// registration (program.ts .option coercion), matching verify/status: a bad
+// value throws the exit-2 usage error and a mixed-case value normalizes.
+// (validate.ts is owned by a concurrent Wave-3 file-lock unit; the
+// registration-layer coercion closes the defect without touching it.)
+describe("validate --format routes through the shared resolver (D1-SA1.4-02)", () => {
+  function makeValidateProgram() {
+    const program = createProgram();
+    const validate = program.commands.find((c) => c.name() === "validate")!;
+    let received: string | undefined;
+    // Stub the action so a clean parse resolves without running real validation;
+    // the --format coercion runs during parse, before the action fires.
+    validate.action((opts: { format?: string }) => {
+      received = opts.format;
+    });
+    return { program, getFormat: () => received };
+  }
+
+  it("normalizes a mixed-case --format value to the canonical enum (JSON → json)", async () => {
+    const { program, getFormat } = makeValidateProgram();
+    await program.parseAsync(["validate", "--format", "JSON"], { from: "user" });
+    expect(getFormat()).toBe("json");
+  });
+
+  it("passes a lowercase --format value through unchanged (human)", async () => {
+    const { program, getFormat } = makeValidateProgram();
+    await program.parseAsync(["validate", "--format", "human"], { from: "user" });
+    expect(getFormat()).toBe("human");
+  });
+
+  it("rejects an unrecognized --format value with a HatchError carrying exit code 2 (no silent human-mode degrade)", async () => {
+    const { program } = makeValidateProgram();
+    let caught: unknown;
+    try {
+      await program.parseAsync(["validate", "--format", "jsom"], { from: "user" });
+    } catch (err) {
+      caught = err;
+    }
+    expect(caught).toBeInstanceOf(HatchError);
+    expect((caught as HatchError).exitCode).toBe(2);
+  });
+
+  it("defaults to human when --format is omitted (the default is not coerced)", async () => {
+    const { program, getFormat } = makeValidateProgram();
+    await program.parseAsync(["validate"], { from: "user" });
+    expect(getFormat()).toBe("human");
   });
 });

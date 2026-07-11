@@ -14,7 +14,7 @@ triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:
   count: 5
-  rationale: Five parallel hatch3r-researcher modes per test-planning brief — coverage-analysis, complexity-and-risk, test-pattern, boundary-analysis, risk-prioritization — dispatched concurrently in Step 3; a docs-writer composes the test plan on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  rationale: Five parallel hatch3r-researcher modes per test-planning brief — coverage-analysis, complexity-risk, test-pattern, boundary-analysis, risk-prioritization — dispatched concurrently in Step 3; a docs-writer composes the test plan on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
   task_structure: parallelizable
 ---
 
@@ -569,7 +569,7 @@ test-plan is long-running — a Tier 3 plan fans out parallel researcher sub-age
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for test-plan: `1` = feature/diff intake + mandate-class detection, `2` = hatch3r-testability sub-agent dispatch (fuzz / mutation / contract / property / visual / AI-eval), `3` = plan synthesis + coverage analysis, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for test-plan: `1` = feature/diff intake + mandate-class detection, `2` = parallel `hatch3r-researcher` mode dispatch (coverage-analysis / complexity-risk / test-pattern / boundary-analysis / risk-prioritization), `3` = plan synthesis + coverage analysis, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 

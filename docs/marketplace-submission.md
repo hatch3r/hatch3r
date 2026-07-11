@@ -1,18 +1,24 @@
-# Claude Plugins Marketplace Submission
+# Marketplace Submission — Claude Plugins + Cursor
 
-This document is the agent-prepared submission package for listing **hatch3r** on the official Anthropic Claude Plugins marketplace (`anthropics/claude-plugins-official`).
+This document is the agent-prepared submission package for listing **hatch3r** on the two marketplaces it targets: the official Anthropic Claude Plugins marketplace (`anthropics/claude-plugins-official`) and the Cursor marketplace (`cursor.com/marketplace`). The Claude Plugins sections come first; the Cursor lane runbook is in "## Cursor Marketplace Submission" below.
 
-> **Status:** PARTIAL — agent portion of audit finding C7-H16 complete (description-count refresh against `governance/inventory.json` re-verified Cycle 10 close-out, 2026-05-28). Human portion remains pending: in-app form submission at https://claude.ai/settings/plugins/submit (see "Submission Channels" below).
+> **Status (Claude Plugins lane):** PARTIAL — agent portion of audit finding C7-H16 complete (description-count refresh against `governance/inventory.json` re-verified Cycle 10 close-out, 2026-05-28). Human portion remains pending: in-app form submission at https://claude.ai/settings/plugins/submit (see "Submission Channels" below).
+>
+> **Status (Cursor lane):** PARTIAL — agent-prepared runbook added for audit finding D18-SA18.3-01 (Cycle 12, 2026-07-11). Human portion remains pending: submission at https://cursor.com/marketplace/publish, plus a committed logo asset (TODO — see the Cursor section).
 
 ## Submission Channels
 
-Per `https://code.claude.com/docs/en/plugins` (accessed 2026-04-19), official-marketplace submissions are made through the in-app submission forms, not via PR to `external_plugins/`:
+This document covers two marketplace lanes with distinct submission channels. Lane-specific runbooks follow below.
+
+**Claude Plugins marketplace** — per `https://code.claude.com/docs/en/plugins` (accessed 2026-04-19), official-marketplace submissions are made through the in-app submission forms, not via PR to `external_plugins/`:
 
 - Claude.ai: https://claude.ai/settings/plugins/submit
 - Console: https://platform.claude.com/plugins/submit
 - Plugin directory submission form: https://clau.de/plugin-directory-submission
 
 The `external_plugins/` PR convention referenced in the original C7-H16 finding is superseded by the in-app submission flow. The agent portion of this work unit prepares everything that the submission form requires (manifest, README sections, capability declaration); the remaining human action is form completion.
+
+**Cursor marketplace** — per `https://cursor.com/docs/plugins` and `https://cursor.com/docs/reference/plugins.md` (both accessed 2026-07-11), submissions are made at https://cursor.com/marketplace/publish by supplying a public repository link; Cursor reads `.cursor-plugin/plugin.json` from the repo. Field values, prerequisites, review model, and verification: see "## Cursor Marketplace Submission" below.
 
 ## Submission Field Values
 
@@ -158,7 +164,62 @@ After this agent-prepared package:
 2. **Verify** the marketplace listing appears under `claude-plugins-official` and that `/plugin install hatch3r@claude-plugins-official` resolves.
 3. **(Optional, if the convention reverts to PR-based)** Fork `anthropics/claude-plugins-official`, add an `external_plugins/hatch3r/` entry pointing at this repo via `{ "source": { "source": "github", "repo": "hatch3r/hatch3r" } }` in the marketplace `plugins` array, and open the PR using the PR-style description above.
 
-## Verification before submission
+## Cursor Marketplace Submission
+
+Cursor lists plugins in its own marketplace, separate from the Claude Plugins marketplace above. This is the agent-prepared submission package for the Cursor lane (audit finding D18-SA18.3-01, Cycle 12).
+
+### Submission channel
+
+Submit at https://cursor.com/marketplace/publish — the form takes a public repository link, and Cursor reads the manifest at `.cursor-plugin/plugin.json` from the repo (`https://cursor.com/docs/plugins`, `https://cursor.com/docs/reference/plugins.md`, both accessed 2026-07-11).
+
+### Prerequisites
+
+| Prerequisite | Status | Source |
+|--------------|--------|--------|
+| Public repository | Met — https://github.com/hatch3r/hatch3r | Cursor pre-submission checklist |
+| Valid `.cursor-plugin/plugin.json` at repo root | Met — present (`name`, `description`, `version`, `author`, capability paths) | Cursor manifest reference |
+| Open-source license | Met — MIT (`LICENSE`) | "All plugins must be open source" (cursor.com/docs/plugins) |
+| Committed logo asset | **TODO** — none in repo (`find` returns no logo/icon asset); `logo` is an optional manifest field, but without it the listing renders with no icon | "Logo is committed to the repo and referenced by relative path (if provided)" (cursor.com/docs/reference/plugins.md) |
+
+To close the logo TODO: commit a logo file (for example `assets/logo.svg`), then add `"logo": "assets/logo.svg"` to `.cursor-plugin/plugin.json`. Do not add the `logo` field before the asset is committed — the checklist scopes it to "if provided", and a manifest that points at a missing file fails review.
+
+### Field values (source of truth: `.cursor-plugin/plugin.json`)
+
+The Cursor form and listing draw from the committed manifest; keep the manifest as the single source and re-verify it before submission:
+
+- **name:** `hatch3r`
+- **displayName:** `Hatch3r`
+- **description:** "Agentic coding setup audited each release across 24 governance domains: 29 agents, 53 skills, 70 rules, 31 commands, 7 hooks, and MCP integrations -- in one plugin. Counts derived from governance/inventory.json." (counts trace to `governance/inventory.json`)
+- **version:** `2.5.0`
+- **repository:** https://github.com/hatch3r/hatch3r
+- **homepage:** https://docs.hatch3r.com
+- **license:** MIT
+- **capability paths:** `rules/`, `skills/`, `agents/`, `commands/`, `hooks/`, `mcp/mcp.json`
+
+### Review model — release-process implication
+
+Cursor manually reviews every plugin before listing AND re-reviews every update before publishing; all plugins must be open source (cursor.com/docs/plugins, accessed 2026-07-11). This differs from the Claude Plugins auto-mirror flow: each hatch3r release that changes the Cursor listing incurs a manual re-review, so treat a Cursor-listing update as a gated step in the release process rather than a same-day publish.
+
+### Verification before submission (Cursor lane)
+
+```bash
+# Confirm the manifest is present and well-formed
+cat .cursor-plugin/plugin.json | jq .
+
+# Confirm the manifest description counts match the inventory
+npm run inventory && jq -r '.description' .cursor-plugin/plugin.json
+
+# Confirm the repository is public and the license is MIT
+jq -r '{repository, license}' .cursor-plugin/plugin.json
+```
+
+### Human portion remaining (Cursor lane)
+
+1. **Commit a logo asset** (for example `assets/logo.svg`) and add `"logo": "assets/logo.svg"` to `.cursor-plugin/plugin.json`.
+2. **Visit** https://cursor.com/marketplace/publish and submit the public repository link.
+3. **Verify** the listing appears in the Cursor marketplace and resolves for install.
+
+## Verification before submission (Claude Plugins lane)
 
 ```bash
 # Validate plugin manifest with Claude Code's built-in validator

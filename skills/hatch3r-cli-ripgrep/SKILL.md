@@ -93,7 +93,7 @@ Verify with:
 command -v rg
 ```
 
-Install (macOS — default for this machine):
+Install (macOS):
 
 ```bash
 # brew

@@ -15,14 +15,25 @@ import {
   evaluateReviewGate,
   confidenceExplanation,
   CALIBRATION,
+  CALIBRATION_SAMPLE_THRESHOLD,
   DEFAULT_MAX_REVIEW_ITERATIONS,
   HARD_MAX_REVIEW_ITERATIONS,
   MIN_MAX_REVIEW_ITERATIONS,
   MIN_DIVERGENCE_HISTORY,
   DIVERGENCE_MESSAGE,
+  REVIEW_LOOP_CLASS_CAPS,
+  REVIEW_LOOP_TERMINATION_REASONS,
+  maxIterationsForClass,
+  reviewLoopLedgerEntry,
+  serializeReviewLoopLedgerEntry,
+  parseReviewLoopLedger,
+  deriveIterationSplit,
   iterationVerdictToHandoffVerdict,
   type ReviewConfidenceLevel,
   type ReviewIterationVerdict,
+  type ReviewLoopClass,
+  type ReviewLoopLedgerEntry,
+  type ReviewLoopTerminationReason,
 } from "../../pipeline/reviewLoop.js";
 import { HatchError } from "../../types.js";
 
@@ -276,36 +287,31 @@ describe("reviewLoop", () => {
     // previously covered only 4 of the ~12 cap-stating surfaces — the
     // orchestration rule (.md/.mdc) and the reviewer/fixer agent prompts.
     // Green CI therefore hid the contradiction the module header asserts:
-    // "the iteration cap is enforced by the prompt directive" while the six
-    // "max 3" command bodies, bug-pipeline's two "max 4" statements,
-    // board-fill's two spec-class "4" statements, and the detail rule's two
-    // "3" statements went unchecked and could drift freely.
+    // "the iteration cap is enforced by the prompt directive" while unchecked
+    // command bodies and the detail rule could drift freely.
     //
     // CAP_SURFACE_REGISTRY below is the single enumerated source of every
     // file that states the review-loop iteration cap. Each entry declares its
-    // loop class; the cap integer is derived from DEFAULT_MAX_REVIEW_ITERATIONS
-    // so a future change to the code constant forces every prose surface to be
-    // updated in the same change (or the parity test fails):
-    //   - "default" / "spec" classes equal DEFAULT_MAX_REVIEW_ITERATIONS (4).
-    //     The board-fill spec-class loop matches the default because issue-spec
-    //     reviews converge slowly (commands/hatch3r-board-fill.md §7.9d rationale).
-    //   - "code" class equals DEFAULT_MAX_REVIEW_ITERATIONS - 1 (3). Code
-    //     reviews diverge faster, so the code-class loops cap one below the
-    //     default (commands/hatch3r-workflow.md §3a rationale).
+    // loop class; the expected integer comes from REVIEW_LOOP_CLASS_CAPS in
+    // src/pipeline/reviewLoop.ts — the SHIPPED loop-class taxonomy. The class
+    // definitions, selection rule (code diff vs spec text vs generic pipeline
+    // bound), and convergence basis live in that module's JSDoc, no longer
+    // only in this test (Findings D5-SA5.4-03 / D8-SA8.3-02, Cycle 12). A
+    // future change to the code constant forces every prose surface to be
+    // updated in the same change (or the parity test fails).
     // `occurrences` pins how many times the cap phrase appears per file, so
     // adding or deleting a cap statement (not just changing its integer) also
     // trips the guard — the registry is exhaustive, not best-effort.
-    const CODE_CLASS_CAP = DEFAULT_MAX_REVIEW_ITERATIONS - 1;
-    const capForClass = (loopClass: "default" | "spec" | "code"): number =>
-      loopClass === "code" ? CODE_CLASS_CAP : DEFAULT_MAX_REVIEW_ITERATIONS;
+    const CODE_CLASS_CAP = REVIEW_LOOP_CLASS_CAPS.code;
+    const capForClass = maxIterationsForClass;
 
     interface CapSurface {
       /** Repo-root-relative path to the cap-stating file. */
       path: string;
       /** Human label for assertion messages. */
       label: string;
-      /** Loop class that fixes the expected integer. */
-      loopClass: "default" | "spec" | "code";
+      /** Loop class that fixes the expected integer ({@link ReviewLoopClass}). */
+      loopClass: ReviewLoopClass;
       /** Global regex whose first capture group is the stated cap integer. */
       regex: RegExp;
       /** Exact number of times the regex must match in the file. */
@@ -340,20 +346,6 @@ describe("reviewLoop", () => {
         label: "fixer agent Review Loop Termination",
         loopClass: "default",
         regex: /After\s+(\d+)\s+review-fix cycles\s+\(default\s+`DEFAULT_MAX_REVIEW_ITERATIONS=(\d+)`/g,
-        occurrences: 1,
-      },
-      {
-        path: "commands/hatch3r-bug-pipeline.md",
-        label: "bug-pipeline root-cause-depth review loop (table row)",
-        loopClass: "default",
-        regex: /\(max\s+(\d+)\s+iterations\)\s+\|\s+No \(sequential\)/g,
-        occurrences: 1,
-      },
-      {
-        path: "commands/hatch3r-bug-pipeline.md",
-        label: "bug-pipeline review-loop body (matching DEFAULT_MAX_REVIEW_ITERATIONS)",
-        loopClass: "default",
-        regex: /max\s+(\d+)\s+iterations,\s+matching\s+`DEFAULT_MAX_REVIEW_ITERATIONS`/g,
         occurrences: 1,
       },
       {
@@ -418,46 +410,69 @@ describe("reviewLoop", () => {
         regex: /maximum of \*\*(\d+) iterations\*\*\s+\(code-class cap\)/g,
         occurrences: 1,
       },
+      // Finding D8-SA8.3-02 (Cycle 12): the detail rule's three sites now
+      // state the single Phase-3 pipeline bound (default class, 4) — the
+      // prior "code-class cap = DEFAULT_MAX_REVIEW_ITERATIONS - 1" asserted
+      // arithmetic no code implemented and contradicted the reviewer/fixer
+      // agents ("After 4 review-fix cycles"), the Pipeline Pattern table
+      // (symbolic DEFAULT), and canContinueReview (no class branch). The
+      // retry-policy line additionally carries the shipped loop-class
+      // taxonomy's code-diff opt-down sentence, pinned as a code-class
+      // surface (Finding D5-SA5.4-03).
       {
         path: "rules/hatch3r-agent-orchestration-detail.md",
         label: "detail rule PipelineContext reviewResult.iterations comment (canonical)",
-        loopClass: "code",
-        regex: /1 to code-class cap \(DEFAULT_MAX_REVIEW_ITERATIONS - 1 = (\d+)\)/g,
+        loopClass: "default",
+        regex: /1 to maxIterations \(default DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)\)/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.md",
         label: "detail rule failure-mode table (canonical)",
-        loopClass: "code",
+        loopClass: "default",
         regex: /Max iterations \((\d+)\)/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.md",
-        label: "detail rule retry-policy (canonical)",
-        loopClass: "code",
+        label: "detail rule retry-policy pipeline bound (canonical)",
+        loopClass: "default",
         regex: /review loop retries up to\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.md",
+        label: "detail rule retry-policy loop-class opt-down (canonical)",
+        loopClass: "code",
+        regex: /code-diff loops opt down to (\d+)/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.mdc",
         label: "detail rule PipelineContext reviewResult.iterations comment (Cursor parity)",
-        loopClass: "code",
-        regex: /1 to code-class cap \(DEFAULT_MAX_REVIEW_ITERATIONS - 1 = (\d+)\)/g,
+        loopClass: "default",
+        regex: /1 to maxIterations \(default DEFAULT_MAX_REVIEW_ITERATIONS = (\d+)\)/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.mdc",
         label: "detail rule failure-mode table (Cursor parity)",
-        loopClass: "code",
+        loopClass: "default",
         regex: /Max iterations \((\d+)\)/g,
         occurrences: 1,
       },
       {
         path: "rules/hatch3r-agent-orchestration-detail.mdc",
-        label: "detail rule retry-policy (Cursor parity)",
-        loopClass: "code",
+        label: "detail rule retry-policy pipeline bound (Cursor parity)",
+        loopClass: "default",
         regex: /review loop retries up to\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      {
+        path: "rules/hatch3r-agent-orchestration-detail.mdc",
+        label: "detail rule retry-policy loop-class opt-down (Cursor parity)",
+        loopClass: "code",
+        regex: /code-diff loops opt down to (\d+)/g,
         occurrences: 1,
       },
       // Finding D7-1: four code-class loop directives that stated a numeric cap
@@ -492,6 +507,35 @@ describe("reviewLoop", () => {
         regex: /Repeat steps 2-3 for a maximum of \*\*(\d+) iterations\*\* until the confidence-aware gate/g,
         occurrences: 1,
       },
+      // Finding D5-SA5.4-03 (Cycle 12): bug-pipeline's Step-3 loop reviews
+      // bug-fix CODE diffs — the canonical regression-spawning case the
+      // code-class rationale names — so it is code-class. Its prior "max 4,
+      // matching DEFAULT_MAX_REVIEW_ITERATIONS" statements predated the
+      // shipped taxonomy and made it the only code-diff command running at
+      // the default cap; reclassified with the taxonomy shipped in
+      // REVIEW_LOOP_CLASS_CAPS. The Step-3.3 termination directive was a
+      // third, previously unpinned cap integer in the same file.
+      {
+        path: "commands/hatch3r-bug-pipeline.md",
+        label: "bug-pipeline root-cause-depth review loop (table row, code-class cap)",
+        loopClass: "code",
+        regex: /\(max\s+(\d+)\s+iterations\)\s+\|\s+No \(sequential\)/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-bug-pipeline.md",
+        label: "bug-pipeline review-loop body (code-class cap per REVIEW_LOOP_CLASS_CAPS)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations\s+\(code-class cap per\s+`REVIEW_LOOP_CLASS_CAPS`/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/hatch3r-bug-pipeline.md",
+        label: "bug-pipeline Step-3.3 termination directive (code-class cap)",
+        loopClass: "code",
+        regex: /If the code-class cap of (\d+) iterations completes/g,
+        occurrences: 1,
+      },
     ];
 
     it("every review-loop cap surface in CAP_SURFACE_REGISTRY matches its loop class (Finding D7-3)", () => {
@@ -502,15 +546,18 @@ describe("reviewLoop", () => {
       // when a new cap-stating surface is authored.
       const repoRoot = process.cwd();
       // Self-check: the registry must enumerate every file that states a cap.
-      // 16 distinct files carry cap statements (rule, rule.mdc, reviewer,
+      // 17 distinct files carry cap statements (rule, rule.mdc, reviewer,
       // fixer, implementer, bug-pipeline, board-fill, quick-change, revision,
       // board-pickup, workflow, detail.md, detail.mdc, release, debug,
-      // pickup-delegation, pickup-delegation-multi). detail.md/.mdc each state
-      // the code-class cap three times (Finding D7-2: reviewResult.iterations
-      // comment, failure-mode table, retry-policy); release/debug/delegation×2
+      // pickup-delegation, pickup-delegation-multi). detail.md/.mdc each carry
+      // three default-class sites (Finding D8-SA8.3-02: reviewResult.iterations
+      // comment, failure-mode table, retry-policy bound) plus the retry-policy
+      // code-class opt-down pin (Finding D5-SA5.4-03); release/debug/delegation×2
       // add one code-class directive each (Finding D7-1); the implementer adds
-      // one default-class surface (Finding D5-20) => 23 entries. Guard against a
-      // future edit that silently empties the registry.
+      // one default-class surface (Finding D5-20); bug-pipeline carries three
+      // code-class sites (table row, loop body, Step-3.3 termination directive)
+      // => 27 entries. Guard against a future edit that silently empties the
+      // registry.
       expect(
         CAP_SURFACE_REGISTRY.length,
         "CAP_SURFACE_REGISTRY must remain populated — it is the single enumerated source of review-loop cap surfaces",
@@ -945,6 +992,219 @@ describe("reviewLoop", () => {
       expect(CALIBRATION.basis).toBe("informed_estimate");
       expect(CALIBRATION.sampleSize).toBe(0);
       expect(CALIBRATION.measuredAt).toBeNull();
+    });
+  });
+
+  describe("loop-class taxonomy (Findings D5-SA5.4-03 / D8-SA8.3-02)", () => {
+    it("ships the class caps as a typed export: code = DEFAULT - 1 (3), spec/default = DEFAULT (4)", () => {
+      expect(REVIEW_LOOP_CLASS_CAPS.code).toBe(DEFAULT_MAX_REVIEW_ITERATIONS - 1);
+      expect(REVIEW_LOOP_CLASS_CAPS.code).toBe(3);
+      expect(REVIEW_LOOP_CLASS_CAPS.spec).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+      expect(REVIEW_LOOP_CLASS_CAPS.default).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+      expect(REVIEW_LOOP_CLASS_CAPS.default).toBe(4);
+    });
+
+    it("maxIterationsForClass returns the record value for every class", () => {
+      const classes: ReviewLoopClass[] = ["code", "spec", "default"];
+      for (const loopClass of classes) {
+        expect(maxIterationsForClass(loopClass)).toBe(REVIEW_LOOP_CLASS_CAPS[loopClass]);
+      }
+    });
+
+    it("every class cap is a valid createReviewLoop bound (within [MIN, HARD])", () => {
+      for (const cap of Object.values(REVIEW_LOOP_CLASS_CAPS)) {
+        expect(cap).toBeGreaterThanOrEqual(MIN_MAX_REVIEW_ITERATIONS);
+        expect(cap).toBeLessThanOrEqual(HARD_MAX_REVIEW_ITERATIONS);
+      }
+    });
+
+    it("the code-class opt-down flows through createReviewLoop unclamped", () => {
+      const state = createReviewLoop(maxIterationsForClass("code"));
+      expect(state.maxIterations).toBe(3);
+    });
+
+    it("the state model itself has no class branch — default stays DEFAULT_MAX_REVIEW_ITERATIONS (Finding D8-SA8.3-02)", () => {
+      // The −1 is an explicit caller opt-down, never an implicit code branch:
+      // a default-constructed loop runs to 4, matching the reviewer/fixer
+      // agents ("After 4 review-fix cycles") and canContinueReview.
+      expect(createReviewLoop().maxIterations).toBe(DEFAULT_MAX_REVIEW_ITERATIONS);
+    });
+
+    it("REVIEW_LOOP_CLASS_CAPS is frozen", () => {
+      expect(Object.isFrozen(REVIEW_LOOP_CLASS_CAPS)).toBe(true);
+    });
+  });
+
+  describe("iteration ledger (Finding D7-SA7.2-01 — CL-2 telemetry)", () => {
+    /** Terminate a loop clean at exactly `iteration` (max 6, decreasing findings). */
+    const cleanAt = (iteration: number) => {
+      let state = createReviewLoop(6);
+      for (let i = 1; i < iteration; i++) {
+        state = recordReviewIteration(state, "warning", 6 - i);
+      }
+      return recordReviewIteration(state, "clean", 0);
+    };
+
+    /** Synthetic ledger entry with the given terminal shape. */
+    const entryWith = (
+      terminationReason: ReviewLoopTerminationReason,
+      iterationCount: number,
+    ): ReviewLoopLedgerEntry => ({
+      recordedAt: "2026-07-11T00:00:00.000Z",
+      loopClass: "code",
+      maxIterations: 3,
+      iterationCount,
+      terminationReason,
+      verdictByIteration: [],
+      source: "test-synthetic",
+    });
+
+    it("REVIEW_LOOP_TERMINATION_REASONS enumerates all seven terminal reasons at runtime", () => {
+      expect(REVIEW_LOOP_TERMINATION_REASONS).toHaveLength(7);
+      expect(REVIEW_LOOP_TERMINATION_REASONS).toContain("clean");
+      expect(REVIEW_LOOP_TERMINATION_REASONS).toContain("max_iterations");
+      expect(REVIEW_LOOP_TERMINATION_REASONS).toContain("divergence");
+    });
+
+    it("reviewLoopLedgerEntry captures the terminal loop shape", () => {
+      const state = cleanAt(2);
+      const entry = reviewLoopLedgerEntry(state, {
+        loopClass: "code",
+        source: "D7-SA7.2-01",
+        recordedAt: "2026-07-11T00:00:00.000Z",
+      });
+      expect(entry).toEqual({
+        recordedAt: "2026-07-11T00:00:00.000Z",
+        loopClass: "code",
+        maxIterations: 6,
+        iterationCount: 2,
+        terminationReason: "clean",
+        verdictByIteration: ["warning", "clean"],
+        source: "D7-SA7.2-01",
+      });
+    });
+
+    it("reviewLoopLedgerEntry defaults recordedAt to now (ISO-8601)", () => {
+      const entry = reviewLoopLedgerEntry(cleanAt(1), {
+        loopClass: "default",
+        source: "test",
+      });
+      expect(new Date(entry.recordedAt).toISOString()).toBe(entry.recordedAt);
+    });
+
+    it("throws HatchError for a non-terminated loop (an in-progress loop has no final count)", () => {
+      const inProgress = createReviewLoop(3);
+      expect(() =>
+        reviewLoopLedgerEntry(inProgress, { loopClass: "code", source: "test" }),
+      ).toThrow(HatchError);
+      expect(() =>
+        reviewLoopLedgerEntry(inProgress, { loopClass: "code", source: "test" }),
+      ).toThrow(/non-terminated/);
+    });
+
+    it("serialize -> parse round-trips an entry through the JSONL form", () => {
+      const entry = reviewLoopLedgerEntry(cleanAt(3), {
+        loopClass: "spec",
+        source: "round-trip",
+        recordedAt: "2026-07-11T00:00:00.000Z",
+      });
+      const line = serializeReviewLoopLedgerEntry(entry);
+      expect(line).not.toContain("\n");
+      expect(parseReviewLoopLedger(line)).toEqual([entry]);
+    });
+
+    it("parseReviewLoopLedger skips blank lines and trailing newlines", () => {
+      const entry = entryWith("clean", 1);
+      const content = `\n${serializeReviewLoopLedgerEntry(entry)}\n\n`;
+      expect(parseReviewLoopLedger(content)).toHaveLength(1);
+      expect(parseReviewLoopLedger("")).toEqual([]);
+      expect(parseReviewLoopLedger("\n\n")).toEqual([]);
+    });
+
+    it("parseReviewLoopLedger names the 1-based line number on invalid JSON", () => {
+      const good = serializeReviewLoopLedgerEntry(entryWith("clean", 1));
+      expect(() => parseReviewLoopLedger(`${good}\n{not json`)).toThrow(HatchError);
+      expect(() => parseReviewLoopLedger(`${good}\n{not json`)).toThrow(/line 2/);
+    });
+
+    it("parseReviewLoopLedger rejects out-of-domain fields, naming the field", () => {
+      const base = entryWith("clean", 1);
+      const withField = (patch: Record<string, unknown>): string =>
+        JSON.stringify({ ...base, ...patch });
+      expect(() => parseReviewLoopLedger(withField({ loopClass: "prose" }))).toThrow(
+        /loopClass/,
+      );
+      expect(() =>
+        parseReviewLoopLedger(withField({ terminationReason: "gave_up" })),
+      ).toThrow(/terminationReason/);
+      expect(() =>
+        parseReviewLoopLedger(withField({ verdictByIteration: ["APPROVE"] })),
+      ).toThrow(/verdictByIteration/);
+      expect(() => parseReviewLoopLedger(withField({ iterationCount: -1 }))).toThrow(
+        /iterationCount/,
+      );
+      expect(() => parseReviewLoopLedger(withField({ source: "" }))).toThrow(/source/);
+      expect(() => parseReviewLoopLedger("42")).toThrow(/must be a JSON object/);
+    });
+
+    it("deriveIterationSplit on an empty ledger reports zero sample, not a fabricated split", () => {
+      const derived = deriveIterationSplit([]);
+      expect(derived.sampleSize).toBe(0);
+      expect(derived.promotable).toBe(false);
+      expect(derived.split.iteration1CleanRate).toBe(0);
+      expect(derived.split.iteration4PlusRate).toBe(0);
+    });
+
+    it("buckets clean terminations by iteration and sums rates to 1", () => {
+      const entries = [
+        entryWith("clean", 1),
+        entryWith("clean", 1),
+        entryWith("clean", 2),
+        entryWith("clean", 3),
+        entryWith("max_iterations", 4),
+        entryWith("divergence", 3),
+      ];
+      const { split, sampleSize } = deriveIterationSplit(entries);
+      expect(sampleSize).toBe(6);
+      expect(split.iteration1CleanRate).toBeCloseTo(2 / 6, 10);
+      expect(split.iteration2CleanRate).toBeCloseTo(1 / 6, 10);
+      expect(split.iteration3CleanRate).toBeCloseTo(1 / 6, 10);
+      expect(split.iteration4PlusRate).toBeCloseTo(2 / 6, 10);
+      const total =
+        split.iteration1CleanRate +
+        split.iteration2CleanRate +
+        split.iteration3CleanRate +
+        split.iteration4PlusRate;
+      expect(total).toBeCloseTo(1.0, 10);
+    });
+
+    it("a clean termination at iteration >= 4 lands in the oscillation-prone tail", () => {
+      const { split } = deriveIterationSplit([entryWith("clean", 4)]);
+      expect(split.iteration4PlusRate).toBe(1);
+      expect(split.iteration3CleanRate).toBe(0);
+    });
+
+    it("every non-clean termination lands in the tail regardless of iteration count", () => {
+      const { split } = deriveIterationSplit([
+        entryWith("oscillation", 2),
+        entryWith("cost_budget_exceeded", 1),
+      ]);
+      expect(split.iteration4PlusRate).toBe(1);
+      expect(split.iteration1CleanRate).toBe(0);
+    });
+
+    it("promotable flips at CALIBRATION_SAMPLE_THRESHOLD (the CL-2 promotion gate)", () => {
+      expect(CALIBRATION_SAMPLE_THRESHOLD).toBe(30);
+      const below = deriveIterationSplit(
+        Array.from({ length: CALIBRATION_SAMPLE_THRESHOLD - 1 }, () =>
+          entryWith("clean", 1),
+        ),
+      );
+      expect(below.promotable).toBe(false);
+      const atThreshold = deriveIterationSplit(
+        Array.from({ length: CALIBRATION_SAMPLE_THRESHOLD }, () => entryWith("clean", 1)),
+      );
+      expect(atThreshold.promotable).toBe(true);
     });
   });
 

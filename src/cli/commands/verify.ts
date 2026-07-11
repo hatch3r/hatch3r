@@ -2,10 +2,13 @@ import chalk from "chalk";
 import { HatchError, type HatchManifest } from "../../types.js";
 import { readManifest } from "../../manifest/hatchJson.js";
 import {
+  classifyVersionSkew,
   computeAdapterDrift,
+  installedOlderSkewHint,
   renderDiffSummaryLines,
   renderDriftLines,
   type DriftReport,
+  type VersionSkewDirection,
 } from "./status.js";
 import { runRegenerate } from "./update.js";
 import { scanManagedBlockTampering } from "./validate.js";
@@ -122,11 +125,21 @@ function driftCountOf(report: DriftReport): number {
  * orphan files, `sync` when drift includes drifted/missing output (and append a
  * `clean` note when orphans also coexist).
  */
-function buildRecoveryHint(report: DriftReport): string {
+function buildRecoveryHint(report: DriftReport, olderSkewHint?: string): string {
   const { modified, missing, unexpected } = report.counts;
   const hasSyncable = modified > 0 || missing > 0;
   if (!hasSyncable && unexpected > 0) {
+    // Orphan-only drift — `clean`, not `sync`; version skew is irrelevant
+    // (clean removes files, it never regenerates from canonical).
     return "Run `hatch3r clean` to remove unexpected files no longer produced by any adapter.";
+  }
+  // D1-SA1.4-04 (D1, P1): installed-older + real (syncable) drift → `sync`/`--fix`
+  // would regenerate from the OLDER canonical set and DOWNGRADE the files. Point
+  // at `update` first (the `olderSkewHint` sentence) instead of sync.
+  if (olderSkewHint && hasSyncable) {
+    return unexpected > 0
+      ? `${olderSkewHint} Run \`hatch3r clean\` to remove the unexpected (orphan) file(s).`
+      : olderSkewHint;
   }
   const base =
     "Run `hatch3r sync` to regenerate drifted/missing files, or `hatch3r verify --fix` to auto-repair.";
@@ -249,6 +262,21 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     assertManifest(manifest, { jsonMode });
   }
 
+  // D1-SA1.4-04 (D1, P1): version-skew detection. `status` and `verify` are the
+  // two commands whose job is explaining drift, yet neither read the manifest's
+  // recorded writer version before this — so a stale (older) global install
+  // following verify's `sync`/`--fix` hint silently DOWNGRADED the outputs.
+  // Surface the direction (JSON) and, when installed-older, flip the human
+  // disclosure + recovery hint to `update` first (see `buildRecoveryHint`).
+  const skewDirection: VersionSkewDirection = classifyVersionSkew(
+    manifest.hatch3rVersion,
+    HATCH3R_VERSION,
+  );
+  const olderSkewHint =
+    skewDirection === "installed-older"
+      ? installedOlderSkewHint(manifest.hatch3rVersion, HATCH3R_VERSION)
+      : undefined;
+
   let report: DriftReport;
   if (options.fix) {
     report = await runFixLoop(rootDir, manifest, options.maxFixAttempts);
@@ -284,6 +312,13 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
       // affect `status`). Empty array when the marker structure is well-formed.
       tamperWarnings,
       fixApplied: !!options.fix,
+      // D1-SA1.4-04 (D1, P1): the manifest's recorded writer version + skew
+      // direction. `hatch3rVersion` below is the RUNNING CLI; a CI consumer
+      // needs `manifestHatch3rVersion` + `versionSkewDirection` to detect an
+      // installed-older downgrade hazard (mirrors status's `installation` block).
+      manifestHatch3rVersion: manifest.hatch3rVersion,
+      versionSkew: manifest.hatch3rVersion !== HATCH3R_VERSION,
+      versionSkewDirection: skewDirection,
       hatch3rVersion: HATCH3R_VERSION,
       timestamp: new Date().toISOString(),
     });
@@ -292,7 +327,23 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
       `Adapter output drift detected (${driftCount} file(s))`,
       undefined,
       "INTEGRITY_ERROR",
-      buildRecoveryHint(report),
+      buildRecoveryHint(report, olderSkewHint),
+    );
+  }
+
+  // D1-SA1.4-04 (D1, P1): one-line human skew disclosure, shown on both PASS and
+  // FAIL. `info` is a no-op under --quiet/json, so CI/JSON callers are
+  // unaffected. installed-older names the downgrade hazard in yellow; the
+  // (benign) installed-newer upgrade case is a dim note so the operator can
+  // attribute expected canonical drift to the CLI bump.
+  if (skewDirection !== "none") {
+    info(
+      skewDirection === "installed-older"
+        ? chalk.yellow(olderSkewHint!)
+        : chalk.dim(
+            `Version skew: installed hatch3r v${HATCH3R_VERSION} is newer than the ` +
+              `v${manifest.hatch3rVersion} that generated these files (drift from the upgrade is expected).`,
+          ),
     );
   }
 
@@ -317,8 +368,10 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   maybePrintVerboseDrift(options, report);
   // D1-SA1.4-F10 (P1): the recovery hint is now drift-category-aware so an
   // orphan-only failure points at `hatch3r clean`, not `hatch3r sync` (which
-  // would do nothing). Mirrors status.ts per-category guidance.
-  const recoveryHint = buildRecoveryHint(report);
+  // would do nothing). Mirrors status.ts per-category guidance. D1-SA1.4-04:
+  // `olderSkewHint` additionally flips syncable drift to `update`-first when the
+  // installed CLI is older than the manifest's writer.
+  const recoveryHint = buildRecoveryHint(report, olderSkewHint);
   printBox(`verify: FAIL (${driftCount} drift(s))`, summaryLines, "error");
   maybePrintDiffSummary(options, report);
   // D15-6 (D15, P6): structural marker warnings are advisory and orthogonal to

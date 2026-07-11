@@ -98,7 +98,9 @@ const routes = ['/', '/dashboard', '/settings', '/onboarding'];
 for (const route of routes) {
   test(`capture ${route}`, async ({ page }) => {
     await page.goto(`http://localhost:4173${route}`);
-    await page.waitForLoadState('networkidle');
+    // web-first readiness — networkidle is discouraged by Playwright; wait on the
+    // `main` landmark the a11y gate already requires (swap for a route-specific locator)
+    await expect(page.getByRole('main')).toBeVisible();
     await page.screenshot({
       path: `.audit-workspace/visual/${Date.now()}/${route.replace(/\//g, '_') || 'root'}.png`,
       fullPage: true,
@@ -123,7 +125,9 @@ const routes = ['/', '/dashboard', '/settings', '/onboarding'];
 for (const route of routes) {
   test(`a11y ${route}`, async ({ page }) => {
     await page.goto(`http://localhost:4173${route}`);
-    await page.waitForLoadState('networkidle');
+    // web-first readiness — networkidle is discouraged by Playwright; wait on the
+    // `main` landmark the a11y gate already requires (swap for a route-specific locator)
+    await expect(page.getByRole('main')).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
@@ -151,7 +155,8 @@ import { test, expect } from '@playwright/test';
 
 test('dashboard regression', async ({ page }) => {
   await page.goto('http://localhost:4173/dashboard');
-  await page.waitForLoadState('networkidle');
+  // web-first readiness — networkidle is discouraged by Playwright
+  await expect(page.getByRole('main')).toBeVisible();
 
   await expect(page).toHaveScreenshot('dashboard.png', {
     fullPage: true,

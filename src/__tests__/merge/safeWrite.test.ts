@@ -10,6 +10,7 @@ import {
   sweepOrphanTmpFiles,
   formatOrphanTmpSweepDiagnostic,
   detectConcurrentWriteRisk,
+  syncParentDirectory,
 } from "../../merge/safeWrite.js";
 
 describe("safeWrite", () => {
@@ -1433,5 +1434,266 @@ describe("detectConcurrentWriteRisk (D11-14)", () => {
 
     expect(warning).not.toBeNull();
     expect(warning).toContain(fresh);
+  });
+});
+
+// ──────────────────────────────────────────────────────────────────────────
+// D1-SA1.5-07 (Cycle 12): deny-scan refusal — rewritten remedy (never advise
+// moving text into the managed block) + reviewed allowlist escape at
+// .hatch3r/deny-scan-allowlist.json. Fail-closed at every step.
+// ──────────────────────────────────────────────────────────────────────────
+describe("deny-scan refusal remedy + reviewed allowlist (D1-SA1.5-07)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function createProjectDir(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-denyallow-"));
+    const { mkdir } = await import("node:fs/promises");
+    await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
+    // The initialized-repo marker the allowlist root-walk keys on.
+    await writeFile(join(tempDir, ".hatch3r", "hatch.json"), "{}", "utf-8");
+    return tempDir;
+  }
+
+  /** One deny hit outside the markers: matches /skip\s+(security|...)/i only. */
+  const DENY_LINE = "Do not skip security review gates.";
+
+  function managedFixture(userLine: string): string {
+    return [
+      "<!-- HATCH3R:BEGIN -->",
+      "old managed body",
+      "<!-- HATCH3R:END -->",
+      "",
+      userLine,
+    ].join("\n");
+  }
+
+  it("refusal names the allowlist escape and never advises moving text into the managed block", async () => {
+    const dir = await createProjectDir();
+    const filePath = join(dir, "AGENTS.md");
+    await writeFile(filePath, managedFixture(DENY_LINE), "utf-8");
+
+    let message = "";
+    try {
+      await safeWriteFile(filePath, "ignored", { managedContent: "new body" });
+      expect.fail("expected deny refusal to throw");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain("denied pattern");
+    expect(message).toContain("deny-scan-allowlist.json");
+    expect(message).toMatch(/allowlist patternHash: [0-9a-f]{16}/);
+    // The data-destroying pre-Cycle-12 advice is gone, and its replacement
+    // names WHY: the block interior is regenerated (deleted) on every sync.
+    expect(message).not.toContain("move the suspect text into the hatch3r-managed block");
+    expect(message).toContain("Do NOT move the text inside the HATCH3R:BEGIN/END markers");
+  });
+
+  it("a reviewed allowlist entry (file + patternHash + justification) lets the exact hit through, loudly", async () => {
+    const dir = await createProjectDir();
+    const filePath = join(dir, "AGENTS.md");
+    await writeFile(filePath, managedFixture(DENY_LINE), "utf-8");
+
+    // Round-trip the hash out of the refusal error itself so the test never
+    // hardcodes the scan's finding format.
+    let message = "";
+    try {
+      await safeWriteFile(filePath, "ignored", { managedContent: "new body" });
+      expect.fail("expected deny refusal to throw");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    const hash = /allowlist patternHash: ([0-9a-f]{16})/.exec(message)?.[1];
+    expect(hash).toBeTruthy();
+
+    await writeFile(
+      join(dir, ".hatch3r", "deny-scan-allowlist.json"),
+      JSON.stringify({
+        entries: [
+          {
+            file: "AGENTS.md",
+            patternHash: hash,
+            justification: "documentation sentence reviewed by maintainer",
+          },
+        ],
+      }),
+      "utf-8",
+    );
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = await safeWriteFile(filePath, "ignored", { managedContent: "new body" });
+      expect(result.action).toBe("updated");
+      const onDisk = await readFile(filePath, "utf-8");
+      expect(onDisk).toContain("new body");
+      expect(onDisk).toContain(DENY_LINE);
+      // The exception is never silent: each permitted hit is reported.
+      const diag = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(diag).toContain("reviewed allowlist exception");
+      expect(diag).toContain("documentation sentence reviewed by maintainer");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("an entry for a DIFFERENT file does not unlock this one (per-file scoping)", async () => {
+    const dir = await createProjectDir();
+    const filePath = join(dir, "AGENTS.md");
+    await writeFile(filePath, managedFixture(DENY_LINE), "utf-8");
+
+    let message = "";
+    try {
+      await safeWriteFile(filePath, "ignored", { managedContent: "new body" });
+      expect.fail("expected deny refusal to throw");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    const hash = /allowlist patternHash: ([0-9a-f]{16})/.exec(message)?.[1];
+
+    await writeFile(
+      join(dir, ".hatch3r", "deny-scan-allowlist.json"),
+      JSON.stringify({
+        entries: [{ file: "OTHER.md", patternHash: hash, justification: "scoped elsewhere" }],
+      }),
+      "utf-8",
+    );
+
+    await expect(
+      safeWriteFile(filePath, "ignored", { managedContent: "new body" }),
+    ).rejects.toThrow(/denied pattern/);
+  });
+
+  it("a malformed allowlist file fails closed (refusal stands) with a diagnostic", async () => {
+    const dir = await createProjectDir();
+    const filePath = join(dir, "AGENTS.md");
+    await writeFile(filePath, managedFixture(DENY_LINE), "utf-8");
+    await writeFile(join(dir, ".hatch3r", "deny-scan-allowlist.json"), "{not json", "utf-8");
+
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      await expect(
+        safeWriteFile(filePath, "ignored", { managedContent: "new body" }),
+      ).rejects.toThrow(/denied pattern/);
+      const diag = errorSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(diag).toContain("could not read deny-scan allowlist");
+      expect(diag).toContain("fail-closed");
+    } finally {
+      errorSpy.mockRestore();
+    }
+  });
+
+  it("the appendIfNoBlock (first-splice) refusal carries the same rewritten remedy", async () => {
+    const dir = await createProjectDir();
+    const filePath = join(dir, "CLAUDE.md");
+    await writeFile(filePath, `# Notes\n\n${DENY_LINE}\n`, "utf-8");
+
+    let message = "";
+    try {
+      await safeWriteFile(filePath, "<!-- HATCH3R:BEGIN -->\nbody\n<!-- HATCH3R:END -->", {
+        managedContent: "body",
+        appendIfNoBlock: true,
+      });
+      expect.fail("expected splice refusal to throw");
+    } catch (err) {
+      message = (err as Error).message;
+    }
+    expect(message).toContain("Refusing to splice managed block");
+    expect(message).toContain("deny-scan-allowlist.json");
+    expect(message).not.toContain("move the suspect text into a hatch3r-managed block");
+  });
+
+  it("text moved INSIDE the managed block does NOT survive the next merge — why the old advice destroyed data", async () => {
+    const dir = await createProjectDir();
+    const filePath = join(dir, "AGENTS.md");
+    const existing = [
+      "<!-- HATCH3R:BEGIN -->",
+      "old managed body",
+      "my precious user note",
+      "<!-- HATCH3R:END -->",
+      "",
+      "outside note",
+    ].join("\n");
+    await writeFile(filePath, existing, "utf-8");
+
+    const result = await safeWriteFile(filePath, "ignored", {
+      managedContent: "regenerated body",
+    });
+    expect(result.action).toBe("updated");
+    const onDisk = await readFile(filePath, "utf-8");
+    expect(onDisk).toContain("regenerated body");
+    expect(onDisk).toContain("outside note"); // out-of-block content survives
+    expect(onDisk).not.toContain("my precious user note"); // in-block content is deleted
+  });
+});
+
+// D10-SA10.4-01 (Cycle 12): the no-marker skip warning must name the command
+// that actually recovers the file. Pre-fix it said "re-run hatch3r update" —
+// an instruction that looped back into the same skip forever.
+describe("no-marker skip warning names a recovering command (D10-SA10.4-01)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function createTempDir(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-skipwarn-"));
+    return tempDir;
+  }
+
+  it("managedContent + missing markers: warning points at `hatch3r sync` re-splice, not a dead-end re-run", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "AGENTS.md");
+    await writeFile(filePath, "user content without markers", "utf-8");
+
+    const result = await safeWriteFile(filePath, "ignored", { managedContent: "managed" });
+
+    expect(result.action).toBe("skipped");
+    expect(result.warning).toContain("hatch3r sync");
+    expect(result.warning).toContain("re-splice");
+    expect(result.warning).not.toContain("re-run hatch3r update");
+  });
+
+  it("non-managed filename skip carries the same recovery guidance", async () => {
+    const dir = await createTempDir();
+    const filePath = join(dir, "custom-file.md");
+    await writeFile(filePath, "user content", "utf-8");
+
+    const result = await safeWriteFile(filePath, "new content");
+
+    expect(result.action).toBe("skipped");
+    expect(result.warning).toContain("hatch3r sync");
+    expect(result.warning).not.toContain("re-run hatch3r update");
+  });
+});
+
+// D8-SA8.2-01 (Cycle 12): syncParentDirectory is exported so capture-side
+// writers (snapshot.ts mirror loop) can make directory entries durable the
+// same way atomicWriteFile does post-rename.
+describe("syncParentDirectory export (D8-SA8.2-01 capture-durability enabler)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("datasyncs the parent directory of an existing file without throwing", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-dirsync-"));
+    const filePath = join(tempDir, "mirror-file.md");
+    await writeFile(filePath, "captured bytes", "utf-8");
+
+    await expect(syncParentDirectory(filePath)).resolves.toBeUndefined();
+  });
+
+  it("rethrows a non-tolerated errno (ENOENT for a missing parent directory)", async () => {
+    const missing = join(
+      tmpdir(),
+      `hatch3r-no-such-dir-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+      "file.md",
+    );
+    await expect(syncParentDirectory(missing)).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

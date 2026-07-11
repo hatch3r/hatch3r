@@ -654,6 +654,159 @@ describe("analyzeRepo", () => {
     });
   });
 
+  // ── D3-SA3.4-02: non-JS + 2026-era framework detection ────────────
+  // The D14 Medium (#344-#357) and D14-M1 (Cycle 10) rows added non-JS config
+  // indicators (django/flask/rails/spring/laravel/phoenix), manifest-substring
+  // dep indicators (fastapi/axum/actix), four newer JS meta-framework rows
+  // (tanstack-start/solid-start/qwik/nestjs), and the tanstack-start→react
+  // suppression — none of which had a paired detection test. Stages 3 and 3b of
+  // detectFrameworks are SEPARATE loops from the tested stage-1/2 JS surface
+  // (repoAnalyzer.ts:551-598), so a regression in any row shipped silently. One
+  // fixture test per untested identifier, exercised through analyzeRepo the same
+  // way the JS framework tests above are.
+  describe("non-JS + 2026-era framework detection (D3-SA3.4-02)", () => {
+    it("detects Django from manage.py", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "manage.py"), "#!/usr/bin/env python\n");
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("django");
+    });
+
+    it("detects Flask from wsgi.py", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "wsgi.py"), "from app import app\n");
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("flask");
+    });
+
+    it("detects Rails from Rakefile", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Rakefile"), "require_relative 'config/application'\n");
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("rails");
+    });
+
+    it("detects Rails from config/routes.rb (second indicator)", async () => {
+      const root = await createTempRepo();
+      await mkdir(join(root, "config"), { recursive: true });
+      await writeFile(join(root, "config", "routes.rb"), "Rails.application.routes.draw do\nend\n");
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("rails");
+    });
+
+    it("detects Spring from src/main/resources/application.properties", async () => {
+      const root = await createTempRepo();
+      await mkdir(join(root, "src", "main", "resources"), { recursive: true });
+      await writeFile(join(root, "src", "main", "resources", "application.properties"), "server.port=8080\n");
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("spring");
+    });
+
+    it("detects Laravel from artisan", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "artisan"), "#!/usr/bin/env php\n");
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("laravel");
+    });
+
+    it("detects Phoenix from mix.exs", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "mix.exs"), "defmodule MyApp.MixProject do\nend\n");
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("phoenix");
+    });
+
+    it("detects FastAPI from a fastapi substring in pyproject.toml", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "pyproject.toml"), '[project]\ndependencies = ["fastapi>=0.110"]\n');
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("fastapi");
+    });
+
+    it("detects FastAPI from a fastapi substring in requirements.txt", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "requirements.txt"), "fastapi==0.110.0\nuvicorn\n");
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("fastapi");
+    });
+
+    it("detects Axum from an axum substring in Cargo.toml", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Cargo.toml"), '[dependencies]\naxum = "0.7"\n');
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("axum");
+    });
+
+    it("detects Actix from an actix-web substring in Cargo.toml", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Cargo.toml"), '[dependencies]\nactix-web = "4"\n');
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("actix");
+    });
+
+    // manifestCache: axum and actix are two NON_JS_FRAMEWORK_DEP_INDICATORS rows
+    // that BOTH target Cargo.toml. A single manifest carrying both deps must
+    // surface both frameworks — exercising the shared-manifest probe path.
+    it("detects both Axum and Actix from a single shared Cargo.toml (manifestCache path)", async () => {
+      const root = await createTempRepo();
+      await writeFile(join(root, "Cargo.toml"), '[dependencies]\naxum = "0.7"\nactix-web = "4"\n');
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("axum");
+      expect(info.frameworks).toContain("actix");
+    });
+
+    it("detects TanStack Start from @tanstack/react-start in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@tanstack/react-start": "1.0.0" } }),
+      );
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("tanstack-start");
+    });
+
+    it("detects SolidStart from @solidjs/start in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@solidjs/start": "1.0.0" } }),
+      );
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("solid-start");
+    });
+
+    it("detects Qwik from @builder.io/qwik in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@builder.io/qwik": "1.0.0" } }),
+      );
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("qwik");
+    });
+
+    it("detects NestJS from @nestjs/core in package.json", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@nestjs/core": "10.0.0" } }),
+      );
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("nestjs");
+    });
+
+    it("suppresses react when tanstack-start is detected (FRAMEWORK_SUPPRESSION row)", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "package.json"),
+        JSON.stringify({ dependencies: { "@tanstack/react-start": "1.0.0", react: "18.0.0" } }),
+      );
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).toContain("tanstack-start");
+      expect(info.frameworks).not.toContain("react");
+    });
+  });
+
   describe("rootDir", () => {
     it("returns the analyzed directory as rootDir", async () => {
       const root = await createTempRepo();

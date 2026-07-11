@@ -28,7 +28,7 @@ Before any action, scan the bug report for unresolved questions in scope, accept
 |-------|----------|----------|----------|
 | 1. Reproduce + Root-Cause | `hatch3r-researcher` (modes: `symptom-trace`, `root-cause`; `codebase-impact` for Tier 3) | Per mode | Yes |
 | 2. Regression-Test + Fix | `hatch3r-implementer` (failing test first, then minimal fix) | Per independent module | Yes |
-| 3. Root-Cause-Depth Review | `hatch3r-reviewer` -> `hatch3r-fixer` (max 4 iterations) | No (sequential) | Yes |
+| 3. Root-Cause-Depth Review | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations) | No (sequential) | Yes |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
@@ -137,7 +137,7 @@ After the implementer returns, run the project quality gates (lint, typecheck, f
 
 ### Step 3: Root-Cause-Depth Review (Phase 3)
 
-Run an iterative review loop (max 4 iterations, matching `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`) until 0 Critical + 0 Warning findings remain. The review lens for a bug fix is **root-cause depth and regression-test validity**, not feature completeness.
+Run an iterative review loop — max 3 iterations (code-class cap per `REVIEW_LOOP_CLASS_CAPS` in `src/pipeline/reviewLoop.ts`: a bug-fix diff is a code diff, and code reviews diverge faster because a fix can spawn a regression the next iteration must catch) — until 0 Critical + 0 Warning findings remain. The review lens for a bug fix is **root-cause depth and regression-test validity**, not feature completeness.
 
 1. Spawn `hatch3r-reviewer` via the Task tool. The prompt MUST include the working-tree diff (`git diff`), the confirmed root cause from Step 1, the failing-then-passing test evidence from Step 2, all `scope: always` rule directives, the iteration number + prior findings (if not the first pass), the `correlation_id`, the confidence expression requirement, and a top-level `confidence: high | medium | low` output requirement so the gate can evaluate it deterministically. Focus the reviewer on:
    - **Root-cause depth** — does the fix address the cause or only mask the symptom? Reject suppression patterns (`eslint-disable`, `as any`, `as unknown as`, `@ts-ignore`, `test.skip`, empty catch blocks) per `rules/hatch3r-agent-orchestration.md` → Root-Cause Depth Requirements.
@@ -149,7 +149,7 @@ Run an iterative review loop (max 4 iterations, matching `DEFAULT_MAX_REVIEW_ITE
    - **0 Critical + 0 Warning AND reviewer confidence == low** → trigger a second reviewer pass before exiting; do not proceed until it returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    - **Critical or Warning findings remain** → spawn `hatch3r-fixer` with the full reviewer output + all `scope: always` directives + the confidence expression requirement, then re-run the reviewer (next iteration). After fixes, re-run quality gates.
 
-3. If 4 iterations complete and findings remain, surface a structured summary (iteration count, remaining Critical findings with file:line, remaining Warnings, fix-manually-vs-accept-risk recommendation) and **ASK** the user whether to proceed or fix manually. Never present raw reviewer output unsummarized.
+3. If the code-class cap of 3 iterations completes and findings remain, surface a structured summary (iteration count, remaining Critical findings with file:line, remaining Warnings, fix-manually-vs-accept-risk recommendation) and **ASK** the user whether to proceed or fix manually. Never present raw reviewer output unsummarized.
 
 ---
 

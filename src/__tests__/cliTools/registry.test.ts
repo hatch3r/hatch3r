@@ -142,6 +142,22 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(azDevops!.extensionProbe!.name).toBe("azure-devops");
   });
 
+  it("ast-grep entry declares an extensionProbe disambiguating shadow-utils sg (D21-SA21.1-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.1-01: the `sg` probe false-positives on Linux, where the
+    // shadow-utils `login` package ships an unrelated /usr/bin/sg (setgroups) in
+    // the base system — `command -v sg` then resolves for a machine without
+    // ast-grep. The probe stays `sg` (the generated skill still invokes it) and
+    // this extensionProbe runs `sg --version`, reporting installed only when
+    // stdout carries "ast-grep" (mirrors the az-devops extensionProbe pattern).
+    const astGrep = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)["ast-grep"];
+    expect(astGrep).toBeDefined();
+    expect(astGrep!.probe).toBe("sg");
+    expect(astGrep!.extensionProbe).toBeDefined();
+    expect(astGrep!.extensionProbe!.args).toEqual(["--version"]);
+    expect(astGrep!.extensionProbe!.expectInStdout).toBe("ast-grep");
+    expect(astGrep!.extensionProbe!.name).toBe("ast-grep");
+  });
+
   it("gh entry floors at >=2.96.0 for CVE-2026-59831 + securityNote enumerates the codespace-jupyter advisory (D21-SA21.5-01, Cycle 12)", () => {
     // Cycle 12 D21-SA21.5-01: GHSA-8cg3-r6g9-fpg2 / CVE-2026-59831 (CVSS 4.4,
     // published 2026-07-02) makes `gh codespace jupyter` open an unvalidated
@@ -234,32 +250,60 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(docker.securityNote).toContain("29.3.1");
   });
 
-  it("curl entry tier-1 minVersion >=8.20.0 + securityNote cites the 8.20.0-specific CVEs with accurate severity (D21-14, Cycle 11)", () => {
-    // Cycle 11 D21-14 (SA21.4-F1): the prior note rolled seven CVEs together as
-    // "all fixed in 8.20.0" and labelled them "Medium-and-Low" — both wrong
-    // (CVE-2026-3805 fixed 8.18.0, CVE-2026-3783 fixed 8.17.0; CVE-2026-6253 is
-    // High). The corrected note cites the three advisories actually resolved by
-    // the 8.20.0 release (CVE-2026-5773/5545/4873) plus the earlier High
-    // CVE-2026-6253, and states the >=8.20.0 floor clears the cumulative
-    // backlog. The inaccurate CVE-2026-7168 roster is gone.
+  it("curl entry tier-1 minVersion >=8.21.0 + securityNote marks 8.20.0 advisory-affected and 8.21.0 the clean floor (D21-SA21.4-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.4-01: curl 8.21.0 shipped 2026-06-24; curl.se's
+    // vuln-8.20.0.html now lists 18 published problems for 8.20.0 (incl.
+    // CVE-2026-11856, fixed in 8.21.0), while vuln-8.21.0.html lists 0. The
+    // prior >=8.20.0 floor + its "8.20.0 documented clean" claim are stale, so
+    // the floor is raised to >=8.21.0 and the note reframes 8.20.0 as
+    // advisory-affected. The Cycle-11 historical roster
+    // (CVE-2026-5773/5545/4873 + the High CVE-2026-6253) is preserved.
     const curl = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).curl;
     expect(curl).toBeDefined();
     expect(curl!.id).toBe("curl");
     expect(curl!.tier).toBe(1);
     expect(curl!.category).toBe("http");
-    expect(curl!.minVersion).toBe(">=8.20.0");
+    expect(curl!.minVersion).toBe(">=8.21.0");
     expect(curl!.securityNote).toBeDefined();
-    // The three advisories specific to the 8.20.0 release.
+    // The new clean floor + the advisory that pushed 8.20.0 out of the floor.
+    expect(curl!.securityNote).toContain("8.21.0");
+    expect(curl!.securityNote).toContain("CVE-2026-11856");
+    // The Cycle-11 historical roster is preserved.
     expect(curl!.securityNote).toContain("CVE-2026-5773");
     expect(curl!.securityNote).toContain("CVE-2026-5545");
     expect(curl!.securityNote).toContain("CVE-2026-4873");
-    // The earlier High advisory is named with correct severity.
+    // The earlier High advisory is still named with correct severity.
     expect(curl!.securityNote).toContain("CVE-2026-6253");
     expect(curl!.securityNote).toMatch(/High/);
-    expect(curl!.securityNote).toContain("8.20.0");
-    // The discredited "all fixed in 8.20.0 / Medium-and-Low" framing is gone.
+    // The stale "8.20.0 documented clean" framing is retired.
+    expect(curl!.securityNote).not.toContain("documented clean");
+    // The discredited Cycle-10 framing stays gone.
     expect(curl!.securityNote).not.toContain("CVE-2026-7168");
     expect(curl!.securityNote).not.toMatch(/Medium-and-Low/);
+  });
+
+  it("zstd carries a drift-baseline minVersion 1.5.7 + securityNote citing CVE-2022-4899 (D15-SA15.7-02 / D21-SA21.2-02, Cycle 12)", () => {
+    // Cycle 12 D15-SA15.7-02: zstd was OSV-exempt with no compensating floor or
+    // note. D21-SA21.2-02 adds a Meta ~annual-cadence drift-baseline pin (1.5.7,
+    // bare doc-pin form per the glab/miller precedent) and a securityNote
+    // recording the historical CVE-2022-4899 (HIGH, cleared by any 1.5.x build).
+    const zstd = AVAILABLE_CLI_TOOLS.zstd;
+    expect(zstd.minVersion).toBe("1.5.7");
+    expect(zstd.securityNote).toBeDefined();
+    expect(zstd.securityNote).toContain("CVE-2022-4899");
+    expect(zstd.securityNote).toMatch(/HIGH/);
+  });
+
+  it("bat + fd declare Debian-rename probeFallbacks (batcat / fdfind) (D21-SA21.2-03, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.2-03: the recommended `apt install bat` / `apt install
+    // fd-find` channels install the binaries as `batcat` / `fdfind`, so a bare
+    // `command -v bat`/`fd` probe false-negatives on Debian/Ubuntu. The
+    // probeFallbacks let detect.ts resolve the renamed binary before reporting
+    // the tool absent.
+    const bat = AVAILABLE_CLI_TOOLS.bat;
+    const fd = AVAILABLE_CLI_TOOLS.fd;
+    expect(bat.probeFallbacks).toEqual(["batcat"]);
+    expect(fd.probeFallbacks).toEqual(["fdfind"]);
   });
 
   it("httpie entry registered as tier-2 web-project (D21-SA21.4-F03, Cycle 10)", () => {
@@ -535,6 +579,21 @@ describe("TIER2_CLI_TOOLS_BY_TRIGGER", () => {
         expect(meta!.tier).toBe(2);
       }
     }
+  });
+
+  it("web-project orders xh ahead of httpie so the picker surfaces the maintained client first (D21-SA21.4-02, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.4-02: httpie's upstream is dormant (last release 3.2.4,
+    // 2024-11-01) while xh is actively maintained (v0.26.1, 2026-06-19). The
+    // toolbox tells users to "prefer xh … for new web-project work", so xh is
+    // listed before httpie in the web-project pre-check array. httpie is
+    // retained (not dropped) so it stays installable/offered — the picker's
+    // tier-2 offer surface (pickers.ts::pickCliTools) reads this same array.
+    const web = TIER2_CLI_TOOLS_BY_TRIGGER["web-project"];
+    expect(web).toContain("xh");
+    expect(web).toContain("httpie");
+    expect(web.indexOf("xh")).toBeLessThan(web.indexOf("httpie"));
+    // playwright stays first (browser automation, orthogonal to the HTTP-client order).
+    expect(web[0]).toBe("playwright");
   });
 });
 

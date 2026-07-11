@@ -82,9 +82,10 @@ export function assertSafePath(relativePath: string, label: string): void {
  * Conservative scope: only matches the `hatch3r-`/`cmd-hatch3r-` namespace.
  * Broadening this regex to plain kebab-case identifiers would generate false
  * positives across the canonical corpus (every backticked CLI flag, package
- * name, etc.). User-tier artifacts use a separate, opt-in scanner — see
- * {@link extractUserContentReferences} — applied only to user bodies during
- * D20 cross-reference checks.
+ * name, etc.). This scanner covers user-tier artifacts too: since D2-SA2.6-03
+ * `validateCrossReferences` reads each user body from its own `sourceRoot` and
+ * runs it through here, so a dangling `hatch3r-*` reference in a
+ * `.hatch3r/overrides/` artifact surfaces exactly like a canonical one.
  *
  * D2-M10 (D2 Medium, Cycle 10 Wave 3 rollover): bare prose references
  * (e.g. "delegate to hatch3r-implementer" without backticks) are detected
@@ -176,32 +177,6 @@ export function extractBareContentReferences(content: string): string[] {
     if (FILE_EXT.test(after.slice(0, 6))) continue;
     if (after.startsWith("-")) continue;
     if (after.startsWith("`")) continue;
-    refs.add(ref);
-  }
-  return [...refs];
-}
-
-/**
- * D20 user-tier reference scanner. Picks up plain kebab-case identifiers
- * inside `[[wikilinks]]` or fenced ``` ``` ``` code blocks ONLY — never the
- * full body text — to keep the false-positive rate near zero on natural
- * prose. Used by validation when checking that a user artifact's
- * cross-references resolve in the merged canonical+user index.
- *
- * Includes canonical hatch3r-* / cmd-hatch3r-* IDs as well so a user
- * artifact that depends on a canonical agent surfaces in the same
- * dependency graph.
- */
-export function extractUserContentReferences(content: string): string[] {
-  const refs = new Set<string>();
-  // Wikilinks: [[my-id]] or [[my-id|label]]
-  const wiki = /\[\[([a-z][a-z0-9-]*)(?:\|[^\]]*)?\]\]/g;
-  let m: RegExpExecArray | null;
-  while ((m = wiki.exec(content)) !== null) {
-    refs.add(m[1]);
-  }
-  // Backticked canonical IDs (same as extractContentReferences).
-  for (const ref of extractContentReferences(content)) {
     refs.add(ref);
   }
   return [...refs];
@@ -309,11 +284,27 @@ export async function validateCrossReferences(
 
   for (const item of index.items) {
     let content: string;
+    // D2-SA2.6-03: resolve each item against the root it was scanned from
+    // (`sourceRoot`), not a single shared `contentRoot`. User-tier items are
+    // rooted at `.hatch3r/overrides/`; joining their `relativePath` onto the
+    // canonical `contentRoot` (the pre-fix behaviour) missed the file, and the
+    // silent `catch { continue }` excluded every user artifact from the
+    // dangling-id / typo / rule-path scans. Fall back to `contentRoot` for any
+    // legacy item lacking `sourceRoot`.
+    const itemRoot = item.sourceRoot ?? contentRoot;
     try {
       // D1-SA1.7-01: single-source-of-truth skill-path resolution (skills are
       // indexed by directory; the readable file is <dir>/SKILL.md).
-      content = await readFile(resolveArtifactFilePath(contentRoot, item), "utf-8");
-    } catch {
+      content = await readFile(resolveArtifactFilePath(itemRoot, item), "utf-8");
+    } catch (err) {
+      // Silent Failure Contract (D2-SA2.6-2.6-F10): an indexed item that becomes
+      // unreadable between index build and this scan (e.g. a filesystem race)
+      // is surfaced through the warnings channel instead of a silent skip.
+      recordContentProbeFailure(
+        `validateCrossReferences: skipped ${item.type} "${item.id}" (${item.relativePath} unreadable)`,
+        err,
+        warnings,
+      );
       continue;
     }
 
@@ -439,6 +430,18 @@ export interface CatalogItem {
    * `.hatch3r/overrides/` (D20 user-content authoring).
    */
   source: "canonical" | "user";
+  /**
+   * Absolute directory the item was scanned from — the base its `relativePath`
+   * resolves against. `scanContentRoot` sets this for every indexed item so a
+   * consumer that reads the item's file (e.g. `validateCrossReferences`)
+   * resolves it against its OWN root: canonical items carry the package content
+   * root, user items carry `.hatch3r/overrides/`. Before D2-SA2.6-03 every item
+   * was read against a single shared `contentRoot`, so user-tier bodies (rooted
+   * at `.hatch3r/overrides/`) missed the read and were silently excluded from
+   * cross-reference validation. Optional so hand-built ContentIndex literals in
+   * tests stay valid; `buildContentIndex` always populates it.
+   */
+  sourceRoot?: string;
   /**
    * When present, restricts which platform adapters emit this artifact. Only
    * meaningful for source: "user" items; empty / omitted = full parity.
@@ -608,6 +611,7 @@ async function scanContentRoot(
             protected: metadata.protected,
             relativePath: posix.join(config.dir, dirent.name),
             source,
+            sourceRoot: rootPath,
           };
           if (source === "user") {
             const adapters = extractAdaptersFrontmatter(raw);
@@ -664,6 +668,7 @@ async function scanContentRoot(
           protected: metadata.protected,
           relativePath: posix.join(config.dir, file),
           source,
+          sourceRoot: rootPath,
         };
 
         // For rules, check for companion .mdc file

@@ -443,7 +443,11 @@ export async function setupWorktree(
     const srcPath = join(mainRoot, relPath);
     const destPath = join(worktreeRoot, relPath);
 
-    // Determine strategy: find the most specific matching pattern.
+    // Determine strategy: the LAST matching entry wins (not most-specific).
+    // generateWorktreeInclude emits the specific copy overrides AFTER the broad
+    // symlink patterns, so entry order in `.worktreeinclude` is the resolution
+    // signal — the D1-12 override block (`.hatch3r/hatch.json` copy after the
+    // `.hatch3r/` symlink) depends on that ordering, not on pattern specificity.
     // Symlink-glob offenders (F1.10-H2) are skipped — the literal-prefix
     // matcher cannot reliably correlate `relPath` against a glob pattern, so
     // any match against an offender entry falls back to the default `copy`
@@ -456,7 +460,9 @@ export async function setupWorktree(
           continue;
         }
         strategy = entry.strategy;
-        // Don't break — later entries can override (e.g., .agents/learnings/ overrides .agents/)
+        // Don't break — a later entry overrides an earlier one (e.g., the
+        // `.hatch3r/hatch.json` copy override, emitted after the `.hatch3r/`
+        // symlink, wins for that path).
       }
     }
 

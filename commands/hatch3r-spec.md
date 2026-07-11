@@ -7,7 +7,7 @@ description: Spec orchestrator — detects greenfield vs brownfield project stat
 tags: [spec, planning, orchestrator]
 pillars:
   governance: [P1, P2, P8]
-  content-quality: [CQ8, CQ9]
+  content-quality: [CQ10, CQ8, CQ9]
 triage_tiers: [1, 2, 3]
 supports_resume: true
 quality_charter: agents/shared/quality-charter.md

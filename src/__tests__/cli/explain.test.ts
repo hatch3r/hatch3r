@@ -744,6 +744,128 @@ describe("explainCommand", () => {
     });
   });
 
+  // D1-SA1.7-05 (Cycle 12 Wave 3, D1, P4): `--cost` id resolution routes
+  // through the shared content index (same 4-candidate lookup as show/deps),
+  // so user commands under `.hatch3r/overrides/commands/` and canonical
+  // overrides resolve — the pre-fix bespoke path probed only the legacy
+  // `.agents/` tree and the bundled `commands/` dir.
+  describe("--cost content-index resolution (D1-SA1.7-05)", () => {
+    let consoleWarnSpy: MockInstance;
+
+    beforeEach(() => {
+      // The canonical-override case legitimately triggers the index's
+      // user-shadow-canonical console.warn; keep test output clean.
+      consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleWarnSpy.mockRestore();
+    });
+
+    async function writeOverrideCommandFile(
+      filename: string,
+      frontmatter: Record<string, unknown>,
+    ): Promise<void> {
+      const dir = join(tempDir, ".hatch3r", "overrides", "commands");
+      await mkdir(dir, { recursive: true });
+      const lines: string[] = ["---"];
+      for (const [key, value] of Object.entries(frontmatter)) {
+        if (Array.isArray(value)) {
+          lines.push(`${key}: [${value.map((v) => String(v)).join(", ")}]`);
+        } else if (typeof value === "boolean") {
+          lines.push(`${key}: ${value ? "true" : "false"}`);
+        } else {
+          lines.push(`${key}: ${String(value)}`);
+        }
+      }
+      lines.push("---", "", "override body");
+      await writeFile(join(dir, filename), lines.join("\n"));
+    }
+
+    it("resolves a user-authored command under .hatch3r/overrides/commands/ (bare id, no forced prefix)", async () => {
+      // Pre-fix: 'Command not found' — the bespoke probes never looked at the
+      // overrides tier, and the id was force-prefixed to `hatch3r-`.
+      await writeOverrideCommandFile("my-costed-cmd.md", {
+        id: "my-costed-cmd",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "user command",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "my-costed-cmd" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Tier 1");
+      expect(output).not.toContain("Tier 2");
+    });
+
+    it("costs the canonical OVERRIDE, not the bundled copy, when .hatch3r/overrides shadows a canonical id", async () => {
+      // Bundled hatch3r-quick-change declares triage_tiers [1, 2, 3]; the
+      // override narrows to [1]. Pre-fix the bundled copy was costed (3 tier
+      // rows) — the user got figures for the artifact they are NOT running.
+      await writeOverrideCommandFile("hatch3r-quick-change.md", {
+        id: "hatch3r-quick-change",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "narrowed override",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-quick-change" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Tier 1");
+      expect(output).not.toContain("Tier 3"); // bundled copy would print 3 rows
+    });
+
+    it("keeps the legacy .agents/commands/ probe FIRST (Wave-7 back-compat order)", async () => {
+      // Both a legacy installed copy and an override exist: the legacy tree
+      // wins, preserving the documented pre-1.9 resolution order.
+      await writeCommandFile(tempDir, "hatch3r-order.md", "legacy body", {
+        id: "hatch3r-order",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "legacy",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+      await writeOverrideCommandFile("hatch3r-order.md", {
+        id: "hatch3r-order",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "override",
+        tags: ["core"],
+        triage_tiers: [1, 2],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-order" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Tier 1");
+      expect(output).not.toContain("Tier 2"); // legacy copy (single tier) won
+    });
+
+    it("still resolves a bundled canonical command by id (regression: pre-fix behavior kept)", async () => {
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-quick-change" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Bundled quick-change carries triage_tiers [1, 2, 3].
+      expect(output).toContain("Tier 1");
+      expect(output).toContain("Tier 3");
+    });
+  });
+
   // D12-9 (Cycle 11 Wave 3): `--customizations` table is responsive to terminal
   // width and wraps long reasons into continuation lines instead of truncating,
   // so it stays legible at the 80-col non-TTY/CI fallback width.

@@ -254,6 +254,8 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 
 **Consumer census:** clean | reconciled(N) | N unreconciled — justification | N/A (no shared-contract change)
 
+**Plan/Act split:** triggered | skipped
+
 **Browser verification:**
 - VERIFIED | SKIPPED (non-UI) | N/A (no browser MCP available)
 - (screenshots or observations if verified)
@@ -289,7 +291,7 @@ The **Self-Reflection** block is optional and may be omitted. When present, it n
 
 ## Wall-Clock Advisory
 
-This agent runs under the `implement` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The per-tool loop timeout bounds individual tool calls; it does not bound this agent's total wall-clock. If you observe yourself approaching the advisory before the implementation and its tests are complete, return `Status: PARTIAL` with the completed files under `Files changed`, the unfinished work under `Issues encountered`, and a `Notes` line naming the remaining steps — a partial result with a visible remainder beats exhausting the budget with no structured output.
+This agent is bounded by the frontmatter `wall_clock_advisory_ms` ceiling (900000 ms) — a self-observed advisory, not a code-enforced phase budget. hatch3r emits static files and cannot run a runtime timer on a Claude Code Task sub-agent, so no per-agent budget in `src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS` binds this agent: the map carries no `implement`/Phase-2 key, and its only runtime callers pass the `adapter` phase, not an agent phase. The per-tool loop timeout bounds individual tool calls; it does not bound this agent's total wall-clock. If you observe yourself approaching the advisory before the implementation and its tests are complete, return `Status: PARTIAL` with the completed files under `Files changed`, the unfinished work under `Issues encountered`, and a `Notes` line naming the remaining steps — a partial result with a visible remainder beats exhausting the budget with no structured output.
 
 ## Environment Variable Expansion
 
@@ -408,6 +410,8 @@ When encountering errors during implementation, follow these protocols:
 - tests/integration/rateLimit.test.ts -- 3 tests: end-to-end 429 response, Retry-After header, rate reset
 
 **Consumer census:** clean
+
+**Plan/Act split:** triggered
 
 **Browser verification:** SKIPPED (non-UI)
 

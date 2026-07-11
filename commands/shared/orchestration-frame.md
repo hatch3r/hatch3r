@@ -17,7 +17,7 @@ Six cross-cutting blocks recur near-verbatim across the `commands/hatch3r-*.md` 
 Citation template (drop into the command where the block used to live):
 
 ```
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → {§0 Detect Ambiguity | Confidence Propagation Contract | Delegation Brief | Checkpoint Contract | Cost Estimate | Per-Turn Pipeline-State Header | End-of-Turn Delegation Attestation}. Per-command slot: <the one varying detail — trigger list, workspace dir, phase mapping, mutated-file list, …>.
 ```
 
 `<…>` slots below are the only text a command varies; everything outside them is invariant and lives here.
@@ -43,6 +43,21 @@ Authoritative rule: `agents/shared/quality-charter.md` §1 (confidence expressio
 Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces `<readiness-kind>` readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
 Per-command slot: `<readiness-kind>` (e.g. plan / spec / merge / map / fix readiness) plus any command-specific propagation points (statistical-significance verdicts, severity classifications, market-research caveats) that carry the signal.
+
+---
+
+## Delegation Brief (implementer / specialist)
+
+Authoritative sources: the spawned agent's Return Structured Result protocol (`agents/hatch3r-implementer.md`, `agents/hatch3r-fixer.md`) for output format + completion; this frame's Cost Estimate (`triage_tier`) and Effort Override for the effort tier (canonical Light/Standard/Deep vocabulary in `agents/shared/triage-vocabulary.md`). Every implementer/specialist delegation prompt a command spawns MUST carry the six fields below; the first four resolve per-command or by the referenced protocol, and the last two are the invariant lines the frame single-sources so no command restates them:
+
+- **Objective** — the command's issue id / task + acceptance criteria + change-type slot.
+- **Output format + completion** — the spawned agent's Return Structured Result protocol (files changed, tests written, issues encountered).
+- **Tool guidance** — the `scope: always` rule set plus any command-specific MCP note.
+- **Boundary** — do NOT create branches, commits, or PRs; stay within the existing architecture.
+- **Effort budget** — `work-effort tier: {light|standard|deep} from Step-0 triage — right-size test depth and edge-case exploration to it`. The tier is the same one Step 0 fed the Cost Estimate and Effort Override blocks; pass it to the implementer instead of leaving effort unbounded.
+- **Stop criterion** — `stop and return your structured result when all acceptance criteria are met OR emit BLOCKED_* with a reason if you cannot proceed — do not expand scope`.
+
+Per-command slot: `<change-type>` (feature / bug / refactor / spec) and the command's acceptance-criteria source (issue body, spec section, or plan step).
 
 ---
 

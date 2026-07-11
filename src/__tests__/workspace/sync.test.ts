@@ -497,6 +497,63 @@ describe("workspace sync", () => {
     expect(manifest.workspace.excludedContent).not.toContain("hatch3r-agent-orchestration");
   });
 
+  // D1-SA1.10-05 (Cycle 12): a workspace member must sweep adapter outputs the
+  // prior run recorded but this run no longer emits (renamed output shape,
+  // dropped tool, removed rule), and persist managedFilesByAdapter so the next
+  // sync has a diff baseline — otherwise the coding tool keeps loading a
+  // "ghost" file the workspace lead believes is gone, and the stale file falls
+  // out of tracking so `hatch3r clean` can never reclaim it. Ports the
+  // single-repo orphan sweep (src/cli/commands/sync.ts) into syncSingleRepo.
+  // Seeds a stale prior path the current sync will not re-emit — the same
+  // approach as the single-repo orphan test in src/__tests__/cli/sync.test.ts
+  // (deterministic regardless of how the adapter maps a selection to outputs).
+  it("sweeps a member's orphaned adapter output recorded by a prior run", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-orphan-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "api", name: "api", sync: true },
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    // Sync 1 establishes the member. The fix persists managedFilesByAdapter on
+    // the member manifest — the prior code never wrote it (createManifest built
+    // a fresh manifest and only populated the flat managedFiles list).
+    await syncWorkspaceRepos(tempDir);
+    const memberManifestPath = join(tempDir, "api", AGENTS_DIR, "hatch.json");
+    const m1 = JSON.parse(await readFile(memberManifestPath, "utf-8"));
+    expect(Array.isArray(m1.managedFilesByAdapter?.cursor)).toBe(true);
+    expect(m1.managedFilesByAdapter.cursor.length).toBeGreaterThan(0);
+
+    // Seed a stale prior path (a pre-rename shape) into the member's per-adapter
+    // history AND place the physical file, so sync 2's diff flags it as an
+    // orphan the current emission set does not include.
+    const stalePath = ".cursor/rules/50-hatch3r-removed-rule.mdc";
+    m1.managedFilesByAdapter.cursor.push(stalePath);
+    await writeFile(memberManifestPath, JSON.stringify(m1, null, 2));
+    const staleAbs = join(tempDir, "api", stalePath);
+    await mkdir(join(tempDir, "api", ".cursor", "rules"), { recursive: true });
+    await writeFile(staleAbs, "# stale hatch3r rule output from a prior run\n");
+
+    // Sync 2 re-emits the same corpus (which never includes the seeded stale
+    // path), so the sweep reclaims it.
+    const warnings: string[] = [];
+    await syncWorkspaceRepos(tempDir, { onWarn: (msg) => warnings.push(msg) });
+
+    // The stale file is unlinked from the member repo (the sweep).
+    await expect(access(staleAbs)).rejects.toThrow();
+    // It is dropped from the member manifest's per-adapter tracking.
+    const m2 = JSON.parse(await readFile(memberManifestPath, "utf-8"));
+    const cursorPaths2: string[] = m2.managedFilesByAdapter?.cursor ?? [];
+    expect(cursorPaths2).not.toContain(stalePath);
+    // A real, still-emitted output is NOT swept (no over-reclaim).
+    const survivor: string = m2.managedFilesByAdapter.cursor[0];
+    await expect(access(join(tempDir, "api", survivor))).resolves.toBeUndefined();
+    // The operator sees an audible removal diagnostic.
+    expect(warnings.some((w) => /Unlinked \d+ orphaned adapter output/.test(w))).toBe(true);
+  });
+
   it("uses per-repo owner/repo/branch when syncing", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-identity-"));
     await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });

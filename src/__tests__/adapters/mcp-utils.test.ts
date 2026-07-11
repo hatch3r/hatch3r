@@ -221,23 +221,36 @@ describe("validateMcpEntry _timeout bounds (D9-SA9.1-L / D15-SA15.5-F8)", () => 
     );
   });
 
-  it("still flags a non-positive _timeout as invalid (not as sub-minimum)", () => {
+  it("flags a non-positive _timeout as invalid and states it is not emitted (D2-SA2.4-06)", () => {
     const warnings = validateMcpEntry("zero", { ...base, _timeout: 0 });
-    expect(warnings.some((w) => w.includes("invalid timeout"))).toBe(true);
+    const hit = warnings.find((w) => w.includes("invalid timeout"));
+    expect(hit).toBeDefined();
     expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
       false,
     );
+    // D2-SA2.4-06: the warning must state the emitted reality, not an
+    // un-performed remediation — no code substitutes DEFAULT_MCP_TIMEOUT_MS, so
+    // the old "Using default 30000ms" claim is gone.
+    expect(hit).not.toContain("Using default");
+    expect(hit).toContain("not emitted");
+    expect(hit).toContain("own default");
   });
 
-  it("still caps an over-maximum _timeout", () => {
+  it("flags an over-maximum _timeout as emitted-uncapped, not capped (D2-SA2.4-06)", () => {
     const warnings = validateMcpEntry("too-big", {
       ...base,
       _timeout: MAX_MCP_TIMEOUT_MS + 1,
     });
-    expect(warnings.some((w) => w.includes("exceeds maximum"))).toBe(true);
+    const hit = warnings.find((w) => w.includes("exceeds maximum"));
+    expect(hit).toBeDefined();
     expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
       false,
     );
+    // D2-SA2.4-06: no code caps the value (the Claude emission writes it
+    // verbatim), so the old "Capping at 300000ms" claim is replaced with the
+    // truth — the value is emitted uncapped.
+    expect(hit).not.toContain("Capping at");
+    expect(hit).toContain("uncapped");
   });
 });
 
@@ -1563,6 +1576,27 @@ describe("DANGEROUS_ARG_CHARS (F15.5-C1) — character class invariants", () => 
       expect(DANGEROUS_ARG_CHARS.test(ch)).toBe(false);
     }
   });
+
+  it("D2-SA2.4-08: pins the escaped .source and forbids raw control bytes (grep-legibility)", () => {
+    // The class is authored with \x escapes, never raw control bytes. A raw NUL
+    // made the whole file grep-blind (tooling classified it as binary) and left
+    // the class one formatter pass from silent semantic corruption. Pinning
+    // .source means a re-encoding — back to raw bytes, or a formatter that
+    // rewrites the escapes — fails HERE instead of silently weakening or
+    // over-broadening the refusal gate.
+    expect(DANGEROUS_ARG_CHARS.source).toBe("[\\x00-\\x1f\\x7f|;&`$()<>\\\\'\"]");
+    // Every byte of the SOURCE string is itself printable ASCII — no raw control
+    // byte survived the encoding. This is the property that keeps the file
+    // grep-legible; a regressed raw \x00 would fail this loop.
+    for (const ch of DANGEROUS_ARG_CHARS.source) {
+      const code = ch.charCodeAt(0);
+      expect(
+        code,
+        `raw control byte 0x${code.toString(16)} present in .source`,
+      ).toBeGreaterThanOrEqual(0x20);
+      expect(code).toBeLessThan(0x7f);
+    }
+  });
 });
 
 describe("validateMcpServerArgs (F15.5-C1)", () => {
@@ -1699,6 +1733,87 @@ describe("validateMcpServerArgs (F15.5-C1)", () => {
     expect(result.reason?.length).toBeLessThan(300);
     expect(result.reason).toContain("...");
   });
+
+  // D2-SA2.4-07 (D2 / Pillar P2): two documented-legitimate idioms carry a
+  // DANGEROUS_ARG_CHARS byte yet are not injection vectors and must NOT be
+  // refused: a whole-arg `${env:NAME}` reference (only `$` is dangerous — the
+  // exact idiom transformEnvVarSyntax emits into the whole entry) and a Windows
+  // path (only `\` is dangerous — the same shape already accepted for the
+  // `command` field of the SAME entries under C7.5-W2B2-H3). Every OTHER
+  // dangerous byte, and any ref-/path-prefixed injection, still refuses.
+  describe("D2-SA2.4-07 legitimate-idiom exemptions", () => {
+    it("accepts a whole-arg ${env:NAME} reference", () => {
+      expect(
+        validateMcpServerArgs({
+          command: "node",
+          args: ["--token", "${env:MY_TOKEN}"],
+        }),
+      ).toEqual({ ok: true });
+    });
+
+    it("accepts a ${env:NAME:-default} reference with a benign default", () => {
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["${env:HOST:-localhost}"] }),
+      ).toEqual({ ok: true });
+      expect(
+        validateMcpServerArgs({
+          command: "node",
+          args: ["${env:GITHUB_URL:-https://api.github.com}"],
+        }),
+      ).toEqual({ ok: true });
+    });
+
+    it("accepts Windows drive-letter and UNC paths (closes the command-vs-args asymmetry)", () => {
+      // The identical path accepted for `command` (C7.5-W2B2-H3) is now accepted
+      // in args too — the asymmetry the finding names is closed.
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["C:\\Users\\me\\projects"] }),
+      ).toEqual({ ok: true });
+      expect(
+        validateMcpServerArgs({
+          command: "node",
+          args: ["C:\\Program Files\\nodejs\\server.js"],
+        }),
+      ).toEqual({ ok: true });
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["\\\\host\\share\\path"] }),
+      ).toEqual({ ok: true });
+    });
+
+    it("still refuses a Windows path with a trailing shell injection", () => {
+      // `C:\x;rm` starts like a path but the `;` tail excludes it from the
+      // exemption — refusal-grade, so the entry is still rejected.
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["C:\\x;rm -rf /"] }).ok,
+      ).toBe(false);
+    });
+
+    it("still refuses an env reference whose default value smuggles a metacharacter", () => {
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["${env:V:-;rm}"] }).ok,
+      ).toBe(false);
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["${env:V:-$(id)}"] }).ok,
+      ).toBe(false);
+    });
+
+    it("still refuses a partial/glued env reference (exemption is whole-arg only)", () => {
+      // `--token=${env:X}` is not the full canonical form; the whole-arg anchors
+      // keep the exemption tight, so this stays refused (documented scope bound).
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["--token=${env:X}"] }).ok,
+      ).toBe(false);
+    });
+
+    it("still refuses a bare `$` / command-substitution that is not an env reference", () => {
+      expect(validateMcpServerArgs({ command: "node", args: ["$HOME"] }).ok).toBe(
+        false,
+      );
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["$(whoami)"] }).ok,
+      ).toBe(false);
+    });
+  });
 });
 
 describe("readMcpConfig drop-path (F15.5-C1)", () => {
@@ -1800,6 +1915,24 @@ describe("readMcpConfig drop-path (F15.5-C1)", () => {
         (w) => w.includes("newline-server") && w.includes("dropped"),
       ),
     ).toBe(true);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("does NOT drop a server whose arg is a legitimate ${env:NAME} reference (D2-SA2.4-07)", async () => {
+    // Before the exemption, the `$` in `${env:MY_TOKEN}` tripped the
+    // refusal-grade scan and dropped the whole entry — contradicting the
+    // module's own env-interpolation transform layer. It must now survive.
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "env-ref-server": {
+          command: "node",
+          args: ["server.js", "--token", "${env:MY_TOKEN}"],
+        },
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toEqual(["env-ref-server"]);
+    expect(result.warnings.some((w) => w.includes("dropped"))).toBe(false);
     await rm(tmpRoot, { recursive: true, force: true });
   });
 });

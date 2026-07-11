@@ -31,6 +31,7 @@ import {
 } from "./commands/cliTools.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { TOOL_CHOICES } from "../types.js";
+import { parseFormatOption } from "./shared/output.js";
 
 // D1-5 (Cycle 11 Wave 2, P1): single source of truth for the `verify`
 // one-liner. The legacy text described a removed SHA-256 crypto-integrity
@@ -43,22 +44,38 @@ const VERIFY_SUMMARY =
   "Detect drift in hatch3r-managed files by regenerating from canonical content and diffing";
 
 // Agent command names that users might try to run directly in the terminal.
-// These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.
-const AGENT_COMMAND_NAMES = new Set([
-  "workflow", "project-spec", "codebase-map", "debug", "release",
-  "refactor-plan", "test-plan", "bug-plan", "feature-plan", "migration-plan",
-  "roadmap", "onboard", "recipe",
-  "board-init", "board-pickup", "board-groom", "board-refresh", "board-fill",
-  "board-shared",
-  "security-audit", "dep-audit", "benchmark", "healthcheck", "context-health",
-  // D13-5 (Cycle 11 Wave 2): `learn` is NO LONGER an editor-only redirect.
-  // `hatch3r learn capture --file <path>` is a registered terminal subcommand
-  // (the shell entry point the `/learn` LLM skill shells out to so writes run
-  // through the `persistLearning` security pipeline). The bare `/learn` slash
-  // command still lives in the editor — the registered `learn` group's bare
-  // action points the user there — so `learn` is dropped from this redirect set.
-  "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
-  "command-customize", "agent-customize", "rule-customize", "skill-customize",
+// These are slash commands meant to be invoked inside an AI-powered editor, not
+// from the CLI. The `command:*` handler below uses this set to redirect such a
+// mistype to the editor rather than printing the generic "unknown command".
+//
+// D1-SA1.8-01 (Cycle 12 Wave 3, D1, P1): exported so the drift-guard test in
+// `src/__tests__/cli/index.test.ts` keeps this hand-maintained set in sync with
+// the on-disk corpus — it had silently drifted (4 artifacts deleted in v1.9.0
+// were still listed; 11 on-disk commands, incl. 2.2.0 headline features, were
+// missing) with no test/CI gate to catch it, and `.claude/rules/
+// capability-lifecycle.md` reuses the set as a reachability signal, so stale
+// entries fed wrong removal decisions. The guard's contract: every
+// `commands/hatch3r-*.md` basename (an editor-only orchestrator by
+// construction) MUST appear here (minus a documented terminal-command
+// allowlist), and every entry here MUST resolve to an on-disk command or skill.
+// `learn` is intentionally absent — D13-5 promoted it to a real terminal
+// subcommand (`hatch3r learn capture --file <path>`, the shell entry point the
+// `/learn` LLM skill shells out to so writes run through the `persistLearning`
+// security pipeline); the bare `/learn` slash command still lives in the editor.
+export const AGENT_COMMAND_NAMES = new Set([
+  // commands/hatch3r-*.md — editor-only orchestrators (all must be listed)
+  "api-spec", "auth-scaffold", "benchmark", "board-fill", "board-pickup",
+  "bug-pipeline", "bug-plan", "codebase-map", "create", "debug",
+  "design-system-create", "diagnose", "feature-plan", "handoff", "healthcheck",
+  "incident-response", "migration-plan", "onboard", "pack-install", "pr-resolve",
+  "project-spec", "quick-change", "refactor-plan", "release", "revision",
+  "roadmap", "security-audit", "slo-scaffold", "spec", "test-plan", "workflow",
+  // skills/hatch3r-* commonly mistyped at the terminal (curated subset — the
+  // drift guard requires each listed name to exist on disk, not that every
+  // skill is listed). `customize` is the merged entry point that replaced the
+  // four `*-customize` command stubs deleted in v1.9.0.
+  "board-groom", "board-init", "board-refresh", "board-shared",
+  "context-health", "cost-tracking", "customize", "dep-audit", "hooks", "recipe",
 ]);
 
 /**
@@ -167,7 +184,7 @@ export function createProgram(): Command {
     // Decision 16). Both the help string and this provenance cite now say
     // Decision 16.
     .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — calibrates investment depth; does not change which content is installed")
-    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role")
+    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to role-tagged items (no effect until the canonical corpus carries role:* tags; currently a no-op)")
     .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability")
     .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd")
     .action(initCommand);
@@ -300,6 +317,14 @@ export function createProgram(): Command {
     .option(
       "--format <format>",
       "Output format for CI consumers: human (default) or json",
+      // D1-SA1.4-02 (Cycle 12 Wave 3, D1, P1): route validate's --format through
+      // the shared parseFormatOption resolver at parse time so a mixed-case value
+      // (JSON) normalizes to "json" and an unrecognized value (jsom) fails with
+      // the exit-2 usage error — matching verify/status, which inherit it via
+      // beginCommand. Before this, validateCommand hand-rolled
+      // `opts?.format === "json" ? "json" : "human"`, silently degrading both to
+      // human mode (the D10-22 defect class, still live on this flagship command).
+      parseFormatOption,
       "human",
     )
     .option(

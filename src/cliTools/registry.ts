@@ -110,6 +110,18 @@ export interface CliToolMeta {
    */
   extensionProbe?: ExtensionProbe;
   /**
+   * Fallback binary names to try when the primary `probe` misses on PATH,
+   * before reporting the tool absent (D21-SA21.2-03, Cycle 12). Covers
+   * Debian/Ubuntu package renames where the apt channel this registry
+   * recommends installs a differently-named binary than the upstream default —
+   * `bat`→`batcat` (`apt install bat`) and `fd`→`fdfind` (`apt install
+   * fd-find`). `src/cliTools/detect.ts::detectCliTool` tries each entry in
+   * order after the primary probe misses and reports the resolved binary in
+   * `path` so the installer can hint the alias. Omit when the primary probe is
+   * the only binary name the tool ever installs as.
+   */
+  probeFallbacks?: readonly string[];
+  /**
    * Security advisory note — populated when the upstream tool has an active
    * CVE that ships in the recommended install version. Surfaced verbatim by
    * the picker/installer and embedded in the generated skill's Known Issues
@@ -193,6 +205,12 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install fd-find" }],
       win: [{ manager: "scoop", command: "scoop install fd" }],
     },
+    // Cycle 12 D21-SA21.2-03: the recommended `apt install fd-find` channel
+    // installs the binary as `fdfind` (Debian renamed it to avoid a collision
+    // with the pre-existing `fd` package), so a bare `command -v fd` probe
+    // false-negatives on Debian/Ubuntu. detect.ts tries this fallback before
+    // reporting fd absent.
+    probeFallbacks: ["fdfind"],
     homepage: "https://github.com/sharkdp/fd",
     sourceRepo: "https://github.com/sharkdp/fd",
     license: "MIT OR Apache-2.0",
@@ -333,6 +351,12 @@ export const AVAILABLE_CLI_TOOLS = {
     // syntax-aware view tool in hatch3r-cli-toolbox and remains maintained.
     // CVE-2021-36753 (GHSA-p24j-h477-76q3) uncontrolled search path — fixed in bat 0.18.2
     minVersion: ">=0.18.2",
+    // Cycle 12 D21-SA21.2-03: the recommended `apt install bat` channel installs
+    // the binary as `batcat` on Debian/Ubuntu (renamed to avoid a collision with
+    // an unrelated `bat` package), so a bare `command -v bat` probe
+    // false-negatives there. detect.ts tries this fallback before reporting bat
+    // absent.
+    probeFallbacks: ["batcat"],
     homepage: "https://github.com/sharkdp/bat",
     sourceRepo: "https://github.com/sharkdp/bat",
     license: "MIT OR Apache-2.0",
@@ -388,6 +412,23 @@ export const AVAILABLE_CLI_TOOLS = {
     // 0.42.2 2026-05-10, 0.42.3 2026-05-19, 0.43.0 2026-05-25; ~14-day mean),
     // so a multi-week pause is itself a currency signal worth re-checking each
     // D21 cycle rather than waiting for the default 180-day window.
+    //
+    // Cycle 12 D21-SA21.1-01: the `sg` probe false-positives on Linux — the
+    // shadow-utils `login` package ships an unrelated `/usr/bin/sg` (setgroups)
+    // in the base system, so `command -v sg` resolves for a machine that never
+    // installed ast-grep and the installer never offers it. The probe stays
+    // `sg` (the generated per-tool skill + existing installs still invoke it),
+    // and this extensionProbe disambiguates: `sg --version` prints
+    // `ast-grep <version>` for the real tool (verified 2026-07-11:
+    // `sg --version` => "ast-grep 0.42.2") and does not for setgroups, so
+    // detect.ts reports installed only when stdout carries "ast-grep" — the
+    // same shape as the az-devops extensionProbe. Upstream is deprecating the
+    // `sg` alias for exactly this collision (ast-grep issue #1659 / #706).
+    extensionProbe: {
+      args: ["--version"],
+      expectInStdout: "ast-grep",
+      name: "ast-grep",
+    },
     homepage: "https://ast-grep.github.io/",
     sourceRepo: "https://github.com/ast-grep/ast-grep",
     license: "MIT",
@@ -403,6 +444,22 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install zstd" }],
       win: [{ manager: "winget", command: "winget install Facebook.Zstandard" }],
     },
+    // Cycle 12 D21-SA21.2-02: zstd is Meta-maintained on a ~annual tag cadence
+    // (v1.5.6 2024-03-30, v1.5.7 2025-02-19; 500+ commits/year), so the ~506-day
+    // gap since v1.5.7 at the 2026-07 cycle reflects slow tagging, not
+    // abandonment — hold the D21 currency grade at Info; re-check next cycle if
+    // v1.5.7 ages past ~18 months with no successor. The bare `minVersion`
+    // "1.5.7" is a documentation drift-baseline pin (glab/miller/yq precedent),
+    // not a live-CVE floor.
+    // Cycle 12 D15-SA15.7-02: zstd was exempted from the OSV scan with NO
+    // compensating minVersion or securityNote. The floor + note below are that
+    // compensating record — the historical CVE-2022-4899 (HIGH, CVSS 7.5,
+    // empty-string CLI argument → buffer overrun, affects the 1.4.x era) is
+    // cleared by any current 1.5.x build, so the pinned drift-baseline (1.5.7)
+    // is well clear of it.
+    minVersion: "1.5.7",
+    securityNote:
+      "CVE-2022-4899 (HIGH, CVSS 7.5): a crafted empty-string argument to the zstd CLI triggers a buffer overrun in 1.4.x-era builds; the fix predates the current 1.5.x line, so the pinned release (1.5.7, 2025-02-19) is well clear of it. Every supported channel (brew / apt / winget) ships a build past the fix — upgrade any pre-1.5.x install.",
     homepage: "https://github.com/facebook/zstd",
     sourceRepo: "https://github.com/facebook/zstd",
     license: "BSD-3-Clause OR GPL-2.0-only",
@@ -418,20 +475,24 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install curl" }],
       win: [{ manager: "winget", command: "winget install cURL.cURL" }],
     },
-    // Cycle 11 D21-14 (SA21.4-F1): the prior note rolled seven CVEs together
-    // as "all fixed in 8.20.0" and labelled the batch "Medium-and-Low" — both
-    // wrong. Per curl.se/docs/security.html, CVE-2026-3805 was fixed in 8.18.0
-    // and CVE-2026-3783 in 8.17.0 (NOT 8.20.0), and CVE-2026-6253 is High, not
-    // Medium/Low. The three advisories actually resolved by the 8.20.0 release
-    // are CVE-2026-5773, CVE-2026-5545, and CVE-2026-4873. The floor stays at
-    // >=8.20.0 because that build is documented clean in
-    // curl.se/docs/vuln-8.20.0.html and so resolves the cumulative backlog of
-    // every earlier advisory regardless of which point release first patched
-    // it. Per-cycle verification: diff this roster against the version-tagged
-    // entries on curl.se/docs/security.html each currency check.
-    minVersion: ">=8.20.0",
+    // Cycle 11 D21-14 (SA21.4-F1): corrected the prior note's inaccurate roster
+    // — CVE-2026-3805 was fixed in 8.18.0 and CVE-2026-3783 in 8.17.0 (not
+    // 8.20.0), and CVE-2026-6253 is High, not Medium/Low; the three advisories
+    // resolved by the 8.20.0 release are CVE-2026-5773, CVE-2026-5545, and
+    // CVE-2026-4873.
+    // Cycle 12 D21-SA21.4-01: curl 8.21.0 shipped 2026-06-24, and 8.20.0 is now
+    // advisory-affected — curl.se/docs/vuln-8.20.0.html lists 18 published
+    // problems for 8.20.0 including CVE-2026-11856 (cross-origin Digest
+    // auth-state leak, affects 7.10.6…8.20.0, fixed in 8.21.0), while
+    // curl.se/docs/vuln-8.21.0.html lists 0 for 8.21.0 (both re-verified
+    // 2026-07-11). The floor is raised to >=8.21.0 (the current documented-clean
+    // build); the prior "8.20.0 documented clean" claim is retired. curl
+    // discloses on release day on a ~8-week cadence, so a floor goes stale
+    // predictably each cycle — diff this roster against curl.se/docs/security.html
+    // each currency check.
+    minVersion: ">=8.21.0",
     securityNote:
-      "Upgrade to curl 8.20.0 (released 2026-04-29) or later — that build is documented clean in curl.se/docs/vuln-8.20.0.html and clears the cumulative advisory backlog of every earlier release, not only the issues first patched in 8.20.0. The three advisories specific to the 8.20.0 release are CVE-2026-5773, CVE-2026-5545, and CVE-2026-4873; earlier builds additionally carry a High-severity advisory (CVE-2026-6253) plus credential-leak and connection-reuse issues fixed across 8.17.0-8.19.0. Upgrade before using curl against authenticated endpoints over untrusted networks; check curl.se/docs/security.html for the current per-version roster.",
+      "Upgrade to curl 8.21.0 (released 2026-06-24) or later — curl.se/docs/vuln-8.21.0.html lists 0 published security problems for that build. The prior 8.20.0 floor is now advisory-affected: curl.se/docs/vuln-8.20.0.html lists 18 published problems for 8.20.0, including CVE-2026-11856 (cross-origin Digest auth-state leak; affects 7.10.6 through 8.20.0, fixed in 8.21.0). Advisories first resolved by the 8.20.0 release are CVE-2026-5773, CVE-2026-5545, and CVE-2026-4873; earlier builds additionally carry a High-severity advisory (CVE-2026-6253) plus credential-leak and connection-reuse issues fixed across 8.17.0-8.19.0. Upgrade before using curl against authenticated endpoints over untrusted networks; check curl.se/docs/security.html for the current per-version roster.",
     homepage: "https://curl.se/",
     sourceRepo: "https://github.com/curl/curl",
     license: "curl",
@@ -489,6 +550,12 @@ export const AVAILABLE_CLI_TOOLS = {
     // repo is archived, re-evaluate whether xh (the actively-maintained Rust
     // HTTPie-compatible client, already registered) should become the primary
     // web-project HTTP recommendation over httpie.
+    // Cycle 12 D21-SA21.4-02: clock advanced — httpie 3.2.4 is 616 days old
+    // (last push 2024-12-17, ~18.8 months, still under the 24-month RE-CHECK
+    // threshold) and the repo is not archived, so it stays registered; but xh
+    // (v0.26.1, 2026-06-19) now precedes httpie in TIER2_CLI_TOOLS_BY_TRIGGER
+    // ["web-project"] so the picker steers to the maintained client first.
+    // Re-arm the ">2-year dormant OR archived" trigger next cycle.
     // CVE-2023-48052 (GHSA-8r96-8889-qg2x) + CVE-2019-10751 (GHSA-xjjg-vmw6-c2p9) — both fixed by httpie 3.2.3
     minVersion: ">=3.2.3",
     homepage: "https://httpie.io/",
@@ -750,6 +817,14 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "cargo", command: "cargo install --locked difftastic" }],
       win: [{ manager: "scoop", command: "scoop install difftastic" }],
     },
+    // Cycle 12 D21-SA21.2-02: difftastic tags releases infrequently (0.69.0
+    // 2025-04-30) but its master branch is active (commits through 2026-07-08,
+    // 30+ in 2026), so the ~436-day tag gap is slow-tag cadence, not
+    // abandonment — hold the D21 currency grade at Info. Caveat: the install
+    // surface is the release tag, so master-only fixes are not shipped until a
+    // re-tag; a user hitting a difftastic bug already fixed on master must build
+    // from source. Re-check next cycle if master goes quiet OR 0.69.0 is
+    // superseded by a fresh tag.
     homepage: "https://difftastic.wilfred.me.uk/",
     sourceRepo: "https://github.com/Wilfred/difftastic",
     license: "MIT",
@@ -999,7 +1074,17 @@ export const TIER1_CLI_TOOLS: readonly CliToolId[] = [
  * condition holds for the active `RepoInfo`/`Platform`.
  */
 export const TIER2_CLI_TOOLS_BY_TRIGGER: Readonly<Record<Tier2Trigger, readonly CliToolId[]>> = {
-  "web-project": ["playwright", "httpie", "xh"],
+  // Cycle 12 D21-SA21.4-02: xh precedes httpie so the picker lists — and, when
+  // web-project fires, pre-checks — the actively-maintained client first,
+  // reflecting the toolbox "prefer xh … for new web-project work" clause
+  // (skills/hatch3r-cli-toolbox/SKILL.md → httpie card). httpie is retained
+  // rather than dropped: the picker's tier-2 offer surface reads this same
+  // array (src/cli/shared/pickers.ts::pickCliTools), so removing httpie here
+  // orphans it from the picker (un-installable) instead of the intended
+  // "installable but not default-selected". Removing it from the DEFAULT
+  // pre-check while keeping it offered needs an offer/pre-check decouple in
+  // pickers.ts + triggers.ts (out of this finding's registry-only scope).
+  "web-project": ["playwright", "xh", "httpie"],
   "data-project": ["duckdb", "qsv"],
   "rust-project": ["taplo"],
   "python-project": ["taplo"],

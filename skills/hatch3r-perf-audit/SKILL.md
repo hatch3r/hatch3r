@@ -114,7 +114,7 @@ The gate line is resolved to the project's language-aware command set at sync ti
 
 ## Required Agent Delegation
 
-You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
+You MUST spawn these agents via the Task tool (`subagent_type: "general-purpose"`) at the appropriate points:
 
 - **`hatch3r-performance`** (CQ7) — MUST spawn to perform autonomous performance profiling and optimization (CWV, p95/p99, bundle-size, N+1, hot-path analysis). Provide the target areas, budget thresholds, and baseline measurements.
 

@@ -37,7 +37,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 
 > **Note:** When this skill is invoked via an orchestration pipeline (a `commands/hatch3r-*.md` flow), skip this section — the orchestrator handles agent delegation.
 
-This skill realizes the two-agent dependency pattern (governance PRD Decision 13, F13.1-F04): the agent that *assesses* upgrade risk is distinct from the agent that *applies* it. Spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the points below:
+This skill realizes the two-agent dependency pattern (governance PRD Decision 13, F13.1-F04): the agent that *assesses* upgrade risk is distinct from the agent that *applies* it. Spawn these agents via the Task tool (`subagent_type: "general-purpose"`) at the points below:
 
 - **`hatch3r-dependency-drafter`** (analysis phase, Steps 1–3) — MUST spawn to inventory the dependency surface, classify each candidate by SemVer band, cross-check advisories, and draft the per-dependency proposal (current pin → proposed pin, band, driver, risk, consumer call sites, verification gate). The drafter is read-only (its `tools.deny` forbids manifest edits and installs), so its proposal is a reviewable decision artifact, not a mutation. Skip only for a trivial single-package patch already scoped by the invocation.
 - **`hatch3r-fixer`** (apply phase, Step 4) — MUST spawn under reviewer authority to perform the manifest edit + `npm install` + per-upgrade verification the drafter's proposal names. The fixer flips each proposal from `drafted` to `applied` after its row's verification gate passes.

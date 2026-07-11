@@ -20,7 +20,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request for unresolved questions in symptom scope, target adapter, or expected-vs-actual behavior. If the symptom maps to two or more distinct failure domains (e.g., "sync is broken" could mean adapter output drift OR a manifest schema mismatch OR a path-traversal guard rejection), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not guess which subsystem to probe. Proceed without asking ONLY when the symptom names a single subsystem and a single expected behavior. Any residual ambiguity discovered mid-diagnosis re-invokes the same protocol. Source: `.claude/rules/clarification-default.md`.
+Before any action, scan the user's request for unresolved questions in symptom scope, target adapter, or expected-vs-actual behavior. If the symptom maps to two or more distinct failure domains (e.g., "sync is broken" could mean adapter output drift OR a manifest schema mismatch OR a path-traversal guard rejection), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not guess which subsystem to probe. Proceed without asking ONLY when the symptom names a single subsystem and a single expected behavior. Any residual ambiguity discovered mid-diagnosis re-invokes the same protocol. Source: `rules/hatch3r-clarification-default.md`.
 
 ## Agent Pipeline
 
@@ -151,7 +151,7 @@ ASK (only gate), per `agents/shared/user-question-protocol.md`:
 >
 > (accept / fix N / explain N / skip)
 
-If a proposed fix is irreversible (deletes a file, drops a manifest field, force-resets a managed block over uncommitted edits), the ASK MUST state that explicitly and default to `skip` per the irreversible-action trigger in `.claude/rules/clarification-default.md`. After the user accepts, the run is autonomous through Step 6.
+If a proposed fix is irreversible (deletes a file, drops a manifest field, force-resets a managed block over uncommitted edits), the ASK MUST state that explicitly and default to `skip` per the irreversible-action trigger in `rules/hatch3r-clarification-default.md`. After the user accepts, the run is autonomous through Step 6.
 
 ---
 
