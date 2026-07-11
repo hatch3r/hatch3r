@@ -43,7 +43,7 @@ import {
 import { type CliOutputFormat } from "../shared/output.js";
 import { beginCommand, finishCommand } from "../shared/commandOutput.js";
 import { runRegenerate, throwOnPartialAdapterFailure } from "./update.js";
-import { archiveToolOutputs, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
+import { archiveToolOutputs, collectToolFiles, removeManagedFilesForPaths, type MigrationNotice } from "../../archive/index.js";
 import { findPackageRoot } from "../shared/paths.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "../../workspace/manifest.js";
 import { detectSubRepos, detectWorkspaceContext } from "../../workspace/detect.js";
@@ -1406,6 +1406,20 @@ async function configCommandImpl(
   let removalSnapshotSessionId: string | null = null;
 
   if (totalArchiveSteps > 0) {
+    // D2-SA2.7-01 (Cycle 12, D2, P6): collect the ACTUAL on-disk file set for
+    // each removed tool up front — the exact set `archiveToolOutputs`
+    // (archive/index.ts) will cp+rm. Both the consent preview and the
+    // pre-deletion rollback snapshot below derive from THIS set, not from the
+    // `managedFilesByAdapter` subset, so user-authored files under a tool's
+    // paths (a hand-written `.cursor/rules/*.mdc`, `.claude/settings.local.json`)
+    // are disclosed before consent AND captured by the `config-<ts>` snapshot
+    // `hatch3r rollback` restores. Previously they were archived into the
+    // gitignored, `hatch3r clean`-deleted `.hatch3r-archive/` with no restorable
+    // snapshot entry, so the advertised undo silently did not cover them.
+    const collectedByTool = new Map<Tool, string[]>();
+    for (const tool of diff.removedTools) {
+      collectedByTool.set(tool, await collectToolFiles(rootDir, tool));
+    }
     // D10-M14 (Cycle 10): preview the file list `managedFilesByAdapter`
     // records for each tool BEFORE the archive runs. Previously the archive
     // step succeeded silently from the user's perspective ("Archived N files"),
@@ -1432,6 +1446,28 @@ async function configCommandImpl(
         console.log(chalk.yellow("Tool removal preview:"));
         for (const line of previewLines) console.log(line);
         console.log();
+      }
+      // D2-SA2.7-01 (Cycle 12, D2, P6): before consent, disclose any file under
+      // a removed tool's paths that hatch3r does NOT manage but the archive loop
+      // WILL still move+delete. Emitted via `warn` (not the isQuiet-gated preview
+      // chrome above) because it is data-loss-relevant consent, not decoration.
+      // The rollback snapshot now captures these too, so the message names the
+      // recovery path.
+      const norm = (p: string): string => p.replace(/\\/g, "/");
+      for (const tool of diff.removedTools) {
+        const managedSet = new Set(
+          (manifest.managedFilesByAdapter?.[tool] ?? []).map(norm),
+        );
+        const surplus = (collectedByTool.get(tool) ?? []).filter(
+          (rel) => !managedSet.has(norm(rel)),
+        );
+        if (surplus.length > 0) {
+          const sample = surplus.slice(0, 3).join(", ");
+          warn(
+            `${TOOL_DISPLAY_NAMES[tool] ?? tool}: ${surplus.length} file(s) under this tool's paths are NOT hatch3r-managed and will also be moved to the archive` +
+              ` (e.g. ${sample}${surplus.length > 3 ? ", …" : ""}). They are captured in the rollback snapshot (\`hatch3r rollback --session=<id>\`).`,
+          );
+        }
       }
       // `configCommandImpl` runs fully interactively — there is no headless
       // override flag here. The confirm gives the user one chance to abort
@@ -1464,18 +1500,24 @@ async function configCommandImpl(
       }
     }
     // D2-7 (Cycle 11 Wave 2, D2, P2): capture the removed tools' live outputs
-    // into a `config-<ts>` snapshot BEFORE the archive loop deletes them. The
-    // path set is the per-tool file list `managedFilesByAdapter` records — the
-    // same source the preview above enumerates — so the snapshot holds the
-    // original bytes. `runRegenerate` later extends this same session id (via
-    // `reuseSessionId` below), and the success summary points the operator at it,
-    // so `hatch3r rollback --session=config-<ts>` restores the dropped tool. A
-    // capture failure downgrades to a warning (Silent Failure Contract) and
-    // leaves `removalSnapshotSessionId` null, so the regenerate falls back to its
-    // own session and the summary suppresses the (now-unavailable) revert line.
-    const removalSnapshotPaths = diff.removedTools.flatMap((tool) =>
-      (manifest.managedFilesByAdapter?.[tool] ?? []).map((rel) => join(rootDir, rel)),
-    );
+    // into a `config-<ts>` snapshot BEFORE the archive loop deletes them, so the
+    // snapshot holds the original bytes. `runRegenerate` later extends this same
+    // session id (via `reuseSessionId` below), and the success summary points the
+    // operator at it, so `hatch3r rollback --session=config-<ts>` restores the
+    // dropped tool. A capture failure downgrades to a warning (Silent Failure
+    // Contract) and leaves `removalSnapshotSessionId` null, so the regenerate
+    // falls back to its own session and the summary suppresses the
+    // (now-unavailable) revert line.
+    // D2-SA2.7-01 (Cycle 12, D2, P6): the path set is `collectedByTool` — the
+    // FULL on-disk set the archive loop removes — NOT `managedFilesByAdapter`.
+    // The prior managed-only source snapshotted a subset of what it deleted, so
+    // rollback could not restore user-authored files under the tool's paths.
+    const removalSnapshotPaths: string[] = [];
+    for (const tool of diff.removedTools) {
+      for (const rel of collectedByTool.get(tool) ?? []) {
+        removalSnapshotPaths.push(join(rootDir, rel));
+      }
+    }
     const removalSnap = await withSnapshot(
       "config",
       removalSnapshotPaths,

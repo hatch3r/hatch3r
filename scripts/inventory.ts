@@ -19,6 +19,7 @@ import {
   AVAILABLE_CLI_TOOLS,
   type CliToolMeta,
 } from "../src/cliTools/registry.js";
+import { VALID_HOOK_EVENTS } from "../src/hooks/types.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1303,8 +1304,172 @@ async function checkDocDrift(
   return drifts;
 }
 
+/**
+ * PRD enumeration self-check (D18-SA18.1-04, P5 governance self-quality + P4 lean coverage).
+ *
+ * `governance/hatch3r-prd.md` is gitignored (private strategy IP), so the CI
+ * `--check-docs` count/version/enumeration probes cannot reach it — the PRD's
+ * hand-maintained artifact enumerations drifted ~45-70% per class (§9 listed
+ * 20/26/21/20 agents/skills/rules/commands against a shipped 29/53/70/31, §16
+ * listed 6 of 9 hook events, §22 said "19 command files", and Appendix B carried
+ * a "23-command set" / "30 agents"). Root cause: the PRD's §20.4 single-source
+ * principle exempts its own enumerations and no ceremony re-derives them at
+ * PRD-bump time. This is that ceremony — a LOCAL-ONLY `--check-prd` mode a
+ * maintainer runs when editing the PRD. It is never wired into CI: the gitignored
+ * file is absent in CI checkouts, so `checkPrdDrift` returns `null` (skip) there.
+ * It re-derives the authoritative per-class counts from the live corpus
+ * (`inventory.counts` + the `VALID_HOOK_EVENTS` SSoT) and flags the PRD's
+ * locatable count sites that POSITIVELY disagree; a site whose phrasing it cannot
+ * locate is an advisory (not a hard drift) so the check stays robust across the
+ * recommended §9 regeneration. Counts are computed on the fly — no field is added
+ * to the persisted inventory shape, so `governance/inventory.json` is unchanged.
+ */
+const PRD_FILE = join("governance", "hatch3r-prd.md");
+
+interface PrdCountProbe {
+  label: string;
+  expected: keyof InventoryCounts;
+  regex: RegExp;
+}
+
+/**
+ * Locatable count sites in the PRD prose. Each regex targets a distinctive
+ * descriptor so the probe binds to the intended site in the ~180 KB document and
+ * not to a stray count elsewhere: §22's "NN command files", Appendix B's
+ * "NN-command set" (Decision 13) and "of the NN agents" (Decisions 22/23). §9's
+ * per-class tree is re-derived-and-printed (see `formatPrdReDerivation`) rather
+ * than regex-probed — its recommended regenerated form (a class tree citing
+ * inventory.json) has no stable count literal to anchor, so the printed
+ * authoritative table guides that rewrite instead.
+ */
+const PRD_COUNT_PROBES: PrdCountProbe[] = [
+  {
+    label: "§22 CLI command-files count",
+    expected: "cliCommands",
+    regex: /(\d+)\s+command files/,
+  },
+  {
+    label: "Appendix B Decision 13 command-set count",
+    expected: "commands",
+    regex: /(\d+)-command set/,
+  },
+  {
+    label: "Appendix B Decisions 22/23 agent count",
+    expected: "agents",
+    regex: /of the (\d+) agents/,
+  },
+];
+
+/** Total `--check-prd` probe count: the count-literal probes plus the §16 one. */
+const PRD_PROBE_COUNT = PRD_COUNT_PROBES.length + 1;
+
+interface PrdDriftResult {
+  label: string;
+  /** Authoritative count the PRD site must cite. */
+  expected: number;
+  /** Number found at the site, or `null` when the site could not be located. */
+  found: number | null;
+  /** Optional context, e.g. the missing §16 event names. */
+  detail?: string;
+}
+
+/**
+ * Slice the §16 "Hooks Architecture" section out of the PRD (from its numbered
+ * header to the next top-level `## N.` header) so the hook-event presence check
+ * binds to the §16 table and not to the event names that recur throughout the
+ * document. Returns `null` when the §16 header is absent — an unlocated advisory,
+ * not a drift. Anchored on the numbered-header text the PRD uses (`## 16. Hooks`).
+ */
+function sliceSection16(prd: string): string | null {
+  const start = prd.search(/^##\s+16\.\s+Hooks/m);
+  if (start === -1) return null;
+  const rest = prd.slice(start + 1);
+  const nextHeader = rest.search(/^##\s+\d+\./m);
+  return nextHeader === -1
+    ? prd.slice(start)
+    : prd.slice(start, start + 1 + nextHeader);
+}
+
+/**
+ * Re-derive the PRD's artifact enumerations from the live corpus and report the
+ * PRD's locatable count sites that positively disagree. Returns `null` when the
+ * gitignored PRD is absent (ENOENT) so `--check-prd` is a no-op in a CI checkout;
+ * otherwise returns only the problem sites (a positively-wrong count carries a
+ * numeric `found`; an unlocated site carries `found: null`). `opts.prdPath`
+ * points the read at a fixture for hermetic tests. Exported for unit coverage.
+ */
+export async function checkPrdDrift(
+  inventory: InventoryDocument,
+  opts?: { prdPath?: string },
+): Promise<PrdDriftResult[] | null> {
+  const absPath = opts?.prdPath ?? join(ROOT, PRD_FILE);
+  let prd: string;
+  try {
+    prd = await readFile(absPath, "utf-8");
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return null;
+    throw err;
+  }
+  const problems: PrdDriftResult[] = [];
+  // Count-literal probes (§22 + Appendix B).
+  for (const probe of PRD_COUNT_PROBES) {
+    const expected = inventory.counts[probe.expected];
+    const match = prd.match(probe.regex);
+    if (!match) {
+      problems.push({ label: probe.label, expected, found: null });
+      continue;
+    }
+    const found = Number.parseInt(match[1], 10);
+    if (found !== expected) {
+      problems.push({ label: probe.label, expected, found });
+    }
+  }
+  // §16 hook-events presence probe, derived from the VALID_HOOK_EVENTS SSoT
+  // (src/hooks/types.ts) rather than a persisted inventory field.
+  const expectedEvents = VALID_HOOK_EVENTS.size;
+  const section16 = sliceSection16(prd);
+  if (section16 === null) {
+    problems.push({
+      label: "§16 hook-events listed",
+      expected: expectedEvents,
+      found: null,
+    });
+  } else {
+    const missing = [...VALID_HOOK_EVENTS].filter(
+      (ev) => !section16.includes(`\`${ev}\``),
+    );
+    const found = expectedEvents - missing.length;
+    if (found !== expectedEvents) {
+      problems.push({
+        label: "§16 hook-events listed",
+        expected: expectedEvents,
+        found,
+        detail: `missing: ${missing.join(", ")}`,
+      });
+    }
+  }
+  return problems;
+}
+
+/**
+ * The authoritative per-class counts the PRD's §9 tree / §16 table / §22 roster /
+ * Appendix B decisions must cite, printed on every `--check-prd` run so a
+ * maintainer regenerating those sections has the live numbers to hand. The
+ * hook-event count comes from the `VALID_HOOK_EVENTS` SSoT; the rest from the
+ * inventory just written this run.
+ */
+function formatPrdReDerivation(inventory: InventoryDocument): string {
+  const c = inventory.counts;
+  return [
+    "inventory: PRD authoritative re-derivation (cite these; authoritative list = governance/inventory.json):",
+    `  agents=${c.agents}  skills=${c.skills}  rules=${c.rules}  commands=${c.commands}`,
+    `  CLI command files=${c.cliCommands}  hooks=${c.hooks}  hook events=${VALID_HOOK_EVENTS.size}  checks=${c.checks}`,
+  ].join("\n");
+}
+
 async function main(): Promise<void> {
   const checkDocs = process.argv.includes("--check-docs");
+  const checkPrd = process.argv.includes("--check-prd");
   const today = new Date().toISOString().slice(0, 10);
   const outPath = join(ROOT, "governance", "inventory.json");
   const fresh = await buildInventory(today);
@@ -1324,6 +1489,50 @@ async function main(): Promise<void> {
       `${inventory.counts.commands} commands, ${inventory.counts.hooks} hooks, ` +
       `${inventory.counts.pipeline} pipeline modules, ${inventory.counts.cliCommands} CLI commands`,
   );
+
+  // Local-only PRD enumeration self-check (D18-SA18.1-04). Never runs in CI —
+  // the gitignored PRD is absent there and `checkPrdDrift` returns null (skip).
+  // Runs independently of `--check-docs`; a positively-wrong PRD count exits 1.
+  if (checkPrd) {
+    const prdProblems = await checkPrdDrift(inventory);
+    if (prdProblems === null) {
+      // eslint-disable-next-line no-console
+      console.log(
+        "inventory: --check-prd skipped — governance/hatch3r-prd.md not present " +
+          "(gitignored local-only surface; nothing to re-derive)",
+      );
+    } else {
+      // eslint-disable-next-line no-console
+      console.log(formatPrdReDerivation(inventory));
+      const hardDrifts = prdProblems.filter((d) => d.found !== null);
+      const unlocated = prdProblems.filter((d) => d.found === null);
+      for (const u of unlocated) {
+        // eslint-disable-next-line no-console
+        console.warn(
+          `inventory: --check-prd advisory — ${u.label}: no checkable count located ` +
+            `(expected ${u.expected}); write it in a form that cites inventory.json`,
+        );
+      }
+      if (hardDrifts.length > 0) {
+        // eslint-disable-next-line no-console
+        console.error(
+          `inventory: PRD-drift FAIL — ${hardDrifts.length} PRD enumeration(s) disagree with the shipped corpus:`,
+        );
+        for (const d of hardDrifts) {
+          // eslint-disable-next-line no-console
+          console.error(
+            `  - ${d.label}: expected ${d.expected}, found ${d.found}` +
+              (d.detail ? ` (${d.detail})` : ""),
+          );
+        }
+        process.exit(1);
+      }
+      // eslint-disable-next-line no-console
+      console.log(
+        `inventory: PRD-drift check PASS — ${PRD_PROBE_COUNT} probes, 0 positively-wrong counts`,
+      );
+    }
+  }
 
   if (!checkDocs) return;
 

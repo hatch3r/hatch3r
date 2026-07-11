@@ -14,6 +14,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { READER_CONFIG_DIRS } from "../src/adapters/canonical.js";
 
+// D9-SA9.4-01 (Cycle 12): `prompts` and `policy` are RESERVED source dirs — no
+// such directory exists at the repo root today, so `main()`'s `exists(src)` guard
+// skips them and nothing ships in `dist/content/` for either (verified: the
+// published bundle carries agents/checks/commands/github-agents/hooks/mcp/rules/
+// skills only). They stay listed so a future `prompts/` or `policy/` dir ships
+// automatically once populated. `docs/adapter-capability-matrix.md` documents
+// both as reserved-not-shipped; keep that doc and this list in agreement.
 const SOURCE_DIRS = [
   "agents",
   "skills",

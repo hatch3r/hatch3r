@@ -214,8 +214,10 @@ This optional rule has no natural file glob; the agent decides relevance.`,
     const content = ruleOut!.content;
     // Before the fix, claude returned "" for scope:conditional → no paths:
     // frontmatter → rule loaded unconditionally. Now it lazy-loads on match.
-    expect(content).toMatch(/^---\npaths: \["src\/\*\*\/\*\.ts", "\*\.md"\]\n---\n/);
-    expect(content).not.toContain('paths: ["conditional"]');
+    // D9-SA9.1-02 (Cycle 12): the documented block-sequence `paths:` form (one
+    // `  - "<glob>"` line per pattern), not a flow array.
+    expect(content).toMatch(/^---\npaths:\n  - "src\/\*\*\/\*\.ts"\n  - "\*\.md"\n---\n/);
+    expect(content).not.toContain('"conditional"');
     // paths: frontmatter precedes the managed block (frontmatter is unmanaged).
     expect(content.indexOf("paths:")).toBeGreaterThanOrEqual(0);
   });

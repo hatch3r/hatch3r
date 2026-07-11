@@ -187,8 +187,10 @@ describe("cross-adapter efficiency parity (D6-M14)", () => {
    * while claude/cursor said "Universal floor", "a11y basics", and "baseline
    * tests" with a bare path. The maturity-marker CONTRACT is the directive
    * PAYLOAD (`hatchJson.ts::maturityDirective`); each adapter keeps its native
-   * wrapper (claude/cursor → HTML comment so it renders invisibly while staying
-   * greppable; copilot → blockquote). This gate asserts every adapter emits the
+   * wrapper (claude/copilot → visible blockquote; cursor → HTML comment in each
+   * rule body — D9-SA9.1-01 moved claude off the comment form because Claude Code
+   * strips block-level HTML comments from CLAUDE.md before context injection).
+   * This gate asserts every adapter emits the
    * identical payload for the same canonical input + resolved tier, so a future
    * adapter-local reword re-drifts here instead of shipping green.
    *
@@ -328,8 +330,11 @@ describe("cross-adapter efficiency parity (D6-M14)", () => {
       (o) => o.path.startsWith(".claude/rules/") && o.path.includes("scoped-rule"),
     );
     expect(claudeScoped, "claude emitted no .claude/rules/ scoped-rule output").toBeDefined();
-    expect(claudeScoped!.content).toContain('paths: ["**/*.ts"]');
-    expect(claudeScoped!.content).not.toContain('paths: ["conditional"]');
+    // D9-SA9.1-02 (Cycle 12): claude emits the documented block-sequence `paths:`
+    // form (one `  - "<glob>"` line per pattern), not a flow array; the scope
+    // keyword must never leak into the resolved glob list (X4/CD4 GLOBS-DROP).
+    expect(claudeScoped!.content).toContain('paths:\n  - "**/*.ts"');
+    expect(claudeScoped!.content).not.toContain('"conditional"');
   });
 
   /**

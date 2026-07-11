@@ -121,6 +121,22 @@ const COPILOT_ORCHESTRATOR_ONLY_AGENTS = new Set<string>([
 ]);
 
 /**
+ * D9-SA9.3-01 (Cycle 12, D9, P3): GitHub caps a custom-agent prompt — the
+ * Markdown content below the YAML frontmatter of a `.github/agents/*.agent.md`
+ * file — at 30,000 characters
+ * (docs.github.com/en/copilot/reference/custom-agents-configuration, accessed
+ * 2026-07-11: "The prompt can be a maximum of 30,000 characters"). The docs do
+ * not specify the overflow behavior, so an over-cap prompt is truncated or
+ * rejected with no signal to the user or the framework — a silent runtime loss
+ * on the highest-value agents (reviewer, implementer, learnings-loader,
+ * testability all exceed it as of Cycle 12). {@link CopilotAdapter.warnIfPromptOverCap}
+ * converts that into an audit-visible sync warning per the Silent Failure
+ * Contract (CONSTITUTION §2 P5); the canonical-body trim that brings the four
+ * agents back under the cap routes through the content lifecycle.
+ */
+const COPILOT_AGENT_PROMPT_CAP = 30_000;
+
+/**
  * D9-16 (Cycle 11 Wave 3, D9, P3 model resolution + P5 silent-failure): the
  * GitHub Copilot `.agent.md` `model:` frontmatter field expects a model the
  * Copilot model picker resolves — a provider-dated model ID
@@ -281,8 +297,36 @@ function collectMcpHeaderInputs(
 export class CopilotAdapter extends BaseAdapter {
   readonly name = "copilot";
 
+  /**
+   * D9-SA9.3-01 (Cycle 12, D9, P3): push an audit-visible warning when an
+   * emitted `.github/agents/*.agent.md` prompt exceeds GitHub's documented
+   * 30,000-character cap ({@link COPILOT_AGENT_PROMPT_CAP}). `prompt` is the
+   * Markdown below the YAML frontmatter — the managed-block-wrapped body, which
+   * is exactly what Copilot ingests and counts. Over the cap, Copilot truncates
+   * or rejects the prompt with no signal; naming the agent, its measured size,
+   * and the cap satisfies the Silent Failure Contract (CONSTITUTION §2 P5) so
+   * the operator sees which agent will be truncated before shipping it.
+   */
+  private warnIfPromptOverCap(agentPath: string, prompt: string): void {
+    if (prompt.length <= COPILOT_AGENT_PROMPT_CAP) return;
+    this.warnings.push(
+      `${agentPath}: emitted Copilot agent prompt is ${prompt.length} characters, ` +
+        `over GitHub's ${COPILOT_AGENT_PROMPT_CAP}-character custom-agent limit — Copilot ` +
+        `truncates or rejects the prompt, silently dropping instruction. Reduce the ` +
+        `agent's canonical body below ${COPILOT_AGENT_PROMPT_CAP} characters.`,
+    );
+  }
+
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
+
+    // D2-SA2.4-01 (D9/D15, P3): the selected MCP server set, threaded into the
+    // emitted Copilot `tools:` allowlist so an mcp-granted agent names each
+    // reachable `<server>/*`. Copilot has no `mcp-servers` frontmatter primitive
+    // in VS Code/IDE custom agents, so the `tools:` list is the only MCP grant
+    // mechanism there — an enumerated list without `<server>/*` tokens excludes
+    // every MCP tool. Gated on `ctx.features.mcp` to match the MCP-emission gate.
+    const mcpServers = ctx.features.mcp ? ctx.manifest.mcp.servers : [];
 
     const alwaysRules: { rule: CanonicalFile; content: string }[] = [];
     // X4/CD4 (D6-1/D9-1/D11-1 — GLOBS DROP): carry the RESOLVED glob list
@@ -475,7 +519,7 @@ jobs:
         // invariant. Copilot frontmatter format:
         // https://docs.github.com/en/copilot/reference/custom-agents-configuration
         // (accessed 2026-04-20).
-        const copilotTools = toCopilotToolsFrontmatter(prefixedId);
+        const copilotTools = toCopilotToolsFrontmatter(prefixedId, mcpServers);
         if (copilotTools) {
           lines.push(`tools: [${copilotTools.map((t) => `"${t}"`).join(", ")}]`);
         }
@@ -494,7 +538,12 @@ jobs:
         }
         const fm = `---\n${lines.join("\n")}\n---`;
         const agentPath = `.github/agents/${prefixedId}.agent.md`;
-        results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, content)}`, content, copilotSingleSource(agent)));
+        // D9-SA9.3-01 (Cycle 12): warn if the below-frontmatter prompt exceeds
+        // GitHub's 30,000-char custom-agent cap (the wrapped body is exactly what
+        // Copilot ingests and counts).
+        const wrappedAgent = wrapManagedFor(agentPath, content);
+        this.warnIfPromptOverCap(agentPath, wrappedAgent);
+        results.push(output(agentPath, `${fm}\n\n${wrappedAgent}`, content, copilotSingleSource(agent)));
       }
     }
 
@@ -575,12 +624,14 @@ jobs:
         // D5-39: per-role least-privilege `tools:` allowlist (read-only baseline
         // for an unlisted github-agent), rendered through the shared category map.
         const categories = GITHUB_AGENT_TOOL_CATEGORIES[prefixedId] ?? GITHUB_AGENT_DEFAULT_CATEGORIES;
-        const tools = toCopilotToolsFrontmatterFromCategories(categories);
+        const tools = toCopilotToolsFrontmatterFromCategories(categories, mcpServers);
         if (tools) {
           lines.push(`tools: [${tools.map((t) => `"${t}"`).join(", ")}]`);
         }
         const fm = `---\n${lines.join("\n")}\n---`;
         const wrappedBody = wrapManagedFor(ghAgentPath, body);
+        // D9-SA9.3-01 (Cycle 12): same cap guard on the github-agent surface.
+        this.warnIfPromptOverCap(ghAgentPath, wrappedBody);
         const content = `${fm}\n\n${wrappedBody}`;
         results.push(output(ghAgentPath, content, body, copilotSingleSource(agent)));
       }
@@ -634,6 +685,11 @@ jobs:
       ["agents/shared", ctx.features.agents, (f) => `.github/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.github/prompts/board/${f}`],
       ["commands/revision", ctx.features.commands, (f) => `.github/prompts/revision/${f}`],
+      // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion referenced by
+      // every emitted orchestrator command. Copilot routes command companions
+      // under `.github/prompts/` (matching the board/revision rows above), so the
+      // shared frame ships to `.github/prompts/shared/` and its references resolve.
+      ["commands/shared", ctx.features.commands, (f) => `.github/prompts/shared/${f}`],
       ["checks", ctx.features.agents || ctx.features.commands, (f) => `.github/checks/${f}`],
     ];
     for (const [subdir, enabled, pathFn] of companionMappings) {

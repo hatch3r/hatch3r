@@ -148,13 +148,26 @@ export type CleanMcpEntry = Omit<McpServerEntry, "_disabled" | "_description">;
  * array references these members by name — a typo (e.g. `"agents/share"`) is a
  * compile error instead of a silent zero-output emission, and the canonical
  * set lives in one place (D02-SA2.1 checklist: walks `agents/modes/`,
- * `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/`).
+ * `agents/shared/`, `commands/board/`, `commands/revision/`, `commands/shared/`,
+ * `checks/`).
+ *
+ * D2-SA2.1-01 (Cycle 12 Wave 2, P5): `commands/shared/` — home of the
+ * orchestration-frame companion added Cycle 11 — was omitted from this tuple for
+ * ~2 weeks after it landed, so every emitted orchestrator command referenced
+ * `commands/shared/orchestration-frame.md` while no adapter shipped it (the
+ * TypeScript `CompanionSubdir` union catches typos but not omissions). The
+ * completeness invariant in `src/__tests__/adapters/base.test.ts`
+ * ("KNOWN_COMPANION_SUBDIRS completeness invariant") walks the on-disk
+ * `agents/`+`commands/` subdir set (mirroring the dynamic copy path in
+ * `src/content/index.ts`) and fails if this tuple omits a discovered member,
+ * so the next companion class cannot be added to the tree without wiring.
  */
 export const KNOWN_COMPANION_SUBDIRS = [
   "agents/modes",
   "agents/shared",
   "commands/board",
   "commands/revision",
+  "commands/shared",
   "checks",
 ] as const;
 

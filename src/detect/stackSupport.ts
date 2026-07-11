@@ -97,9 +97,15 @@ export const LANGUAGE_SUPPORT: Record<string, StackSupport> = {
   php: { tier: "full", rule: "hatch3r-php-laravel-patterns" },
   csharp: { tier: "full", rule: "hatch3r-dotnet-patterns" },
   dart: { tier: "full", rule: "hatch3r-flutter-patterns" },
-  // Kotlin & Java share the Android Kotlin patterns rule (Gradle / Compose).
+  // Kotlin is Android-first (Google's 2019 Kotlin-first declaration), so it maps
+  // to the Android patterns rule (Jetpack Compose / Gradle). `java` is
+  // intentionally NOT listed here: server-side Java (Spring Boot / Jakarta EE /
+  // Quarkus) is the dominant use of Java and the Android rule (Compose / Room /
+  // Hilt / target-SDK) carries none of it. Leaving java unlisted makes
+  // classifyLanguage fall it through to `partial`, so a bare-Java repo receives
+  // the honest "no dedicated rule" pointer instead of a false "full → Android"
+  // routing (D14-SA14.1-01).
   kotlin: { tier: "full", rule: "hatch3r-android-patterns" },
-  java: { tier: "full", rule: "hatch3r-android-patterns" },
 };
 
 /** Classify a single detected framework. Unknown -> partial (cross-cutting). */

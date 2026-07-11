@@ -76,7 +76,14 @@ const CLAUDE_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
   write: ["Edit", "MultiEdit", "Write", "NotebookEdit"],
   execute: ["Bash", "PowerShell", "EnterWorktree", "ExitWorktree"],
   web: ["WebSearch", "WebFetch"],
-  mcp: [], // MCP tools are scoped via the `mcpServers` frontmatter field, not `tools`.
+  // D2-SA2.4-01 (P3): `mcp` maps to no fixed tool name — the reachable MCP tools
+  // are server-specific (`mcp__<server>`/`mcp__<server>__*`), so a static
+  // category→name map cannot enumerate them. The per-server grant tokens are
+  // appended by {@link mcpServerGrants} from the selected server set the adapter
+  // threads in (`ctx.manifest.mcp.servers`). An enumerated `tools:` list
+  // otherwise EXCLUDES every MCP tool platform-side
+  // (https://code.claude.com/docs/en/sub-agents, accessed 2026-07-10).
+  mcp: [],
   // Reserved categories (RESERVED_TOOL_CATEGORIES in agentToolAllowlist.ts):
   // no current policy grants these; they collapse onto execute/mcp here.
   git: ["Bash"], // Reserved. Git is driven via Bash; callers that grant git retain execute semantics.
@@ -94,7 +101,14 @@ const COPILOT_CATEGORY_MAP: Readonly<Record<string, readonly string[]>> = {
   write: ["edit"],
   execute: ["execute"],
   web: ["web"],
-  mcp: [], // MCP exposure is controlled via `mcp-servers`, not `tools`.
+  // D2-SA2.4-01 (P3): `mcp` maps to no fixed alias — Copilot MCP tools are named
+  // `<server>/<tool>` or `<server>/*`, appended by {@link mcpServerGrants} from
+  // the adapter-threaded server set. The `mcp-servers` frontmatter property is
+  // NOT read by VS Code/IDE custom agents, so the `tools:` list is the only MCP
+  // grant mechanism there
+  // (https://docs.github.com/en/copilot/reference/custom-agents-configuration,
+  // accessed 2026-07-10).
+  mcp: [],
   // Reserved categories (RESERVED_TOOL_CATEGORIES in agentToolAllowlist.ts):
   // no current policy grants these; they collapse onto execute/mcp here.
   // D15-22 (SA15.3-F7, Cycle 11 Wave 3, P6): `git` collapses to `execute`
@@ -130,11 +144,25 @@ export type AdapterName =
  * omit the frontmatter field (Claude Code inherits all tools if the
  * field is absent). This is conservative: hatch3r-authored agents all
  * have policies; only user-authored "unknown" agents fall through.
+ *
+ * D2-SA2.4-01 (P3): when the policy grants the `mcp` category, pass the selected
+ * MCP server names in {@link mcpServers} (the adapter's `ctx.manifest.mcp.servers`)
+ * so the emitted list names each reachable `mcp__<server>` — without them an
+ * enumerated `tools:` list excludes every MCP tool platform-side.
+ *
+ * @param mcpServers Selected MCP server names, or omit/empty when none are
+ *   configured (the mcp-off case is unchanged from before this parameter).
  */
-export function toClaudeToolsFrontmatter(agentId: string): string | null {
+export function toClaudeToolsFrontmatter(
+  agentId: string,
+  mcpServers?: readonly string[],
+): string | null {
   const policy = getAgentToolPolicy(agentId);
   if (!policy) return null;
-  const tools = resolveNativeTools(policy.allowedTools, CLAUDE_CATEGORY_MAP);
+  const tools = [
+    ...resolveNativeTools(policy.allowedTools, CLAUDE_CATEGORY_MAP),
+    ...mcpServerGrants(policy.allowedTools, mcpServers, "claude"),
+  ];
   if (tools.length === 0) return null;
   return tools.join(", ");
 }
@@ -162,8 +190,12 @@ export function toClaudeToolsFrontmatter(agentId: string): string | null {
  */
 export function toClaudeToolsFrontmatterFromCategories(
   categories: readonly string[],
+  mcpServers?: readonly string[],
 ): string | null {
-  const tools = resolveNativeTools(categories, CLAUDE_CATEGORY_MAP);
+  const tools = [
+    ...resolveNativeTools(categories, CLAUDE_CATEGORY_MAP),
+    ...mcpServerGrants(categories, mcpServers, "claude"),
+  ];
   if (tools.length === 0) return null;
   return tools.join(", ");
 }
@@ -174,10 +206,16 @@ export function toClaudeToolsFrontmatterFromCategories(
  *
  * Returns `null` when the agent has no registered policy.
  */
-export function toCopilotToolsFrontmatter(agentId: string): readonly string[] | null {
+export function toCopilotToolsFrontmatter(
+  agentId: string,
+  mcpServers?: readonly string[],
+): readonly string[] | null {
   const policy = getAgentToolPolicy(agentId);
   if (!policy) return null;
-  const tools = resolveNativeTools(policy.allowedTools, COPILOT_CATEGORY_MAP);
+  const tools = [
+    ...resolveNativeTools(policy.allowedTools, COPILOT_CATEGORY_MAP),
+    ...mcpServerGrants(policy.allowedTools, mcpServers, "copilot"),
+  ];
   return tools.length === 0 ? null : tools;
 }
 
@@ -202,8 +240,12 @@ export function toCopilotToolsFrontmatter(agentId: string): readonly string[] | 
  */
 export function toCopilotToolsFrontmatterFromCategories(
   categories: readonly string[],
+  mcpServers?: readonly string[],
 ): readonly string[] | null {
-  const tools = resolveNativeTools(categories, COPILOT_CATEGORY_MAP);
+  const tools = [
+    ...resolveNativeTools(categories, COPILOT_CATEGORY_MAP),
+    ...mcpServerGrants(categories, mcpServers, "copilot"),
+  ];
   return tools.length === 0 ? null : tools;
 }
 
@@ -464,4 +506,42 @@ function resolveNativeTools(
     for (const t of native) out.add(t);
   }
   return [...out];
+}
+
+/**
+ * D2-SA2.4-01 (P3): render the platform-native per-server MCP grant tokens for a
+ * policy/category set that grants the `mcp` category.
+ *
+ * An enumerated `tools:` allowlist EXCLUDES every MCP tool it does not name. On
+ * Claude Code a sub-agent that declares a `tools:` list "can't use any MCP tools"
+ * unless `mcp__<server>` / `mcp__<server>__*` patterns are listed
+ * (https://code.claude.com/docs/en/sub-agents, accessed 2026-07-10); on GitHub
+ * Copilot MCP tools are named `<server>/<tool>` or `<server>/*`
+ * (https://docs.github.com/en/copilot/reference/custom-agents-configuration,
+ * accessed 2026-07-10). {@link CLAUDE_CATEGORY_MAP}.mcp / {@link COPILOT_CATEGORY_MAP}.mcp
+ * are `[]` because a static category→fixed-name map cannot know which servers an
+ * operator selected — so the adapter threads the selected set
+ * (`ctx.manifest.mcp.servers`) in here, and this helper emits one whole-server
+ * grant per selection (`mcp__<server>` on Claude, `<server>/*` on Copilot).
+ *
+ * Returns `[]` when the `mcp` category is not granted OR no servers are selected,
+ * so a non-mcp agent and an mcp-off project emit exactly what they did before
+ * this parameter existed. Duplicate server names are collapsed, selection order
+ * is preserved for deterministic output.
+ */
+function mcpServerGrants(
+  categories: readonly string[],
+  mcpServers: readonly string[] | undefined,
+  style: "claude" | "copilot",
+): string[] {
+  if (!categories.includes("mcp")) return [];
+  if (!mcpServers || mcpServers.length === 0) return [];
+  const seen = new Set<string>();
+  const tokens: string[] = [];
+  for (const server of mcpServers) {
+    if (!server || seen.has(server)) continue;
+    seen.add(server);
+    tokens.push(style === "claude" ? `mcp__${server}` : `${server}/*`);
+  }
+  return tokens;
 }

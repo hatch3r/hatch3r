@@ -19,6 +19,27 @@
  *      is an error.
  *   2. PROVENANCE RESOLVABILITY: every `Decision N` reference inside the §6
  *      Rationale cells resolves to an ordinal in range 1..N.
+ *   3. CORPUS CITATION PASS (D10-SA10.2-01, Cycle 12): scan the shipped
+ *      canonical corpus (`rules/`, `agents/`, `commands/`, `skills/`,
+ *      `hooks/`) for `Decision N` citations and validate each against the
+ *      current §6 register:
+ *        3a. DECISION-CITATION-DANGLING (error) — a cited ordinal outside
+ *            1..N resolves to no row.
+ *        3b. DECISION-CITATION-LEGACY (warning) — a citation matches a known
+ *            legacy→canonical remap from the 2026-07-09 renumbering (EVOLVE
+ *            run a2a16b59): legacy 23 (recap-contract iteration summary,
+ *            now row 28) and legacy 24 (cost visibility, now row 29). The
+ *            legacy ordinal collides with an unrelated live row (23 = spec
+ *            agents, 24 = impact-gating), so the check is context-anchored:
+ *            it fires only when the citing line matches the remap's topic
+ *            keywords, never on correct citations of the live rows.
+ *        3c. DECISION-REMAP-STALE (error) — self-guard: each remap's
+ *            canonical row text must still match its topic keywords; a
+ *            future renumbering that moves the rows again fails THIS
+ *            validator until LEGACY_REMAPS is updated, instead of the map
+ *            silently mis-flagging.
+ *      Warnings do not affect the exit code — remaining legacy citations are
+ *      drained through the audit cycle without breaking the gate.
  *
  * Scope note (tracked remainder): the finding's full remediation — single-key
  * renumbering of the in-body provenance IDs to one authority + PRD-title parity
@@ -27,7 +48,9 @@
  * gitignored PRD is not available to CI, so PRD-title parity is out of scope
  * here. This gate locks the two always-checkable classes so future edits to the
  * register cannot reintroduce an ordinal collision or a dangling provenance
- * pointer.
+ * pointer; check 3 extends the same register authority outward to the corpus
+ * that cites it (the citation-currency gap the 2026-07-09 renumbering left
+ * open — deferred "as its owning wave lands" with no owner or gate).
  *
  * Usage:
  *   npm run validate:efficiency        (chained)
@@ -37,8 +60,8 @@
  * Pillars: P5 (Governance Self-Quality), P4 (Lean Coverage).
  */
 import { existsSync } from "node:fs";
-import { readFile } from "node:fs/promises";
-import { dirname, join, resolve } from "node:path";
+import { readFile, readdir } from "node:fs/promises";
+import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -47,8 +70,46 @@ const ROOT = resolve(__dirname, "..");
 
 const CONSTITUTION_REL = "governance/CONSTITUTION.md";
 
+/**
+ * Shipped canonical corpus dirs whose `Decision N` citations resolve against
+ * the §6 register (check 3). Matches the ship-verbatim subset of
+ * `src/adapters/canonical.ts::readCanonicalFiles`.
+ */
+const CORPUS_DIRS = ["rules", "agents", "commands", "skills", "hooks"] as const;
+
+/**
+ * Legacy→canonical remaps from the 2026-07-09 §6 renumbering (EVOLVE run
+ * a2a16b59). `contextRe` anchors the legacy check to the remap's topic so a
+ * correct citation of the LIVE row bearing the legacy number (23 = spec
+ * agents, 24 = impact-gated registration) never warns. `canonicalRowRe` is
+ * the check-3c self-guard: it must match the canonical row's current table
+ * text, otherwise the remap itself is stale and the validator errors.
+ */
+const LEGACY_REMAPS: ReadonlyArray<{
+  legacy: number;
+  canonical: number;
+  topic: string;
+  contextRe: RegExp;
+  canonicalRowRe: RegExp;
+}> = [
+  {
+    legacy: 23,
+    canonical: 28,
+    topic: "recap-contract iteration summary",
+    contextRe: /recap|iteration summary|validation gate/i,
+    canonicalRowRe: /recap/i,
+  },
+  {
+    legacy: 24,
+    canonical: 29,
+    topic: "cost visibility",
+    contextRe: /cost/i,
+    canonicalRowRe: /cost visibility/i,
+  },
+];
+
 export interface DecisionDrift {
-  level: "error";
+  level: "error" | "warning";
   code: string;
   message: string;
 }
@@ -63,6 +124,7 @@ export interface RunResult {
   drifts: DecisionDrift[];
   rowCount: number;
   errorCount: number;
+  warningCount: number;
 }
 
 /**
@@ -99,6 +161,88 @@ export function parseRowOrdinals(section: string): number[] {
   return ordinals;
 }
 
+/** Map each §6 ordinal to its full table-row text (for the remap self-guard). */
+export function parseRowTexts(section: string): Map<number, string> {
+  const rows = new Map<number, string>();
+  for (const line of section.split("\n")) {
+    const m = line.match(/^\|\s*(\d+)\s*\|/);
+    if (m) rows.set(Number(m[1]), line);
+  }
+  return rows;
+}
+
+// ── Check 3: corpus citation pass (D10-SA10.2-01) ─────────────────
+
+const CITATION_RE = /Decision\s+#?(\d+)(?:\/(\d+))?/g;
+
+function toPosixRel(absPath: string, baseDir: string): string {
+  return relative(baseDir, absPath).split(sep).join(posix.sep);
+}
+
+/** Recursively list `.md`/`.mdc` files under a directory (absent dir → []). */
+async function listCorpusFiles(dir: string): Promise<string[]> {
+  let entries: import("node:fs").Dirent[];
+  try {
+    entries = await readdir(dir, { recursive: true, withFileTypes: true });
+  } catch {
+    return [];
+  }
+  const out: string[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile()) continue;
+    if (!entry.name.endsWith(".md") && !entry.name.endsWith(".mdc")) continue;
+    const parent =
+      entry.parentPath ?? (entry as unknown as { path: string }).path ?? dir;
+    out.push(join(parent, entry.name));
+  }
+  return out.sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Scan one corpus file's lines for `Decision N` citations; emit
+ * DECISION-CITATION-DANGLING (error) for out-of-range ordinals and
+ * DECISION-CITATION-LEGACY (warning) for context-matched legacy ids.
+ */
+export function checkCorpusFileCitations(
+  relPath: string,
+  content: string,
+  maxOrdinal: number,
+): DecisionDrift[] {
+  const drifts: DecisionDrift[] = [];
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    CITATION_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = CITATION_RE.exec(line)) !== null) {
+      const cited = Number(m[1]);
+      const hedge = m[2] !== undefined ? Number(m[2]) : undefined;
+      for (const ref of hedge === undefined ? [cited] : [cited, hedge]) {
+        if (ref < 1 || ref > maxOrdinal) {
+          drifts.push({
+            level: "error",
+            code: "DECISION-CITATION-DANGLING",
+            message: `${relPath}:${i + 1}: "Decision ${ref}" resolves to no §6 row (valid range 1..${maxOrdinal}) (D10-SA10.2-01)`,
+          });
+        }
+      }
+      for (const remap of LEGACY_REMAPS) {
+        if (cited !== remap.legacy) continue;
+        if (!remap.contextRe.test(line)) continue;
+        const cite = hedge === undefined ? `Decision ${cited}` : `Decision ${cited}/${hedge}`;
+        drifts.push({
+          level: "warning",
+          code: "DECISION-CITATION-LEGACY",
+          message:
+            `${relPath}:${i + 1}: "${cite}" cites the legacy pre-2026-07-09 id for ${remap.topic}; ` +
+            `the canonical row is Decision ${remap.canonical} (row ${remap.legacy} is now an unrelated decision) (D10-SA10.2-01)`,
+        });
+      }
+    }
+  }
+  return drifts;
+}
+
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const rootDir = opts.rootDir ?? ROOT;
   const drifts: DecisionDrift[] = [];
@@ -109,7 +253,10 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   // mirroring scripts/validate-governance-total.ts.
   const constitutionPath = join(rootDir, CONSTITUTION_REL);
   if (!existsSync(constitutionPath)) {
-    return { skipped: true, drifts: [], rowCount: 0, errorCount: 0 };
+    // The corpus pass (check 3) also skips here: its remap self-guard (3c)
+    // needs the §6 table, and running the legacy map unverified in public CI
+    // would emit warnings that nothing can prove current.
+    return { skipped: true, drifts: [], rowCount: 0, errorCount: 0, warningCount: 0 };
   }
 
   const body = await readFile(constitutionPath, "utf-8");
@@ -120,7 +267,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       code: "DECISION-SECTION-MISSING",
       message: `${CONSTITUTION_REL}: "## 6. Key Design Decisions" section not found`,
     });
-    return { skipped: false, drifts, rowCount: 0, errorCount: drifts.length };
+    return { skipped: false, drifts, rowCount: 0, errorCount: drifts.length, warningCount: 0 };
   }
 
   const ordinals = parseRowOrdinals(section);
@@ -163,13 +310,47 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     }
   }
 
-  return { skipped: false, drifts, rowCount: n, errorCount: drifts.length };
+  // Check 3c — remap self-guard: each canonical row must still carry its
+  // topic text; otherwise the LEGACY_REMAPS table itself has rotted.
+  const rowTexts = parseRowTexts(section);
+  for (const remap of LEGACY_REMAPS) {
+    const rowText = rowTexts.get(remap.canonical);
+    if (rowText === undefined || !remap.canonicalRowRe.test(rowText)) {
+      drifts.push({
+        level: "error",
+        code: "DECISION-REMAP-STALE",
+        message:
+          `§6 row ${remap.canonical} no longer matches ${remap.canonicalRowRe} (${remap.topic}); ` +
+          `the LEGACY_REMAPS table in scripts/validate-decision-id-consistency.ts is stale — update it before trusting corpus warnings (D10-SA10.2-01)`,
+      });
+    }
+  }
+
+  // Check 3a/3b — corpus citation pass over the shipped canonical dirs.
+  for (const dir of CORPUS_DIRS) {
+    const files = await listCorpusFiles(join(rootDir, dir));
+    for (const absPath of files) {
+      const content = await readFile(absPath, "utf-8");
+      drifts.push(
+        ...checkCorpusFileCitations(toPosixRel(absPath, rootDir), content, maxOrdinal),
+      );
+    }
+  }
+
+  let errorCount = 0;
+  let warningCount = 0;
+  for (const d of drifts) {
+    if (d.level === "error") errorCount += 1;
+    else warningCount += 1;
+  }
+  return { skipped: false, drifts, rowCount: n, errorCount, warningCount };
 }
 
 // ── Output formatting ─────────────────────────────────────────────
 
 export function formatDrift(d: DecisionDrift): string {
-  return `[ERROR ${d.code}] ${d.message}`;
+  const tag = d.level === "error" ? "ERROR" : "WARN ";
+  return `[${tag} ${d.code}] ${d.message}`;
 }
 
 interface CliFlags {
@@ -199,11 +380,12 @@ async function main(): Promise<void> {
   } else {
     for (const d of result.drifts) {
       // eslint-disable-next-line no-console
-      console.error(formatDrift(d));
+      if (d.level === "error") console.error(formatDrift(d));
+      else console.warn(formatDrift(d));
     }
     // eslint-disable-next-line no-console
     console.log(
-      `validate-decision-id-consistency: ${result.rowCount} decision row(s), ${result.errorCount} error(s)`,
+      `validate-decision-id-consistency: ${result.rowCount} decision row(s), ${result.errorCount} error(s), ${result.warningCount} warning(s)`,
     );
   }
   if (result.errorCount > 0) process.exit(1);

@@ -121,7 +121,7 @@ When you change your selected tools with `hatch3r config` (for example, dropping
 | Category | What happens on switch |
 |----------|------------------------|
 | `.hatch3r/overrides/`, `.hatch3r/learnings/`, `.hatch3r/handoffs/`, `.hatch3r/mcp/` | **Carries forward unconditionally.** These directories are tool-neutral state — `hatch3r config` never archives or rewrites them. |
-| Removed tool's adapter output (`.claude/`, `.cursor/`, `.github/`, bridge files) | **Archived to `.hatch3r-archive/`** (recoverable). The removed tool's native files are swept per its archive prefix set. |
+| Removed tool's adapter output (`.claude/`, `.cursor/`, `.github/`, bridge files) | **Swept to `.hatch3r-archive/`** per the tool's archive prefix set. The sweep is directory-based, so files you authored yourself under those paths (your own `.github/prompts/*.prompt.md` or `.github/instructions/*`, a hand-written `.cursor/rules/*.mdc`) are moved too — the removal preview counts them as non-hatch3r files and warns before asking consent. To undo the removal, run `hatch3r rollback --session=<id>` with the `config-<ts>` snapshot named in the summary: it restores everything swept, including your own files. `.hatch3r-archive/` itself is gitignored and deleted by `hatch3r clean` — an inspection copy, not the undo path. |
 | Added tool's adapter output | **Generated from bundled canonical content** on the next sync. Restart your editor to pick it up. |
 | `.env.mcp` MCP secrets | **Shared across tools** — no re-entry needed. Cursor and Claude Code require sourcing `.env.mcp` before launch (`set -a && source .env.mcp && set +a`); VS Code / Copilot auto-load it via `.vscode/mcp.json`. |
 

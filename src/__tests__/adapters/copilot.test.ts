@@ -676,6 +676,63 @@ You are a test agent.`,
     }
   });
 
+  // D9-SA9.3-01 (Cycle 12, D9, P3): GitHub caps a custom-agent prompt (the
+  // Markdown below the YAML frontmatter) at 30,000 characters. An over-cap
+  // prompt is truncated or rejected with no signal, so the adapter emits an
+  // audit-visible warning naming the agent, its measured size, and the cap
+  // (Silent Failure Contract). The canonical-body trim that brings the four
+  // over-cap production agents back under the cap routes through the content
+  // lifecycle; this suite pins the adapter-side guard behavior.
+  describe("agent prompt-size cap (D9-SA9.3-01)", () => {
+    it("warns when an emitted .agent.md prompt exceeds the 30,000-char cap", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-cap-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        // ~34k chars of body → the below-frontmatter (managed-wrapped) prompt
+        // clears the 30,000-char cap.
+        const oversizedBody = "Oversized agent instruction body. ".repeat(1000);
+        await writeFile(
+          join(agentsDir, "agents", "big-agent.md"),
+          `---\nid: big-agent\ntype: agent\ndescription: A deliberately oversized agent for the cap guard\n---\n# Big Agent\n\n${oversizedBody}`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+
+        const emitted = outputs.find((o) => o.path === ".github/agents/hatch3r-big-agent.agent.md");
+        expect(emitted).toBeDefined();
+        const capWarning = adapter.warnings.find(
+          (w) => w.includes("hatch3r-big-agent.agent.md") && w.includes("30000"),
+        );
+        expect(capWarning).toBeDefined();
+        expect(capWarning).toContain("custom-agent limit");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not warn for an under-cap agent", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-cap-ok-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "agents", "small-agent.md"),
+          `---\nid: small-agent\ntype: agent\ndescription: A small agent\n---\n# Small Agent\n\nYou are a small agent.`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+
+        expect(
+          outputs.find((o) => o.path === ".github/agents/hatch3r-small-agent.agent.md"),
+        ).toBeDefined();
+        expect(adapter.warnings.some((w) => w.includes("custom-agent limit"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   // D9-16 (Cycle 11 Wave 3, D9, P3/P5): the hatch3r-internal capacity tiers
   // `standard`/`fast` are not Copilot picker names — Copilot silently falls back
   // to its default and the emitted `model:` is a dead field. The adapter omits
@@ -1166,5 +1223,79 @@ You are a test agent.`,
       expect(instructions!.content).toContain("confidence floor=any");
       expect(instructions!.content).not.toContain("confidence floor=high");
     });
+  });
+});
+
+/**
+ * D2-SA2.4-01 (Cycle 12 Wave 2, D2, P3): an mcp-granted agent's emitted Copilot
+ * `tools:` allowlist must carry a per-server `<server>/*` grant when MCP servers
+ * are selected. Copilot has no `mcp-servers` frontmatter primitive in VS Code/IDE
+ * custom agents, so the `tools:` list is the only MCP grant mechanism — an
+ * enumerated list without `<server>/*` tokens excludes every MCP tool.
+ */
+describe("mcp-granted agent tools frontmatter carries per-server grants (D2-SA2.4-01)", () => {
+  async function writeMcpAgentRoot(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-copilot-mcp-tools-"));
+    const agentsDir = join(root, "agents");
+    await mkdir(agentsDir, { recursive: true });
+    // id `researcher` → emitted id `hatch3r-researcher`, whose AGENT_TOOL_POLICIES
+    // grant includes the `mcp` category (read+search+web+mcp).
+    await writeFile(
+      join(agentsDir, "researcher.md"),
+      "---\nid: researcher\ntype: agent\ndescription: Read-only research agent.\n---\n# Researcher\n\nResearch body.\n",
+      "utf-8",
+    );
+    const mcpDir = join(root, "mcp");
+    await mkdir(mcpDir, { recursive: true });
+    await writeFile(
+      join(mcpDir, "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          context7: { _description: "Test Context7 MCP", _trust_bypass: true, url: "https://mcp.context7.com/" },
+          github: { _description: "Test GitHub MCP", _trust_bypass: true, url: "https://api.githubcopilot.com/mcp/" },
+        },
+      }),
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("emits <server>/* in the tools: array for each selected server", async () => {
+    const root = await writeMcpAgentRoot();
+    try {
+      const manifest = createManifest({
+        tools: ["copilot"],
+        mcpServers: ["context7", "github"],
+        features: { mcp: true },
+      });
+      const outputs = await new CopilotAdapter().generate(root, manifest);
+      const agentOut = outputs.find((o) => o.path === ".github/agents/hatch3r-researcher.agent.md");
+      expect(agentOut, "expected the researcher agent output").toBeDefined();
+      const toolsLine = agentOut!.content.split("\n").find((l) => l.startsWith("tools:")) ?? "";
+      expect(toolsLine).toContain("\"context7/*\"");
+      expect(toolsLine).toContain("\"github/*\"");
+      // Additive — the read-only base grant survives alongside the MCP tokens.
+      expect(toolsLine).toContain("\"read\"");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("emits no <server>/* token when the MCP feature is off, even with servers listed (gate)", async () => {
+    const root = await writeMcpAgentRoot();
+    try {
+      const manifest = createManifest({
+        tools: ["copilot"],
+        mcpServers: ["context7"],
+        features: { mcp: false },
+      });
+      const outputs = await new CopilotAdapter().generate(root, manifest);
+      const agentOut = outputs.find((o) => o.path === ".github/agents/hatch3r-researcher.agent.md");
+      expect(agentOut).toBeDefined();
+      const toolsLine = agentOut!.content.split("\n").find((l) => l.startsWith("tools:")) ?? "";
+      expect(toolsLine).not.toContain("/*");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

@@ -1,6 +1,6 @@
 # Stack Support Matrix
 
-> **Last verified**: 2026-06-06 | **hatch3r version**: 2.0.0
+> **Last verified**: 2026-07-11 | **hatch3r version**: 2.0.0
 
 Per-stack portability reference: which tech stacks hatch3r covers with a **dedicated stack rule**, which it covers only with **cross-cutting rules** applied by glob, and where the gaps are. The source of truth for these tiers is `src/detect/stackSupport.ts` (`FRAMEWORK_SUPPORT`, `LANGUAGE_SUPPORT`); the `init` summary reads the same map to print a one-line pointer when a detected stack has no dedicated rule.
 
@@ -77,10 +77,10 @@ For repos where a language is detected but no framework indicator fired (a bare 
 | **csharp** | full | `hatch3r-dotnet-patterns` | minimal APIs, EF Core, DI, xUnit (detected via `.cs` scan) |
 | **dart** | full | `hatch3r-flutter-patterns` | null safety, Riverpod/Bloc, Material 3, integration tests |
 | **kotlin** | full | `hatch3r-android-patterns` | Jetpack Compose, coroutines + Flow, Hilt, Room, Gradle |
-| **java** | full | `hatch3r-android-patterns` | shares the Android Kotlin rule (Gradle / Compose) |
 | **typescript** | partial | — | `hatch3r-typescript-patterns` exists (TS-idiom rule, glob-scoped to `**/*.ts*`) but is not tier-mapped here; tier stays partial because `LANGUAGE_SUPPORT` promotion is framework-axis-driven, not rule-existence-driven. Also covered by always-on + frontend/backend cross-cutting rules |
 | **javascript** | partial | — | same as TypeScript (JS repos receive the `hatch3r-typescript-patterns` rule by glob) |
 | **swift** | partial | — | `hatch3r-swiftui-patterns` exists but is glob-scoped, not tier-mapped here; see [SwiftUI note](#swiftui-note) |
+| **java** | partial | — | server-side Java (Spring Boot / Jakarta EE / Quarkus) is the dominant use; the Android Kotlin rule (Compose/Room/Hilt) does not cover it and no rule globs `**/*.java`. Covered by language-agnostic + backend cross-cutting rules and the `lang:java` tag. **Gap:** Spring DI, JPA, records, virtual threads |
 | **elixir** | none | — | maps to no `lang:*` tag; language-agnostic rules only |
 | **scala** | none | — | no dedicated rule, no `lang:*` tag |
 | **zig** | none | — | no dedicated rule, no `lang:*` tag |

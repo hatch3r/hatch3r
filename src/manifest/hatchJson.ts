@@ -892,9 +892,14 @@ export async function readManifest(
   try {
     parsed = JSON.parse(raw);
   } catch (err: unknown) {
+    // D8-SA8.1-01: pass `undefined` (not a hand-picked `1`) so CONFIG_ERROR
+    // resolves through ERROR_CODE_TO_EXIT_CODE to sysexits EX_DATAERR (65),
+    // matching writeManifest below and the missing-manifest path in the CLI
+    // commands. Explicit exit codes stay reserved for 0 (cancel) / 2 (usage)
+    // per the ERROR_CODE_TO_EXIT_CODE contract in src/types.ts.
     throw new HatchError(
       `Malformed JSON in ${manifestPath}: ${err instanceof Error ? err.message : String(err)}`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       `Fix the JSON syntax in ${manifestPath}, or delete the file and run \`hatch3r init\` to regenerate it. If you have version control, \`git checkout -- ${HATCH3R_DIR}/${MANIFEST_FILE}\` restores the last committed copy.`,
     );
@@ -911,7 +916,7 @@ export async function readManifest(
   if (fieldErrors.length > 0) {
     throw new HatchError(
       `Invalid manifest in ${manifestPath}: ${fieldErrors.join("; ")}. Run hatch3r init to regenerate.`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       `Correct the field(s) listed above in ${manifestPath}, or run \`hatch3r init\` to regenerate a valid manifest.`,
     );
@@ -921,7 +926,7 @@ export async function readManifest(
     // validateManifest. This branch is unreachable when both stay in sync.
     throw new HatchError(
       `Invalid manifest in ${manifestPath}: shape mismatch beyond per-field checks. Run hatch3r init to regenerate.`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       `Run \`hatch3r init\` to regenerate ${manifestPath}; if you hand-edited it, restore the last committed copy with \`git checkout -- ${HATCH3R_DIR}/${MANIFEST_FILE}\`.`,
     );

@@ -60,10 +60,11 @@ Canonical content (agents, skills, rules, commands, hooks) is no longer material
 
 ### Migrating from another tool
 
-Already have a `.cursor/rules/` setup? Carry your existing rules across on the same `init` run with `--import`:
+Already have a `.cursor/rules/` setup — or Copilot, Windsurf, or a legacy `.cursorrules` file? Carry your existing rules across on the same `init` run with `--import`:
 
 ```bash
-npx hatch3r init --import cursor
+npx hatch3r init --import cursor   # or: copilot | windsurf | cursorrules
+npx hatch3r init --import auto      # detect and import every supported format in one pass
 ```
 
 What happens:
@@ -72,7 +73,7 @@ What happens:
 - Before writing, hatch3r prints a preview and asks `Write N imported rule(s) (.md + .mdc) to .hatch3r/overrides/rules/?` (skipped under `--yes`).
 - The summary reports three counts — `converted`, `conflicts`, and `manual-review`. A **conflict** means an imported rule id collides with a shipped or already-imported rule (it is reported, not silently overwritten); a **manual-review** item is one that could not be auto-converted cleanly. Both are listed per-file so you know exactly what to reconcile by hand.
 
-`cursor` is the format wired into the CLI today. The `copilot`, `windsurf`, and `cursorrules` (legacy `.cursorrules`) parsers exist but are not yet reachable from `--import`; pass `--import cursor` for now.
+All four source formats — `cursor`, `copilot`, `windsurf`, and `cursorrules` (legacy `.cursorrules`) — are reachable from `--import`. Pass a single format to migrate one tool, or `--import auto` to run every format in one pass; each converted rule lands under `.hatch3r/overrides/rules/` as a paired `.md` + `.mdc`.
 
 ### Content profiles
 

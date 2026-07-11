@@ -10,12 +10,14 @@ import {
   checkEnumerationDrift,
   checkMarketplaceDescriptionDrift,
   checkOrphanAgents,
+  checkPrdDrift,
   checkStaleTokens,
   reconcileLastUpdated,
   sameInventoryContent,
   readExistingInventory,
   type InventoryDocument,
 } from "../inventory.js";
+import { VALID_HOOK_EVENTS } from "../../src/hooks/types.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = resolve(__dirname, "..", "..");
@@ -425,5 +427,164 @@ describe("inventory: checkDanglingDomainAgentRefs (D23-8 + SA23.1-F5 dangling ag
     } finally {
       await rm(tmp, { recursive: true, force: true });
     }
+  });
+});
+
+describe("inventory: checkPrdDrift (D18-SA18.1-04 local-only PRD self-check)", () => {
+  // Cycle 12 D18-SA18.1-04: `governance/hatch3r-prd.md` is gitignored, so the CI
+  // `--check-docs` probes cannot reach it and its artifact enumerations drifted
+  // ~45-70% per class (§9 20/26/21/20 vs 29/53/70/31, §16 6-of-9 hook events, §22
+  // "19 command files", Appendix B "23-command set" / "30 agents"). `checkPrdDrift`
+  // is the LOCAL-ONLY re-derivation ceremony a maintainer runs at PRD-bump time; it
+  // is never wired into CI (absent gitignored file => null skip). All coverage is
+  // hermetic against fixture PRDs — the real PRD is intentionally stale (the very
+  // finding) and gitignored, so no "0 drift against the real corpus" test exists.
+
+  /**
+   * Minimal PRD fixture with the locatable count sites `checkPrdDrift` probes.
+   * Omit `commandFiles` to exercise the unlocated-site (found:null) path.
+   */
+  function makePrd(opts: {
+    commandFiles?: number;
+    commandSet: number;
+    agents: number;
+    events: readonly string[];
+  }): string {
+    const eventRows = opts.events
+      .map((e) => `| \`${e}\` | trigger | example |`)
+      .join("\n");
+    const cliLine =
+      opts.commandFiles === undefined
+        ? "- CLI commands — live count in inventory.json."
+        : `- CLI commands — ${opts.commandFiles} command files (per inventory.json).`;
+    return [
+      "# PRD fixture",
+      "",
+      "## 9. Canonical Content Structure",
+      "(illustrative tree; authoritative list = inventory.json)",
+      "",
+      "## 16. Hooks Architecture",
+      "",
+      "### Hook Events",
+      "",
+      "| Event | Trigger | Example Use |",
+      "|-------|---------|-------------|",
+      eventRows,
+      "",
+      "## 17. Next Section",
+      "",
+      cliLine,
+      "",
+      "## Appendix B",
+      "",
+      `- Decision 13 reflects the ${opts.commandSet}-command set per inventory.json.`,
+      `- Decisions 22/23: 2 of the ${opts.agents} agents per inventory.json.`,
+      "",
+    ].join("\n");
+  }
+
+  async function withPrd<T>(
+    contents: string,
+    fn: (prdPath: string) => Promise<T>,
+  ): Promise<T> {
+    const dir = await mkdtemp(join(tmpdir(), "hatch3r-prd-"));
+    try {
+      const prdPath = join(dir, "hatch3r-prd.md");
+      await writeFile(prdPath, contents, "utf-8");
+      return await fn(prdPath);
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  }
+
+  const ALL_EVENTS = [...VALID_HOOK_EVENTS];
+
+  it("returns null when the gitignored PRD is absent (CI checkout / not present)", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "hatch3r-prd-"));
+    try {
+      const result = await checkPrdDrift(makeDoc(), {
+        prdPath: join(dir, "does-not-exist.md"),
+      });
+      expect(result).toBeNull();
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it("reports 0 problems when every PRD count matches the live corpus", async () => {
+    const doc = makeDoc();
+    const prd = makePrd({
+      commandFiles: doc.counts.cliCommands,
+      commandSet: doc.counts.commands,
+      agents: doc.counts.agents,
+      events: ALL_EVENTS,
+    });
+    const problems = await withPrd(prd, (prdPath) =>
+      checkPrdDrift(doc, { prdPath }),
+    );
+    expect(problems).toEqual([]);
+  });
+
+  it("flags a positively-wrong Appendix-B command-set count as a hard drift (found != expected)", async () => {
+    const doc = makeDoc(); // commands = 30
+    const prd = makePrd({
+      commandFiles: doc.counts.cliCommands,
+      commandSet: 23, // stale Decision-13 literal
+      agents: doc.counts.agents,
+      events: ALL_EVENTS,
+    });
+    const problems = await withPrd(prd, (prdPath) =>
+      checkPrdDrift(doc, { prdPath }),
+    );
+    expect(problems).toEqual([
+      {
+        label: "Appendix B Decision 13 command-set count",
+        expected: doc.counts.commands,
+        found: 23,
+      },
+    ]);
+  });
+
+  it("flags §16 when the hook-events table omits events, listing the missing ones in detail", async () => {
+    const doc = makeDoc();
+    const shown = ALL_EVENTS.slice(0, ALL_EVENTS.length - 3);
+    const missing = ALL_EVENTS.slice(ALL_EVENTS.length - 3);
+    const prd = makePrd({
+      commandFiles: doc.counts.cliCommands,
+      commandSet: doc.counts.commands,
+      agents: doc.counts.agents,
+      events: shown,
+    });
+    const problems = await withPrd(prd, (prdPath) =>
+      checkPrdDrift(doc, { prdPath }),
+    );
+    expect(problems).toEqual([
+      {
+        label: "§16 hook-events listed",
+        expected: ALL_EVENTS.length,
+        found: shown.length,
+        detail: `missing: ${missing.join(", ")}`,
+      },
+    ]);
+  });
+
+  it("records an unlocated count site as an advisory (found:null), not a hard drift", async () => {
+    const doc = makeDoc();
+    const prd = makePrd({
+      // commandFiles omitted -> the §22 "NN command files" phrasing is absent.
+      commandSet: doc.counts.commands,
+      agents: doc.counts.agents,
+      events: ALL_EVENTS,
+    });
+    const problems = await withPrd(prd, (prdPath) =>
+      checkPrdDrift(doc, { prdPath }),
+    );
+    expect(problems).toEqual([
+      {
+        label: "§22 CLI command-files count",
+        expected: doc.counts.cliCommands,
+        found: null,
+      },
+    ]);
   });
 });

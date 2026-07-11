@@ -17,7 +17,12 @@ import {
   validateUserArtifact,
   validateContentBody,
   LEAN_LINE_THRESHOLDS,
+  leanLineViolation,
+  qualityCharterViolation,
+  pillarDeclarationViolation,
+  validateStructuredPillars,
   type UserContentArtifact,
+  type UserArtifactType,
 } from "../../content/userContent.js";
 import { buildContentIndex, resolveUserContentRoot } from "../../content/index.js";
 import { VALID_HOOK_EVENTS } from "../../hooks/types.js";
@@ -1909,5 +1914,151 @@ describe("saveUserContent — description-keyword overlap (D20-M7)", () => {
     expect(
       result.gentleWarnings.some((w) => /keyword overlap with canonical/.test(w)),
     ).toBe(false);
+  });
+});
+
+// ── Shared single-source gate decisions (D20-SA20.2-02) ─────────────
+//
+// The deterministic user-content gates were three hand-rolled divergent copies
+// (funnel `runUserContentGates`, pre-flight `validateContentBody`, CI-facing
+// `validateUserContent`). These helpers extract the funnel's decisions into one
+// exported source so the CI surface can consume the identical logic + message
+// text instead of its stale private copies (flat 120 lean cap, warning-only
+// charter/pillar dispositions, the `[P1...P6]` enum, and a missing tags surface).
+// These suites lock the helper contracts AND assert the funnel routes through
+// them verbatim (the in-file no-residual-copy guard for divergence points a–f).
+describe("shared single-source gate decisions (D20-SA20.2-02)", () => {
+  describe("leanLineViolation (divergence point a — per-type SSOT, not a flat cap)", () => {
+    it("returns undefined when the body is within the per-type threshold", () => {
+      const body = Array.from({ length: 10 }, (_, i) => `line ${i}`).join("\n");
+      expect(leanLineViolation("agent", body)).toBeUndefined();
+    });
+
+    it("returns a per-type message when the agent body exceeds 350 lines", () => {
+      const body = Array.from({ length: 360 }, (_, i) => `line ${i}`).join("\n");
+      expect(leanLineViolation("agent", body)).toContain(
+        "lean threshold for agent: 350",
+      );
+    });
+
+    it("uses the per-type map, not a flat 120 cap: 150 lines trips rule/hook (100) but not skill/command/agent", () => {
+      const body = Array.from({ length: 150 }, (_, i) => `line ${i}`).join("\n");
+      expect(leanLineViolation("rule", body)).toContain("lean threshold for rule: 100");
+      expect(leanLineViolation("hook", body)).toContain("lean threshold for hook: 100");
+      expect(leanLineViolation("skill", body)).toBeUndefined();
+      expect(leanLineViolation("command", body)).toBeUndefined();
+      expect(leanLineViolation("agent", body)).toBeUndefined();
+    });
+
+    it("every per-type message number equals the exported LEAN_LINE_THRESHOLDS entry", () => {
+      for (const [type, threshold] of Object.entries(LEAN_LINE_THRESHOLDS)) {
+        const body = Array.from({ length: threshold + 5 }, (_, i) => `l${i}`).join("\n");
+        expect(
+          leanLineViolation(type as UserArtifactType, body),
+          `type ${type} should warn above its threshold`,
+        ).toContain(`lean threshold for ${type}: ${threshold}`);
+      }
+    });
+  });
+
+  describe("qualityCharterViolation (divergence point b)", () => {
+    it("returns undefined when quality_charter is present in frontmatter", () => {
+      expect(
+        qualityCharterViolation(
+          { quality_charter: "agents/shared/quality-charter.md" },
+          "no charter mention in body",
+        ),
+      ).toBeUndefined();
+    });
+
+    it("returns undefined when the body references quality-charter (hyphen or underscore)", () => {
+      expect(qualityCharterViolation({}, "inherits the quality_charter discipline")).toBeUndefined();
+      expect(qualityCharterViolation({}, "see agents/shared/quality-charter.md")).toBeUndefined();
+    });
+
+    it("returns the strict message when neither surface declares the charter", () => {
+      expect(
+        qualityCharterViolation({ tags: ["core"] }, "a body with no charter reference"),
+      ).toContain("quality_charter");
+    });
+  });
+
+  describe("pillarDeclarationViolation (divergence points c/d/e — 3 surfaces, union message)", () => {
+    it("returns undefined when pillars are declared in frontmatter", () => {
+      expect(pillarDeclarationViolation({ pillars: ["P4"] }, "no body pillar line")).toBeUndefined();
+    });
+
+    it("returns undefined when a **Pillars:** body line is present", () => {
+      expect(pillarDeclarationViolation({}, "**Pillars:** P5\n\nbody")).toBeUndefined();
+    });
+
+    it("returns undefined when a pillar token rides in the tags array (3rd surface, F20.2.B3)", () => {
+      // The CI copy has no tags surface (divergence e); the SSOT honors it.
+      expect(pillarDeclarationViolation({ tags: ["core", "P5"] }, "no pillar body")).toBeUndefined();
+      expect(pillarDeclarationViolation({ tags: ["CQ3"] }, "no pillar body")).toBeUndefined();
+    });
+
+    it("returns the two-axis-union message (not the stale [P1...P6]) when no surface declares a pillar", () => {
+      // The CI copy still advertises the pre-fix [P1...P6] enum (divergence d).
+      const msg = pillarDeclarationViolation({ tags: ["core"] }, "a body with no pillar mention");
+      expect(msg).toBeDefined();
+      expect(msg).toContain("P1...P8");
+      expect(msg).toContain("CQ1...CQ9");
+      expect(msg).not.toContain("P1...P6");
+    });
+  });
+
+  describe("validateStructuredPillars (divergence point f — exported for the CI surface)", () => {
+    it("accepts the full two-axis union (P8, CQ9)", () => {
+      expect(validateStructuredPillars(["P8", "CQ9"])).toEqual([]);
+    });
+
+    it("flags an out-of-range id with a single Unknown-pillar-id violation", () => {
+      const violations = validateStructuredPillars(["P9"]);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toContain('Unknown pillar id "P9"');
+    });
+
+    it("flags a non-array pillars value", () => {
+      const violations = validateStructuredPillars("P4");
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toContain("expected an array");
+    });
+  });
+
+  describe("funnel ↔ helper parity (runUserContentGates routes through the shared decisions)", () => {
+    let tempDir: string;
+    beforeEach(async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-ssot-"));
+    });
+    afterEach(async () => {
+      await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("emits the leanLineViolation message verbatim as a gentle warning", async () => {
+      const body =
+        "**Pillars:** P5\n" + Array.from({ length: 360 }, (_, i) => `line ${i}`).join("\n");
+      const expected = leanLineViolation("agent", body);
+      const result = await saveUserContent(tempDir, makeArtifact({ body }));
+      expect(expected).toBeDefined();
+      expect(result.gentleWarnings).toContain(expected);
+    });
+
+    it("emits the pillarDeclarationViolation message verbatim as a strict failure", async () => {
+      const artifact = makeArtifact({ body: "A body with no pillar mention or section heading.\n" });
+      const expected = pillarDeclarationViolation(artifact.frontmatter, artifact.body);
+      const result = await saveUserContent(tempDir, artifact);
+      expect(expected).toBeDefined();
+      expect(result.strictFailures).toContain(expected);
+    });
+
+    it("emits the qualityCharterViolation message verbatim as a strict failure", async () => {
+      const fm = { tags: ["core", "customize"] };
+      const body = "**Pillars:** P5\n\nA body with no charter reference.\n";
+      const expected = qualityCharterViolation(fm, body);
+      const result = await saveUserContent(tempDir, makeArtifact({ frontmatter: fm, body }));
+      expect(expected).toBeDefined();
+      expect(result.strictFailures).toContain(expected);
+    });
   });
 });

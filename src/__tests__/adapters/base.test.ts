@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { BaseAdapter, output } from "../../adapters/base.js";
+import { BaseAdapter, output, KNOWN_COMPANION_SUBDIRS } from "../../adapters/base.js";
 import type { AdapterContext } from "../../adapters/base.js";
 import type { AdapterOutput, HatchManifest } from "../../types.js";
 import { createManifest } from "../../manifest/hatchJson.js";
@@ -995,6 +996,81 @@ describe("processCompanionSubdir documentation-type exclusion (D2-8)", () => {
 });
 
 /**
+ * D2-SA2.1-01 (Cycle 12 Wave 2, D2, P5): KNOWN_COMPANION_SUBDIRS is a static
+ * hand-enumerated tuple with no completeness invariant against the on-disk
+ * canonical tree, so `commands/shared/` (added Cycle 11, home of the
+ * orchestration-frame every emitted orchestrator command references) was omitted
+ * for ~2 weeks while no adapter shipped it. This invariant walks the actual
+ * canonical `agents/`+`commands/` subdirectories (mirroring the dynamic copy path
+ * in src/content/index.ts) and fails if the tuple omits a discovered member — so
+ * the next companion class cannot land in the tree without being wired here.
+ */
+describe("KNOWN_COMPANION_SUBDIRS completeness invariant (D2-SA2.1-01)", () => {
+  const repoRoot = resolveTestPath(import.meta.url, "../../../");
+
+  it("names every non-hatch3r-prefixed subdirectory of agents/ and commands/", async () => {
+    const discovered = new Set<string>();
+    for (const parent of ["agents", "commands"] as const) {
+      const entries = await readdir(join(repoRoot, parent), { withFileTypes: true });
+      for (const e of entries) {
+        if (e.isDirectory() && !e.name.startsWith("hatch3r-")) {
+          discovered.add(`${parent}/${e.name}`);
+        }
+      }
+    }
+    // `checks/` is a top-level content dir (not under agents/ or commands/), so
+    // it is excluded from this discovered comparison set.
+    const expected = new Set(KNOWN_COMPANION_SUBDIRS.filter((s) => s !== "checks"));
+    expect(discovered).toEqual(expected);
+  });
+});
+
+/**
+ * D2-SA2.1-01 (Cycle 12 Wave 2, D2, P5): the fix that closes the omission — each
+ * adapter's `companionMappings` array must now ship `commands/shared/` under its
+ * native command-companion path, so the references all 31 emitted orchestrator
+ * commands carry to `commands/shared/orchestration-frame.md` resolve on disk.
+ */
+describe("commands/shared companion emission (D2-SA2.1-01)", () => {
+  const adapterCases: ReadonlyArray<{
+    name: string;
+    make: () => BaseAdapter;
+    emittedPath: string;
+  }> = [
+    { name: "claude", make: () => new ClaudeAdapter(), emittedPath: ".claude/commands/shared/orchestration-frame.md" },
+    { name: "cursor", make: () => new CursorAdapter(), emittedPath: ".cursor/commands/shared/orchestration-frame.md" },
+    // Copilot routes command companions under `.github/prompts/` (board/revision).
+    { name: "copilot", make: () => new CopilotAdapter(), emittedPath: ".github/prompts/shared/orchestration-frame.md" },
+  ];
+
+  async function writeSharedFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-cmd-shared-"));
+    const dir = join(root, "commands", "shared");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "orchestration-frame.md"),
+      "---\nid: orchestration-frame\ntype: shared-context\ndescription: Shared orchestration frame consumed by every orchestrator command.\n---\n# Orchestration Frame\n\nFrame body.\n",
+      "utf-8",
+    );
+    return root;
+  }
+
+  for (const tc of adapterCases) {
+    it(`${tc.name}: ships commands/shared/orchestration-frame.md under the native command-companion path`, async () => {
+      const root = await writeSharedFixture();
+      try {
+        const manifest = createManifest({ tools: [tc.name as never], features: { commands: true } });
+        const outputs = await tc.make().generate(root, manifest);
+        const paths = new Set(outputs.map((o) => o.path));
+        expect(paths.has(tc.emittedPath), `expected ${tc.emittedPath}`).toBe(true);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+/**
  * D11-16 (Cycle 11 Wave 3, D11, P5/SA11.3-F4): MCP validation warnings are
  * scoped to the SELECTED + enabled servers, not the whole bundle. A 2-server
  * selection must not surface validation warnings about the other servers
@@ -1159,6 +1235,57 @@ describe("PLATFORM-TOOL marker substitution through adapter output (D3-8)", () =
       } finally {
         await rm(root, { recursive: true, force: true });
       }
+    });
+  }
+});
+
+// D9-SA9.4-01 (Cycle 12, D9, P3): the adapter-capability-matrix's File Path
+// Mapping rows are hand-maintained and had drifted from adapter ground truth for
+// cycles — the rule-path rows omitted the NN- precedence prefix that shipped in
+// 1.6.0 (~196 mis-documented filenames). Close that drift class mechanically:
+// run each adapter against the canonical corpus and reconcile the emitted
+// rule-file shape against what the matrix documents. A future prefix change (in
+// the adapter OR the doc) fails here instead of silently misleading readers.
+describe("adapter-capability-matrix rule-path rows <-> adapter ground truth (D9-SA9.4-01)", () => {
+  // Repo root from src/__tests__/adapters/ is three levels up; the top-level
+  // canonical dirs (rules/, agents/, ...) live there, so this needs no build
+  // (matches the resolution convention in capability-matrix-doc.test.ts).
+  const ROOT = resolve(import.meta.dirname, "..", "..", "..");
+  const doc = readFileSync(resolve(ROOT, "docs", "adapter-capability-matrix.md"), "utf-8");
+
+  const cases = [
+    {
+      name: "cursor" as const,
+      make: () => new CursorAdapter(),
+      rulePat: /^\.cursor\/rules\/(10|30|50|70)-hatch3r-.+\.mdc$/,
+      docForm: ".cursor/rules/{NN}-hatch3r-{id}.mdc",
+      staleRow: "| rules | `.cursor/rules/hatch3r-{id}.mdc`",
+    },
+    {
+      name: "claude" as const,
+      make: () => new ClaudeAdapter(),
+      rulePat: /^\.claude\/rules\/(10|30|50|70)-hatch3r-.+\.md$/,
+      docForm: ".claude/rules/{NN}-hatch3r-{id}.md",
+      staleRow: "| rules | `.claude/rules/hatch3r-{id}.md`",
+    },
+    {
+      name: "copilot" as const,
+      make: () => new CopilotAdapter(),
+      rulePat: /^\.github\/instructions\/(10|30|50|70)-hatch3r-.+\.instructions\.md$/,
+      docForm: ".github/instructions/{NN}-hatch3r-{id}.instructions.md",
+      staleRow: "| rules (scoped) | `.github/instructions/hatch3r-{id}.instructions.md`",
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name}: emits NN-prefixed rule files and the matrix documents that form`, async () => {
+      const paths = await c.make().getOutputPaths(ROOT, createManifest({ tools: [c.name] }));
+      // Ground truth: canonical rules emit under the NN- precedence prefix.
+      expect(paths.some((p) => c.rulePat.test(p))).toBe(true);
+      // Doc reconciliation: the matrix documents the NN-prefixed form ...
+      expect(doc).toContain(c.docForm);
+      // ... and no longer carries the stale unprefixed rule row.
+      expect(doc).not.toContain(c.staleRow);
     });
   }
 });

@@ -67,7 +67,7 @@ Target SLSA Build L3 for production release artifacts: ephemeral hosted runner, 
 SLSA L3 attests build-pipeline integrity — which pipeline produced the artifact — not source integrity. A compromised build step inside a legitimate L3 pipeline produces a validly-attested malicious artifact. In the Mini Shai-Hulud incident (May 2026) the attacker injected a payload into release tarballs after `package.json` modification but before the signing step; the published packages carried valid Sigstore provenance via the workflow's `id-token: write` OIDC token, and downstream consumers that verified the L3 attestation trusted the artifact. Do not treat a passing `slsa-verifier` check as sufficient. Layer it with:
 
 - Pre-install behavioral scan of the resolved package (`socket.dev`, `osv-scanner`) — catches install-time payloads that provenance cannot.
-- `minimumReleaseAge: 72` and `ignore-scripts=true` per the malicious-package section below — closes the propagation window and blocks lifecycle-script execution.
+- `minimumReleaseAge: 4320` (minutes = 3 days) and `ignore-scripts=true` per the malicious-package section below — closes the propagation window and blocks lifecycle-script execution.
 - Attestation identity verification, not just attestation presence: assert the signing identity (builder repo + workflow ref) matches the expected publisher, so a fork-built artifact fails even with valid provenance.
 
 ## Malicious-Package Detection Beyond `npm audit`
@@ -75,7 +75,7 @@ SLSA L3 attests build-pipeline integrity — which pipeline produced the artifac
 `npm audit` only flags published CVEs. The 2025-2026 incident class — Shai-Hulud (Sep-Nov 2025), Axios 1.14.1 maintainer hijack (Mar 2026), Mini-Shai-Hulud (May 2026), DevTap typosquat (Apr-May 2026) — never reaches a CVE filing. Layer install-time behavioral detection on top of `npm audit`:
 
 - Pre-install behavioral scan: `socket.dev`, `snyk`, or `osv-scanner` against the lockfile in CI. `npq` adds a pre-install gate at the developer workstation.
-- pnpm `minimumReleaseAge: 72` (3 days, raise to 7 for high-trust projects) blocks consumption of brand-new versions until the typosquat / maintainer-hijack window closes.
+- pnpm `minimumReleaseAge: 4320` (4320 minutes = 3 days; raise to `10080` = 1 week for high-trust projects; the unit is minutes per pnpm docs, and pnpm 11 enables it on-by-default at `1440` = 1 day) blocks consumption of brand-new versions until the typosquat / maintainer-hijack window closes. npm ships a native `minimumReleaseAge` in npm CLI 11.10.0+, so the same cooldown is configurable directly in the npm ecosystem.
 - Disable lifecycle scripts in CI: `.npmrc` sets `ignore-scripts=true`; pnpm uses `strictDepBuilds: true` plus `allowBuilds: [explicit-list]`.
 - GitHub `dependency-review-action` on every PR blocks new dependencies with known advisories or disallowed licenses.
 

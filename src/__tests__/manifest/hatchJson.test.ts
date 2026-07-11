@@ -398,7 +398,10 @@ describe("hatchJson", () => {
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
         expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-        expect((e as HatchError).exitCode).toBe(1);
+        // D8-SA8.1-01: CONFIG_ERROR resolves through ERROR_CODE_TO_EXIT_CODE to
+        // sysexits.h EX_DATAERR (65); readManifest no longer hand-picks `1`,
+        // matching the writeManifest assertion below and the SSOT in types.ts.
+        expect((e as HatchError).exitCode).toBe(65);
       }
     });
 
@@ -1636,7 +1639,7 @@ describe("hatchJson", () => {
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
         expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-        expect((e as HatchError).exitCode).toBe(1);
+        expect((e as HatchError).exitCode).toBe(65);
       }
     });
 
@@ -1654,7 +1657,7 @@ describe("hatchJson", () => {
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
         expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-        expect((e as HatchError).exitCode).toBe(1);
+        expect((e as HatchError).exitCode).toBe(65);
       }
     });
 
@@ -1671,7 +1674,7 @@ describe("hatchJson", () => {
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
         expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-        expect((e as HatchError).exitCode).toBe(1);
+        expect((e as HatchError).exitCode).toBe(65);
       }
     });
 
@@ -1687,7 +1690,7 @@ describe("hatchJson", () => {
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
         expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-        expect((e as HatchError).exitCode).toBe(1);
+        expect((e as HatchError).exitCode).toBe(65);
       }
     });
 
@@ -1704,7 +1707,7 @@ describe("hatchJson", () => {
       } catch (e) {
         expect(e).toBeInstanceOf(HatchError);
         expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-        expect((e as HatchError).exitCode).toBe(1);
+        expect((e as HatchError).exitCode).toBe(65);
       }
     });
 
@@ -1822,7 +1825,7 @@ describe("hatchJson", () => {
         } catch (e) {
           expect(e).toBeInstanceOf(HatchError);
           expect((e as HatchError).errorCode).toBe("CONFIG_ERROR");
-          expect((e as HatchError).exitCode).toBe(1);
+          expect((e as HatchError).exitCode).toBe(65);
         }
       });
     }

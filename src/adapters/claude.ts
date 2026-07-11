@@ -89,8 +89,8 @@ export const CACHE_BREAKPOINT_SENTINEL_END = "<!-- HATCH3R-CACHE-BREAKPOINT-END 
  *                                                 primitive; loads unconditionally —
  *                                                 the Cursor-only win lives in
  *                                                 `cursorRuleFrontmatter`. D5-28)
- *   - `scope: conditional` + `globs: "<csv>"`  -> `paths: ["g1", "g2", ...]` (flow array)
- *   - `scope: "<csv>"` (legacy inline CSV)     -> `paths: ["g1", "g2", ...]`
+ *   - `scope: conditional` + `globs: "<csv>"`  -> block-sequence `paths:` (one `  - "g"` line per glob)
+ *   - `scope: "<csv>"` (legacy inline CSV)     -> block-sequence `paths:` (one `  - "g"` line per glob)
  *   - `scope: conditional` with no `globs:`    -> "" (no patterns; load unconditionally)
  *   - absent / empty                           -> "" (no glob shape; load unconditionally)
  *
@@ -105,8 +105,16 @@ export const CACHE_BREAKPOINT_SENTINEL_END = "<!-- HATCH3R-CACHE-BREAKPOINT-END 
  *
  * Returns the frontmatter block (including the `---` fences and a trailing
  * newline) ready to prepend to the rule body, or "" when no `paths:` applies.
- * The flow-sequence form (`["a", "b"]`) is valid YAML and matches the
- * single-line frontmatter rendering the cursor/copilot adapters already use.
+ * The emitted form is the BLOCK sequence the Claude Code memory docs document
+ * verbatim (`paths:` on its own line, then one `  - "<glob>"` line per pattern —
+ * code.claude.com/docs/en/memory, accessed 2026-07-11), NOT a flow array.
+ * D9-SA9.1-02 (Cycle 12, D9, P3) established that the prior flow-array form
+ * (`paths: ["a", "b"]`) is not the shape the docs show and matches a documented
+ * silent-load-failure class (anthropics/claude-code#17204), so the 55/70
+ * glob-scoped rules — incl. the `floor:security` `hatch3r-security-patterns`
+ * rule — rode an unverified, docs-divergent form. The block form removes the
+ * deviation risk; the cursor `globs:` / copilot `applyTo:` adapters keep their
+ * own native single-line rendering.
  */
 function claudeRulePathsFrontmatter(
   rule: Pick<CanonicalFile, "scope" | "globs">,
@@ -114,8 +122,10 @@ function claudeRulePathsFrontmatter(
 ): string {
   const globs = resolveRuleGlobs(rule, { scope: scopeOverride });
   if (globs.length === 0) return "";
-  const arr = globs.map((g) => `"${g}"`).join(", ");
-  return `---\npaths: [${arr}]\n---\n`;
+  // D9-SA9.1-02 (Cycle 12): documented block-sequence form — one indented
+  // `  - "<glob>"` line per pattern under a bare `paths:` key.
+  const lines = globs.map((g) => `  - "${g}"`).join("\n");
+  return `---\npaths:\n${lines}\n---\n`;
 }
 
 /**
@@ -587,12 +597,20 @@ function isClaudeRecognizableModel(model: string): boolean {
  *
  * Deferred to a CL-2 content-gap candidate (per the D9-11 fix's "spawn as a
  * CL-2 candidate" directive): the remaining native fields need per-agent design
- * rather than a one-line policy derivation — `mcpServers:` scoping for
- * `hatch3r-researcher` (which servers, and whether to inline vs reference),
- * `memory: project` for `hatch3r-learnings-loader` (which also auto-enables
- * Write/Edit, in tension with that agent's readonly policy + the plan mode set
- * here — the conflict is the design question), `maxTurns` ceilings, and `skills:`
- * preload lists. Those are intentionally NOT emitted in this wave.
+ * rather than a one-line policy derivation — the `mcpServers:` frontmatter field
+ * for `hatch3r-researcher` (whether to inline per-server config vs reference
+ * `.mcp.json`), `memory: project` for `hatch3r-learnings-loader` (which also
+ * auto-enables Write/Edit, in tension with that agent's readonly policy + the
+ * plan mode set here — the conflict is the design question), `maxTurns` ceilings,
+ * and `skills:` preload lists. Those are intentionally NOT emitted in this wave.
+ *
+ * D2-SA2.4-01 (Cycle 12, P3) — the MCP *reachability* half of the `mcpServers:`
+ * deferral is no longer open: an enumerated Claude `tools:` list excludes every
+ * MCP tool platform-side (code.claude.com/docs/en/sub-agents), so an mcp-granted
+ * agent now emits a per-server `mcp__<server>` grant in its `tools:` line
+ * (threaded from `ctx.manifest.mcp.servers` through {@link toClaudeToolsFrontmatter}).
+ * What stays deferred is only the richer `mcpServers:` frontmatter field (inline
+ * per-server config / scoping), not MCP tool access itself.
  */
 function claudePermissionMode(agentId: string): "plan" | undefined {
   return toCursorReadonlyFrontmatter(agentId) === true ? "plan" : undefined;
@@ -622,30 +640,45 @@ function claudeSingleSource(file: CanonicalFile): string[] | undefined {
  * payload — the most authoritative runtime surface, mirroring the Copilot
  * instructions-file placement rather than Cursor's per-rule-body placement.
  *
- * The marker is a markdown HTML comment (like the cache-breakpoint sentinels
- * in this same file) so it renders invisibly in Claude Code's memory view
- * while remaining greppable for drift checks. The directive text matches the
- * Cursor/Copilot wording (right-sizing instruction + universal-floor caveat +
- * `rules/hatch3r-right-sizing.md` pointer) so the calibration signal is
- * identical across all three adapters.
+ * The marker is emitted as a VISIBLE markdown blockquote line (`> hatch3r:
+ * right-size to maturity=<tier>…`), matching copilot's blockquote form — NOT an
+ * HTML comment. Claude Code strips block-level HTML comments from CLAUDE.md
+ * before the file is injected into the model's context
+ * (code.claude.com/docs/en/memory, accessed 2026-07-11: "Block-level HTML
+ * comments … in CLAUDE.md files are stripped before the content is injected into
+ * Claude's context"), so a comment-wrapped directive reaches the on-disk bytes
+ * but never the agent — the exact calibration gap D14-9 set out to close
+ * (D9-SA9.1-01, Cycle 12). The blockquote is both model-facing AND greppable (it
+ * carries the `right-size to maturity=<tier>` substring), so no separate
+ * render-invisible drift marker is needed. The directive text is the shared
+ * `maturityDirective` payload — identical across all three adapters
+ * (`efficiencyParity.test.ts`); claude and copilot both wrap it in a visible
+ * blockquote.
  */
 function claudeMaturityHeader(ctx: AdapterContext): string {
-  // D6-29 (Cycle 11 Wave 3): wrap the shared directive payload (single source in
-  // hatchJson.ts::maturityDirective) in an HTML comment so it renders invisibly
-  // in Claude Code's memory view while staying greppable for drift checks.
-  return `<!-- ${maturityDirective(readMaturityTier(ctx.manifest))} -->`;
+  // D9-SA9.1-01 (Cycle 12, D9, P3): emit the shared directive payload (single
+  // source in hatchJson.ts::maturityDirective) as a VISIBLE blockquote line, not
+  // an HTML comment — Claude Code strips block-level HTML comments from CLAUDE.md
+  // before context injection (code.claude.com/docs/en/memory), which had made the
+  // resolved tier inert on the Claude adapter while it stayed visible on
+  // cursor/copilot.
+  return `> ${maturityDirective(readMaturityTier(ctx.manifest))}`;
 }
 
 /**
  * D1-17 (Cycle 11 Wave 3, D1, P1): confidence-floor marker for CLAUDE.md, the
- * agent-assertiveness analog of {@link claudeMaturityHeader}. Wraps the shared
- * `confidenceFloorDirective` payload (single source in hatchJson.ts) in an HTML
- * comment so the resolved floor ({@link readConfidenceFloor}) renders invisibly
- * in Claude Code's memory view while staying greppable. Pre-fix the persisted
- * `confidenceFloor` config key reached no adapter output.
+ * agent-assertiveness analog of {@link claudeMaturityHeader}. Emits the shared
+ * `confidenceFloorDirective` payload (single source in hatchJson.ts) as a
+ * VISIBLE blockquote line so the resolved floor ({@link readConfidenceFloor})
+ * reaches the model — NOT an HTML comment, which Claude Code strips from
+ * CLAUDE.md before context injection (see {@link claudeMaturityHeader} for the
+ * doc citation; D9-SA9.1-01, Cycle 12). Pre-fix the persisted `confidenceFloor`
+ * config key reached no adapter output at all; the intermediate HTML-comment
+ * form reached the on-disk bytes but not the agent.
  */
 function claudeConfidenceFloorHeader(ctx: AdapterContext): string {
-  return `<!-- ${confidenceFloorDirective(readConfidenceFloor(ctx.manifest))} -->`;
+  // D9-SA9.1-01 (Cycle 12): visible blockquote, not a stripped HTML comment.
+  return `> ${confidenceFloorDirective(readConfidenceFloor(ctx.manifest))}`;
 }
 
 /**
@@ -838,6 +871,15 @@ export class ClaudeAdapter extends BaseAdapter {
     // the hook governs each user agent with its authored grant.
     const userAgentPolicies: AgentToolPolicy[] = [];
 
+    // D2-SA2.4-01 (D9/D15, P3): the selected MCP server set, threaded into the
+    // emitted Claude `tools:` frontmatter so an mcp-granted agent names each
+    // reachable `mcp__<server>`. An enumerated `tools:` list otherwise EXCLUDES
+    // every MCP tool platform-side (code.claude.com/docs/en/sub-agents), so an
+    // agent whose body mandates Context7 MCP could not reach it at runtime even
+    // when the operator configured the server. Gated on `ctx.features.mcp` to
+    // match {@link BaseAdapter.readFilteredMcp}'s `.mcp.json` emission gate.
+    const mcpServers = ctx.features.mcp ? ctx.manifest.mcp.servers : [];
+
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
       for (const agent of agents) {
@@ -877,9 +919,9 @@ export class ClaudeAdapter extends BaseAdapter {
           };
           const derived = deriveUserAgentPolicy(agentId, grant);
           userAgentPolicies.push(derived);
-          toolsFm = toClaudeToolsFrontmatterFromCategories(derived.allowedTools);
+          toolsFm = toClaudeToolsFrontmatterFromCategories(derived.allowedTools, mcpServers);
         } else {
-          toolsFm = toClaudeToolsFrontmatter(agentId);
+          toolsFm = toClaudeToolsFrontmatter(agentId, mcpServers);
         }
         const fmLines = [`description: ${desc}`];
         if (toolsFm) fmLines.push(`tools: ${toolsFm}`);
@@ -1293,6 +1335,10 @@ export class ClaudeAdapter extends BaseAdapter {
       ["agents/shared", ctx.features.agents, (f) => `.claude/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.claude/commands/board/${f}`],
       ["commands/revision", ctx.features.commands, (f) => `.claude/commands/revision/${f}`],
+      // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion that all
+      // emitted orchestrator commands reference; ship it under the native
+      // command companion path so those references resolve on the user's disk.
+      ["commands/shared", ctx.features.commands, (f) => `.claude/commands/shared/${f}`],
       ["checks", ctx.features.agents || ctx.features.commands, (f) => `.claude/checks/${f}`],
     ];
     for (const [subdir, enabled, pathFn] of companionMappings) {

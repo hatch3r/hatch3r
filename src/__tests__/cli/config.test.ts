@@ -83,6 +83,7 @@ vi.mock("../../cli/commands/update.js", async (importOriginal) => {
 
 vi.mock("../../archive/index.js", () => ({
   archiveToolOutputs: vi.fn(),
+  collectToolFiles: vi.fn(),
   removeManagedFilesForPaths: vi.fn(),
 }));
 
@@ -240,7 +241,7 @@ vi.mock("../../cliTools/install.js", () => ({
 import inquirer from "inquirer";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
 import { runRegenerate } from "../../cli/commands/update.js";
-import { archiveToolOutputs, removeManagedFilesForPaths } from "../../archive/index.js";
+import { archiveToolOutputs, collectToolFiles, removeManagedFilesForPaths } from "../../archive/index.js";
 import {
   buildContentIndex,
   archiveCustomizeOverrides,
@@ -359,6 +360,11 @@ describe("config command", () => {
     // result, so the default mock must resolve to the empty-rescue shape (the
     // assertion test below sets its own resolved value where it matters).
     vi.mocked(archiveCustomizeOverrides).mockResolvedValue({ archivedCustomizeFiles: [] });
+    // D2-SA2.7-01 (Cycle 12): configCommand now consults collectToolFiles to
+    // derive the removal preview + rollback snapshot from the FULL on-disk set.
+    // Default to empty so tests that do not exercise tool removal are unaffected;
+    // the removal tests below set an explicit resolved value.
+    vi.mocked(collectToolFiles).mockResolvedValue([]);
   });
 
   afterEach(async () => {
@@ -1203,6 +1209,112 @@ describe("config command", () => {
       const opts = regenCall![2] as { snapshotCommandName?: string; reuseSessionId?: string };
       expect(opts.snapshotCommandName).toBe("config");
       expect(opts.reuseSessionId).toBeUndefined();
+    });
+
+    // D2-SA2.7-01 (Cycle 12, D2, P6): the pre-deletion rollback snapshot must
+    // cover EVERY file the archive loop removes — including user-authored files
+    // under the tool's paths — not just `managedFilesByAdapter`. Otherwise the
+    // advertised `hatch3r rollback` cannot restore them and their only surviving
+    // copy sits in the gitignored, `hatch3r clean`-deleted archive. Asserts
+    // withSnapshot receives the FULL collectToolFiles set (managed + user file).
+    it("snapshots user-authored files under a removed tool's paths, not just the managed subset (D2-SA2.7-01)", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      // collectToolFiles returns the FULL on-disk set: the managed CLAUDE.md
+      // plus a user-authored settings.local.json the manifest never tracked.
+      vi.mocked(collectToolFiles).mockResolvedValue([
+        "CLAUDE.md",
+        ".claude/settings.local.json",
+      ]);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md", ".claude/settings.local.json"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      // Spy on the real withSnapshot (deliberately un-mocked) to capture the
+      // path set config.ts hands it, while the real session still mints.
+      const snapshotModule = await import("../../pipeline/snapshot.js");
+      const withSnapshotSpy = vi.spyOn(snapshotModule, "withSnapshot");
+
+      await (await importConfigCommand())();
+
+      // The pre-deletion removal snapshot call: first arg "config", second arg
+      // the absolute path set. It must include BOTH the managed and the
+      // user-authored file (so rollback restores 100% of what archive removes).
+      const snapCall = withSnapshotSpy.mock.calls.find(
+        (c) =>
+          c[0] === "config" &&
+          Array.isArray(c[1]) &&
+          (c[1] as string[]).some((p) => p.includes("settings.local.json")),
+      );
+      expect(snapCall).toBeDefined();
+      const snapshottedPaths = snapCall![1] as string[];
+      expect(snapshottedPaths).toContain(join(tempDir, "CLAUDE.md"));
+      expect(snapshottedPaths).toContain(
+        join(tempDir, ".claude/settings.local.json"),
+      );
+      // collectToolFiles (not managedFilesByAdapter) is the snapshot source.
+      expect(vi.mocked(collectToolFiles)).toHaveBeenCalledWith(tempDir, "claude");
+    });
+
+    // D2-SA2.7-01: the consent preview must DISCLOSE non-managed files that will
+    // also be archived+deleted, so the user is not surprised by data loss they
+    // did not knowingly consent to. Asserts a warn() line names the surplus.
+    it("warns that non-managed files under a removed tool's paths will also be archived (D2-SA2.7-01)", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(collectToolFiles).mockResolvedValue([
+        "CLAUDE.md",
+        ".claude/settings.local.json",
+      ]);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md", ".claude/settings.local.json"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      const warnMessages = vi.mocked(warn).mock.calls.map((c) => String(c[0]));
+      const surplusWarning = warnMessages.find((m) =>
+        m.includes("NOT hatch3r-managed"),
+      );
+      expect(surplusWarning).toBeDefined();
+      expect(surplusWarning).toContain("1 file(s)");
+      expect(surplusWarning).toContain(".claude/settings.local.json");
+    });
+
+    // D2-SA2.7-01 negative: when every on-disk file IS managed, no surplus
+    // warning fires — the disclosure is scoped to genuinely un-managed files.
+    it("does not warn about non-managed files when the on-disk set is fully managed (D2-SA2.7-01)", async () => {
+      const manifest = makeManifest({
+        tools: ["cursor", "claude"],
+        managedFilesByAdapter: { claude: ["CLAUDE.md", ".claude/settings.json"] },
+      });
+      vi.mocked(readManifest).mockResolvedValue(manifest);
+      vi.mocked(collectToolFiles).mockResolvedValue([
+        "CLAUDE.md",
+        ".claude/settings.json",
+      ]);
+      vi.mocked(archiveToolOutputs).mockResolvedValue({
+        archivedFiles: ["CLAUDE.md", ".claude/settings.json"],
+        migrations: [],
+      });
+      setupStandardPrompts(manifest, { tools: ["cursor"] });
+
+      await (await importConfigCommand())();
+
+      const warnMessages = vi.mocked(warn).mock.calls.map((c) => String(c[0]));
+      expect(warnMessages.some((m) => m.includes("NOT hatch3r-managed"))).toBe(
+        false,
+      );
     });
   });
 

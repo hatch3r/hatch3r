@@ -58,6 +58,21 @@ describe("stackSupport classification", () => {
       expect(support.rule).toMatch(/^hatch3r-.*-patterns$/);
     }
   });
+
+  it("java classifies as partial and is never routed to the Android mobile rule (D14-SA14.1-01)", () => {
+    // Server-side Java (Spring Boot / Jakarta EE / Quarkus) is the dominant use
+    // of Java; the Android Kotlin patterns rule (Compose / Room / Hilt) covers
+    // none of it. java must stay partial so a bare-Java repo gets the honest
+    // "no dedicated rule" pointer instead of a false "full → Android" claim.
+    const java = classifyLanguage("java");
+    expect(java.tier).toBe("partial");
+    expect(java.rule).toBeUndefined();
+    // Belt-and-suspenders: if java is ever re-added to LANGUAGE_SUPPORT, it must
+    // never point at a mobile rule. `?? ""` keeps the guard green while java is
+    // absent (its intended state) and red the moment it names an Android/mobile
+    // rule again.
+    expect(LANGUAGE_SUPPORT.java?.rule ?? "").not.toMatch(/android|flutter|swiftui/);
+  });
 });
 
 describe("classifyDetectedStacks", () => {
@@ -70,10 +85,14 @@ describe("classifyDetectedStacks", () => {
     expect(out).toContainEqual({ name: "angular", axis: "framework", tier: "partial" });
   });
 
-  it("surfaces spring on a Java repo (no dedicated rule)", () => {
+  it("surfaces both spring and java on a Java/Spring repo (neither has a dedicated rule)", () => {
     const out = classifyDetectedStacks(["spring"], ["java"]);
-    // java is full (android rule), so only spring (framework) is reported.
-    expect(out.map((s) => s.name)).toEqual(["spring"]);
+    // spring is partial on the framework axis and java is partial on the
+    // language axis (server-side Java is not covered by the Android rule), so
+    // both surface and the init pointer gives the honest "no dedicated rule"
+    // signal for each (D14-SA14.1-01).
+    expect(out.map((s) => s.name)).toEqual(["spring", "java"]);
+    expect(out).toContainEqual({ name: "java", axis: "language", tier: "partial" });
   });
 
   it("drops the unknown language sentinel", () => {

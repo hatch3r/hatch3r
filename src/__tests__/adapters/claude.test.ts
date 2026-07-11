@@ -103,9 +103,14 @@ describe("ClaudeAdapter", () => {
 
     const scopedRule = outputs.find((o) => o.path.includes("scoped-rule"));
     expect(scopedRule).toBeDefined();
-    // Glob scope `**/*.ts` -> `paths:` frontmatter (flow-sequence form),
-    // placed above the managed block (frontmatter is not managed content).
-    expect(scopedRule!.content).toMatch(/^---\npaths: \["\*\*\/\*\.ts"\]\n---\n/);
+    // Glob scope `**/*.ts` -> `paths:` frontmatter (documented block-sequence
+    // form per code.claude.com/docs/en/memory, D9-SA9.1-02), placed above the
+    // managed block (frontmatter is not managed content).
+    expect(scopedRule!.content).toMatch(/^---\npaths:\n  - "\*\*\/\*\.ts"\n---\n/);
+    // Regression guard (D9-SA9.1-02): must NOT revert to the docs-divergent
+    // flow-array form (`paths: ["**/*.ts"]`) that matched a silent-load-failure
+    // class on Claude Code.
+    expect(scopedRule!.content).not.toMatch(/paths: \[/);
     expect(scopedRule!.content.indexOf("paths:")).toBeLessThan(
       scopedRule!.content.indexOf(MANAGED_BLOCK_START),
     );
@@ -144,7 +149,7 @@ Applies to API code and protobufs.`,
       const rule = outputs.find((o) => o.path.includes("csv-rule"));
       expect(rule).toBeDefined();
       expect(rule!.content).toMatch(
-        /^---\npaths: \["src\/api\/\*\*", "\*\*\/\*\.proto"\]\n---\n/,
+        /^---\npaths:\n  - "src\/api\/\*\*"\n  - "\*\*\/\*\.proto"\n---\n/,
       );
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -183,7 +188,7 @@ Applies to API code and protobufs.`,
       const rule = outputs.find((o) => o.path.includes("conditional-rule"));
       expect(rule).toBeDefined();
       expect(rule!.content).toMatch(
-        /^---\npaths: \["src\/api\/\*\*", "\*\*\/\*\.proto"\]\n---\n/,
+        /^---\npaths:\n  - "src\/api\/\*\*"\n  - "\*\*\/\*\.proto"\n---\n/,
       );
       // The scope keyword must not survive into the resolved glob array.
       expect(rule!.content).not.toContain('"conditional"');
@@ -2170,6 +2175,29 @@ Low priority rule body.
       expect(claudeMd!.content).toContain("right-size to maturity=enterprise");
       expect(claudeMd!.content).toContain("rules/hatch3r-right-sizing.md");
     });
+
+    // D9-SA9.1-01 (Cycle 12): the tier directive must ship as a VISIBLE
+    // blockquote, not an HTML comment. Claude Code strips block-level HTML
+    // comments from CLAUDE.md before injecting the file into context
+    // (code.claude.com/docs/en/memory), so a comment-wrapped directive reaches
+    // the on-disk bytes but never the model — the exact calibration gap D14-9
+    // set out to close. Guards against a regression back to the `<!-- ... -->`
+    // form. Covers both standard and minimal modes.
+    for (const mode of ["standard", "minimal"] as const) {
+      it(`emits the maturity directive as a visible blockquote, not a stripped HTML comment (${mode})`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, mode);
+        const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+        const line = claudeMd!.content
+          .split("\n")
+          .find((l) => l.includes("right-size to maturity=enterprise"));
+        expect(line).toBeDefined();
+        // Visible blockquote line (`> hatch3r: ...`), never inside an HTML comment.
+        expect(line!.startsWith("> ")).toBe(true);
+        expect(line).not.toContain("<!--");
+        expect(claudeMd!.content).not.toContain("<!-- hatch3r: right-size to maturity=");
+      });
+    }
   });
 
   // D1-17 (Cycle 11 Wave 3, D1, P1): `claudeConfidenceFloorHeader` stamps the
@@ -2225,6 +2253,23 @@ Low priority rule body.
       const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
       expect(claudeMd!.content).toContain("confidence floor=high");
     });
+
+    // D9-SA9.1-01 (Cycle 12): the confidence-floor directive must ship as a
+    // VISIBLE blockquote, not an HTML comment Claude Code strips before context
+    // injection (code.claude.com/docs/en/memory). Regression guard for the
+    // `<!-- ... -->` form.
+    it("emits the confidence-floor directive as a visible blockquote, not a stripped HTML comment", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: "high" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      const line = claudeMd!.content
+        .split("\n")
+        .find((l) => l.includes("confidence floor=high"));
+      expect(line).toBeDefined();
+      expect(line!.startsWith("> ")).toBe(true);
+      expect(line).not.toContain("<!--");
+      expect(claudeMd!.content).not.toContain("<!-- hatch3r: confidence floor=");
+    });
   });
 
   describe("error paths", () => {
@@ -2237,5 +2282,82 @@ Low priority rule body.
         adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "standard", controller.signal),
       ).rejects.toThrow("claude: pipeline timeout exceeded");
     });
+  });
+});
+
+/**
+ * D2-SA2.4-01 (Cycle 12 Wave 2, D2, P3): an mcp-granted agent's emitted Claude
+ * `tools:` frontmatter must carry a per-server `mcp__<server>` grant when MCP
+ * servers are selected. An enumerated `tools:` list otherwise EXCLUDES every MCP
+ * tool platform-side (code.claude.com/docs/en/sub-agents), so an agent whose
+ * body mandates an MCP workflow (e.g. hatch3r-researcher's Context7 tier) reaches
+ * no MCP server at runtime even when the operator configured one.
+ */
+describe("mcp-granted agent tools frontmatter carries per-server grants (D2-SA2.4-01)", () => {
+  async function writeMcpAgentRoot(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-claude-mcp-tools-"));
+    const agentsDir = join(root, "agents");
+    await mkdir(agentsDir, { recursive: true });
+    // id `researcher` → emitted id `hatch3r-researcher`, whose AGENT_TOOL_POLICIES
+    // grant includes the `mcp` category (read+search+web+mcp).
+    await writeFile(
+      join(agentsDir, "researcher.md"),
+      "---\nid: researcher\ntype: agent\ndescription: Read-only research agent.\n---\n# Researcher\n\nResearch body.\n",
+      "utf-8",
+    );
+    const mcpDir = join(root, "mcp");
+    await mkdir(mcpDir, { recursive: true });
+    await writeFile(
+      join(mcpDir, "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          context7: { _description: "Test Context7 MCP", _trust_bypass: true, url: "https://mcp.context7.com/" },
+          github: { _description: "Test GitHub MCP", _trust_bypass: true, url: "https://api.githubcopilot.com/mcp/" },
+        },
+      }),
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("emits mcp__<server> in the tools: line for each selected server", async () => {
+    const root = await writeMcpAgentRoot();
+    try {
+      const manifest = createManifest({
+        tools: ["claude"],
+        mcpServers: ["context7", "github"],
+        features: { mcp: true },
+      });
+      const outputs = await new ClaudeAdapter().generate(root, manifest);
+      const agentOut = outputs.find((o) => o.path === ".claude/agents/hatch3r-researcher.md");
+      expect(agentOut, "expected the researcher agent output").toBeDefined();
+      const toolsLine = agentOut!.content.split("\n").find((l) => l.startsWith("tools:")) ?? "";
+      expect(toolsLine).toContain("mcp__context7");
+      expect(toolsLine).toContain("mcp__github");
+      // Additive — the read-only base grant survives alongside the MCP tokens.
+      expect(toolsLine).toContain("Read");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("emits no mcp__ token when the MCP feature is off, even with servers listed (gate)", async () => {
+    const root = await writeMcpAgentRoot();
+    try {
+      // Explicit features.mcp=false wins over the server-list derivation, and the
+      // adapter suppresses the grant set when the feature is off.
+      const manifest = createManifest({
+        tools: ["claude"],
+        mcpServers: ["context7"],
+        features: { mcp: false },
+      });
+      const outputs = await new ClaudeAdapter().generate(root, manifest);
+      const agentOut = outputs.find((o) => o.path === ".claude/agents/hatch3r-researcher.md");
+      expect(agentOut).toBeDefined();
+      const toolsLine = agentOut!.content.split("\n").find((l) => l.startsWith("tools:")) ?? "";
+      expect(toolsLine).not.toContain("mcp__");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
   });
 });

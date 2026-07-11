@@ -8,6 +8,7 @@ import {
   substituteCanonicalPlatformMarker,
   toAskUserPlatformNote,
   toClaudeToolsFrontmatter,
+  toClaudeToolsFrontmatterFromCategories,
   toCopilotToolsFrontmatter,
   toCopilotToolsFrontmatterFromCategories,
   toCursorReadonlyFrontmatter,
@@ -126,6 +127,64 @@ describe("adapterToolTranslator", () => {
       expect(tools).toEqual(["execute"]);
       // No finer-grained git/commit/push token exists on the Copilot surface.
       expect(tools).not.toContain("git");
+    });
+  });
+
+  // D2-SA2.4-01 (Cycle 12 Wave 2, D2, P3): the `mcp` category maps to no fixed
+  // tool name, so an enumerated `tools:` list EXCLUDES every MCP tool unless the
+  // per-server grant tokens (`mcp__<server>` on Claude, `<server>/*` on Copilot)
+  // are appended. Servers are threaded from the adapter's
+  // ctx.manifest.mcp.servers selection.
+  describe("D2-SA2.4-01 MCP server grants (per-server tools token)", () => {
+    it("appends mcp__<server> to an mcp-granted agent's Claude tools (registry path)", () => {
+      // hatch3r-researcher policy = read+search+web+mcp.
+      const fm = toClaudeToolsFrontmatter("hatch3r-researcher", ["context7", "github"]) ?? "";
+      expect(fm).toContain("mcp__context7");
+      expect(fm).toContain("mcp__github");
+      // Additive — the non-MCP grants survive alongside the MCP tokens.
+      expect(fm).toContain("Read");
+      expect(fm).toContain("WebSearch");
+    });
+
+    it("appends <server>/* to an mcp-granted agent's Copilot tools (registry path)", () => {
+      const tools = toCopilotToolsFrontmatter("hatch3r-researcher", ["context7", "github"]) ?? [];
+      expect(tools).toContain("context7/*");
+      expect(tools).toContain("github/*");
+      expect(tools).toContain("read");
+    });
+
+    it("adds no MCP token when no servers are selected (mcp-off case unchanged)", () => {
+      const claudeUndef = toClaudeToolsFrontmatter("hatch3r-researcher") ?? "";
+      const claudeEmpty = toClaudeToolsFrontmatter("hatch3r-researcher", []) ?? "";
+      const copilotEmpty = toCopilotToolsFrontmatter("hatch3r-researcher", []) ?? [];
+      expect(claudeUndef).not.toContain("mcp__");
+      expect(claudeEmpty).not.toContain("mcp__");
+      expect(copilotEmpty.some((t) => t.endsWith("/*"))).toBe(false);
+    });
+
+    it("adds no MCP token to an agent whose policy lacks the mcp category even when servers are selected", () => {
+      // hatch3r-reviewer is read+search only — no mcp grant.
+      const claude = toClaudeToolsFrontmatter("hatch3r-reviewer", ["context7"]) ?? "";
+      const copilot = toCopilotToolsFrontmatter("hatch3r-reviewer", ["context7"]) ?? [];
+      expect(claude).not.toContain("mcp__");
+      expect(copilot).not.toContain("context7/*");
+    });
+
+    it("threads servers through the explicit-category (user-agent) path, gated on the mcp category", () => {
+      const claude = toClaudeToolsFrontmatterFromCategories(["read", "mcp"], ["context7"]) ?? "";
+      const copilot = toCopilotToolsFrontmatterFromCategories(["read", "mcp"], ["context7"]) ?? [];
+      expect(claude).toContain("mcp__context7");
+      expect(copilot).toEqual(expect.arrayContaining(["read", "context7/*"]));
+      // Categories without `mcp` get no server token even when servers are passed.
+      const noMcp = toClaudeToolsFrontmatterFromCategories(["read"], ["context7"]) ?? "";
+      expect(noMcp).not.toContain("mcp__");
+    });
+
+    it("dedupes duplicate server names and preserves selection order", () => {
+      const claude = toClaudeToolsFrontmatterFromCategories(["mcp"], ["b", "a", "b"]) ?? "";
+      expect(claude).toBe("mcp__b, mcp__a");
+      const copilot = toCopilotToolsFrontmatterFromCategories(["mcp"], ["b", "a", "b"]) ?? [];
+      expect(copilot).toEqual(["b/*", "a/*"]);
     });
   });
 

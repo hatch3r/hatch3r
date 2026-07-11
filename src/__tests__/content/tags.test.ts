@@ -109,6 +109,14 @@ import {
   LANGUAGE_TO_TAG,
   resolveLanguageTags,
   filterByLanguages,
+  // Pillar coverage map (D22-SA22.3-01)
+  PILLAR_MAP,
+  PILLAR_ROLE_WEIGHT,
+  GOVERNANCE_PILLARS,
+  CONTENT_QUALITY_PILLARS,
+  ALL_PILLARS,
+  pillarsForTag,
+  weightedPillarTally,
 } from "../../content/tags.js";
 
 // ── Capability tag constants ─────────────────────────────────────
@@ -849,5 +857,152 @@ describe("filterByLanguages", () => {
     const snapshot = [...items];
     filterByLanguages(items, ["python"]);
     expect(items).toEqual(snapshot);
+  });
+});
+
+// ── Pillar coverage map (D22-SA22.3-01) ──────────────────────────
+
+describe("pillar id constants", () => {
+  it("GOVERNANCE_PILLARS is exactly P1-P8", () => {
+    expect([...GOVERNANCE_PILLARS]).toEqual(["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"]);
+  });
+
+  it("CONTENT_QUALITY_PILLARS is exactly CQ1-CQ10 (CQ10 added 2026-07-09)", () => {
+    expect([...CONTENT_QUALITY_PILLARS]).toEqual([
+      "CQ1", "CQ2", "CQ3", "CQ4", "CQ5", "CQ6", "CQ7", "CQ8", "CQ9", "CQ10",
+    ]);
+  });
+
+  it("ALL_PILLARS is the 18-id union of both axes with no duplicates", () => {
+    expect(ALL_PILLARS).toHaveLength(18);
+    expect(new Set(ALL_PILLARS).size).toBe(18);
+    expect(ALL_PILLARS).toEqual([...GOVERNANCE_PILLARS, ...CONTENT_QUALITY_PILLARS]);
+  });
+});
+
+describe("PILLAR_ROLE_WEIGHT (22.3-L1 weights)", () => {
+  it("primary counts 1.0 and supporting counts 0.4", () => {
+    expect(PILLAR_ROLE_WEIGHT.primary).toBe(1.0);
+    expect(PILLAR_ROLE_WEIGHT.supporting).toBe(0.4);
+  });
+});
+
+describe("PILLAR_MAP structural invariants (the reproducibility substrate)", () => {
+  it("COMPLETENESS — every capability + floor tag has a PILLAR_MAP edge set", () => {
+    const tallyTags = [...tagsForFacet("capability"), ...tagsForFacet("floor")];
+    for (const tag of tallyTags) {
+      expect(pillarsForTag(tag).length, `expected PILLAR_MAP to cover ${tag}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("NO-DANGLING — every PILLAR_MAP key is a registered capability or floor tag", () => {
+    for (const tag of Object.keys(PILLAR_MAP)) {
+      const facet = facetOf(tag);
+      expect(facet === "capability" || facet === "floor", `${tag} is facet ${facet}`).toBe(true);
+    }
+  });
+
+  it("VALIDITY — every edge cites a pillar in ALL_PILLARS and a real role", () => {
+    const valid = new Set(ALL_PILLARS);
+    for (const [tag, edges] of Object.entries(PILLAR_MAP)) {
+      expect(edges.length, `${tag} has an empty edge list`).toBeGreaterThan(0);
+      for (const edge of edges) {
+        expect(valid.has(edge.pillar), `${tag} → ${edge.pillar}`).toBe(true);
+        expect(["primary", "supporting"]).toContain(edge.role);
+      }
+    }
+  });
+
+  it("covers exactly the capability + floor facets and nothing else", () => {
+    const tallyTags = new Set([...tagsForFacet("capability"), ...tagsForFacet("floor")]);
+    expect(new Set(Object.keys(PILLAR_MAP))).toEqual(tallyTags);
+  });
+});
+
+describe("PILLAR_MAP grounded edges", () => {
+  it("pins the checklist 22.3-L1 authoritative example: orchestration → P5(P), P7(S), P8(S)", () => {
+    expect(pillarsForTag(TAG_ORCHESTRATION)).toEqual([
+      { pillar: "P5", role: "primary" },
+      { pillar: "P7", role: "supporting" },
+      { pillar: "P8", role: "supporting" },
+    ]);
+    // orchestrator is the command-frontmatter alias — identical edge set.
+    expect(pillarsForTag(TAG_ORCHESTRATOR)).toEqual(pillarsForTag(TAG_ORCHESTRATION));
+  });
+
+  it("honours the CQ-vector tag comments (security→CQ3, reliability→CQ4, observability→CQ4 supporting)", () => {
+    expect(pillarsForTag(TAG_SECURITY)).toContainEqual({ pillar: "CQ3", role: "primary" });
+    expect(pillarsForTag(TAG_RELIABILITY)).toContainEqual({ pillar: "CQ4", role: "primary" });
+    expect(pillarsForTag(TAG_OBSERVABILITY)).toEqual([{ pillar: "CQ4", role: "supporting" }]);
+    expect(pillarsForTag(TAG_ACCESSIBILITY)).toEqual([{ pillar: "CQ1", role: "supporting" }]);
+    expect(pillarsForTag(TAG_SUPPLY_CHAIN)).toContainEqual({ pillar: "CQ3", role: "supporting" });
+  });
+
+  it("maps the floor tags to the pillars they floor", () => {
+    expect(pillarsForTag(TAG_FLOOR_SECURITY)).toContainEqual({ pillar: "P6", role: "primary" });
+    expect(pillarsForTag(TAG_FLOOR_UI_UX)).toEqual([
+      { pillar: "CQ1", role: "primary" },
+      { pillar: "CQ2", role: "primary" },
+    ]);
+    expect(pillarsForTag(TAG_FLOOR_PROTOCOL)).toContainEqual({ pillar: "P5", role: "primary" });
+  });
+});
+
+describe("pillarsForTag", () => {
+  it("returns [] for non-tally facets (context / language / role / customize)", () => {
+    expect(pillarsForTag(TAG_CTX_TEAM_ONLY)).toEqual([]);
+    expect(pillarsForTag(TAG_LANG_TYPESCRIPT)).toEqual([]);
+    expect(pillarsForTag(TAG_ROLE_REVIEWER)).toEqual([]);
+    expect(pillarsForTag(TAG_CUSTOMIZE)).toEqual([]);
+  });
+
+  it("returns [] for unknown / legacy tags", () => {
+    expect(pillarsForTag("core")).toEqual([]);
+    expect(pillarsForTag("")).toEqual([]);
+    expect(pillarsForTag("not-a-tag")).toEqual([]);
+  });
+});
+
+describe("weightedPillarTally (D22 §22.3 reproducible tally)", () => {
+  it("weights a single orchestration artifact as P5=1.0, P7=0.4, P8=0.4", () => {
+    const tally = weightedPillarTally([{ tags: [TAG_ORCHESTRATION] }]);
+    expect(tally).toEqual({ P5: 1, P7: 0.4, P8: 0.4 });
+  });
+
+  it("takes the MAX edge weight per pillar so a cross-cutting tag does not multi-count one pillar", () => {
+    // orchestration→P5 primary(1.0) and learning→P5 supporting(0.4) on one
+    // artifact contribute P5=1.0 (max), not 1.4.
+    const tally = weightedPillarTally([{ tags: [TAG_ORCHESTRATION, TAG_LEARNING] }]);
+    expect(tally.P5).toBe(1);
+  });
+
+  it("dedupes two tags that both map a pillar as primary (orchestration + orchestrator → P5=1.0)", () => {
+    const tally = weightedPillarTally([{ tags: [TAG_ORCHESTRATION, TAG_ORCHESTRATOR] }]);
+    expect(tally.P5).toBe(1);
+  });
+
+  it("sums independent artifacts (two security artifacts → CQ3=2.0)", () => {
+    const tally = weightedPillarTally([{ tags: [TAG_SECURITY] }, { tags: [TAG_SECURITY] }]);
+    expect(tally.CQ3).toBe(2);
+  });
+
+  it("is deterministic — identical input yields an identical tally", () => {
+    const corpus = [{ tags: [TAG_ORCHESTRATION] }, { tags: [TAG_SECURITY, TAG_SUPPLY_CHAIN] }];
+    expect(weightedPillarTally(corpus)).toEqual(weightedPillarTally(corpus));
+  });
+
+  it("returns {} for empty corpus and for artifacts whose tags map no pillar", () => {
+    expect(weightedPillarTally([])).toEqual({});
+    expect(weightedPillarTally([{ tags: [TAG_CTX_TEAM_ONLY, TAG_LANG_GO] }])).toEqual({});
+  });
+
+  it("rounds 0.4-sum artifacts free of float dust (three supporting-only edges → 1.2)", () => {
+    // observability→CQ4(S) across three artifacts sums to 0.4*3; assert clean 1.2.
+    const tally = weightedPillarTally([
+      { tags: [TAG_OBSERVABILITY] },
+      { tags: [TAG_OBSERVABILITY] },
+      { tags: [TAG_OBSERVABILITY] },
+    ]);
+    expect(tally.CQ4).toBe(1.2);
   });
 });

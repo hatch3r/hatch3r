@@ -19,7 +19,7 @@ npx hatch3r init            # interactive: customize profile, tools, and CLI too
 
 `--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, infers your project context (greenfield/brownfield, solo/team), then walks platform → repo identity → content profile (minimal/standard/full/custom) → tools → CLI-tools picker, and generates everything. MCP is not prompted — opt in with `--mcp` or `npx hatch3r mcp setup` later. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
 
-**Already using Cursor?** Carry your existing rules across with `npx hatch3r init --import cursor` — they land under `.hatch3r/overrides/rules/` (`.md` + `.mdc`) with per-file conflict reporting. See [Migrating from another tool](https://docs.hatch3r.com/docs/getting-started/quick-start#migrating-from-another-tool).
+**Migrating from Cursor, Copilot, Windsurf, or legacy `.cursorrules`?** Carry your existing rules across with `npx hatch3r init --import <cursor|copilot|windsurf|cursorrules|auto>` (`--import auto` imports every format in one pass) — they land under `.hatch3r/overrides/rules/` (`.md` + `.mdc`) with per-file conflict reporting. See [Migrating from another tool](https://docs.hatch3r.com/docs/getting-started/quick-start#migrating-from-another-tool).
 
 ## What You Get
 

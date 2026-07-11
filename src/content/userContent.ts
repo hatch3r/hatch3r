@@ -295,7 +295,7 @@ const VALID_PILLAR_IDS: readonly string[] = [
  * Mirrors `validateStructuredTools`: returns one violation string per offending
  * entry, each listing the valid union.
  */
-function validateStructuredPillars(pillars: unknown): string[] {
+export function validateStructuredPillars(pillars: unknown): string[] {
   if (!Array.isArray(pillars)) {
     return [
       `Invalid \`pillars\` field — expected an array of pillar ids (got ${typeof pillars})`,
@@ -317,6 +317,85 @@ function validateStructuredPillars(pillars: unknown): string[] {
     }
   }
   return violations;
+}
+
+// ── Shared single-source gate decisions (D20-SA20.2-02) ────────────
+//
+// These pure helpers each return a violation message (or `undefined` when the
+// input satisfies the gate) and leave the strict-vs-gentle severity choice to
+// the caller — the same single-source pattern already applied to the agent
+// tool-grant baseline ({@link agentToolGrantOverBaseline}). The in-memory funnel
+// ({@link runUserContentGates}) consumes them so the decision logic and message
+// text live in exactly one place. The CI-facing `validateUserContent`
+// (`src/cli/commands/validate.ts`) is the intended second consumer: it currently
+// hand-rolls divergent copies of these gates (a flat 120-line lean cap,
+// warning-only charter/pillar dispositions, the stale `[P1...P6]` enum, and a
+// missing tags surface), which return contradictory verdicts on identical input.
+// Routing that surface through these exports closes divergence points a/b/c/d/e/f
+// from the finding table (the tier-aware floor and injection scan wiring on the
+// CI surface remain follow-up work — they depend on threading the maturity tier
+// into validateUserContent, whose file is edited under a separate work unit).
+
+/**
+ * quality_charter reference gate (D20-SA20.2-02 point b). A user artifact must
+ * either carry a `quality_charter` frontmatter key or reference the charter in
+ * its body. Returns the strict-gate message when neither is present, `undefined`
+ * otherwise.
+ */
+export function qualityCharterViolation(
+  frontmatter: Record<string, unknown>,
+  body: string,
+): string | undefined {
+  if (!("quality_charter" in frontmatter) && !/quality[_-]charter/i.test(body)) {
+    return "Missing quality_charter reference — add `quality_charter: agents/shared/quality-charter.md` to frontmatter or reference it in the body";
+  }
+  return undefined;
+}
+
+/**
+ * Pillar-declaration gate (D20-SA20.2-02 points c/d/e). Honors all THREE
+ * satisfaction surfaces the D20.2 checklist names — a non-empty `pillars`
+ * frontmatter array, a `**Pillars:**`/`## Pillar` body line, OR a
+ * `P1`…`P8`/`CQ1`…`CQ9` token carried directly in the `tags` array (F20.2.B3).
+ * Returns the two-axis-union message — NOT the pre-fix `[P1...P6]` enum
+ * (F20.2.A2) — when none of the three is present, `undefined` otherwise.
+ */
+export function pillarDeclarationViolation(
+  frontmatter: Record<string, unknown>,
+  body: string,
+): string | undefined {
+  const hasPillarFm =
+    Array.isArray(frontmatter.pillars) && frontmatter.pillars.length > 0;
+  const hasPillarBody =
+    /(^|\n)\s*##\s*Pillar/i.test(body) || /\*\*Pillars?:\*\*/i.test(body);
+  const hasPillarTags =
+    Array.isArray(frontmatter.tags) &&
+    frontmatter.tags.some((t) => /^(?:P[1-8]|CQ[1-9])$/.test(String(t)));
+  if (!hasPillarFm && !hasPillarBody && !hasPillarTags) {
+    return "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ9]` to frontmatter, a `P1...P8`/`CQ1...CQ9` tag in `tags`, or a `**Pillars:**` line in the body";
+  }
+  return undefined;
+}
+
+/**
+ * Per-type lean line-count gate (D20-SA20.2-02 point a). Uses the exported
+ * {@link LEAN_LINE_THRESHOLDS} SSOT map (agent 350, skill/command 200,
+ * rule/hook 100) — falling back to {@link LEAN_LINE_THRESHOLD_DEFAULT} for an
+ * unknown type — rather than a flat cap, so the save funnel and the CI surface
+ * share one per-type threshold. Returns the gentle-gate message when `body`
+ * exceeds its type's threshold, `undefined` otherwise.
+ */
+export function leanLineViolation(
+  type: UserArtifactType,
+  body: string,
+): string | undefined {
+  const lineCount = body.split(/\r?\n/).length;
+  const typedThreshold =
+    LEAN_LINE_THRESHOLDS[type] ?? LEAN_LINE_THRESHOLD_DEFAULT;
+  if (lineCount > typedThreshold) {
+    return `Body has ${lineCount} lines (lean threshold for ${type}: ${typedThreshold}) — consider compressing`;
+  }
+  return undefined;
 }
 
 /**
@@ -871,16 +950,13 @@ async function runUserContentGates(
     );
   }
 
-  // Lean line threshold (per-type, C9-M45). Falls back to the default cap
-  // when the artifact type is missing from the registry — defensive only;
-  // every value of UserArtifactType is keyed.
-  const lineCount = artifact.body.split(/\r?\n/).length;
-  const typedThreshold =
-    LEAN_LINE_THRESHOLDS[artifact.type] ?? LEAN_LINE_THRESHOLD_DEFAULT;
-  if (lineCount > typedThreshold) {
-    gentle.push(
-      `Body has ${lineCount} lines (lean threshold for ${artifact.type}: ${typedThreshold}) — consider compressing`,
-    );
+  // Lean line threshold (per-type, C9-M45). Routed through the shared
+  // {@link leanLineViolation} decision (D20-SA20.2-02 point a) so the CI-facing
+  // validateUserContent can consume the identical per-type SSOT map instead of
+  // the flat 120-line cap it hand-rolls today.
+  const leanViolation = leanLineViolation(artifact.type, artifact.body);
+  if (leanViolation) {
+    gentle.push(leanViolation);
   }
 
   const fm = artifact.frontmatter ?? {};
@@ -892,32 +968,26 @@ async function runUserContentGates(
   // artifact serves and inherit the charter discipline; missing either is a
   // governance regression at the user-content tier.
 
-  // quality_charter reference (strict).
-  if (!("quality_charter" in fm) && !/quality[_-]charter/i.test(artifact.body)) {
-    strict.push(
-      "Missing quality_charter reference — add `quality_charter: agents/shared/quality-charter.md` to frontmatter or reference it in the body",
-    );
+  // quality_charter reference (strict). Routed through the shared
+  // {@link qualityCharterViolation} decision (D20-SA20.2-02 point b) so the
+  // CI-facing validateUserContent enforces it at the same strict severity
+  // instead of the gentle warning it emits today.
+  const charterViolation = qualityCharterViolation(fm, artifact.body);
+  if (charterViolation) {
+    strict.push(charterViolation);
   }
 
-  // Pillar declaration (strict). F20.2.A2: the two-axis framework accepts a
-  // governance-axis pillar (P1–P8) AND/OR a content-quality-axis pillar
-  // (CQ1–CQ9) per CONSTITUTION §2A/§2B. F20.2.B3: the D20.2 checklist row 5
-  // ("declares ≥1 of P1–P8 … in tags or body") names THREE satisfaction
-  // surfaces, but the gate previously honored only `pillars` frontmatter and a
-  // `**Pillars:**` body line. The `tags` path is the third: a pillar token
-  // (`P1`…`P8` / `CQ1`…`CQ9`) carried directly in the `tags` array satisfies
-  // the declaration, matching the checklist wording so a tags-only author is
-  // not rejected on a surface the audit doc advertises.
-  const hasPillarFm = Array.isArray(fm.pillars) && fm.pillars.length > 0;
-  const hasPillarBody = /(^|\n)\s*##\s*Pillar/i.test(artifact.body) ||
-    /\*\*Pillars?:\*\*/i.test(artifact.body);
-  const hasPillarTags =
-    Array.isArray(fm.tags) &&
-    fm.tags.some((t) => /^(?:P[1-8]|CQ[1-9])$/.test(String(t)));
-  if (!hasPillarFm && !hasPillarBody && !hasPillarTags) {
-    strict.push(
-      "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ9]` to frontmatter, a `P1...P8`/`CQ1...CQ9` tag in `tags`, or a `**Pillars:**` line in the body",
-    );
+  // Pillar declaration (strict). Routed through the shared
+  // {@link pillarDeclarationViolation} decision (D20-SA20.2-02 points c/d/e):
+  // it honors all THREE satisfaction surfaces (a `pillars` frontmatter array,
+  // a `**Pillars:**`/`## Pillar` body line, or a `P1`…`P8`/`CQ1`…`CQ9` token in
+  // the `tags` array per F20.2.B3) and emits the two-axis-union message rather
+  // than the pre-fix `[P1...P6]` enum (F20.2.A2). Single-sourcing it here lets
+  // the CI-facing validateUserContent consume the identical decision instead of
+  // the 2-surface, warning-only, `[P1...P6]`-message copy it hand-rolls today.
+  const pillarViolation = pillarDeclarationViolation(fm, artifact.body);
+  if (pillarViolation) {
+    strict.push(pillarViolation);
   }
 
   // Pillar enum validation (strict). F20.1.A2 / F20.2.A2: when the author
@@ -926,7 +996,8 @@ async function runUserContentGates(
   // the drift where the orchestrator advertised P1–P8 but the gate text said
   // P1–P6 and never enforced an enum, so a typo'd pillar id (e.g. `P9`, `Pq`)
   // rode silently into adapter output.
-  if (hasPillarFm) {
+  const hasStructuredPillars = Array.isArray(fm.pillars) && fm.pillars.length > 0;
+  if (hasStructuredPillars) {
     for (const v of validateStructuredPillars(fm.pillars)) strict.push(v);
   }
 
