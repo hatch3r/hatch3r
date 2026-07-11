@@ -5,6 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-security]
 description: "Scaffold authentication boilerplate for a greenfield API service — OAuth 2.1 authorization-code-with-PKCE flow, OIDC ID-token validation, and hashed personal-access-token (PAT) issuance/verification. Implementer writes the code; hatch3r-security gates it against the CQ3 auth-depth floor."
 argument-hint: "[service-name]"
+disable-model-invocation: true
 tags: [implementation, security, floor:security, floor:content-quality]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

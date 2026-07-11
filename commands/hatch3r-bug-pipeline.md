@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer]
 description: Run a known-cause bug fix through a 3-phase test-first pipeline -- reproduce + root-cause, regression-test + fix together, then root-cause-depth review -- with full sub-agent delegation.
+disable-model-invocation: true
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

@@ -5,6 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-ui, hatch3r-ux]
 description: "Create a project design system from brand assets or an elicitation dialog — DTCG 2025.10 token emission, 3-tier taxonomy (primitive → semantic → component), OKLCH ramps, dual output design.md + design-tokens.json, gated on WCAG 2.2 AA contrast, 100% theme parity, and 0 dangling aliases."
 argument-hint: "[brand-asset-path]"
+disable-model-invocation: true
 tags: [implementation, ui, design-system, floor:ui-ux]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

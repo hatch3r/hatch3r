@@ -357,50 +357,7 @@ Only proceed if the architecture researcher identified decisions requiring ADRs 
 
 From the architecture researcher's "Architectural Decisions Requiring ADRs" output, create one ADR per decision.
 
-#### ADR Format — `docs/adr/{NNNN}_{decision-slug}.md`
-
-Determine the next sequential number by scanning existing files in `docs/adr/`. Use slugified decision titles.
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Context
-
-{Why this decision is needed — business and technical context, derived from the feature brief and architecture researcher findings}
-
-## Decision
-
-{What was decided and why}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-
-## Related
-
-- Feature spec: `docs/specs/{NN}_{feature-slug}.md`
-```
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton. Per-command slots: context-guidance = "business and technical context, derived from the feature brief and architecture researcher findings"; related-ref = "Feature spec: `docs/specs/{NN}_{feature-slug}.md`".
 
 **ASK:** "Here are {N} ADR(s) generated from architectural decisions for this feature. Review before I write the files:
 {list with titles}

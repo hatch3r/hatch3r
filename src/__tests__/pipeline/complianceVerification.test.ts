@@ -202,6 +202,39 @@ describe("complianceVerification", () => {
       expect(asi05!.controlRef).toBe("ASI05");
       expect(asi05!.status).toBe("pass");
     });
+
+    // D15-SA15.6-01: the D15 crosswalk ASI03 row cites `validate asi03-*`, a glob
+    // that resolved to zero checks (the only ASI03 token was a controlRef on
+    // asi02-monotonic-privilege, a tool-allowlist containment test). This genuine
+    // asi03-agent-identity check makes the cite resolve and EARNS its pass by
+    // round-tripping the agentIdentity provenance contract (annotate → verify
+    // agent/phase → reject mismatch).
+    it("includes an earned asi03-agent-identity check that resolves the `validate asi03-*` cite", async () => {
+      const report = await runComplianceChecks();
+      const asi03 = report.checks.find((c) => c.id === "asi03-agent-identity");
+      expect(asi03).toBeDefined();
+      expect(asi03!.controlRef).toBe("ASI03");
+      expect(asi03!.status).toBe("pass");
+      expect(asi03!.enforcement).toBe("library-contract-for-downstream");
+      expect(asi03!.detail).toMatch(/round-trip self-test|provenance/);
+      // The `validate asi03-*` glob now resolves to >=1 check id.
+      expect(report.checks.some((c) => c.id.startsWith("asi03"))).toBe(true);
+    });
+
+    // D15-SA15.3-02: agentIdentity.ts was 0-caller dead code whose ASI10 drift
+    // fingerprint was never exercised on a CLI path, yet carried a weekly test
+    // reading as active coverage. This asi10-capability-drift check wires the
+    // fingerprint onto the validate path and EARNS its pass by round-tripping
+    // detectCapabilityGoalDrift (unchanged → no drift; widened caps → drift).
+    it("includes an earned asi10-capability-drift check that wires the agentIdentity drift fingerprint", async () => {
+      const report = await runComplianceChecks();
+      const drift = report.checks.find((c) => c.id === "asi10-capability-drift");
+      expect(drift).toBeDefined();
+      expect(drift!.controlRef).toBe("ASI10");
+      expect(drift!.status).toBe("pass");
+      expect(drift!.enforcement).toBe("library-contract-for-downstream");
+      expect(drift!.detail).toMatch(/self-test|drift fingerprint/);
+    });
   });
 
   describe("detectResilienceInvocations", () => {
@@ -284,8 +317,16 @@ describe("complianceVerification", () => {
       const report = await runComplianceChecks();
       const reviewLoop = report.checks.find((c) => c.id === "review-loop-limit");
       const diffHash = report.checks.find((c) => c.id === "diff-hash-verify");
+      // D15-SA15.6-01 / D15-SA15.3-02: agentIdentity.ts is the third
+      // @library_export_only module self-tested by validate (mirrors
+      // diffHash/reviewLoop) — its provenance + drift checks must carry the
+      // same class so the report never implies a live CLI gate.
+      const agentIdentity = report.checks.find((c) => c.id === "asi03-agent-identity");
+      const drift = report.checks.find((c) => c.id === "asi10-capability-drift");
       expect(reviewLoop?.enforcement).toBe("library-contract-for-downstream");
       expect(diffHash?.enforcement).toBe("library-contract-for-downstream");
+      expect(agentIdentity?.enforcement).toBe("library-contract-for-downstream");
+      expect(drift?.enforcement).toBe("library-contract-for-downstream");
     });
 
     it("classifies CLI-wired controls as runtime-CLI", async () => {

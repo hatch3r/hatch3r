@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { AVAILABLE_MCP_SERVERS, ENV_VAR_HELP } from "../types.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { verbose } from "../cli/shared/ui.js";
+import { WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES } from "../pipeline/checkpoint.js";
 
 export interface EnvVar {
   name: string;
@@ -255,12 +256,20 @@ export function parseEnvFile(content: string): Record<string, string> {
  * `contentHash`/`generatedAt`/`lastRunId` fields still vary per run and per
  * install, so committing it produces churn-only diffs.
  *
- * D1-14 (D1, P1): `.init-workspace/` and `.sync-workspace/` hold the
- * `--resume` checkpoint trees (`checkpoint.json`) written unconditionally by
- * `init.ts::recordPhase` (init.ts:695-715) and `sync.ts::recordPhase`. Every
- * `init`/`sync` run creates one of these directories regardless of MCP state,
- * so without these entries a default `git add .` stages per-run resume state —
- * the same Silent-Failure-Contract leak as `.hatch3r/snapshots/`.
+ * D1-14 + D1-SA1.2-06 (D1, P1): the `.{command}-workspace/` checkpoint trees
+ * (`checkpoint.json`) written unconditionally by the `writeCheckpoint` callers —
+ * `init` (`init.ts::recordPhase`), `sync` (`sync.ts::recordPhase`), `update` +
+ * `config` + `verify-fix` (`update.ts::runRegenerate`, namespaced by
+ * `snapshotCommandName`), and the scalar-config writer (`config.ts`). Every such
+ * run creates one of these directories regardless of MCP state, so without these
+ * entries a default `git add .` stages per-run resume state — the same
+ * Silent-Failure-Contract leak as `.hatch3r/snapshots/`. D1-14 registered only
+ * `.init-workspace/` + `.sync-workspace/`, leaving `.update-workspace/`,
+ * `.config-workspace/`, and `.verify-fix-workspace/` staged (leak class
+ * reopened); the entries are now spread from `WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES`
+ * (`src/pipeline/checkpoint.ts`), the same `CHECKPOINT_WORKSPACE_COMMANDS` list
+ * the writers resolve their paths from via `workspaceDir`, so a future
+ * checkpoint-writing command cannot drift out of this registry.
  *
  * 2.2.0-S1 (P6, P1): runtime/ephemeral state hatch3r usage writes into the
  * user's repo. `.pr-resolve-workspace/` (checkpoint/rollback workspace of the
@@ -285,14 +294,16 @@ export function parseEnvFile(content: string): Record<string, string> {
  * 2026-05-26). File entries (`.env.mcp`, `.hatch3r/provenance.json`, the
  * `.hatch3r/*.jsonl`/`*.json` logs, `.hatch3r/.lock`) stay unsuffixed.
  */
-const REQUIRED_GITIGNORE_ENTRIES = [
+const REQUIRED_GITIGNORE_ENTRIES: readonly string[] = [
   ".env.mcp",
   ".hatch3r-archive/",
   ".hatch3r/snapshots/",
   ".hatch3r/handoffs/",
   ".hatch3r/provenance.json",
-  ".init-workspace/",
-  ".sync-workspace/",
+  // `.init-workspace/`, `.sync-workspace/`, `.update-workspace/`,
+  // `.config-workspace/`, `.verify-fix-workspace/` — derived from the shared
+  // `CHECKPOINT_WORKSPACE_COMMANDS` list the checkpoint writers use (D1-SA1.2-06).
+  ...WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES,
   ".pr-resolve-workspace/",
   ".hatch3r/telemetry/",
   ".hatch3r/efficiency-events.jsonl",
@@ -302,7 +313,7 @@ const REQUIRED_GITIGNORE_ENTRIES = [
   ".hatch3r/calibration-state.json",
   ".hatch3r/calibration-log.jsonl",
   ".hatch3r/archive/",
-] as const;
+];
 
 /**
  * Returns true when `entry` is already covered by an existing line in
@@ -331,8 +342,10 @@ function isCoveredByGitignore(entry: string, lines: string[]): boolean {
  * (archive trees from sync/update), `.hatch3r/snapshots/` (per-session
  * snapshots), `.hatch3r/handoffs/` (handoff payloads),
  * `.hatch3r/provenance.json` (per-machine drift baseline, D12-3),
- * `.init-workspace/` + `.sync-workspace/` (per-run `--resume` checkpoint
- * trees, D1-14), `.pr-resolve-workspace/` (pr-resolve checkpoint/rollback
+ * `.init-workspace/` + `.sync-workspace/` + `.update-workspace/` +
+ * `.config-workspace/` + `.verify-fix-workspace/` (per-run checkpoint trees,
+ * D1-14 + D1-SA1.2-06 — spread from `WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES`),
+ * `.pr-resolve-workspace/` (pr-resolve checkpoint/rollback
  * workspace), `.hatch3r/telemetry/` (SPACE + cost/tier telemetry),
  * `.hatch3r/efficiency-events.jsonl` (efficiency-event log),
  * `.hatch3r/.failure-log.jsonl` (failure-log audit trail),

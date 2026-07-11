@@ -38,8 +38,37 @@
  *            future renumbering that moves the rows again fails THIS
  *            validator until LEGACY_REMAPS is updated, instead of the map
  *            silently mis-flagging.
- *      Warnings do not affect the exit code — remaining legacy citations are
- *      drained through the audit cycle without breaking the gate.
+ *        3d. DECISION-CITATION-MISDIRECT (warning, D19-SA19.3-02 /
+ *            D24-SA24.4-03, Cycle 12) — an IN-RANGE `Decision N` that cites
+ *            the wrong live row for the citing line's topic (a renumbering /
+ *            rewrite substituted a live ordinal that a range check (3a)
+ *            cannot catch): `Decision 19` for the D22/D23/D24 admission (now
+ *            row 26) and `Decision 27` for the checkpoint/resume precedent
+ *            (now row 30). Context-anchored AND hedge-aware — a "Decision
+ *            27/30" citation names the canonical row 30 and is correct, so it
+ *            never warns; only a bare wrong-ordinal cite on the topic line
+ *            fires. Each has a 3c-style self-guard (DECISION-MISDIRECT-STALE).
+ *        3e. DECISION-RETIRED-LABEL (warning, D24-SA24.4-03) — a retired
+ *            pillar-name label (P1 "CLI UI/UX Excellence" / "CLI UX
+ *            Excellence" → "Adoption Experience", renamed 2026-07-09).
+ *            Self-guarded (DECISION-RETIRED-LABEL-STALE): the canonical name
+ *            must still exist in CONSTITUTION.
+ *      Checks 3a–3c + 3d + 3e run over the shipped canonical corpus; checks
+ *      3d + 3e + the legacy remap (3b) ALSO run over an AUTHORITY SURFACE —
+ *      the framework-dev + governance-authority files that cite decisions /
+ *      pillars as authority (`.claude/rules`, `.claude/skills`,
+ *      `governance/audit/{domains,templates}`, and the governance prompts
+ *      VISION / AUDIT / AUDIT-EXECUTE / EVOLVE / pack-trust-model / SCALE /
+ *      amendment-procedure) — as warnings only (no dangling error there). The
+ *      authority surface deliberately EXCLUDES the register itself
+ *      (CONSTITUTION.md, covered by checks 1+2) and the meta-artifacts that
+ *      quote decision ids in discussion rather than cite them as authority
+ *      (AUDIT-REPORT / hatch3r-prd / GOVERNANCE-CROSS-SECTION /
+ *      COMPETITIVE-ANALYSIS / the amendment queues / audit/archive) — scanning
+ *      those swamps the gate with false positives (they quote every finding's
+ *      cited ordinal).
+ *      Warnings do not affect the exit code — stale citations are drained
+ *      through the audit cycle without breaking the gate.
  *
  * Scope note (tracked remainder): the finding's full remediation — single-key
  * renumbering of the in-body provenance IDs to one authority + PRD-title parity
@@ -51,6 +80,20 @@
  * pointer; check 3 extends the same register authority outward to the corpus
  * that cites it (the citation-currency gap the 2026-07-09 renumbering left
  * open — deferred "as its owning wave lands" with no owner or gate).
+ *
+ * Un-gateable remainder (documented boundary per D19-SA19.3-02's "widen OR
+ * document" alternative): two citation-drift classes CANNOT be mechanically
+ * gated and stay a manual EVOLVE-sweep obligation. (a) The retired LEGACY
+ * labels `Decision 20` / `Decision 21` (CONSTITUTION §6 citation key) collide
+ * with the LIVE canonical ordinals 20 (real-deal testing) and 21 (duplication
+ * scan), so a blanket check would false-fire on every correct citation of those
+ * rows. (b) The D9-SA9.5-01 `Decision 21` → `Decision 12`
+ * adapter-re-introduction mis-cite is NOT added to MISDIRECT_CITATIONS: a landed
+ * sibling (D3-SA3.4-01) committed both the D09 checklist and the
+ * `src/__tests__/governance/d09-watchlist-opencode-grade.test.ts` gate test to
+ * Decision 21, so encoding "21 is wrong here" as a warning would contradict an
+ * enforcing test — that id is a maintainer-arbitration item, not a mechanical
+ * guard.
  *
  * Usage:
  *   npm run validate:efficiency        (chained)
@@ -105,6 +148,93 @@ const LEGACY_REMAPS: ReadonlyArray<{
     topic: "cost visibility",
     contextRe: /cost/i,
     canonicalRowRe: /cost visibility/i,
+  },
+];
+
+/**
+ * Authority surface (checks 3d/3e + legacy 3b, warnings only): framework-dev +
+ * governance-authority files that cite decisions / pillars AS authority.
+ * Distinct from CORPUS_DIRS (the shipped runtime corpus) — these are the sites
+ * D19-SA19.3-02 / D24-SA24.4-03 found carrying stale citations that the shipped-
+ * corpus pass never reached. Excludes the register (CONSTITUTION.md, checks 1+2)
+ * and the meta-artifacts (AUDIT-REPORT / hatch3r-prd / GOVERNANCE-CROSS-SECTION /
+ * COMPETITIVE-ANALYSIS / amendment queues / audit/archive) that quote decision
+ * ids in discussion — an allowlist, so a new meta-artifact is never scanned
+ * until explicitly added (fail-closed against false positives).
+ */
+const AUTHORITY_DIRS = [
+  ".claude/rules",
+  ".claude/skills",
+  "governance/audit/domains",
+  "governance/audit/templates",
+] as const;
+
+const AUTHORITY_FILES = [
+  "governance/VISION.md",
+  "governance/AUDIT.md",
+  "governance/AUDIT-EXECUTE.md",
+  "governance/EVOLVE.md",
+  "governance/pack-trust-model.md",
+  "governance/SCALE.md",
+  "governance/amendment-procedure.md",
+] as const;
+
+/**
+ * Wrong-row `Decision N` substitutions from renumbering / rewrite drift
+ * (D19-SA19.3-02, D24-SA24.4-03, Cycle 12). Distinct from LEGACY_REMAPS: the
+ * cited ordinal is a LIVE canonical row, but the WRONG one for the citing line's
+ * topic — an in-range mis-cite that the range check (3a) cannot catch. Each
+ * entry is context-anchored (`contextRe`) so a correct citation of the cited row
+ * elsewhere never warns, AND hedge-aware at the call site: a "Decision
+ * {wrong}/{canonical}" citation names the canonical row too, so it is correct
+ * and never fires. `canonicalRowRe` is the 3c-style self-guard on the CORRECT
+ * row. The `Decision 21` → `Decision 12` adapter mis-cite (D9-SA9.5-01) is
+ * deliberately absent — see the header "Un-gateable remainder" note (a landed
+ * gate test enforces Decision 21).
+ */
+const MISDIRECT_CITATIONS: ReadonlyArray<{
+  wrong: number;
+  canonical: number;
+  topic: string;
+  contextRe: RegExp;
+  canonicalRowRe: RegExp;
+}> = [
+  {
+    wrong: 19,
+    canonical: 26,
+    topic: "D22/D23/D24 audit-domain admission",
+    contextRe: /admitted to Tier|3 new audit domains/i,
+    canonicalRowRe: /3 new audit domains/i,
+  },
+  {
+    wrong: 27,
+    canonical: 30,
+    topic: "checkpoint/resume resumability precedent",
+    contextRe: /checkpoint|resumab/i,
+    canonicalRowRe: /resumability/i,
+  },
+];
+
+/**
+ * Retired pillar-name labels (D24-SA24.4-03). P1 was renamed "CLI UI/UX
+ * Excellence" / "CLI UX Excellence" → "Adoption Experience" on 2026-07-09
+ * (CONSTITUTION §2A / VISION); the rename sweep, scoped to §3, left stale labels
+ * across the corpus (e.g. EVOLVE.md, `.claude/rules/cli-ux-standards.md`,
+ * `commands/hatch3r-create.md`). Unambiguous strings, so no context anchor.
+ * `canonicalPresentRe` is the self-guard: the current name must still exist in
+ * CONSTITUTION, else the map is stale.
+ */
+const RETIRED_LABELS: ReadonlyArray<{
+  labelRe: RegExp;
+  canonical: string;
+  canonicalPresentRe: RegExp;
+  topic: string;
+}> = [
+  {
+    labelRe: /CLI (?:UI\/UX|UX) Excellence/,
+    canonical: "P1 Adoption Experience",
+    canonicalPresentRe: /Adoption Experience/,
+    topic: "P1 pillar name",
   },
 ];
 
@@ -198,12 +328,20 @@ async function listCorpusFiles(dir: string): Promise<string[]> {
   return out.sort((a, b) => a.localeCompare(b));
 }
 
-/**
- * Scan one corpus file's lines for `Decision N` citations; emit
- * DECISION-CITATION-DANGLING (error) for out-of-range ordinals and
- * DECISION-CITATION-LEGACY (warning) for context-matched legacy ids.
- */
-export function checkCorpusFileCitations(
+/** Line-level set of every ordinal a line cites (both sides of a `N/M` hedge). */
+function citedOrdinalsOnLine(line: string): Set<number> {
+  const cited = new Set<number>();
+  CITATION_RE.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = CITATION_RE.exec(line)) !== null) {
+    cited.add(Number(m[1]));
+    if (m[2] !== undefined) cited.add(Number(m[2]));
+  }
+  return cited;
+}
+
+/** 3a — DECISION-CITATION-DANGLING (error): a cited ordinal outside 1..N. */
+export function checkDanglingCitations(
   relPath: string,
   content: string,
   maxOrdinal: number,
@@ -211,10 +349,9 @@ export function checkCorpusFileCitations(
   const drifts: DecisionDrift[] = [];
   const lines = content.split("\n");
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
     CITATION_RE.lastIndex = 0;
     let m: RegExpExecArray | null;
-    while ((m = CITATION_RE.exec(line)) !== null) {
+    while ((m = CITATION_RE.exec(lines[i])) !== null) {
       const cited = Number(m[1]);
       const hedge = m[2] !== undefined ? Number(m[2]) : undefined;
       for (const ref of hedge === undefined ? [cited] : [cited, hedge]) {
@@ -226,6 +363,22 @@ export function checkCorpusFileCitations(
           });
         }
       }
+    }
+  }
+  return drifts;
+}
+
+/** 3b — DECISION-CITATION-LEGACY (warning): context-matched legacy remap id. */
+export function checkLegacyRemapCitations(relPath: string, content: string): DecisionDrift[] {
+  const drifts: DecisionDrift[] = [];
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    CITATION_RE.lastIndex = 0;
+    let m: RegExpExecArray | null;
+    while ((m = CITATION_RE.exec(line)) !== null) {
+      const cited = Number(m[1]);
+      const hedge = m[2] !== undefined ? Number(m[2]) : undefined;
       for (const remap of LEGACY_REMAPS) {
         if (cited !== remap.legacy) continue;
         if (!remap.contextRe.test(line)) continue;
@@ -241,6 +394,84 @@ export function checkCorpusFileCitations(
     }
   }
   return drifts;
+}
+
+/**
+ * 3d — DECISION-CITATION-MISDIRECT (warning): a live-but-wrong-row `Decision N`
+ * on the mis-cite's topic line. Hedge-aware — a line that ALSO names the
+ * canonical row (`Decision 27/30`) is correct and never fires (D19-SA19.3-02,
+ * D24-SA24.4-03).
+ */
+export function checkMisdirectCitations(relPath: string, content: string): DecisionDrift[] {
+  const drifts: DecisionDrift[] = [];
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const cited = citedOrdinalsOnLine(line);
+    if (cited.size === 0) continue;
+    for (const md of MISDIRECT_CITATIONS) {
+      if (!cited.has(md.wrong)) continue;
+      if (cited.has(md.canonical)) continue; // a "wrong/canonical" hedge is correct
+      if (!md.contextRe.test(line)) continue;
+      drifts.push({
+        level: "warning",
+        code: "DECISION-CITATION-MISDIRECT",
+        message:
+          `${relPath}:${i + 1}: "Decision ${md.wrong}" on a ${md.topic} line resolves to an unrelated §6 row; ` +
+          `the canonical id is Decision ${md.canonical} — cite "Decision ${md.canonical}" or the "Decision ${md.wrong}/${md.canonical}" hedge (D19-SA19.3-02 / D24-SA24.4-03)`,
+      });
+    }
+  }
+  return drifts;
+}
+
+/** 3e — DECISION-RETIRED-LABEL (warning): a retired pillar-name label. */
+export function checkRetiredLabelCitations(relPath: string, content: string): DecisionDrift[] {
+  const drifts: DecisionDrift[] = [];
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    for (const rl of RETIRED_LABELS) {
+      if (!rl.labelRe.test(lines[i])) continue;
+      drifts.push({
+        level: "warning",
+        code: "DECISION-RETIRED-LABEL",
+        message:
+          `${relPath}:${i + 1}: ${rl.topic} uses the retired label matching ${rl.labelRe.source}; ` +
+          `the canonical name is "${rl.canonical}" (D24-SA24.4-03)`,
+      });
+    }
+  }
+  return drifts;
+}
+
+/**
+ * Shipped-corpus file pass: dangling (error) + legacy remap + misdirect +
+ * retired label (warnings).
+ */
+export function checkCorpusFileCitations(
+  relPath: string,
+  content: string,
+  maxOrdinal: number,
+): DecisionDrift[] {
+  return [
+    ...checkDanglingCitations(relPath, content, maxOrdinal),
+    ...checkLegacyRemapCitations(relPath, content),
+    ...checkMisdirectCitations(relPath, content),
+    ...checkRetiredLabelCitations(relPath, content),
+  ];
+}
+
+/**
+ * Authority-surface file pass: legacy remap + misdirect + retired label
+ * (warnings only — no dangling error, so a pre-existing out-of-range citation in
+ * the governance corpus is not newly gated by this class-currency extension).
+ */
+export function checkAuthorityFileCitations(relPath: string, content: string): DecisionDrift[] {
+  return [
+    ...checkLegacyRemapCitations(relPath, content),
+    ...checkMisdirectCitations(relPath, content),
+    ...checkRetiredLabelCitations(relPath, content),
+  ];
 }
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
@@ -310,8 +541,9 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     }
   }
 
-  // Check 3c — remap self-guard: each canonical row must still carry its
-  // topic text; otherwise the LEGACY_REMAPS table itself has rotted.
+  // Check 3c — remap / misdirect / retired-label self-guards: each canonical
+  // row (or pillar name) the warning tables point at must still carry its topic
+  // text; otherwise the table itself has rotted and its warnings are untrustworthy.
   const rowTexts = parseRowTexts(section);
   for (const remap of LEGACY_REMAPS) {
     const rowText = rowTexts.get(remap.canonical);
@@ -325,8 +557,31 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       });
     }
   }
+  for (const md of MISDIRECT_CITATIONS) {
+    const rowText = rowTexts.get(md.canonical);
+    if (rowText === undefined || !md.canonicalRowRe.test(rowText)) {
+      drifts.push({
+        level: "error",
+        code: "DECISION-MISDIRECT-STALE",
+        message:
+          `§6 row ${md.canonical} no longer matches ${md.canonicalRowRe} (${md.topic}); ` +
+          `the MISDIRECT_CITATIONS table in scripts/validate-decision-id-consistency.ts is stale — update it (D19-SA19.3-02 / D24-SA24.4-03)`,
+      });
+    }
+  }
+  for (const rl of RETIRED_LABELS) {
+    if (!rl.canonicalPresentRe.test(body)) {
+      drifts.push({
+        level: "error",
+        code: "DECISION-RETIRED-LABEL-STALE",
+        message:
+          `CONSTITUTION no longer contains "${rl.canonical}" (${rl.canonicalPresentRe.source}); ` +
+          `the RETIRED_LABELS table in scripts/validate-decision-id-consistency.ts is stale — update it (D24-SA24.4-03)`,
+      });
+    }
+  }
 
-  // Check 3a/3b — corpus citation pass over the shipped canonical dirs.
+  // Check 3a/3b/3d/3e — corpus citation pass over the shipped canonical dirs.
   for (const dir of CORPUS_DIRS) {
     const files = await listCorpusFiles(join(rootDir, dir));
     for (const absPath of files) {
@@ -335,6 +590,27 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
         ...checkCorpusFileCitations(toPosixRel(absPath, rootDir), content, maxOrdinal),
       );
     }
+  }
+
+  // Check 3d/3e (+ 3b) — authority-surface currency pass, warnings only. Covers
+  // the framework-dev + governance-authority files the shipped-corpus pass never
+  // reaches (D19-SA19.3-02, D24-SA24.4-03). Skips CONSTITUTION.md and the
+  // meta-artifacts by construction — the allowlist names only authority-citing
+  // dirs/files.
+  const authorityScanned = new Set<string>();
+  for (const dir of AUTHORITY_DIRS) {
+    const files = await listCorpusFiles(join(rootDir, dir));
+    for (const absPath of files) {
+      authorityScanned.add(absPath);
+      const content = await readFile(absPath, "utf-8");
+      drifts.push(...checkAuthorityFileCitations(toPosixRel(absPath, rootDir), content));
+    }
+  }
+  for (const rel of AUTHORITY_FILES) {
+    const absPath = join(rootDir, rel);
+    if (!existsSync(absPath) || authorityScanned.has(absPath)) continue;
+    const content = await readFile(absPath, "utf-8");
+    drifts.push(...checkAuthorityFileCitations(rel, content));
   }
 
   let errorCount = 0;

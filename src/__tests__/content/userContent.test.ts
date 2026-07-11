@@ -786,7 +786,24 @@ describe("saveUserContent — pillar-enum parity (F20.1.A2 / F20.2.A2, two-axis)
     expect(result.written).toHaveLength(1);
   });
 
-  it("REJECTS a value outside the P1–P8 ∪ CQ1–CQ9 union (CQ99)", async () => {
+  it("ACCEPTS the CQ10 content-quality pillar (D20-SA20.2-03: ratified in CONSTITUTION §2B, EVOLVE run 21ec6aa3)", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "cq10-pillar",
+        frontmatter: {
+          tags: ["core"],
+          quality_charter: "agents/shared/quality-charter.md",
+          pillars: ["CQ10"],
+        },
+        body: "A body declaring the CQ10 Product & Spec Quality content-quality pillar.\n",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+  });
+
+  it("REJECTS a value outside the P1–P8 ∪ CQ1–CQ10 union (CQ99)", async () => {
     const result = await saveUserContent(
       tempDir,
       makeArtifact({
@@ -1535,7 +1552,17 @@ describe("validateContentBody — agent tool-grant security baseline (D20-2)", (
     "tools:\n  allowed:\n    - read\n    - search\n    - write\n    - execute\n    - web";
   const NARROW_TOOLS_YAML = "tools:\n  allowed:\n    - read\n    - search";
 
-  it("flags a wide agent tool grant with no security baseline as severity=error", async () => {
+  // D20-SA20.2-04: the pre-flight tool-grant baseline is TIER-AWARE (error at
+  // team+, warning at solo), matching the save funnel and the
+  // user-content-templates.md §1 contract. It previously emitted an
+  // unconditional error, contradicting the documented solo-gentle disposition
+  // and making `sync` hard-block a solo project the funnel had let save with a
+  // gentle nudge. The message + width/threshold reporting is unchanged; only the
+  // severity now varies by tier.
+  const grantMatches = (violations: { severity: string; message: string; relativePath: string }[]) =>
+    violations.filter((v) => /tool categories .* without a security baseline/.test(v.message));
+
+  it("flags a wide agent tool grant with no security baseline (tier-aware: error at team+, warning at solo)", async () => {
     const userRoot = resolveUserContentRoot(tempDir);
     await mkdir(join(userRoot, "agents"), { recursive: true });
     await writeFile(
@@ -1543,15 +1570,25 @@ describe("validateContentBody — agent tool-grant security baseline (D20-2)", (
       `---\nid: wide-grant\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\nA hand-authored agent body with no baseline citation.\n`,
     );
 
-    const violations = await validateContentBody(tempDir);
-    const grantErrors = violations.filter(
-      (v) => v.severity === "error" && /tool categories .* without a security baseline/.test(v.message),
-    );
-    expect(grantErrors.length).toBe(1);
-    expect(grantErrors[0]?.relativePath).toContain("wide-grant.md");
+    // team+ → strict error (matches the funnel's team+ disposition).
+    const teamGrant = grantMatches(await validateContentBody(tempDir, "team"));
+    expect(teamGrant.length).toBe(1);
+    expect(teamGrant[0]?.severity).toBe("error");
+    expect(teamGrant[0]?.relativePath).toContain("wide-grant.md");
     // The width (5) and the threshold (3) are both surfaced in the message.
-    expect(grantErrors[0]?.message).toContain("5 tool categories");
-    expect(grantErrors[0]?.message).toContain("> 3");
+    expect(teamGrant[0]?.message).toContain("5 tool categories");
+    expect(teamGrant[0]?.message).toContain("> 3");
+
+    // solo (explicit) → gentle warning, matching the funnel + template contract.
+    const soloGrant = grantMatches(await validateContentBody(tempDir, "solo"));
+    expect(soloGrant.length).toBe(1);
+    expect(soloGrant[0]?.severity).toBe("warning");
+
+    // default (no explicit tier, no manifest) collapses to the solo baseline →
+    // warning, never a harder error, when the project tier cannot be read.
+    const defaultGrant = grantMatches(await validateContentBody(tempDir));
+    expect(defaultGrant.length).toBe(1);
+    expect(defaultGrant[0]?.severity).toBe("warning");
   });
 
   it("clears the grant when the body cites hatch3r-security-patterns", async () => {
@@ -1672,6 +1709,42 @@ describe("hook-event enum parity (F20.1.A1)", () => {
     for (const event of VALID_HOOK_EVENTS) {
       expect(message, `message should list "${event}"`).toContain(event);
     }
+  });
+
+  // D20-SA20.1-01: the canonical authoring template
+  // `agents/shared/user-content-templates.md` §5 "Hook Skeleton" documents the
+  // Event enum an author — and `hatch3r-creator`, which reads this file for the
+  // body skeleton — validates a hook against. It drifted to 8 values (omitting
+  // `review-loop-cap`) after Cycle 10 F15.2-H1 expanded the runtime enum to 9,
+  // while the command and creator agent were updated. Assert the rendered §5
+  // enum equals `[...VALID_HOOK_EVENTS]` so any future enum change that skips
+  // the template is a CI failure (recommendation step 2, mirrors the
+  // lean-threshold doc round-trip below).
+  it("user-content-templates.md §5 Event enum equals the runtime VALID_HOOK_EVENTS", async () => {
+    const repoRoot = resolve(__dirname, "..", "..", "..");
+    const templatePath = join(
+      repoRoot,
+      "agents",
+      "shared",
+      "user-content-templates.md",
+    );
+    expect(
+      existsSync(templatePath),
+      "agents/shared/user-content-templates.md must exist (canonical shared context)",
+    ).toBe(true);
+
+    const template = await readFile(templatePath, "utf-8");
+    // §5 renders the enum as: **Event enum:** `a | b | c | ...`.
+    const enumMatches = [
+      ...template.matchAll(/\*\*Event enum:\*\*\s*`([^`]+)`/g),
+    ];
+    expect(
+      enumMatches.length,
+      "template §5 must carry exactly one **Event enum:** `...` list",
+    ).toBe(1);
+
+    const documented = enumMatches[0][1].split("|").map((e) => e.trim());
+    expect([...documented].sort()).toEqual([...VALID_HOOK_EVENTS].sort());
   });
 });
 
@@ -2003,14 +2076,14 @@ describe("shared single-source gate decisions (D20-SA20.2-02)", () => {
       const msg = pillarDeclarationViolation({ tags: ["core"] }, "a body with no pillar mention");
       expect(msg).toBeDefined();
       expect(msg).toContain("P1...P8");
-      expect(msg).toContain("CQ1...CQ9");
+      expect(msg).toContain("CQ1...CQ10");
       expect(msg).not.toContain("P1...P6");
     });
   });
 
   describe("validateStructuredPillars (divergence point f — exported for the CI surface)", () => {
-    it("accepts the full two-axis union (P8, CQ9)", () => {
-      expect(validateStructuredPillars(["P8", "CQ9"])).toEqual([]);
+    it("accepts the full two-axis union (P8, CQ9, CQ10)", () => {
+      expect(validateStructuredPillars(["P8", "CQ9", "CQ10"])).toEqual([]);
     });
 
     it("flags an out-of-range id with a single Unknown-pillar-id violation", () => {

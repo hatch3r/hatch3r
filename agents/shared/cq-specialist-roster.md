@@ -13,8 +13,8 @@ At a quality gate, the orchestrator MAY delegate to one or more of the 9 CQ spec
 
 | CQ Pillar | Specialist | Trigger |
 |-----------|------------|---------|
-| CQ1 UI | `hatch3r-ui` | Files matching `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` |
-| CQ2 UX | `hatch3r-ux` | Route handlers, page components, form components, navigation, empty/error/loading states, microcopy or i18n strings changed, locale-catalog files (`locales/` / `i18n/`) |
+| CQ1 UI | `hatch3r-ui` | Files matching `**/*.{tsx,jsx,vue,svelte}`, Angular `*.component.{ts,html}`, theme/design-token configs (`tailwind.config.{js,ts}`, `theme.ts`), or source files under `**/components/**` |
+| CQ2 UX | `hatch3r-ux` | Route-transition and page components, form components, navigation, empty/error/loading states, microcopy or i18n strings changed, locale-catalog files (`locales/` / `i18n/`) |
 | CQ3 Security | `hatch3r-security` | `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline, dependency manifest/lockfile, DB rules/data flows/privacy invariants |
 | CQ4 Reliability | `hatch3r-reliability` | Service handlers, OTel instrumentation, SLO files, RFC 9457 error responses |
 | CQ5 Testability | `hatch3r-testability` | Parsers, payment flows, RPC contracts, AI feature handlers, test files |

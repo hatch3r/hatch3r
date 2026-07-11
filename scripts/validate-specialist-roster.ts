@@ -52,6 +52,14 @@
  *      the table back), asserts every inlined row is byte-identical to the
  *      shared source. The single source makes the former three-way drift
  *      structurally impossible while the gate keeps any reintroduced copy honest.
+ *   7. Reverse phase_4_trigger coverage (D22-SA22.1-01) — every agent file whose
+ *      frontmatter carries a `phase_4_trigger:` key (the shape the 9 CQ
+ *      specialists use to declare SPECIALIST_TRIGGER_TABLE membership) must be a
+ *      SSOT specialist OR a documented supporting-analyst exemption
+ *      (SUPPORTING_ANALYST_PHASE4_ALLOWLIST). The forward checks iterate the
+ *      SSOT and are structurally blind to an agent carrying the
+ *      membership-signalling key while absent from the table; this reverse check
+ *      closes that gap so a false "specialist" signal fails CI.
  *
  * Failure modes (each emits one ERROR finding):
  *
@@ -68,6 +76,9 @@
  *                          neither points at the shared roster nor inlines the
  *                          table, or a reintroduced inline copy diverges from
  *                          the shared source (implementer / reviewer / fixer)
+ *   ROSTER-PHASE4-EXTRA    an agent carries `phase_4_trigger` frontmatter but is
+ *                          neither a SPECIALIST_TRIGGER_TABLE member nor a
+ *                          documented supporting-analyst exemption
  *
  * Warnings (non-blocking):
  *
@@ -79,7 +90,7 @@
  *        `tsx scripts/validate-specialist-roster.ts`
  *        `tsx scripts/validate-specialist-roster.ts --json`
  */
-import { readFile } from "node:fs/promises";
+import { readFile, readdir } from "node:fs/promises";
 import { access } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -556,6 +567,67 @@ async function checkWatchdogCoverage(agentsDir: string, ssot: string[]): Promise
   return out;
 }
 
+// ── Reverse phase_4_trigger coverage (D22-SA22.1-01) ──────────────
+//
+// The forward checks above assert every SSOT specialist is represented on each
+// dispatch surface. They cannot catch the REVERSE drift: an agent whose
+// frontmatter carries a `phase_4_trigger:` key — the shape the 9 CQ specialists
+// use to declare SPECIALIST_TRIGGER_TABLE membership — while ABSENT from that
+// table, a false "specialist" signal a reader infers from the frontmatter key.
+//
+// D22-SA22.1-01 found exactly one such agent: hatch3r-edge-case-analyst, which
+// governance classifies as a CQ4+CQ5 *supporting* analyst, NOT a table
+// specialist (agents/hatch3r-reviewer.md — "MAY delegate ... not a CQ floor
+// specialist"; rules/hatch3r-agent-orchestration.md — "add a specialist [to the
+// table] first, never here"). Its permanent disambiguation — (a) add it to the
+// table as a 14th conditional row, or (b) give its trigger a distinct key — is a
+// dispatch-classification decision that changes a shipped agent, routed to the
+// orchestration owner via a B1 clarification; it is NOT decided by this gate.
+// Until that decision lands, this one agent is an explicit, documented exemption
+// so the reverse check stays green while still CI-blocking any FUTURE agent that
+// adds phase_4_trigger without joining the table. When the B1 lands: option (a)
+// makes the entry redundant (edge-case-analyst joins the SSOT); option (b)
+// removes the key (the agent no longer carries phase_4_trigger) — either way the
+// entry becomes dead and is deleted.
+const SUPPORTING_ANALYST_PHASE4_ALLOWLIST: readonly string[] = ["hatch3r-edge-case-analyst"];
+
+/**
+ * D22-SA22.1-01: assert every agent whose frontmatter carries a top-level
+ * `phase_4_trigger:` key is either a SPECIALIST_TRIGGER_TABLE member or a
+ * documented supporting-analyst exemption. Reads every `agents/hatch3r-*.md`
+ * file, parses its frontmatter, and emits one ROSTER-PHASE4-EXTRA error per
+ * agent that signals table membership via the key while absent from both sets —
+ * the drift the forward SSOT-driven checks are structurally blind to.
+ */
+export async function checkPhase4TriggerReverse(
+  agentsDir: string,
+  ssot: string[],
+): Promise<Finding[]> {
+  const out: Finding[] = [];
+  // A missing agents/ dir is already reported by checkAgentFiles (every SSOT
+  // file turns up absent); skip here to avoid double-reporting the same cause.
+  if (!(await fileExists(agentsDir))) return out;
+  const allowed = new Set<string>([...ssot, ...SUPPORTING_ANALYST_PHASE4_ALLOWLIST]);
+  const entries = (await readdir(agentsDir)).sort();
+  for (const name of entries) {
+    if (!name.startsWith("hatch3r-") || !name.endsWith(".md")) continue;
+    const raw = await readFileSafe(join(agentsDir, name));
+    if (raw === null) continue;
+    const { frontmatter } = splitFrontmatter(raw);
+    if (!Object.prototype.hasOwnProperty.call(frontmatter, "phase_4_trigger")) continue;
+    const id = name.slice(0, -".md".length);
+    if (!allowed.has(id)) {
+      out.push({
+        level: "error",
+        code: "ROSTER-PHASE4-EXTRA",
+        file: `agents/${name}`,
+        message: `\`${id}\` carries \`phase_4_trigger\` frontmatter (the SPECIALIST_TRIGGER_TABLE membership shape) but is not in SPECIALIST_TRIGGER_TABLE (src/pipeline/pipelineContext.ts) and is not a documented supporting-analyst exemption — add it to the table, or, if it is an outside-table supporting analyst, add it to SUPPORTING_ANALYST_PHASE4_ALLOWLIST with the classification rationale (D22-SA22.1-01)`,
+      });
+    }
+  }
+  return out;
+}
+
 // ── CQ trigger-table-parity check (D16-12 / D6-15 / D22-6) ────────
 
 /**
@@ -694,6 +766,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   );
   findings.push(...(await checkCommands(commandsDir)));
   findings.push(...(await checkWatchdogCoverage(agentsDir, ssot)));
+  findings.push(...(await checkPhase4TriggerReverse(agentsDir, ssot)));
   findings.push(
     ...checkCqTriggerTableParity(cqRosterBody, [
       { rel: CQ_TABLE_RELS[0], body: implBody },
@@ -720,15 +793,22 @@ export function formatFinding(f: Finding): string {
 
 interface CliFlags {
   json: boolean;
+  /** Scan root override (`--root <dir>`); defaults to the package root. Used by
+   * the gate test to point the validator at a synthetic fixture tree. */
+  rootDir?: string;
 }
 
 function parseArgs(argv: readonly string[]): CliFlags {
-  return { json: argv.includes("--json") };
+  const flags: CliFlags = { json: argv.includes("--json") };
+  const rootIdx = argv.indexOf("--root");
+  const rootVal = rootIdx === -1 ? undefined : argv[rootIdx + 1];
+  if (rootVal) flags.rootDir = rootVal;
+  return flags;
 }
 
 async function main(): Promise<void> {
   const flags = parseArgs(process.argv.slice(2));
-  const result = await runValidator();
+  const result = await runValidator(flags.rootDir ? { rootDir: resolve(flags.rootDir) } : {});
   if (flags.json) {
     console.log(JSON.stringify(result, null, 2));
   } else {
@@ -738,7 +818,7 @@ async function main(): Promise<void> {
       else console.warn(line);
     }
     console.log(
-      `validate-specialist-roster: ${result.ssotSpecialists.length} SSOT specialist(s) checked across rule table + agent roster + implementer/reviewer enumerations + command pipelines + CQ trigger-table single-source (shared roster + implementer/reviewer/fixer pointers); ${result.errorCount} error(s), ${result.warningCount} warning(s)`,
+      `validate-specialist-roster: ${result.ssotSpecialists.length} SSOT specialist(s) checked across rule table + agent roster + implementer/reviewer enumerations + command pipelines + CQ trigger-table single-source (shared roster + implementer/reviewer/fixer pointers) + reverse phase_4_trigger coverage; ${result.errorCount} error(s), ${result.warningCount} warning(s)`,
     );
   }
   if (result.errorCount > 0) process.exit(1);

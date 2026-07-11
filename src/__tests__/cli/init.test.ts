@@ -44,6 +44,27 @@ vi.mock("../../cliTools/detect.js", () => ({
 // `join(tempDir, AGENTS_DIR, "hatch.json")` reads pick up the new location.
 const AGENTS_DIR = HATCH3R_DIR;
 
+// D3-SA3.2-11 (D3, CQ5 / P1): the init interactive flow now refuses to run when
+// stdin is not a TTY (mirror of config's D1-18 guard). Under vitest stdin is not
+// a TTY, so every interactive (non-`--yes`) test in this file would otherwise
+// trip that guard before reaching its mocked prompts. Force
+// `process.stdin.isTTY = true` for the whole file (a top-level hook applies to
+// all suites) so the prompt-driven flows exercise the interactive path; the
+// dedicated non-TTY test below overrides it locally. Restored after each test so
+// no process-global state leaks to other files.
+let savedStdinIsTTY: boolean | undefined;
+beforeEach(() => {
+  savedStdinIsTTY = process.stdin.isTTY;
+  (process.stdin as { isTTY?: boolean }).isTTY = true;
+});
+afterEach(() => {
+  if (savedStdinIsTTY === undefined) {
+    delete (process.stdin as { isTTY?: boolean }).isTTY;
+  } else {
+    (process.stdin as { isTTY?: boolean }).isTTY = savedStdinIsTTY;
+  }
+});
+
 describe("init command", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean; mcp?: boolean; resume?: boolean }) => Promise<void>;
   let tempDir: string;
@@ -74,6 +95,44 @@ describe("init command", () => {
     consoleSpy.mockRestore();
     consoleErrorSpy.mockRestore();
     await rm(tempDir, { recursive: true, force: true, maxRetries: 3, retryDelay: 100 });
+  });
+
+  // ── Non-TTY preflight (D3-SA3.2-11) ───────────────────────────
+  //
+  // Mirror of config's D1-18 test. The interactive flow (no `--yes`) issues
+  // inquirer prompts; under a pipe/CI stdin is not a TTY, so init fails fast with
+  // a usage-code (exit 2) HatchError naming the `--yes` escape. `--yes` (and its
+  // `--quick`/`--default` aliases) short-circuit before the gate, so headless
+  // installs keep working. The file-level hook sets isTTY true by default; these
+  // tests flip it false explicitly.
+  describe("non-TTY preflight (D3-SA3.2-11)", () => {
+    it("throws a usage-code (exit 2) HatchError when stdin is not a TTY", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = false;
+      // init.test.ts does not clear the inquirer mock between tests (no
+      // clearAllMocks in beforeEach), so reset the call log here to make the
+      // "no prompt reached" assertion order-independent.
+      vi.mocked(inquirer.prompt).mockClear();
+      try {
+        await initCommand({});
+        throw new Error("expected initCommand to throw under non-TTY stdin");
+      } catch (e) {
+        expect(e).toBeInstanceOf(HatchError);
+        expect((e as HatchError).exitCode).toBe(2);
+        expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
+        expect((e as HatchError).recoveryHint).toMatch(/--yes/);
+      }
+      // The guard fires before any prompt site (detectAmbiguity + step machine).
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+    });
+
+    it("still runs headlessly under non-TTY stdin with --yes (short-circuits before the gate)", async () => {
+      (process.stdin as { isTTY?: boolean }).isTTY = false;
+      vi.mocked(inquirer.prompt).mockClear();
+      await initCommand({ yes: true });
+      // A real init completed: the manifest landed and no prompt was reached.
+      await expect(access(join(tempDir, AGENTS_DIR, "hatch.json"))).resolves.toBeUndefined();
+      expect(vi.mocked(inquirer.prompt)).not.toHaveBeenCalled();
+    });
   });
 
   it("should create .agents/ directory with --yes flag", async () => {

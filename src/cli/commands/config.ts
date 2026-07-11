@@ -83,7 +83,7 @@ import {
 import { getPreset, type PresetId } from "../../content/presets.js";
 import { acquireWriteLock, safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
-import { writeCheckpoint, type CheckpointMeta } from "../../pipeline/checkpoint.js";
+import { writeCheckpoint, workspaceDir, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { HATCH3R_VERSION } from "../../version.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
@@ -516,7 +516,7 @@ async function handleScalarConfig(
       timestamp: new Date().toISOString(),
     };
     try {
-      await writeCheckpoint(join(rootDir, ".config-workspace"), "config", 1, "passed", meta);
+      await writeCheckpoint(workspaceDir(rootDir, "config"), "config", 1, "passed", meta);
     } catch (err) {
       verbose(`config: scalar checkpoint write skipped — ${err instanceof Error ? err.message : String(err)}`);
     }

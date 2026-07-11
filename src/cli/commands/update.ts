@@ -41,7 +41,9 @@ import {
 } from "../../pipeline/pipelineTimeout.js";
 import {
   writeCheckpoint,
+  workspaceDir,
   type CheckpointMeta,
+  type CheckpointWorkspaceCommand,
 } from "../../pipeline/checkpoint.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
@@ -257,7 +259,7 @@ export async function runPackageUpdate(
 export async function runRegenerate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string; reuseSessionId?: string; force?: boolean } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: CheckpointWorkspaceCommand; reuseSessionId?: string; force?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 3;
@@ -360,7 +362,7 @@ export async function runRegenerate(
   // hatch3r version" so a future resume read (or an operator inspecting state)
   // sees an authoritative progress marker. Best-effort: a checkpoint-write
   // failure routes through verbose() and never aborts the regenerate.
-  const regenWorkspace = join(rootDir, `.${snapshotCommandName}-workspace`);
+  const regenWorkspace = workspaceDir(rootDir, snapshotCommandName);
   const recordPhase = async (
     wave: number,
     status: "in-progress" | "passed" | "failed",
@@ -992,7 +994,7 @@ export async function runUpdateDryRun(
 export async function runUpdate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string; force?: boolean } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: CheckpointWorkspaceCommand; force?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 4;

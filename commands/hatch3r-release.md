@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-docs-writer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security, hatch3r-ci-watcher]
 description: Release-workflow orchestrator — preflight, SemVer bump, changelog sync, build + CycloneDX SBOM, adapter-output verification, quality gates, release-notes reconciliation, then stop before publish/merge for human approval.
+disable-model-invocation: true
 tags: [devops, board, review]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

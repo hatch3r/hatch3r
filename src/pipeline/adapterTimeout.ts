@@ -10,6 +10,8 @@
 
 import type { AdapterOutput, Tool, HatchManifest, GenerationMode } from "../types.js";
 import type { Adapter } from "../adapters/base.js";
+import { retryWithBackoff, type RetryOptions } from "./retryWithBackoff.js";
+import { classifyFailure } from "./circuitBreaker.js";
 
 // ── Constants ────────────────────────────────────────────────────
 
@@ -22,6 +24,15 @@ export const MIN_ADAPTER_TIMEOUT_MS = 5_000;
 /** Maximum allowed adapter timeout in milliseconds (15 minutes). */
 export const MAX_ADAPTER_TIMEOUT_MS = 15 * 60 * 1000;
 
+/**
+ * Default retry attempts for a single adapter's `generate()` call inside
+ * {@link generateWithTimeout} (D8-SA8.4-01). 2 = 1 initial attempt + 1 retry,
+ * matching the fast-fail bias the interactive `sync`/`update` call sites intend
+ * (`{ maxAttempts: 2 }`). The per-adapter circuit breaker absorbs failures that
+ * recur across invocations, so a 3rd in-call attempt is not warranted here.
+ */
+export const DEFAULT_ADAPTER_RETRY_ATTEMPTS = 2;
+
 // ── Types ────────────────────────────────────────────────────────
 
 export interface AdapterTimeoutConfig {
@@ -29,6 +40,16 @@ export interface AdapterTimeoutConfig {
   timeoutMs: number;
   /** Per-tool timeout overrides. */
   overrides?: Partial<Record<Tool, number>>;
+  /**
+   * Retry policy for the wrapped `adapter.generate()` call (D8-SA8.4-01).
+   * Transient adapter failures (per `circuitBreaker.classifyFailure`) are
+   * retried with exponential backoff INSIDE the timeout budget before the
+   * result is converted to `{ completed: false }`. Defaults: `maxAttempts =
+   * DEFAULT_ADAPTER_RETRY_ATTEMPTS` (2) and a `shouldRetry` that retries only
+   * transient failures while the timeout has not aborted. Tests inject `sleep`
+   * to skip real backoff wall time.
+   */
+  retry?: Partial<RetryOptions>;
 }
 
 export interface AdapterGenerationResult {
@@ -80,6 +101,12 @@ export function getAdapterTimeout(
  * instead of leaving the surrounding `Promise.race` waiting for them.
  * An optional `parentSignal` lets a caller (e.g. the outer phase
  * timeout) propagate a higher-level cancellation into the adapter.
+ *
+ * D8-SA8.4-01: transient `adapter.generate()` failures (per
+ * `circuitBreaker.classifyFailure`) are retried with exponential backoff
+ * inside the timeout budget before a failure is converted to
+ * `{ completed: false }`. Substantive failures and timeout/parent aborts are
+ * not retried. Tune via `config.retry` (default `maxAttempts = 2`).
  */
 export async function generateWithTimeout(
   tool: Tool,
@@ -109,8 +136,32 @@ export async function generateWithTimeout(
   let timer: ReturnType<typeof setTimeout> | undefined;
 
   try {
+    // D8-SA8.4-01: retry the adapter's `generate()` on TRANSIENT failures
+    // (network / 5xx / timeout-class per circuitBreaker.classifyFailure) with
+    // exponential backoff, INSIDE the per-adapter timeout budget, before the
+    // catch below converts a failure to `{ completed: false }`. The retry sits
+    // here — around the throwing call — rather than at the sync/update call
+    // site, because `generateWithTimeout` returns (never throws) on failure, so
+    // an outer `retryWithBackoff(() => generateWithTimeout(...))` can never
+    // observe the fault (a resolved promise never enters its catch). Substantive
+    // failures (auth / 404 / malformed) and timeout / parent aborts surface on
+    // the first attempt. Nested-retry note: the race timer bounds total wall
+    // time across attempts, so a budget breach fires the timeout branch and
+    // stops further retries — this avoids the "extra retry layer adds long
+    // delays" case in learn.microsoft.com/azure/architecture/patterns/retry
+    // (accessed 2026-07-11).
     const outputs = await Promise.race([
-      adapter.generate(canonicalRoot, manifest, userRepoRoot, generationMode, controller.signal),
+      retryWithBackoff(
+        () =>
+          adapter.generate(canonicalRoot, manifest, userRepoRoot, generationMode, controller.signal),
+        {
+          maxAttempts: DEFAULT_ADAPTER_RETRY_ATTEMPTS,
+          ...config?.retry,
+          shouldRetry:
+            config?.retry?.shouldRetry ??
+            ((err) => !controller.signal.aborted && classifyFailure(err) === "transient"),
+        },
+      ),
       new Promise<never>((_resolve, reject) => {
         timer = setTimeout(() => {
           // Abort first so the adapter's cooperative checks unwind any

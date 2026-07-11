@@ -4,6 +4,8 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability, hatch3r-edge-case-analyst]
 description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
+argument-hint: "[--mode=full|quick] [--effort=light|standard|deep] [--confidence-floor=any|medium|high] [--auto]"
+disable-model-invocation: true
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

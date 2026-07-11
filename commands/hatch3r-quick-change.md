@@ -4,6 +4,8 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security]
 description: "Lightweight workflow for small changes not tracked on the board: adaptive ceremony, inline or sub-agent implementation, batch support."
+argument-hint: "[--effort=light|standard] [--confidence-floor=any|medium|high]"
+disable-model-invocation: true
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

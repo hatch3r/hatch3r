@@ -30,7 +30,7 @@ quality_charter: agents/shared/quality-charter.md
 ---
 ```
 
-The `pillars:` array carries the governance-axis (P1–P8) or content-quality-axis (CQ1–CQ9) ids the artifact serves. Required by the strict pillar-declaration gate in `runUserContentGates` (`src/content/userContent.ts`); omit the field only if the body carries a `**Pillars:**` line instead. Values outside the P1–P8 ∪ CQ1–CQ9 union are rejected at save time (`validateStructuredPillars`).
+The `pillars:` array carries the governance-axis (P1–P8) or content-quality-axis (CQ1–CQ10) ids the artifact serves. Required by the strict pillar-declaration gate in `runUserContentGates` (`src/content/userContent.ts`); omit the field only if the body carries a `**Pillars:**` line instead. Values outside the P1–P8 ∪ CQ1–CQ10 union are rejected at save time (`validateStructuredPillars`).
 
 ```markdown
 You are <ROLE-STATEMENT> for the project. You receive <INPUT-SUMMARY> and produce <OUTPUT-SUMMARY>.
@@ -268,7 +268,7 @@ The strict gate `validateCommandOrchestratorFrontmatter` (`src/cli/commands/vali
 
 ### 5. Hook Skeleton
 
-**Path:** `.hatch3r/overrides/hooks/<NAME>.md`. **Required:** `id`, `type`, `event`, `agent`, `description`, `tags`. **Optional:** `globs` (file-save filtering), `condition`, `quality_charter` (auto-injected). **Event enum:** `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove` (8 values), enforced by `isValidHookEvent` (`src/hooks/types.ts:30`).
+**Path:** `.hatch3r/overrides/hooks/<NAME>.md`. **Required:** `id`, `type`, `event`, `agent`, `description`, `tags`. **Optional:** `globs` (file-save filtering), `condition`, `quality_charter` (auto-injected). **Event enum:** `pre-commit | post-merge | ci-failure | file-save | session-start | pre-push | worktree-create | worktree-remove | review-loop-cap`, mirroring `VALID_HOOK_EVENTS` in `src/hooks/types.ts` exactly (Cycle 10 F15.2-H1 added `review-loop-cap`), enforced by `isValidHookEvent`.
 
 ```yaml
 ---

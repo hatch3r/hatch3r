@@ -63,6 +63,7 @@ import {
 import {
   writeCheckpoint,
   readCheckpoint,
+  workspaceDir,
   type CheckpointMeta,
 } from "../../pipeline/checkpoint.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
@@ -343,7 +344,7 @@ export async function syncCommand(
   // checkpoint left by a different hatch3r version is correctly flagged as
   // drift and re-run from scratch. `readCheckpoint` throws on a corrupt file
   // (with a preserved-backup recovery hint), so resume fails loud.
-  const syncWorkspace = join(rootDir, ".sync-workspace");
+  const syncWorkspace = workspaceDir(rootDir, "sync");
   const checkpointMeta = (): CheckpointMeta => ({
     baselineSha: HATCH3R_VERSION,
     lastPassedGateN: 0,

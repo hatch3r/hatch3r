@@ -327,6 +327,45 @@ describe("validatePhaseTransition", () => {
       const errors = validatePhaseTransition(ctx, "completion");
       expect(errors.some((e) => e.field === "qualityResults.validationPass")).toBe(true);
     });
+
+    it("accepts an absent qualityResults at completion when phase4Skipped is set (docs-only carve-out, D7-SA7.3-03)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: validReviewResult(),
+      };
+      const errors = validatePhaseTransition(ctx, "completion", { phase4Skipped: true });
+      expect(errors).toHaveLength(0);
+    });
+
+    it("validates a full docs-only pipeline at completion (phase3Skipped + phase4Skipped, D7-SA7.3-03)", () => {
+      // Documentation-only run: Phases 3 and 4 both skipped per
+      // PHASE_SKIP_CRITERIA — no reviewResult and no qualityResults exist.
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+      };
+      const errors = validatePhaseTransition(ctx, "completion", {
+        phase3Skipped: true,
+        phase4Skipped: true,
+      });
+      expect(errors).toHaveLength(0);
+    });
+
+    it("keeps requiring qualityResults at completion when options are passed without phase4Skipped (D7-SA7.3-03)", () => {
+      // The carve-out is explicit-signal-only — an options object without the
+      // flag must not relax the completion gate.
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: validReviewResult(),
+      };
+      const errors = validatePhaseTransition(ctx, "completion", { phase3Skipped: false });
+      expect(errors.some((e) => e.field === "qualityResults")).toBe(true);
+    });
   });
 });
 
@@ -605,6 +644,19 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     }
   });
 
+  it("hatch3r-ui row implements the roster's components/ path-glob claim (D7-SA7.3-02)", () => {
+    // agents/shared/cq-specialist-roster.md CQ1 documents a `**/components/**`
+    // trigger; this invariant keeps the SSOT row implementing that documented
+    // coverage (suffix-gated components/ glob + Angular basenames) so the
+    // roster claim can never silently regress to prose-only again.
+    const ui = SPECIALIST_TRIGGER_TABLE.find((t) => t.specialist === "hatch3r-ui");
+    expect(ui).toBeDefined();
+    expect(ui!.triggerPathGlobs).toContain("components/");
+    expect(ui!.triggerPathGlobSuffixes).toBeDefined();
+    expect(ui!.triggerFilePatterns).toContain("*.component.ts");
+    expect(ui!.triggerFilePatterns).toContain("*.component.html");
+  });
+
   it("returns mandatory: true when a mandatory-on-match specialist triggers", () => {
     const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
     expect(result.triggered).toBe(true);
@@ -655,6 +707,60 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
 
   it("should NOT trigger hatch3r-ui on non-UI file changes", () => {
     const result = shouldTriggerSpecialist("hatch3r-ui", ["src/server/route.ts"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  // ── CQ1 ui component-surface triggers (Finding D7-SA7.3-02) ─────
+  // The ui row was basename-only (*.tsx/jsx/vue/svelte + tailwind/theme), so
+  // Angular, co-located-.ts, Lit/Web-Component, and Svelte-5 runes surfaces
+  // never matched — and the roster's documented `**/components/**` trigger
+  // (agents/shared/cq-specialist-roster.md CQ1) had no SSOT implementation.
+  it("triggers hatch3r-ui with mandatory: true on an Angular component class (D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/app/orders/orders.component.ts"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("triggers hatch3r-ui on an Angular component template (D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/app/orders/orders.component.html"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("triggers hatch3r-ui on a co-located .ts barrel under components/ (D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button/index.ts"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+    expect(result.reasons.some((r) => r.includes("src/components/Button/index.ts"))).toBe(true);
+  });
+
+  it("triggers hatch3r-ui on Lit/Web-Component and Svelte-5 runes files under components/ (D7-SA7.3-02)", () => {
+    for (const file of ["src/components/my-element.ts", "src/components/counter.svelte.ts"]) {
+      const result = shouldTriggerSpecialist("hatch3r-ui", [file]);
+      expect(result.triggered, `${file} should trigger hatch3r-ui`).toBe(true);
+      expect(result.mandatory, `${file} should be a Tier 2/3 hard mandate`).toBe(true);
+    }
+  });
+
+  it("triggers hatch3r-ui on a style file under components/ (design-token surface, D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button/styles.scss"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("does NOT trigger hatch3r-ui on non-source files under components/ (D7-SA7.3-02)", () => {
+    // The suffix gate mirrors the D7-20 backend source-suffix guard: a README
+    // or a fixture asset under components/ is not a component change.
+    const result = shouldTriggerSpecialist("hatch3r-ui", [
+      "src/components/README.md",
+      "src/components/fixtures/data.json",
+    ]);
+    expect(result.triggered).toBe(false);
+    expect(result.mandatory).toBeUndefined();
+  });
+
+  it("does NOT trigger hatch3r-ui on a plain .ts outside a components/ segment (D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/lib/formatDate.ts"]);
     expect(result.triggered).toBe(false);
   });
 
@@ -1187,6 +1293,36 @@ describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
     expect(result.incompletionReason).toBe(
       "dispatched specialist(s) did not complete: hatch3r-ui (TIMEOUT), hatch3r-scalability (PARTIAL)",
     );
+  });
+
+  // ── Documentation-only carve-out (Finding D7-SA7.3-03) ──────────
+  it("reports complete-by-skip for a documentation-only change (phase4Skipped, D7-SA7.3-03)", () => {
+    // No Phase 4 ran: no specialists exist, and the validationPass values are
+    // whatever the caller fabricated — the carve-out must not read them.
+    const result = evaluatePhase4Completion(
+      {
+        specialists: [],
+        validationPass: { testsPass: false, typecheckPass: false, fixAttempts: 0, regressionsPersist: true },
+      },
+      { phase4Skipped: true },
+    );
+    expect(result.complete).toBe(true);
+    expect(result.mandatoryFloorsSatisfied).toBe("n/a");
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.incompletionReason).toBeUndefined();
+  });
+
+  it("still fails closed for an empty specialist set WITHOUT the phase4Skipped signal (D7-SA7.3-03)", () => {
+    // The carve-out is explicit-signal-only: absent the flag, a context with
+    // no specialists keeps the mandatory-floor rejection — a docs-only skip is
+    // never granted implicitly.
+    const result = evaluatePhase4Completion({
+      specialists: [],
+      validationPass: { testsPass: true, typecheckPass: true, fixAttempts: 0, regressionsPersist: false },
+    });
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+    expect(result.incompletionReason).toContain("mandatory floor specialist");
   });
 });
 

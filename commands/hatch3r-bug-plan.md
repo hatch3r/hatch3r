@@ -324,52 +324,9 @@ Confirm, or tell me what to adjust."
 
 Only proceed if the fix requires significant architectural decisions — for example, replacing an error-prone pattern across the codebase, introducing a new resilience mechanism, or changing a data model to prevent recurrence. Most bug investigations will NOT need ADRs.
 
-If ADRs are needed, generate them following the same format as `hatch3r-feature-plan` Step 6.
+If ADRs are needed, generate one per decision using the shared skeleton:
 
-#### ADR Format — `docs/adr/{NNNN}_{decision-slug}.md`
-
-Determine the next sequential number by scanning existing files in `docs/adr/`. Use slugified decision titles.
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Context
-
-{Why this decision is needed — the bug revealed a systemic issue that requires an architectural response, not just a point fix}
-
-## Decision
-
-{What was decided and why}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-
-## Related
-
-- Investigation report: `docs/investigations/{NN}_{bug-slug}.md`
-```
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton. Per-command slots: context-guidance = "the bug revealed a systemic issue that requires an architectural response, not just a point fix"; related-ref = "Investigation report: `docs/investigations/{NN}_{bug-slug}.md`".
 
 If no ADRs are needed, state so and skip to Step 7.
 

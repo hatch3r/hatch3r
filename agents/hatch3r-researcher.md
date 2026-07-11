@@ -117,7 +117,7 @@ Blocker-type decision rules:
 
 ### 6. Full-Mode Breaking-Change Detection
 
-When any requested mode could surface API or contract changes (`codebase-impact`, `architecture`, `refactoring-strategy`, `migration-path`, `risk-assessment`, `impact-analysis`), scan findings for breaking-change candidates and emit a dedicated block so the orchestrator can upgrade the Phase 2 Plan ASK checkpoint. This mirrors the auto-mode Safety Guardrail at `commands/hatch3r-workflow.md:418` for interactive Full Mode.
+When any requested mode could surface API or contract changes (`codebase-impact`, `architecture`, `refactoring-strategy`, `migration-path`, `risk-assessment`, `impact-analysis`), scan findings for breaking-change candidates and emit a dedicated block so the orchestrator can upgrade the Phase 2 Plan ASK checkpoint. This mirrors the auto-mode Safety Guardrail in `commands/hatch3r-workflow.md` → Safety Guardrails (Always Active) for interactive Full Mode.
 
 Breaking-change categories (apply in listed order; first match wins):
 
@@ -140,7 +140,7 @@ If no breaking changes are detected, set `Breaking changes detected: NONE` in th
 | 1 | api_signature | src/auth/middleware.ts:42 | `verify(token)` | `verify(token, options)` | 3 callers (src/api/*.ts) | high |
 ```
 
-Confidence field uses `high` (direct code evidence), `medium` (evidence from ADR plus partial code trace), or `low` (inferred from spec without code confirmation). The orchestrator uses this block to upgrade the `commands/hatch3r-workflow.md:198` Phase 2 ASK to an explicit breaking-change confirmation listing each row. For `type_shape`, `event_schema`, and `public_interface` rows classed as a field drop or rename, append `remedy: façade contract-hold` to the row's Proposed-shape cell — the orchestrator forwards it into the implementer prompt so the lane preserves the key-set and hard-nulls the field instead of deleting (procedure: `rules/hatch3r-contract-census.md` → Façade Contract-Hold).
+Confidence field uses `high` (direct code evidence), `medium` (evidence from ADR plus partial code trace), or `low` (inferred from spec without code confirmation). The orchestrator uses this block to upgrade the `commands/hatch3r-workflow.md` → Phase 2 plan-approval ASK to an explicit breaking-change confirmation listing each row. For `type_shape`, `event_schema`, and `public_interface` rows classed as a field drop or rename, append `remedy: façade contract-hold` to the row's Proposed-shape cell — the orchestrator forwards it into the implementer prompt so the lane preserves the key-set and hard-nulls the field instead of deleting (procedure: `rules/hatch3r-contract-census.md` → Façade Contract-Hold).
 
 ---
 
@@ -192,7 +192,7 @@ This agent runs under the `research` phase budget (`src/pipeline/phaseTimeout.ts
 **Execution bounds — enforced vs advisory.** Two frontmatter ceilings bound this agent, and they differ in who stops the run:
 
 - `wall_clock_advisory_ms` (300000) is self-honored — no platform primitive reads it, so the agent must watch its own elapsed time and emit the `Blocked Recovery` remainder above as it nears the ceiling.
-- `max_turns_advisory` (40) is the canonical turn ceiling. It maps to Claude Code's platform-enforced `maxTurns` subagent field (a Claude-only primitive per code.claude.com/docs/en/sub-agents, accessed 2026-07-10): on that adapter the platform halts a degenerate loop — e.g. a mode re-issuing the same failing scan — at the ceiling even when the agent never self-checks. Emission is the D2/D9 adapter half, staged behind the claude adapter's CL-2 native-field work (`src/adapters/claude.ts`); until it lands the field is a documented contract, not a live stop. Cursor and Copilot expose no turn-cap primitive, so there the field is inert and only the wall-clock advisory applies.
+- `max_turns_advisory` (40) is the canonical turn ceiling. It maps to Claude Code's platform-enforced `maxTurns` sub-agent field (a Claude-only primitive per code.claude.com/docs/en/sub-agents, accessed 2026-07-10): on that adapter the platform halts a degenerate loop — e.g. a mode re-issuing the same failing scan — at the ceiling even when the agent never self-checks. Emission is the D2/D9 adapter half, staged behind the claude adapter's CL-2 native-field work (`src/adapters/claude.ts`); until it lands the field is a documented contract, not a live stop. Cursor and Copilot expose no turn-cap primitive, so there the field is inert and only the wall-clock advisory applies.
 
 The turn ceiling is a runaway backstop, set high enough that a legitimately long multi-mode `deep` run stays under it — it complements the wall-clock advisory, not replaces it.
 

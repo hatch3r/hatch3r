@@ -311,9 +311,16 @@ describe("status command", () => {
 
     const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     // installed-older names the downgrade risk and points at `update`, NOT the
-    // upgrade-framed "Run hatch3r sync to regenerate".
-    expect(output).toContain("is older than the version that generated these files");
-    expect(output).toContain("hatch3r update");
+    // upgrade-framed "Run hatch3r sync to regenerate". The hint renders inside the
+    // Installation printBox (ui.ts → boxen, borderStyle "round", no explicit
+    // width), so on a non-TTY stdout boxen wraps the ~165-char sentence at its
+    // ~80-col default — splitting "generated" | "these files" across box lines.
+    // Strip the round-border box characters and collapse the wrap whitespace so
+    // the assertion tests the SENTENCE, not the terminal-width-dependent wrap
+    // (D1-SA1.4-04).
+    const flat = output.replace(/[│╭╮╰╯─]/g, " ").replace(/\s+/g, " ");
+    expect(flat).toContain("is older than the version that generated these files");
+    expect(flat).toContain("hatch3r update");
     expect(output).not.toContain("canonical drift is expected from the upgrade");
   });
 

@@ -429,50 +429,7 @@ Only proceed if the research phase identified significant testing infrastructure
 
 If no ADRs are needed, skip to Step 7.
 
-#### ADR Format -- `docs/adr/{NNNN}_{decision-slug}.md`
-
-Determine the next sequential number by scanning existing files in `docs/adr/`. Use slugified decision titles.
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Context
-
-{Why this testing infrastructure decision is needed -- current pain points, coverage gaps, or quality concerns that motivate the change}
-
-## Decision
-
-{What was decided and why}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-
-## Related
-
-- Test plan spec: `docs/specs/{NN}_{scope-slug}_test-plan.md`
-```
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton. Per-command slots: context-guidance replaces the full `## Context` placeholder — "{Why this testing infrastructure decision is needed -- current pain points, coverage gaps, or quality concerns that motivate the change}"; related-ref = "Test plan spec: `docs/specs/{NN}_{scope-slug}_test-plan.md`".
 
 **ASK:** "Here are {N} ADR(s) generated from testing infrastructure decisions. Review before I write the files:
 {list with titles}

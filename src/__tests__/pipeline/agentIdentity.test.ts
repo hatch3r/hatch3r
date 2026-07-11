@@ -9,6 +9,7 @@ import {
   fingerprintAgentIdentity,
   detectCapabilityGoalDrift,
 } from "../../pipeline/agentIdentity.js";
+import { runComplianceChecks } from "../../pipeline/complianceVerification.js";
 
 describe("agentIdentity", () => {
   describe("buildAgentIdentity", () => {
@@ -209,6 +210,29 @@ describe("agentIdentity", () => {
         identity.role,
       );
       expect(wrapped.fingerprint).toBe(direct.fingerprint);
+    });
+  });
+
+  // D15-SA15.3-02: this module was 0-caller dead code; its weekly test (run by
+  // trust-model-audit.yml) read as active coverage for an inert control. It is
+  // now wired into the validate-path compliance surface via
+  // complianceVerification.ts. This guard fails if that wiring regresses,
+  // returning the module — and every test above — to false-coverage status.
+  describe("D15-SA15.3-02: wired into the compliance surface (not dead code)", () => {
+    it("provenance + drift exports back live validate-path compliance checks", async () => {
+      const report = await runComplianceChecks();
+      const asi03 = report.checks.find((c) => c.id === "asi03-agent-identity");
+      const asi10 = report.checks.find((c) => c.id === "asi10-capability-drift");
+      expect(
+        asi03,
+        "asi03-agent-identity check must exist (annotateOutput/verifyOutputAgent wired)",
+      ).toBeDefined();
+      expect(
+        asi10,
+        "asi10-capability-drift check must exist (fingerprint/drift wired)",
+      ).toBeDefined();
+      expect(asi03!.status).toBe("pass");
+      expect(asi10!.status).toBe("pass");
     });
   });
 });

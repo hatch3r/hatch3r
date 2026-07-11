@@ -261,8 +261,10 @@ function agentToolGrantBaselineMessage(allowedWidth: number): string {
  * Valid pillar identifiers for a user artifact's `pillars` frontmatter array
  * (F20.1.A2, F20.2.A2). The two-axis framework (CONSTITUTION §2A/§2B, Key
  * Design Decision 15 / 2.0.0) accepts either a governance-axis pillar (P1–P8)
- * OR a content-quality-axis pillar (CQ1–CQ9). The orchestrator
- * (`commands/hatch3r-create.md`) collects P1–P8; the prior gate text said
+ * OR a content-quality-axis pillar (CQ1–CQ10 — CQ10 Product & Spec Quality was
+ * ratified in CONSTITUTION §2B by EVOLVE run 21ec6aa3, 2026-07-09). The
+ * orchestrator (`commands/hatch3r-create.md`) collects the P1–P8 ∪ CQ1–CQ10
+ * union at Step 1.4a; the prior gate text said
  * "[P1...P6]" — drift the audit flagged. `validateStructuredPillars` rejects
  * any value outside this union so the advertised enum and the enforced enum
  * match. The error string lists the union and offers a Levenshtein
@@ -286,12 +288,13 @@ const VALID_PILLAR_IDS: readonly string[] = [
   "CQ7",
   "CQ8",
   "CQ9",
+  "CQ10",
 ];
 
 /**
  * Strict validator for a structured `pillars` frontmatter array (F20.1.A2 /
  * F20.2.A2). Rejects any entry outside the two-axis union (P1–P8 governance,
- * CQ1–CQ9 content-quality) so the advertised enum and the enforced enum match.
+ * CQ1–CQ10 content-quality) so the advertised enum and the enforced enum match.
  * Mirrors `validateStructuredTools`: returns one violation string per offending
  * entry, each listing the valid union.
  */
@@ -356,7 +359,7 @@ export function qualityCharterViolation(
  * Pillar-declaration gate (D20-SA20.2-02 points c/d/e). Honors all THREE
  * satisfaction surfaces the D20.2 checklist names — a non-empty `pillars`
  * frontmatter array, a `**Pillars:**`/`## Pillar` body line, OR a
- * `P1`…`P8`/`CQ1`…`CQ9` token carried directly in the `tags` array (F20.2.B3).
+ * `P1`…`P8`/`CQ1`…`CQ10` token carried directly in the `tags` array (F20.2.B3).
  * Returns the two-axis-union message — NOT the pre-fix `[P1...P6]` enum
  * (F20.2.A2) — when none of the three is present, `undefined` otherwise.
  */
@@ -370,9 +373,9 @@ export function pillarDeclarationViolation(
     /(^|\n)\s*##\s*Pillar/i.test(body) || /\*\*Pillars?:\*\*/i.test(body);
   const hasPillarTags =
     Array.isArray(frontmatter.tags) &&
-    frontmatter.tags.some((t) => /^(?:P[1-8]|CQ[1-9])$/.test(String(t)));
+    frontmatter.tags.some((t) => /^(?:P[1-8]|CQ(?:[1-9]|10))$/.test(String(t)));
   if (!hasPillarFm && !hasPillarBody && !hasPillarTags) {
-    return "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ9]` to frontmatter, a `P1...P8`/`CQ1...CQ9` tag in `tags`, or a `**Pillars:**` line in the body";
+    return "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ10]` to frontmatter, a `P1...P8`/`CQ1...CQ10` tag in `tags`, or a `**Pillars:**` line in the body";
   }
   return undefined;
 }
@@ -612,21 +615,42 @@ export interface ContentBodyViolation {
  *   - Reads the file body (post-frontmatter) and surfaces every match.
  *   - D20-2: for `type: agent` files, parses the structured `tools.allowed`
  *     grant and flags a wide allowlist (> {@link AGENT_TOOL_BASELINE_THRESHOLD}
- *     categories) that cites no security baseline as `severity: "error"`. This
- *     is the deterministic CLI floor for the unbounded-grant scenario: the same
- *     check ran only inside {@link runUserContentGates}, reachable solely via the
- *     LLM-mediated `/hatch3r-create` path, so a hand-authored grant rode in
- *     unflagged at every tier (SA20.2-F5). Mirrors the in-memory funnel via the
- *     shared {@link agentToolGrantOverBaseline} helper.
+ *     categories) that cites no security baseline. This is the deterministic CLI
+ *     floor for the unbounded-grant scenario: the same check ran only inside
+ *     {@link runUserContentGates}, reachable solely via the LLM-mediated
+ *     `/hatch3r-create` path, so a hand-authored grant rode in unflagged
+ *     (SA20.2-F5). Mirrors the in-memory funnel via the shared
+ *     {@link agentToolGrantOverBaseline} helper.
+ *   - D20-SA20.2-04: the tool-grant baseline severity is TIER-AWARE, matching
+ *     the funnel and the `user-content-templates.md` §1 contract — `warning`
+ *     below `team`, `error` at `team`+. The pre-flight previously emitted an
+ *     unconditional `error`, contradicting the funnel's documented `solo`-gentle
+ *     disposition and making `sync` hard-block a solo project that the funnel
+ *     had let save with only a gentle nudge. Deny-pattern and injection
+ *     violations stay `error` at every tier (security-critical, tier-blind).
  *   - Tolerates I/O errors on individual files (logs a warning entry, continues
  *     scanning siblings) — a malformed user file never halts the pre-flight.
+ *
+ * @param rootDir Project root whose `.hatch3r/overrides/` subtree is scanned.
+ * @param tier    Optional resolved maturity tier for the tool-grant baseline
+ *   severity. When omitted it is read from the project manifest (absent/
+ *   unreadable collapses to the `solo` baseline, never stricter).
  */
 export async function validateContentBody(
   rootDir: string,
+  tier?: MaturityTier,
 ): Promise<ContentBodyViolation[]> {
   const violations: ContentBodyViolation[] = [];
   const userArtifacts = await discoverUserContent(rootDir);
   if (userArtifacts.length === 0) return violations;
+
+  // Tier-aware tool-grant baseline (D20-SA20.2-04). An explicit `tier` wins
+  // (testability); otherwise resolve it from the manifest via the same helper
+  // the funnel uses so the two surfaces agree. Only the tool-grant baseline
+  // consults this — deny-pattern and injection stay strict at every tier.
+  const resolvedTier = tier ?? (await resolveProjectMaturityTier(rootDir));
+  const toolGrantIsStrict =
+    MATURITY_TIER_RANK[resolvedTier] >= MATURITY_TIER_RANK.team;
 
   for (const artifact of userArtifacts) {
     const relativePath = relativizeUnderRoot(rootDir, artifact.path);
@@ -693,7 +717,7 @@ export async function validateContentBody(
       if (overWidth !== undefined) {
         violations.push({
           relativePath,
-          severity: "error",
+          severity: toolGrantIsStrict ? "error" : "warning",
           message: agentToolGrantBaselineMessage(overWidth),
         });
       }
@@ -980,7 +1004,7 @@ async function runUserContentGates(
   // Pillar declaration (strict). Routed through the shared
   // {@link pillarDeclarationViolation} decision (D20-SA20.2-02 points c/d/e):
   // it honors all THREE satisfaction surfaces (a `pillars` frontmatter array,
-  // a `**Pillars:**`/`## Pillar` body line, or a `P1`…`P8`/`CQ1`…`CQ9` token in
+  // a `**Pillars:**`/`## Pillar` body line, or a `P1`…`P8`/`CQ1`…`CQ10` token in
   // the `tags` array per F20.2.B3) and emits the two-axis-union message rather
   // than the pre-fix `[P1...P6]` enum (F20.2.A2). Single-sourcing it here lets
   // the CI-facing validateUserContent consume the identical decision instead of
@@ -992,7 +1016,7 @@ async function runUserContentGates(
 
   // Pillar enum validation (strict). F20.1.A2 / F20.2.A2: when the author
   // declares a structured `pillars` frontmatter array, every entry must be a
-  // known pillar id (governance P1–P8 or content-quality CQ1–CQ9). This closes
+  // known pillar id (governance P1–P8 or content-quality CQ1–CQ10). This closes
   // the drift where the orchestrator advertised P1–P8 but the gate text said
   // P1–P6 and never enforced an enum, so a typo'd pillar id (e.g. `P9`, `Pq`)
   // rode silently into adapter output.

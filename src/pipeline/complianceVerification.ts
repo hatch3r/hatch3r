@@ -31,6 +31,15 @@ import {
   verifyHandoff,
   type DiffEntry,
 } from "./diffHash.js";
+import {
+  buildAgentIdentity,
+  annotateOutput,
+  verifyOutputAgent,
+  verifyOutputPhase,
+  computeAgentCapabilityGoalHash,
+  fingerprintAgentIdentity,
+  detectCapabilityGoalDrift,
+} from "./agentIdentity.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 import { scanMcpServers } from "./mcpDescriptionScan.js";
 import {
@@ -682,6 +691,126 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     enforcement: "library-contract-for-downstream",
     status: diffHashSelfTest.ok ? "pass" : "fail",
     detail: diffHashSelfTest.detail,
+  });
+
+  // ── ASI03: Agent-identity provenance (D15-SA15.6-01) ──
+  // The D15 crosswalk (D15-trust-reference.md Control-to-Trust Mapping) ASI03
+  // row cites `validate asi03-*` and classes it library-contract-for-downstream
+  // ("validate self-tests the contract"), but before this check no `asi03-*`
+  // check id existed — the glob resolved to zero checks and the promised
+  // self-test was absent. This check makes the cite resolve and EARNS its
+  // verdict by round-tripping the agentIdentity.ts provenance contract:
+  // annotateOutput stamps the producing agent + phase; verifyOutputAgent /
+  // verifyOutputPhase accept the true agent/phase and reject a mismatch. If that
+  // contract regresses (the agent id stops being stamped or compared), this
+  // FAILS rather than silently passing.
+  const agentIdentitySelfTest = ((): { ok: boolean; detail: string } => {
+    const identity = buildAgentIdentity("hatch3r-implementer", "0.0.0-selftest");
+    const annotated = annotateOutput(
+      { note: "asi03 provenance self-test" },
+      identity.agentId,
+      identity.version,
+      "implementation",
+      "asi03-selftest-corr",
+    );
+    if (annotated.metadata.agent.agentId !== "hatch3r-implementer") {
+      return {
+        ok: false,
+        detail:
+          "ASI03 provenance contract regressed: annotateOutput did not stamp the producing agentId onto the output metadata",
+      };
+    }
+    const okAgent = verifyOutputAgent(annotated.metadata, "hatch3r-implementer");
+    const okPhase = verifyOutputPhase(annotated.metadata, "implementation");
+    if (!okAgent.valid || !okPhase.valid) {
+      return {
+        ok: false,
+        detail: `ASI03 provenance contract regressed: a correctly-annotated output failed verification (${okAgent.reason ?? okPhase.reason ?? "no reason"})`,
+      };
+    }
+    const wrongAgent = verifyOutputAgent(annotated.metadata, "hatch3r-reviewer");
+    const wrongPhase = verifyOutputPhase(annotated.metadata, "review");
+    if (wrongAgent.valid || wrongPhase.valid) {
+      return {
+        ok: false,
+        detail:
+          "ASI03 provenance contract regressed: a mismatched agent or phase was accepted (identity/phase not actually checked)",
+      };
+    }
+    return {
+      ok: true,
+      detail:
+        "Agent-identity provenance verified by round-trip self-test: annotateOutput stamps the producing agent + phase; verifyOutputAgent/verifyOutputPhase accept the true agent/phase and reject a mismatch. Enforcement is agent-delegated: agentIdentity is consumed by downstream pack/orchestrator integrators (not a CLI gate); validate self-tests the contract.",
+    };
+  })();
+  checks.push({
+    id: "asi03-agent-identity",
+    description: "Agent-identity provenance contract is intact (round-trip self-test)",
+    // D15-SA15.6-01: the crosswalk ASI03 row's `validate asi03-*` cite now
+    // resolves to this check id. agentIdentity.ts is @library_export_only (its
+    // only non-test importer is this self-test): consumed by downstream pack/
+    // orchestrator integrators, not a CLI gate — mirrors diff-hash/review-loop.
+    controlRef: "ASI03",
+    enforcement: "library-contract-for-downstream",
+    status: agentIdentitySelfTest.ok ? "pass" : "fail",
+    detail: agentIdentitySelfTest.detail,
+  });
+
+  // ── ASI10: Agent capability+goal drift fingerprint (D15-SA15.3-02) ──
+  // agentIdentity.ts's ASI10 drift fingerprint (computeAgentCapabilityGoalHash /
+  // fingerprintAgentIdentity / detectCapabilityGoalDrift, D15-M7) was
+  // purpose-built but had zero callers — dead code carrying a weekly test that
+  // read as active coverage. This check wires the fingerprint onto the validate
+  // path and EARNS its verdict by round-tripping detectCapabilityGoalDrift: an
+  // unchanged identity re-fingerprints equal (no drift), and a widened
+  // capability set surfaces as capability drift with the changed field named. If
+  // the hash loses determinism or the drift comparison regresses, this FAILS.
+  const capabilityDriftSelfTest = ((): { ok: boolean; detail: string } => {
+    const identity = buildAgentIdentity("hatch3r-implementer", "0.0.0-selftest");
+    const before = fingerprintAgentIdentity(identity);
+    const unchanged = fingerprintAgentIdentity(identity);
+    if (
+      before.fingerprint !== unchanged.fingerprint ||
+      detectCapabilityGoalDrift(before, unchanged).drifted
+    ) {
+      return {
+        ok: false,
+        detail:
+          "ASI10 drift fingerprint regressed: two fingerprints of the identical agent identity did not compare equal (non-deterministic hash)",
+      };
+    }
+    // A synthetic, guaranteed-novel capability token forces a drift regardless
+    // of the agent's real tool set (the deduped set always grows by one).
+    const widened = computeAgentCapabilityGoalHash(
+      identity.agentId,
+      [...identity.capabilities, "__asi10-drift-probe__"],
+      identity.role,
+    );
+    const drift = detectCapabilityGoalDrift(before, widened);
+    if (!drift.drifted || !drift.changedFields.includes("capabilities")) {
+      return {
+        ok: false,
+        detail:
+          "ASI10 drift fingerprint regressed: a widened capability set did not surface as capability drift",
+      };
+    }
+    return {
+      ok: true,
+      detail:
+        "Agent capability+goal drift fingerprint verified by round-trip self-test: an unchanged identity re-fingerprints equal (no drift); a widened capability set surfaces as capability drift with the changed field named. Enforcement is agent-delegated: the fingerprint is consumed by downstream orchestrator/pack integrators for cross-session drift detection (not a CLI gate); validate self-tests the contract.",
+    };
+  })();
+  checks.push({
+    id: "asi10-capability-drift",
+    description: "Agent capability+goal drift fingerprint is intact (round-trip self-test)",
+    // D15-SA15.3-02: wires the previously-uncalled agentIdentity ASI10 drift
+    // primitive onto the validate path. @library_export_only (only non-test
+    // importer is this self-test): consumed by downstream orchestrator/pack
+    // integrators for cross-session drift detection, not a CLI gate.
+    controlRef: "ASI10",
+    enforcement: "library-contract-for-downstream",
+    status: capabilityDriftSelfTest.ok ? "pass" : "fail",
+    detail: capabilityDriftSelfTest.detail,
   });
 
   // ── D17 Medium (#406-#414): Content safety deny patterns ──

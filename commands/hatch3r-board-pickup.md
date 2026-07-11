@@ -4,6 +4,8 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-ui, hatch3r-ux, hatch3r-performance]
 description: "Pick up epics/issues from the project board: dependency-aware selection, collision detection, branching, batch execution. Multi-platform."
+argument-hint: "[--auto] [--max-batch=N] [--confidence-floor=any|medium|high]"
+disable-model-invocation: true
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -41,6 +43,8 @@ Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, o
 | 3e. Final Quality — Triggered | `hatch3r-lint-fixer`, `hatch3r-performance` (conditional); `hatch3r-ui`, `hatch3r-ux` (mandatory-on-match — each triggered one MUST spawn as its own dedicated instance at Tier 2/3) | Yes | When triggered |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
+
+**Conditional-CQ scope (D7-SA7.5-02):** board-pickup delivery dispatches CQ1/CQ2/CQ3/CQ5/CQ7 (+ `hatch3r-docs-writer`, `hatch3r-lint-fixer`); the conditional backend/API specialists — CQ4 `hatch3r-reliability`, CQ6 `hatch3r-scalability`, CQ8 `hatch3r-maintainability`, CQ9 `hatch3r-enhancability` — are a stated deferral on this delivery path, not silent drift: they run when the same code passes through `hatch3r-workflow` (its Phase 4b dispatches every triggered CQ1-CQ9 specialist per `SPECIALIST_TRIGGER_TABLE`) or an audit cycle. Step 7's jscpd duplication scan covers the duplication half of CQ8 in-path.
 
 ## Browser Automation
 

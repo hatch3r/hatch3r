@@ -113,7 +113,7 @@ import {
 import { createSnapshot } from "../../pipeline/snapshot.js";
 import { countTrackedFiles, estimateCost, formatCostBlock } from "../../pipeline/costEstimator.js";
 import { recordFirstRunSuccess, recordSpaceMetric } from "../../pipeline/spaceTelemetry.js";
-import { readCheckpoint, writeCheckpoint, checkpointPath, type CheckpointMeta } from "../../pipeline/checkpoint.js";
+import { readCheckpoint, writeCheckpoint, checkpointPath, workspaceDir, type CheckpointMeta } from "../../pipeline/checkpoint.js";
 import { execFileSync } from "node:child_process";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -766,7 +766,7 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
   // `passed` checkpoint and reports it; a crashed init leaves an in-progress
   // marker. Best-effort — a checkpoint-write failure routes to a warning and
   // never aborts a fresh install (matches the snapshot Silent Failure Contract).
-  const initWorkspace = join(rootDir, ".init-workspace");
+  const initWorkspace = workspaceDir(rootDir, "init");
   const recordPhase = async (
     wave: number,
     status: "in-progress" | "passed" | "failed",
@@ -2187,7 +2187,7 @@ export async function initCommand(
   // rollback snapshot).
   if (opts.resume) {
     const cwd = process.cwd();
-    const initWorkspace = join(cwd, ".init-workspace");
+    const initWorkspace = workspaceDir(cwd, "init");
     const checkpoint = await readCheckpoint(initWorkspace);
     if (checkpoint === null) {
       warn(
@@ -2341,6 +2341,29 @@ export async function initCommand(
         .map((s) => s.trim())
         .filter((s): s is FacetId => (KNOWN_FACETS as readonly string[]).includes(s))
     : [];
+
+  // D3-SA3.2-11 (D3, CQ5 / P1): non-TTY preflight — the init-side mirror of
+  // config's D1-18 guard (src/cli/commands/config.ts). The interactive flow
+  // below issues the ambiguity prompts (`detectAmbiguity`) and then the
+  // step-machine prompts (platform, identity, branch, tools, features, preset,
+  // maturity, custom items, import/sync confirms). Under a pipe, redirect, or CI
+  // runner stdin is not a TTY, so inquirer cannot read a response — it would hang
+  // or throw an opaque isTtyError after the first prompt. Reject up front with a
+  // usage-code (exit 2) error naming the headless escape. Scoped to
+  // `!headlessRun`: `--yes` never prompts and `--quick`/`--default` fold into
+  // `headlessRun` (they set `opts.yes` further below), so CI/headless installs
+  // still work. Placed after the flag-validation and completed-`--resume`
+  // short-circuits (both non-prompting) and before `detectAmbiguity` — the first
+  // prompt site — so those headless paths keep their precise errors / early
+  // return instead of collapsing to the TTY message.
+  if (!headlessRun && !process.stdin.isTTY) {
+    throw new HatchError(
+      "`hatch3r init` (interactive) requires a TTY — stdin is not interactive (piped, redirected, or CI).",
+      2,
+      "VALIDATION_ERROR",
+      "Re-run with `--yes` (or `--quick` / `--default`) to accept smart defaults headlessly, or run the interactive flow from a terminal.",
+    );
+  }
 
   // F1.1-H2 (B1 ambiguity-detection gate). Resolve flag-combination
   // ambiguities at the entry point before any side-effect runs. See

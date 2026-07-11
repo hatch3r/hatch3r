@@ -265,8 +265,15 @@ export interface QualityResults {
  */
 export interface Phase4CompletionContract {
   complete: boolean;
-  /** Whether always-mode floor specialists (security + testability) succeeded. */
-  mandatoryFloorsSatisfied: boolean;
+  /**
+   * Whether always-mode floor specialists (security + testability) succeeded.
+   * `"n/a"` when Phase 4 was skipped for a documentation-only change
+   * (`options.phase4Skipped`, Finding D7-SA7.3-03): the floors never ran, so
+   * neither boolean is honest — per {@link isDocumentationOnly} the
+   * mandatory-minimum does not apply to a docs-only change. Consumers must
+   * compare against `true`/`false` explicitly, never truthiness.
+   */
+  mandatoryFloorsSatisfied: boolean | "n/a";
   /** Number of lightweight reviewer re-reviews after specialist code fixes. */
   reReviewIterations: number;
   /** Critical findings still unresolved after the fixer pass. */
@@ -320,6 +327,22 @@ export interface Phase4CompletionContract {
  * `SpecialistResult` carries no `reason` field — the summary is the SKIPPED
  * contract's citation channel (see {@link AgentStatus}), and an undocumented
  * skip is indistinguishable from a crash.
+ *
+ * Finding D7-SA7.3-03 (Cycle 12): the documentation-only carve-out.
+ * `PHASE_SKIP_CRITERIA` phase 4 lists "Change is documentation-only with no
+ * code modifications" as a skip condition, and {@link isDocumentationOnly}
+ * documents that a `true` verdict dissolves the mandatory-minimum
+ * (testability + security) — but this completion authority previously had no
+ * docs-only signal, so a docs-only pipeline that skipped Phase 4 via
+ * {@link shouldSkipPhase} could never report `complete: true` (no specialists
+ * ⇒ the floor clause fails permanently). `options.phase4Skipped` mirrors the
+ * `phase3Skipped` carve-out in {@link validatePhaseTransition}: when set, the
+ * evaluation short-circuits to `complete: true` with
+ * `mandatoryFloorsSatisfied: "n/a"` and `qualityResults` is not read. The
+ * flag must be backed by {@link isDocumentationOnly} /
+ * {@link shouldSkipPhase}(4, ...) — asserting it for a change that touches
+ * code is a caller contract violation, exactly as an unbacked
+ * `phase3Skipped` would be.
  */
 export function evaluatePhase4Completion(
   qualityResults: QualityResults,
@@ -327,8 +350,31 @@ export function evaluatePhase4Completion(
     reReviewIterations?: number;
     unresolvedCriticalFindings?: number;
     codeMutatingSpecialists?: string[];
+    /**
+     * Phase 4 was skipped for a documentation-only change per
+     * `PHASE_SKIP_CRITERIA` phase 4, backed by {@link isDocumentationOnly} /
+     * {@link shouldSkipPhase} (Finding D7-SA7.3-03). When `true` the contract
+     * reports complete-by-skip and `qualityResults` is ignored.
+     */
+    phase4Skipped?: boolean;
   } = {},
 ): Phase4CompletionContract {
+  // Finding D7-SA7.3-03: documentation-only carve-out — the skip layer
+  // (PHASE_SKIP_CRITERIA phase 4 / isDocumentationOnly) dissolves the
+  // security+testability mandatory-minimum for docs-only changes; without
+  // this branch the completion authority contradicted that layer by
+  // requiring the floor unconditionally, so a docs-only pipeline could never
+  // report done. No Phase 4 ran ⇒ nothing in qualityResults is evaluated.
+  if (options.phase4Skipped) {
+    return {
+      complete: true,
+      mandatoryFloorsSatisfied: "n/a",
+      reReviewIterations: options.reReviewIterations ?? 0,
+      unresolvedCriticalFindings: 0,
+      codeMutatingSpecialists: options.codeMutatingSpecialists ?? [],
+    };
+  }
+
   const reReviewIterations = options.reReviewIterations ?? 0;
   // Finding D7-19: derive the unresolved-Critical count from the typed
   // SpecialistResult records by default (sum of each specialist's criticalCount,
@@ -896,6 +942,31 @@ const BACKEND_PATH_GLOBS: readonly string[] = [
   "jobs/",
 ];
 
+/**
+ * Front-end source-file suffixes the CQ1 ui `components/` path glob applies to
+ * (Finding D7-SA7.3-02). Mirrors the `BACKEND_SOURCE_SUFFIXES` gating pattern
+ * (Finding D7-20): a `components/` segment match fires only for
+ * component-shaped sources — scripts (Lit/Web-Component `.ts`/`.js`,
+ * co-located `index.ts` barrels, Svelte-5 `.svelte.ts` runes files), markup,
+ * and styles — so a `components/README.md` or a fixture asset under a
+ * component directory does not spuriously mandate the CQ1 specialist.
+ */
+const UI_COMPONENT_SOURCE_SUFFIXES: readonly string[] = [
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".vue",
+  ".svelte",
+  ".html",
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+];
+
 export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
   {
     specialist: "hatch3r-docs-writer",
@@ -938,15 +1009,27 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
       "Design-token or theme files modified",
       "Component-library imports changed",
     ],
+    // Finding D7-SA7.3-02: this row was basename-only, so Angular
+    // `foo.component.ts`/`.component.html`, co-located `Button/index.ts`
+    // barrels, Lit/Web-Component `.ts` files, and Svelte-5 `.svelte.ts` runes
+    // files never matched — while the human-readable roster
+    // (agents/shared/cq-specialist-roster.md CQ1) documented a
+    // `**/components/**` trigger with no SSOT implementation. The Angular
+    // basenames plus the suffix-gated `components/` path glob (the same D7-20
+    // pattern the backend rows use) implement the documented coverage.
     triggerFilePatterns: [
       "*.tsx",
       "*.jsx",
       "*.vue",
       "*.svelte",
+      "*.component.ts",
+      "*.component.html",
       "tailwind.config.js",
       "tailwind.config.ts",
       "theme.ts",
     ],
+    triggerPathGlobs: ["components/"],
+    triggerPathGlobSuffixes: UI_COMPONENT_SOURCE_SUFFIXES,
   },
   {
     specialist: "hatch3r-ux",
@@ -1281,6 +1364,17 @@ export interface PhaseTransitionOptions {
    * require a reviewed context, so a skip is never granted implicitly.
    */
   phase3Skipped?: boolean;
+  /**
+   * Finding D7-SA7.3-03: Phase 4 (Final Quality) is skippable for
+   * documentation-only changes per {@link PHASE_SKIP_CRITERIA} (backed by
+   * {@link isDocumentationOnly} / {@link shouldSkipPhase}) — no specialists
+   * ran, so there is no `qualityResults`. When `true`, the `"completion"`
+   * gate accepts an absent `qualityResults`, the same carve-out
+   * `phase3Skipped` gives `reviewResult`. Without this signal the gate
+   * continues to require a quality-evaluated context, so a skip is never
+   * granted implicitly.
+   */
+  phase4Skipped?: boolean;
 }
 
 /**
@@ -1292,7 +1386,8 @@ export interface PhaseTransitionOptions {
  * - Phase 3 -> 4: implementationResult, reviewResult (unless Phase 3 was skipped
  *   per `options.phase3Skipped` — Finding D7-11). An UNRESOLVED review verdict is
  *   rejected unless `options.allowUnresolvedAdvance` is set (Finding D7-10).
- * - Phase 4 -> completion: qualityResults
+ * - Phase 4 -> completion: qualityResults (unless Phase 4 was skipped for a
+ *   documentation-only change per `options.phase4Skipped` — Finding D7-SA7.3-03)
  */
 export function validatePhaseTransition(
   context: Partial<PipelineContext>,
@@ -1389,7 +1484,17 @@ export function validatePhaseTransition(
 
   if (targetPhase === "completion") {
     if (!context.qualityResults) {
-      errors.push({ field: "qualityResults", message: "qualityResults must be populated at completion" });
+      // Finding D7-SA7.3-03: Phase 4 is skippable for documentation-only
+      // changes (no specialists ran ⇒ no qualityResults). Accept the absence
+      // only under the explicit phase4Skipped signal — mirroring the
+      // phase3Skipped carve-out above, so a skip is never granted implicitly.
+      if (!options.phase4Skipped) {
+        errors.push({
+          field: "qualityResults",
+          message:
+            "qualityResults must be populated at completion (or pass phase4Skipped when Phase 4 was skipped for a documentation-only change per PHASE_SKIP_CRITERIA)",
+        });
+      }
     } else {
       if (!Array.isArray(context.qualityResults.specialists)) {
         errors.push({ field: "qualityResults.specialists", message: "qualityResults.specialists must be an array" });

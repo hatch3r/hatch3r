@@ -352,3 +352,67 @@ jobs:
             exit 1
           fi
           echo "Branch protection matches the documented contract: contexts $expected_contexts, strict=true, enforce_admins=true, classic reviews absent."
+
+  # D15-SA15.6-02 (Cycle 12): live-currency oracle. The "Trust reference doc
+  # currency" step above is a closed doc<->manifest loop — both files are
+  # maintainer-owned, so it verifies internal agreement, never agreement with
+  # the live framework. It cannot observe that Anthropic shipped RSP v3.4 two
+  # days after a doc touch while the crosswalk still cited v3.3. This job fetches
+  # each cited framework's canonical page (expected-versions.json `probeUrl`) and
+  # warns when the cited current version (`liveCurrentRegex`) is no longer what
+  # the live page presents — i.e. the framework versioned past the citation.
+  # Warning-only by construction: networks flake, and a transient fetch failure
+  # must not red a scheduled hardening run; a real drift surfaces as a
+  # ::warning:: in Actions history for a human to reconcile via
+  # expected-versions.json. Reads only the committed manifest + public URLs, so
+  # (unlike the doc-currency step) it is NOT a no-op on the public repo where the
+  # private trust-reference doc is absent.
+  framework-version-live-probe:
+    name: Framework version live-currency probe (warning-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Fetch each cited framework's canonical page and diff the live version against the manifest
+        env:
+          VERSIONS: expected-versions.json
+        run: |
+          set -euo pipefail
+          if [ ! -f "$VERSIONS" ]; then
+            echo "::notice::$VERSIONS not present — nothing to probe."
+            exit 0
+          fi
+          count="$(jq '.frameworks | length' "$VERSIONS")"
+          echo "Probing $count framework entr(y/ies) from $VERSIONS (warning-only, live-source oracle)."
+          warned=0
+          for i in $(seq 0 "$((count - 1))"); do
+            id="$(jq -r ".frameworks[$i].id" "$VERSIONS")"
+            url="$(jq -r ".frameworks[$i].probeUrl // empty" "$VERSIONS")"
+            live_re="$(jq -r ".frameworks[$i].liveCurrentRegex // empty" "$VERSIONS")"
+            if [ -z "$url" ] || [ -z "$live_re" ]; then
+              echo "::notice::$id: no probeUrl+liveCurrentRegex — live-currency probe skipped (annual/draft/unversioned framework, or not yet wired)."
+              continue
+            fi
+            echo "probe $id -> $url  (expect live current form /$live_re/)"
+            if ! body="$(curl -fsSL --max-time 25 --retry 2 --retry-delay 3 -A 'hatch3r-trust-model-audit/1.0' "$url" 2>/dev/null)"; then
+              echo "::warning::$id: could not fetch $url (network/transient) — live-currency unverified this run; re-run the workflow or verify by hand."
+              warned=$((warned + 1))
+              continue
+            fi
+            if printf '%s' "$body" | grep -Eq "$live_re"; then
+              echo "  ok: live page still presents the cited current version (/$live_re/ matched)."
+            else
+              echo "::warning::$id: live page $url no longer matches the cited current version /$live_re/ — the published framework may have versioned past expected-versions.json. Verify the live version, then bump the crosswalk cite in the trust-reference doc + this manifest (expectedRegex/staleRegex/liveCurrentRegex) together."
+              warned=$((warned + 1))
+            fi
+          done
+          echo "Live-currency probe complete: $warned warning(s). This job never fails the build (warning-only by design)."

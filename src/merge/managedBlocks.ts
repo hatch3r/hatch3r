@@ -92,7 +92,8 @@ function detectMarkers(
   // on its own line, which trims to exactly the bare token — so the fence
   // interior detected as a real block and insertManagedBlock spliced canonical
   // content into the user's example. Computed once per scan and shared with
-  // both marker searches below.
+  // both marker searches below. `undefined` (non-markdown host OR malformed
+  // fence structure — CI-RECON-03) means plain line-anchored detection.
   const fenced = isMarkdownHost(filePath) ? computeFencedLineRanges(content) : undefined;
 
   for (const variant of ordered) {
@@ -162,12 +163,31 @@ interface FencedRange {
  *   - A range covers the opening fence line through the closing fence line
  *     inclusive (the fence lines themselves never trim to a bare marker, but
  *     including them keeps the ranges contiguous).
- *   - An unterminated fence extends to end-of-content. Fail-closed: shielding
- *     the remainder means detection returns "no managed block" and
- *     safeWriteFile SKIPS non-destructively, rather than a quoted token
- *     corrupting the merge.
+ *   - An unterminated fence VOIDS the shield: `undefined` is returned and the
+ *     caller falls back to plain line-anchored detection (the Cycle-11
+ *     D1-7/D11-4 semantics), as if the document had no fences at all.
+ *
+ * Why unterminated ⇒ no shield (CI-RECON-03, Cycle 12 Wave 3 gate regression):
+ * one stray fence line flips open/close parity for everything after it, so
+ * EVERY pairing this scanner derives from a malformed document is unreliable —
+ * not just the trailing range. `agents/hatch3r-ci-watcher.md` demonstrates the
+ * failure: its body nests a ```bash example inside a ``` fence (author intent),
+ * which CommonMark pairs as (open,inner-close) instead, stranding the final
+ * fence line open. The initial D1-SA1.5-02 form extended that stranded fence to
+ * end-of-content, shielding the file's REAL `<!-- HATCH3R:END -->`; detection
+ * then reported "no managed block", and safeWriteFile's `appendIfNoBlock`
+ * branch — the standard adapter-output sync path, NOT a non-destructive skip —
+ * spliced a fresh copy of the full block on EVERY sync: unbounded file growth,
+ * non-idempotent sync, and a `verify --fix` loop that can never converge
+ * (INTEGRITY_ERROR). Returning `undefined` on malformed fence structure keeps
+ * the quoted-example shield for every well-formed document (the D1-SA1.5-02
+ * threat model: examples live in TERMINATED fences) while restoring the exact
+ * pre-Cycle-12 behavior for malformed ones — real whole-line markers are
+ * always found, and a whole-line token quoted inside an unterminated fence is
+ * matched exactly as it was before fence-awareness existed (no regression
+ * beyond the shield's own introduction).
  */
-function computeFencedLineRanges(content: string): FencedRange[] {
+function computeFencedLineRanges(content: string): FencedRange[] | undefined {
   const ranges: FencedRange[] = [];
   let open: { char: string; len: number; rangeStart: number } | null = null;
 
@@ -197,8 +217,10 @@ function computeFencedLineRanges(content: string): FencedRange[] {
     lineStart = nlIdx + 1;
   }
 
-  // Unterminated fence shields through end-of-content (fail-closed).
-  if (open !== null) ranges.push({ start: open.rangeStart, end: content.length });
+  // Unterminated fence: the fence structure is malformed, so every derived
+  // pairing is untrustworthy — void the shield entirely (see JSDoc,
+  // CI-RECON-03).
+  if (open !== null) return undefined;
 
   return ranges;
 }
@@ -326,7 +348,9 @@ export function insertManagedBlock(
   // exactly as detection does, removes that false positive at the root.
   // D1-SA1.5-02 (Cycle 12 Wave 3): the count is additionally fence-aware on
   // markdown hosts, again exactly as detection is — a whole-line token quoted
-  // inside a ``` example is neither a block boundary nor a duplicate.
+  // inside a ``` example is neither a block boundary nor a duplicate. As in
+  // detectMarkers, a malformed fence structure voids the shield (undefined —
+  // CI-RECON-03) so the count stays consistent with detection.
   const fenced = isMarkdownHost(filePath) ? computeFencedLineRanges(existingContent) : undefined;
   const startCount = countLineAnchored(existingContent, variant.start, fenced);
   const endCount = countLineAnchored(existingContent, variant.end, fenced);

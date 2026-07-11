@@ -656,13 +656,67 @@ describe("managedBlocks", () => {
       expect(hasManagedBlock(content, "notes.md")).toBe(false);
     });
 
-    it("an unterminated fence shields the remainder (fail-closed to no-block)", () => {
+    it("an unterminated fence voids the shield — real markers are still detected (CI-RECON-03)", () => {
+      // Supersedes the initial D1-SA1.5-02 contract ("unterminated fence
+      // shields the remainder"): that shape shielded REAL end markers, and the
+      // no-block outcome is NOT a non-destructive skip on the standard sync
+      // path — safeWriteFile's appendIfNoBlock branch splices a fresh copy of
+      // the block on every sync (unbounded growth, non-idempotent sync,
+      // non-convergent `verify --fix`). A malformed fence structure now voids
+      // the shield entirely, restoring plain line-anchored detection.
       const content = ["intro", "```", START, "body", END].join("\n");
-      // The fence never closes: everything after ``` is shielded, detection
-      // reports no block, and safeWriteFile's no-block branch SKIPS the file
-      // non-destructively.
-      expect(hasManagedBlock(content, "notes.md")).toBe(false);
-      expect(extractCustomContent(content, "notes.md")).toBe(content);
+      expect(hasManagedBlock(content, "notes.md")).toBe(true);
+      expect(extractManagedBlock(content, "notes.md")).toBe("body");
+    });
+
+    it("mis-nested interior fences cannot shield the real END marker (CI-RECON-03: ci-watcher shape)", () => {
+      // Regression model of agents/hatch3r-ci-watcher.md: the managed body
+      // nests a ```bash example inside a ``` fence (author intent), which
+      // CommonMark pairs as (open, inner-close) instead — stranding the last
+      // fence line open. With the trailing range shielding to end-of-content,
+      // the real END marker went undetected and every sync appended another
+      // full copy of the block. The malformed structure must void the shield
+      // so detection, extraction, and re-insertion stay convergent.
+      const body = [
+        "## Output Format",
+        "```",
+        "**Verification Commands:**",
+        "```bash", // author intent: nested opener; CommonMark: inert inside fence
+        "{commands}",
+        "```", // CommonMark: closes the fence opened at line 2
+        "**Notes:**",
+        "```", // author intent: closes outer; CommonMark: OPENS a new fence
+        "## Example",
+        "```", // CommonMark: closes
+        "example output",
+        "```", // author intent: closes example; CommonMark: OPENS — stranded to EOF
+      ].join("\n");
+      const content = [START, body, END, ""].join("\n");
+
+      expect(hasManagedBlock(content, ".cursor/agents/hatch3r-ci-watcher.md")).toBe(true);
+      expect(extractManagedBlock(content, ".cursor/agents/hatch3r-ci-watcher.md")).toBe(body);
+
+      // Re-inserting the same body is byte-stable (the sync-idempotency
+      // invariant lifecycle.test.ts protects end-to-end), and a second pass
+      // over the merged result converges instead of growing.
+      const once = insertManagedBlock(content, body, ".cursor/agents/hatch3r-ci-watcher.md");
+      const twice = insertManagedBlock(once, body, ".cursor/agents/hatch3r-ci-watcher.md");
+      expect(twice).toBe(once);
+      expect(once).toBe(content);
+    });
+
+    it("keeps the shield for quoted markers when every fence terminates, even alongside a real block", () => {
+      // Guard the surviving half of D1-SA1.5-02 next to the void-on-malformed
+      // carve-out: with a WELL-FORMED fence structure, a whole-line quoted
+      // token inside a fence stays invisible — the real block is still the
+      // one merged, and the fenced example is preserved byte-for-byte.
+      const fence = ["```", START, "quoted example", END, "```"].join("\n");
+      const content = [START, "real body", END, "", fence, ""].join("\n");
+      const result = insertManagedBlock(content, "updated body", "CLAUDE.md");
+      expect(result).toContain("updated body");
+      expect(result).not.toContain("real body");
+      expect(result).toContain(fence);
+      expect(extractManagedBlock(result, "CLAUDE.md")).toBe("updated body");
     });
 
     it("keeps fence-skipping OFF for non-markdown hosts (backtick lines in YAML are plain content)", () => {

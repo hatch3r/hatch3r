@@ -55,17 +55,36 @@ const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 
 /**
- * Governance prompts that carry a currency header. Paths are POSIX-relative to
- * the repo root. A listed file that is absent on disk is skipped (the overlay
- * layout may not ship every prompt in every checkout).
+ * The full §2 P5 lean-capped governance artifact set — every file that carries
+ * a CONSTITUTION §2 P5 cap row, each of which must carry a `> Last updated:`
+ * currency header per Anti-Bloat Principle 6. Two groups: the 6 lean-tracked
+ * governance prompts, then the 7 other capped files (amendment-procedure, the
+ * D15 governed appendix, SCALE.md, and the four `agents/shared/*` contracts —
+ * §2 P5-capped artifacts that live outside `governance/`). Scoping the scan to
+ * only the 6 prompts left the 2026-07-09 cap-table expansion unenforced
+ * (D24-SA24.1-05); the set is ordered to mirror CONSTITUTION §2 P5 rows.
+ *
+ * Paths are POSIX-relative to the repo root. A listed file that is absent on
+ * disk is skipped (the overlay layout may not ship every file in every
+ * checkout — public clones lack the private governance prompts, so the scan
+ * degrades to whatever is present without failing).
  */
 const GOVERNANCE_FILES: readonly string[] = [
+  // The 6 lean-tracked governance prompts.
   "governance/CONSTITUTION.md",
   "governance/VISION.md",
   "governance/AUDIT.md",
   "governance/AUDIT-EXECUTE.md",
   "governance/EVOLVE.md",
   "governance/pack-trust-model.md",
+  // The 7 other §2 P5-capped files (CONSTITUTION §2 P5 rows, in row order).
+  "governance/amendment-procedure.md",
+  "governance/audit/domains/D15-trust-reference.md",
+  "agents/shared/quality-charter.md",
+  "agents/shared/rigor-contract.md",
+  "agents/shared/senior-expert-charter.md",
+  "agents/shared/user-question-protocol.md",
+  "governance/SCALE.md",
 ];
 
 // Match a leading ISO date (YYYY-MM-DD) wherever it appears on the line.

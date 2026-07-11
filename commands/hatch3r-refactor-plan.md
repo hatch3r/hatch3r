@@ -345,50 +345,7 @@ Only proceed if the refactoring involves significant architectural decisions —
 
 From the strategy designer's output and any conflicts resolved in Step 4, create one ADR per decision.
 
-#### ADR Format — `docs/adr/{NNNN}_{decision-slug}.md`
-
-Determine the next sequential number by scanning existing files in `docs/adr/`. Use slugified decision titles.
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Context
-
-{Why this decision is needed — the refactoring goal, the current state problem, and why a design choice must be made}
-
-## Decision
-
-{What was decided and why — which approach, pattern, or technology was chosen}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-
-## Related
-
-- Refactoring spec: `docs/specs/{NN}_{refactor-slug}.md`
-```
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton. Per-command slots: context-guidance = "the refactoring goal, the current state problem, and why a design choice must be made"; decision-guidance = " — which approach, pattern, or technology was chosen"; related-ref = "Refactoring spec: `docs/specs/{NN}_{refactor-slug}.md`".
 
 **ASK:** "Here are {N} ADR(s) generated from refactoring decisions. Review before I write the files:
 {list with titles}

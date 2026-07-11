@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
@@ -536,6 +536,54 @@ describe("reviewLoop", () => {
         regex: /If the code-class cap of (\d+) iterations completes/g,
         occurrences: 1,
       },
+      // Finding D7-SA7.2-02 (Cycle 12): three cap-stating files the
+      // hand-maintained registry forgot. pr-resolve.md delegates its Stage-1
+      // review loop to revision-quality.md and states the code-class cap 5×;
+      // commands/revision/revision-quality.md is the shared loop body BOTH
+      // revision.md and pr-resolve.md execute (2×); the adhoc-orchestrate SKILL
+      // states the generic default-class Phase-3 bound in its Per-Turn
+      // Pipeline-State Header ("max 4 iterations"). The prior `length >= 20`
+      // floor could not catch their omission; the completeness assertion below
+      // now enforces membership. pr-resolve/revision-quality run the revision-
+      // class code loop (code-class cap 3); adhoc-orchestrate carries the full
+      // default bound (4).
+      {
+        path: "commands/hatch3r-pr-resolve.md",
+        label:
+          "pr-resolve delegated Stage-1 review loop (frontmatter + table + Tier-2 + Step-6 body)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 4,
+      },
+      {
+        path: "commands/hatch3r-pr-resolve.md",
+        label: "pr-resolve Step-10 review-loop-cap ASK trigger",
+        loopClass: "code",
+        regex: /Review loop hits (\d+) iterations with findings remaining/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/revision/revision-quality.md",
+        label: "revision-quality shared Stage-1 review loop body (max N)",
+        loopClass: "code",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
+      {
+        path: "commands/revision/revision-quality.md",
+        label: "revision-quality Stage-1 iteration-cap ASK directive",
+        loopClass: "code",
+        regex: /If\s+(\d+)\s+iterations complete/g,
+        occurrences: 1,
+      },
+      {
+        path: "skills/hatch3r-adhoc-orchestrate/SKILL.md",
+        label:
+          "adhoc-orchestrate Per-Turn Pipeline-State Header Phase-3 bound (default-class cap)",
+        loopClass: "default",
+        regex: /max\s+(\d+)\s+iterations/g,
+        occurrences: 1,
+      },
     ];
 
     it("every review-loop cap surface in CAP_SURFACE_REGISTRY matches its loop class (Finding D7-3)", () => {
@@ -545,23 +593,52 @@ describe("reviewLoop", () => {
       // surfaces. The registry is the enumerated single source — extend it
       // when a new cap-stating surface is authored.
       const repoRoot = process.cwd();
-      // Self-check: the registry must enumerate every file that states a cap.
-      // 17 distinct files carry cap statements (rule, rule.mdc, reviewer,
-      // fixer, implementer, bug-pipeline, board-fill, quick-change, revision,
-      // board-pickup, workflow, detail.md, detail.mdc, release, debug,
-      // pickup-delegation, pickup-delegation-multi). detail.md/.mdc each carry
-      // three default-class sites (Finding D8-SA8.3-02: reviewResult.iterations
-      // comment, failure-mode table, retry-policy bound) plus the retry-policy
-      // code-class opt-down pin (Finding D5-SA5.4-03); release/debug/delegation×2
-      // add one code-class directive each (Finding D7-1); the implementer adds
-      // one default-class surface (Finding D5-20); bug-pipeline carries three
-      // code-class sites (table row, loop body, Step-3.3 termination directive)
-      // => 27 entries. Guard against a future edit that silently empties the
-      // registry.
+      // Self-check — real completeness assertion (Finding D7-SA7.2-02). The
+      // registry is the single enumerated source of every file that states the
+      // review-loop cap; its "exhaustive, not best-effort" contract is now
+      // ENFORCED, not asserted in a comment. Scan the five shipped canonical-
+      // content dirs for every file that DECLARES a cap ("max|maximum N
+      // iterations") and assert each appears as a CAP_SURFACE_REGISTRY path.
+      // This replaces the prior `length >= 20` floor, which only caught the
+      // registry being emptied and let a cap-stating file be omitted while CI
+      // stayed green — the exact re-opened gap for pr-resolve.md,
+      // revision-quality.md, and the adhoc-orchestrate SKILL. 32 entries across
+      // 20 distinct registered files today. The detector is a lower bound tuned
+      // to the drift-prone "max N iterations" form: reviewer/fixer state the cap
+      // as "review-fix cycles" and are covered by explicit entries the detector
+      // does not re-flag — safe, since the assertion only requires
+      // detector-matched files to be a subset of the registry paths.
+      const CAP_DECLARATION_DETECTOR =
+        /\bmax(?:imum)?\b(?:\s+of)?\s+\*{0,2}(\d+)\s+iterations/i;
+      const CONTENT_DIRS = ["agents", "commands", "rules", "skills", "hooks"];
+      const registryPaths = new Set(CAP_SURFACE_REGISTRY.map((s) => s.path));
+      const capStatingFiles: string[] = [];
+      for (const dir of CONTENT_DIRS) {
+        const dirAbs = join(repoRoot, dir);
+        if (!existsSync(dirAbs)) continue;
+        const entries = readdirSync(dirAbs, { recursive: true }) as string[];
+        for (const rel of entries) {
+          if (!rel.endsWith(".md") && !rel.endsWith(".mdc")) continue;
+          const body = readFileSync(join(dirAbs, rel), "utf-8");
+          if (!CAP_DECLARATION_DETECTOR.test(body)) continue;
+          capStatingFiles.push(`${dir}/${rel}`.split("\\").join("/"));
+        }
+      }
+      // Non-vacuity floor: the scan must surface the known cap surfaces so a
+      // wholesale prose rewrite cannot make the completeness check pass on an
+      // empty set. The per-entry occurrence loop below independently pins each
+      // registered statement.
       expect(
-        CAP_SURFACE_REGISTRY.length,
-        "CAP_SURFACE_REGISTRY must remain populated — it is the single enumerated source of review-loop cap surfaces",
-      ).toBeGreaterThanOrEqual(20);
+        capStatingFiles.length,
+        "cap-declaration scan surfaced too few files — the detector or the shipped cap prose moved; completeness would pass vacuously",
+      ).toBeGreaterThanOrEqual(10);
+      const unregistered = capStatingFiles
+        .filter((f) => !registryPaths.has(f))
+        .sort();
+      expect(
+        unregistered,
+        `these shipped files DECLARE a review-loop cap ("max N iterations") but are absent from CAP_SURFACE_REGISTRY — add an entry (loop class + cap phrasing) for each. The registry is the enumerated single source (exhaustive, not best-effort); a cap-stating file must never be omitted (Finding D7-SA7.2-02).`,
+      ).toEqual([]);
 
       for (const surface of CAP_SURFACE_REGISTRY) {
         const body = readFileSync(join(repoRoot, surface.path), "utf-8");

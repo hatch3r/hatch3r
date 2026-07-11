@@ -4,6 +4,8 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-performance]
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness. Delegation, quality pipeline, modes, and board integration details are in commands/revision/.
+argument-hint: "[--review-only] [--auto] [--confidence-floor=any|medium|high]"
+disable-model-invocation: true
 tags: [implementation, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -405,6 +407,8 @@ If all findings were deferred (no [FIX NOW] items), skip Step 6 entirely and pro
 > Full details: see `commands/revision/revision-quality.md`
 
 Two-stage quality pipeline: Stage 1 runs a sequential review loop (`hatch3r-reviewer` -> `hatch3r-fixer`, max 3 iterations). Stage 2 spawns final quality CQ specialists in parallel — mandatory (`hatch3r-testability`, `hatch3r-security`), evaluated (`hatch3r-docs-writer`), mandatory-on-match (`hatch3r-ui`, `hatch3r-ux` — each triggered one MUST spawn as its own dedicated instance at Tier 2/3), and conditional (`hatch3r-performance`, `hatch3r-lint-fixer`).
+
+> **Conditional-CQ scope (D7-SA7.5-02):** revision Stage 2 dispatches CQ1/CQ2/CQ3/CQ5/CQ7 (+ docs-writer, lint-fixer). CQ4 `hatch3r-reliability`, CQ6 `hatch3r-scalability`, CQ8 `hatch3r-maintainability`, and CQ9 `hatch3r-enhancability` are a stated deferral on the revision path, not silent drift: they run when the same code passes through `hatch3r-workflow` (Phase 4b dispatches every triggered CQ1-CQ9 specialist per `SPECIALIST_TRIGGER_TABLE`) or an audit cycle.
 
 ---
 

@@ -97,6 +97,8 @@ Launch as many independent sub-agents in parallel as the platform supports.
 - **hatch3r-ux** (CQ2, mandatory-on-match) — spawn when the changed files match the `hatch3r-ux` row of the same trigger table (flow / route-transition / modal / error-state files, microcopy/i18n strings). When triggered at Tier 2/3, a dedicated `hatch3r-ux` instance is a hard mandate (never merged into the `hatch3r-ui` spawn).
 - **hatch3r-performance** (CQ7) — spawn when issue has `area:performance` label or changes touch hot paths.
 
+> **Conditional-CQ scope (D7-SA7.5-02):** this delivery path dispatches CQ1/CQ2/CQ3/CQ5/CQ7 (+ docs-writer, lint-fixer). CQ4 `hatch3r-reliability`, CQ6 `hatch3r-scalability`, CQ8 `hatch3r-maintainability`, and CQ9 `hatch3r-enhancability` are a stated deferral, not silent drift: they run when the same code passes through `hatch3r-workflow` (Phase 4b dispatches every triggered CQ1-CQ9 specialist per `SPECIALIST_TRIGGER_TABLE`) or an audit cycle. Step 7's jscpd duplication scan covers the duplication half of CQ8 in-path.
+
 Each specialist sub-agent prompt MUST include:
 - The agent protocol to follow (e.g., "Follow the hatch3r-reviewer agent protocol").
 - All `scope: always` rule directives from `rules/` (subagents do not inherit rules automatically).

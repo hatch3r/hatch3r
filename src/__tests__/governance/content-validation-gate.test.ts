@@ -83,7 +83,9 @@ describe("Content + governance validation gate (Cycle 11 D16-1)", () => {
     expect(result.errorCount, `validate-canonical errors:\n${stderr}`).toBe(0);
     expect(exitCode).toBe(0);
     // strict mode scans the published classes shipped in the npm package
-    expect(result.checkedTypes).toBe(6);
+    // (7 classes: agents/checks/commands/github-agents/hooks/rules/skills —
+    // github-agents added in D2-SA2.2-01, Cycle 12)
+    expect(result.checkedTypes).toBe(7);
   });
 
   it("anti-slop scan finds 0 hits across the user-facing surfaces", () => {

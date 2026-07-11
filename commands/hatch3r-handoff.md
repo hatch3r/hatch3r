@@ -5,6 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-handoff-preparer]
 description: Prepare, resume, list, complete, and prune cross-session handoff documents.
 argument-hint: "prepare | resume [id] | list | complete <id> | prune"
+disable-model-invocation: true
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md

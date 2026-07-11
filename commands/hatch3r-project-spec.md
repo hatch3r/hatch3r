@@ -959,54 +959,7 @@ Confirm, or tell me what to adjust."
 
 From the architecture researcher's "Architectural Decisions Requiring ADRs" output and the business model researcher's strategic decisions, create one ADR per decision. Include both technical and business-driven decisions.
 
-#### ADR Format — `docs/adr/0001_{decision-slug}.md`
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Scope
-
-{Technical / Business / Both}
-
-## Decision Makers
-
-{tbd}
-
-## Context
-
-{Why this decision is needed — business and technical context}
-
-## Decision
-
-{What was decided and why}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-```
-
-Number ADRs sequentially: `0001_`, `0002_`, etc. Use slugified decision titles.
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton + Dual-lens variant (project-spec). Per-command slots: context-guidance = "business and technical context"; related-ref = none. The dual-lens variant inserts `## Scope` ({Technical / Business / Both}) and `## Decision Makers` ({tbd}) after `## Date`, and omits the trailing `## Related` section.
 
 **ASK:** "Here are {N} ADRs generated from architectural and business decisions (scope marked as Technical/Business/Both). Review before I write the files:
 {list with titles and scopes}

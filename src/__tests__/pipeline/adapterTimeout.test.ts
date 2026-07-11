@@ -292,6 +292,94 @@ describe("adapterTimeout", () => {
       expect(result.completed).toBe(false);
       expect(receivedSignal?.aborted).toBe(true);
     }, 15_000);
+
+    // ── D8-SA8.4-01: transient-failure retry inside the timeout budget ──
+    it("retries a transient adapter failure and succeeds on the next attempt", async () => {
+      const outputs: AdapterOutput[] = [
+        { path: "test.md", content: "content", action: "create" },
+      ];
+      let calls = 0;
+      const adapter: Adapter = {
+        name: "flaky",
+        warnings: [],
+        generate: vi.fn(async () => {
+          calls += 1;
+          if (calls === 1) {
+            const err = new Error("ECONNRESET: socket hang up") as NodeJS.ErrnoException;
+            err.code = "ECONNRESET";
+            throw err;
+          }
+          return outputs;
+        }),
+        getOutputPaths: vi.fn(async () => []),
+      };
+
+      const result = await generateWithTimeout(
+        "cursor",
+        adapter,
+        "/agents",
+        manifest,
+        generationMode,
+        { timeoutMs: 30_000, retry: { sleep: async () => {} } },
+      );
+
+      expect(calls).toBe(2);
+      expect(result.completed).toBe(true);
+      expect(result.outputs).toHaveLength(1);
+      expect(result.error).toBeUndefined();
+    });
+
+    it("exhausts retries on a persistently transient failure and returns completed:false", async () => {
+      let calls = 0;
+      const adapter: Adapter = {
+        name: "down",
+        warnings: [],
+        generate: vi.fn(async () => {
+          calls += 1;
+          throw new Error("503 service unavailable");
+        }),
+        getOutputPaths: vi.fn(async () => []),
+      };
+
+      const result = await generateWithTimeout(
+        "cursor",
+        adapter,
+        "/agents",
+        manifest,
+        generationMode,
+        { timeoutMs: 30_000, retry: { maxAttempts: 2, sleep: async () => {} } },
+      );
+
+      expect(calls).toBe(2);
+      expect(result.completed).toBe(false);
+      expect(result.error).toContain("503");
+    });
+
+    it("does NOT retry a substantive adapter failure (single attempt)", async () => {
+      let calls = 0;
+      const adapter: Adapter = {
+        name: "not-found",
+        warnings: [],
+        generate: vi.fn(async () => {
+          calls += 1;
+          throw new Error("404 not found: bad canonical path");
+        }),
+        getOutputPaths: vi.fn(async () => []),
+      };
+
+      const result = await generateWithTimeout(
+        "cursor",
+        adapter,
+        "/agents",
+        manifest,
+        generationMode,
+        { timeoutMs: 30_000, retry: { sleep: async () => {} } },
+      );
+
+      expect(calls).toBe(1);
+      expect(result.completed).toBe(false);
+      expect(result.error).toContain("404");
+    });
   });
 
   describe("AdapterTimeoutError", () => {

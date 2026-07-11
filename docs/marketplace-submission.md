@@ -179,9 +179,9 @@ Submit at https://cursor.com/marketplace/publish — the form takes a public rep
 | Public repository | Met — https://github.com/hatch3r/hatch3r | Cursor pre-submission checklist |
 | Valid `.cursor-plugin/plugin.json` at repo root | Met — present (`name`, `description`, `version`, `author`, capability paths) | Cursor manifest reference |
 | Open-source license | Met — MIT (`LICENSE`) | "All plugins must be open source" (cursor.com/docs/plugins) |
-| Committed logo asset | **TODO** — none in repo (`find` returns no logo/icon asset); `logo` is an optional manifest field, but without it the listing renders with no icon | "Logo is committed to the repo and referenced by relative path (if provided)" (cursor.com/docs/reference/plugins.md) |
+| Committed logo asset | **TODO** — a brand mark exists (`website/static/img/egg-logo.png`, the docs-site egg logo referenced by `website/docusaurus.config.ts`) but is not yet wired as the plugin listing icon; `logo` is an optional manifest field, and without it the listing renders with no icon | "Logo is committed to the repo and referenced by relative path (if provided)" (cursor.com/docs/reference/plugins.md) |
 
-To close the logo TODO: commit a logo file (for example `assets/logo.svg`), then add `"logo": "assets/logo.svg"` to `.cursor-plugin/plugin.json`. Do not add the `logo` field before the asset is committed — the checklist scopes it to "if provided", and a manifest that points at a missing file fails review.
+To close the logo TODO (a brand-presentation decision for the maintainer): either reuse the existing docs-site egg mark (`website/static/img/egg-logo.png`) by copying it to a clean top-level path such as `assets/logo.png`, or commit a purpose-made plugin icon (`assets/logo.svg`). Then add `"logo": "assets/logo.<ext>"` to `.cursor-plugin/plugin.json`. Do not add the `logo` field before the asset is committed at that path — the checklist scopes it to "if provided", and a manifest that points at a missing file fails review.
 
 ### Field values (source of truth: `.cursor-plugin/plugin.json`)
 
@@ -215,7 +215,7 @@ jq -r '{repository, license}' .cursor-plugin/plugin.json
 
 ### Human portion remaining (Cursor lane)
 
-1. **Commit a logo asset** (for example `assets/logo.svg`) and add `"logo": "assets/logo.svg"` to `.cursor-plugin/plugin.json`.
+1. **Commit the plugin logo asset** — reuse the existing docs-site egg mark (`website/static/img/egg-logo.png`) copied to `assets/logo.png`, or a purpose-made `assets/logo.svg` — then add `"logo": "assets/logo.<ext>"` to `.cursor-plugin/plugin.json`.
 2. **Visit** https://cursor.com/marketplace/publish and submit the public repository link.
 3. **Verify** the listing appears in the Cursor marketplace and resolves for install.
 

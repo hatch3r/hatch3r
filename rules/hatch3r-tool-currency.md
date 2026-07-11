@@ -39,6 +39,15 @@ Every cycle MUST inspect the upstream advisory feed for each registered tool:
 
 The `securityNote` field on the registry entry MUST be populated when an unfixed advisory ≤90 days old applies, with the GHSA-id and required mitigation. Existing examples to mirror: `jq` (advisory roster on `jqlang/jq`), `gh` (GHSA-crc3-h8v6-qh57 pre-2.92.0). Missing CVE check is a High finding per CONSTITUTION §2 P3.
 
+## Dormancy Disclosure
+
+A tool that crosses its tier staleness threshold (table above) but does not yet meet the removal triggers (§Removing or Demoting a Tool) MUST record its dormancy in two places, mirroring the discipline the `securityNote` field applies to CVEs:
+
+- **User-facing `caveat`** — the registry entry MUST carry a `caveat` field. It renders as a leading ⚠ on the tool's picker choice (`src/cli/shared/pickers.ts` decorates the label when `meta.caveat` is set), so the disclosure reaches the user at selection time, not only in the registry source. State the last vendor release tag + ISO month, and name a same-category successor when one already exists in `AVAILABLE_CLI_TOOLS` (e.g. `release-dormant-<tag>-<YYYY-MM>-prefer-<alt>`); a dormant tool with no in-registry successor states the dormancy alone. Mirror `container-use` (`caveat: "pre-1.0-stale-no-security-policy"`).
+- **Developer-facing cadence rationale** — an inline comment on the registry entry MUST record why the gap is accepted: feature-complete steady-state, maintainer transition, or escalation-pending, with the last-release date. Mirror the `ripgrep` / `bat` steady-state comments; when the signal is negative (maintainer step-down, downstream migration, or a zero-commit watch) record that trajectory and a re-check trigger as the `httpie` entry does, rather than omitting it.
+
+The requirement is tier-wide and category-wide: a tier-3 tool past 180 days, a tier-2 tool past 120 days, and a tier-1 tool past 90 days each earn both records, across every category (formatting, AI/LLM, search). A missing `caveat` or cadence rationale on a tool past its threshold is a Medium finding — a shipped-artifact accuracy defect, because the picker and per-tool skill otherwise present a dormant tool with the same framing as a current one. This disclosure precedes and is separate from the SA21.7 replacement-evaluation escalation (§Version Pinning Policy): the records disclose at the first threshold breach; the escalation triggers only at the >18-month release gap; an upstream-archived repository additionally meets the §Removing or Demoting a Tool trigger.
+
 ## Version Pinning Policy
 
 Registry entries declare install commands per OS / package manager (`brew`, `apt`, `scoop`, `cargo`, etc.). The pinning rules:
