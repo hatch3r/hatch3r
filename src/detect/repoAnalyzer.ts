@@ -2,6 +2,7 @@ import { access, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { parse as parseYaml, YAMLParseError } from "yaml";
 import type { Framework, PackageEntry, RepoInfo, Tool } from "../types.js";
+import { VALID_TOOLS } from "../types.js";
 import { detectPackageManager } from "./packageManager.js";
 import {
   detectConventionConflicts,
@@ -387,10 +388,20 @@ async function detectExistingAgents(rootDir: string): Promise<boolean> {
   return hasNew || hasLegacy;
 }
 
-const TOOL_INDICATORS: { tool: Tool; paths: string[] }[] = [
+/**
+ * Detection registry for pre-existing agent-instruction surfaces. The three
+ * adapter `Tool` rows flow into `RepoInfo.existingTools`; `"agents"` (root
+ * `AGENTS.md` / `AGENT.md`, D14-SA14.4-03) is an IMPORT-ONLY source —
+ * reachable via `hatch3r init --import agents`, never an adapter target — so
+ * `detectExistingTools` filters it out of its `Tool[]` result: init.ts
+ * assigns `existingTools` directly to the adapter `tools` selection, where a
+ * non-adapter value would break adapter resolution.
+ */
+const TOOL_INDICATORS: { tool: Tool | "agents"; paths: string[] }[] = [
   { tool: "claude", paths: ["CLAUDE.md", ".claude"] },
   { tool: "cursor", paths: [".cursor"] },
   { tool: "copilot", paths: [join(".github", "copilot-instructions.md")] },
+  { tool: "agents", paths: ["AGENTS.md", "AGENT.md"] },
 ];
 
 /** Detect which AI coding tools already have configuration in the repo. */
@@ -407,7 +418,7 @@ async function detectExistingTools(rootDir: string): Promise<Tool[]> {
   return results
     .filter(
       (r): r is PromiseFulfilledResult<Tool> =>
-        r.status === "fulfilled" && r.value !== null,
+        r.status === "fulfilled" && r.value !== null && VALID_TOOLS.has(r.value),
     )
     .map((r) => r.value);
 }

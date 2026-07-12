@@ -32,7 +32,7 @@ Each consuming agent enumerates its own ambiguity triggers in a single line at t
 ### Authoring rules
 
 1. Citing this file with the canonical pointer (`See agents/shared/clarification-default-block.md → §0 Detect Ambiguity (P8 B1)`) plus the agent's own one-line trigger list satisfies the B1 directive. Re-wording the protocol body inline is forbidden — duplication is the failure mode this file exists to eliminate.
-2. The 9 CQ specialists continue to incorporate the protocol via `agents/shared/quality-specialist-frame.md` (which references this file transitively); they do not need a separate direct pointer. Like this file, that frame names two example triggers and declares the per-specialist list the variable — it keeps no parallel table either.
+2. The 10 CQ specialists continue to incorporate the protocol via `agents/shared/quality-specialist-frame.md` (which references this file transitively); they do not need a separate direct pointer. Like this file, that frame names two example triggers and declares the per-specialist list the variable — it keeps no parallel table either.
 3. When a new agent is added, give it an inline trigger line at its `§0` citation site; do not register the line anywhere else. The CI gate `npm run validate` parses for the pointer phrase; a missing pointer in an agent body is a P8 B1 violation. The regression guard `src/__tests__/cli/validate.test.ts` ("no per-agent trigger table") asserts this file stays table-free so the drift cannot reappear.
 
 ### Related references

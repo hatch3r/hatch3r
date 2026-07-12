@@ -13,6 +13,7 @@ import { resolveAgentModel, resolveArtifactModel } from "../models/resolve.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { resolveUserContentRoot } from "../content/index.js";
+import { buildAgentsMdOutput, resolveAgentsMdOwner } from "./agentsMd.js";
 import { filterUserFacing, parseFrontmatter, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import {
@@ -325,6 +326,20 @@ export abstract class BaseAdapter implements Adapter {
     // mid-generation but the implementation chose to swallow it instead of
     // throwing. Surface the abort here so callers see consistent behaviour.
     BaseAdapter.throwIfSignalAborted(signal);
+
+    // D9-SA9.5-05 (Cycle 12 CL-2 U6): opt-in root AGENTS.md interop surface.
+    // Appended from this shared wrapper — never from any doGenerate — so the
+    // output class needs zero per-adapter code (Decision-12: an output
+    // surface, not an adapter) and flows through the invariant enforcement
+    // below like every doGenerate output. Owner election keeps the emission
+    // single-writer across a multi-tool sync: resolveAgentsMdOwner returns a
+    // tool name only when `manifest.agentsMd?.enabled === true` (default OFF —
+    // absence leaves every adapter's output set byte-identical), and only the
+    // elected adapter appends the file, so the sync-side cross-adapter
+    // path-collision warning never fires for AGENTS.md.
+    if (resolveAgentsMdOwner(manifest) === this.name) {
+      outputs.push(buildAgentsMdOutput(manifest));
+    }
 
     // C9-H4 (D2-SA2.1-01): Output-invariant enforcement.
     //

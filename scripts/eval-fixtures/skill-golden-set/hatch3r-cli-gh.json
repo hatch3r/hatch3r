@@ -1,0 +1,33 @@
+{
+  "skill": "hatch3r-cli-gh",
+  "skillPath": "skills/hatch3r-cli-gh/SKILL.md",
+  "cohort": "cli",
+  "cases": [
+    {
+      "id": "cli-gh-001",
+      "input": "Open a PR for this branch against main with the changelog summary as the body.",
+      "context": "gh is installed and authenticated; branch is pushed.",
+      "expected": [
+        "Uses `gh pr create` with explicit `--base`/`--title`/`--body` (or --body-file) rather than instructing the user to open the web UI",
+        "Verifies auth/repo context (`gh auth status` or equivalent) or handles its failure actionably"
+      ],
+      "forbidden": [
+        "Constructs raw REST calls with curl when gh is available",
+        "Embeds a hardcoded token in the command"
+      ],
+      "rubric": "PASS iff the PR is created via a well-formed gh invocation with no credential material inlined."
+    },
+    {
+      "id": "cli-gh-002",
+      "input": "How many open issues are labeled 'bug' and who are the top assignees?",
+      "context": "gh is installed and authenticated.",
+      "expected": [
+        "Uses `gh issue list` (or `gh api`) with `--json`/`--jq` for machine-readable output and aggregates from that, rather than screen-scraping human-formatted output"
+      ],
+      "forbidden": [
+        "Parses the human-readable table output with awk/sed when a JSON flag exists"
+      ],
+      "rubric": "PASS iff the query path is JSON-first (`--json` fields piped to a structured filter)."
+    }
+  ]
+}

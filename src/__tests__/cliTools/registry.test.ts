@@ -21,20 +21,22 @@ import {
 describe("AVAILABLE_CLI_TOOLS registry", () => {
   const allEntries = Object.values(AVAILABLE_CLI_TOOLS) as readonly CliToolMeta[];
 
-  it("contains the expected tier counts (11/13/10)", () => {
+  it("contains the expected tier counts (11/13/15)", () => {
     const tier1 = allEntries.filter((t) => t.tier === 1);
     const tier2 = allEntries.filter((t) => t.tier === 2);
     const tier3 = allEntries.filter((t) => t.tier === 3);
 
     // Cycle 10 D21-SA21.7-F-21.7.1: tier counts updated when the HTTP
-    // category (curl/httpie/xh), dasel, and container-use landed —
-    // 11 tier-1 default-on, 13 tier-2 conditional, 10 tier-3 opt-in.
+    // category (curl/httpie/xh), dasel, and container-use landed.
+    // Cycle 12 D21-SA21.7-05: tier-3 grew 10 → 15 with the CL-2 additions
+    // (crush, jaq, tombi, hurl, tea) — 11 tier-1 default-on, 13 tier-2
+    // conditional, 15 tier-3 opt-in.
     expect(tier1.length).toBe(11);
     expect(tier2.length).toBe(13);
-    expect(tier3.length).toBe(10);
-    // Total catalog size 34 — surfaces accidental tool additions without
+    expect(tier3.length).toBe(15);
+    // Total catalog size 39 — surfaces accidental tool additions without
     // tier classification updates.
-    expect(allEntries.length).toBe(34);
+    expect(allEntries.length).toBe(39);
   });
 
   it("tier arrays partition AVAILABLE_CLI_TOOLS exactly — the section-header counts are un-driftable (D21-SA21.4-05, Cycle 12)", () => {
@@ -76,6 +78,7 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "bat",
         "comby",
         "container-use",
+        "crush",
         "csvkit",
         "curl",
         "dasel",
@@ -88,6 +91,8 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "gh",
         "glab",
         "httpie",
+        "hurl",
+        "jaq",
         "jq",
         "lazygit",
         "llm",
@@ -101,6 +106,8 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "sd",
         "stagehand",
         "taplo",
+        "tea",
+        "tombi",
         "xh",
         "yq",
         "zstd",
@@ -433,6 +440,122 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(containerUse!.minVersion).toBe(">=0.4.2");
   });
 
+  it("mods discloses the upstream archive + crush successor via caveat and description (D21-SA21.6-02 / D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.6-02: charmbracelet/mods was archived upstream
+    // (2026-03-09) with crush as the same-org successor, yet the entry carried
+    // no disclosure while staler peers (httpie, container-use) did. mods is
+    // retained (removal is a B1-gated owner decision, staged next cycle per
+    // rules/hatch3r-tool-currency.md:68); the caveat + description surface the
+    // EOL state to the picker and the toolbox.
+    const mods = AVAILABLE_CLI_TOOLS.mods;
+    expect(mods.caveat).toBe("upstream-archived-superseded-by-crush");
+    expect(mods.description).toContain("archived 2026-03-09");
+    expect(mods.description).toContain("crush");
+    expect(mods.tier).toBe(3);
+  });
+
+  it("crush registered as tier-3 ai — the archived-mods successor, signed channels on all 3 OSes (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P2; home D21-SA21.6-09): crush is
+    // charmbracelet's designated mods successor, verified v0.84.1 (2026-07-11)
+    // with 0 GitHub advisories, accessed 2026-07-12. The linux recipe must be
+    // the Charm signed-apt keyring one-liner (gh D21-17 precedent) — a bare
+    // `sudo apt install crush` fails without the repo.charm.sh repo.
+    const crush = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).crush;
+    expect(crush).toBeDefined();
+    expect(crush!.id).toBe("crush");
+    expect(crush!.tier).toBe(3);
+    expect(crush!.category).toBe("ai");
+    expect(crush!.minVersion).toBe("0.84.1");
+    expect(crush!.license).toBe("FSL-1.1-MIT");
+    const linux = crush!.install.linux.map((c) => c.command);
+    expect(linux).not.toContain("sudo apt install crush");
+    expect(linux.some((c) => c.includes("repo.charm.sh"))).toBe(true);
+    expect(linux.some((c) => c.includes("signed-by=/etc/apt/keyrings/charm.gpg"))).toBe(true);
+  });
+
+  it("jaq registered as tier-3 json — the memory-safe jq peer with --locked cargo recipes (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home D21-SA21.3-07): jaq is the
+    // security-audited memory-safe hedge against jq's 16-CVE 2026 cluster
+    // (D21-SA21.3-01). Verified v3.1.0 (2026-06-11), 0 advisories, accessed
+    // 2026-07-12. Cargo recipes pin --locked per the ast-grep/xh/qsv precedent.
+    const jaq = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).jaq;
+    expect(jaq).toBeDefined();
+    expect(jaq!.id).toBe("jaq");
+    expect(jaq!.tier).toBe(3);
+    expect(jaq!.category).toBe("json");
+    expect(jaq!.minVersion).toBe("3.1.0");
+    for (const os of ["linux", "win"] as const) {
+      const commands = jaq!.install[os].map((c) => c.command);
+      expect(commands).toContain("cargo install --locked jaq");
+    }
+  });
+
+  it("tombi registered as tier-3 yaml — the maintained taplo alternative, taplo retained (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home D21-SA21.3-02/-07): tombi is the
+    // active peer to the trajectory-negative taplo (maintainer stepdown,
+    // tamasfe/taplo#715). Verified v1.2.0 (2026-07-05), 0 advisories, accessed
+    // 2026-07-12. taplo stays registered — demotion is a B1-gated owner
+    // decision staged for the next cycle.
+    const tombi = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).tombi;
+    expect(tombi).toBeDefined();
+    expect(tombi!.id).toBe("tombi");
+    expect(tombi!.tier).toBe(3);
+    expect(tombi!.category).toBe("yaml");
+    expect(tombi!.minVersion).toBe("1.2.0");
+    // The unsigned curl-piped-shell vendor channel must not be registered.
+    for (const os of ["mac", "linux", "win"] as const) {
+      for (const c of tombi!.install[os]) {
+        expect(c.command).not.toContain("install.sh");
+      }
+    }
+    expect((AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).taplo).toBeDefined();
+  });
+
+  it("hurl registered as tier-3 http with the >=7.0.0 GHSA floor + securityNote (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home D21-SA21.4-06): hurl covers the
+    // assertion-based HTTP test-file cell none of curl/httpie/xh expresses.
+    // GHSA-v33j-v3x4-42qg (Moderate, no CVE assigned): `hurlfmt --out html`
+    // regex-literal injection on builds <=6.1.1, patched 7.0.0 — hence the
+    // range-form floor (delta precedent). Verified 8.0.1 (2026-04-29),
+    // accessed 2026-07-12.
+    const hurl = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).hurl;
+    expect(hurl).toBeDefined();
+    expect(hurl!.id).toBe("hurl");
+    expect(hurl!.tier).toBe(3);
+    expect(hurl!.category).toBe("http");
+    expect(hurl!.minVersion).toBe(">=7.0.0");
+    expect(hurl!.securityNote).toBeDefined();
+    expect(hurl!.securityNote).toContain("GHSA-v33j-v3x4-42qg");
+    expect(hurl!.securityNote).toContain("7.0.0");
+  });
+
+  it("tea registered as tier-3 forge with a Gitea-disambiguating extensionProbe + gitea.com sourceRepo (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home D21-SA21.5-05): tea closes the
+    // Gitea/Forgejo/Codeberg forge-family coverage gap. The bare `tea` probe
+    // collides (Debian's TEA Qt editor at /usr/bin/tea; legacy teaxyz tea), so
+    // detection confirms identity via `tea --help` stdout containing "Gitea" —
+    // `tea --version` is unusable because gitea/tea's custom VersionPrinter
+    // prints the bare version with no name prefix (cmd/cmd.go, verified
+    // 2026-07-12). Verified v0.14.2 (2026-06-26), 0 advisories.
+    const tea = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).tea;
+    expect(tea).toBeDefined();
+    expect(tea!.id).toBe("tea");
+    expect(tea!.tier).toBe(3);
+    expect(tea!.category).toBe("forge");
+    expect(tea!.minVersion).toBe("0.14.2");
+    expect(tea!.extensionProbe).toBeDefined();
+    expect(tea!.extensionProbe!.args).toEqual(["--help"]);
+    expect(tea!.extensionProbe!.expectInStdout).toBe("Gitea");
+    expect(tea!.extensionProbe!.name).toBe("tea");
+    // Canonical VCS home is the Gitea forge itself (no GitHub mirror).
+    expect(tea!.sourceRepo).toBe("https://gitea.com/gitea/tea");
+    // The go-install recipes pin the documented release tag (dasel precedent).
+    for (const os of ["linux", "win"] as const) {
+      const commands = tea!.install[os].map((c) => c.command);
+      expect(commands).toContain("go install gitea.dev/tea@v0.14.2");
+    }
+  });
+
   it("podman floor is normalized to the >=5.8.2 range form + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-04, Cycle 12)", () => {
     // C9-H92: Podman 5.8.2 patches CVE-2026-33414 — Windows-only PowerShell
     // command injection on the Hyper-V backend via `podman machine init`.
@@ -559,6 +682,16 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
       podman: { collides: false },
       dasel: { collides: false },
       "container-use": { collides: false },
+      // Cycle 12 D21-SA21.7-05 CL-2 additions.
+      crush: { collides: false },
+      jaq: { collides: false },
+      tombi: { collides: false },
+      hurl: { collides: false },
+      tea: {
+        collides: true,
+        note:
+          "Debian ships an unrelated `tea` package (TEA Qt text editor, /usr/bin/tea) and legacy teaxyz tea installs (pre-pkgx rename) share the name — gitea/tea disambiguates via `tea --help` stdout containing 'Gitea'",
+      },
     };
     for (const entry of allEntries) {
       const verdict = PROBE_COLLISION_AUDIT[entry.probe];
@@ -634,6 +767,9 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
       "GPL-2.0-only",
       "Unlicense",
       "curl", // `curl` is itself a registered SPDX license id.
+      // Functional Source License 1.1 with MIT future grant — a registered
+      // SPDX id; used by charmbracelet/crush (Cycle 12 D21-SA21.7-05).
+      "FSL-1.1-MIT",
     ]);
     // SPDX expression: one-or-more ids joined by OR / AND / WITH operators.
     // Validates the structural shape and that every leaf id is a known SPDX id.
@@ -646,11 +782,14 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     };
 
     for (const entry of allEntries) {
-      // sourceRepo: a GitHub or GitLab https VCS URL (never a docs site).
+      // sourceRepo: a GitHub, GitLab, or Gitea https VCS URL (never a docs
+      // site). gitea.com joined the accepted hosts with the `tea` addition
+      // (Cycle 12 D21-SA21.7-05): the first-party Gitea CLI is canonically
+      // hosted on the Gitea forge itself, with no GitHub mirror documented.
       expect(entry.sourceRepo, `${entry.id} sourceRepo`).toBeTypeOf("string");
       expect(
-        /^https:\/\/(?:github\.com|gitlab\.com)\/[^/]+\/[^/]+/.test(entry.sourceRepo),
-        `${entry.id} sourceRepo "${entry.sourceRepo}" must be a github.com/gitlab.com VCS URL`,
+        /^https:\/\/(?:github\.com|gitlab\.com|gitea\.com)\/[^/]+\/[^/]+/.test(entry.sourceRepo),
+        `${entry.id} sourceRepo "${entry.sourceRepo}" must be a github.com/gitlab.com/gitea.com VCS URL`,
       ).toBe(true);
       // license: a valid SPDX expression built from known ids.
       expect(entry.license, `${entry.id} license`).toBeTypeOf("string");
@@ -767,8 +906,10 @@ describe("TIER2_CLI_TOOLS_BY_TRIGGER", () => {
 });
 
 describe("TIER3_CLI_TOOLS", () => {
-  it("has exactly 10 entries", () => {
-    expect(TIER3_CLI_TOOLS.length).toBe(10);
+  it("has exactly 15 entries", () => {
+    // 10 pre-Cycle-12 entries + the 5 CL-2 additions (D21-SA21.7-05):
+    // crush, jaq, tombi, hurl, tea.
+    expect(TIER3_CLI_TOOLS.length).toBe(15);
   });
 
   it("every TIER3 id resolves to a tier-3 entry", () => {

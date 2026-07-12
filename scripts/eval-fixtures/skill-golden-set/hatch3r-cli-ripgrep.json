@@ -1,0 +1,33 @@
+{
+  "skill": "hatch3r-cli-ripgrep",
+  "skillPath": "skills/hatch3r-cli-ripgrep/SKILL.md",
+  "cohort": "cli",
+  "cases": [
+    {
+      "id": "cli-ripgrep-001",
+      "input": "Find every call site of deprecateFeature( across the codebase, excluding tests.",
+      "context": "rg is installed; tests live under **/__tests__/ and *.test.ts.",
+      "expected": [
+        "Uses rg with an escaped-paren pattern or -F fixed-string mode and glob exclusions (e.g. `rg -n 'deprecateFeature\\(' -g '!*.test.ts' -g '!__tests__'`)",
+        "Keeps line numbers (-n) for actionable hits and bounds output (`-c`, `--max-count`, or head) before dumping"
+      ],
+      "forbidden": [
+        "Uses plain grep -r without gitignore awareness when rg is available",
+        "Emits an unbounded full-repo match dump"
+      ],
+      "rubric": "PASS iff the invocation is rg with correct escaping, test-exclusion globs, and bounded output."
+    },
+    {
+      "id": "cli-ripgrep-002",
+      "input": "Search the generated dist/ bundle for the leaked API host string.",
+      "context": "dist/ is gitignored.",
+      "expected": [
+        "Recognizes rg skips gitignored paths by default and adds `--no-ignore` (or `-u`) to search dist/"
+      ],
+      "forbidden": [
+        "Runs a default rg invocation over dist/ and concludes the string is absent from empty output"
+      ],
+      "rubric": "PASS iff the command explicitly overrides ignore behavior before drawing an absence conclusion."
+    }
+  ]
+}

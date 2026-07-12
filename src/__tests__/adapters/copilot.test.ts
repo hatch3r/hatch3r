@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CopilotAdapter } from "../../adapters/copilot.js";
 import { createManifest } from "../../manifest/hatchJson.js";
-import type { HatchManifest } from "../../types.js";
+import type { CopilotMcpSandboxConfig, HatchManifest } from "../../types.js";
 import {
   MANAGED_BLOCK_START,
   MANAGED_BLOCK_END,
@@ -1445,6 +1445,162 @@ describe("mcp-granted agent tools frontmatter carries per-server grants (D2-SA2.
       expect(toolsLine).not.toContain("/*");
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// D9-SA9.3-08 / CL-2 U11 (Cycle 12, D9, P6): opt-in VS Code MCP sandbox
+// hardening — per-server `sandboxEnabled: true` (stdio-only) + the top-level
+// `sandbox` rules object, per
+// code.visualstudio.com/docs/agents/reference/mcp-configuration (accessed
+// 2026-07-12). Default OFF: the sandbox is default-deny on fs/network, so
+// blanket enablement would break network-reaching stdio servers.
+describe("CopilotAdapter MCP sandbox (D9-SA9.3-08 / CL-2 U11)", () => {
+  /**
+   * Canonical root with one stdio server and one (pin-bypassed) HTTP server so
+   * both transport branches of the sandbox gate are exercised.
+   */
+  async function writeSandboxRoot(): Promise<string> {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-u11-sandbox-"));
+    const root = join(tempDir, "agents");
+    await mkdir(join(root, "mcp"), { recursive: true });
+    await writeFile(
+      join(root, "mcp", "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          "local-tools": {
+            _description: "STDIO test server",
+            command: "npx",
+            args: ["-y", "local-tools-mcp"],
+          },
+          github: {
+            _description: "HTTP test server",
+            _trust_bypass: true,
+            url: "https://api.githubcopilot.com/mcp/",
+          },
+        },
+      }),
+      "utf-8",
+    );
+    return root;
+  }
+
+  function sandboxManifest(mcpSandbox?: CopilotMcpSandboxConfig): HatchManifest {
+    const manifest = createManifest({
+      tools: ["copilot"],
+      mcpServers: ["local-tools", "github"],
+      features: { mcp: true },
+    });
+    if (mcpSandbox !== undefined) manifest.copilot = { mcpSandbox };
+    return manifest;
+  }
+
+  async function emittedMcp(root: string, manifest: HatchManifest, adapter = new CopilotAdapter()) {
+    const outputs = await adapter.generate(root, manifest);
+    const mcpOut = outputs.find((o) => o.path === ".vscode/mcp.json");
+    expect(mcpOut, "expected .vscode/mcp.json output").toBeDefined();
+    return JSON.parse(mcpOut!.content) as {
+      inputs?: Array<Record<string, unknown>>;
+      servers: Record<string, Record<string, unknown>>;
+      sandbox?: Record<string, unknown>;
+    };
+  }
+
+  it("emits neither sandboxEnabled nor a top-level sandbox object by default (opt-in posture)", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const parsed = await emittedMcp(root, sandboxManifest());
+      expect(parsed.sandbox).toBeUndefined();
+      for (const server of Object.values(parsed.servers as Record<string, Record<string, unknown>>)) {
+        expect(server.sandboxEnabled).toBeUndefined();
+      }
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('servers: "all" flags every stdio entry and never an HTTP entry', async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const parsed = await emittedMcp(root, sandboxManifest({ servers: "all" }));
+      expect(parsed.servers["local-tools"].sandboxEnabled).toBe(true);
+      // HTTP entries are outside the sandboxEnabled surface (stdio-only).
+      expect(parsed.servers.github.sandboxEnabled).toBeUndefined();
+      // No rules configured — no top-level sandbox object.
+      expect(parsed.sandbox).toBeUndefined();
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("emits the top-level sandbox rules object when a named stdio server is sandboxed", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const rules = {
+        filesystem: { allowWrite: ["${workspaceFolder}"] },
+        network: { allowedDomains: ["api.github.com"] },
+      };
+      const parsed = await emittedMcp(
+        root,
+        sandboxManifest({ servers: ["local-tools"], rules }),
+      );
+      expect(parsed.servers["local-tools"].sandboxEnabled).toBe(true);
+      expect(parsed.sandbox).toEqual(rules);
+      // Top-level key set stays schema-exact: inputs?/servers/sandbox only.
+      for (const key of Object.keys(parsed)) {
+        expect(["inputs", "servers", "sandbox"]).toContain(key);
+      }
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("warns and skips a named HTTP server (sandboxEnabled is stdio-only)", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const adapter = new CopilotAdapter();
+      const parsed = await emittedMcp(root, sandboxManifest({ servers: ["github"] }), adapter);
+      expect(parsed.servers.github.sandboxEnabled).toBeUndefined();
+      expect(
+        adapter.warnings.some((w) => w.includes("mcpSandbox") && w.includes("stdio servers only")),
+      ).toBe(true);
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("warns on a named server that is not emitted at all", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const adapter = new CopilotAdapter();
+      const parsed = await emittedMcp(root, sandboxManifest({ servers: ["ghost-server"] }), adapter);
+      expect(parsed.sandbox).toBeUndefined();
+      expect(
+        adapter.warnings.some((w) => w.includes('mcpSandbox names server "ghost-server"')),
+      ).toBe(true);
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("omits the rules object with a warning when no server ended up sandboxed (no dead config)", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const adapter = new CopilotAdapter();
+      const parsed = await emittedMcp(
+        root,
+        sandboxManifest({
+          servers: ["github"],
+          rules: { network: { allowedDomains: ["api.github.com"] } },
+        }),
+        adapter,
+      );
+      expect(parsed.sandbox).toBeUndefined();
+      expect(
+        adapter.warnings.some((w) => w.includes("no emitted server was sandboxed")),
+      ).toBe(true);
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
     }
   });
 });

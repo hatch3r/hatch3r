@@ -1,17 +1,24 @@
 #!/usr/bin/env node
 /**
  * scripts/calibrate-review-loop.ts — review-loop cap calibration reader
- * (Finding D7-SA7.2-01, Cycle 12; CL-2 spec from D7-M4 / D7-SA7.2-1, Cycle 10).
+ * (Finding D7-SA7.2-01, Cycle 12; CL-2 spec from D7-M4 / D7-SA7.2-1, Cycle 10;
+ * runtime-source repoint per D7-SA7.2-04, CL-2 unit U10).
  *
- * Reads the review-loop iteration ledger (JSONL of `ReviewLoopLedgerEntry`,
- * one terminated loop per line; entries are produced via
- * `reviewLoopLedgerEntry` + `serializeReviewLoopLedgerEntry` in
- * `src/pipeline/reviewLoop.ts`), derives the measured iteration split with
- * `deriveIterationSplit`, and reports it against the shipped CALIBRATION
- * informed estimate. Once the sample size crosses
- * CALIBRATION_SAMPLE_THRESHOLD (30), prints the candidate CALIBRATION update
- * (basis "measured", measuredAt set) for a maintainer PR — the CL-2
- * promotion path (spec point 3).
+ * Reads the RUNTIME review-loop telemetry ledger (JSONL of
+ * `ReviewLoopLedgerEntry`, one terminated loop per line; appended at loop
+ * exit via `appendReviewLoopTelemetry` in `src/pipeline/reviewLoop.ts`),
+ * derives the measured iteration split with `deriveIterationSplit`, and
+ * reports it against the shipped CALIBRATION informed estimate. Once the
+ * sample size crosses CALIBRATION_SAMPLE_THRESHOLD (30), prints the
+ * candidate CALIBRATION update (basis "measured", measuredAt set) for a
+ * maintainer PR — the CL-2 promotion path (spec point 3).
+ *
+ * Data-source note (D7-SA7.2-04): the Cycle-10 spec named the audit finding
+ * registry as input, but that registry is populated by AUDIT-EXECUTE waves —
+ * it would measure the audit's own loops, not product review loops. The
+ * default is therefore the product-runtime ledger
+ * `.hatch3r/review-loop-metrics.jsonl`; pass `--ledger <path>` to read any
+ * other collected ledger (e.g. one copied from an end-user repo).
  *
  * Recalibration cadence (CL-2 spec point 4): run at every audit-cycle close
  * and release prep, and whenever a `CALIBRATION.recalibrationTriggers`
@@ -23,7 +30,8 @@
  * Usage:
  *   npx tsx scripts/calibrate-review-loop.ts [--ledger <path>]
  *
- * Default ledger path: governance/audit/review-loop-ledger.jsonl
+ * Default ledger path: .hatch3r/review-loop-metrics.jsonl
+ * (REVIEW_LOOP_METRICS_RELPATH), resolved against the repo root.
  * Exit codes: 0 = report printed (including the empty-ledger case),
  *             1 = unreadable or malformed ledger.
  */
@@ -34,6 +42,7 @@ import { fileURLToPath } from "node:url";
 import {
   CALIBRATION,
   CALIBRATION_SAMPLE_THRESHOLD,
+  REVIEW_LOOP_METRICS_RELPATH,
   deriveIterationSplit,
   parseReviewLoopLedger,
 } from "../src/pipeline/reviewLoop.js";
@@ -41,7 +50,7 @@ import {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
-const DEFAULT_LEDGER_PATH = join("governance", "audit", "review-loop-ledger.jsonl");
+const DEFAULT_LEDGER_PATH = REVIEW_LOOP_METRICS_RELPATH;
 
 function resolveLedgerPath(argv: string[]): string {
   const flagIndex = argv.indexOf("--ledger");
@@ -68,9 +77,9 @@ async function main(): Promise<void> {
       `sampleSize 0/${CALIBRATION_SAMPLE_THRESHOLD} — CALIBRATION stays basis="${CALIBRATION.basis}".`,
     );
     console.log(
-      "To record a sample: build a ReviewLoopLedgerEntry from a terminated loop " +
-        "(reviewLoopLedgerEntry + serializeReviewLoopLedgerEntry in src/pipeline/reviewLoop.ts) " +
-        "and append the line to the ledger file.",
+      "To record a sample: call appendReviewLoopTelemetry(projectRoot, state, meta) " +
+        "on a terminated loop (src/pipeline/reviewLoop.ts), or append a " +
+        "schema-conformant ReviewLoopLedgerEntry JSONL line to the ledger file.",
     );
     return;
   }
@@ -143,7 +152,7 @@ async function main(): Promise<void> {
     JSON.stringify(
       {
         basis: "measured",
-        source: `review-loop iteration ledger (${derived.sampleSize} loops) at ${DEFAULT_LEDGER_PATH}`,
+        source: `runtime review-loop telemetry ledger (${derived.sampleSize} loops) at ${ledgerPath}`,
         sampleSize: derived.sampleSize,
         measuredAt,
         split: derived.split,

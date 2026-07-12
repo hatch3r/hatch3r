@@ -789,7 +789,7 @@ describe("compound system content validation", () => {
         }),
       );
       // The security floor (CQ3 specialist + supporting rules) and the
-      // content-quality floor (CQ1-CQ9 specialists) ship in every non-custom
+      // content-quality floor (CQ1-CQ10 specialists) ship in every non-custom
       // preset via floor admission; the security archetype is the one a user
       // picks expressly for hardening, so a retag dropping these from it is the
       // exact regression D3-14 targets. Assert both floors land via membership.

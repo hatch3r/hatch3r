@@ -64,6 +64,14 @@ export const TOOL_TRIGGERS: Record<string, string> = {
   xh: "fast Rust HTTP/S client speaking HTTPie-compatible syntax with HTTP/2 and HTTP/3 support",
   dasel: "cross-format selectors over JSON, YAML, TOML, XML, CSV under one path-query DSL",
   "container-use": "Dagger-managed sandbox containers for agentic coding environments",
+  // Cycle 12 D21-SA21.7-05 CL-2 additions — per the module contract, every
+  // AVAILABLE_CLI_TOOLS entry carries a hand-curated trigger so generator and
+  // cleanup emit identical, cosine-distinct descriptions.
+  crush: "terminal agentic coding sessions with multi-model, MCP-server, and LSP context",
+  jaq: "memory-safe jq-compatible filtering where startup latency or audit posture matters",
+  tombi: "TOML formatting, linting, and language-server edits on pyproject or Cargo workspaces",
+  hurl: "declarative plain-text HTTP test files with captures and asserts run in CI",
+  tea: "Gitea, Forgejo, or Codeberg issue, pull-request, and release management",
 };
 
 /**

@@ -1,8 +1,8 @@
 // Last updated: 2026-05-19 (P3 platform-currency anchor; per-claim Anthropic
 // docs access dates inside this file remain authoritative for individual
 // assertions).
-import type { AdapterOutput, CanonicalFile } from "../types.js";
-import { toPrefixedId } from "../types.js";
+import type { AdapterOutput, CanonicalFile, ClaudeSubagentMemoryScope } from "../types.js";
+import { CLAUDE_SUBAGENT_MEMORY_SCOPES, toPrefixedId } from "../types.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
@@ -616,22 +616,20 @@ function isClaudeRecognizableModel(model: string): boolean {
  * deferral (per the D9-11 fix's "spawn as a CL-2 candidate" directive) was an
  * unanchored prose note invisible to the next cycle's D9 scan; anchoring the full
  * unused-field set to D9-SA9.1-05 makes it greppable so it surfaces as a CL-2
- * candidate instead of silently re-deferring each wave. The adapter emits 5
+ * candidate instead of silently re-deferring each wave. The adapter emits 7
  * subagent frontmatter fields today (`description`, `tools`, `disallowedTools`,
- * `model`, `permissionMode`) against a documented surface of ~15
- * (code.claude.com/docs/en/sub-agents, accessed 2026-07-10). Documented-but-
- * unemitted, each needing per-agent design rather than a one-line policy
- * derivation, in priority order:
- *   1. `maxTurns` — HIGHEST priority: a per-subagent turn ceiling. No field the
- *      adapter emits today bounds sub-agent turn count, so this is the one
- *      runaway-cost guard for every spawned hatch3r sub-agent.
- *   2. `memory: project` — for `hatch3r-learnings-loader` (also auto-enables
- *      Write/Edit, in tension with that agent's readonly policy + the plan mode
- *      set here — that conflict IS the design question this candidate resolves).
- *   3. `mcpServers:` — inline per-server config vs referencing `.mcp.json`. Only
+ * `model`, `permissionMode`, `maxTurns`, `memory`) against a documented surface
+ * of ~15 (code.claude.com/docs/en/sub-agents, accessed 2026-07-12). The
+ * inventory's former top-two candidates SHIPPED in Cycle-12 CL-2 U11:
+ * `maxTurns` (default runaway ceiling — {@link CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT})
+ * and `memory: project` for `hatch3r-learnings-loader`
+ * ({@link ClaudeAdapter.resolveSubagentMemoryMap}, incl. the plan-mode
+ * coexistence resolution). Documented-but-unemitted, each needing per-agent
+ * design rather than a one-line policy derivation, in priority order:
+ *   1. `mcpServers:` — inline per-server config vs referencing `.mcp.json`. Only
  *      the frontmatter-field half remains; the tool-reachability half is closed
  *      (see the D2-SA2.4-01 note below).
- *   4. `skills:`, `hooks:`, `background`, `isolation`, `effort`, `initialPrompt`,
+ *   2. `skills:`, `hooks:`, `background`, `isolation`, `effort`, `initialPrompt`,
  *      and the requested `cwd`/`additionalDirectories`
  *      (github.com/anthropics/claude-code/issues/31940, accessed 2026-07-10).
  * Native hook events documented but not mapped by {@link mapToClaudeEvent}:
@@ -653,6 +651,44 @@ function isClaudeRecognizableModel(model: string): boolean {
 function claudePermissionMode(agentId: string): "plan" | undefined {
   return toCursorReadonlyFrontmatter(agentId) === true ? "plan" : undefined;
 }
+
+/**
+ * D9-SA9.1-05 / CL-2 U11 (Cycle 12, D9, P6/P7): default per-subagent turn
+ * ceiling, emitted as the native `maxTurns:` frontmatter field on every
+ * generated `.claude/agents/*.md` ("Maximum number of agentic turns before the
+ * subagent stops" — code.claude.com/docs/en/sub-agents, accessed 2026-07-12;
+ * the platform documents no default, so an unset field is UNBOUNDED). This was
+ * the prioritized enforcement-parity gap: no emitted field bounded sub-agent
+ * turn count, leaving every spawned hatch3r sub-agent without a runaway-cost
+ * ceiling.
+ *
+ * 200 is sized as a runaway bound, not a task budget: hatch3r's shipped flows
+ * are turn-bounded upstream of any single sub-agent (the review loop caps
+ * fixer rounds at `maxIterationsForClass("code")` = 3, and orchestrator
+ * commands dispatch one fresh sub-agent per finding/slice per the Decision-25
+ * batching model), so no shipped pipeline drives one sub-agent near 200 turns
+ * — the ceiling binds only unbounded loops. Override via
+ * `claude.subagentMaxTurns` in `.hatch3r/hatch.json` (integer >= 1), or
+ * disable with `false` for open-ended deep sessions.
+ */
+export const CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT = 200;
+
+/**
+ * D9-SA9.1-05 / CL-2 U11 (Cycle 12, D9, CQ9): default persistent-memory map —
+ * `hatch3r-learnings-loader` gets `memory: project` (persists to
+ * `.claude/agent-memory/hatch3r-learnings-loader/`, the docs-recommended,
+ * version-controllable scope — code.claude.com/docs/en/sub-agents, accessed
+ * 2026-07-12). Cross-session learning is that agent's entire function, so the
+ * memory field closes the plan-mode-vs-memory design question the D9-11 CL-2
+ * note flagged; see {@link ClaudeAdapter.resolveSubagentMemoryMap} for the
+ * coexistence rationale. Keys are emitted (prefixed) agent ids.
+ */
+const CLAUDE_SUBAGENT_MEMORY_DEFAULT: Readonly<Record<string, ClaudeSubagentMemoryScope>> = {
+  "hatch3r-learnings-loader": "project",
+};
+
+/** Runtime membership check for {@link ClaudeSubagentMemoryScope} values. */
+const VALID_SUBAGENT_MEMORY_SCOPES: ReadonlySet<string> = new Set(CLAUDE_SUBAGENT_MEMORY_SCOPES);
 
 /**
  * D12-1 (Cycle 11 Wave 2, D12, P2): single-canonical-source attribution for a
@@ -776,6 +812,72 @@ async function claudeAgentsMdImport(ctx: AdapterContext): Promise<string> {
 
 export class ClaudeAdapter extends BaseAdapter {
   readonly name = "claude";
+
+  /**
+   * D9-SA9.1-05 / CL-2 U11 (Cycle 12): resolve the per-subagent `maxTurns:`
+   * ceiling from `claude.subagentMaxTurns`. Unset → the default runaway bound
+   * ({@link CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT}); `false` → `undefined` (field
+   * omitted; platform behavior = unbounded); a positive integer → that value.
+   * A non-integer or <1 value is omitted WITH a warning (fail-safe: no ceiling
+   * beats shipping a value Claude Code may reject) — called once per generate,
+   * not per agent, so the warning fires once per sync.
+   */
+  private resolveSubagentMaxTurns(ctx: AdapterContext): number | undefined {
+    const configured = ctx.manifest.claude?.subagentMaxTurns;
+    if (configured === false) return undefined;
+    if (configured === undefined) return CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT;
+    if (typeof configured === "number" && Number.isInteger(configured) && configured >= 1) {
+      return configured;
+    }
+    this.warnings.push(
+      `claude: subagentMaxTurns ${JSON.stringify(configured)} is not an integer >= 1 or false — ` +
+        `omitting the maxTurns ceiling this sync (sub-agent turn count is unbounded). ` +
+        `Set an integer >= 1 to cap turns, or false to disable the ceiling deliberately.`,
+    );
+    return undefined;
+  }
+
+  /**
+   * D9-SA9.1-05 / CL-2 U11 (Cycle 12): resolve the per-agent `memory:` scope
+   * map from `claude.subagentMemory`. Unset → the default map
+   * ({@link CLAUDE_SUBAGENT_MEMORY_DEFAULT}); an explicit object REPLACES the
+   * default (full definition, so per-agent opt-in/opt-out is one edit);
+   * `false` → empty map (no memory emission). Keys normalize through
+   * `toPrefixedId` so `learnings-loader` and `hatch3r-learnings-loader` both
+   * bind to the emitted agent id; an invalid scope value is skipped with a
+   * warning (valid set: {@link CLAUDE_SUBAGENT_MEMORY_SCOPES}).
+   *
+   * Plan-mode coexistence (the design question the D9-11 CL-2 note flagged):
+   * the learnings-loader keeps `permissionMode: plan` alongside
+   * `memory: project`. The platform auto-enables Read/Write/Edit for
+   * memory-file management when `memory:` is set (a platform-side merge — the
+   * adapter does not widen the emitted `tools:` list), while plan mode governs
+   * the permission layer; worst case a memory WRITE prompts for approval while
+   * the read half (MEMORY.md system-prompt injection, first 200 lines / 25 KB)
+   * works unconditionally — the loading function the agent exists for.
+   * Dropping plan mode to smooth memory writes would widen a readonly role's
+   * privileges (monotonic-privilege violation), so it stays.
+   */
+  private resolveSubagentMemoryMap(
+    ctx: AdapterContext,
+  ): Record<string, ClaudeSubagentMemoryScope> {
+    const configured = ctx.manifest.claude?.subagentMemory;
+    if (configured === false) return {};
+    const source = configured ?? CLAUDE_SUBAGENT_MEMORY_DEFAULT;
+    const resolved: Record<string, ClaudeSubagentMemoryScope> = {};
+    for (const [id, scope] of Object.entries(source)) {
+      if (!VALID_SUBAGENT_MEMORY_SCOPES.has(scope)) {
+        this.warnings.push(
+          `claude: subagentMemory["${id}"] = ${JSON.stringify(scope)} is not a valid memory ` +
+            `scope — skipping the memory: field for this agent. Valid scopes: ` +
+            `${CLAUDE_SUBAGENT_MEMORY_SCOPES.join(", ")}.`,
+        );
+        continue;
+      }
+      resolved[toPrefixedId(id)] = scope;
+    }
+    return resolved;
+  }
 
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
@@ -920,6 +1022,11 @@ export class ClaudeAdapter extends BaseAdapter {
 
     if (ctx.features.agents) {
       const agents = await this.readUserFacingCanonicalFiles(ctx.canonicalRoot, "agents", ctx.userRepoRoot);
+      // D9-SA9.1-05 / CL-2 U11 (Cycle 12): resolve the maxTurns ceiling and the
+      // memory map ONCE per generate (not per agent) so an invalid config value
+      // warns once per sync instead of once per emitted agent.
+      const subagentMaxTurns = this.resolveSubagentMaxTurns(ctx);
+      const subagentMemory = this.resolveSubagentMemoryMap(ctx);
       for (const agent of agents) {
         // C9-H20: cooperative abort between agent files.
         this.throwIfAborted(ctx);
@@ -986,6 +1093,18 @@ export class ClaudeAdapter extends BaseAdapter {
         // CL-2-deferred remaining native fields (mcpServers/memory/maxTurns/skills).
         const permissionMode = claudePermissionMode(agentId);
         if (permissionMode) fmLines.push(`permissionMode: ${permissionMode}`);
+        // D9-SA9.1-05 / CL-2 U11 (Cycle 12, D9, P6/P7): native `maxTurns:`
+        // runaway-cost ceiling on every emitted subagent (canonical + user) —
+        // before this field, no emitted frontmatter bounded sub-agent turn
+        // count. Default CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT; tuned or disabled
+        // via `claude.subagentMaxTurns` (see resolveSubagentMaxTurns).
+        if (subagentMaxTurns !== undefined) fmLines.push(`maxTurns: ${subagentMaxTurns}`);
+        // D9-SA9.1-05 / CL-2 U11 (Cycle 12, D9, CQ9): native `memory:` scope
+        // for agents in the resolved map (default: learnings-loader → project).
+        // Coexists with `permissionMode: plan` by design — rationale at
+        // resolveSubagentMemoryMap.
+        const memoryScope = subagentMemory[agentId];
+        if (memoryScope) fmLines.push(`memory: ${memoryScope}`);
         // D9-H-1 (D9, P3): emit Claude Code's native `model:` subagent
         // frontmatter when a model resolves, so per-agent model preferences
         // are authoritative rather than advisory prose. Claude Code resolves

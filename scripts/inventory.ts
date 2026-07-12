@@ -39,7 +39,7 @@ const ADAPTER_UTILITIES = new Set<string>([
   "capabilityMatrix.ts",
   "mcp-utils.ts",
   "contextBudget.ts",
-  "agentsmd.ts", // shared AGENTS.md helper, not a platform adapter
+  "agentsMd.ts", // shared AGENTS.md emission helper (CL-2 U6), not a platform adapter
 ]);
 
 interface InventoryCounts {

@@ -17,7 +17,7 @@ External research and runtime measurement converged on the same conclusion: pipi
 
 hatch3r still supports MCP — the pivot is about defaults, not deprecation. Since 2.0.0 interactive `npx hatch3r init` does not prompt for MCP at all (the fifth prompt is the CLI-tools picker); opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` on demand.
 
-## The 34-tool catalog
+## The 39-tool catalog
 
 Three tiers. Tier-1 is default-on for every project. Tier-2 is pre-checked per detected project signals. Tier-3 is opt-in advanced.
 
@@ -57,7 +57,7 @@ Pre-checked when the matching trigger holds.
 | HTTPie | `http` | `web-project` | Human-friendly HTTP/S client with intuitive UI, JSON output, syntax highlighting, and session management |
 | xh | `xh` | `web-project` | Fast Rust HTTP/S client with HTTPie-compatible syntax — HTTP/2 + HTTP/3, single-binary install |
 
-### Tier 3 — opt-in advanced (10 tools)
+### Tier 3 — opt-in advanced (15 tools)
 
 Never pre-checked. Opt in informed.
 
@@ -66,13 +66,18 @@ Never pre-checked. Opt in informed.
 | RTK | `rtk` | CLI output-compression proxy — ⚠ see pipe-output corruption caveat in the `hatch3r-cli-toolbox` skill (rtk section) |
 | Stagehand | `stagehand` | Browserbase Stagehand — AI-driven browser automation |
 | aichat | `aichat` | Multi-provider LLM chat CLI with RAG and session memory |
-| mods | `mods` | Charm mods — Unix-friendly LLM pipeline tool |
+| mods | `mods` | Charm mods — Unix-friendly LLM pipeline tool (upstream archived 2026-03-09; superseded by crush) |
 | Comby | `comby` | Structural search and replace across languages with declarative patterns |
 | miller | `mlr` | awk/sed/cut/join for CSV/TSV/JSON/Parquet streams |
 | csvkit | `csvlook` | Python CSV toolkit (csvlook, csvsql, csvjoin, csvstat) |
 | Podman | `podman` | Daemonless container engine, rootless by default (Docker alternative) |
 | dasel | `dasel` | Cross-format selector — JSON / YAML / TOML / XML / CSV under one path-query DSL |
 | container-use | `container-use` | Dagger sandbox runtime for agentic coding environments (pre-1.0; see caveat) |
+| Crush | `crush` | Charm Crush — terminal agentic coding assistant (multi-model, MCP + LSP aware); successor to the archived mods |
+| jaq | `jaq` | Memory-safe Rust jq clone — jq-compatible filters with faster startup; security-audited |
+| Tombi | `tombi` | TOML formatter, linter, and language server — maintained alternative to taplo |
+| Hurl | `hurl` | Declarative HTTP testing — runs plain-text .hurl request files with captures and asserts in CI |
+| tea | `tea` | Gitea official CLI — issues, pull requests, releases on Gitea / Forgejo / Codeberg |
 
 ## Install commands per OS
 
@@ -103,11 +108,11 @@ The `hatch3r-cli-toolbox` skill that ships in every project includes the full de
 - **YAML / TOML** → `yq` for YAML, `taplo` for TOML.
 - **View a file** → `bat` (syntax-highlighted cat). For diff display use `delta`.
 - **Edit-in-place** → `sd` for literal-string substitution. For structural rewrites use `ast-grep` or `comby`.
-- **GitHub / GitLab / Azure DevOps APIs** → `gh` / `glab` / `az` (with the `azure-devops` extension).
+- **GitHub / GitLab / Azure DevOps / Gitea APIs** → `gh` / `glab` / `az` (with the `azure-devops` extension) / `tea` (also Forgejo and Codeberg).
 - **Compression / archive** → `zstd`.
 - **Browser automation** → `playwright` (deterministic) or `stagehand` (AI-driven).
 - **Data analytics on CSV/Parquet** → `duckdb`.
-- **LLM in a pipeline** → `llm` (simple), `mods` (Unix-friendly streaming), `aichat` (RAG + session memory).
+- **LLM in a pipeline** → `llm` (simple), `crush run` (Unix-friendly streaming — replaces the archived `mods`), `aichat` (RAG + session memory).
 - **Containers** → `docker` (default) or `podman` (rootless / daemonless).
 
 The full toolbox skill (`skills/hatch3r-cli-toolbox/SKILL.md`) ships into every project and surfaces this decision tree directly to your agent at runtime.

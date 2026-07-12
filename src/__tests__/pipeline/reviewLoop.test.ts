@@ -1,7 +1,10 @@
 import { existsSync, readFileSync, readdirSync } from "node:fs";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, afterEach } from "vitest";
 import {
+  appendReviewLoopTelemetry,
   createReviewLoop,
   canContinueReview,
   recordReviewIteration,
@@ -22,6 +25,7 @@ import {
   MIN_DIVERGENCE_HISTORY,
   DIVERGENCE_MESSAGE,
   REVIEW_LOOP_CLASS_CAPS,
+  REVIEW_LOOP_METRICS_RELPATH,
   REVIEW_LOOP_TERMINATION_REASONS,
   maxIterationsForClass,
   reviewLoopLedgerEntry,
@@ -1134,6 +1138,7 @@ describe("reviewLoop", () => {
       terminationReason,
       verdictByIteration: [],
       source: "test-synthetic",
+      converged: terminationReason === "clean",
     });
 
     it("REVIEW_LOOP_TERMINATION_REASONS enumerates all seven terminal reasons at runtime", () => {
@@ -1150,7 +1155,7 @@ describe("reviewLoop", () => {
         source: "D7-SA7.2-01",
         recordedAt: "2026-07-11T00:00:00.000Z",
       });
-      expect(entry).toEqual({
+      expect(entry).toMatchObject({
         recordedAt: "2026-07-11T00:00:00.000Z",
         loopClass: "code",
         maxIterations: 6,
@@ -1158,7 +1163,62 @@ describe("reviewLoop", () => {
         terminationReason: "clean",
         verdictByIteration: ["warning", "clean"],
         source: "D7-SA7.2-01",
+        converged: true,
       });
+      // durationMs is derived from the loop's own history timestamps (U10) —
+      // assert shape, never an exact wall-clock value (repo clock convention).
+      expect(Number.isInteger(entry.durationMs)).toBe(true);
+      expect(entry.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it("converged is false for every non-clean termination (U10)", () => {
+      let state = createReviewLoop(2);
+      state = recordReviewIteration(state, "warning", 3);
+      state = recordReviewIteration(state, "warning", 2);
+      expect(state.terminationReason).toBe("max_iterations");
+      const entry = reviewLoopLedgerEntry(state, { loopClass: "code", source: "t" });
+      expect(entry.converged).toBe(false);
+    });
+
+    it("durationMs spans first-to-last history timestamps and is omitted without history (U10)", () => {
+      // Synthetic terminated state with explicit timestamps — deterministic
+      // duration with no wall-clock dependence.
+      const timed = {
+        ...cleanAt(2),
+        history: [
+          {
+            iteration: 1,
+            verdict: "warning" as const,
+            findingsCount: 2,
+            timestamp: "2026-07-11T00:00:00.000Z",
+          },
+          {
+            iteration: 2,
+            verdict: "clean" as const,
+            findingsCount: 0,
+            timestamp: "2026-07-11T00:00:10.000Z",
+          },
+        ],
+      };
+      const entry = reviewLoopLedgerEntry(timed, { loopClass: "code", source: "t" });
+      expect(entry.durationMs).toBe(10_000);
+
+      // No history (manual termination before iteration 1) → field omitted,
+      // never a fabricated 0.
+      const bare = terminateReviewLoop(createReviewLoop(3));
+      const bareEntry = reviewLoopLedgerEntry(bare, { loopClass: "code", source: "t" });
+      expect(bareEntry.durationMs).toBeUndefined();
+
+      // Unparseable timestamp → field omitted.
+      const corrupt = {
+        ...timed,
+        history: [{ ...timed.history[0], timestamp: "not-a-date" }],
+      };
+      const corruptEntry = reviewLoopLedgerEntry(corrupt, {
+        loopClass: "code",
+        source: "t",
+      });
+      expect(corruptEntry.durationMs).toBeUndefined();
     });
 
     it("reviewLoopLedgerEntry defaults recordedAt to now (ISO-8601)", () => {
@@ -1224,6 +1284,45 @@ describe("reviewLoop", () => {
       expect(() => parseReviewLoopLedger("42")).toThrow(/must be a JSON object/);
     });
 
+    it("parses pre-U10 lines without converged/durationMs, deriving converged (back-compat)", () => {
+      const legacy: Record<string, unknown> = { ...entryWith("clean", 1) };
+      delete legacy.converged;
+      const [parsed] = parseReviewLoopLedger(JSON.stringify(legacy));
+      expect(parsed.converged).toBe(true);
+      expect(parsed.durationMs).toBeUndefined();
+
+      const legacyTail: Record<string, unknown> = { ...entryWith("divergence", 3) };
+      delete legacyTail.converged;
+      const [parsedTail] = parseReviewLoopLedger(JSON.stringify(legacyTail));
+      expect(parsedTail.converged).toBe(false);
+    });
+
+    it("rejects a converged value that contradicts terminationReason (U10)", () => {
+      const base = entryWith("max_iterations", 3);
+      const inconsistent = JSON.stringify({ ...base, converged: true });
+      expect(() => parseReviewLoopLedger(inconsistent)).toThrow(HatchError);
+      expect(() => parseReviewLoopLedger(inconsistent)).toThrow(/converged/);
+      const wrongType = JSON.stringify({ ...base, converged: "yes" });
+      expect(() => parseReviewLoopLedger(wrongType)).toThrow(/converged/);
+    });
+
+    it("rejects an out-of-domain durationMs, passing a valid one through (U10)", () => {
+      const base = entryWith("clean", 1);
+      expect(() =>
+        parseReviewLoopLedger(JSON.stringify({ ...base, durationMs: -1 })),
+      ).toThrow(/durationMs/);
+      expect(() =>
+        parseReviewLoopLedger(JSON.stringify({ ...base, durationMs: 1.5 })),
+      ).toThrow(/durationMs/);
+      expect(() =>
+        parseReviewLoopLedger(JSON.stringify({ ...base, durationMs: "fast" })),
+      ).toThrow(/durationMs/);
+      const [parsed] = parseReviewLoopLedger(
+        JSON.stringify({ ...base, durationMs: 4200 }),
+      );
+      expect(parsed.durationMs).toBe(4200);
+    });
+
     it("deriveIterationSplit on an empty ledger reports zero sample, not a fabricated split", () => {
       const derived = deriveIterationSplit([]);
       expect(derived.sampleSize).toBe(0);
@@ -1282,6 +1381,104 @@ describe("reviewLoop", () => {
         Array.from({ length: CALIBRATION_SAMPLE_THRESHOLD }, () => entryWith("clean", 1)),
       );
       expect(atThreshold.promotable).toBe(true);
+    });
+  });
+
+  describe("runtime telemetry append (Findings D7-SA7.2-01/-04 — CL-2 unit U10)", () => {
+    const tmpRoots: string[] = [];
+    const makeRoot = async (): Promise<string> => {
+      const root = await mkdtemp(join(tmpdir(), "hatch3r-rlt-"));
+      tmpRoots.push(root);
+      return root;
+    };
+    afterEach(async () => {
+      await Promise.all(
+        tmpRoots.splice(0).map((root) => rm(root, { recursive: true, force: true })),
+      );
+    });
+
+    /** Terminated-clean loop after `n` iterations under a cap of 6. */
+    const terminatedClean = (n: number) => {
+      let state = createReviewLoop(6);
+      for (let i = 1; i < n; i++) {
+        state = recordReviewIteration(state, "warning", 6 - i);
+      }
+      return recordReviewIteration(state, "clean", 0);
+    };
+
+    it("writes one parseable JSONL record to .hatch3r/review-loop-metrics.jsonl at loop exit", async () => {
+      const root = await makeRoot();
+      const state = terminatedClean(2);
+      const result = await appendReviewLoopTelemetry(root, state, {
+        loopClass: "code",
+        source: "u10-test",
+        recordedAt: "2026-07-12T00:00:00.000Z",
+      });
+      expect(result.written).toBe(true);
+      expect(result.warning).toBeUndefined();
+      expect(result.path).toBe(join(root, REVIEW_LOOP_METRICS_RELPATH));
+      const content = await readFile(result.path, "utf-8");
+      expect(content.endsWith("\n")).toBe(true);
+      const entries = parseReviewLoopLedger(content);
+      expect(entries).toHaveLength(1);
+      expect(entries[0]).toMatchObject({
+        recordedAt: "2026-07-12T00:00:00.000Z",
+        loopClass: "code",
+        iterationCount: 2,
+        terminationReason: "clean",
+        converged: true,
+        source: "u10-test",
+      });
+    });
+
+    it("appends accumulate — records are added, never replaced", async () => {
+      const root = await makeRoot();
+      const first = await appendReviewLoopTelemetry(root, terminatedClean(1), {
+        loopClass: "spec",
+        source: "run-1",
+      });
+      const second = await appendReviewLoopTelemetry(root, terminatedClean(3), {
+        loopClass: "code",
+        source: "run-2",
+      });
+      expect(first.written).toBe(true);
+      expect(second.written).toBe(true);
+      const entries = parseReviewLoopLedger(
+        await readFile(join(root, REVIEW_LOOP_METRICS_RELPATH), "utf-8"),
+      );
+      expect(entries).toHaveLength(2);
+      expect(entries.map((e) => e.source)).toEqual(["run-1", "run-2"]);
+    });
+
+    it("a telemetry write failure never throws and never alters the loop outcome", async () => {
+      const root = await makeRoot();
+      // Occupy the .hatch3r path with a FILE so mkdir/append must fail.
+      await writeFile(join(root, ".hatch3r"), "not a directory", "utf-8");
+      const state = terminatedClean(2);
+      const before = JSON.parse(JSON.stringify(state)) as unknown;
+      const result = await appendReviewLoopTelemetry(root, state, {
+        loopClass: "code",
+        source: "u10-failure",
+      });
+      expect(result.written).toBe(false);
+      expect(result.warning).toContain("NOT persisted");
+      expect(result.warning).toContain(result.path);
+      // Loop state is read-only input: outcome unchanged by the failed write.
+      expect(JSON.parse(JSON.stringify(state))).toEqual(before);
+      expect(state.terminated).toBe(true);
+      expect(state.terminationReason).toBe("clean");
+    });
+
+    it("a non-terminated loop is reported as a warning, not thrown (failure isolation)", async () => {
+      const root = await makeRoot();
+      const inProgress = createReviewLoop(3);
+      const result = await appendReviewLoopTelemetry(root, inProgress, {
+        loopClass: "code",
+        source: "u10-in-progress",
+      });
+      expect(result.written).toBe(false);
+      expect(result.warning).toContain("non-terminated");
+      expect(existsSync(join(root, REVIEW_LOOP_METRICS_RELPATH))).toBe(false);
     });
   });
 

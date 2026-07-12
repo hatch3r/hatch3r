@@ -438,27 +438,44 @@ export function createProgram(): Command {
 
   program
     .command("add [pack]")
-    .description("Install a community pack (coming soon)")
-    // D1-SA1.3-F2 (Medium, P1): `--force` advertised a "preflight integrity
-    // check" override and an exit-1 "integrity drift blocked" contract. The
-    // integrity-manifest subsystem was removed in Wave 7 (1.9.0) and the body
-    // (add.ts) is a stub that always exits 0, never reading any option — so
-    // both were stale help-text claims. They are dropped here until the pack
-    // installer body lands; re-add the option + exit-1 row alongside the
-    // pack-trust-model §3/§4/§5 gates flagged in add.ts when it does.
+    .description("Install a community pack from a local path or an installed npm package")
+    // CL-2 U12 (D5-SA5.3-09, Cycle 12): pack installer wired — see
+    // src/install/packInstall.ts for the gate pipeline. D1-SA1.3-F2 lineage:
+    // `--force` stays retired (the integrity-manifest subsystem it overrode
+    // was removed in Wave 7 / 1.9.0); collisions with files the pack does not
+    // own refuse install outright, and the unsigned-pack override is the
+    // separate, explicit `--allow-untrusted` below. A bare `hatch3r add`
+    // probe invocation keeps the repaired C8-D1-M8 contract: informational
+    // notice, exit 0 — never a usage error.
+    .option("--dry-run", "Run every trust gate and preview the write set without writing files")
+    .option(
+      "--allow-untrusted",
+      "Install a pack that declares no signing method (refused by default); the override is recorded in the install ledger",
+    )
+    .option("--format <format>", "Output format for CI consumers: human (default) or json", "human")
+    .option("--quiet", "Suppress stdout chrome (banner, summary box); stderr diagnostics still emit")
     .addHelpText(
       "after",
       [
         "",
-        "Roadmap:",
-        "  Community pack installation is not yet shipped. The command exits 0 today and",
-        "  prints a pointer to the repo's releases + discussions. Scripts that probe for the",
-        "  subcommand (e.g. feature-flagged CI) will not see a usage error (exit 2) anymore.",
-        "  - Releases:    https://github.com/hatch3r/hatch3r/releases",
-        "  - Discussions: https://github.com/hatch3r/hatch3r/discussions",
+        "Pack sources:",
+        "  ./path/to/pack   local directory containing pack-manifest.json",
+        "  <package-name>   npm package already installed under node_modules/",
+        "                   (hatch3r never runs npm install itself)",
+        "",
+        "Trust gates (all run before any write):",
+        "  pack-manifest.json field validation; signing declaration (or --allow-untrusted);",
+        "  SHA-256 integrity map; lifecycle-script ban; deny-pattern body scan;",
+        "  capability, footprint, and declared-tools checks; path-traversal guards.",
         "",
         "Exit codes:",
-        "  0  Informational (feature pending; no action required)",
+        "  0   Success (also: bare `hatch3r add` info notice, --dry-run preview)",
+        "  2   Usage error (invalid flag value)",
+        "  64  Pack validation refused (manifest field, footprint, undeclared tool,",
+        "      traversal guard, collision)",
+        "  65  Banned lifecycle script in the pack's package.json",
+        "  73  Signing/integrity refused (unsigned without --allow-untrusted,",
+        "      SHA-256 mismatch)",
         "",
       ].join("\n"),
     )

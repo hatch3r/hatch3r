@@ -7,6 +7,7 @@ import {
   CACHE_BREAKPOINT_SENTINEL,
   CACHE_BREAKPOINT_SENTINEL_START,
   CACHE_BREAKPOINT_SENTINEL_END,
+  CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT,
 } from "../../adapters/claude.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import { maxIterationsForClass } from "../../pipeline/reviewLoop.js";
@@ -2402,6 +2403,178 @@ describe("mcp-granted agent tools frontmatter carries per-server grants (D2-SA2.
       expect(toolsLine).not.toContain("mcp__");
     } finally {
       await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// D9-SA9.1-05 / CL-2 U11 (Cycle 12, D9, P6/P7/CQ9): enforcement-parity cohort —
+// the native `maxTurns:` runaway-cost ceiling (default
+// CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT on every emitted subagent) and the
+// `memory:` scope map (default: hatch3r-learnings-loader → project, coexisting
+// with its `permissionMode: plan`). Field contracts per
+// code.claude.com/docs/en/sub-agents (accessed 2026-07-12).
+describe("ClaudeAdapter subagent maxTurns + memory (D9-SA9.1-05 / CL-2 U11)", () => {
+  function u11Manifest(claude?: HatchManifest["claude"]): HatchManifest {
+    const base = createManifest({ tools: ["claude"] });
+    if (claude !== undefined) base.claude = claude;
+    return base;
+  }
+
+  /** Frontmatter fence at byte 0 (the block Claude Code parses). */
+  function fmOf(content: string): string {
+    const match = content.match(/^---\n[\s\S]*?\n---/);
+    return match ? match[0] : "";
+  }
+
+  function topLevelAgents(outputs: Awaited<ReturnType<ClaudeAdapter["generate"]>>) {
+    return outputs.filter((o) => /^\.claude\/agents\/[^/]+\.md$/.test(o.path));
+  }
+
+  it("emits maxTurns with the default ceiling on every generated agent", async () => {
+    const outputs = await new ClaudeAdapter().generate(FIXTURES_DIR, u11Manifest());
+    const agents = topLevelAgents(outputs);
+    expect(agents.length).toBeGreaterThan(0);
+    for (const agent of agents) {
+      expect(fmOf(agent.content)).toContain(`maxTurns: ${CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT}`);
+      // The ceiling is frontmatter, not managed body content.
+      expect(agent.managedContent).not.toContain("maxTurns:");
+    }
+  });
+
+  it("honors a configured integer ceiling via claude.subagentMaxTurns", async () => {
+    const outputs = await new ClaudeAdapter().generate(
+      FIXTURES_DIR,
+      u11Manifest({ subagentMaxTurns: 40 }),
+    );
+    for (const agent of topLevelAgents(outputs)) {
+      expect(fmOf(agent.content)).toContain("maxTurns: 40");
+      expect(fmOf(agent.content)).not.toContain(`maxTurns: ${CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT}`);
+    }
+  });
+
+  it("omits maxTurns entirely when subagentMaxTurns is false (opt-out)", async () => {
+    const adapter = new ClaudeAdapter();
+    const outputs = await adapter.generate(FIXTURES_DIR, u11Manifest({ subagentMaxTurns: false }));
+    for (const agent of topLevelAgents(outputs)) {
+      expect(agent.content).not.toContain("maxTurns:");
+    }
+    // Deliberate opt-out is not a misconfiguration — no warning.
+    expect(adapter.warnings.some((w) => w.includes("subagentMaxTurns"))).toBe(false);
+  });
+
+  it("omits maxTurns and warns exactly once on an invalid ceiling value", async () => {
+    const adapter = new ClaudeAdapter();
+    const outputs = await adapter.generate(FIXTURES_DIR, u11Manifest({ subagentMaxTurns: 0 }));
+    for (const agent of topLevelAgents(outputs)) {
+      expect(agent.content).not.toContain("maxTurns:");
+    }
+    const warnings = adapter.warnings.filter((w) => w.includes("subagentMaxTurns"));
+    // Resolved once per generate, not once per agent — a bad value warns once.
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain("integer >= 1");
+  });
+
+  /**
+   * Canonical root with the learnings-loader (a real canonical id, so the
+   * readonly policy derives `permissionMode: plan`) plus a control agent.
+   */
+  async function writeMemoryRoot(): Promise<string> {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-u11-memory-"));
+    const root = join(tempDir, "agents");
+    await mkdir(join(root, "agents"), { recursive: true });
+    await writeFile(
+      join(root, "agents", "learnings-loader.md"),
+      `---
+id: learnings-loader
+type: agent
+description: Loads prior learnings into context
+---
+
+You load prior learnings before the pipeline starts.`,
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "agents", "control-agent.md"),
+      `---
+id: control-agent
+type: agent
+description: A control agent with no memory row
+---
+
+You are a control agent.`,
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("emits memory: project on hatch3r-learnings-loader by default, coexisting with permissionMode: plan, and on no other agent", async () => {
+    const root = await writeMemoryRoot();
+    try {
+      const outputs = await new ClaudeAdapter().generate(root, u11Manifest());
+      const loader = outputs.find((o) => o.path === ".claude/agents/hatch3r-learnings-loader.md");
+      expect(loader, "expected the learnings-loader agent output").toBeDefined();
+      const loaderFm = fmOf(loader!.content);
+      expect(loaderFm).toContain("memory: project");
+      // Plan-mode coexistence by design: the readonly policy keeps its plan
+      // derivation; memory tools are platform-auto-enabled (docs, 2026-07-12).
+      expect(loaderFm).toContain("permissionMode: plan");
+      const control = outputs.find((o) => o.path === ".claude/agents/hatch3r-control-agent.md");
+      expect(control).toBeDefined();
+      expect(control!.content).not.toContain("memory:");
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("an explicit subagentMemory map replaces the default map (unprefixed keys normalize)", async () => {
+    const root = await writeMemoryRoot();
+    try {
+      const outputs = await new ClaudeAdapter().generate(
+        root,
+        u11Manifest({ subagentMemory: { "control-agent": "local" } }),
+      );
+      const control = outputs.find((o) => o.path === ".claude/agents/hatch3r-control-agent.md");
+      expect(fmOf(control!.content)).toContain("memory: local");
+      // Replaced, not merged: the default learnings-loader row is gone.
+      const loader = outputs.find((o) => o.path === ".claude/agents/hatch3r-learnings-loader.md");
+      expect(loader!.content).not.toContain("memory:");
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("subagentMemory: false disables all memory emission", async () => {
+    const root = await writeMemoryRoot();
+    try {
+      const outputs = await new ClaudeAdapter().generate(
+        root,
+        u11Manifest({ subagentMemory: false }),
+      );
+      for (const agent of topLevelAgents(outputs)) {
+        expect(agent.content).not.toContain("memory:");
+      }
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("skips an invalid memory scope with a warning instead of emitting it", async () => {
+    const root = await writeMemoryRoot();
+    try {
+      const adapter = new ClaudeAdapter();
+      const outputs = await adapter.generate(
+        root,
+        u11Manifest({
+          subagentMemory: { "learnings-loader": "everywhere" },
+        } as unknown as HatchManifest["claude"]),
+      );
+      const loader = outputs.find((o) => o.path === ".claude/agents/hatch3r-learnings-loader.md");
+      expect(loader!.content).not.toContain("memory:");
+      const warnings = adapter.warnings.filter((w) => w.includes("subagentMemory"));
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("user, project, local");
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
     }
   });
 });

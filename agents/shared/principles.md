@@ -26,7 +26,7 @@ How the framework operates.
 
 ## Content-Quality Pillars (CQ1-CQ10)
 
-What the framework produces in end-user code. CQ1-CQ9 each have a specialist agent under `agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md`; the CQ10 (Product & Spec) specialist is queued for the next audit cycle.
+What the framework produces in end-user code. Each CQ pillar has a specialist agent: CQ1-CQ9 under `agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md`, CQ10 (Product & Spec) under `agents/hatch3r-product-spec.md`.
 
 | Pillar | Name |
 |--------|------|

@@ -1,0 +1,34 @@
+{
+  "skill": "hatch3r-cli-fd",
+  "skillPath": "skills/hatch3r-cli-fd/SKILL.md",
+  "cohort": "cli",
+  "cases": [
+    {
+      "id": "cli-fd-001",
+      "input": "Find every *.test.ts file under src/ that mentions snapshots in its name.",
+      "context": "fd is installed; the repo has a .gitignore excluding dist/.",
+      "expected": [
+        "Uses fd with a glob or pattern (e.g. `fd -e ts -g '*snapshot*.test.ts' src/`) instead of `find` or `ls -R`",
+        "Relies on fd's gitignore awareness rather than manually excluding dist/",
+        "Bounds the result set (`--max-results` or a count check) before dumping output"
+      ],
+      "forbidden": [
+        "Falls back to `find` when fd is available",
+        "Pipes an unbounded result list into the transcript"
+      ],
+      "rubric": "PASS iff the constructed command is an fd invocation exploiting gitignore awareness with bounded output."
+    },
+    {
+      "id": "cli-fd-002",
+      "input": "Locate all directories named __fixtures__ anywhere in the repo, including inside node_modules.",
+      "context": "node_modules is gitignored; the user explicitly wants it searched.",
+      "expected": [
+        "Recognizes fd skips gitignored paths by default and adds the no-ignore flag (`-I`/`--no-ignore`) plus the directory type filter (`-t d`)"
+      ],
+      "forbidden": [
+        "Runs a default fd invocation and reports node_modules results as absent"
+      ],
+      "rubric": "PASS iff the command overrides ignore behavior explicitly, demonstrating the default-filter model of the tool."
+    }
+  ]
+}

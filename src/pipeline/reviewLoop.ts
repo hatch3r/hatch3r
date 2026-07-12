@@ -37,6 +37,8 @@
  *   against — superseded by the library-only disposition above (D7-M6).
  */
 
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { HatchError, DEFAULT_CONFIDENCE_FLOOR, type ConfidenceFloor } from "../types.js";
 import type { ReviewVerdict } from "./pipelineContext.js";
 
@@ -269,26 +271,33 @@ export const CALIBRATION: Readonly<ReviewLoopCalibration> = Object.freeze({
     oscillationRateAbove: 0.1,
   }),
   // CL-2 iteration-count telemetry status (spec: Finding D7-M4 / D7-SA7.2-1,
-  // Cycle 10; ledger + script built Cycle 12, Finding D7-SA7.2-01):
+  // Cycle 10; ledger + script built Cycle 12, Finding D7-SA7.2-01; runtime
+  // sink built Cycle-12 CL-2 unit U10, Finding D7-SA7.2-04):
   // BUILT — (1) typed runtime iteration ledger: `ReviewLoopLedgerEntry`
   //     (JSONL; `reviewLoopLedgerEntry` + `serializeReviewLoopLedgerEntry`
   //     produce lines, `parseReviewLoopLedger` reads them,
   //     `deriveIterationSplit` computes the measured split). Ledger entries
   //     supersede the originally specced per-finding registry columns as the
-  //     data source: the registry stays finding-oriented while the loop is
-  //     the calibration unit, and any loop (audit wave, orchestrator run)
-  //     can append a line.
+  //     data source: the Cycle-10 spec named the audit finding registry,
+  //     which would have measured AUDIT loops, not product loops
+  //     (D7-SA7.2-04) — the loop is the calibration unit.
   //     (2) `scripts/calibrate-review-loop.ts` — reads the ledger
-  //     (default `governance/audit/review-loop-ledger.jsonl`), emits the
+  //     (default `.hatch3r/review-loop-metrics.jsonl`), emits the
   //     measured split vs this estimate, and prints the candidate
   //     CALIBRATION update once sampleSize >= CALIBRATION_SAMPLE_THRESHOLD.
-  // REMAINING — (3) runtime loops appending entries until the 30-sample
-  //     threshold, then promote `basis` to `"measured"` + set `measuredAt`
-  //     from the script's candidate block.
-  //     (4) Recalibration cadence: re-run the script at every cycle close and
+  //     (3) runtime loop-exit sink: `appendReviewLoopTelemetry` appends one
+  //     record per terminated loop to `.hatch3r/review-loop-metrics.jsonl`
+  //     (REVIEW_LOOP_METRICS_RELPATH), never throwing — see the function's
+  //     JSDoc for the append-vs-atomic-rename rationale + failure isolation.
+  // REMAINING — (4) prompt-side emission wiring on the orchestrator surfaces
+  //     (the @library_export_only boundary means the prompt-driven runtime
+  //     must be instructed to emit the line; cross-ref D7-SA7.2-03), then
+  //     accumulate to the 30-sample threshold and promote `basis` to
+  //     `"measured"` + set `measuredAt` from the script's candidate block.
+  //     (5) Recalibration cadence: re-run the script at every cycle close and
   //     release prep, and whenever a recalibrationTrigger is observed.
   measurementMethodRef:
-    "review-loop iteration ledger (ReviewLoopLedgerEntry JSONL, default governance/audit/review-loop-ledger.jsonl) + scripts/calibrate-review-loop.ts; promote basis at CALIBRATION_SAMPLE_THRESHOLD (30) samples (D7-M4 / D7-SA7.2-1 / D7-SA7.2-01)",
+    "runtime review-loop telemetry ledger (ReviewLoopLedgerEntry JSONL at .hatch3r/review-loop-metrics.jsonl, appended at loop exit via appendReviewLoopTelemetry) + scripts/calibrate-review-loop.ts; promote basis at CALIBRATION_SAMPLE_THRESHOLD (30) samples (D7-M4 / D7-SA7.2-1 / D7-SA7.2-01 / D7-SA7.2-04)",
 });
 
 // ── Types ────────────────────────────────────────────────────────
@@ -1218,6 +1227,23 @@ export interface ReviewLoopLedgerEntry {
   verdictByIteration: ReviewIterationVerdict[];
   /** Run identifier: finding id, command name, or correlation id. */
   source: string;
+  /**
+   * Whether the loop converged — `true` iff `terminationReason === "clean"`
+   * (Finding D7-SA7.2-04, CL-2 unit U10). Denormalized for downstream
+   * analytics; `parseReviewLoopLedger` derives it when absent (pre-U10
+   * ledger-line back-compat) and rejects a present-but-inconsistent value so
+   * a hand-edited line fails loudly rather than skewing consumers.
+   */
+  converged: boolean;
+  /**
+   * Wall-clock span (ms, integer >= 0) from the first to the last recorded
+   * iteration timestamp in `state.history` (Finding D7-SA7.2-04, CL-2 unit
+   * U10). Omitted when the history is empty (e.g. a `manual` termination
+   * before iteration 1) or a timestamp fails to parse. Derived from
+   * already-recorded timestamps — building an entry reads no clock beyond
+   * the existing `recordedAt` default.
+   */
+  durationMs?: number;
 }
 
 /** Runtime verdict values for ledger-line validation (mirrors {@link ReviewIterationVerdict}). */
@@ -1248,7 +1274,7 @@ export function reviewLoopLedgerEntry(
       "VALIDATION_ERROR",
     );
   }
-  return {
+  const entry: ReviewLoopLedgerEntry = {
     recordedAt: meta.recordedAt ?? new Date().toISOString(),
     loopClass: meta.loopClass,
     maxIterations: state.maxIterations,
@@ -1256,7 +1282,19 @@ export function reviewLoopLedgerEntry(
     terminationReason: state.terminationReason,
     verdictByIteration: state.history.map((h) => h.verdict),
     source: meta.source,
+    converged: state.terminationReason === "clean",
   };
+  // Loop-internal duration from the already-recorded iteration timestamps
+  // (D7-SA7.2-04, U10): first-to-last history span, integer ms. Omitted when
+  // there is no history or a timestamp does not parse — never a fabricated 0.
+  if (state.history.length > 0) {
+    const first = Date.parse(state.history[0].timestamp);
+    const last = Date.parse(state.history[state.history.length - 1].timestamp);
+    if (Number.isFinite(first) && Number.isFinite(last) && last >= first) {
+      entry.durationMs = Math.round(last - first);
+    }
+  }
+  return entry;
 }
 
 /** Serialize one ledger entry to its single-line JSONL form. */
@@ -1347,7 +1385,34 @@ export function parseReviewLoopLedger(content: string): ReviewLoopLedgerEntry[] 
     if (typeof record.source !== "string" || record.source.length === 0) {
       fail("source", "must be a non-empty string");
     }
-    entries.push({
+    // `converged` (U10): derived when absent (pre-U10 ledger lines carry no
+    // such field); when present it must be a boolean AND consistent with
+    // terminationReason — an inconsistent value marks a hand-edited or
+    // corrupted line, which fails loudly per this parser's posture.
+    const derivedConverged = record.terminationReason === "clean";
+    if (record.converged !== undefined) {
+      if (typeof record.converged !== "boolean") {
+        fail("converged", "must be a boolean when present");
+      }
+      if (record.converged !== derivedConverged) {
+        fail(
+          "converged",
+          `contradicts terminationReason "${String(record.terminationReason)}" ` +
+            `(converged must be ${String(derivedConverged)})`,
+        );
+      }
+    }
+    // `durationMs` (U10): optional; a finite integer >= 0 when present.
+    if (record.durationMs !== undefined) {
+      if (
+        typeof record.durationMs !== "number" ||
+        !Number.isInteger(record.durationMs) ||
+        record.durationMs < 0
+      ) {
+        fail("durationMs", "must be a non-negative integer when present");
+      }
+    }
+    const entry: ReviewLoopLedgerEntry = {
       recordedAt: record.recordedAt as string,
       loopClass: record.loopClass as ReviewLoopClass,
       maxIterations: record.maxIterations as number,
@@ -1355,7 +1420,12 @@ export function parseReviewLoopLedger(content: string): ReviewLoopLedgerEntry[] 
       terminationReason: record.terminationReason as ReviewLoopTerminationReason,
       verdictByIteration: record.verdictByIteration as ReviewIterationVerdict[],
       source: record.source as string,
-    });
+      converged: derivedConverged,
+    };
+    if (record.durationMs !== undefined) {
+      entry.durationMs = record.durationMs as number;
+    }
+    entries.push(entry);
   }
   return entries;
 }
@@ -1418,6 +1488,106 @@ export function deriveIterationSplit(
     sampleSize: n,
     promotable: n >= CALIBRATION_SAMPLE_THRESHOLD,
   };
+}
+
+// ── Runtime Telemetry Sink (Finding D7-SA7.2-04 — CL-2 unit U10, Cycle 12) ──
+
+/**
+ * Repo-root-relative path of the runtime review-loop telemetry ledger.
+ *
+ * Finding D7-SA7.2-04: the Cycle-10 CL-2 spec named the audit finding
+ * registry as the calibration data source, but that registry is populated by
+ * AUDIT-EXECUTE waves — reading it would measure the audit's own loops, not
+ * product review loops. This `.hatch3r/` ledger is the product-runtime
+ * source: `scripts/calibrate-review-loop.ts` reads it by default, so
+ * `basis: "measured"` means "measured on real hatch3r review loops".
+ */
+export const REVIEW_LOOP_METRICS_RELPATH = join(
+  ".hatch3r",
+  "review-loop-metrics.jsonl",
+);
+
+/**
+ * Result of an {@link appendReviewLoopTelemetry} call. `written` is `true`
+ * when the record reached disk; when `false`, `warning` carries an
+ * operator-facing message naming the path and cause so the caller can
+ * surface it (Silent Failure Contract: reported, never thrown — telemetry
+ * write failures must never fail the loop they instrument).
+ */
+export interface ReviewLoopTelemetryResult {
+  written: boolean;
+  /** Absolute path of the target ledger file. */
+  path: string;
+  /** Populated when `written === false`. */
+  warning?: string;
+}
+
+/**
+ * Append one telemetry record for a terminated review loop to
+ * `<projectRoot>/.hatch3r/review-loop-metrics.jsonl` (CL-2 unit U10,
+ * Findings D7-SA7.2-01 / D7-SA7.2-04).
+ *
+ * **Write approach — `appendFile`, not the tmp+rename atomic writer.** The
+ * `src/merge/safeWrite.ts` tmp+rename pattern gives atomic REPLACE semantics;
+ * a JSONL ledger needs APPEND semantics, and rename-replace fits it badly on
+ * two axes: (1) cost — replacing an append means read-whole-ledger +
+ * rewrite-whole-ledger per record, O(ledger size) for a file that only
+ * grows; (2) lost updates — two concurrent loop runners doing
+ * read-modify-rename both read N lines and both rename back N+1, so the last
+ * rename wins and one record is silently dropped (the concurrent-write
+ * ordering caveat documented on `atomicWriteFile`). `fs.appendFile` opens
+ * with `O_APPEND`, so the kernel positions every write at the current end of
+ * file — concurrent appenders can interleave record ORDER but cannot
+ * overwrite one another. Precedent: `failureLog.ts::writeFailureLog`, the
+ * `.hatch3r` failure-log JSONL appender.
+ *
+ * **Partial-line corruption guard.** Each record is serialized to exactly one
+ * line with its trailing `\n` and handed to ONE `appendFile` call — never
+ * assembled across calls — so a concurrent append cannot split a record
+ * mid-line on a local POSIX filesystem. A crash mid-write can still leave a
+ * torn tail line; `parseReviewLoopLedger` throws naming the 1-based line
+ * number on any malformed line and the calibration script exits 1 on it, so
+ * a torn line halts calibration pointing at the exact line to delete rather
+ * than silently skewing the measured split (detect-and-discard: losing one
+ * sample is acceptable, mis-measuring the distribution is not).
+ *
+ * **Failure isolation.** NEVER throws. Every failure — a non-terminated
+ * state (the {@link reviewLoopLedgerEntry} guard), a `mkdir` failure (the
+ * `.hatch3r` path occupied by a file), an `appendFile` errno
+ * (EACCES/ENOSPC/EROFS) — returns `{ written: false, warning }`. The loop
+ * state is read-only input; no telemetry disposition alters the loop
+ * outcome. A missing `.hatch3r/` parent is created (`mkdir -p` semantics).
+ *
+ * **Execution boundary.** Same `@library_export_only` posture as the rest of
+ * this module: the JSONL line format is the cross-boundary interface (a
+ * prompt-driven loop runner appends a schema-conformant line directly); this
+ * function is the canonical TypeScript writer for in-process drivers and
+ * pack integrators. Prompt-side emission wiring is tracked separately
+ * (cross-ref D7-SA7.2-03).
+ */
+export async function appendReviewLoopTelemetry(
+  projectRoot: string,
+  state: ReviewLoopState,
+  meta: { loopClass: ReviewLoopClass; source: string; recordedAt?: string },
+): Promise<ReviewLoopTelemetryResult> {
+  const metricsPath = join(projectRoot, REVIEW_LOOP_METRICS_RELPATH);
+  try {
+    const entry = reviewLoopLedgerEntry(state, meta);
+    const line = serializeReviewLoopLedgerEntry(entry) + "\n";
+    await mkdir(dirname(metricsPath), { recursive: true });
+    await appendFile(metricsPath, line, "utf-8");
+    return { written: true, path: metricsPath };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      written: false,
+      path: metricsPath,
+      warning:
+        `Review-loop telemetry record was NOT persisted to ${metricsPath} — ${message}. ` +
+        `The calibration sample is one loop short (check write permission / disk space ` +
+        `on the .hatch3r/ directory); the review-loop result itself is unaffected.`,
+    };
+  }
 }
 
 // ── D13 Medium: Trust-building and feedback loop helpers (#331-#343) ──

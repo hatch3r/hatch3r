@@ -26,7 +26,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
 [
   {
     "action": "create",
-    "bodyHash": "b731f3c75569da28d57e76dbc3c78dd6a752d0d50992780c4792b9f08f7d8f46",
+    "bodyHash": "05710a0509cdc318989dc228cc5c66c49fba13f3cb23696fe4aa0c1200f2b64f",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -36,7 +36,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "efac1c138be38c9b17cab4a9958224086721bc505f97a61da359ee97ce95b523",
+    "bodyHash": "9024c64cac49de7baca612d3e325913a22fe6e0d739572cdafb07171a8fde750",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",

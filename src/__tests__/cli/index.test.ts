@@ -251,6 +251,7 @@ describe("W5 flag-surface drift guard", () => {
   const MUTATING = new Set<string>([
     "init",
     "setup", // mkdir + git init (+ optional gh remote), then chains into init
+    "add", // pack install: writes .hatch3r/overrides/ + .hatch3r/packs/ ledger (CL-2 U12)
     "sync",
     "update",
     "config",
@@ -297,14 +298,16 @@ describe("W5 flag-surface drift guard", () => {
     "cli-tools install", // prompts when tools are missing — json rejected
   ]);
   // STUB / group-shell exemptions (documented):
-  //   - `add`: stub contract (D1-20) — always exits 0, reads no options.
   //   - `mcp`: group shell with no action of its own (subcommands carry flags).
   //   - `learn`: group shell — the bare action exits 2 pointing at `learn capture`.
-  const STUB = new Set<string>(["add", "mcp", "learn"]);
+  // (`add` left this set in CL-2 U12: the pack installer is wired, so it is
+  // classified MUTATING + DRY_RUN with the standard flag pair.)
+  const STUB = new Set<string>(["mcp", "learn"]);
   // DRY_RUN: mutating commands where a meaningful preview exists.
   const DRY_RUN = new Set<string>([
     "init",
     "setup", // previews the scaffold plan (create dir / git init / remote / run init)
+    "add", // previews the trust-gated write set without materializing (CL-2 U12)
     "sync",
     "update",
     "config",

@@ -110,6 +110,18 @@ export const TEAMMATE_MODES = ["auto", "in-process", "tmux", "tool-using", "full
 export type TeammateMode = (typeof TEAMMATE_MODES)[number];
 export const VALID_TEAMMATE_MODES = new Set<string>(TEAMMATE_MODES);
 
+/**
+ * D9-SA9.1-05 / CL-2 U11 (Cycle 12): valid values for the Claude Code subagent
+ * `memory:` frontmatter field (code.claude.com/docs/en/sub-agents, accessed
+ * 2026-07-12) — `user` persists to `~/.claude/agent-memory/<agent>/`, `project`
+ * to `.claude/agent-memory/<agent>/` (docs-recommended, version-controllable),
+ * `local` to `.claude/agent-memory-local/<agent>/` (project-specific,
+ * not checked in). Single source for {@link ClaudeConfig.subagentMemory}
+ * validation in the claude adapter.
+ */
+export const CLAUDE_SUBAGENT_MEMORY_SCOPES = ["user", "project", "local"] as const;
+export type ClaudeSubagentMemoryScope = (typeof CLAUDE_SUBAGENT_MEMORY_SCOPES)[number];
+
 export interface ClaudeConfig {
   permissions?: {
     allow?: string[];
@@ -127,6 +139,65 @@ export interface ClaudeConfig {
    * root AGENTS.md bridge, so most hatch3r repos have no AGENTS.md to import).
    */
   agentsMdInterop?: boolean;
+  /**
+   * D9-SA9.1-05 / CL-2 U11 (Cycle 12, D9, P6/P7): per-subagent turn ceiling
+   * emitted as the native `maxTurns:` frontmatter field on every generated
+   * `.claude/agents/*.md` ("Maximum number of agentic turns before the subagent
+   * stops" — code.claude.com/docs/en/sub-agents, accessed 2026-07-12; unset on
+   * the platform = unbounded). Absent → the adapter default ceiling
+   * (`CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT`, 200 — a runaway bound, not a task
+   * budget); a positive integer → that ceiling; `false` → field omitted
+   * (opt-out for open-ended deep sessions). A non-integer or <1 value is
+   * omitted with an adapter warning.
+   */
+  subagentMaxTurns?: number | false;
+  /**
+   * D9-SA9.1-05 / CL-2 U11 (Cycle 12, D9, CQ9): per-agent persistent-memory
+   * scope map emitted as the native `memory:` subagent frontmatter field
+   * (code.claude.com/docs/en/sub-agents, accessed 2026-07-12). Keys are agent
+   * ids (normalized through `toPrefixedId`, so `learnings-loader` and
+   * `hatch3r-learnings-loader` both bind); values per
+   * {@link CLAUDE_SUBAGENT_MEMORY_SCOPES}. Absent → the adapter default map
+   * `{ "hatch3r-learnings-loader": "project" }` (cross-session learning is that
+   * agent's function; `project` is the docs-recommended scope). An explicit
+   * object REPLACES the default map; `false` disables all memory emission.
+   */
+  subagentMemory?: false | Record<string, ClaudeSubagentMemoryScope>;
+}
+
+/**
+ * D9-SA9.3-08 / CL-2 U11 (Cycle 12, D9, P6): opt-in VS Code MCP sandbox
+ * hardening for the Copilot adapter's `.vscode/mcp.json` emission. VS Code
+ * documents per-server `sandboxEnabled: boolean` (stdio servers only; macOS/
+ * Linux only) plus a top-level `sandbox` rules object — sandboxed servers "can
+ * only access the file system paths and network domains that you explicitly
+ * permit" (code.visualstudio.com/docs/agents/reference/mcp-configuration,
+ * accessed 2026-07-12). Default OFF: the sandbox is default-deny, so blanket
+ * enablement breaks every network-reaching stdio MCP server the canonical set
+ * ships — enabling is an explicit operator decision.
+ */
+export interface CopilotMcpSandboxConfig {
+  /**
+   * Which emitted stdio servers get `sandboxEnabled: true` — `"all"` for every
+   * stdio entry, or an explicit server-name list. A named server that is
+   * absent, or HTTP-transport (sandboxEnabled is stdio-only per the VS Code
+   * schema), is skipped with an adapter warning.
+   */
+  servers: string[] | "all";
+  /**
+   * Emitted verbatim as the top-level `sandbox` object (sibling of `servers`/
+   * `inputs`) when at least one server is sandboxed; omitted (with a warning)
+   * when configured but no server ended up sandboxed.
+   */
+  rules?: {
+    filesystem?: { allowWrite?: string[]; denyRead?: string[]; denyWrite?: string[] };
+    network?: { allowedDomains?: string[]; deniedDomains?: string[] };
+  };
+}
+
+export interface CopilotConfig {
+  /** See {@link CopilotMcpSandboxConfig}. Absent = no sandbox emission. */
+  mcpSandbox?: CopilotMcpSandboxConfig;
 }
 
 /** Controls how adapter output is generated (verbosity), not what content is selected. */
@@ -198,12 +269,23 @@ export interface HatchManifest {
    * `src/manifest/hatchJson.ts::readCliToolsConfig`.
    */
   cliTools?: CliToolsConfig;
+  /**
+   * D9-SA9.5-05 (Cycle 12 CL-2 U6): opt-in root `AGENTS.md` emission.
+   * Additive optional field; absence == `{ enabled: false }`. See
+   * {@link AgentsMdConfig} and `src/adapters/agentsMd.ts`.
+   */
+  agentsMd?: AgentsMdConfig;
   board?: BoardConfig;
   repos?: RepoEntry[];
   packages?: PackageEntry[];
   hooks?: HooksConfig;
   models?: ModelConfig;
   claude?: ClaudeConfig;
+  /**
+   * D9-SA9.3-08 / CL-2 U11 (Cycle 12): Copilot-adapter-specific configuration.
+   * Additive optional field; absence == no Copilot-specific hardening emission.
+   */
+  copilot?: CopilotConfig;
   /** Token usage and cost tracking configuration. */
   costTracking?: CostTrackingConfig;
   /**
@@ -509,6 +591,21 @@ export interface CliToolsConfig {
 }
 
 export interface HooksConfig {
+  enabled: boolean;
+}
+
+/**
+ * D9-SA9.5-05 (Cycle 12 CL-2 U6): opt-in root `AGENTS.md` output class.
+ * Additive optional manifest field (no manifest version bump — the `cliTools`
+ * 1.7.5 precedent): absence, `enabled: false`, or any non-boolean-true value
+ * keeps the emission OFF. When `enabled === true`, exactly one adapter (owner
+ * election in `src/adapters/agentsMd.ts::resolveAgentsMdOwner`) emits a
+ * root `AGENTS.md` thin-pointer file inside managed blocks — the cross-vendor
+ * convention surface (agents.md, accessed 2026-07-12) for agents hatch3r does
+ * not configure. Set by hand-editing `.hatch3r/hatch.json` until the
+ * `hatch3r config` surface lands (residual wiring recorded in the U6 results).
+ */
+export interface AgentsMdConfig {
   enabled: boolean;
 }
 

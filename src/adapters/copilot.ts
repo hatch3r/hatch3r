@@ -365,6 +365,68 @@ export class CopilotAdapter extends BaseAdapter {
     );
   }
 
+  /**
+   * D9-SA9.3-08 / CL-2 U11 (Cycle 12, D9, P6): opt-in VS Code MCP sandbox
+   * hardening. Applies `sandboxEnabled: true` to the emitted stdio server
+   * entries selected by `copilot.mcpSandbox.servers` (`"all"` = every stdio
+   * entry) and returns the configured top-level `sandbox` rules object when at
+   * least one server was actually sandboxed. VS Code schema (accessed
+   * 2026-07-12, code.visualstudio.com/docs/agents/reference/mcp-configuration):
+   * per-server `sandboxEnabled` is stdio-only and macOS/Linux-only; the
+   * top-level `sandbox` object (sibling of `servers`/`inputs`) carries
+   * `filesystem.{allowWrite,denyRead,denyWrite}` +
+   * `network.{allowedDomains,deniedDomains}` and applies to all sandboxed
+   * servers, which "can only access the file system paths and network domains
+   * that you explicitly permit" (default-deny — the reason this emission is
+   * OPT-IN: blanket enablement would break every network-reaching stdio MCP
+   * server in the canonical set). Warnings per the Silent Failure Contract:
+   * a named-but-absent server, a named HTTP server (skipped — stdio-only), and
+   * rules configured with zero sandboxed servers (rules omitted, never inert).
+   */
+  private applyMcpSandbox(
+    ctx: AdapterContext,
+    servers: Record<string, Record<string, unknown>>,
+  ): Record<string, unknown> | undefined {
+    const cfg = ctx.manifest.copilot?.mcpSandbox;
+    if (!cfg) return undefined;
+    const requested =
+      cfg.servers === "all"
+        ? Object.keys(servers).filter((name) => servers[name].type === "stdio")
+        : cfg.servers;
+    let sandboxedCount = 0;
+    for (const name of requested) {
+      const entry = servers[name];
+      if (!entry) {
+        this.warnings.push(
+          `copilot: mcpSandbox names server "${name}" but no such server is emitted to ` +
+            `.vscode/mcp.json — no sandboxEnabled applied for it. Check manifest mcp.servers ` +
+            `and the copilot.mcpSandbox.servers list.`,
+        );
+        continue;
+      }
+      if (entry.type !== "stdio") {
+        this.warnings.push(
+          `copilot: mcpSandbox names server "${name}", but VS Code's sandboxEnabled field ` +
+            `applies to stdio servers only — "${name}" is ${String(entry.type)}-transport, ` +
+            `so it was skipped (code.visualstudio.com/docs/agents/reference/mcp-configuration).`,
+        );
+        continue;
+      }
+      entry.sandboxEnabled = true;
+      sandboxedCount++;
+    }
+    if (!cfg.rules) return undefined;
+    if (sandboxedCount === 0) {
+      this.warnings.push(
+        "copilot: mcpSandbox.rules is configured but no emitted server was sandboxed — " +
+          "omitting the top-level sandbox object (its rules apply only to sandboxed servers, " +
+          "so emitting it would ship dead config).",
+      );
+      return undefined;
+    }
+    return cfg.rules as Record<string, unknown>;
+  }
+
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
 
@@ -793,9 +855,15 @@ jobs:
       // tooling D9-C-2 targets (mcp-inspector / VS Code strict mode /
       // awesome-copilot lint). The shared rationale and the Claude-side emission
       // contrast live at `MCP_DEFAULT_PROTOCOL_VERSION` in mcp-utils.ts.
+      // D9-SA9.3-08 / CL-2 U11 (Cycle 12, D9, P6): opt-in MCP sandbox — flags
+      // selected stdio entries `sandboxEnabled: true` in place and returns the
+      // top-level `sandbox` rules object (or undefined). Default OFF; see
+      // applyMcpSandbox for the schema citation + default-deny rationale.
+      const sandboxRules = this.applyMcpSandbox(ctx, vscodeServers);
       const doc: Record<string, unknown> = {};
       if (inputs.length > 0) doc.inputs = inputs;
       doc.servers = vscodeServers;
+      if (sandboxRules) doc.sandbox = sandboxRules;
       results.push(output(".vscode/mcp.json", JSON.stringify(doc, null, 2) + "\n"));
       // D15-28 (Cycle 11 Wave 3, D15, P6, SA15.5-F7): Silent Failure Contract.
       // A non-empty `inputs[]` means at least one HTTP MCP server carried a

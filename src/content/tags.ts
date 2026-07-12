@@ -37,8 +37,11 @@ export const TAG_BOARD          = "board";          // project board management
 export const TAG_PERFORMANCE    = "performance";    // perf budgets, profiling
 export const TAG_AI             = "ai";             // AI feature engineering (evals, prompt mgmt)
 
-// ── 2.0.0 content-quality vector capability tags (CQ1-CQ9 per CONSTITUTION §2B) ──
-// Each tag identifies an agent or rule operating on one of the 9 content-quality vectors.
+// ── 2.0.0 content-quality vector capability tags (CQ1-CQ10 per CONSTITUTION §2B) ──
+// Each tag identifies an agent or rule operating on one of the 10 content-quality
+// vectors. CQ10 (Product & Spec) has no dedicated vector constant here — its
+// capability tags are TAG_SPEC/TAG_PLANNING in the work-type section below
+// (see TAG_PILLAR_MAP, which maps both to CQ10 as primary).
 export const TAG_SECURITY        = "security";        // CQ3 — supply-chain + auth + OWASP ASI
 export const TAG_RELIABILITY     = "reliability";     // CQ4 — SLO, OTel, circuit breaker
 export const TAG_TESTING         = "testing";         // CQ5 — test-class mandate, eval coverage
@@ -82,7 +85,7 @@ export const TAG_VISUAL_REGRESSION = "visual-regression"; // screenshot diff (De
 export const TAG_FLOOR_SECURITY        = "floor:security";        // P6 — security & trust
 export const TAG_FLOOR_UI_UX           = "floor:ui-ux";           // P1 — UI/UX excellence (includes a11y)
 export const TAG_FLOOR_PROTOCOL        = "floor:protocol";        // pipeline-critical (researcher, implementer, reviewer, fixer, test-writer)
-export const TAG_FLOOR_CONTENT_QUALITY = "floor:content-quality"; // 2.0.0 — content-quality axis (CQ1-CQ9 specialist agents + supporting rules/skills)
+export const TAG_FLOOR_CONTENT_QUALITY = "floor:content-quality"; // 2.0.0 — content-quality axis (CQ1-CQ10 specialist agents + supporting rules/skills)
 
 // ── Context tags (technical compatibility) ───────────────────────
 // Drive deterministic project-type / team-size filtering. These are NOT

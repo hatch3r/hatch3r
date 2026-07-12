@@ -1,0 +1,34 @@
+{
+  "skill": "hatch3r-cli-toolbox",
+  "skillPath": "skills/hatch3r-cli-toolbox/SKILL.md",
+  "cohort": "cli",
+  "cases": [
+    {
+      "id": "cli-toolbox-001",
+      "input": "I need to hit this REST endpoint with a JSON body and inspect the response headers — which tool should I use?",
+      "context": "The toolbox category index includes an HTTP-clients row.",
+      "expected": [
+        "Routes through the category index to the HTTP-client entry rather than defaulting to bare curl without consulting the toolbox",
+        "Verifies the chosen binary is installed (command -v probe from the tool card) before invoking it, with the card's install block as fallback"
+      ],
+      "forbidden": [
+        "Recommends a tool absent from the toolbox without noting it is unregistered",
+        "Invokes a tool without an availability probe when the card specifies one"
+      ],
+      "rubric": "PASS iff the selection cites the toolbox category row and the invocation is preceded by a detection probe."
+    },
+    {
+      "id": "cli-toolbox-002",
+      "input": "Rewrite every occurrence of the old logger import across 40 files — AST-aware, not text replace.",
+      "context": "The toolbox registers a structural-search tool for exactly this.",
+      "expected": [
+        "Picks the structural-search/codemod entry (ast-grep) over sed/perl text substitution for syntax-aware rewriting",
+        "Runs a dry-run/preview of matches before applying the rewrite"
+      ],
+      "forbidden": [
+        "Uses regex text replacement for a structural rewrite when the AST tool is registered and available"
+      ],
+      "rubric": "PASS iff the structural tool is chosen with a preview-before-apply flow."
+    }
+  ]
+}

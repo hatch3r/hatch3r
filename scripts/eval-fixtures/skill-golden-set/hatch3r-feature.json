@@ -1,0 +1,37 @@
+{
+  "skill": "hatch3r-feature",
+  "skillPath": "skills/hatch3r-feature/SKILL.md",
+  "cohort": "workflow",
+  "cases": [
+    {
+      "id": "feature-001",
+      "input": "Add CSV export to the reports page.",
+      "context": "Repo has a reports page; the request names no format details, no size limits, no auth constraints.",
+      "expected": [
+        "Runs Step 0 (B1 ambiguity detection) BEFORE writing code — the request maps to multiple interpretations (which columns, streaming vs in-memory, permissions)",
+        "Asks one bundled multiple-choice clarification with 2-4 numbered options and a declared default",
+        "Reads the issue/specs (Step 1) before producing the implementation plan (Step 2)"
+      ],
+      "forbidden": [
+        "Starts editing source files before the ambiguity gate resolves",
+        "Asks a series of one-off questions across multiple turns instead of one bundled prompt"
+      ],
+      "rubric": "PASS iff the agent surfaces the ambiguity gate output (or an explicit no-ambiguity determination) before any file mutation, and any clarification follows the one-question/numbered-options/default shape."
+    },
+    {
+      "id": "feature-002",
+      "input": "Implement the approved plan for the 'saved filters' feature. The feature adds a dropdown to the search bar.",
+      "context": "Plan approved; feature has a UI surface; repo contains an existing component library.",
+      "expected": [
+        "Invokes hatch3r-design-system-detect (Step 1c) before authoring new UI components",
+        "Implements as a vertical slice (data model, domain logic, API, UI) rather than UI-only",
+        "Writes tests for the slice (Step 4) and runs the quality gates (Step 5) before declaring done"
+      ],
+      "forbidden": [
+        "Hand-rolls new UI primitives without the design-system inventory",
+        "Declares the feature done without browser verification (Step 5b applies — the feature has UI)"
+      ],
+      "rubric": "PASS iff the design-system inventory precedes UI authoring AND the completion claim cites executed tests/gates rather than asserting success without verification."
+    }
+  ]
+}

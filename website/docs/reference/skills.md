@@ -97,7 +97,7 @@ Skills are grouped below by capability area. Each is invoked inside your coding 
 | **cli-gh** | GitHub CLI -- repos, issues, PRs, releases, gists, and workflow dispatches; invoke `gh`. |
 | **cli-jq** | JSON processor and query language -- shape JSON streams via jq filters and select expressions; invoke `jq`. |
 | **cli-ripgrep** | Fast recursive grep with gitignore awareness -- regex content searches across large source trees; invoke `rg`. |
-| **cli-toolbox** | Category-indexed reference for 29 specialist CLI tools beyond the always-on five (ripgrep, jq, gh, fd, fzf). |
+| **cli-toolbox** | Category-indexed reference for 34 specialist CLI tools beyond the always-on five (ripgrep, jq, gh, fd, fzf). |
 
 ## Canonical Location
 

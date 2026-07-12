@@ -99,7 +99,7 @@ Each pick cites ≥2 reputable sources ≤12 months old (vendor docs, benchmarks
 
 ### 5. PRD (`docs/specs/prd.md`)
 
-Eight sections — concrete, testable, non-placeholder:
+Nine sections — concrete, testable, non-placeholder:
 
 - **Problem statement** — what pain, for whom, today's workaround cost.
 - **Goals** — 3–5 measurable outcomes (e.g., "reduce X time from 45min to <5min for persona A").
@@ -108,6 +108,7 @@ Eight sections — concrete, testable, non-placeholder:
 - **Assumptions** — facts taken as true without further verification; each tagged confidence (H/M/L).
 - **Constraints** — budget, timeline, team size, regulatory.
 - **Open questions** — items routed back to user per `agents/shared/user-question-protocol.md` for §0 resolution.
+- **Resolved clarifications** — the single auditable record of every answered §0/clarification question, one row per question: `Q → chosen answer → default-applied? (yes/no)` (`yes` = the declared default-if-no-response was taken; `no` = the user answered explicitly). A question lives in exactly one place: answered here, unanswered under Open questions. Maturity-dial calibrated per `agents/shared/quality-charter.md` §5: mandatory at team, scaleup, and enterprise tiers; at solo, record rows only when ≥1 §0 question was asked — omit the section rather than emit it empty.
 - **Living-document clause** — PRD evolves; each change appends to a changelog inside the file.
 
 ### 6. Acceptance Criteria (`docs/specs/acceptance-criteria.md`)
@@ -221,6 +222,7 @@ confidence_aggregate:
   acceptance_criteria: H | M | L
   risk_inventory: H | M | L
   test_plan: H | M | L
+resolved_clarifications: <row count recorded in prd.md §Resolved clarifications; 0 when no §0 question was asked>
 open_questions: <list routed back to user per user-question-protocol.md>
 ```
 

@@ -1,16 +1,16 @@
 ---
 id: shared-quality-specialist-frame
 type: reference
-description: Shared structural frame (ambiguity, external-knowledge, confidence, delegation, output schema) for the 9 content-quality CQ1–CQ9 specialist agents.
+description: Shared structural frame (ambiguity, external-knowledge, confidence, delegation, output schema) for the 10 content-quality CQ1–CQ10 specialist agents.
 tags: [reference]
 ---
 
 # Quality Specialist Frame
 
 > **Pillars:** P2 (Scientific & Practical Quality), P4 (Lean Coverage), P5 (Governance Self-Quality), P8 (Clarification & Fan-out Discipline)
-> Shared framing for the 9 content-quality (CQ1–CQ9) specialist agents — `hatch3r-{ui, ux, security, reliability, testability, scalability, performance, maintainability, enhancability}.md`.
+> Shared framing for the 10 content-quality (CQ1–CQ10) specialist agents — `hatch3r-{ui, ux, security, reliability, testability, scalability, performance, maintainability, enhancability, product-spec}.md`.
 
-Each CQ specialist owns one content-quality vector (CQ1-CQ9; see `agents/shared/principles.md`). The structural framing — ambiguity detection, external-knowledge protocol, confidence scale, sub-agent delegation, output schema, severity vocabulary — is identical across the 9 specialists and lives here as the single source of truth. Per-CQ specifics (role verbs, audit checklist items, severity calibration table, key files, references) stay in the specialist file.
+Each CQ specialist owns one content-quality vector (CQ1-CQ10; see `agents/shared/principles.md`). The structural framing — ambiguity detection, external-knowledge protocol, confidence scale, sub-agent delegation, output schema, severity vocabulary — is identical across the 10 specialists and lives here as the single source of truth. Per-CQ specifics (role verbs, audit checklist items, severity calibration table, key files, references) stay in the specialist file.
 
 Citing this file via `See agents/shared/quality-specialist-frame.md → §<section>` is the canonical incorporation pattern.
 
@@ -24,8 +24,8 @@ Every CQ specialist's body opens with one role-assertion sentence in this exact 
 You are the <Name> quality-vector specialist for hatch3r 2.0.0 — the CQ<N> owner. Your remit is <one-sentence measurable scope statement>.
 ```
 
-- `<Name>` is the vector name (UI, UX, Security, Reliability, Testability, Scalability, Performance, Maintainability, Enhancability).
-- `<N>` is the CQ pillar number 1-9, matching the content-quality pillar list (see `agents/shared/principles.md`).
+- `<Name>` is the vector name (UI, UX, Security, Reliability, Testability, Scalability, Performance, Maintainability, Enhancability, Product & Spec).
+- `<N>` is the CQ pillar number 1-10, matching the content-quality pillar list (see `agents/shared/principles.md`).
 - `Your remit is …` names the measurable surface the specialist owns (the CQ thresholds for that vector), not prose praise.
 - A specialist whose scope includes authoring (e.g. `hatch3r-testability` writes missing test classes; `hatch3r-enhancability` gates without authoring) appends one sentence stating the author-vs-gate boundary after the remit sentence.
 
@@ -35,7 +35,7 @@ New specialists added under this frame copy the shape verbatim and fill the thre
 
 ## Role Alignment (senior-expert charter)
 
-Every CQ specialist acts as its **charter role**, not as a bare "CQ<N> owner" (`agents/shared/senior-expert-charter.md` → The Role Taxonomy + Specialist Role-Alignment): CQ1 UI/Design-System Engineer · CQ2 UX Designer · CQ3 Security Engineer + Compliance · CQ4 SRE/Operations + Data Engineer · CQ5 QA Engineer · CQ6-CQ9 Architect / Software-Engineer composites. The specialist embodies that role's dominant trait clusters (charter → Per-Role Profiles) by reflex, not only the mechanical checklist.
+Every CQ specialist acts as its **charter role**, not as a bare "CQ<N> owner" (`agents/shared/senior-expert-charter.md` → The Role Taxonomy + Specialist Role-Alignment): CQ1 UI/Design-System Engineer · CQ2 UX Designer · CQ3 Security Engineer + Compliance · CQ4 SRE/Operations + Data Engineer · CQ5 QA Engineer · CQ6-CQ9 Architect / Software-Engineer composites · CQ10 Product Manager. The specialist embodies that role's dominant trait clusters (charter → Per-Role Profiles) by reflex, not only the mechanical checklist.
 
 `status: PASS` is a **sign-off**, not a green light (charter → The Sign-off Doctrine). Emitting PASS asserts, checkably:
 
@@ -77,7 +77,7 @@ Per `rules/hatch3r-right-sizing.md`, calibrate the depth of every CQ vector to t
 
 Threshold comparisons read against the active tier's column; the universal-floor row is CRITICAL at every tier; rows binding only at a higher tier are Info ("next-tier target") below it, never silent.
 
-Each specialist keeps only its per-CQ depth table (`| Tier | <Vector> depth target |`) and cites this section via `See agents/shared/quality-specialist-frame.md → §Tier calibration` for the constant framing above — the framing is not copy-pasted into the 9 specialist bodies.
+Each specialist keeps only its per-CQ depth table (`| Tier | <Vector> depth target |`) and cites this section via `See agents/shared/quality-specialist-frame.md → §Tier calibration` for the constant framing above — the framing is not copy-pasted into the 10 specialist bodies.
 
 ---
 
@@ -112,7 +112,7 @@ Every CQ specialist returns a structured result conforming to the schema below p
 
 ### Canonical id format (D5-M1)
 
-All specialist finding ids follow the canonical pattern `cq<N>-<short-slug>-<3-digit-seq>` (e.g., `cq1-ui-001`, `cq3-sec-auth-014`, `cq7-perf-products-001`) — lowercase, hyphenated, monotonic sequence per cycle. `<N>` is the CQ pillar number (1-9), `<short-slug>` is a 1-3 token domain hint (`ui`, `ux`, `sec-auth`, `sec-webauthn`, `sec-supply`, `rel`, `test`, `scale`, `perf`, `maint`, `enh`), and `<3-digit-seq>` zero-pads to keep alphabetic order match chronological order. Per-specialist customizations (e.g., security adds a `domain:` row, enhancability adds a `flag_provider:` row) extend the row, not the id. The canonical pattern overrides any prior per-CQ id shape so the fixer agent can ingest the id without per-source de-quoting.
+All specialist finding ids follow the canonical pattern `cq<N>-<short-slug>-<3-digit-seq>` (e.g., `cq1-ui-001`, `cq3-sec-auth-014`, `cq7-perf-products-001`) — lowercase, hyphenated, monotonic sequence per cycle. `<N>` is the CQ pillar number (1-10), `<short-slug>` is a 1-3 token domain hint (`ui`, `ux`, `sec-auth`, `sec-webauthn`, `sec-supply`, `rel`, `test`, `scale`, `perf`, `maint`, `enh`, `spec`), and `<3-digit-seq>` zero-pads to keep alphabetic order match chronological order. Per-specialist customizations (e.g., security adds a `domain:` row, enhancability adds a `flag_provider:` row) extend the row, not the id. The canonical pattern overrides any prior per-CQ id shape so the fixer agent can ingest the id without per-source de-quoting.
 
 ```yaml
 sub_agents_spawned:
@@ -164,8 +164,9 @@ Each CQ specialist names its executable verification harness in its §Output con
 | CQ7 | Performance | **no dedicated harness** — interim: `skills/hatch3r-browser-verify` (declares CQ7 in its pillars) + `skills/hatch3r-observability-verify` (OTel latency/SLO); a dedicated `skills/hatch3r-performance-verify` (Lighthouse CI + bundle-analyzer + OTel-histogram gates) is the documented CQ7 gap |
 | CQ8 | Maintainability | `skills/hatch3r-maintainability-verify` |
 | CQ9 | Enhancability | `skills/hatch3r-enhancability-verify` |
+| CQ10 | Product & Spec | **no dedicated harness** — interim: the specialist's own deterministic census commands (criteria / marker / citation / traceability sweeps per `agents/hatch3r-product-spec.md` §Audit checklist); a dedicated spec verify-gate skill is the documented CQ10 gap |
 
-CQ7 is the single exception: it has no vector-dedicated harness skill, so a CQ7 High-confidence finding cites the interim shared harnesses above until `skills/hatch3r-performance-verify` is authored. Every other vector cites its own row.
+CQ7 and CQ10 are the two exceptions: neither has a vector-dedicated harness skill — a CQ7 High-confidence finding cites the interim shared harnesses above until `skills/hatch3r-performance-verify` is authored, and a CQ10 High-confidence finding cites its own census commands until a spec verify-gate skill is authored. Every other vector cites its own row.
 
 ---
 
@@ -181,4 +182,4 @@ Each specialist file fills in the CQ-specific entries; the scaffolding is consta
 
 ## How specialists incorporate this frame
 
-The CQ specialist's body cites the relevant section instead of repeating it. Example: `See agents/shared/quality-specialist-frame.md → §0 Detect Ambiguity (P8 B1)`. The specialist still names its per-CQ ambiguity triggers, key files, audit checklist items, severity calibration table, and references. The framing prose is no longer copy-pasted across 9 files; updates land here once and propagate via the dereference.
+The CQ specialist's body cites the relevant section instead of repeating it. Example: `See agents/shared/quality-specialist-frame.md → §0 Detect Ambiguity (P8 B1)`. The specialist still names its per-CQ ambiguity triggers, key files, audit checklist items, severity calibration table, and references. The framing prose is no longer copy-pasted across 10 files; updates land here once and propagate via the dereference.

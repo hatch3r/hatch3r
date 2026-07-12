@@ -316,6 +316,11 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     allowedTools: ["read", "search"],
     description: "CQ9 enhancability quality-vector specialist (review-only): read feature-flag configs, consumer-driven contract reports, and spec-diff gates and search for premature flag retirement. No write/execute — fix authorship delegates to producer agents per agents/hatch3r-enhancability.md §Boundaries.",
   },
+  {
+    agentId: "hatch3r-product-spec",
+    allowedTools: ["read", "search"],
+    description: "CQ10 product & spec quality-vector specialist (review-only): read PRD/spec artifacts, acceptance criteria, and traceability records and search for untestable criteria, uncited discovery claims, and spec-to-outcome gaps. No write/execute — spec authorship delegates to the spec agents and producer agents per agents/hatch3r-product-spec.md §Boundaries.",
+  },
   // ── 2.0.0 spec agents (Finding F2.4-F1, Cycle 10 Wave 1) ──
   //
   // The 2 spec agents below author one-pager / PRD / brownfield-spec

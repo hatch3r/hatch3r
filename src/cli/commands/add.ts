@@ -1,44 +1,138 @@
 import chalk from "chalk";
-import { printBanner, info } from "../shared/ui.js";
+import { info } from "../shared/ui.js";
+import { beginCommand, finishCommand } from "../shared/commandOutput.js";
+import { planPackInstall, applyPackInstall } from "../../install/packInstall.js";
 
-export async function addCommand(): Promise<void> {
-  printBanner(true);
-  // Wave 7: the integrity-manifest preflight that previously gated `add` was
-  // removed along with the integrity subsystem. The command is still a
-  // placeholder advertising the community-pack roadmap; when the body is
-  // wired up, drift gating should reuse `computeAdapterDrift` from
-  // `status.ts` instead of the deleted `verifyIntegrity` helper.
-  //
-  // D1-SA1.3-F2 (Medium, P1): the `--force` option and the exit-1
-  // "integrity drift blocked" help row were removed from the `add`
-  // registration in program.ts in the same pass — the stub reads no options
-  // and only exits 0, so advertising an integrity-override flag and a
-  // drift-block exit code contradicted the body. Re-add the option + its
-  // handling here when the pack installer lands.
+/**
+ * CL-2 U12 (D5-SA5.3-09, Cycle 12): `hatch3r add <pack>` wired from roadmap
+ * stub to the v1 pack installer (spec:
+ * .audit-workspace/content-specs/add-pack-wiring.spec.md). Two source tiers —
+ * local directory and already-installed npm package (resolved from
+ * node_modules/, hatch3r never fetches) — with every static trust gate run
+ * BEFORE any write: manifest field validation, signing declaration (or the
+ * explicit --allow-untrusted override, recorded in the install ledger),
+ * SHA-256 integrity map, lifecycle-script ban, deny-pattern body scan,
+ * capability/footprint/declared-tools checks, path-traversal guards.
+ * Materialization is atomic per file (safeWriteFile) with whole-batch
+ * rollback; the install record lands at .hatch3r/packs/<pack_id>.json.
+ *
+ * Preserved repaired semantics (C8-D1-M8 + D1-SA1.3-F2, sources re-verified
+ * 2026-04-20: tldp.org/LDP/abs/html/exitcodes.html — exit 2 = Bash misuse;
+ * man.freebsd.org sysexits — EX_OK = 0):
+ *   - a bare `hatch3r add` (no pack argument) is a valid probe invocation,
+ *     NOT user misuse: it prints an informational usage notice and exits 0,
+ *     so feature-probing CI pipelines keep seeing a clean exit;
+ *   - real usage errors (an invalid --format value) exit 2 via
+ *     parseFormatOption inside beginCommand;
+ *   - no `--force` option exists (D1-20): the retired integrity-manifest
+ *     override is not re-introduced — collisions with files this pack does
+ *     not own refuse install (exit 64), and the unsigned-pack override is
+ *     the separate, explicit `--allow-untrusted`;
+ *   - drift-class refusals (unsigned pack, SHA-256 mismatch) exit 73
+ *     (INTEGRITY_ERROR), the same class `verify` uses for
+ *     regeneration-mismatch blocks.
+ *
+ * F15.4-H3 closure: the trust-model gates this file previously documented as
+ * NOT executing (its stub-era comment block) now run in
+ * `src/install/packInstall.ts::planPackInstall` before any byte is written.
+ */
 
-  // C8-D1-M8 (D1-SA1.3.1, P1): `hatch3r add` is advertised in `--help` as a
-  // community-pack installer that is not yet shipped. Exiting with code 2
-  // (usage error per Bash/sysexits) misrepresents a valid invocation as user
-  // misuse and trips CI pipelines that probe the subcommand. Return cleanly
-  // (exit 0) with an informational notice plus a roadmap pointer — this
-  // satisfies P1 actionable-error guidance (the user has an action: track
-  // the repo's releases / discussions) without pretending the feature is
-  // done.
-  //
-  // Sources re-verified 2026-04-20:
-  //   - https://tldp.org/LDP/abs/html/exitcodes.html (exit 2 = Bash misuse)
-  //   - https://man.freebsd.org/cgi/man.cgi?query=sysexits (EX_OK = 0)
-  //
-  // F15.4-H3 (Cycle 10 D15-SA15.4): governance/pack-trust-model.md §1
-  // documents body-scan + lifecycle-script ban + capability validation
-  // gates that this stub does NOT execute. The pack-trust-model.md §1
-  // banner labels the document SPEC ONLY so end-users do not infer a
-  // runtime safety net that is absent until this command is wired. When
-  // implementing, replicate the §3 + §4 + §5 gates here BEFORE unpacking
-  // pack content under `.hatch3r/overrides/`.
-  console.log();
-  info("Community pack installation is coming in a future hatch3r release.");
-  console.log(chalk.dim("  Track progress: https://github.com/hatch3r/hatch3r/releases"));
-  console.log(chalk.dim("  Discuss packs:  https://github.com/hatch3r/hatch3r/discussions"));
-  console.log();
+export interface AddCommandOptions {
+  format?: string;
+  quiet?: boolean;
+  dryRun?: boolean;
+  allowUntrusted?: boolean;
+}
+
+export async function addCommand(pack?: string, opts: AddCommandOptions = {}): Promise<void> {
+  const startMs = Date.now();
+  const format = beginCommand(opts, { banner: "compact" });
+
+  if (pack === undefined || pack.trim() === "") {
+    // C8-D1-M8 probe contract: informational, exit 0.
+    if (format === "human") {
+      console.log();
+      info("Install a community pack: hatch3r add <./local-path | npm-package-name>");
+      console.log(chalk.dim("  Local packs:  a directory containing pack-manifest.json"));
+      console.log(chalk.dim("  npm packs:    already installed under node_modules/ (hatch3r never runs npm install)"));
+      console.log(chalk.dim("  Preview:      hatch3r add <pack> --dry-run"));
+      console.log();
+      return;
+    }
+    finishCommand(format, {
+      command: "add",
+      title: "hatch3r add",
+      style: "info",
+      lines: [],
+      json: {
+        installed: false,
+        usage: "hatch3r add <./local-path | npm-package-name> [--dry-run] [--allow-untrusted]",
+      },
+    });
+    return;
+  }
+
+  const plan = await planPackInstall(process.cwd(), pack, {
+    allowUntrusted: opts.allowUntrusted === true,
+  });
+  const gateLines = Object.entries(plan.gates).map(
+    ([gate, outcome]) => `${gate}: ${outcome}`,
+  );
+
+  if (opts.dryRun === true) {
+    finishCommand(format, {
+      command: "add",
+      title: `Dry run — pack ${plan.manifest.pack_id}@${plan.manifest.version}`,
+      style: "info",
+      lines: [
+        `Source: ${plan.source.kind} (${plan.source.reference})`,
+        `All trust gates passed (${gateLines.join(", ")})`,
+        `Write set (${plan.writeSet.length} file${plan.writeSet.length === 1 ? "" : "s"}, nothing written):`,
+        ...plan.writeSet.map((e) => `  ${e.action === "create" ? "+" : "~"} ${e.path}`),
+      ],
+      nextSteps: [`Run \`hatch3r add ${pack}\` without --dry-run to install`],
+      startMs,
+      json: {
+        dryRun: true,
+        pack: plan.manifest.pack_id,
+        version: plan.manifest.version,
+        source: plan.source.kind,
+        gates: plan.gates,
+        files: plan.writeSet,
+      },
+    });
+    return;
+  }
+
+  const applied = await applyPackInstall(process.cwd(), plan);
+  finishCommand(format, {
+    command: "add",
+    title: `Pack installed: ${plan.manifest.pack_id}@${plan.manifest.version}`,
+    lines: [
+      `Source: ${plan.source.kind} (${plan.source.reference})`,
+      `Trust gates: ${gateLines.join(", ")}`,
+      ...(plan.allowUntrusted
+        ? [chalk.yellow("Installed with --allow-untrusted (no signing declaration) — recorded in the ledger")]
+        : []),
+      `Files written (${applied.results.length}):`,
+      ...plan.writeSet.map((e) => `  ${e.action === "create" ? "+" : "~"} ${e.path}`),
+      `Install record: ${applied.ledgerRelPath}`,
+    ],
+    style: "success",
+    nextSteps: [
+      "Run `hatch3r sync` to fold the new overrides into your adapter outputs",
+      "Run `hatch3r validate` to check the installed content",
+    ],
+    startMs,
+    json: {
+      dryRun: false,
+      pack: plan.manifest.pack_id,
+      version: plan.manifest.version,
+      source: plan.source.kind,
+      allowUntrusted: plan.allowUntrusted,
+      gates: plan.gates,
+      files: plan.writeSet,
+      ledger: applied.ledgerRelPath,
+    },
+  });
 }

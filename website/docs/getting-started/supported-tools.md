@@ -72,7 +72,7 @@ Since 1.7.5 MCP is opt-in (default No during `init`). See the [MCP Setup guide](
 
 ## CLI Tools
 
-Since 1.7.5, hatch3r ships a 34-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 29 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Claude Code, Cursor, Copilot).
+Since 1.7.5, hatch3r ships a 39-tool CLI surface area as the token-efficient alternative to MCP. In v1.9.0 the per-tool skills were consolidated: five high-frequency tools (`ripgrep`, `jq`, `gh`, `fd`, `fzf`) retain standalone skill files, and the remaining 34 are sections of the consolidated `hatch3r-cli-toolbox` reference skill. Canonical content is emitted to all 3 supported adapters (Claude Code, Cursor, Copilot).
 
 ### Tier-1 (default-on, 11 tools)
 
@@ -110,7 +110,7 @@ Pre-checked when the matching trigger holds against the active project.
 | HTTPie | `web-project` | Human-friendly HTTP/S client with intuitive UI, JSON output, syntax highlighting, and session management |
 | xh | `web-project` | Fast Rust HTTP/S client with HTTPie-compatible syntax — HTTP/2 + HTTP/3, single-binary install |
 
-### Tier-3 (opt-in advanced, 10 tools)
+### Tier-3 (opt-in advanced, 15 tools)
 
 Never pre-checked — opt in informed.
 
@@ -119,13 +119,18 @@ Never pre-checked — opt in informed.
 | RTK | `rtk` | CLI output-compression proxy (⚠ pipe-output corruption — see skill) |
 | Stagehand | `stagehand` | Browserbase Stagehand — AI-driven browser automation |
 | aichat | `aichat` | Multi-provider LLM chat CLI with RAG and session memory |
-| mods | `mods` | Charm mods — Unix-friendly LLM pipeline tool |
+| mods | `mods` | Charm mods — Unix-friendly LLM pipeline tool (upstream archived — superseded by crush) |
 | Comby | `comby` | Structural search and replace across languages |
 | miller | `mlr` | awk/sed/cut/join for CSV/TSV/JSON/Parquet streams |
 | csvkit | `csvlook` | Python CSV toolkit (csvlook, csvsql, csvjoin, csvstat) |
 | Podman | `podman` | Daemonless container engine, rootless by default |
 | dasel | `dasel` | Cross-format selector — JSON / YAML / TOML / XML / CSV under one path-query DSL |
 | container-use | `container-use` | Dagger sandbox runtime for agentic coding environments (pre-1.0; see caveat) |
+| Crush | `crush` | Charm Crush — terminal agentic coding assistant; successor to the archived mods |
+| jaq | `jaq` | Memory-safe Rust jq clone — jq-compatible filters, security-audited |
+| Tombi | `tombi` | TOML formatter, linter, and language server — maintained alternative to taplo |
+| Hurl | `hurl` | Declarative HTTP testing — plain-text .hurl files with captures and asserts in CI |
+| tea | `tea` | Gitea official CLI — Gitea / Forgejo / Codeberg forge family |
 
 See [CLI Tools](./cli-tools) for the decision tree, install commands per OS, and the trade-off discussion vs MCP.
 

@@ -137,6 +137,8 @@ A change with no answer to all four is rejected at output time — silent breaka
 Functional requirements: behavioral spec per feature, testable.
 Non-functional requirements: latency budget, throughput floor, error rate ceiling, accessibility target (WCAG 2.2 AA per `rules/hatch3r-accessibility-standards.md`), security floor (per `rules/hatch3r-security-patterns.md` if referenced).
 
+**Resolved clarifications** — the single auditable record of every answered §0/clarification question, one row per question: `Q → chosen answer → default-applied? (yes/no)` (`yes` = the declared default-if-no-response was taken; `no` = the user answered explicitly). A question lives in exactly one place: answered here, unanswered ones stay routed per `agents/shared/user-question-protocol.md`. Maturity-dial calibrated per `agents/shared/quality-charter.md` §5: mandatory at team, scaleup, and enterprise tiers; at solo, record rows only when ≥1 §0 question was asked — omit the section rather than emit it empty.
+
 ### 7. Acceptance Criteria (Shared Core)
 
 Given/When/Then per feature; criteria are measurable per quality charter §7. Examples:
@@ -223,6 +225,8 @@ Return structured result with:
 **Progress toward pillar:** governance.P2+{delta} or content-quality.CQ8+{delta}
 
 **Breaking changes detected:** NONE | {count with table rows from deliverable 3}
+
+**Resolved clarifications:** {row count recorded in requirements.md §Resolved clarifications; 0 when no §0 question was asked}
 
 **Iteration Summary:** {per `rules/hatch3r-iteration-summary.md` — recap + exception lines}
 ```

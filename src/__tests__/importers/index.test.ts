@@ -32,8 +32,8 @@ describe("importers aggregator", () => {
     return tempDir;
   }
 
-  it("exposes exactly the four supported formats", () => {
-    expect([...IMPORT_FORMATS]).toEqual(["cursor", "copilot", "windsurf", "cursorrules"]);
+  it("exposes exactly the five supported formats", () => {
+    expect([...IMPORT_FORMATS]).toEqual(["cursor", "copilot", "windsurf", "cursorrules", "agents"]);
   });
 
   it("importFormat reads cursor .mdc rules", async () => {
@@ -71,6 +71,8 @@ describe("importers aggregator", () => {
     await writeFile(join(root, ".windsurfrules"), "Numbered rules");
     // awesome-cursorrules
     await writeFile(join(root, ".cursorrules"), "Legacy cursorrules");
+    // agents (root AGENTS.md)
+    await writeFile(join(root, "AGENTS.md"), "Agent instructions");
 
     const grouped = await importAllFormats(root);
     expect(grouped.map((g) => g.format)).toEqual([
@@ -78,6 +80,7 @@ describe("importers aggregator", () => {
       "copilot",
       "windsurf",
       "cursorrules",
+      "agents",
     ]);
 
     const byFormat = new Map<ImportFormat, number>(
@@ -87,6 +90,7 @@ describe("importers aggregator", () => {
     expect(byFormat.get("copilot")).toBe(1);
     expect(byFormat.get("windsurf")).toBe(1);
     expect(byFormat.get("cursorrules")).toBe(1);
+    expect(byFormat.get("agents")).toBe(1);
 
     // Every imported rule carries a distinct namespaced id.
     const allIds = grouped.flatMap((g) => g.rules.map((r) => r.canonical.id));
@@ -95,12 +99,13 @@ describe("importers aggregator", () => {
     expect(allIds).toContain("hatch3r-copilot-import-repo-instructions");
     expect(allIds).toContain("hatch3r-windsurf-import-windsurfrules");
     expect(allIds).toContain("hatch3r-cursorrules-import");
+    expect(allIds).toContain("hatch3r-agents-import");
   });
 
   it("importAllFormats yields empty rule arrays for an unconfigured repo", async () => {
     const root = await makeRepo();
     const grouped = await importAllFormats(root);
-    expect(grouped).toHaveLength(4);
+    expect(grouped).toHaveLength(5);
     expect(grouped.every((g) => g.rules.length === 0)).toBe(true);
   });
 });
@@ -123,12 +128,13 @@ describe("import runner (runImport / runFormatImport)", () => {
   const overridesRulesDir = (root: string): string =>
     join(root, ".hatch3r", "overrides", "rules");
 
-  it("IMPORT_TARGETS is the four formats plus auto, in order", () => {
+  it("IMPORT_TARGETS is the five formats plus auto, in order", () => {
     expect([...IMPORT_TARGETS]).toEqual([
       "cursor",
       "copilot",
       "windsurf",
       "cursorrules",
+      "agents",
       "auto",
     ]);
   });
@@ -189,6 +195,7 @@ describe("import runner (runImport / runFormatImport)", () => {
     await writeFile(join(root, ".github", "copilot-instructions.md"), "Copilot guidance");
     await writeFile(join(root, ".windsurfrules"), "Windsurf body");
     await writeFile(join(root, ".cursorrules"), "Cursorrules body");
+    await writeFile(join(root, "AGENTS.md"), "Agents body");
 
     const results = await runImport({ rootDir: root, target: "auto", dryRun: false });
     expect(results.map((r) => r.format)).toEqual([
@@ -196,15 +203,17 @@ describe("import runner (runImport / runFormatImport)", () => {
       "copilot",
       "windsurf",
       "cursorrules",
+      "agents",
     ]);
-    // 1 converted per format → 2 files (.md + .mdc) per format → 8 files total.
+    // 1 converted per format → 2 files (.md + .mdc) per format → 10 files total.
     const totalWritten = results.reduce((acc, r) => acc + r.written.length, 0);
-    expect(totalWritten).toBe(8);
+    expect(totalWritten).toBe(10);
     for (const id of [
       "hatch3r-cursor-import-a",
       "hatch3r-copilot-import-repo-instructions",
       "hatch3r-windsurf-import-windsurfrules",
       "hatch3r-cursorrules-import",
+      "hatch3r-agents-import",
     ]) {
       const st = await stat(join(overridesRulesDir(root), `${id}.md`));
       expect(st.isFile()).toBe(true);
@@ -245,7 +254,7 @@ describe("import runner (runImport / runFormatImport)", () => {
   it("runImport on an unconfigured repo yields one empty summary per covered format", async () => {
     const root = await makeRepo();
     const results = await runImport({ rootDir: root, target: "auto", dryRun: false });
-    expect(results).toHaveLength(4);
+    expect(results).toHaveLength(5);
     expect(results.every((r) => r.sourceFiles === 0 && r.written.length === 0)).toBe(true);
     await expect(stat(overridesRulesDir(root))).rejects.toMatchObject({ code: "ENOENT" });
   });

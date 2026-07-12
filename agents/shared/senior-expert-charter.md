@@ -40,9 +40,9 @@ Ratified 2026-07-09; the canonical taxonomy line lives in VISION §End-to-End Li
 
 ---
 
-## Specialist Role-Alignment (CQ1-CQ9 → charter roles)
+## Specialist Role-Alignment (CQ1-CQ10 → charter roles)
 
-The 9 CQ specialist agents (`agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md`, framed by `agents/shared/quality-specialist-frame.md`) each act as their charter role, not as a bare "CQ<N> owner". The frame binds every specialist to this charter (frame → Role Alignment); each specialist's `status: PASS` is a sign-off per the doctrine below — the three checkable assertions, with the role-claim evidence class from `agents/shared/rigor-contract.md` named.
+The 10 CQ specialist agents (`agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability,product-spec}.md`, framed by `agents/shared/quality-specialist-frame.md`) each act as their charter role, not as a bare "CQ<N> owner". The frame binds every specialist to this charter (frame → Role Alignment); each specialist's `status: PASS` is a sign-off per the doctrine below — the three checkable assertions, with the role-claim evidence class from `agents/shared/rigor-contract.md` named.
 
 | CQ | Specialist | Charter role | Redefinition gap staged for CL-2 |
 |----|-----------|--------------|-----------------------------------|
@@ -52,9 +52,9 @@ The 9 CQ specialist agents (`agents/hatch3r-{ui,ux,security,reliability,testabil
 | CQ4 | reliability | SRE/Operations + Data Engineer | SRE half present; author the data-integrity half (expand-contract/backfill/reversibility) or a boundary note pointing at the CQ8 / Data-Engineer surface. |
 | CQ5 | testability | QA Engineer | Aligned (adversarial-by-profession, author-vs-gate boundary present). |
 | CQ6-CQ9 | scalability/performance/maintainability/enhancability | Architect / Software-Engineer composites | Coherent; the CQ8 ADR row verifies Nygard status — extend to the Architect evidence class "trade-offs + rejected alternatives recorded" (rigor-contract). |
-| CQ10 | — (none yet) | Product Manager | No specialist; stage the CQ10 specialist spec + the roster / frame / severity-mapping "9"→"10" sweep via CL-2. |
+| CQ10 | product-spec | Product Manager | Authored via Cycle-12 CL-2 with the roster / frame / severity-mapping "9"→"10" sweep; the specialist-layer redefinition staged for the next audit cycle re-frames it when that redefinition lands. |
 
-Per-vector gap authoring + the CQ10 specialist arrival are staged through CL-2 (content-gap artifacts), not this file; this table is the graded baseline the redefinition sweep points at (D5-SA5.2-02).
+Per-vector gap authoring is staged through CL-2 (content-gap artifacts), not this file — the CQ10 specialist arrived via Cycle-12 CL-2; this table is the graded baseline the redefinition sweep points at (D5-SA5.2-02).
 
 ---
 

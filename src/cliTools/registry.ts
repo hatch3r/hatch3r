@@ -166,7 +166,7 @@ export interface CliToolMeta {
   homepage: string;
   /**
    * Canonical source-repository URL — the upstream VCS where the tool's code
-   * lives (a GitHub / GitLab repo, never a docs site). Distinct from
+   * lives (a GitHub / GitLab / Gitea repo, never a docs site). Distinct from
    * `homepage`, which is frequently a documentation or marketing site
    * (duckdb.org, learn.microsoft.com/...) rather than the source. Required by
    * the D15.7 provenance contract ("vendor + source URL + license") so every
@@ -884,7 +884,7 @@ export const AVAILABLE_CLI_TOOLS = {
     license: "MIT",
   },
 
-  // ── Tier 3 (10 tools, opt-in advanced) ──────────────────────────
+  // ── Tier 3 (15 tools, opt-in advanced) ──────────────────────────
   rtk: {
     id: "rtk",
     probe: "rtk",
@@ -958,9 +958,18 @@ export const AVAILABLE_CLI_TOOLS = {
   mods: {
     id: "mods",
     probe: "mods",
-    description: "Charm mods — Unix-friendly LLM pipeline tool",
+    description: "Charm mods — Unix-friendly LLM pipeline tool (upstream archived 2026-03-09; superseded by crush)",
     category: "ai",
     tier: 3,
+    // Cycle 12 D21-SA21.6-02 / D21-SA21.7-05: charmbracelet/mods is ARCHIVED
+    // upstream (GitHub API archived:true as of 2026-03-09; last release v1.8.1,
+    // 2025-07-10). Charm's own mods README directs users to `crush run` as the
+    // non-interactive successor, and `crush` is registered below (Cycle-12
+    // CL-2 P2). mods still functions and carries no CVE, so it is retained
+    // with this disclosure caveat; the replace-or-remove evaluation is a
+    // B1-gated owner decision staged for the next D21 cycle per
+    // rules/hatch3r-tool-currency.md:68 (vendor-archived removal trigger).
+    caveat: "upstream-archived-superseded-by-crush",
     install: {
       mac: [{ manager: "brew", command: "brew install charmbracelet/tap/mods" }],
       linux: [{ manager: "apt", command: "sudo apt install mods" }],
@@ -1135,6 +1144,164 @@ export const AVAILABLE_CLI_TOOLS = {
     sourceRepo: "https://github.com/dagger/container-use",
     license: "Apache-2.0",
   },
+  crush: {
+    id: "crush",
+    probe: "crush",
+    description: "Charm Crush — terminal agentic coding assistant (multi-model, MCP + LSP aware); successor to the archived mods",
+    category: "ai",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install charmbracelet/tap/crush" }],
+      // crush is not in stock Debian/Ubuntu repos — the recipe below is the
+      // Charm signed-apt one-liner from the vendor README (keyring + signed
+      // repo.charm.sh repo add, then `apt install crush`), following the gh
+      // keyring-recipe precedent (D21-17): a bare `sudo apt install crush`
+      // fails on a machine without the Charm repo.
+      linux: [
+        {
+          manager: "apt",
+          command:
+            'sudo mkdir -p /etc/apt/keyrings && curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg && echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list && sudo apt update && sudo apt install crush',
+        },
+      ],
+      win: [{ manager: "winget", command: "winget install charmbracelet.crush" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P2; home signals D21-SA21.6-09/-02):
+    // registered as charmbracelet's designated successor to the archived
+    // `mods` entry above — the mods README directs users to `crush run` for
+    // the non-interactive pipeline mode. Verified v0.84.1 (2026-07-11, the
+    // day before registration; ~daily release cadence) and 0 advisories for
+    // charmbracelet/crush in the GitHub Advisory DB, both accessed 2026-07-12.
+    // The bare minVersion is a tested-against documentation pin (glab/miller
+    // precedent), not a CVE floor. License is FSL-1.1-MIT (Functional Source
+    // License 1.1 with MIT future grant — a registered SPDX id).
+    minVersion: "0.84.1",
+    homepage: "https://github.com/charmbracelet/crush",
+    sourceRepo: "https://github.com/charmbracelet/crush",
+    license: "FSL-1.1-MIT",
+  },
+  jaq: {
+    id: "jaq",
+    probe: "jaq",
+    description: "Memory-safe Rust jq clone — jq-compatible filters with faster startup; security-audited",
+    category: "json",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install jaq" }],
+      linux: [{ manager: "cargo", command: "cargo install --locked jaq" }],
+      win: [{ manager: "cargo", command: "cargo install --locked jaq" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home signal D21-SA21.3-07): registered
+    // as the memory-safe peer to the tier-1 `jq` — the hedge value rose
+    // materially after jq's 16-CVE 2026 memory-safety cluster (D21-SA21.3-01;
+    // jq's floor is >=1.8.2). jaq-core is professionally security-audited
+    // (Radically Open Security, two NLnet-funded audits per the vendor README)
+    // and reports jaq-3.0 fastest on 20 of 31 wsjq benchmarks vs jq-1.8.1's 5
+    // (vendor-reported figures). Dialect caveat: jq-compatible but not
+    // byte-identical on all edge cases — surfaced in the toolbox section.
+    // Verified v3.1.0 (2026-06-11) + 0 advisories, accessed 2026-07-12. The
+    // bare minVersion is a documentation pin, not a CVE floor.
+    minVersion: "3.1.0",
+    homepage: "https://github.com/01mf02/jaq",
+    sourceRepo: "https://github.com/01mf02/jaq",
+    license: "MIT",
+  },
+  tombi: {
+    id: "tombi",
+    probe: "tombi",
+    description: "TOML formatter, linter, and language server — maintained alternative to taplo",
+    category: "yaml",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install tombi" }],
+      // pipx is the vendor-listed Python channel (csvkit/llm manager
+      // precedent); the vendor's `curl … install.sh | sh` channel is NOT
+      // registered (unsigned curl-piped-shell posture, D15-M16).
+      linux: [{ manager: "pipx", command: "pipx install tombi" }],
+      win: [{ manager: "winget", command: "winget install --id tombi-toml.tombi --exact" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home signals D21-SA21.3-02/-07):
+    // registered as the active-maintenance peer to `taplo` (413d stale,
+    // maintainer stepped down — tamasfe/taplo#715). tombi avoids taplo's
+    // incomplete-file data-loss lexer bug and adds LSP + pyproject/Cargo
+    // workspace navigation; downstream migrations underway (gfx-rs/wgpu#9600).
+    // taplo is retained — the replace-or-demote evaluation is a B1-gated owner
+    // decision staged for the next D21 cycle (docket rank 3). Verified v1.2.0
+    // (2026-07-05 — the docket's "pre-1.0" caveat is superseded) + 0
+    // advisories, accessed 2026-07-12. Bare minVersion = documentation pin.
+    minVersion: "1.2.0",
+    homepage: "https://tombi-toml.github.io/tombi/",
+    sourceRepo: "https://github.com/tombi-toml/tombi",
+    license: "MIT",
+  },
+  hurl: {
+    id: "hurl",
+    probe: "hurl",
+    description: "Declarative HTTP testing — runs plain-text .hurl request files with captures and asserts in CI",
+    category: "http",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install hurl" }],
+      linux: [{ manager: "cargo", command: "cargo install --locked hurl" }],
+      win: [{ manager: "winget", command: "winget install hurl" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home signal D21-SA21.4-06): registered
+    // for the assertion-based HTTP test-file cell none of curl/httpie/xh
+    // covers (plain-text .hurl files with captures + header/body asserts,
+    // version-controlled and run in CI). Verified 8.0.1 (2026-04-29) accessed
+    // 2026-07-12. The >=7.0.0 floor is CVE-driven (delta precedent):
+    // GHSA-v33j-v3x4-42qg (Moderate, no CVE id assigned) — `hurlfmt --out
+    // html` on builds <=6.1.1 does not escape regex literals, letting a
+    // crafted .hurl file inject script into the generated HTML; patched in
+    // 7.0.0 per the advisory.
+    minVersion: ">=7.0.0",
+    securityNote:
+      "GHSA-v33j-v3x4-42qg (Moderate): hurl 6.1.1 and earlier do not escape regex literals when `hurlfmt --out html` exports .hurl files to HTML, so a crafted regex in a .hurl file injects script into the generated documentation page; fixed in 7.0.0. Every registered channel ships 8.0.1 (2026-04-29), well past the fix — upgrade any pre-7.0.0 build before exporting third-party .hurl files to HTML.",
+    homepage: "https://hurl.dev/",
+    sourceRepo: "https://github.com/Orange-OpenSource/hurl",
+    license: "Apache-2.0",
+  },
+  tea: {
+    id: "tea",
+    probe: "tea",
+    description: "Gitea official CLI — issues, pull requests, releases on Gitea / Forgejo / Codeberg",
+    category: "forge",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install tea" }],
+      // The pinned @v0.14.2 tag mirrors the dasel precedent: the go-install
+      // channel resolves the exact release this entry's documentation pin
+      // records, instead of a floating @latest.
+      linux: [{ manager: "go", command: "go install gitea.dev/tea@v0.14.2" }],
+      win: [{ manager: "go", command: "go install gitea.dev/tea@v0.14.2" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home signal D21-SA21.5-05): closes the
+    // Gitea/Forgejo/Codeberg forge-family coverage gap — gh/glab/az-devops
+    // cover the other three forges; no registered tool talks to this family.
+    // Verified v0.14.2 (2026-06-26, gitea.com/api/v1/repos/gitea/tea) + 0
+    // advisories, accessed 2026-07-12. Bare minVersion = documentation pin.
+    // sourceRepo is the canonical gitea.com repo — the first-party Gitea CLI
+    // hosts on the Gitea forge itself; no GitHub mirror is documented.
+    //
+    // Probe collision (registry invariant ii): the bare `tea` name is shared
+    // by Debian's unrelated `tea` package (the TEA Qt text editor,
+    // /usr/bin/tea) and by legacy teaxyz `tea` installs (the package manager
+    // renamed to pkgx in 2023), so `command -v tea` alone false-positives.
+    // `tea --version` is unusable as the discriminator — gitea/tea's custom
+    // cli.VersionPrinter prints the bare version with NO name prefix
+    // (cmd/cmd.go, verified 2026-07-12) — so the extensionProbe keys on
+    // `tea --help`, whose usage line ("command line tool to interact with
+    // Gitea") uniquely carries "Gitea".
+    extensionProbe: {
+      args: ["--help"],
+      expectInStdout: "Gitea",
+      name: "tea",
+    },
+    minVersion: "0.14.2",
+    homepage: "https://gitea.com/gitea/tea",
+    sourceRepo: "https://gitea.com/gitea/tea",
+    license: "MIT",
+  },
 } as const satisfies Record<CliToolId, CliToolMeta>;
 
 /** Tier-1 default-on tools (the picker pre-checks these). */
@@ -1191,6 +1358,13 @@ export const TIER3_CLI_TOOLS: readonly CliToolId[] = [
   "podman",
   "dasel",
   "container-use",
+  // Cycle 12 D21-SA21.7-05 CL-2 additions (P2 crush / P3 rest) — appended so
+  // the pre-existing picker display order is unchanged.
+  "crush",
+  "jaq",
+  "tombi",
+  "hurl",
+  "tea",
 ] as const;
 
 /**

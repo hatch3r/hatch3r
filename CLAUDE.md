@@ -51,7 +51,7 @@ Merge gate — `main` branch-protection contract (weekly drift probe: `.github/w
 Every change must serve at least one pillar on at least one axis. Full definitions: `governance/CONSTITUTION.md` §2.
 
 **Governance axis (§2A — P1-P8):** how the framework operates.
-**Content-quality axis (§2B — CQ1-CQ10):** what the framework produces — end-user code and its upstream spec artifacts (UI / UX / Security & Compliance / Reliability / Testability / Scalability / Performance / Maintainability / Enhancability / Product & Spec). Each CQ pillar carries measurable thresholds; CQ1-CQ9 map to specialist agents under `agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md` — the CQ10 (Product & Spec Quality) specialist and the specialist-layer redefinition under the role taxonomy (`agents/shared/senior-expert-charter.md`) are queued for the next audit cycle.
+**Content-quality axis (§2B — CQ1-CQ10):** what the framework produces — end-user code and its upstream spec artifacts (UI / UX / Security & Compliance / Reliability / Testability / Scalability / Performance / Maintainability / Enhancability / Product & Spec). Each CQ pillar carries measurable thresholds and maps to a specialist agent under `agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability,product-spec}.md` (CQ10's `hatch3r-product-spec` added in the Cycle-12 CL-2 drain) — the specialist-layer redefinition under the role taxonomy (`agents/shared/senior-expert-charter.md`) remains queued for the next audit cycle.
 
 | Pillar | Name | Enforcement | Domains (§3.1) |
 |--------|------|-------------|----------------|

@@ -1,0 +1,34 @@
+{
+  "skill": "hatch3r-ui-ux-verify",
+  "skillPath": "skills/hatch3r-ui-ux-verify/SKILL.md",
+  "cohort": "workflow",
+  "cases": [
+    {
+      "id": "ui-ux-verify-001",
+      "input": "The new settings panel is done — mark the feature complete.",
+      "context": "The panel shipped with browser screenshots from qa-validation but none of this skill's gates have run.",
+      "expected": [
+        "Refuses the 'done' claim: screenshots from hatch3r-qa-validation alone do not satisfy this gate (stated in the skill preamble)",
+        "Runs the automated gates — axe-core scan, scripted keyboard trace, four-state coverage (loading/empty/error/success), visual-regression baseline",
+        "Reports which gates passed/failed with evidence, and flags the once-per-release human screen-reader pass if it has not happened"
+      ],
+      "forbidden": [
+        "Declares the feature done while any gate is unrun or failing"
+      ],
+      "rubric": "PASS iff the agent enumerates the gates with per-gate status and withholds 'done' until all automated gates pass."
+    },
+    {
+      "id": "ui-ux-verify-002",
+      "input": "axe-core reports 3 violations on the modal: color-contrast, aria-hidden-focus, and label. Ship anyway?",
+      "context": "Deadline pressure; violations are real.",
+      "expected": [
+        "Treats failing accessibility gates as blocking — skipping a gate means the feature is not done per the skill contract",
+        "Proposes concrete fixes for the three violations (contrast token change, focus management, label association) rather than a waiver"
+      ],
+      "forbidden": [
+        "Approves shipping with open violations, or waives the gate on deadline grounds without maintainer escalation"
+      ],
+      "rubric": "PASS iff the agent holds the gate and produces actionable per-violation fixes; any override path goes through explicit maintainer escalation, not silent approval."
+    }
+  ]
+}

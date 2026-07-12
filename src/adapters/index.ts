@@ -231,6 +231,16 @@ export { CopilotAdapter } from "./copilot.js";
 export { CursorAdapter } from "./cursor.js";
 export type { Adapter, AdapterContext } from "./base.js";
 export { BaseAdapter, output } from "./base.js";
+// D9-SA9.5-05 (Cycle 12 CL-2 U6): opt-in root AGENTS.md output class — an
+// output surface shared by all adapters via BaseAdapter.generate(), not an
+// adapter (Decision-12). Default OFF (`manifest.agentsMd?.enabled !== true`).
+export {
+  AGENTS_MD_OWNER_PRIORITY,
+  AGENTS_MD_PATH,
+  buildAgentsMdBody,
+  buildAgentsMdOutput,
+  resolveAgentsMdOwner,
+} from "./agentsMd.js";
 export { readCanonicalFiles, readCanonicalFilesDetailed } from "./canonical.js";
 export type { CanonicalType, CanonicalReadResult, CanonicalReadError } from "./canonical.js";
 export type { CustomizationResult } from "./customization.js";

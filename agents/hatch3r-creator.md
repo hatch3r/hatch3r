@@ -266,7 +266,7 @@ The strict gate set blocks the save when any of the following fails:
 6. Hook event enum (hook only).
 7. File size ≤10KB.
 8. Quality-charter reference present (frontmatter `quality_charter` or a `quality-charter` body reference).
-9. Pillar declaration (≥1 of P1–P8 in tags or body, or a structured `pillars` frontmatter array; structured `pillars` entries are enum-validated against P1–P8 / CQ1–CQ9).
+9. Pillar declaration (≥1 of P1–P8 in tags or body, or a structured `pillars` frontmatter array; structured `pillars` entries are enum-validated against P1–P8 / CQ1–CQ10).
 
 Authoritative source for gates 8–9: the "Promoted strict gates (C9-H79, C9-H80)" block at `src/content/userContent.ts:886-919`. Both push to the `strict` array unconditionally at every maturity tier (the block sits above the `isTeamPlus` tier branch), so absence of either blocks the save and returns `STRICT_GATE_FAILED` — they are NOT gentle/warn-only. The `/hatch3r-create` command doc (`commands/hatch3r-create.md`) lists them as "required (strict)"; this agent matches that contract.
 

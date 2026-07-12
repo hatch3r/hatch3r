@@ -6,8 +6,8 @@
  * `hatch3r init --import <format|all|auto>` CLI flag dispatches to. The runner
  * takes parsed `ImportedRule[]` from any format and runs the same conflict-pass
  * + manual-review classification + `.md`/`.mdc` disk-write that the cursor
- * importer (`src/importers/cursor.ts::importCursorRules`) established, so all
- * four formats reach `.hatch3r/overrides/rules/` through one code path.
+ * importer (`src/importers/cursor.ts::importCursorRules`) established, so
+ * every format reaches `.hatch3r/overrides/rules/` through one code path.
  * Process/console-pure — the CLI caller renders the returned summaries.
  */
 import { HatchError } from "../types.js";
@@ -21,6 +21,7 @@ import { parseFrontmatter } from "../adapters/canonical.js";
 import { verbose } from "../cli/shared/ui.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { ImportedRule } from "./shared.js";
+import { parseAgentsMdFile } from "./agentsMd.js";
 import { parseAwesomeCursorrulesFile } from "./awesomeCursorrules.js";
 import { parseCopilotInstructionsDir } from "./copilot.js";
 import { parseCursorRulesDir, type ImportedCursorRule } from "./cursor.js";
@@ -34,16 +35,22 @@ export * from "./cursor.js";
 export * from "./copilot.js";
 export * from "./windsurf.js";
 export * from "./awesomeCursorrules.js";
+export * from "./agentsMd.js";
 
 /** Supported migration source formats. */
-export type ImportFormat = "cursor" | "copilot" | "windsurf" | "cursorrules";
+export type ImportFormat = "cursor" | "copilot" | "windsurf" | "cursorrules" | "agents";
 
-/** All importable source formats, in stable order. */
+/**
+ * All importable source formats, in stable order. `agents` (root `AGENTS.md`
+ * / `AGENT.md`, D14-SA14.4-03) is appended last so the pre-existing
+ * cross-format id-precedence order of `--import auto` runs is unchanged.
+ */
 export const IMPORT_FORMATS: readonly ImportFormat[] = [
   "cursor",
   "copilot",
   "windsurf",
   "cursorrules",
+  "agents",
 ] as const;
 
 /** Rules imported from a single source format. */
@@ -78,6 +85,8 @@ export async function importFormat(
       return parseWindsurfRulesDir(rootDir);
     case "cursorrules":
       return parseAwesomeCursorrulesFile(rootDir);
+    case "agents":
+      return parseAgentsMdFile(rootDir);
     default: {
       // Exhaustiveness guard: a new ImportFormat must add a case above.
       const never: never = format;
@@ -115,7 +124,7 @@ export async function importAllFormats(rootDir: string): Promise<FormatImportRes
 
 // ── Format-agnostic import runner (F14.4-H2) ───────────────────────
 
-/** A selectable `--import` target: any concrete format, or `auto` (all four). */
+/** A selectable `--import` target: any concrete format, or `auto` (every format). */
 export type ImportTarget = ImportFormat | "auto";
 
 /** All selectable `--import` targets, in stable order (`auto` last). */
