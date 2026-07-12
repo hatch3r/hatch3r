@@ -156,6 +156,29 @@ describe("applyCustomization", () => {
     expect(result.skip).toBe(false);
   });
 
+  it("routes multi-pass customize.md normalization convergence through result.warnings (D2-SA2.3-12)", async () => {
+    const projectRoot = await setup();
+    const dir = join(projectRoot, ".hatch3r", "agents");
+    await mkdir(dir, { recursive: true });
+    // Greek Capital Alpha (U+0391) inside a HATCH3R marker is a deterministic
+    // 2-iteration normalization convergence (pass 1 folds Α->A into a literal
+    // marker, pass 2 strips it). The body is otherwise promptGuard- and
+    // deny-clean, so the ONLY warning is the convergence notice — which the fix
+    // routes through the returned warnings[] instead of console.warn.
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    await writeFile(
+      join(dir, "hatch3r-reviewer.customize.md"),
+      "Focus on quality. <!-- HΑTCH3R:BEGIN -->",
+      "utf-8",
+    );
+    const result = await applyCustomization(projectRoot, baseAgent);
+    expect(
+      result.warnings.some((w) => /normalization required \d+ iterations to converge/.test(w)),
+    ).toBe(true);
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
   it("handles unsupported file types gracefully", async () => {
     const projectRoot = await setup();
     const hookFile: CanonicalFile = {
@@ -1900,6 +1923,33 @@ describe("scanForDeniedPatterns -- C8-D11-M1 fixed-point normalization", () => {
       expect(msg).toMatch(/\[hatch3r\] Deny-pattern normalization required \d+ iterations/);
       expect(msg).toMatch(/cap 5/);
     }
+  });
+
+  // D2-SA2.3-12: the multi-pass convergence notice must reach a caller-supplied
+  // structured sink and NOT console when the sink is present; without a sink it
+  // must still reach console (back-compat for the external deny-scan call sites).
+  // Deterministic 2-iteration input: Greek Capital Alpha (U+0391) inside a
+  // HATCH3R boundary marker — stripBoundaryMarkers runs before
+  // normalizeHomoglyphs, so pass 1 folds Α->A into a literal marker and pass 2
+  // strips it.
+  const TWO_PASS_INPUT = "<!-- HΑTCH3R:BEGIN -->";
+
+  it("routes the convergence notice to a provided diagnostics sink and suppresses console.warn (D2-SA2.3-12)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const sink: string[] = [];
+    scanForDeniedPatterns(TWO_PASS_INPUT, "strict", sink);
+    expect(sink.some((m) => /normalization required \d+ iterations to converge/.test(m))).toBe(true);
+    // The sink is the only channel when supplied — no console bypass.
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  it("falls back to console.warn when no diagnostics sink is supplied (D2-SA2.3-12 back-compat)", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    scanForDeniedPatterns(TWO_PASS_INPUT); // external call sites pass no sink
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(String(warn.mock.calls[0]?.[0] ?? "")).toMatch(
+      /\[hatch3r\] Deny-pattern normalization required \d+ iterations/,
+    );
   });
 });
 

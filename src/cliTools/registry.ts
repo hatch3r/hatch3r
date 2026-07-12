@@ -40,10 +40,14 @@ export type Tier2Trigger =
   | "azure-remote";
 
 /**
- * Cycle-tagged CVE-scan record for a CLI tool — populated by the audit cycle
- * (Cycle 9 D15-SA15.7) when an advisory feed is consulted. Schema only at
- * Wave 2; population happens in the per-cycle `check-cli-cves.ts` workflow
- * scheduled by D21 close.
+ * Cycle-tagged CVE-scan record for a CLI tool. RESERVED — not populated: the
+ * schema was authored in Cycle 9 (D15-SA15.7) as an on-entry cache for
+ * advisory-feed results, but the CVE-scanning workflow that landed
+ * (`scripts/check-cli-cves.ts`, F15.7-H1) queries OSV.dev out-of-band and
+ * surfaces results through each tool's `minVersion` / `securityNote` instead
+ * of writing scan records here — so no code path sets `cve_scan`. Retained as
+ * a typed extension point for a future per-tool cached-scan record
+ * (Cycle 12 D15-SA15.7-06).
  */
 export interface CveScan {
   /** ISO-8601 date the CVE feed was last queried for this tool. */
@@ -90,7 +94,7 @@ export interface CliToolMeta {
   /** Binary name passed to detection probes. */
   probe: string;
   description: string;
-  category: "search" | "json" | "yaml" | "git" | "view" | "edit" | "archive" | "web" | "data" | "http" | "forge" | "browser" | "container" | "ai" | "interactive";
+  category: "search" | "json" | "yaml" | "git" | "view" | "edit" | "archive" | "data" | "http" | "forge" | "browser" | "container" | "ai" | "interactive";
   tier: Tier;
   /** Per-OS install commands, ordered most-preferred first. */
   install: Record<OsKey, InstallCommand[]>;
@@ -151,10 +155,12 @@ export interface CliToolMeta {
    */
   minVersion?: string;
   /**
-   * Cycle-tagged CVE-scan record — populated by the per-cycle
-   * `check-cli-cves.ts` workflow (Cycle 9 D15-SA15.7-F01). Schema only at
-   * Wave 2; population happens in a follow-on cycle once the advisory-feed
-   * script lands. Omit when no scan has been recorded for this tool yet.
+   * Cycle-tagged CVE-scan record — RESERVED, not populated. The advisory-feed
+   * script that landed (`scripts/check-cli-cves.ts`, F15.7-H1) queries OSV.dev
+   * out-of-band and reports through `minVersion` / `securityNote` rather than
+   * writing scan records back here, so no tool entry sets this field
+   * (Cycle 12 D15-SA15.7-06). See the `CveScan` interface for the
+   * retained-extension-point rationale.
    */
   cve_scan?: CveScan;
   homepage: string;
@@ -184,7 +190,7 @@ export interface CliToolMeta {
  * verbatim — they were vendor-verified during research.
  */
 export const AVAILABLE_CLI_TOOLS = {
-  // ── Tier 1 (10 tools) ───────────────────────────────────────────
+  // ── Tier 1 (11 tools) ───────────────────────────────────────────
   ripgrep: {
     id: "ripgrep",
     probe: "rg",
@@ -666,8 +672,15 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "cargo", command: "cargo install qsv --locked --features all_features" }],
       win: [{ manager: "cargo", command: "cargo install qsv --locked --features all_features" }],
     },
-    homepage: "https://github.com/jqnatividad/qsv",
-    sourceRepo: "https://github.com/jqnatividad/qsv",
+    // Cycle 12 D21-SA21.3-05: qsv transferred to the dathere org — homepage +
+    // sourceRepo now point at the canonical dathere/qsv (21.1.0, 2026-06-14,
+    // re-verified 2026-07-12) per the D15.7 provenance contract, not the
+    // jqnatividad transfer-redirect. A doc-pin for the unpinned fast-moving
+    // major (21.x) is deferred: a registry minVersion needs the paired toolbox
+    // floor line in skills/hatch3r-cli-toolbox/SKILL.md, outside this
+    // registry-only file lock.
+    homepage: "https://github.com/dathere/qsv",
+    sourceRepo: "https://github.com/dathere/qsv",
     license: "MIT OR Unlicense",
   },
   taplo: {
@@ -1014,6 +1027,12 @@ export const AVAILABLE_CLI_TOOLS = {
     // documentation-pin precedent (glab 1.99.0 / az-devops 1.0.4) — NOT a
     // CVE-driven floor. Cycle 11 verified csvkit 2.2.0. The installer surfaces
     // this as advisory text; next cycle measures drift against it.
+    // Cycle 12 D21-SA21.3-04: csvkit 2.2.0 (2025-12-15) remains the latest
+    // upstream release (PyPI, re-verified 2026-07-12) — 207 days old, past the
+    // D21 180-day currency band, but wireservice/csvkit master is actively
+    // committed on a slow, mature cadence, so the gap reflects cadence, not
+    // abandonment (same annotated-peer rationale as bat/ripgrep). Re-verify at
+    // the next research date.
     minVersion: "2.2.0",
     homepage: "https://csvkit.readthedocs.io/",
     sourceRepo: "https://github.com/wireservice/csvkit",
@@ -1074,9 +1093,13 @@ export const AVAILABLE_CLI_TOOLS = {
     // 3.11.0 > 3.10.1 > 3.3.2 clears all three plus is the documented current
     // stable (2026-05-19), so pinning it covers the cluster regardless of the
     // per-CVE landing release.
+    // Cycle 12 D21-SA21.3-03: dasel's current stable advanced to 3.11.2
+    // (2026-06-27, re-verified 2026-07-12); the >=3.11.0 floor stays (3.11.2
+    // still clears the CVE cluster) — only the securityNote "current stable"
+    // annotation is refreshed to 3.11.2.
     minVersion: ">=3.11.0",
     securityNote:
-      "dasel CVEs (per-CVE fix versions): CVE-2026-33320 (Moderate, unbounded YAML alias-expansion DoS) fixed in 3.3.2; CVE-2026-46378 (High, selector-lexer DoS) and CVE-2026-46377 (High, index-out-of-range panic) fixed in 3.10.1. Pin >=3.11.0 — the current stable — which clears all three. Avoid running dasel on untrusted input on any earlier build.",
+      "dasel CVEs (per-CVE fix versions): CVE-2026-33320 (Moderate, unbounded YAML alias-expansion DoS) fixed in 3.3.2; CVE-2026-46378 (High, selector-lexer DoS) and CVE-2026-46377 (High, index-out-of-range panic) fixed in 3.10.1. Pin >=3.11.0 (current stable 3.11.2, 2026-06-27) — which clears all three. Avoid running dasel on untrusted input on any earlier build.",
     homepage: "https://github.com/TomWright/dasel",
     sourceRepo: "https://github.com/TomWright/dasel",
     license: "MIT",
@@ -1183,9 +1206,9 @@ export const DEFAULT_CLI_TOOLS: readonly CliToolId[] = TIER1_CLI_TOOLS;
  * appear here — entries are auto-generated from `AVAILABLE_CLI_TOOLS` so
  * adding a new tool with `requiresEnv` propagates without a code change.
  */
-export const CLI_TOOL_SECRET_NOTES: Readonly<Record<CliToolId, readonly string[]>> = Object.freeze(
-  ((): Record<CliToolId, readonly string[]> => {
-    const out: Record<CliToolId, readonly string[]> = {};
+export const CLI_TOOL_SECRET_NOTES: Readonly<Partial<Record<CliToolId, readonly string[]>>> = Object.freeze(
+  ((): Partial<Record<CliToolId, readonly string[]>> => {
+    const out: Partial<Record<CliToolId, readonly string[]>> = {};
     for (const tool of Object.values(AVAILABLE_CLI_TOOLS) as readonly CliToolMeta[]) {
       const env = tool.requiresEnv;
       if (env && env.length > 0) {

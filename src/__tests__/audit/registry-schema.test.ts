@@ -6,6 +6,7 @@ import {
   RegistryParseError,
   validateRegistry,
   type Finding,
+  type Reopened,
 } from "../../audit/registry-schema.js";
 
 const FIXED_DATE = "2026-04-28T00:00:00.000Z";
@@ -511,6 +512,167 @@ describe("validateRegistry — postPhase2", () => {
     });
     const drifts = validateRegistry(parsed, { postPhase2: true });
     expect(drifts).toEqual([]);
+  });
+});
+
+describe("validateRegistry — commit_sha value hygiene (Invariant 8 / D16-SA16.2-07)", () => {
+  const HYGIENE_REASON = "commit_sha not a git object name";
+
+  function strictV2(f: Finding) {
+    return parseRegistry({
+      schema_version: CURRENT_REGISTRY_VERSION,
+      generated_at: FIXED_DATE,
+      entries: [f],
+    });
+  }
+
+  it("flags a placeholder commit_sha in strict mode (D16-9 'phase7' fixture)", () => {
+    const f = modernMinimal({ execution_status: "done", commit_sha: "phase7" });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    const hit = drifts.find((d) => d.reason === HYGIENE_REASON);
+    expect(hit).toBeDefined();
+    expect(hit?.detail).toContain("Invariant 8 value hygiene");
+  });
+
+  it("accepts a bare 7-char hex abbreviation in strict mode", () => {
+    const f = modernMinimal({ execution_status: "done", commit_sha: "208c8f7" });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("accepts a full 40-char SHA-1 in strict mode", () => {
+    const f = modernMinimal({
+      execution_status: "done",
+      commit_sha: "0123456789abcdef0123456789abcdef01234567",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("accepts a <repo>:<sha> cross-repo pointer in strict mode (overlay:c0ca1c0 corpus form)", () => {
+    const f = modernMinimal({
+      execution_status: "done",
+      commit_sha: "overlay:c0ca1c0",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("does NOT apply in legacy-tolerant (non-strict) mode — grandfathers the phase7 corpus", () => {
+    const f = modernMinimal({ execution_status: "done", commit_sha: "phase7" });
+    const drifts = validateRegistry(strictV2(f) /* no strict flag */);
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("does NOT flag a null commit_sha in strict mode", () => {
+    const f = modernMinimal({ execution_status: "pending", commit_sha: null });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("flags a placeholder commit_sha regardless of disposition (universal value hygiene)", () => {
+    const f = modernMinimal({
+      disposition: "already_resolved",
+      execution_status: "done",
+      commit_sha: "phase7",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeDefined();
+  });
+});
+
+describe("validateRegistry — reopened structural check (D16-SA16.2-07)", () => {
+  const validReopenedTrueFix: Reopened = {
+    cycle: 11,
+    finding_id: "D16-6",
+    prior_close:
+      "Cycle-10 commit 208c8f7 marked this done but its diff never built the forcing function.",
+    true_fix:
+      "Cycle-11 D16-6 built scripts/audit-stalled-strategic.ts and the terminal-evidence invariant.",
+  };
+
+  it("accepts and preserves the F16.2-C1 true_fix form", () => {
+    const parsed = parseRegistry([
+      modernMinimal({ reopened: validReopenedTrueFix }),
+    ]);
+    expect(validateRegistry(parsed)).toEqual([]);
+    const entries =
+      parsed.kind === "v2" ? parsed.registry.entries : parsed.entries;
+    expect(entries[0].reopened?.finding_id).toBe("D16-6");
+    expect(entries[0].reopened?.true_fix).toContain("audit-stalled-strategic");
+  });
+
+  it("accepts the D12-SA12.3-F07 outstanding form (still-open re-open)", () => {
+    const f = modernMinimal({
+      reopened: {
+        cycle: 12,
+        finding_id: "D12-SA12.3-01",
+        prior_close:
+          "Cycle-10 batch closed this already_resolved on a partial subject.",
+        outstanding: "The --rules and --render subjects remain unverified.",
+      },
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts.filter((d) => d.reason.startsWith("reopened"))).toEqual([]);
+  });
+
+  it("flags reopened missing cycle", () => {
+    const f = modernMinimal({
+      reopened: {
+        finding_id: "X",
+        prior_close: "prior",
+        true_fix: "fix",
+      } as unknown as Reopened,
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "reopened missing cycle"),
+    ).toBeDefined();
+  });
+
+  it("flags reopened missing prior_close", () => {
+    const f = modernMinimal({
+      reopened: {
+        cycle: 12,
+        finding_id: "X",
+        true_fix: "fix",
+      } as unknown as Reopened,
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "reopened missing prior_close"),
+    ).toBeDefined();
+  });
+
+  it("flags reopened carrying neither true_fix nor outstanding", () => {
+    const f = modernMinimal({
+      reopened: {
+        cycle: 12,
+        finding_id: "X",
+        prior_close: "prior",
+      } as unknown as Reopened,
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find(
+        (d) => d.reason === "reopened missing re-disposition narrative",
+      ),
+    ).toBeDefined();
+  });
+
+  it("flags a reopened that is not an object", () => {
+    const f = modernMinimal({
+      reopened: "re-opened last cycle" as unknown as Reopened,
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "reopened not an object"),
+    ).toBeDefined();
+  });
+
+  it("does not flag an entry without a reopened field", () => {
+    const drifts = validateRegistry(parseRegistry([modernMinimal()]));
+    expect(drifts.filter((d) => d.reason.startsWith("reopened"))).toEqual([]);
   });
 });
 

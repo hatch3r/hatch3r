@@ -1217,6 +1217,25 @@ export async function readMcpConfig(
     if (validateMcpConfig(parsed)) {
       const validServers: Record<string, McpServerEntry> = {};
       for (const [name, entry] of Object.entries(parsed.mcpServers)) {
+        // D2-SA2.4-13 (D2 / Pillar P5 Silent Failure Contract): validateMcpConfig
+        // only guarantees `mcpServers` is a non-null object — it does NOT
+        // shape-check individual entries, so an entry can be null, a primitive,
+        // or an array. Drop such an entry with an auditable per-entry warning
+        // instead of letting validateMcpServerArgs dereference `entry.args` and
+        // throw a TypeError that escapes to the file-level catch, converting a
+        // single malformed entry into whole-config loss ("Could not read MCP
+        // config" → zero servers). `rawEntry` is typed `unknown` so the shape
+        // checks narrow a genuinely untrusted value — the loop's declared
+        // `McpServerEntry` type is the unsound half of validateMcpConfig's guard.
+        const rawEntry: unknown = entry;
+        if (
+          typeof rawEntry !== "object" ||
+          rawEntry === null ||
+          Array.isArray(rawEntry)
+        ) {
+          warnings.push(`MCP server "${name}" entry dropped: not an object`);
+          continue;
+        }
         const nameWarning = validateServerName(name);
         if (nameWarning) {
           warnings.push(nameWarning);

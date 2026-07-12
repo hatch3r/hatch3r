@@ -166,7 +166,7 @@ Hooks trigger agents on specific lifecycle events (e.g., post-commit, pre-push, 
 
 ## Presets
 
-hatch3r ships with 4 content presets: **Minimal** (core orchestration + implementation plus floor), **Standard** (recommended — full dev lifecycle plus floor; drops 2 capability clusters: AI feature engineering + performance), **Full** (every capability, including AI feature engineering and performance), and **Custom** (pick exactly what you need). Select during `hatch3r init` or change later with `hatch3r config`.
+hatch3r ships with 10 content presets — 4 base tiers plus 6 project archetypes. The base tiers are **Minimal** (core orchestration + implementation plus floor), **Standard** (recommended — full dev lifecycle plus floor; drops 2 capability clusters: AI feature engineering + performance), **Full** (every capability, including AI feature engineering and performance), and **Custom** (pick exactly what you need). The 6 project archetypes each shape a capability subset of Full for one project type: **Web App** (`web-app`), **API Service** (`api-service`), **CLI Tool** (`cli-tool`), **Monorepo** (`monorepo`), **Legacy / Brownfield** (`legacy`), and **Security-Focused** (`security`). Select a preset during `hatch3r init` or change later with `hatch3r config`; on the CLI you can compose two or more with a comma-list (`--preset web-app,security`), while `custom` is used alone.
 
 ## Task-Type Routing
 

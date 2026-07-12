@@ -204,6 +204,37 @@ describe("writeProvenance idempotency + carry-forward + silent-failure contracts
     expect(await readFile(provenancePath(), "utf-8")).toBe(sentinelBytes);
   });
 
+  // (a2) D1-SA1.6-07 (P2): lastCommand is carried forward TOGETHER with
+  // generatedAt/lastRunId on a byte-identical re-run, so a no-op re-run under a
+  // DIFFERENT command (a no-op `update` after a `sync`) stays byte-identical and
+  // the header names one run — the run that produced the bytes — instead of
+  // pairing a fresh `update` lastCommand with the carried `sync` lastRunId
+  // (which misroutes the documented lastRunId→failure-log trace).
+  it("carries lastCommand forward on a byte-identical re-run under a different command (D1-SA1.6-07)", async () => {
+    // Stamp generatedAt/lastRunId sentinels, PRESERVING outputs AND the "sync"
+    // lastCommand so the next write's idempotency comparison still MATCHES.
+    const stamped = await writeFirstAndReadStamped();
+    expect(stamped.lastCommand).toBe("sync");
+    const sentinelBytes =
+      JSON.stringify({ ...stamped, generatedAt: SENTINEL_AT, lastRunId: SENTINEL_RUN }, null, 2) +
+      "\n";
+    await writeFile(provenancePath(), sentinelBytes, "utf-8");
+
+    // Byte-identical re-run under a DIFFERENT command.
+    const second = await writeProvenance(tempDir, idempotentInputs(), "update");
+    expect(second.written).toBe(true);
+
+    const after = await readManifest();
+    // lastCommand is carried from the run that produced the bytes ("sync"), NOT
+    // re-stamped to "update" (the pre-D1-SA1.6-07 behavior).
+    expect(after.lastCommand).toBe("sync");
+    // …together with the sentinel generatedAt/lastRunId — one coherent run.
+    expect(after.generatedAt).toBe(SENTINEL_AT);
+    expect(after.lastRunId).toBe(SENTINEL_RUN);
+    // And the no-op update leaves the file byte-identical (no spurious rewrite).
+    expect(await readFile(provenancePath(), "utf-8")).toBe(sentinelBytes);
+  });
+
   // (b) D11-M2 split-brain repair (provenance.ts:240-250). On a partial run,
   // provenance rows for adapters listed in `failedAdapters` are carried forward
   // from the previous manifest (kept attributable so `status` does not degrade

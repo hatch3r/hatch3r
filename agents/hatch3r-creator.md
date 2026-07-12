@@ -92,7 +92,7 @@ Return to the orchestrator:
 
 ```
 {
-  status:                 "WRITTEN" | "STRICT_GATE_FAILED" | "BLOCKED",
+  status:                 "WRITTEN" | "STRICT_GATE_FAILED" | "BLOCKED" | "BLOCKED_AMBIGUITY",
   paths:                  ["<absolute path>", ...],
   strictErrors:           [{message, gate, line?}],
   gentleWarnings:         [{message, gate, line?}],
@@ -105,7 +105,7 @@ Return to the orchestrator:
 }
 ```
 
-`status: "WRITTEN"` is returned only when every strict gate passes. `STRICT_GATE_FAILED` lists every blocking error. `BLOCKED` signals a precondition failure (e.g., file collision detected before the gate funnel ran).
+`status: "WRITTEN"` is returned only when every strict gate passes. `STRICT_GATE_FAILED` lists every blocking error. `BLOCKED` signals a precondition failure (e.g., file collision detected before the gate funnel ran). `BLOCKED_AMBIGUITY` signals a §0-gate ambiguity return (input maps to ≥2 interpretations) that the orchestrator routes to a live ASK per `agents/shared/user-question-protocol.md`.
 
 The schema intentionally carries no `delegation_proof_id` field. This agent runs in end-user contexts where the framework-dev End-of-Turn Delegation Attestation rule (the repo-internal `.claude/`-loaded twin of this discipline, not shipped to user repos) is not loaded, so no proof-id is emitted or expected. Do not add one to "fix" the gap — it would be dead frontmatter on the user surface (D20-SA20.1-F20.1.B2).
 
@@ -317,6 +317,7 @@ Per `agents/shared/quality-charter.md` §1, rate every authoring decision as **h
 
 | Failure | Status | Action |
 |---|---|---|
+| Ambiguous input mapping to ≥2 interpretations | `BLOCKED_AMBIGUITY` | Return the rendered question per `agents/shared/user-question-protocol.md` (numbered options + `Default if no response:` line); orchestrator owns the live ASK. |
 | File collision before gate funnel | `BLOCKED` | Return existing path; do not call `saveUserContent`. |
 | Strict frontmatter schema violation | `STRICT_GATE_FAILED` | Return `strictErrors[]` from `saveUserContent`. |
 | Deny-pattern match in body | `STRICT_GATE_FAILED` | Return matched pattern ID from `INJECTION_PATTERNS`. |

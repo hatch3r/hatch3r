@@ -30,7 +30,7 @@ Authoritative rule: `rules/hatch3r-clarification-default.md` (B1 directive); fra
 
 Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
 
-Per-command slot: an optional one-line trigger list naming the command's domain-specific ambiguities (e.g. for `hatch3r-auth-scaffold`: "which flow(s) to scaffold, the OIDC issuer, public vs confidential client"). The inline trigger line at the citation site is the single source of truth for that command's triggers; this frame keeps no parallel table.
+Per-command slot: an optional one-line trigger list naming the command's domain-specific ambiguities (e.g. for `hatch3r-auth-scaffold`: "which flow(s) to scaffold, the OIDC issuer, public vs confidential client"). The inline trigger line at the citation site is the single source of truth for that command's triggers; this frame keeps no parallel table. When the command has domain-specific ambiguities, fill the slot with 2-4 of them — the `hatch3r-release` and `hatch3r-spec` §0 slots are the in-corpus exemplars; the generic "contradictory inputs, missing target, unknown convention" phrasing is an unfilled placeholder, not a tailored slot.
 
 ---
 

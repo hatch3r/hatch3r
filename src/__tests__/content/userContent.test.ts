@@ -1249,7 +1249,7 @@ describe("validateUserArtifact", () => {
   });
 });
 
-describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
+describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 16)", () => {
   // Build a minimal canonical-only index once per test by pointing at an empty
   // dir — the collision check then has no canonical to compare against, so the
   // gates exercise only the tier-aware floor.

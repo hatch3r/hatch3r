@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm, readdir } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, rm, readdir, chmod } from "node:fs/promises";
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
@@ -621,6 +621,21 @@ describe("BaseAdapter", () => {
       );
     });
 
+    // D2-SA2.1-07 (D2, P6): the "no absolute paths" contract must reject
+    // Windows-absolute forms too, not only POSIX `/`-rooted paths — otherwise a
+    // `C:\evil` / `C:/evil` output passes the guard despite the documented
+    // invariant, and `join(rootDir, rel)` contains rather than resets it.
+    it.each(["C:\\evil.md", "C:/evil.md", "d:/nested/evil.md"])(
+      "throws HatchError with ADAPTER_ERROR when an output path is Windows-absolute (%s)",
+      async (badPath) => {
+        const adapter = new TraversalAdapter([badPath]);
+        await expect(adapter.generate(FIXTURES_DIR, makeManifest())).rejects.toMatchObject({
+          name: "HatchError",
+          errorCode: "ADAPTER_ERROR",
+        });
+      },
+    );
+
     it("drops outputs with empty content and emits a 'dropped' warning", async () => {
       const adapter = new InvariantAdapter([
         output("good.md", "ok"),
@@ -993,6 +1008,85 @@ describe("processCompanionSubdir documentation-type exclusion (D2-8)", () => {
       }
     });
   }
+});
+
+/**
+ * D3-SA3.1-05 (Cycle 12 Wave 4, D3, CQ5): the two designed FS-error branches in
+ * `processCompanionSubdir` had zero test executions — (1) the per-file readFile
+ * catch that warns + `continue`s (the Silent Failure Contract surface for a
+ * single unreadable companion file, base.ts:1068-1075), and (2) the readdir
+ * catch's non-ENOENT rethrow (base.ts:1051-1056). POSIX-only: `chmod 000` does
+ * not deny reads under Windows ACLs, so each is
+ * `it.skipIf(process.platform === "win32")`-guarded and runs on the Ubuntu/macOS
+ * CI legs — mirroring the established pattern in canonical.test.ts. The sibling
+ * claudeAgentsMdImport stat-rethrow branch (claude.ts) is covered in
+ * claude.test.ts's "AGENTS.md interop" suite.
+ */
+describe("processCompanionSubdir FS error branches (D3-SA3.1-05)", () => {
+  async function writeChecksPair(): Promise<{ root: string; badPath: string }> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-companion-fserr-"));
+    const checksDir = join(root, "checks");
+    await mkdir(checksDir, { recursive: true });
+    await writeFile(
+      join(checksDir, "good-check.md"),
+      `---\nid: good-check\ntype: check\ndescription: A readable review-criteria check.\n---\n# Good\n\nBody.\n`,
+      "utf-8",
+    );
+    const badPath = join(checksDir, "bad-check.md");
+    await writeFile(
+      badPath,
+      `---\nid: bad-check\ntype: check\ndescription: A check the test makes unreadable.\n---\n# Bad\n\nBody.\n`,
+      "utf-8",
+    );
+    return { root, badPath };
+  }
+
+  it.skipIf(process.platform === "win32")(
+    "warns and continues when one companion file is unreadable (readFile catch)",
+    async () => {
+      const { root, badPath } = await writeChecksPair();
+      try {
+        await chmod(badPath, 0o000);
+        const adapter = new ClaudeAdapter();
+        const manifest = createManifest({ tools: ["claude"] });
+        const outputs = await adapter.generate(root, manifest);
+        const paths = new Set(outputs.map((o) => o.path));
+        // The readable check still emits; the unreadable one is skipped, not fatal.
+        expect(paths.has(".claude/checks/good-check.md")).toBe(true);
+        expect(paths.has(".claude/checks/bad-check.md")).toBe(false);
+        // The skip is surfaced (Silent Failure Contract) — the warning names the file.
+        expect(
+          adapter.warnings.some(
+            (w) =>
+              w.includes("failed to read companion file") && w.includes("bad-check.md"),
+          ),
+        ).toBe(true);
+      } finally {
+        await chmod(badPath, 0o644).catch(() => {});
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "rejects when a companion directory is unreadable (readdir non-ENOENT rethrow)",
+    async () => {
+      const { root } = await writeChecksPair();
+      const checksDir = join(root, "checks");
+      try {
+        await chmod(checksDir, 0o000);
+        const adapter = new ClaudeAdapter();
+        const manifest = createManifest({ tools: ["claude"] });
+        // readdir(checksDir) throws EACCES (non-ENOENT) → processCompanionSubdir
+        // rethrows rather than swallowing → generate rejects (does not silently
+        // ship an incomplete companion subtree).
+        await expect(adapter.generate(root, manifest)).rejects.toThrow();
+      } finally {
+        await chmod(checksDir, 0o755).catch(() => {});
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
 });
 
 /**

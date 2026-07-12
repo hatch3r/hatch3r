@@ -235,10 +235,17 @@ function toYamlDoubleQuotedScalar(value: string): string {
  * value returns `undefined`; if unvalidated content ever reached this helper, a
  * YAML error would propagate loudly rather than be silently swallowed.
  */
-function extractArgumentHint(rawContent: string): string | undefined {
-  const match = rawContent.match(/^---\n([\s\S]*?)\n---/);
+export function extractArgumentHint(rawContent: string): string | undefined {
+  // D2-SA2.1-06 (D2, P1): tolerate CRLF. The canonical reader's FRONTMATTER_REGEX
+  // (canonical.ts) already admits `\r?\n`, so a CRLF user-override command (a
+  // Windows `core.autocrlf=true` working tree) is a valid CanonicalFile — but an
+  // LF-only regex here would MISS its frontmatter and silently drop the picker's
+  // argument-hint affordance (D5-33) for exactly those files. Match `\r?\n` and
+  // strip CR from the captured block before parseYaml so the scalar value never
+  // carries a trailing `\r`.
+  const match = rawContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return undefined;
-  const parsed = parseYaml(match[1]) as Record<string, unknown> | null;
+  const parsed = parseYaml(match[1].replace(/\r/g, "")) as Record<string, unknown> | null;
   const hint = parsed?.["argument-hint"];
   return typeof hint === "string" && hint.trim().length > 0 ? hint : undefined;
 }
@@ -334,7 +341,17 @@ export abstract class BaseAdapter implements Adapter {
     // poison the rest of the sync, but we still surface a warning so the
     // operator sees the failure.
     const traversalOutputs = outputs.filter(
-      (o) => o.path.startsWith("/") || o.path.includes(".."),
+      (o) =>
+        o.path.startsWith("/") ||
+        // D2-SA2.1-07 (D2, P6): the POSIX `startsWith("/")` check misses
+        // Windows-absolute forms (`C:\evil`, `C:/evil`). `join(rootDir, rel)` in
+        // the write path CONTAINS rather than resets a drive-letter segment, so
+        // today the gap is contract-incompleteness — the thrown error promises
+        // "no absolute paths" universally — not live traversal. Reuse the
+        // drive-letter pattern `filterUserFacing` already applies in
+        // canonical.ts so both surfaces model the Windows absolute shape.
+        /^[A-Za-z]:[\\/]/.test(o.path) ||
+        o.path.includes(".."),
     );
     if (traversalOutputs.length > 0) {
       const paths = traversalOutputs.map((o) => `"${o.path}"`).join(", ");
@@ -786,7 +803,20 @@ export abstract class BaseAdapter implements Adapter {
     return file.sourcePath ? [file.sourcePath] : undefined;
   }
 
-  /** Process skills and output each as a raw managed-block file at the path returned by `pathFn`. */
+  /**
+   * Process skills and output each as a raw managed-block file at the path
+   * returned by `pathFn`.
+   *
+   * D2-SA2.1-04 (P4): no current adapter calls this helper — claude/cursor/
+   * copilot each emit skills via the CLI-filtered {@link processSkillsWithFmCliFiltered}
+   * twin (Wave 3 swap). Retained as a BaseAdapter utility exercised by
+   * `src/__tests__/adapters/base.test.ts` (per-output emission probe); removal
+   * is deferred because it would require rewriting those tests. WARNING for a
+   * future adapter author: this raw twin does NOT apply the CLI-tooling filter,
+   * picker-safe frontmatter quoting, `allowed-tools`, or `model:` emission that
+   * {@link processSkillsWithFmCliFiltered} carries — reach for the live twin, not
+   * this one, for a real skill-emission pipeline.
+   */
   protected async processSkillsRaw(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -902,7 +932,21 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
-  /** Process commands and output each as a raw managed-block file at the path returned by `pathFn`. */
+  /**
+   * Process commands and output each as a raw managed-block file at the path
+   * returned by `pathFn`.
+   *
+   * D2-SA2.1-04 (P4): no current adapter calls this helper — claude/cursor/
+   * copilot each emit commands via the frontmatter-prepending
+   * {@link processCommandsWithFm} twin (D5-33 swap). Retained as a BaseAdapter
+   * utility exercised by `src/__tests__/adapters/base.test.ts` and
+   * `commandArgumentHint.test.ts`; removal is deferred because it would require
+   * rewriting those tests. WARNING for a future adapter author: this raw twin
+   * emits NO byte-0 `name:`/`description:`/`argument-hint:`/`model:` frontmatter
+   * stub, so the slash-command picker would show the `HATCH3R:BEGIN` marker
+   * instead of the real description — reach for {@link processCommandsWithFm}, not
+   * this one, for a real command-emission pipeline.
+   */
   protected async processCommandsRaw(
     ctx: AdapterContext,
     pathFn: (id: string) => string,

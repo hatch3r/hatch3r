@@ -1639,7 +1639,15 @@ async function runInitInner(options: RunInitOptions): Promise<void> {
     summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "hatch3r-feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "hatch3r-quick-change"))} for a tiny change`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "hatch3r-project-spec"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "hatch3r-codebase-map"))}`);
   } else {
-    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to map your existing codebase (routes greenfield/brownfield automatically)`);
+    // D10-SA10.3-05 (D10, P1): the brownfield branch fires whenever ANY language
+    // indicator is present — a bare `tsconfig.json` from `npm create vite` /
+    // `create-next-app` / `tsc --init` is enough (repoAnalyzer.ts
+    // LANGUAGE_INDICATORS), so a freshly scaffolded, not-yet-specified project
+    // lands here and "map your existing codebase" is the wrong frame for it.
+    // `hatch3r-spec` re-detects state internally, so the lowest-cost fix names
+    // the fresh-scaffold case in the CTA rather than broadening the classifier
+    // (which also feeds the post-init JSON payload and content selection).
+    summaryLines.push(`${chalk.cyan("→")} Run ${chalk.bold(formatCommandHint(tools, "hatch3r-spec"))} to map your existing code — or define a new product if this is a fresh scaffold (routes greenfield/brownfield automatically)`);
     summaryLines.push(`${chalk.cyan("→")} Lite path (no board): ${chalk.bold(formatCommandHint(tools, "hatch3r-feature-plan"))} for one feature, ${chalk.bold(formatCommandHint(tools, "hatch3r-quick-change"))} for a tiny change`);
     summaryLines.push(`${chalk.dim("·")} ${chalk.dim("Legacy split-flow: ")}${chalk.bold(formatCommandHint(tools, "hatch3r-codebase-map"))} ${chalk.dim("or")} ${chalk.bold(formatCommandHint(tools, "hatch3r-project-spec"))}`);
   }

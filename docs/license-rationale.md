@@ -67,7 +67,17 @@ If you derive a fork that diverges from upstream hatch3r, please do not call the
 
 ## License changes
 
-Changing the license of a hatch3r release would require contributor consent under the DCO (Developer Certificate of Origin) sign-off model enforced on every commit (see [`CONTRIBUTING.md`](../CONTRIBUTING.md)). A license change has never been proposed and is not planned. If a proposal ever arises, it would route through the `/h4tcher-evolve` governance-evolution engine and require explicit user consent.
+Contributions are received under MIT on the inbound=outbound model. The DCO (Developer Certificate of Origin) sign-off enforced on every commit certifies the *origin* of each contribution and the contributor's right to submit it under the project's existing MIT license — DCO 1.1 clauses (a)-(c), [developercertificate.org](https://developercertificate.org/). The DCO is a certification of provenance, **not** a relicensing-consent instrument: it neither collects nor implies consent to change the license. (This is the defining contrast between the DCO and a CLA — a CLA can pre-collect relicensing rights; the DCO does not. See [`CONTRIBUTING.md`](../CONTRIBUTING.md) §Developer Certificate of Origin.)
+
+A future license change would therefore rely on MIT's own permissive grant — MIT lets a recipient sublicense and redistribute under other terms as long as the copyright notice and warranty disclaimer are retained — plus fresh grants from contributors for any right MIT does not itself convey (for example, an express patent grant; see [Patent posture](#patent-posture)). No license change has ever been proposed and none is planned. If a proposal ever arises, it routes through the `/h4tcher-evolve` governance-evolution engine and requires explicit owner consent; the DCO plays no consenting role in that decision.
+
+## Patent posture
+
+The MIT license is **silent on patents**: it grants copyright permissions (use, modify, distribute, sublicense, sell) but conveys no express patent license from contributors and carries no patent-retaliation clause. Apache-2.0 — the most common permissive alternative — differs on exactly this axis: its §3 grants each downstream user an express, perpetual patent license from every contributor and terminates that grant for any party who initiates patent litigation over the work ([Apache-2.0 patent provisions vs MIT, Mend](https://www.mend.io/blog/top-10-apache-license-questions-answered/), accessed 2026-07-12).
+
+This axis is material to hatch3r specifically because its canonical content is designed for downstream embedding and redistribution — the worked example under [What MIT permits downstream](#what-mit-permits-downstream) is a vendor bundling that content into a commercial product. Express-patent-grant-versus-silence is the distinction an adopting vendor's counsel weighs when redistributed work might implicate contributor-held patents. For a configuration generator that ships prompt and specification text plus TypeScript scaffolding rather than a novel patentable algorithm, the practical patent-exposure surface is low — but the record states the posture rather than leaving it implicit.
+
+**Current posture:** MIT (patent silence), accepted as the default. **Pending disposition (Owner: Human):** formally ratify one of — (a) deliberately accept MIT's patent silence on the low-exposure rationale above, or (b) assess migration to Apache-2.0 for its express patent grant. This is tracked as a Strategic Decision Register item and closes the queued "MIT-vs-Apache licensing record" candidate; the disposition lands through the governance decision ceremony, not by this document asserting the outcome.
 
 ## References
 
@@ -76,3 +86,5 @@ Changing the license of a hatch3r release would require contributor consent unde
 - [Vision overview](https://docs.hatch3r.com/docs/about) §Distribution — vision-level distribution stance
 - [`docs/sustainability.md`](./sustainability.md) — how the project stays maintainable without monetization
 - [`docs/marketplace-submission.md`](./marketplace-submission.md) — marketplace-listing implications of MIT
+- [Developer Certificate of Origin 1.1](https://developercertificate.org/) — certifies contribution origin under the existing license; not a relicensing-consent instrument
+- [Apache License 2.0 §3](https://www.apache.org/licenses/LICENSE-2.0) — the express patent grant that MIT omits, referenced in *Patent posture*

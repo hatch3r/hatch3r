@@ -59,10 +59,12 @@ If any trigger fires, ask via the platform-native question tool per `agents/shar
    - Implement `getOutputPaths()` — return all file paths this adapter creates
    - Use `wrapInManagedBlock()` for merge-safe output
    - Use `resolveAgentModel()` for model configuration
-10. Register in `src/adapters/index.ts`:
-    - Add to `adapterMap`
-    - Add to `TOOL_DISPLAY_NAMES`
-    - Add to `ADAPTER_CAPABILITIES` matrix
+10. Register the new tool across the `Record<Tool, …>` surfaces. Extend `src/types.ts::TOOLS` FIRST — it is the single `Tool` union every `Record<Tool, …>` keys from, so each surface below compile-errors until you complete it:
+    - Extend `src/types.ts::TOOLS` (the `Tool` union) and its derived `src/types.ts::TOOL_WORKTREE_SUPPORT`
+    - Add the archive prefix set in `src/archive/index.ts::TOOL_PATH_PREFIXES`
+    - Add the factory in `src/adapters/index.ts::adapterFactories`
+    - Add to the `src/adapters/index.ts::ADAPTER_CAPABILITIES` matrix
+    - Add the display name in `src/cli/shared/constants.ts::TOOL_DISPLAY_NAMES`
 
 ## Step 5: Test
 
@@ -74,6 +76,8 @@ If any trigger fires, ask via the platform-native question tool per `agents/shar
     - Hook format if supported
     - Managed block markers present
     - Error handling for missing canonical files
+
+    Also update the capability-matrix drift tests so the new tool is asserted, not skipped: add it to `TOOLS_UNDER_TEST` and `ADAPTER_SOURCE` in `src/__tests__/adapters/capabilityMatrixDrift.test.ts`, and to `TOOLS_UNDER_TEST` in `src/__tests__/adapters/capability-matrix-doc.test.ts`.
 12. Run: `npm test`, `npx tsc --noEmit`, `npm run lint`
 
 ## Step 6: Verify

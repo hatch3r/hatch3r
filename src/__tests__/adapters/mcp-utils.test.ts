@@ -1935,6 +1935,62 @@ describe("readMcpConfig drop-path (F15.5-C1)", () => {
     expect(result.warnings.some((w) => w.includes("dropped"))).toBe(false);
     await rm(tmpRoot, { recursive: true, force: true });
   });
+
+  it("drops a null entry with an auditable warning and keeps the valid servers (D2-SA2.4-13)", async () => {
+    // validateMcpConfig only guarantees `mcpServers` is a non-null object; a
+    // per-entry `null` previously reached validateMcpServerArgs, threw a
+    // TypeError on `entry.args`, and the file-level catch converted it to
+    // whole-config loss ("Could not read MCP config") — dropping EVERY server.
+    // It must now drop only the malformed entry.
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "good-server": {
+          command: "npx",
+          args: ["-y", "@scope/pkg@1.0.0"],
+        },
+        "null-entry": null,
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toEqual(["good-server"]);
+    expect(result.servers["null-entry"]).toBeUndefined();
+    expect(
+      result.warnings.some(
+        (w) =>
+          w.includes("null-entry") &&
+          w.includes("entry dropped: not an object"),
+      ),
+    ).toBe(true);
+    // The whole-config-loss failure mode must NOT fire — the file was read fine.
+    expect(
+      result.warnings.some((w) => w.includes("Could not read MCP config")),
+    ).toBe(false);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("drops primitive and array entries across all three shape-gate branches while keeping valid servers (D2-SA2.4-13)", async () => {
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "good-server": { command: "npx", args: ["-y", "@scope/pkg@1.0.0"] },
+        "number-entry": 42,
+        "string-entry": "not-an-object",
+        "array-entry": ["a", "b"],
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toEqual(["good-server"]);
+    for (const bad of ["number-entry", "string-entry", "array-entry"]) {
+      expect(
+        result.warnings.some(
+          (w) => w.includes(bad) && w.includes("entry dropped: not an object"),
+        ),
+      ).toBe(true);
+    }
+    expect(
+      result.warnings.some((w) => w.includes("Could not read MCP config")),
+    ).toBe(false);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
 });
 
 /**

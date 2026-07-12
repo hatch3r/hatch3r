@@ -3429,6 +3429,10 @@ describe("init multi-CTA post-init hint (C9-H29)", () => {
     expect(stdout).toContain("/hatch3r-feature-plan");
     expect(stdout).toContain("/hatch3r-quick-change");
     expect(stdout).toContain("/hatch3r-project-spec");
+    // D10-SA10.3-05: a tsconfig.json-only tree is a fresh scaffold, not an
+    // established codebase — the brownfield CTA must name the new-product path
+    // so a scaffolded-new user is not told to reverse-engineer a near-empty tree.
+    expect(stdout).toContain("fresh scaffold");
   });
 });
 

@@ -28,6 +28,19 @@ export const PROVENANCE_FILE = "provenance.json";
 export type ProvenanceCommand = "sync" | "init" | "update" | "config";
 
 /**
+ * The valid {@link ProvenanceCommand} values, for runtime narrowing of a
+ * `lastCommand` read back from a previously-persisted (possibly hand-edited)
+ * manifest (D1-SA1.6-07). `satisfies` pins the array to the union so a typo
+ * here is a compile error.
+ */
+const PROVENANCE_COMMANDS = ["sync", "init", "update", "config"] as const satisfies readonly ProvenanceCommand[];
+
+/** Narrow an unknown persisted value to a {@link ProvenanceCommand}. */
+function isProvenanceCommand(value: unknown): value is ProvenanceCommand {
+  return typeof value === "string" && PROVENANCE_COMMANDS.some((c) => c === value);
+}
+
+/**
  * SA12.4-F1 / F2.7-F5 (D2/D12): canonical normalization used by BOTH the
  * provenance writer ({@link writeProvenance}) and the `hatch3r status` drift
  * reader, so the emit-time hash matches the hash derived from an on-disk file.
@@ -131,8 +144,12 @@ function sortEntries<T extends { adapter: string; path: string }>(entries: T[]):
  *   emit-time `contentHash` ({@link hashEmittedContent}) so `status` can tell
  *   a user edit from an outdated canonical block.
  * - F2.7-F5 idempotency: when the previous manifest at the same hatch3r
- *   version records a byte-identical output set, `generatedAt` / `lastRunId`
- *   are carried forward so a no-op re-run stays byte-identical on disk.
+ *   version records a byte-identical output set, `generatedAt`, `lastRunId`,
+ *   AND `lastCommand` are carried forward so a no-op re-run stays byte-identical
+ *   on disk. D1-SA1.6-07 added `lastCommand` to the carry set — previously it
+ *   was re-stamped, so a no-op `update` after a `sync` rewrote the file and left
+ *   a `{lastCommand:"update", lastRunId:<sync run id>}` header that names an
+ *   id/command pair which never co-occurred as a run.
  * - D11-M2 split-brain repair: provenance rows for adapters in
  *   `failedAdapters` are carried forward from the previous manifest, so the
  *   half-state a partial run leaves on disk stays attributable rather than
@@ -147,9 +164,12 @@ function sortEntries<T extends { adapter: string; path: string }>(entries: T[]):
  *   | `update` | `config`) — persisted as `lastCommand` so `explain --source`
  *   and CI consumers can attribute the manifest to the originating run.
  * @param failedAdapters adapter ids whose generation did NOT complete this
- *   run; their prior provenance rows are carried forward. Pass an empty array
- *   (init/update have no partial-success carry-forward today) or the failed
- *   tool list (sync).
+ *   run; their prior provenance rows are carried forward (D11-M2) so a
+ *   partially-failed run stays attributable rather than degrading to
+ *   `unknown` drift. All three callers compute this: `sync` from its
+ *   failed-tool list, `init` from `tools.filter(t => t not in pendingAdapters)`,
+ *   and `update` from `adapterFailures.map(f => f.tool)`. Pass `[]` only when
+ *   the run had no adapter failures to carry forward.
  */
 export async function writeProvenance(
   rootDir: string,
@@ -216,6 +236,11 @@ export async function writeProvenance(
     // partial-run provenance carry-forward.
     let previousGeneratedAt: string | null = null;
     let previousLastRunId: string | null = null;
+    // D1-SA1.6-07 (P2): carried forward together with generatedAt/lastRunId on
+    // an idempotency hit so a byte-identical re-run stays truly byte-identical
+    // and the header names one run (the run that produced the current bytes)
+    // rather than pairing a fresh lastCommand with a carried lastRunId.
+    let previousLastCommand: ProvenanceCommand | null = null;
     let previousEntries: ProvenanceEntry[] = [];
     try {
       const prevRaw = await readFile(provenancePath, "utf-8");
@@ -244,12 +269,14 @@ export async function writeProvenance(
       ) {
         previousGeneratedAt = typeof prev.generatedAt === "string" ? prev.generatedAt : null;
         previousLastRunId = typeof prev.lastRunId === "string" ? prev.lastRunId : null;
+        previousLastCommand = isProvenanceCommand(prev.lastCommand) ? prev.lastCommand : null;
       }
     } catch {
       // Missing/corrupt previous manifest → no idempotency carry-forward and
       // no partial-run rows to preserve. A fresh manifest is written below.
       previousGeneratedAt = null;
       previousLastRunId = null;
+      previousLastCommand = null;
       previousEntries = [];
     }
 
@@ -274,7 +301,11 @@ export async function writeProvenance(
       schemaVersion: 1,
       hatch3rVersion: HATCH3R_VERSION,
       generatedAt: previousGeneratedAt ?? new Date().toISOString(),
-      lastCommand: command,
+      // D1-SA1.6-07 (P2): on an idempotency hit carry the prior lastCommand
+      // alongside generatedAt/lastRunId so the three fields describe one run.
+      // On a non-idempotent run previousLastCommand is null → this run's command
+      // is stamped.
+      lastCommand: previousLastCommand ?? command,
       lastRunId: previousLastRunId ?? getRunId(),
       outputs,
     };

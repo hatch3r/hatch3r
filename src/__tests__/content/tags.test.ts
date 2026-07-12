@@ -11,7 +11,6 @@ import {
   TAG_PERFORMANCE,
   TAG_AI,
   // Capability tags (2.0.0 expansion — CQ-vector + work-type)
-  TAG_ORCHESTRATOR,
   TAG_SECURITY,
   TAG_RELIABILITY,
   TAG_TESTING,
@@ -272,8 +271,8 @@ describe("TAG_REGISTRY consistency", () => {
     expect(unique.size).toBe(ALL_TAGS.length);
   });
 
-  it("ALL_TAGS contains exactly 81 elements (41 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 7 language + 3 role) — lang:kotlin split from lang:java (D14-SA14.1-03)", () => {
-    expect(ALL_TAGS).toHaveLength(81);
+  it("ALL_TAGS contains exactly 80 elements (40 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 7 language + 3 role) — `orchestrator` alias retired (D22-SA22.3-05); lang:kotlin split from lang:java (D14-SA14.1-03)", () => {
+    expect(ALL_TAGS).toHaveLength(80);
   });
 
   it("facetOf returns 'capability' for every capability tag", () => {
@@ -282,7 +281,7 @@ describe("TAG_REGISTRY consistency", () => {
       TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
       TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
       // 2.0.0 expansion
-      TAG_ORCHESTRATOR, TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
+      TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
       TAG_MAINTAINABILITY, TAG_ENHANCABILITY, TAG_OBSERVABILITY, TAG_SUPPLY_CHAIN,
       TAG_ACCESSIBILITY, TAG_SPEC, TAG_GREENFIELD, TAG_BROWNFIELD, TAG_MIGRATION,
       TAG_TELEMETRY, TAG_COST, TAG_ANTI_DUPLICATION, TAG_CODE_QUALITY, TAG_CODE_STANDARDS,
@@ -377,16 +376,16 @@ describe("TAG_REGISTRY consistency", () => {
 // ── tagsForFacet — facet enumeration ─────────────────────────────
 
 describe("tagsForFacet", () => {
-  it("returns the 41 capability tags (9 base + 32 2.0.0 expansion incl. right-sizing)", () => {
+  it("returns the 40 capability tags (9 base + 31 2.0.0 expansion incl. right-sizing; `orchestrator` alias retired — D22-SA22.3-05)", () => {
     const result = tagsForFacet("capability");
-    expect(result).toHaveLength(41);
+    expect(result).toHaveLength(40);
     expect(result.sort()).toEqual(
       [
         // 1.x base
         TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
         TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
         // 2.0.0 expansion
-        TAG_ORCHESTRATOR, TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
+        TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
         TAG_MAINTAINABILITY, TAG_ENHANCABILITY, TAG_OBSERVABILITY, TAG_SUPPLY_CHAIN,
         TAG_ACCESSIBILITY, TAG_SPEC, TAG_GREENFIELD, TAG_BROWNFIELD, TAG_MIGRATION,
         TAG_TELEMETRY, TAG_COST, TAG_ANTI_DUPLICATION, TAG_CODE_QUALITY, TAG_CODE_STANDARDS,
@@ -934,8 +933,6 @@ describe("PILLAR_MAP grounded edges", () => {
       { pillar: "P7", role: "supporting" },
       { pillar: "P8", role: "supporting" },
     ]);
-    // orchestrator is the command-frontmatter alias — identical edge set.
-    expect(pillarsForTag(TAG_ORCHESTRATOR)).toEqual(pillarsForTag(TAG_ORCHESTRATION));
   });
 
   it("honours the CQ-vector tag comments (security→CQ3, reliability→CQ4, observability→CQ4 supporting)", () => {
@@ -984,8 +981,8 @@ describe("weightedPillarTally (D22 §22.3 reproducible tally)", () => {
     expect(tally.P5).toBe(1);
   });
 
-  it("dedupes two tags that both map a pillar as primary (orchestration + orchestrator → P5=1.0)", () => {
-    const tally = weightedPillarTally([{ tags: [TAG_ORCHESTRATION, TAG_ORCHESTRATOR] }]);
+  it("dedupes two tags that both map a pillar as primary (orchestration + floor:protocol → P5=1.0)", () => {
+    const tally = weightedPillarTally([{ tags: [TAG_ORCHESTRATION, TAG_FLOOR_PROTOCOL] }]);
     expect(tally.P5).toBe(1);
   });
 

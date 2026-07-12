@@ -198,10 +198,10 @@ export function resolveRuleGlobs(
  *    companion file (e.g., a `type: shared-context` file) that sits next to
  *    real commands but must not be invocable.
  *
- * Canonical `.agents/` content (populated by `src/content/index.ts`)
- * remains unfiltered, so parent commands can continue referencing
- * companion files by name — this helper only gates per-tool adapter
- * emission.
+ * Canonical content (bundled in the npm package, read via
+ * `resolveBundledContentRoot()`) remains unfiltered, so parent commands can
+ * continue referencing companion files by name — this helper only gates
+ * per-tool adapter emission.
  *
  * Cross-platform: uses `path.relative` to normalise the pair of absolute
  * paths before the subdirectory check, because on Windows `sourcePath` and
@@ -665,7 +665,7 @@ export function parseFrontmatter(
  *
  * C8-D2-M3: Widened from the original 6 (`rules`/`agents`/`skills`/
  * `commands`/`prompts`/`github-agents`) to cover every on-disk
- * `.agents/{dir}/` directory that holds frontmatter-bearing markdown.
+ * `<canonicalRoot>/{dir}/` directory that holds frontmatter-bearing markdown.
  *
  * - `hooks` — hook definition files. Note: the full hook lifecycle is still
  *   parsed by {@link readHookDefinitions} in `src/hooks/index.ts` because
@@ -677,11 +677,12 @@ export function parseFrontmatter(
  * - `checks` — reusable quality-charter checklists referenced by agents
  *   (e.g. `accessibility.md`, `security.md`, `testing.md`).
  * - `policy` — optional deny-list and guardrail markdown under
- *   `.agents/policy/` (referenced by `src/cli/shared/agentsContent.ts`).
- * - `learnings` — project-specific `.agents/learnings/*.md` entries seeded
- *   by `hatch3r init` (see `src/cli/commands/init.ts:195-199`). Learnings
- *   carry lightweight frontmatter so agents can surface pitfalls/patterns
- *   during sync; extending the canonical type keeps that path uniform.
+ *   `<canonicalRoot>/policy/` (referenced by `src/cli/shared/agentsContent.ts`).
+ * - `learnings` — reserved member kept so generic tooling enumerates the
+ *   canonical type uniformly; no `doGenerate` consumes it and the bundled
+ *   `<canonicalRoot>/learnings/` never exists (D15-13). Authoritative learnings
+ *   live under `.hatch3r/learnings/`, read directly by `loadValidatedLearnings`
+ *   in `src/content/learningsLoader.ts`, not through this reader (D11-SA11.1-02).
  */
 export type CanonicalType =
   | "rules"
@@ -898,7 +899,7 @@ async function readSingleMd(
   }
   // C7.5-W2B2-H43 (D15-F15.1-02): wire the pipeline promptGuard into the
   // canonical read path so every sync/update/add/verify invocation that
-  // reads .agents/ content exercises ASI01 structural-injection scanning
+  // reads canonical content exercises ASI01 structural-injection scanning
   // for the unambiguous tokens only. The template-literal check
   // (`{{...}}`) and role-colon checks are deliberately SKIPPED here
   // because legitimate canonical files intentionally embed Handlebars
@@ -1182,9 +1183,9 @@ async function readUserCanonicalResults(
  * (`VALIDATION_ERROR`) instead of returning a degraded file list. The default
  * (`strict` omitted/false) preserves the resilient soft-warning behavior every
  * current caller relies on — sync/init/update continue to surface warnings and
- * proceed. Strict mode is opt-in tooling for a release/CI integrity gate (e.g.
- * a future `validate:canonical` step asserting `0` canonical warnings); see the
- * recommendation in `.audit-workspace/.../D2-SA2.2` finding 2.2-F7.
+ * proceed. Strict mode is opt-in tooling for a release/CI integrity gate: the
+ * `validate:canonical` step asserting `0` canonical warnings; see
+ * `scripts/validate-canonical.ts`, which implements finding 2.2-F7.
  */
 export async function readCanonicalFiles(
   canonicalRoot: string,

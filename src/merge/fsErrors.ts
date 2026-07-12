@@ -23,6 +23,12 @@ import { HatchError } from "../types.js";
  * identical failure to the identical guided message instead of a raw Node
  * error. Consumers apply {@link mapFsErrno} in a catch and re-throw the
  * original error when it returns `null`.
+ *
+ * D1-SA1.5-10 (Cycle 12, P2): `ENOENT` joined the table. The atomic writer
+ * now auto-creates missing parent directories in every lock mode, so an
+ * ENOENT that still reaches a mapped catch (parent removed mid-operation, a
+ * `.bak` copy source that vanished) is rare — and deserves parent-directory
+ * guidance instead of surfacing as an unmapped raw Node error.
  */
 const FS_ERRNO_MESSAGE: Record<string, (filePath: string) => string> = {
   ENOSPC: (p) => `Not enough disk space to write ${p}. Free up space and re-run the command.`,
@@ -40,6 +46,8 @@ const FS_ERRNO_MESSAGE: Record<string, (filePath: string) => string> = {
     `System-wide open-file limit reached writing ${p}. Close other processes or raise the system fd limit, then re-run.`,
   EIO: (p) =>
     `Low-level I/O error writing ${p}. The disk may be failing — check kernel logs (dmesg / Console.app) and consider running fsck.`,
+  ENOENT: (p) =>
+    `Cannot write ${p}: the parent directory ${dirname(p)} does not exist (or a path component was removed mid-operation). Create it with \`mkdir -p ${dirname(p)}\` and re-run the command.`,
 };
 
 /**

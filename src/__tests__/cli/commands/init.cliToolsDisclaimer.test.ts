@@ -30,6 +30,30 @@ vi.mock("../../../cliTools/install.js", () => ({
   printMissingCliToolsDisclaimer: vi.fn(),
 }));
 
+// D3-SA3.2-15 (D3, P5/CQ5): silence ONLY the ora spinner. createSpinner writes
+// progress chrome ("[1/4] Resolving canonical content… ✔") to raw process.stderr
+// (src/cli/shared/ui.ts pins the ora stream to stderr), so it bypasses the
+// console spies below and interleaves with the vitest reporter stream. Partial-
+// mock so createSpinner is a no-op while isQuiet() stays real (false) — the
+// disclaimer runs inside `!isQuiet()` guards, so its assertions depend on that.
+vi.mock("../../../cli/shared/ui.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../cli/shared/ui.js")>();
+  return {
+    ...actual,
+    createSpinner: vi.fn(() => ({
+      start: vi.fn(),
+      succeed: vi.fn(),
+      fail: vi.fn(),
+      warn: vi.fn(),
+      stop: vi.fn(),
+      info: vi.fn(),
+      stopAndPersist: vi.fn(),
+      clear: vi.fn(),
+      text: "",
+    })),
+  };
+});
+
 describe("init disclaimer after Hatch complete (repo)", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean; cliTools?: string; noCliTools?: boolean }) => Promise<void>;
   let findMissingCliTools: ReturnType<typeof vi.fn>;

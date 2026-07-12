@@ -86,6 +86,48 @@ describe("safeWrite", () => {
     });
   });
 
+  // D1-SA1.5-10 (Cycle 12, P2): parent-directory creation belongs to the WRITE
+  // path, not to lock acquisition — the auto-mkdir contract must not vary with
+  // HATCH3R_LOCK. Pre-fix, acquireWriteLockImpl's mkdir ran only when locking
+  // was active, so the same call succeeded under HATCH3R_LOCK=1 and raised a
+  // raw unmapped ENOENT without it. The locked-mode twin of this suite lives
+  // in safeWrite.fileLock.test.ts ("creates the parent directory before
+  // acquiring the lock").
+  describe("atomicWriteFile parent-directory creation without locking (D1-SA1.5-10)", () => {
+    let tempDir: string;
+    const originalLockEnv = process.env.HATCH3R_LOCK;
+
+    afterEach(async () => {
+      if (originalLockEnv === undefined) delete process.env.HATCH3R_LOCK;
+      else process.env.HATCH3R_LOCK = originalLockEnv;
+      if (tempDir) await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("creates missing nested parent directories with locking explicitly disabled", async () => {
+      // HATCH3R_LOCK=0 force-disables locking even when a workspace default
+      // enabled it, so this exercises the pure unlocked write path.
+      process.env.HATCH3R_LOCK = "0";
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-parentdir-"));
+      const filePath = join(tempDir, "nested", "deep", "file.md");
+
+      await atomicWriteFile(filePath, "nested content");
+
+      expect(await readFile(filePath, "utf-8")).toBe("nested content");
+    });
+
+    it("creates missing parent directories for Buffer content too (lossless path)", async () => {
+      process.env.HATCH3R_LOCK = "0";
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-parentdir-"));
+      const filePath = join(tempDir, "bin", "raw.bin");
+      const bytes = Buffer.from([0x00, 0xff, 0x80, 0x7f]);
+
+      await atomicWriteFile(filePath, bytes);
+
+      const onDisk = await readFile(filePath);
+      expect(onDisk.equals(bytes)).toBe(true);
+    });
+  });
+
   describe("safeWriteFile", () => {
     let tempDir: string;
 
@@ -1263,20 +1305,19 @@ describe("safeWrite", () => {
       // Sanity: under normal error paths (not process-kill), the existing
       // finally block in atomicWriteFile already unlinks the tmp. This
       // confirms the sweep is only needed for process-kill scenarios.
+      // D1-SA1.5-10: a missing parent no longer fails the write (the writer
+      // auto-creates it in every lock mode), so force the failure at the
+      // RENAME step instead by targeting an existing DIRECTORY — which also
+      // exercises the finally unlink against a tmp file that really exists.
       const dir = await createTempDir();
-      const targetDir = join(dir, "missing-sub"); // does not exist
-      const target = join(targetDir, "nested.md");
+      const target = join(dir, "occupied-by-a-directory");
+      const { mkdir } = await import("node:fs/promises");
+      await mkdir(target, { recursive: true });
 
-      // atomicWriteFile requires the parent to exist; safeWriteFile handles
-      // that via mkdir. But we want a failure mid-flow — directly calling
-      // atomicWriteFile on a nonexistent parent triggers writeFile ENOENT
-      // and the finally unlink runs.
       const { atomicWriteFile } = await import("../../merge/safeWrite.js");
       await expect(atomicWriteFile(target, "content")).rejects.toThrow();
 
-      // No tmp files should remain in the parent (when the parent exists).
-      // The dir itself doesn't exist, so readdir on the non-existent parent
-      // returns []; instead we check at the root.
+      // The tmp file the writer created beside the target was cleaned up.
       const files = await readdir(dir);
       expect(files.filter((f) => f.includes(".tmp."))).toEqual([]);
     });

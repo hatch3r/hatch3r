@@ -115,6 +115,21 @@ function driftCountOf(report: DriftReport): number {
 }
 
 /**
+ * D1-SA1.4-07 / D2-SA2.7-06 (D1/D2, P1): the subset of drift that REGENERATION
+ * can clear — drifted (`modified`) + `missing` managed output. Orphan
+ * (`unexpected`) files are removed only by `hatch3r clean`, never by
+ * regeneration ({@link buildRecoveryHint} routes them there). The `--fix` loop
+ * therefore drives on THIS count, not {@link driftCountOf}: an orphan-only
+ * report otherwise spun up to `--max-fix-attempts` full regenerate cycles (each
+ * minting a snapshot session and regenerating every adapter) with zero chance
+ * of clearing the drift. {@link driftCountOf} (which still counts `unexpected`)
+ * continues to drive the PASS/FAIL exit code — an orphan is still real drift.
+ */
+function regenerableDriftCountOf(report: DriftReport): number {
+  return report.counts.modified + report.counts.missing;
+}
+
+/**
  * D1-SA1.4-F10 (Cycle 10, P1): build the recovery hint for a drifted report.
  * `hatch3r sync` regenerates drifted/missing managed output but does NOT remove
  * orphan (`unexpected`) files — those are cleared by `hatch3r clean`. The prior
@@ -218,7 +233,12 @@ async function runFixLoop(
   const attempts = Math.min(Math.max(Math.trunc(raw), 1), MAX_FIX_ATTEMPTS_CEILING);
 
   let report = await computeAdapterDrift(rootDir, manifest);
-  for (let attempt = 1; attempt <= attempts && driftCountOf(report) > 0; attempt++) {
+  // D1-SA1.4-07 / D2-SA2.7-06 (P1): drive the loop on REGENERABLE drift only.
+  // Regeneration never removes orphan (`unexpected`) files, so an orphan-only
+  // report must perform 0 regenerate attempts instead of spinning futile
+  // snapshot+regenerate cycles it can never clear (the operator is pointed at
+  // `hatch3r clean` in the caller's category-aware hint instead).
+  for (let attempt = 1; attempt <= attempts && regenerableDriftCountOf(report) > 0; attempt++) {
     info(`--fix attempt ${attempt}/${attempts}: regenerating drifted adapter output...`);
     const result = await runRegenerate(rootDir, manifest, { snapshotCommandName: "verify-fix" });
     if (result.failedTools > 0 && result.syncedTools === 0) {
@@ -238,6 +258,11 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   // `setVerbose`, so the `verbose()` diagnostics inside computeAdapterDrift
   // now emit on `verify --verbose` (previously the flag was read directly and
   // the channel never enabled).
+  // D1-SA1.4-10 (P5): this verbose-in-JSON policy is shared with the sibling
+  // `status` command — verbose stderr diagnostics stay available under
+  // `--verbose` even in JSON mode (stderr never touches the stdout JSON
+  // document; a consumer merging streams with `2>&1` is the only interleave
+  // path). `status` was reconciled to match this, not the reverse.
   const format = beginCommand(options, { banner: "compact" });
   const jsonMode = format === "json";
 
@@ -379,7 +404,13 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   // has broken markers reports both, not just the drift.
   printTamperWarnings(tamperWarnings);
   if (options.fix) {
-    info(`--fix could not clear all drift — run ${chalk.bold("hatch3r sync")} or inspect the failing tool(s).`);
+    // D1-SA1.4-07 / D2-SA2.7-06 (P1): the fix-path guidance is now drift-
+    // category-aware. Reuse the same `recoveryHint` the non-fix path prints so
+    // an orphan-only failure — which regeneration cannot clear and which now
+    // drives 0 regenerate attempts (see `runFixLoop`) — points at
+    // `hatch3r clean`, not `sync`. `recoveryHint` also folds in the
+    // installed-older `update`-first flip via `buildRecoveryHint`.
+    info(`--fix could not clear all drift by regenerating. ${recoveryHint}`);
   } else {
     info(recoveryHint);
     // W5: FAIL-path follow-up. Skipped after --fix (re-suggesting --fix when

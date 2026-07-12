@@ -11,7 +11,7 @@ describe("mapFsErrno (D8-SA8.2-03)", () => {
   const mkErrno = (code: string) => Object.assign(new Error(`${code}: raw`), { code });
   const PATH = "/repo/.cursor/rules/10-hatch3r-security.mdc";
 
-  // Every entry of the 8-errno table: [errno, message fragment].
+  // Every entry of the 9-errno table: [errno, message fragment].
   const CASES: Array<[string, string]> = [
     ["ENOSPC", "Not enough disk space to write"],
     ["EACCES", "Permission denied writing"],
@@ -21,6 +21,7 @@ describe("mapFsErrno (D8-SA8.2-03)", () => {
     ["EMFILE", "Too many open files writing"],
     ["ENFILE", "System-wide open-file limit reached writing"],
     ["EIO", "Low-level I/O error writing"],
+    ["ENOENT", "the parent directory"],
   ];
 
   it.each(CASES)("maps %s to a guided FS_ERROR naming the path", (code, fragment) => {
@@ -36,8 +37,14 @@ describe("mapFsErrno (D8-SA8.2-03)", () => {
     expect(mapped?.message).toContain("/repo/.cursor/rules");
   });
 
+  it("ENOENT names the missing parent directory and the mkdir -p remediation (D1-SA1.5-10)", () => {
+    const mapped = mapFsErrno(mkErrno("ENOENT"), PATH);
+    expect(mapped?.message).toContain("/repo/.cursor/rules");
+    expect(mapped?.message).toContain("mkdir -p");
+  });
+
   it("returns null for an unrecognised errno (caller re-throws the original)", () => {
-    expect(mapFsErrno(mkErrno("ENOENT"), PATH)).toBeNull();
+    expect(mapFsErrno(mkErrno("ENOTDIR"), PATH)).toBeNull();
     expect(mapFsErrno(mkErrno("EBUSY"), PATH)).toBeNull();
   });
 

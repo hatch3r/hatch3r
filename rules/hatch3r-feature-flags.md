@@ -20,7 +20,7 @@ cache_friendly: true
 - Remove flag code when feature is fully rolled out. No dead branches.
 - Default to disabled. Safe fallback when flag evaluation fails.
 - Flags must not gate security or privacy features. Those are always on.
-- Document active flags in a tracking table (e.g., `.cursor/rules` or project specs).
+- Document active flags in a tracking table (e.g., your agent rules directory or project specs).
 
 ## Gradual Rollout Strategies
 

@@ -1,7 +1,7 @@
 ---
 id: shared-clarification-default-block
 type: reference
-description: Canonical §0 Detect Ambiguity block referenced by every hatch3r-* agent. Lifted from per-agent duplication per D6-M3 (Cycle 9 / Wave 3) to enforce the B1 directive in one place.
+description: Canonical §0 Detect Ambiguity block referenced directly or via agents/shared/quality-specialist-frame.md by the hatch3r-* agents. Lifted from per-agent duplication per D6-M3 (Cycle 9 / Wave 3) to enforce the B1 directive in one place.
 tags: [shared, p8, floor:protocol]
 cache_friendly: true
 ---
@@ -10,7 +10,7 @@ cache_friendly: true
 
 > Last updated: 2026-06-09
 
-This is the canonical body of the §0 Detect Ambiguity block referenced by every `agents/hatch3r-*.md`. Each agent's body cites this file via a one-line pointer plus a one-line domain-specific trigger list. The shared protocol is the constant; the trigger list is the variable.
+This is the canonical body of the §0 Detect Ambiguity block referenced directly or via `agents/shared/quality-specialist-frame.md` by the hatch3r-* agents. Each agent references it with a one-line pointer (directly, or through the frame for the CQ specialists) plus a one-line domain-specific trigger list. The shared protocol is the constant; the trigger list is the variable.
 
 ### Protocol (constant across all agents)
 

@@ -71,6 +71,35 @@ export interface FeatureStatus {
   tested: boolean;
 }
 
+/**
+ * Closed-loop re-opening record (D16-SA16.2-07). Attached to a finding that a
+ * later cycle re-opened after auditing and falsifying a prior closure. The
+ * pattern was first written ad-hoc on F16.2-C1 (Cycle-11 D16-6 re-open) and is
+ * codified here so a machine-readable record that a prior closure was audited,
+ * falsified, and re-dispositioned with a named artifact is a typed, validatable
+ * field rather than an example.
+ *
+ * - `cycle`       — the cycle that re-opened the finding.
+ * - `finding_id`  — the re-opening finding's id (the one that falsified the
+ *                   prior closure).
+ * - `prior_close` — narrates the falsified earlier closure (which commit
+ *                   claimed `done`, why its diff did not deliver).
+ * - `true_fix`    — set when the finding was re-closed; names the shipped
+ *                   artifact (F16.2-C1 form).
+ * - `outstanding` — set when the finding remains open; names what still must
+ *                   land (D12-SA12.3-F07 form).
+ *
+ * Both re-disposition narratives live in the corpus, so at least one is
+ * required by `validateEntry`, but the two are not mutually exclusive.
+ */
+export interface Reopened {
+  cycle: number;
+  finding_id: string;
+  prior_close: string;
+  true_fix?: string;
+  outstanding?: string;
+}
+
 export interface Finding {
   finding_id: string;
   domain: string;
@@ -128,6 +157,11 @@ export interface Finding {
   cl1_status?: string | null;
   sdr_status?: string | null;
   cl3_status?: string | null;
+
+  // Closed-loop re-opening record (D16-SA16.2-07): set when a later cycle
+  // re-opens this finding after falsifying a prior closure. Shape + rationale
+  // in the `Reopened` interface; structural check in `validateEntry`.
+  reopened?: Reopened;
 
   // Misc / cross-cutting.
   pillar?: ReadonlyArray<string>;
@@ -249,6 +283,19 @@ const WIRING_VERB_RE =
   /\b(wir(?:e|ed|es|ing)|import(?:ed|s|ing)?|call(?:ed|s|ing)?|register(?:ed|s|ing)?|emit(?:ted|s|ting)?)\b|add[^.]{0,40}?\bgate\b|\bno (?:production|runtime) callers\b/i;
 
 /**
+ * Value-hygiene pattern for `commit_sha` (Invariant 8, D16-SA16.2-07). A
+ * well-formed value is a git object name — a 7-to-64-char hex abbreviation or
+ * full SHA-1/SHA-256 — optionally namespaced by a `<repo>:` prefix for a
+ * cross-repository pointer. The corpus carries `overlay:c0ca1c0` (a real SHA in
+ * the private governance overlay), which this pattern accepts; placeholder
+ * tokens such as `phase7` (D16-9, the motivating fixture) are not git object
+ * names and fail it. Enforced strict-only in `validateEntry`, paired with the
+ * invariant-11 / D16-7 forward contracts, so the pre-Cycle-12 corpus is
+ * grandfathered in tolerant mode.
+ */
+const COMMIT_SHA_RE = /^(?:[a-z][a-z0-9_-]*:)?[0-9a-f]{7,64}$/i;
+
+/**
  * Parse a raw JSON value into either v2 envelope or v1 legacy array.
  * Throws RegistryParseError on shapes neither matches.
  */
@@ -322,9 +369,12 @@ export interface ValidateOptions {
  * Validate a parsed registry against AUDIT-EXECUTE.md §Finding Registry
  * Invariants 1-7 (excluding 6 — Registry Anchor — which is checked by a
  * separate anchor-log validator) plus the terminal-evidence contract
- * (D16-6: strict-mode `done`-needs-evidence) and the effectiveness leg
+ * (D16-6: strict-mode `done`-needs-evidence), the effectiveness leg
  * (D16-7: strict-mode wiring-verb `done` needs a `reviewer_notes` line citing
- * the new caller/importer). Returns drift reports; empty array means no drift.
+ * the new caller/importer), the invariant-8 commit_sha value-hygiene check
+ * (D16-SA16.2-07: strict-mode `commit_sha` must be a git object name, not a
+ * placeholder token), and the always-on `reopened` structural check
+ * (D16-SA16.2-07). Returns drift reports; empty array means no drift.
  */
 export function validateRegistry(
   parsed: ParsedRegistry,
@@ -525,6 +575,79 @@ function validateEntry(
         reason: "wiring-verb done without effectiveness note",
         detail: `Finding ${id}: a 'done' finding whose recommended fix is a wiring verb (wire/import/call/register/emit/add-gate/no-callers) must carry a reviewer_notes line citing the new caller/importer (effectiveness leg — AUDIT-EXECUTE.md / D16-7)`,
       });
+    }
+  }
+
+  // Invariant 8 (value hygiene, D16-SA16.2-07): a `commit_sha`, when present,
+  // must be a git object name — a hex abbreviation/full SHA, optionally a
+  // `<repo>:`-namespaced cross-repo pointer — not a phase/placeholder token.
+  // Applies to any entry carrying a commit_sha (format hygiene is independent
+  // of disposition). Strict-only forward contract, paired with invariants 11
+  // and D16-7: the pre-Cycle-12 corpus carries placeholder tokens (D16-9
+  // `commit_sha: "phase7"`) grandfathered in tolerant mode; Cycle-12+ writes
+  // must satisfy it.
+  if (
+    opts.strict &&
+    typeof f.commit_sha === "string" &&
+    f.commit_sha.length > 0 &&
+    !COMMIT_SHA_RE.test(f.commit_sha)
+  ) {
+    reports.push({
+      finding_id: id,
+      reason: "commit_sha not a git object name",
+      detail: `Finding ${id}: commit_sha ${JSON.stringify(f.commit_sha)} is not a hex SHA or <repo>:<sha> pointer (Invariant 8 value hygiene — AUDIT-EXECUTE.md / D16-9 fixture)`,
+    });
+  }
+
+  // Closed-loop re-opening record (D16-SA16.2-07): when the `reopened` object is
+  // present it must carry its irreducible core — the re-opening `cycle`
+  // (number), the re-opened `finding_id` (string), and the `prior_close`
+  // narrative of the falsified earlier closure — plus at least one
+  // re-disposition narrative: `true_fix` (re-closed) or `outstanding` (still
+  // open). Codifies the F16.2-C1 pattern so it is validatable, not example-only.
+  // Always-on: both live corpus instances satisfy it, so no legacy grandfather
+  // is needed.
+  if (f.reopened !== undefined) {
+    const r = f.reopened;
+    if (r === null || typeof r !== "object" || Array.isArray(r)) {
+      reports.push({
+        finding_id: id,
+        reason: "reopened not an object",
+        detail: `Finding ${id}: reopened must be an object; got ${JSON.stringify(r)}`,
+      });
+    } else {
+      if (typeof r.cycle !== "number") {
+        reports.push({
+          finding_id: id,
+          reason: "reopened missing cycle",
+          detail: `Finding ${id}: reopened.cycle must be a number (the re-opening cycle)`,
+        });
+      }
+      if (typeof r.finding_id !== "string" || r.finding_id.length === 0) {
+        reports.push({
+          finding_id: id,
+          reason: "reopened missing finding_id",
+          detail: `Finding ${id}: reopened.finding_id must be a non-empty string`,
+        });
+      }
+      if (typeof r.prior_close !== "string" || r.prior_close.length === 0) {
+        reports.push({
+          finding_id: id,
+          reason: "reopened missing prior_close",
+          detail: `Finding ${id}: reopened.prior_close must narrate the falsified earlier closure`,
+        });
+      }
+      const hasTrueFix =
+        typeof r.true_fix === "string" && r.true_fix.length > 0;
+      const hasOutstanding =
+        typeof r.outstanding === "string" && r.outstanding.length > 0;
+      if (!hasTrueFix && !hasOutstanding) {
+        reports.push({
+          finding_id: id,
+          reason: "reopened missing re-disposition narrative",
+          detail: `Finding ${id}: reopened requires a non-empty true_fix (re-closed) or outstanding (still open)`,
+        });
+      }
     }
   }
 

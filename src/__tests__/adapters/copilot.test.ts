@@ -1304,7 +1304,7 @@ You are a test agent.`,
   // D3-M1 (Cycle 10 Wave-3 Medium rollover): adapters had no documented
   // error-path coverage. Pipeline timeouts surface as a pre-aborted
   // AbortSignal; `BaseAdapter.throwIfSignalAborted` is the documented
-  // contract (see src/adapters/base.ts:321). Pin the contract here so any
+  // contract (see src/adapters/base.ts::throwIfSignalAborted). Pin the contract here so any
   // future change that silently swallows the signal cannot regress.
   describe("error paths", () => {
     it("rejects with the abort reason when the signal is pre-aborted", async () => {

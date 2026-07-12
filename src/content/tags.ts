@@ -32,8 +32,7 @@ export const TAG_IMPLEMENTATION = "implementation"; // code writing, fixing, ref
 export const TAG_REVIEW         = "review";         // code review, QA, audits
 export const TAG_DEVOPS         = "devops";         // CI/CD, releases, deploy, observability
 export const TAG_MAINTENANCE    = "maintenance";    // dep audits, health checks, learnings, handoffs
-export const TAG_ORCHESTRATION  = "orchestration";  // the sub-agent pipeline itself (formerly "core")
-export const TAG_ORCHESTRATOR   = "orchestrator";   // orchestrator command marker (alias of orchestration for command frontmatter)
+export const TAG_ORCHESTRATION  = "orchestration";  // the sub-agent pipeline itself + orchestrator-command frontmatter marker (formerly "core"; the `orchestrator` alias was retired as a redundant second encoding — D22-SA22.3-05, one concept one tag)
 export const TAG_BOARD          = "board";          // project board management
 export const TAG_PERFORMANCE    = "performance";    // perf budgets, profiling
 export const TAG_AI             = "ai";             // AI feature engineering (evals, prompt mgmt)
@@ -197,7 +196,6 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_DEVOPS]:         "capability",
   [TAG_MAINTENANCE]:    "capability",
   [TAG_ORCHESTRATION]:  "capability",
-  [TAG_ORCHESTRATOR]:   "capability",
   [TAG_BOARD]:          "capability",
   [TAG_PERFORMANCE]:    "capability",
   [TAG_AI]:             "capability",
@@ -525,7 +523,6 @@ export const PILLAR_MAP: Record<string, PillarWeight[]> = {
   [TAG_MAINTENANCE]:    [{ pillar: "CQ8", role: "primary" }, { pillar: "P4", role: "supporting" }],
   // Checklist 22.3-L1 authoritative example — kept verbatim.
   [TAG_ORCHESTRATION]:  [{ pillar: "P5", role: "primary" }, { pillar: "P7", role: "supporting" }, { pillar: "P8", role: "supporting" }],
-  [TAG_ORCHESTRATOR]:   [{ pillar: "P5", role: "primary" }, { pillar: "P7", role: "supporting" }, { pillar: "P8", role: "supporting" }],
   [TAG_BOARD]:          [{ pillar: "P1", role: "primary" }],
   [TAG_PERFORMANCE]:    [{ pillar: "CQ7", role: "primary" }],
   [TAG_AI]:             [{ pillar: "CQ9", role: "primary" }, { pillar: "CQ5", role: "supporting" }],

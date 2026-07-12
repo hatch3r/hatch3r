@@ -440,10 +440,11 @@ async function acquireWriteLockImpl(
 }
 
 // D8-SA8.2-F8.2.7 / D8-SA8.2-03: the errno → actionable-message table
-// (ENOSPC/EACCES/EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO) lives in
-// `./fsErrors.ts` and is applied via {@link mapFsErrno} at every write-side
-// call site in this module: the tmp+rename writer's catch, the
-// `safeWriteFile` entry `mkdir`, and both `.bak` backup `copyFile` calls.
+// (ENOSPC/EACCES/EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO, plus ENOENT per
+// D1-SA1.5-10) lives in `./fsErrors.ts` and is applied via {@link mapFsErrno}
+// at every write-side call site in this module: the tmp+rename writer's
+// catch, the `safeWriteFile` entry `mkdir`, and both `.bak` backup
+// `copyFile` calls.
 
 /**
  * Errnos tolerated when fsync-ing the parent directory of a just-renamed file.
@@ -542,10 +543,16 @@ export async function syncParentDirectory(filePath: string): Promise<void> {
  * ({@link LOCK_RETRY_TOTAL_BACKOFF_MS}), throws {@link HatchError} with code
  * `LOCK_TIMEOUT`.
  *
+ * **Parent directories (D1-SA1.5-10, Cycle 12):** a missing parent directory
+ * is created automatically (`mkdir -p` semantics) in EVERY lock mode — on
+ * ENOENT the writer creates `dirname(filePath)` and retries the tmp write
+ * once. Before this, auto-creation was a side effect of lock acquisition, so
+ * it applied only when locking was active.
+ *
  * Write-side filesystem failures (ENOSPC, EACCES, EDQUOT, EROFS, EFBIG, EMFILE,
- * ENFILE, EIO) are mapped to actionable `FS_ERROR` HatchErrors via
- * {@link mapFsErrno} (`fsErrors.ts`); unrecognised errnos re-throw unchanged
- * (D8-SA8.2-F8.2.7, P1; extracted per D8-SA8.2-03).
+ * ENFILE, EIO, and residual ENOENT) are mapped to actionable `FS_ERROR`
+ * HatchErrors via {@link mapFsErrno} (`fsErrors.ts`); unrecognised errnos
+ * re-throw unchanged (D8-SA8.2-F8.2.7, P1; extracted per D8-SA8.2-03).
  *
  * **Binary content (D8-3, Cycle 11 Wave 2, CQ4):** `content` accepts a `Buffer`
  * as well as a `string`. A string is encoded UTF-8 (unchanged prior behavior);
@@ -611,14 +618,31 @@ async function atomicWriteFileUnlocked(
   content: string | Buffer,
 ): Promise<void> {
   const tmpPath = filePath + ".tmp." + randomBytes(4).toString("hex");
+  // A Buffer is written verbatim (the "utf-8" encoding arg is ignored for
+  // Buffer input by node:fs, but branching keeps the lossless intent
+  // explicit); a string is encoded UTF-8 as before.
+  const writeTmp = (): Promise<void> =>
+    Buffer.isBuffer(content)
+      ? writeFile(tmpPath, content)
+      : writeFile(tmpPath, content, "utf-8");
   try {
-    // A Buffer is written verbatim (the "utf-8" encoding arg is ignored for
-    // Buffer input by node:fs, but branching keeps the lossless intent
-    // explicit); a string is encoded UTF-8 as before.
-    if (Buffer.isBuffer(content)) {
-      await writeFile(tmpPath, content);
-    } else {
-      await writeFile(tmpPath, content, "utf-8");
+    try {
+      await writeTmp();
+    } catch (err) {
+      // D1-SA1.5-10 (Cycle 12, P2): create a missing parent directory in the
+      // WRITE path itself, then retry the tmp write once. Before this, parent
+      // creation was a side effect of lock ACQUISITION only —
+      // acquireWriteLockImpl short-circuits before its mkdir when locking is
+      // disabled — so `atomicWriteFile` auto-created missing parents under
+      // HATCH3R_LOCK=1 but surfaced a raw unmapped ENOENT without it: the
+      // write contract varied with an unrelated env var. ENOENT-triggered
+      // (not an unconditional pre-mkdir) so the existing-parent hot path
+      // keeps its syscall count. A second ENOENT (directory removed again
+      // mid-write) or an mkdir failure (EACCES, EROFS, …) propagates to the
+      // outer catch, which maps it to a guided FS_ERROR via {@link mapFsErrno}.
+      if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+      await mkdir(dirname(filePath), { recursive: true });
+      await writeTmp();
     }
     // #239 (D8-8.6): Open with "r+" instead of "r" so fdatasync operates on a
     // writable file descriptor. Read-only descriptors cause EPERM/EBADF on some
@@ -658,9 +682,10 @@ async function atomicWriteFileUnlocked(
     await syncParentDirectory(filePath);
   } catch (err) {
     // #239 (D8-8.6) + D8-SA8.2-F8.2.7 (Cycle 10, P1): map known write-side
-    // errnos (ENOSPC/EACCES and the EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO family)
-    // to actionable FS_ERROR messages via {@link mapFsErrno} (fsErrors.ts,
-    // extracted per D8-SA8.2-03). Unrecognised errnos re-throw unchanged.
+    // errnos (ENOSPC/EACCES, the EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO family,
+    // and residual ENOENT per D1-SA1.5-10) to actionable FS_ERROR messages via
+    // {@link mapFsErrno} (fsErrors.ts, extracted per D8-SA8.2-03).
+    // Unrecognised errnos re-throw unchanged.
     throw mapFsErrno(err, filePath) ?? err;
   } finally {
     // Silent Failure Contract (P5): emit a diagnostic when tmp-file cleanup

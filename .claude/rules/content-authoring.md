@@ -37,6 +37,8 @@ When creating or modifying canonical content artifacts in `agents/`, `skills/`, 
     - **No twin** (framework-dev-only: `capability-lifecycle`, `content-authoring`, `cli-ux-standards`, `commit-conventions`, `pillar-compliance`, `governance-lean-thresholds`, `anti-slop-enforcement`, `adapter-development`, `test-requirements`, `audit-cycle-awareness`) → drop the citation; the referenced content governs framework development, not the end-user runtime, so it has no place in a shipped artifact. State the requirement inline (or cite the runtime rule that already carries it, e.g. iteration-summary structure lives in `rules/hatch3r-iteration-summary.md`) instead of pointing at the framework-dev path.
     Framework-dev files (`.claude/**`, `governance/**`, `CLAUDE.md`, `README.md`, `docs/**`) are NOT shipped, so `.claude/rules/*` AND `governance/*` citations among them (framework-dev file → framework-dev file) are correct and in-scope — this policy constrains only cross-references FROM the five canonical content dirs above INTO the unshipped `.claude/rules/*` / `governance/*` trees.
 
+14. **Runtime efficiency (P7):** `orchestrator: true` commands and `agents/*.md` must open with a static-first prompt frame (stable framing first, variable inputs last), default to parallel tool calls when >=2 independent tool calls exist, and (orchestrators) declare `triage_tiers` in frontmatter with a Triage/Tier heading in the body; enforced by `scripts/validate-efficiency-invariants.ts` (`npm run validate:efficiency`).
+
 ## Rule Scope Transform (`.md` -> `.mdc`)
 
 Canonical `.md` files declare rule scope using one of the frontmatter shapes below. The corresponding `.mdc` frontmatter is deterministic.

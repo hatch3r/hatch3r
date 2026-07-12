@@ -145,6 +145,40 @@ describe("status command", () => {
     expect(output).toContain("3 runs");
   });
 
+  // D10-SA10.8-04 (D10, P1): when the explicit "First-run success" line renders,
+  // the per-axis loop must NOT also print a redundant `performance` row for the
+  // same datum. Every OTHER fed axis (here: efficiency) still shows, proving the
+  // loop is not disabled — only the duplicate performance row is dropped.
+  it("does not duplicate the performance row when the first-run line already shows it (D10-SA10.8-04)", async () => {
+    await createTestProject(tempDir);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryDir = join(tempDir, HATCH3R_DIR, "telemetry");
+    await mkdir(telemetryDir, { recursive: true });
+    const ts = `${today}T12:00:00.000Z`;
+    const lines = [
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts, source: "hatch3r-init" },
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts, source: "hatch3r-init" },
+      { metricId: "timeToFirstValueMs", axis: "efficiency", value: 1200, timestamp: ts, source: "hatch3r-init" },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n");
+    await writeFile(join(telemetryDir, `space-${today}.jsonl`), lines + "\n");
+
+    consoleSpy.mockClear();
+    const { statusCommand } = await import("../../cli/commands/status.js");
+    await statusCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Developer productivity (SPACE)");
+    // The explicit first-run line renders (it summarizes the performance axis).
+    expect(output).toContain("First-run success");
+    // The per-axis loop must NOT repeat performance as its own `N metric(s)` row.
+    expect(output).not.toMatch(/performance\s+\d+ metric\(s\)/);
+    // The other fed axis (efficiency) still appears via the loop.
+    expect(output).toMatch(/efficiency\s+\d+ metric\(s\)/);
+  });
+
   it("omits the SPACE box when no telemetry exists", async () => {
     await createTestProject(tempDir);
 
@@ -768,6 +802,47 @@ describe("status command", () => {
 
       const drifted = report.entries.find((e) => e.status === "modified");
       expect(drifted).toBeDefined();
+      expect(drifted!.driftKind).toBe("unknown");
+      expect(report.driftKindCounts.unknown).toBeGreaterThanOrEqual(1);
+    });
+
+    // D12-SA12.2-06 (Cycle 12 Wave 4, Info): `loadProvenanceBaseline` must assert
+    // the `schemaVersion` it understands before consuming `outputs`. A future
+    // manifest (v2+) could reshape `outputs[]`; parsing it as v1 would build a
+    // wrong baseline and SILENTLY mis-attribute drift. The reader skips an
+    // unrecognized schema and falls back to `unknown`, exactly like a missing
+    // baseline — symmetric with the writer's `prev.schemaVersion === 1` gate.
+    it("degrades drift to `unknown` when the provenance baseline schemaVersion is unrecognized (D12-SA12.2-06)", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Bump the recorded schema to a version this reader does not understand.
+      const provenancePath = join(tempDir, HATCH3R_DIR, "provenance.json");
+      const { readFile: read, writeFile: write } = await import("node:fs/promises");
+      const manifestDoc = JSON.parse(await read(provenancePath, "utf-8")) as {
+        schemaVersion: number;
+      };
+      manifestDoc.schemaVersion = 2;
+      await write(provenancePath, JSON.stringify(manifestDoc, null, 2) + "\n");
+
+      // Drift one output so there is a `modified` entry to attribute.
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      const entries = await readdir(cursorRulesDir);
+      const ruleFile = entries.find((f) => f.endsWith(".mdc"));
+      expect(ruleFile).toBeDefined();
+      await writeFile(join(cursorRulesDir, ruleFile!), "drift under unrecognized schema");
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+
+      const drifted = report.entries.find((e) => e.status === "modified");
+      expect(drifted).toBeDefined();
+      // Baseline skipped (schema 2 not understood) → drift falls back to unknown,
+      // not silently mis-parsed against a v1-shaped read of a v2 manifest.
       expect(drifted!.driftKind).toBe("unknown");
       expect(report.driftKindCounts.unknown).toBeGreaterThanOrEqual(1);
     });

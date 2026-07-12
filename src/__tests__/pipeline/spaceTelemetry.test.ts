@@ -9,9 +9,12 @@ import {
   DEFAULT_SPACE_LOAD_WINDOW_DAYS,
   SPACE_AXES,
   SPACE_TELEMETRY_DIR_RELATIVE,
+  SPACE_TELEMETRY_RETENTION_DAYS,
   getSpaceMetricsSnapshot,
   getSpaceSummary,
+  isTelemetryDisabled,
   loadSpaceMetricsFromDisk,
+  pruneStaleTelemetry,
   readSpaceMetricsForDay,
   recordFirstRunSuccess,
   recordSpaceMetric,
@@ -21,22 +24,36 @@ import {
   type SpaceMetric,
   type SpaceMetricRecord,
 } from "../../pipeline/spaceTelemetry.js";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, writeFileSync } from "node:fs";
 
 // ── Fixture helpers ─────────────────────────────────────────────
 
 let tmpRoot: string;
+let savedOptOut: { noTelemetry?: string; doNotTrack?: string };
 
 beforeEach(() => {
   // Each test gets its own temp project root + a clean ring buffer so the
   // module-level state never leaks across describe blocks.
   tmpRoot = mkdtempSync(join(tmpdir(), "hatch3r-space-telemetry-"));
   resetSpaceMetricsBuffer();
+  // Isolate every test from an ambient DO_NOT_TRACK / HATCH3R_NO_TELEMETRY in
+  // the developer/CI shell so the recording tests are deterministic; the
+  // opt-out tests set them explicitly (D10-SA10.8-03).
+  savedOptOut = {
+    noTelemetry: process.env.HATCH3R_NO_TELEMETRY,
+    doNotTrack: process.env.DO_NOT_TRACK,
+  };
+  delete process.env.HATCH3R_NO_TELEMETRY;
+  delete process.env.DO_NOT_TRACK;
 });
 
 afterEach(() => {
   rmSync(tmpRoot, { recursive: true, force: true });
   resetSpaceMetricsBuffer();
+  if (savedOptOut.noTelemetry === undefined) delete process.env.HATCH3R_NO_TELEMETRY;
+  else process.env.HATCH3R_NO_TELEMETRY = savedOptOut.noTelemetry;
+  if (savedOptOut.doNotTrack === undefined) delete process.env.DO_NOT_TRACK;
+  else process.env.DO_NOT_TRACK = savedOptOut.doNotTrack;
 });
 
 function makeMetric(overrides: Partial<SpaceMetric> = {}): SpaceMetric {
@@ -470,5 +487,140 @@ describe("loadSpaceMetricsFromDisk", () => {
     const perf = summarizeSpaceMetricRecords(records).find((r) => r.axis === "performance");
     expect(perf?.count).toBe(3);
     expect(perf?.mean).toBeCloseTo(2 / 3, 5);
+  });
+});
+
+// ── isTelemetryDisabled (D10-SA10.8-03) ─────────────────────────
+
+describe("isTelemetryDisabled", () => {
+  it("returns false when no opt-out env var is set", () => {
+    expect(isTelemetryDisabled({})).toBe(false);
+  });
+
+  it("honours the hatch3r-specific HATCH3R_NO_TELEMETRY=1 switch", () => {
+    expect(isTelemetryDisabled({ HATCH3R_NO_TELEMETRY: "1" })).toBe(true);
+  });
+
+  it("ignores HATCH3R_NO_TELEMETRY values other than '1'", () => {
+    expect(isTelemetryDisabled({ HATCH3R_NO_TELEMETRY: "0" })).toBe(false);
+    expect(isTelemetryDisabled({ HATCH3R_NO_TELEMETRY: "" })).toBe(false);
+  });
+
+  it("honours the cross-tool DO_NOT_TRACK standard for truthy values", () => {
+    expect(isTelemetryDisabled({ DO_NOT_TRACK: "1" })).toBe(true);
+    expect(isTelemetryDisabled({ DO_NOT_TRACK: "true" })).toBe(true);
+    expect(isTelemetryDisabled({ DO_NOT_TRACK: "TRUE" })).toBe(true);
+    expect(isTelemetryDisabled({ DO_NOT_TRACK: "yes" })).toBe(true);
+    expect(isTelemetryDisabled({ DO_NOT_TRACK: " 1 " })).toBe(true);
+  });
+
+  it("treats DO_NOT_TRACK unset/empty/0/false as opted-in", () => {
+    expect(isTelemetryDisabled({ DO_NOT_TRACK: "0" })).toBe(false);
+    expect(isTelemetryDisabled({ DO_NOT_TRACK: "false" })).toBe(false);
+    expect(isTelemetryDisabled({ DO_NOT_TRACK: "" })).toBe(false);
+    expect(isTelemetryDisabled({})).toBe(false);
+  });
+});
+
+// ── recordSpaceMetric opt-out (D10-SA10.8-03) ───────────────────
+
+describe("recordSpaceMetric opt-out", () => {
+  it("records nothing to the ring buffer or disk when HATCH3R_NO_TELEMETRY=1", () => {
+    process.env.HATCH3R_NO_TELEMETRY = "1";
+    recordSpaceMetric(makeMetric({ metricId: "opt.out" }), tmpRoot);
+    expect(getSpaceMetricsSnapshot()).toEqual([]);
+    // The early return fires before mkdirSync, so no telemetry dir is created.
+    expect(existsSync(join(tmpRoot, SPACE_TELEMETRY_DIR_RELATIVE))).toBe(false);
+  });
+
+  it("records nothing when DO_NOT_TRACK is set", () => {
+    process.env.DO_NOT_TRACK = "1";
+    recordFirstRunSuccess(true, { projectRoot: tmpRoot });
+    expect(getSpaceMetricsSnapshot()).toEqual([]);
+    expect(readSpaceMetricsForDay(undefined, tmpRoot)).toEqual([]);
+  });
+
+  it("resumes recording once the opt-out is cleared", () => {
+    process.env.HATCH3R_NO_TELEMETRY = "1";
+    recordSpaceMetric(makeMetric({ metricId: "blocked" }), tmpRoot);
+    expect(getSpaceMetricsSnapshot()).toEqual([]);
+    delete process.env.HATCH3R_NO_TELEMETRY;
+    recordSpaceMetric(makeMetric({ metricId: "allowed" }), tmpRoot);
+    expect(getSpaceMetricsSnapshot().map((r) => r.metricId)).toEqual(["allowed"]);
+  });
+});
+
+// ── pruneStaleTelemetry (D10-SA10.8-03) ─────────────────────────
+
+describe("pruneStaleTelemetry", () => {
+  function seedDay(root: string, date: string): void {
+    const dir = join(root, SPACE_TELEMETRY_DIR_RELATIVE);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(
+      join(dir, `space-${date}.jsonl`),
+      JSON.stringify({ metricId: "seed", axis: "activity", value: 1, timestamp: `${date}T00:00:00.000Z` }) + "\n",
+    );
+  }
+  function dayKey(offsetDays: number): string {
+    return new Date(Date.now() - offsetDays * 86_400_000).toISOString().slice(0, 10);
+  }
+
+  it("returns 0 and does not throw when the telemetry dir is absent", () => {
+    expect(pruneStaleTelemetry(tmpRoot)).toBe(0);
+  });
+
+  it("removes day-files older than the retention window and keeps recent ones", () => {
+    const dir = join(tmpRoot, SPACE_TELEMETRY_DIR_RELATIVE);
+    seedDay(tmpRoot, dayKey(0)); // today — keep
+    seedDay(tmpRoot, dayKey(3)); // within window — keep
+    seedDay(tmpRoot, dayKey(SPACE_TELEMETRY_RETENTION_DAYS + 10)); // past window — prune
+    seedDay(tmpRoot, "2020-01-01"); // very old — prune
+    const removed = pruneStaleTelemetry(tmpRoot);
+    expect(removed).toBe(2);
+    expect(readdirSync(dir).sort()).toEqual(
+      [`space-${dayKey(0)}.jsonl`, `space-${dayKey(3)}.jsonl`].sort(),
+    );
+  });
+
+  it("ignores files that do not match the space-<date>.jsonl pattern", () => {
+    const dir = join(tmpRoot, SPACE_TELEMETRY_DIR_RELATIVE);
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(join(dir, "README.md"), "not telemetry\n");
+    writeFileSync(join(dir, "space-not-a-date.jsonl"), "{}\n");
+    seedDay(tmpRoot, "2020-01-01"); // stale telemetry — prune
+    const removed = pruneStaleTelemetry(tmpRoot);
+    expect(removed).toBe(1);
+    expect(readdirSync(dir).sort()).toEqual(["README.md", "space-not-a-date.jsonl"].sort());
+  });
+
+  it("is invoked by recordSpaceMetric so a write prunes stale day-files", () => {
+    seedDay(tmpRoot, "2020-01-01"); // pre-existing stale file
+    recordSpaceMetric(makeMetric({ metricId: "fresh" }), tmpRoot);
+    const remaining = readdirSync(join(tmpRoot, SPACE_TELEMETRY_DIR_RELATIVE));
+    expect(remaining).not.toContain("space-2020-01-01.jsonl");
+    expect(remaining.some((f) => /^space-\d{4}-\d{2}-\d{2}\.jsonl$/.test(f))).toBe(true);
+  });
+
+  it("anchors the retention window on the provided anchorMs, not wall-clock now", () => {
+    const dir = join(tmpRoot, SPACE_TELEMETRY_DIR_RELATIVE);
+    seedDay(tmpRoot, "2026-06-01");
+    seedDay(tmpRoot, "2026-06-02");
+    seedDay(tmpRoot, "2026-04-01"); // >30 days before the 2026-06-02 anchor
+    const anchor = Date.parse("2026-06-02T12:00:00.000Z");
+    const removed = pruneStaleTelemetry(tmpRoot, SPACE_TELEMETRY_RETENTION_DAYS, anchor);
+    expect(removed).toBe(1); // only 2026-04-01 falls outside the window
+    expect(readdirSync(dir).sort()).toEqual(
+      ["space-2026-06-01.jsonl", "space-2026-06-02.jsonl"].sort(),
+    );
+  });
+
+  it("a back-dated recordSpaceMetric write does not delete the file it just created", () => {
+    // Reader/fixture code records with explicit past timestamps; the write's
+    // own-timestamp anchor must keep that file (regression for the prune-on-write
+    // wall-clock-anchor bug).
+    recordSpaceMetric(makeMetric({ metricId: "backdated", timestamp: "2026-05-28T10:00:00.000Z" }), tmpRoot);
+    expect(
+      existsSync(join(tmpRoot, SPACE_TELEMETRY_DIR_RELATIVE, "space-2026-05-28.jsonl")),
+    ).toBe(true);
   });
 });

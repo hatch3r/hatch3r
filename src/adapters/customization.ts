@@ -24,6 +24,16 @@ export const TYPE_TO_DIR: Record<string, CustomizableType> = {
 // is consumed only on rule-type artifacts (cursor/copilot/claude rule paths);
 // D2-SA2.3-08 added agent + command to the no-scope set after confirming no
 // adapter reads overrides.scope off a non-rule artifact.
+//
+// D2-SA2.3-12: `prompt` and `hook` are FORWARD-DECLARATIONS, not a live guard —
+// TYPE_TO_DIR above admits only agent/skill/command/rule, so
+// applyCustomizationImpl returns at the `!dir` guard before this set is ever
+// consulted for a prompt/hook file. Only {skill, agent, command} are reachable
+// members today; {prompt, hook} are retained (rather than trimmed) so the day
+// prompt/hook become customizable — TYPE_TO_DIR gains a key AND the four-layer
+// precedence table changes — the no-scope classification is already correct.
+// Until then their membership asserts nothing at runtime; do not read it as a
+// live scope-drop path.
 export const TYPES_WITHOUT_SCOPE: ReadonlySet<string> = new Set([
   "skill",
   "prompt",
@@ -32,7 +42,9 @@ export const TYPES_WITHOUT_SCOPE: ReadonlySet<string> = new Set([
   "command",
 ]);
 // `model` is consumed only on agent/skill/command (release/2.2.0); rule/prompt/
-// hook ignore it.
+// hook ignore it. D2-SA2.3-12: `rule` is the only reachable member; `prompt`
+// and `hook` are the same unreachable forward-declarations as in
+// TYPES_WITHOUT_SCOPE (TYPE_TO_DIR early-return), kept for the same reason.
 export const TYPES_WITHOUT_MODEL: ReadonlySet<string> = new Set([
   "rule",
   "prompt",
@@ -601,11 +613,16 @@ const MAX_NORMALIZE_ITERATIONS = 5;
  * O(n) over the normalized string; the cap bounds total work at 5.n
  * even on adversarial input that never converges.
  *
- * When iterations > 1, emit a warning so operators have traceability
- * for content that required multiple normalization passes -- this
- * surfaces layered-obfuscation attempts during sync/init.
+ * When iterations > 1, surface a traceability signal for content that
+ * required multiple normalization passes (a layered-obfuscation indicator
+ * during sync/init). D2-SA2.3-12: route that signal through the caller's
+ * `diagnostics` sink when one is supplied — the customization apply path passes
+ * applyCustomizationImpl's `warnings` array, so the convergence notice reaches
+ * the returned CustomizationResult.warnings instead of bypassing the structured
+ * channel via console. Callers that pass no sink (the external deny-scan call
+ * sites) fall back to console.warn so the signal is never silently dropped.
  */
-function normalizeInputToFixedPoint(content: string): string {
+function normalizeInputToFixedPoint(content: string, diagnostics?: string[]): string {
   let current = normalizeInput(content);
   let iteration = 1;
   while (iteration < MAX_NORMALIZE_ITERATIONS) {
@@ -615,9 +632,12 @@ function normalizeInputToFixedPoint(content: string): string {
     iteration++;
   }
   if (iteration > 1) {
-    console.warn(
-      `[hatch3r] Deny-pattern normalization required ${iteration} iterations to converge (cap ${MAX_NORMALIZE_ITERATIONS}). Input may contain layered obfuscation.`,
-    );
+    const message = `Deny-pattern normalization required ${iteration} iterations to converge (cap ${MAX_NORMALIZE_ITERATIONS}). Input may contain layered obfuscation.`;
+    if (diagnostics) {
+      diagnostics.push(message);
+    } else {
+      console.warn(`[hatch3r] ${message}`);
+    }
   }
   return current;
 }
@@ -710,7 +730,20 @@ function scanZwjKeywordProximity(content: string): string[] {
   return violations;
 }
 
-export function scanForDeniedPatterns(content: string, tier: DenyScanTier = "strict"): string[] {
+/**
+ * Scan `content` for denied patterns, returning one violation string per hit
+ * (empty when clean). `tier` selects the strict (default) or customize
+ * deny-vocabulary. D2-SA2.3-12: `diagnostics` is an optional NON-violation sink
+ * — when supplied it collects the multi-pass normalization-convergence notice
+ * (a traceability signal, not a denial) so the customization apply path can
+ * route it into CustomizationResult.warnings instead of console. Omitting it
+ * preserves the prior console.warn fallback for the external call sites.
+ */
+export function scanForDeniedPatterns(
+  content: string,
+  tier: DenyScanTier = "strict",
+  diagnostics?: string[],
+): string[] {
   const violations: string[] = [];
   // D2-SA2.3-01 pre-scan (b): ZWJ/ZWNJ near an override keyword (proximity +
   // emoji-joiner exemption). See scanZwjKeywordProximity for the semantics.
@@ -728,7 +761,7 @@ export function scanForDeniedPatterns(content: string, tier: DenyScanTier = "str
       );
     }
   }
-  const normalized = normalizeInputToFixedPoint(content);
+  const normalized = normalizeInputToFixedPoint(content, diagnostics);
   // D2-SA2.3-05: the "customize" tier swaps in the relaxed never-stem so benign
   // QA prose ("never test against production") is not dropped; every other
   // pattern, and every other tier, is unchanged.
@@ -952,7 +985,10 @@ async function applyCustomizationImpl(
       const violations = [
         ...structural,
         ...guard.violations.map((v) => `promptGuard: ${v}`),
-        ...scanForDeniedPatterns(value),
+        // D2-SA2.3-12: pass `warnings` as the convergence sink so a multi-pass
+        // scalar routes its normalization notice through the structured channel
+        // (deny hits still return via the array spread into `violations`).
+        ...scanForDeniedPatterns(value, "strict", warnings),
       ];
       if (violations.length > 0) {
         for (const v of violations) {
@@ -1022,7 +1058,10 @@ async function applyCustomizationImpl(
     // security-relevant objects (the YAML description/scope/model scalars above
     // and every external call site stay strict). Injection/escalation/smuggling
     // defenses are identical to strict.
-    const violations = scanForDeniedPatterns(sanitizedMd, "customize");
+    // D2-SA2.3-12: `warnings` is the convergence sink — a multi-pass customize.md
+    // body now surfaces its normalization notice through the returned warnings[]
+    // rather than console.warn (the console bypass the finding flagged).
+    const violations = scanForDeniedPatterns(sanitizedMd, "customize", warnings);
     if (violations.length > 0) {
       // C7.5-W2B2-H2 (D2-SA2.3-2): Fail-closed on any deny-pattern hit.
       //

@@ -58,11 +58,14 @@ export default defineConfig({
   banner: {
     js: "#!/usr/bin/env node",
   },
-  // Externalize inquirer's internals. They are transitive deps (not in our
-  // `dependencies`), so tsup would otherwise bundle them — and `@inquirer/core`
-  // pulls in CJS modules like `mute-stream` that use dynamic `require("stream")`,
-  // which a single ESM bundle cannot satisfy. Leaving them as runtime imports
-  // makes Node resolve them from node_modules where their CJS works natively.
+  // Externalize inquirer's internals. `@inquirer/core` pulls in CJS modules like
+  // `mute-stream` that use dynamic `require("stream")`, which a single ESM bundle
+  // cannot satisfy; leaving them as runtime imports makes Node resolve them from
+  // node_modules where their CJS works natively. `@inquirer/core` and
+  // `@inquirer/figures` are declared as exact-pinned direct dependencies in
+  // package.json so these externalized imports resolve deterministically in
+  // published installs — do not remove either the `external` entry or its
+  // package.json dependency (Cycle 12 L D4-SA4.1-07, D4).
   external: ["@inquirer/core", "@inquirer/figures"],
   // Cycle 10 L D4-SA4.1-F4.1.F2 (D4): prune stale empty output subdirectories.
   // `dist/cli/commands/` and `dist/cli/shared/` are relics of a prior build

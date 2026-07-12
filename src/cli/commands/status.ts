@@ -30,7 +30,6 @@ import {
   info,
   isQuiet,
   label,
-  setVerbose,
   verbose,
 } from "../shared/ui.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
@@ -143,15 +142,36 @@ interface ProvenanceBaselineEntry {
 
 /**
  * F2.7-F5 (D2): load the emit-time content-hash baseline keyed by output path.
- * Returns an empty map when the manifest is absent or unreadable so drift
- * attribution degrades to `unknown` rather than throwing — status must still
- * render its drift summary without a baseline.
+ * Returns an empty map when the manifest is absent, unreadable, OR written by a
+ * `schemaVersion` this hatch3r does not understand (D12-SA12.2-06) so drift
+ * attribution degrades to `unknown` rather than throwing or silently mis-parsing
+ * a reshaped future schema — status must still render its drift summary without
+ * a baseline.
  */
 async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, string>> {
   const baseline = new Map<string, string>();
   try {
     const raw = await readFile(join(rootDir, HATCH3R_DIR, "provenance.json"), "utf-8");
-    const parsed = JSON.parse(raw) as { outputs?: ProvenanceBaselineEntry[] };
+    const parsed = JSON.parse(raw) as {
+      schemaVersion?: number;
+      outputs?: ProvenanceBaselineEntry[];
+    };
+    // D12-SA12.2-06 (D12, P5/P2): assert the schema this reader understands
+    // before consuming `outputs`. The writer pins `schemaVersion: 1`
+    // (provenance.ts `ProvenanceManifest`) and its OWN idempotency read already
+    // gates on `prev.schemaVersion === 1` (provenance.ts) — the drift-baseline
+    // reader must hold up its half of that contract. A future `schemaVersion`
+    // (v2+) that reshapes `outputs[]` would otherwise be parsed as v1 here,
+    // building a wrong (or empty) hash map and SILENTLY mis-attributing drift.
+    // Degrade to the same no-baseline path a missing manifest takes (drift →
+    // `unknown`) instead of mis-parsing an unrecognized shape.
+    if (parsed.schemaVersion !== 1) {
+      verbose(
+        `status: provenance schemaVersion ${String(parsed.schemaVersion)} not understood by this ` +
+          `hatch3r (expected 1); drift attribution = unknown — re-run \`hatch3r sync\` to refresh the baseline`,
+      );
+      return baseline;
+    }
     for (const entry of parsed.outputs ?? []) {
       if (typeof entry.path === "string" && typeof entry.contentHash === "string") {
         baseline.set(entry.path, entry.contentHash);
@@ -546,10 +566,13 @@ export async function statusCommand(opts?: {
   // the shared beginCommand chokepoint.
   const format = beginCommand(opts ?? {}, { banner: "compact" });
   const jsonMode = format === "json";
-  // W5 parity with sync.ts: verbose diagnostics stay OFF in JSON mode even
-  // when `--verbose` is passed, so stderr verbose lines can never interleave
-  // with the single stdout JSON document.
-  if (jsonMode) setVerbose(false);
+  // D1-SA1.4-10 (P5): reconciled with the sibling `verify` command — verbose
+  // stderr diagnostics stay AVAILABLE under `--verbose` even in JSON mode.
+  // `verbose()` writes to stderr (ui.ts), never to the stdout JSON document,
+  // so the two channels cannot interleave unless the consumer merges streams
+  // with `2>&1`. Both drift commands now share this one policy (previously
+  // status force-disabled verbose in JSON while verify enabled it — an
+  // unreconciled split across the two sibling drift commands).
 
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
@@ -868,6 +891,11 @@ export async function statusCommand(opts?: {
   // rather than a tested-but-uncalled library (the F10.8-1 integration gap).
   if (spaceTelemetry.recordCount > 0) {
     const spaceLines: string[] = [];
+    // D10-SA10.8-04 (D10, P1): the explicit first-run line below summarizes the
+    // `performance` axis, so that axis is dropped from the per-axis loop to avoid
+    // rendering the same datum twice. Every OTHER fed axis (efficiency, activity)
+    // still shows in the loop.
+    const firstRunRendered = spaceTelemetry.firstRunSuccessRate !== null;
     if (spaceTelemetry.firstRunSuccessRate !== null) {
       const pct = Math.round(spaceTelemetry.firstRunSuccessRate * 100);
       const perfRow = spaceTelemetry.axes.find((a) => a.axis === "performance");
@@ -876,7 +904,9 @@ export async function statusCommand(opts?: {
         label("First-run success", `${pct}% (${runs} run${runs === 1 ? "" : "s"})`),
       );
     }
-    const populatedAxes = spaceTelemetry.axes.filter((a) => a.count > 0);
+    const populatedAxes = spaceTelemetry.axes.filter(
+      (a) => a.count > 0 && !(firstRunRendered && a.axis === "performance"),
+    );
     for (const a of populatedAxes) {
       spaceLines.push(`  ${a.axis.padEnd(14)}${a.count} metric(s), mean ${a.mean.toFixed(2)}`);
     }

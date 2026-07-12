@@ -22,7 +22,7 @@
  *   - `readManifest`, `writeManifest`, `readMaturityTier` (src/manifest/hatchJson.ts)
  *   - `MATURITY_TIER_RANK`, `DEFAULT_MATURITY_TIER` (src/types.ts)
  *
- * The gate funnel is tier-aware (F20.2.A1, Decision 4 / #16): `solo` (default)
+ * The gate funnel is tier-aware (F20.2.A1, Decision 16): `solo` (default)
  * is the Cycle-9 baseline; `team` | `scaleup` | `enterprise` progressively
  * promote References, impact-horizon, and agent tool-grant baseline checks from
  * gentle warnings to strict failures.
@@ -113,7 +113,7 @@ export interface UserContentArtifact {
    */
   tools?: { allowed?: string[]; denied?: string[] };
   /**
-   * Project maturity tier (Decision 4 / #16) the artifact is authored against.
+   * Project maturity tier (Decision 16) the artifact is authored against.
    * Drives the tier-aware floor in {@link runUserContentGates}: `solo` (default)
    * keeps the Cycle-9 baseline gate set; `team` | `scaleup` | `enterprise`
    * progressively promote gentle nudges to strict failures. When omitted,
@@ -159,8 +159,8 @@ const MIN_DESCRIPTION_LENGTH = 60;
  * the map (defensive — every value of {@link UserArtifactType} is keyed).
  *
  * Exported (F20.1.E1) as the single source of truth so the D20.2 audit-doc
- * lean-threshold row (`governance/audit/domains/D20-user-content-authoring.md`
- * line 46) can be round-tripped against the runtime values by a CI unit test —
+ * lean-threshold row (`governance/audit/domains/D20-user-content-authoring.md`)
+ * can be round-tripped against the runtime values by a CI unit test —
  * doc-vs-runtime drift becomes a test failure rather than a silent inconsistency.
  */
 export const LEAN_LINE_THRESHOLDS: Record<UserArtifactType, number> = {
@@ -482,7 +482,7 @@ export async function saveUserContent(
     userRoot: resolveUserContentRoot(rootDir),
   });
 
-  // Resolve the project maturity tier (Decision 4 / #16). An explicit
+  // Resolve the project maturity tier (Decision 16). An explicit
   // artifact.tier wins (caller override); otherwise read it from the manifest.
   // A missing or unreadable manifest collapses to the "solo" baseline via
   // readMaturityTier(null) — the gate stays permissive, never harder, when the
@@ -573,7 +573,7 @@ export async function discoverUserContent(
  * Run only the strict + gentle gates against an artifact (no write).
  * Useful for "preview" UX before committing the save.
  *
- * `maturityTier` drives the tier-aware floor (Decision 4 / #16). When omitted
+ * `maturityTier` drives the tier-aware floor (Decision 16). When omitted
  * it defaults to `artifact.tier`, then to the `solo` baseline — matching the
  * permissive default used everywhere the project tier is unknown.
  */
@@ -757,7 +757,7 @@ async function runUserContentGates(
   // The original `const gentle: string[] = []` at the gentle-gate header
   // is now an alias re-bind below, kept for blame stability.
   const gentle: string[] = [];
-  // Tier rank gates the progressive floor (Decision 4 / #16): `solo` (rank 0)
+  // Tier rank gates the progressive floor (Decision 16): `solo` (rank 0)
   // is the Cycle-9 baseline; `team`+ (rank >= 1) promote selected gentle
   // nudges to strict failures.
   const tierRank = MATURITY_TIER_RANK[maturityTier];
@@ -897,7 +897,7 @@ async function runUserContentGates(
   // B1). The orchestrator-command branch above covered only ~1 of the three
   // classes the invariant names; agents and skills drive agentic workflows too,
   // so they must open with the same clarification-first §0 block. Tier-aware
-  // per F20.2.A1 / Decision 4: a gentle nudge at `solo` (the Cycle-9 baseline
+  // per F20.2.A1 / Decision 16: a gentle nudge at `solo` (the Cycle-9 baseline
   // stays permissive), promoted to a strict failure at `team`+ where the
   // closed-loop floor mandates are enforced.
   if (artifact.type === "agent" || artifact.type === "skill") {
@@ -1036,7 +1036,7 @@ async function runUserContentGates(
     for (const v of toolsViolations) strict.push(v);
   }
 
-  // ── Tier-aware floor (F20.2.A1, Decision 4 / #16) ──────────────
+  // ── Tier-aware floor (F20.2.A1, Decision 16) ──────────────
   // The `solo` baseline (rank 0) stops at the gates above. `team`+ (rank >= 1)
   // promote the closed-loop floor mandates that the Cycle-9 gate set left
   // unenforced. Each requirement here is checkable from the artifact body /
@@ -1059,14 +1059,14 @@ async function runUserContentGates(
       );
     }
 
-    // Impact horizon (Decision 17): scaleup+ (rank >= 2) must declare the
+    // Impact horizon (Decision 24): scaleup+ (rank >= 2) must declare the
     // change's impact horizon so reviewers can weigh long-lived artifacts.
     if (tierRank >= MATURITY_TIER_RANK.scaleup) {
       const hasHorizonFm = "impact_horizon" in fm || "impactHorizon" in fm;
       const hasHorizonBody = /impact[_-]horizon/i.test(artifact.body);
       if (!hasHorizonFm && !hasHorizonBody) {
         strict.push(
-          `Maturity tier '${maturityTier}' requires an impact_horizon declaration (short|medium|long, Decision 17) — add 'impact_horizon: <horizon>' to frontmatter or reference it in the body`,
+          `Maturity tier '${maturityTier}' requires an impact_horizon declaration (short|medium|long, Decision 24) — add 'impact_horizon: <horizon>' to frontmatter or reference it in the body`,
         );
       }
     }

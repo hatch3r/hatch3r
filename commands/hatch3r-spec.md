@@ -5,7 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-greenfield-spec, hatch3r-brownfield-spec]
 description: Spec orchestrator — detects greenfield vs brownfield project state and runs the corresponding spec agent to produce requirements, acceptance criteria, risk inventory, and test plan (greenfield adds market/competitive/persona/tech-stack; brownfield adds codebase-map/pattern-detection/integration/migration/non-destructive-check).
 argument-hint: "[--state=greenfield|brownfield] [--effort=light|standard|deep] [--resume]"
-tags: [spec, planning, orchestrator]
+tags: [spec, planning, orchestration]
 pillars:
   governance: [P1, P2, P8]
   content-quality: [CQ10, CQ8, CQ9]
@@ -74,7 +74,7 @@ Detect greenfield vs brownfield from the working directory. Run these read-only 
 | Tracked source files | `git ls-files` count under `src/`, `lib/`, `app/`, language-default dirs | +1 per ≥10 files |
 | Manifest present | `package.json`, `go.mod`, `Cargo.toml`, `pom.xml`, `pyproject.toml`, `Gemfile`, `composer.json` | +1 per manifest found |
 | Commit count | `git rev-list --count HEAD` | +1 if ≥5 |
-| Test suite | tests/`, `__tests__/`, `spec/`, `*_test.go`, `*.test.ts` | +1 if present |
+| Test suite | `tests/`, `__tests__/`, `spec/`, `*_test.go`, `*.test.ts` | +1 if present |
 | Existing README with body | README.md ≥30 lines and not the npm/cargo init template | +1 |
 | Adapter outputs already present | `.cursor/`, `CLAUDE.md`, `.github/copilot-instructions.md` | +1 |
 
@@ -155,7 +155,7 @@ Close the run with the recap-contract Iteration Summary per `rules/hatch3r-itera
 ```markdown
 ## Iteration Summary
 **SUCCESS** — Spec deliverables written to `docs/specs/`; all 8 greenfield deliverables present, presence checks passed.
-files 8 (+412/−0) · sa 2/2 · gates 8/8 · cost Δ+6% tok / Δ−3% min · tier 2
+files 8 (+412/−0) · sa 1/1 · gates 8/8 · cost Δ+6% tok / Δ−3% min · tier 2
 Next: /hatch3r-roadmap to sequence the specs into a dependency-ordered todo.md, then /hatch3r-board-fill.
 ```
 

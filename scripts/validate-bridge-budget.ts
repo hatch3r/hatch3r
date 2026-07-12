@@ -11,12 +11,14 @@
  * `--max-percent <N>`).
  *
  * Rationale: BRIDGE_ORCHESTRATION inlines into every adapter bridge file
- * (CLAUDE.md, GEMINI.md, .windsurfrules, .amp/AGENTS.md,
- * .github/copilot-instructions.md, .cursor/rules/hatch3r-bridge.mdc).
- * Adapters with smaller windows (e.g. zed 64K, copilot 64K, aider 64K)
- * are most at risk of bridge bloat crowding out project context; the 10%
- * ceiling cycle 9 (D6-SA6.1-F1) keeps headroom for canonical content,
- * inlined rules, and project files.
+ * (CLAUDE.md, .cursor/rules/hatch3r-bridge.mdc,
+ * .github/copilot-instructions.md — the 3 adapters retained after the
+ * v1.9.0/v2.0.0 hard-cut from 15). Cursor carries the smallest retained
+ * context window (120K tokens; copilot 128K, claude 200K per
+ * `src/adapters/contextBudget.ts:CONTEXT_BUDGET_TOKENS`), so it is the
+ * adapter most at risk of bridge bloat crowding out project context; the
+ * 10% ceiling from cycle 9 (D6-SA6.1-F1) keeps headroom for canonical
+ * content, inlined rules, and project files.
  *
  * Token estimate uses `src/adapters/contextBudget.ts:charsPerTokenFor(tool)`
  * per adapter (D6-SA6.1-03): claude tokenises denser (~3.6 chars/token) than

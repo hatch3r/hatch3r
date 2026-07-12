@@ -115,7 +115,7 @@ Cost: flagged_for_review: true
 - Web research query count per cycle (incremented by adapter web-research integrations).
 - Duration per phase via phase timeout instrumentation (`src/pipeline/phaseTimeout.ts`).
 
-Implementation contract: `src/pipeline/costEstimator.ts` (to be authored under Bucket 2.3) consumes the baseline from past `EfficiencyEvent` records and emits `cost_estimate`; `src/pipeline/observability.ts` already provides the actuals primitives.
+Implementation contract: `src/pipeline/costEstimator.ts` consumes the baseline from past `EfficiencyEvent` records and emits `cost_estimate`; `src/pipeline/observability.ts` already provides the actuals primitives.
 
 ## End-User Visibility
 

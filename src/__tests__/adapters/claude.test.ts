@@ -2172,7 +2172,7 @@ Low priority rule body.
   // D3-M1 (Cycle 10 Wave-3 Medium rollover): adapters had no documented
   // error-path coverage. Pipeline timeouts surface as a pre-aborted
   // AbortSignal; `BaseAdapter.throwIfSignalAborted` is the documented
-  // contract (see src/adapters/base.ts:321). Pin the contract here so any
+  // contract (see src/adapters/base.ts::throwIfSignalAborted). Pin the contract here so any
   // future change that silently swallows the signal cannot regress.
   // D14-9 (D14, P3 / Decision 16): `claudeMaturityHeader` stamps the resolved
   // maturity tier atop the CLAUDE.md managed block. Pre-fix CLAUDE.md was

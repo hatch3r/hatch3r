@@ -37,6 +37,32 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(allEntries.length).toBe(34);
   });
 
+  it("tier arrays partition AVAILABLE_CLI_TOOLS exactly — the section-header counts are un-driftable (D21-SA21.4-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.4-05: the `// ── Tier N (M tools) ──` section-header
+    // comments in registry.ts are hand-maintained and had drifted — tier 1 read
+    // "10 tools" after curl's Cycle-11 admission made it 11. Comments are not
+    // runtime-readable, so this asserts the next-best invariant: each tier array
+    // is exactly the set of registry entries at that tier (both directions), and
+    // the three tiers partition the whole catalog. A tool added to the registry
+    // without a matching tier-array update — or vice versa — now fails here.
+    const registryTierIds = (n: 1 | 2 | 3): string[] =>
+      allEntries.filter((t) => t.tier === n).map((t): string => t.id).sort();
+    const sorted = (ids: readonly string[]): string[] => [...ids].sort();
+    expect(sorted(TIER1_CLI_TOOLS)).toEqual(registryTierIds(1));
+    expect(sorted(TIER3_CLI_TOOLS)).toEqual(registryTierIds(3));
+    // Tier-2 tools may appear under multiple triggers (taplo: rust + python), so
+    // compare the DISTINCT tool set across all triggers against the registry.
+    const tier2FromTriggers = sorted([
+      ...new Set(Object.values(TIER2_CLI_TOOLS_BY_TRIGGER).flat()),
+    ]);
+    expect(tier2FromTriggers).toEqual(registryTierIds(2));
+    // The partition sums to the full catalog — the count the section headers
+    // assert (11 + 13 + 10 = 34).
+    expect(
+      registryTierIds(1).length + registryTierIds(2).length + registryTierIds(3).length,
+    ).toBe(Object.keys(AVAILABLE_CLI_TOOLS).length);
+  });
+
   it("snapshot of AVAILABLE_CLI_TOOLS keys (drift gate)", () => {
     // Snapshot the registry key set so adding/removing a tool triggers an
     // explicit test update — keeps the catalogue and the picker / install
@@ -83,9 +109,10 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
   });
 
   it("registry replaces archived xsv with active qsv fork (D21-SA21.3-F01)", () => {
-    // BurntSushi/xsv was archived 2025-04-24; jqnatividad/qsv is the active
-    // successor with a superset of xsv's command set. The registry must not
-    // ship the archived id.
+    // BurntSushi/xsv was archived 2025-04-24; qsv — canonically dathere/qsv
+    // after the org transfer (Cycle 12 D21-SA21.3-05) — is the active successor
+    // with a superset of xsv's command set. The registry must not ship the
+    // archived id.
     const keys = Object.keys(AVAILABLE_CLI_TOOLS);
     expect(keys).toContain("qsv");
     expect(keys).not.toContain("xsv");
@@ -95,7 +122,13 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(qsv!.id).toBe("qsv");
     expect(qsv!.tier).toBe(2);
     expect(qsv!.trigger).toBe("data-project");
-    expect(qsv!.homepage).toContain("jqnatividad/qsv");
+    // Cycle 12 D21-SA21.3-05: the project transferred to the dathere org; the
+    // D15.7 provenance fields must point at the canonical repo, not the
+    // jqnatividad GitHub transfer-redirect.
+    expect(qsv!.homepage).toContain("dathere/qsv");
+    expect(qsv!.sourceRepo).toContain("dathere/qsv");
+    expect(qsv!.homepage).not.toContain("jqnatividad");
+    expect(qsv!.sourceRepo).not.toContain("jqnatividad");
   });
 
   it("jq entry floors at >=1.8.2 for the 16-CVE cluster fixed in 1.8.2 (D21-SA21.3-01, Cycle 12)", () => {

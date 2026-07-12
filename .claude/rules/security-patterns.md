@@ -19,7 +19,7 @@ Security patterns required in all `src/` code:
 2. **Path traversal guards:** Validate all user-provided paths. No `../` traversal outside project root
 3. **No hardcoded secrets:** Use `${env:VAR}` placeholder syntax for API keys, tokens. Check `.env.mcp` for MCP credentials
 4. **Prompt injection defense:** Content safety deny patterns in `src/pipeline/promptGuard.ts` — 500KB input limit, 1MB output limit, boundary marker verification
-5. **Tool allowlists:** Per-agent capability restrictions via `src/pipeline/agentToolAllowlist.ts` — deny-by-default, 8 tool categories
+5. **Tool allowlists:** Per-agent capability restrictions via `src/pipeline/agentToolAllowlist.ts` — deny-by-default, 8 tool categories. Under the default generic spawn (`subagent_type: "generalPurpose"`) this policy is orchestrator-boundary-honored (`checkToolAccess` applied at the delegation boundary), not runtime-intercepted; the generated `PreToolUse` allowlist hook governs only `hatch3r-*` agent_types, so it is defense-in-depth that fires for native role-bearing spawns (`subagent_type: "hatch3r-<role>"`) rather than the default generic spawn — matching the enforcement-boundary disclosure in `rules/hatch3r-agent-orchestration.md`
 6. **Drift detection:** `hatch3r status` / `hatch3r verify` regenerate adapter outputs from the bundled canonical content shipped with the npm package and diff against on-disk copies — there is no `.integrity.json` checksum file (legacy `src/integrity/` removed in 1.9.0 per CONSTITUTION §6 Decision 12)
 7. **Circuit breaker:** Transient vs substantive failure classification in `src/pipeline/circuitBreaker.ts` — only transient failures trip the breaker
 

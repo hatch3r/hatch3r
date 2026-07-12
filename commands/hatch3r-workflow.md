@@ -21,7 +21,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: contradictory inputs, missing target, unknown convention.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: unstated mode (Full vs Quick) or effort tier when scope is ambiguous; a target spanning >1 module with no stated boundary; acceptance criteria absent from the issue or description; a requested change that alters user-visible behavior beyond the issue's stated scope.
 
 # Development Workflow -- Guided Lifecycle for Structured Implementation
 
@@ -296,7 +296,7 @@ Implementation Plan:
 
 #### 3a. Context Gathering (Researcher sub-agent)
 
-You MUST spawn a `hatch3r-researcher` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) before implementation. Skip only for trivial single-line edits (typos, comment fixes, single-value config changes).
+You MUST spawn a `hatch3r-researcher` sub-agent via the Task tool (`subagent_type: "generalPurpose"`) before implementation. Phase-skip conditions per `rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria (canonical `PHASE_SKIP_CRITERIA`) — skip Phase 1 on a trivial single-line edit, a Tier-1 single-file change with no cross-module impact, or when research is already cached; do not invent a command-specific skip rule.
 
 - Select research modes by task type (bug → symptom-trace/root-cause/codebase-impact, feature → codebase-impact/feature-design/architecture, refactor → current-state/refactoring-strategy/migration-path, QA → codebase-impact).
 - Add tier-appropriate modes per the `hatch3r-deep-context` rule if not already run in Phase 1 Step 1b.
@@ -481,7 +481,7 @@ Collapses the 4 phases into a streamlined flow for small, well-defined tasks. Su
 ### Quick Step 1: Rapid Analysis + Plan (Combined)
 
 1. Score complexity per `hatch3r-deep-context`. If the score yields Tier 3, recommend switching to Full Mode.
-2. Spawn `hatch3r-researcher` with depth `quick` for brief context gathering. Skip only for trivial single-line edits. For Tier 2, include `requirements-elicitation` and `similar-implementation` at `quick` depth.
+2. Spawn `hatch3r-researcher` with depth `quick` for brief context gathering. Skip Phase 1 only per the canonical Phase Skip Criteria (`rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria / `PHASE_SKIP_CRITERIA`): trivial single-line edit, Tier-1 single-file no-cross-module change, or cached research. For Tier 2, include `requirements-elicitation` and `similar-implementation` at `quick` depth.
 3. Quick plan: list changes, identify the appropriate hatch3r skill. If `similar-implementation` found a reference, note the convention to follow.
 4. Skip ADR/spec review unless the task touches architecture.
 
@@ -570,9 +570,9 @@ These checkpoints are NEVER skipped, even in auto mode:
 ### Activation
 
 ```
-/hatch3r workflow --auto
-/hatch3r workflow --auto --mode=full
-/hatch3r workflow --auto --mode=quick
+/hatch3r-workflow --auto
+/hatch3r-workflow --auto --mode=full
+/hatch3r-workflow --auto --mode=quick
 ```
 
 ### Auto Mode Under Board Pickup
@@ -633,7 +633,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Quality check failure in Phase 3:** Loop back and fix before proceeding to Phase 4. Do not advance with failing checks.
 - **Acceptance criteria not met in Phase 4:** Loop back to Phase 3 with specific items to address.
 - **Sub-agent failure:** Per the shared sub-agent-failure clause in `rules/hatch3r-agent-orchestration.md` -> Cross-Phase Error Propagation: retry once, then re-spawn `hatch3r-fixer` with the failure context, then `BLOCKED_OTHER` + ASK. Never fall back to inline implementation (issue #73 bypass mode).
-- **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback for this command is ~25 turns, at which point suggest a fresh chat with a progress summary capturing completed work and remaining items.
+- **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — the policy owns the window-fraction compress/restart thresholds and the turn-count fallback; workflow maps to the policy's implementation/review lane. On restart, suggest a fresh chat with a progress summary capturing completed work and remaining items.
 - **Handoff information loss (>0.3):** When a lossy phase transition crosses the `informationLossEstimate > 0.3` threshold, emit the `formatPhaseHandoffWarning` line in the iteration summary per `rules/hatch3r-agent-orchestration.md` -> Phase Handoff Contract (Handoff-loss trigger) so the next phase verifies critical context survived — distinct from the turn-count degradation rule above.
 - **Mode switch:** User can switch from Quick to Full (or vice versa) at any ASK checkpoint. State carries forward — no work is lost.
 

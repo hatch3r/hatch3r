@@ -1,21 +1,11 @@
-// ── Prompt Regression Testing Guidance ──────────────────────────
+// ── Prompt Regression Testing ──────────────────────────
 //
 // Adapter outputs contain prompt text derived from canonical content (agents,
-// rules, skills). Changes to adapter generation logic or prompt templates can
-// cause unintended regressions in the instructions delivered to AI tools.
-//
-// Future work: add snapshot tests for the main adapters (claude, cursor,
-// windsurf, copilot, cline, codex, etc.) that capture the full generated
-// output and compare against a stored snapshot. This catches unintended
-// prompt changes during refactors. To implement:
-//   1. Create a __snapshots__/ directory in this test folder.
-//   2. For each adapter, call adapter.generate() with the fixtures and
-//      snapshot the output array using expect(outputs).toMatchSnapshot().
-//   3. Review snapshot diffs carefully on any adapter or content change --
-//      intentional prompt changes should update snapshots explicitly.
-//
-// Until snapshots are in place, reviewers should manually verify adapter
-// output structure when modifying adapter logic or canonical content.
+// rules, skills), so adapter-generation or template changes can regress the
+// instructions delivered to AI tools. Snapshot regression coverage for the 3
+// supported adapters (claude, cursor, copilot) lives in
+// `src/__tests__/adapters/snapshots.test.ts`; update those snapshots explicitly
+// when an adapter-generation or canonical-content change is intentional.
 
 import { describe, it, expect } from "vitest";
 import {
@@ -278,7 +268,7 @@ describe("ADAPTER_CAPABILITY_KEYS (D2-SA2.5-07)", () => {
 //
 // Every adapter that reads canonical content must populate `sourceFiles` on
 // at least one of its outputs so the per-output provenance manifest emitted
-// by `src/integrity/provenance.ts` can attribute generated artifacts back to
+// by `src/manifest/provenance.ts` can attribute generated artifacts back to
 // the canonical files that shaped them. Adapters that bypass
 // `BaseAdapter.readTrackedCanonicalFiles` (the wrapper that pushes into
 // `_trackedSourceFiles`) by calling `readCanonicalFiles` directly leave the
