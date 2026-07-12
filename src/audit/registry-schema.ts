@@ -111,6 +111,12 @@ export interface Finding {
   // legacy entries are grandfathered via disposition_note=pre-rigor-contract).
   confidence?: Confidence;
   causal_chain_depth?: number;
+  // Named cohort waiver for causal_chain_depth (exact-match tokens only,
+  // registered in DEPTH_WAIVER_TOKENS). A registered token exempts the entry
+  // from the >=3 shallow-depth drift in tolerant mode ONLY; strict mode still
+  // reports the drift (waiver visible, not erasing). An unregistered value is
+  // its own drift in both modes — the field is never a free bypass.
+  depth_waiver?: string;
   sources?: ReadonlyArray<unknown>;
   central_path?: boolean;
   execution_tier?: ExecutionTier;
@@ -217,6 +223,14 @@ const TIER1_PATTERN_ENUM: ReadonlySet<string> = new Set([
   "typo_fix",
   "version_bump",
   "lint_disable_removal",
+]);
+
+const DEPTH_WAIVER_TOKENS: ReadonlySet<string> = new Set([
+  // Named cohort: 76 cycle-12 entries (4 High / 22 Medium / 34 Low / 16 Info)
+  // registered at causal_chain_depth 2, accepted at cycle-12 close
+  // (maintainer waiver 2026-07-12, granted at Phase-7 archive);
+  // re-verification queued as cycle-13 audit input.
+  "c12-depth2-close-accepted",
 ]);
 
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
@@ -657,6 +671,20 @@ function validateEntry(
     typeof f.disposition_note === "string" &&
     f.disposition_note === "pre-rigor-contract";
   const requiresRigor = !isPreRigor || opts.strict === true;
+  // Named cohort depth waiver: only exact-match registered tokens count.
+  // An unregistered value is its own drift in BOTH modes (checked below) so
+  // the field cannot become a free bypass; a registered token on an entry
+  // whose depth is already >=3 is harmless (no drift, no special report).
+  const hasRegisteredDepthWaiver =
+    typeof f.depth_waiver === "string" &&
+    DEPTH_WAIVER_TOKENS.has(f.depth_waiver);
+  if (f.depth_waiver !== undefined && !hasRegisteredDepthWaiver) {
+    reports.push({
+      finding_id: id,
+      reason: "unregistered depth_waiver token",
+      detail: `got ${JSON.stringify(f.depth_waiver)}; registered tokens: ${[...DEPTH_WAIVER_TOKENS].join(", ")}`,
+    });
+  }
   if (requiresRigor && isTargeted) {
     if (typeof f.confidence !== "string") {
       reports.push({
@@ -674,11 +702,17 @@ function validateEntry(
         detail: "",
       });
     } else if (f.causal_chain_depth < 3 && !isPreRigor) {
-      reports.push({
-        finding_id: id,
-        reason: "shallow causal_chain_depth",
-        detail: `got ${f.causal_chain_depth}; rigor contract requires >=3`,
-      });
+      // Registered depth waiver exempts the entry in tolerant mode only;
+      // strict mode still reports the drift with the waiver visible.
+      if (!hasRegisteredDepthWaiver || opts.strict === true) {
+        reports.push({
+          finding_id: id,
+          reason: "shallow causal_chain_depth",
+          detail: hasRegisteredDepthWaiver
+            ? `got ${f.causal_chain_depth}; rigor contract requires >=3 (depth_waiver "${f.depth_waiver}" registered — tolerant-mode exemption; strict mode reports for census visibility)`
+            : `got ${f.causal_chain_depth}; rigor contract requires >=3`,
+        });
+      }
     }
     if (!Array.isArray(f.sources)) {
       reports.push({
@@ -956,6 +990,7 @@ export function checkClBalance(
  */
 export const __internal = {
   TIER1_PATTERN_ENUM,
+  DEPTH_WAIVER_TOKENS,
   VALID_DISPOSITIONS,
   VALID_SEVERITIES,
   VALID_EXECUTION_STATUSES,

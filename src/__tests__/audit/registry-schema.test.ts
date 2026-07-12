@@ -233,6 +233,69 @@ describe("validateRegistry — invariants", () => {
   });
 });
 
+describe("validateRegistry — named cohort depth waiver (c12-depth2-close-accepted)", () => {
+  it("exempts a depth-2 entry with a registered depth_waiver in tolerant mode", () => {
+    const f = modernMinimal({
+      causal_chain_depth: 2,
+      depth_waiver: "c12-depth2-close-accepted",
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts).toEqual([]);
+  });
+
+  it("still reports the shallow-depth drift in strict mode despite a registered waiver (census visibility)", () => {
+    const f = modernMinimal({
+      causal_chain_depth: 2,
+      depth_waiver: "c12-depth2-close-accepted",
+    });
+    const parsed = parseRegistry({
+      schema_version: CURRENT_REGISTRY_VERSION,
+      generated_at: FIXED_DATE,
+      entries: [f],
+    });
+    const drifts = validateRegistry(parsed, { strict: true });
+    const shallow = drifts.find(
+      (d) => d.reason === "shallow causal_chain_depth",
+    );
+    expect(shallow).toBeDefined();
+    expect(shallow?.detail).toContain("c12-depth2-close-accepted");
+  });
+
+  it("flags an unregistered depth_waiver token in tolerant mode (no free bypass)", () => {
+    const f = modernMinimal({
+      causal_chain_depth: 2,
+      depth_waiver: "made-up-waiver",
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "unregistered depth_waiver token"),
+    ).toBeDefined();
+    expect(
+      drifts.find((d) => d.reason === "shallow causal_chain_depth"),
+    ).toBeDefined();
+  });
+
+  it("keeps existing shallow-depth behavior for entries without the field", () => {
+    const f = modernMinimal({ causal_chain_depth: 2 });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "shallow causal_chain_depth"),
+    ).toBeDefined();
+    expect(
+      drifts.find((d) => d.reason === "unregistered depth_waiver token"),
+    ).toBeUndefined();
+  });
+
+  it("treats a registered waiver on a depth>=3 entry as harmless (no drift, no special report)", () => {
+    const f = modernMinimal({
+      causal_chain_depth: 4,
+      depth_waiver: "c12-depth2-close-accepted",
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts).toEqual([]);
+  });
+});
+
 describe("validateRegistry — Cycle Drain Contract (targeted parking)", () => {
   const PARK_REASON = "targeted finding parked at cycle close";
 

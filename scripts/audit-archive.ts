@@ -315,8 +315,11 @@ async function main(): Promise<void> {
     // newest history entry MUST be the cycle that just closed (current-1).
     // A stale or empty ring is a hard failure — it is the exact drift this
     // gate exists to catch (a cycle-7-only ring after cycles 9/10 executed).
+    // assertHistoryCurrent takes the RUNNING cycle and expects newest ===
+    // running-1; at close the running cycle is flags.cycle + 1 (first live
+    // run of this gate, cycle-12 close, tripped on passing flags.cycle).
     try {
-      const currency = await assertHistoryCurrent(INSIGHTS_FILE, flags.cycle);
+      const currency = await assertHistoryCurrent(INSIGHTS_FILE, flags.cycle + 1);
       if (!currency.current) {
         emitError(`audit:archive: history-currency gate FAILED: ${currency.reason}`);
         process.exit(1);
