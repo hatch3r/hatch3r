@@ -283,6 +283,33 @@ describe("migrateAgentsToHatch3r — agents -> hatch3r migration shim", () => {
       expect(result.conflicts[0].reason).toMatch(/bytes differ/);
     });
 
+    it("routes handoffs/ subtree files through the full byte-compare on the divergent-conflict path (D8-SA8.1-05)", async () => {
+      const legacy = join(tempDir, AGENTS_DIR);
+      const newRoot = join(tempDir, HATCH3R_DIR);
+      // A handoff artifact is NOT a small bookkeeping file: seed a multi-KB
+      // payload that differs from the destination only in its final byte, so
+      // the size short-circuit cannot decide and filesEqual must read both
+      // copies fully — the exact input set its JSDoc documents.
+      const base = JSON.stringify({ context: "x".repeat(64 * 1024) });
+      await mkdir(join(legacy, "handoffs"), { recursive: true });
+      await writeFile(join(legacy, "handoffs", "session-1.json"), `${base}A`);
+      await mkdir(join(newRoot, "handoffs"), { recursive: true });
+      await writeFile(join(newRoot, "handoffs", "session-1.json"), `${base}B`);
+
+      const result = await migrateAgentsToHatch3r(tempDir);
+
+      // Equal-size divergent bytes are detected (full read, not size compare)…
+      expect(result.conflicts).toHaveLength(1);
+      expect(result.conflicts[0]).toMatchObject({
+        sourcePath: `${AGENTS_DIR}/handoffs`,
+        destPath: `${HATCH3R_DIR}/handoffs`,
+        kind: "directory",
+      });
+      expect(result.conflicts[0].reason).toMatch(/bytes differ/);
+      // …and nothing moved: both copies stay in place for the operator.
+      expect(result.moved).toEqual([]);
+    });
+
     it("surfaces a directory conflict when learnings/ subtrees diverge on entry set", async () => {
       const legacy = join(tempDir, AGENTS_DIR);
       const newRoot = join(tempDir, HATCH3R_DIR);

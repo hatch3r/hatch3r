@@ -16,6 +16,17 @@
  * Coverage) and the Silent-Failure Contract, the unused validator
  * surface was removed in Cycle 7.5 (C7.5-W2B2-H42). Phase-shape contracts
  * remain typed in `pipelineContext.ts` for downstream tool consumption.
+ *
+ * Boundary note (D8-SA8.4-05, Cycle 12): those removed validators gated the
+ * agentic research/implementation/review pipeline that runs in the end-user's
+ * tool (above). The pipeline the hatch3r CLI itself runs is the
+ * adapter-GENERATION pipeline (generate → merge → write), and it DOES validate
+ * its outputs before writing — `checkContextBudget` (context-budget gate),
+ * output-path-collision detection ("last writer wins" warning), and
+ * `predictMergeAction` (marker-aware merge prediction), all in `sync.ts`.
+ * Inter-phase output validation (SA8.4 resilience pattern 5) is therefore
+ * present for the pipeline hatch3r executes; runtime inter-phase schema
+ * validators should not be re-proposed for the CLI.
  */
 
 // ── Compact ─────────────────────────────────────────────────────

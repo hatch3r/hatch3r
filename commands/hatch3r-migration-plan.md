@@ -439,4 +439,5 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Command:** `hatch3r-refactor-plan` — structural refactoring that accompanies a migration
 - **Command:** `hatch3r-board-fill` — create GitHub issues from generated todo.md entries
 - **Command:** `hatch3r-feature-plan` — plan features that depend on the migration target's new capabilities
+- **Skill:** `hatch3r-migration` — the execute-side counterpart to this plan-only command; it runs the phased migration inline (breaking-change analysis, phased rollout, rollback). Use this command to produce the researcher-backed plan; use the `hatch3r-migration` skill to execute an approved plan or run a single-dependency migration.
 - **Skill:** `hatch3r-refactor` — execution workflow for migration phases involving code restructuring

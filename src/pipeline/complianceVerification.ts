@@ -17,7 +17,7 @@
 import { readFile, readdir } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { AGENT_TOOL_POLICIES, ALL_TOOL_CATEGORIES, validateToolPolicies, type AgentToolPolicy } from "./agentToolAllowlist.js";
+import { AGENT_TOOL_POLICIES, ALL_TOOL_CATEGORIES, validateToolPolicies, ASI02_ADAPTER_ENFORCEMENT_STRENGTH, type AgentToolPolicy } from "./agentToolAllowlist.js";
 import { HARD_MAX_REVIEW_ITERATIONS, DEFAULT_MAX_REVIEW_ITERATIONS } from "./reviewLoop.js";
 import { MAX_PHASE_INPUT_LENGTH, MAX_AGENT_OUTPUT_LENGTH } from "./promptGuard.js";
 import { DEFAULT_PIPELINE_TIMEOUT_MS, MAX_PIPELINE_TIMEOUT_MS } from "./pipelineTimeout.js";
@@ -435,7 +435,16 @@ export async function runComplianceChecks(): Promise<ComplianceReport> {
     controlRef: "ASI02",
     enforcement: "runtime-CLI",
     status: agentCount > 0 ? "pass" : "fail",
-    detail: `${agentCount} agent tool policies registered`,
+    // D15-SA15.3-04: the canonical registry is one shape, but the emitted
+    // per-adapter hooks block an out-of-policy category at DIFFERENT strengths
+    // (hard per-category is Claude-only). Record that ladder here so the ASI02
+    // self-assessment output does not imply uniform hard enforcement across the
+    // three adapters. Source of truth: ASI02_ADAPTER_ENFORCEMENT_STRENGTH.
+    detail:
+      `${agentCount} agent tool policies registered. Per-adapter per-category enforcement strength: ` +
+      `${ASI02_ADAPTER_ENFORCEMENT_STRENGTH.claude.summary}; ` +
+      `${ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.summary}; ` +
+      `${ASI02_ADAPTER_ENFORCEMENT_STRENGTH.copilot.summary}.`,
   });
 
   // C8-D15-M3: validateToolPolicies now throws on unknown tool categories
@@ -1044,6 +1053,18 @@ export function formatComplianceReport(report: ComplianceReport): string[] {
     `Security compliance: ${report.summary.passed} passed, ` +
     `${report.summary.failed} failed, ${report.summary.warnings} warnings`,
   );
+
+  // D15-SA15.3-05: the `compliant = failed === 0` headline structurally ignores
+  // warnings, so a permanent WARN (e.g. integrity-signing-status) neither blocks
+  // nor changes across runs. Surface a one-line standing-advisories acknowledgment
+  // so a permanent amber is acknowledged rather than silently accumulated into an
+  // ignored warnings count.
+  if (report.summary.warnings > 0) {
+    const noun = report.summary.warnings === 1 ? "advisory" : "advisories";
+    lines.push(
+      `${report.summary.warnings} standing ${noun} (non-blocking) — acknowledged, not silently accumulated. See the advisory lines above.`,
+    );
+  }
 
   if (!report.compliant) {
     lines.push("STATUS: NON-COMPLIANT — address failed checks before deploying pipeline.");

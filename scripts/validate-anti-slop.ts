@@ -23,6 +23,20 @@
  *   - package.json   -> `.description`
  *   - .cursor-plugin/plugin.json -> `.description`
  *
+ * Framework-dev scope (D19-SA19.2-07): the framework's own maintainer-instruction
+ * files load in full at the start of every session yet had no automated wordlist
+ * gate — a later edit could introduce slop uncaught. This validator additionally
+ * scans:
+ *   - .claude/rules/*.md
+ *   - .claude/skills/h4tcher-<name>/SKILL.md
+ * against the CORE wordlist rows only. The marketing-only patterns (battle-tested,
+ * ship-ready, "all 15 adapters", seamless, cutting-edge, state-of-the-art) are NOT
+ * applied here: framework-dev prose uses terms like the "Ship Ready" audit score
+ * band legitimately, so those patterns belong to the marketing surfaces above.
+ * Two files that carry the wordlist AS DATA are excluded so the gate does not flag
+ * the phrases they enumerate — a category error the audit named the "definitional
+ * table row" case (see WORDLIST_CARRIER_FILES).
+ *
  * Each pattern carries a measurable-qualifier escape: a hit is suppressed when
  * the matched phrase is immediately followed (same line) by a measurable
  * qualifier marker — a digit, a percentage, "p50/p75/p95/p99", or an explicit
@@ -35,7 +49,7 @@
  *
  * Pillars: P5 (Governance Self-Quality), P4 (Lean Coverage).
  */
-import { readFile } from "node:fs/promises";
+import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -50,7 +64,10 @@ const ROOT = resolve(__dirname, "..");
 // §2 P5) but is deliberately NOT identical to it. It keeps only the phrases that
 // plausibly ship on the marketing surfaces scanned above and ADDS marketing-only
 // patterns with no canonical wordlist row (battle-tested, ship-ready, "all 15
-// adapters", seamless, cutting-edge, state-of-the-art). The canonical prose rows
+// adapters", seamless, cutting-edge, state-of-the-art). Those six ADDED patterns
+// carry `marketingOnly: true` and are applied ONLY to the marketing surfaces; the
+// framework-dev surfaces (.claude/rules, .claude/skills) scan with the remaining
+// core rows, which correspond to canonical wordlist rows. The canonical prose rows
 // (ensure/properly/correctly/as-needed/scalable/carefully/note-phrases/
 // might-affect/successfully-completed) are omitted here — they false-positive on
 // qualified README/SECURITY usage and are enforced inside the six content dirs by
@@ -68,24 +85,31 @@ interface SlopPattern {
   useInstead: string;
   /** When true, a same-line measurable qualifier suppresses the hit. */
   qualifierEscape: boolean;
+  /**
+   * When true, this is a marketing-copy-only pattern with no canonical wordlist
+   * row (e.g. "battle-tested"). It applies to the marketing surfaces but NOT to
+   * the framework-dev surfaces (.claude/rules, .claude/skills), whose prose uses
+   * some of these terms — e.g. the "Ship Ready" audit score band — legitimately.
+   */
+  marketingOnly?: boolean;
 }
 
 const PATTERNS: readonly SlopPattern[] = [
   { source: "best possible", useInstead: "specific measurable target", qualifierEscape: false },
   { source: "best-in-class", useInstead: "specific measurable target", qualifierEscape: false },
   { source: "world-class", useInstead: "specific measurable target", qualifierEscape: false },
-  { source: "battle-tested", useInstead: "specific maturity/audit claim (e.g. 'audited each release across 24 governance domains')", qualifierEscape: false },
+  { source: "battle-tested", useInstead: "specific maturity/audit claim (e.g. 'audited each release across 24 governance domains')", qualifierEscape: false, marketingOnly: true },
   { source: "comprehensive and thorough", useInstead: "specific scope statement", qualifierEscape: false },
   { source: "exhaustive", useInstead: "specific scope statement", qualifierEscape: false },
   { source: "robust and resilient", useInstead: "named resilience pattern (circuit breaker, retry with backoff)", qualifierEscape: false },
   { source: "high-quality", useInstead: "specific quality metric", qualifierEscape: true },
   { source: "enterprise-grade", useInstead: "maturity tier (solo/team/scaleup/enterprise)", qualifierEscape: false },
   { source: "production-grade", useInstead: "maturity tier (solo/team/scaleup/enterprise)", qualifierEscape: false },
-  { source: "ship[\\s-]?ready", useInstead: "named maturity tier or verification result", qualifierEscape: false },
-  { source: "all 15 adapters", useInstead: "current adapter count (3: Claude Code, Cursor, GitHub Copilot)", qualifierEscape: false },
-  { source: "seamless(?:ly)?", useInstead: "specific behavior (e.g. 'temp-file + atomic rename')", qualifierEscape: false },
-  { source: "cutting-edge", useInstead: "named technology + version", qualifierEscape: false },
-  { source: "state-of-the-art", useInstead: "named technology + version", qualifierEscape: false },
+  { source: "ship[\\s-]?ready", useInstead: "named maturity tier or verification result", qualifierEscape: false, marketingOnly: true },
+  { source: "all 15 adapters", useInstead: "current adapter count (3: Claude Code, Cursor, GitHub Copilot)", qualifierEscape: false, marketingOnly: true },
+  { source: "seamless(?:ly)?", useInstead: "specific behavior (e.g. 'temp-file + atomic rename')", qualifierEscape: false, marketingOnly: true },
+  { source: "cutting-edge", useInstead: "named technology + version", qualifierEscape: false, marketingOnly: true },
+  { source: "state-of-the-art", useInstead: "named technology + version", qualifierEscape: false, marketingOnly: true },
 ];
 
 // A measurable qualifier on the same line suppresses a qualifier-escape hit:
@@ -107,6 +131,11 @@ interface Surface {
   rel: string;
   /** Absolute path on disk. */
   abs: string;
+  /**
+   * Which pattern set to apply. "marketing" (default) uses every pattern;
+   * "framework-dev" skips the marketing-only patterns (see SlopPattern.marketingOnly).
+   */
+  kind?: "marketing" | "framework-dev";
   /**
    * Optional content extractor. Returns the text to scan (and the 1-based
    * line offset that text starts at in the file, for accurate line numbers).
@@ -180,26 +209,92 @@ function defaultSurfaces(rootDir: string): Surface[] {
   ];
 }
 
+// Two framework-dev files carry the wordlist AS DATA. Scanning them for the
+// phrases they enumerate is a category error — the audit named this the
+// "definitional table row" case (D19-SA19.2-07) — so they are excluded from the
+// framework-dev scan:
+//   - .claude/rules/anti-slop-enforcement.md — the wordlist definition table;
+//     every banned phrase appears in its "Banned Phrase" column.
+//   - .claude/skills/h4tcher-pr-resolve/SKILL.md — embeds the anti-slop grep in a
+//     code fence, listing banned phrases in a regex alternation as scan tooling.
+// POSIX rel paths (forward slash) to match the rels frameworkDevSurfaces builds.
+const WORDLIST_CARRIER_FILES: ReadonlySet<string> = new Set([
+  ".claude/rules/anti-slop-enforcement.md",
+  ".claude/skills/h4tcher-pr-resolve/SKILL.md",
+]);
+
+/**
+ * Discover the framework-dev maintainer-instruction surfaces to scan:
+ * `.claude/rules/*.md` and `.claude/skills/h4tcher-<name>/SKILL.md`, minus the
+ * WORDLIST_CARRIER_FILES. Glob-discovered (not a fixed list) so a future rule or
+ * skill is covered without editing this file — the durability intent of the
+ * finding. A missing `.claude/` tree yields no surfaces (not an error): the repo
+ * layout may omit it (e.g. a published package or a test rootDir).
+ */
+async function frameworkDevSurfaces(rootDir: string): Promise<Surface[]> {
+  const out: Surface[] = [];
+
+  const rulesDir = join(rootDir, ".claude", "rules");
+  try {
+    const entries = await readdir(rulesDir, { withFileTypes: true });
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!e.isFile() || !e.name.endsWith(".md")) continue;
+      const rel = `.claude/rules/${e.name}`;
+      if (WORDLIST_CARRIER_FILES.has(rel)) continue;
+      out.push({ rel, abs: join(rulesDir, e.name), kind: "framework-dev" });
+    }
+  } catch {
+    // .claude/rules absent — no framework-dev rule surfaces to scan.
+  }
+
+  const skillsDir = join(rootDir, ".claude", "skills");
+  try {
+    const entries = await readdir(skillsDir, { withFileTypes: true });
+    for (const e of entries.sort((a, b) => a.name.localeCompare(b.name))) {
+      if (!e.isDirectory() || !e.name.startsWith("h4tcher-")) continue;
+      const rel = `.claude/skills/${e.name}/SKILL.md`;
+      if (WORDLIST_CARRIER_FILES.has(rel)) continue;
+      // A skill dir without a SKILL.md is tolerated: the per-surface read in
+      // runValidator treats a missing file as a skip, not a failure.
+      out.push({ rel, abs: join(skillsDir, e.name, "SKILL.md"), kind: "framework-dev" });
+    }
+  } catch {
+    // .claude/skills absent — no framework-dev skill surfaces to scan.
+  }
+
+  return out;
+}
+
 // ── Core scan ─────────────────────────────────────────────────────
 
-const COMPILED = PATTERNS.map((p) => ({
-  ...p,
-  // Phrase boundaries: require a non-word edge so a longer word does not
-  // accidentally match a shorter pattern. Patterns carry explicit optional
-  // suffixes where relevant (e.g. "seamless(?:ly)?").
-  re: new RegExp(`(?<![\\w-])(${p.source})(?![\\w])`, "i"),
-}));
+type CompiledPattern = SlopPattern & { re: RegExp };
+
+function compilePatterns(patterns: readonly SlopPattern[]): CompiledPattern[] {
+  return patterns.map((p) => ({
+    ...p,
+    // Phrase boundaries: require a non-word edge so a longer word does not
+    // accidentally match a shorter pattern. Patterns carry explicit optional
+    // suffixes where relevant (e.g. "seamless(?:ly)?").
+    re: new RegExp(`(?<![\\w-])(${p.source})(?![\\w])`, "i"),
+  }));
+}
+
+// Marketing surfaces use every pattern; framework-dev surfaces skip the
+// marketing-only patterns (see SlopPattern.marketingOnly).
+const COMPILED_MARKETING = compilePatterns(PATTERNS);
+const COMPILED_FRAMEWORK_DEV = compilePatterns(PATTERNS.filter((p) => !p.marketingOnly));
 
 function scanText(
   surfaceRel: string,
   text: string,
   startLine: number,
+  compiled: readonly CompiledPattern[],
   sink: Finding[],
 ): void {
   const lines = text.split("\n");
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    for (const p of COMPILED) {
+    for (const p of compiled) {
       const m = line.match(p.re);
       if (!m) continue;
       if (p.qualifierEscape && QUALIFIER_RE.test(line)) continue;
@@ -216,7 +311,8 @@ function scanText(
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const rootDir = opts.rootDir ?? ROOT;
-  const surfaces = opts.surfaces ?? defaultSurfaces(rootDir);
+  const surfaces =
+    opts.surfaces ?? [...defaultSurfaces(rootDir), ...(await frameworkDevSurfaces(rootDir))];
   const findings: Finding[] = [];
   let scanned = 0;
 
@@ -230,8 +326,9 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       continue;
     }
     scanned += 1;
+    const compiled = s.kind === "framework-dev" ? COMPILED_FRAMEWORK_DEV : COMPILED_MARKETING;
     const { text, startLine } = s.extract ? s.extract(raw) : { text: raw, startLine: 1 };
-    scanText(s.rel, text, startLine, findings);
+    scanText(s.rel, text, startLine, compiled, findings);
   }
 
   return { findings, scannedSurfaces: scanned, errorCount: findings.length };

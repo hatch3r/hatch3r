@@ -43,6 +43,17 @@ import { parseFormatOption } from "./shared/output.js";
 const VERIFY_SUMMARY =
   "Detect drift in hatch3r-managed files by regenerating from canonical content and diffing";
 
+// D1-SA1.8-07 / D3-SA3.2-09 (Cycle 12 Wave 4, D1/D3, P5): single source of
+// truth for the program's `--help` description. The former copy opened with
+// "Battle-tested" — an unverifiable marketing claim the audit charter
+// (AUDIT.md directive 5) names as the canonical example of framing-not-evidence
+// — so the opener is dropped for a neutral descriptor. Exported so the
+// entrypoint subprocess test (src/__tests__/cli/entrypoint.test.ts) asserts
+// against this constant instead of hard-coding the copy, decoupling the suite
+// from the wording (a copy edit now touches one site).
+export const PROGRAM_DESCRIPTION =
+  "Agentic coding setup framework. Crack the egg. Hatch better agents.";
+
 // Agent command names that users might try to run directly in the terminal.
 // These are slash commands meant to be invoked inside an AI-powered editor, not
 // from the CLI. The `command:*` handler below uses this set to redirect such a
@@ -89,9 +100,7 @@ export function createProgram(): Command {
 
   program
     .name("hatch3r")
-    .description(
-      "Battle-tested agentic coding setup framework. Crack the egg. Hatch better agents.",
-    )
+    .description(PROGRAM_DESCRIPTION)
     .version(HATCH3R_VERSION)
     // D1-SA1.8-F-1.8-4 / D10-SA10.2-F9 (Cycle 10 Wave 4, P1): declare the
     // global `--no-update-check` flag so `hatch3r --help` enumerates it.
@@ -629,6 +638,22 @@ export function createProgram(): Command {
       "human",
     )
     .option("--quiet", "Suppress stdout chrome (banner, box, hints); stderr diagnostics still emit")
+    // D12-SA12.3-02 (Cycle 12 Wave 4, D12, CQ2): signpost that `show` prints the
+    // CANONICAL source, not the adapter-delivered bytes, and point to the
+    // rendered-output preview. Without this a first-time user inspecting "what
+    // my editor receives" mistakes the pre-transformation body for the shipped
+    // instructions — the render preview was reachable only from the
+    // undiscoverable `sync --dry-run --preview-tool` flag. A help-text
+    // cross-reference from `show`/`explain` is exactly the discoverability
+    // signpost the finding's falsifiability names.
+    .addHelpText(
+      "after",
+      "\nNote: `show` prints the CANONICAL source (frontmatter + body), not what an\n" +
+        "adapter delivers. On sync, the adapter wraps the body in HATCH3R:BEGIN/END\n" +
+        "markers, adds an NN- filename prefix, applies customization, and (Cursor)\n" +
+        "rewrites frontmatter to .mdc shape. To preview the rendered per-adapter\n" +
+        "output, run:  hatch3r sync --dry-run --preview-tool <adapter>\n",
+    )
     .action((id: string, opts: { format?: string; quiet?: boolean }) => showCommand(id, opts));
 
   program
@@ -741,6 +766,17 @@ export function createProgram(): Command {
     .option("--format <format>", "Output format: human (default) or json", "human")
     .option("--quiet", "Suppress stdout chrome (banner, boxes, hints); stderr diagnostics still emit")
     .option("--verbose", "Show detailed output")
+    // D12-SA12.3-02 (Cycle 12 Wave 4, D12, CQ2): cross-reference the rendered
+    // per-adapter output preview. `explain --source` shows which canonical files
+    // feed a generated output; the preview below shows the exact bytes an adapter
+    // writes — previously reachable only from the undiscoverable
+    // `sync --dry-run --preview-tool` flag.
+    .addHelpText(
+      "after",
+      "\nTip: `explain --source <output>` lists the canonical files behind a generated\n" +
+        "file. To preview the exact rendered bytes an adapter would write for a tool,\n" +
+        "run:  hatch3r sync --dry-run --preview-tool <adapter>\n",
+    )
     .action(explainCommand);
 
   // Catch-all for unknown commands -- redirect agent commands to the editor.

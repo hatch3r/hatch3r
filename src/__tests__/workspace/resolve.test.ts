@@ -144,6 +144,72 @@ describe("workspace resolve", () => {
       const result = resolveRepoConfig(defaults, overrides);
       expect(result.addedContent).not.toContain("hatch3r-researcher");
     });
+
+    it("reports no unknown content when knownContentIds is omitted", () => {
+      const result = resolveRepoConfig(defaults);
+      expect(result.unknownContent).toEqual([]);
+    });
+  });
+
+  describe("unknown content id handling (D1-SA1.10-10)", () => {
+    // The known-id universe the resolver validates against — the
+    // content-index item ids syncSingleRepo passes as `knownContentIds`.
+    const knownIds = new Set([
+      "hatch3r-researcher",
+      "hatch3r-implementer",
+      "hatch3r-reviewer",
+      "hatch3r-feature",
+      "hatch3r-code-standards",
+      "hatch3r-workflow",
+      "hatch3r-security",
+    ]);
+
+    it("moves an unknown include id into unknownContent and drops it from contentIds + addedContent", () => {
+      const overrides: WorkspaceRepoOverrides = {
+        // second id is a typo of hatch3r-security
+        contentOverrides: { include: ["hatch3r-security", "hatch3r-securty"] },
+      };
+      const result = resolveRepoConfig(defaults, overrides, undefined, undefined, knownIds);
+      expect(result.contentIds.has("hatch3r-security")).toBe(true);
+      expect(result.contentIds.has("hatch3r-securty")).toBe(false);
+      expect(result.addedContent).toContain("hatch3r-security");
+      expect(result.addedContent).not.toContain("hatch3r-securty");
+      expect(result.unknownContent).toEqual(["hatch3r-securty"]);
+    });
+
+    it("flags an unknown lockedContent id (force-add path) as unknown", () => {
+      const defaultsWithLock: WorkspaceDefaults = {
+        ...defaults,
+        lockedContent: ["hatch3r-lockd-typo"],
+      };
+      const result = resolveRepoConfig(defaultsWithLock, undefined, undefined, undefined, knownIds);
+      expect(result.contentIds.has("hatch3r-lockd-typo")).toBe(false);
+      expect(result.addedContent).not.toContain("hatch3r-lockd-typo");
+      expect(result.unknownContent).toContain("hatch3r-lockd-typo");
+    });
+
+    it("does not flag a known include id (unknownContent stays empty)", () => {
+      const overrides: WorkspaceRepoOverrides = {
+        contentOverrides: { include: ["hatch3r-security"] },
+      };
+      const result = resolveRepoConfig(defaults, overrides, undefined, undefined, knownIds);
+      expect(result.unknownContent).toEqual([]);
+      expect(result.contentIds.has("hatch3r-security")).toBe(true);
+      expect(result.addedContent).toContain("hatch3r-security");
+    });
+
+    it("is a no-op when knownContentIds is omitted — phantom retained for pre-fix callers", () => {
+      const overrides: WorkspaceRepoOverrides = {
+        // typo, but no known-id set supplied to validate against
+        contentOverrides: { include: ["hatch3r-securty"] },
+      };
+      const result = resolveRepoConfig(defaults, overrides);
+      expect(result.unknownContent).toEqual([]);
+      // Existing sync.ts / floorInvariant callers pass no known-id set, so the
+      // resolver must not change their effective selection: the phantom stays.
+      expect(result.contentIds.has("hatch3r-securty")).toBe(true);
+      expect(result.addedContent).toContain("hatch3r-securty");
+    });
   });
 
   describe("group-layer merge (D1-10)", () => {

@@ -18,7 +18,12 @@
 // output structure when modifying adapter logic or canonical content.
 
 import { describe, it, expect } from "vitest";
-import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
+import {
+  ADAPTER_CAPABILITIES,
+  ADAPTER_CAPABILITY_KEYS,
+  getAdapter,
+  getUnsupportedFeatureWarnings,
+} from "../../adapters/index.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import { HatchError, type HatchManifest, type Tool } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
@@ -181,6 +186,26 @@ describe("getUnsupportedFeatureWarnings", () => {
     expect(warnings).toEqual([]);
   });
 
+  // ── D2-SA2.5-02: handoffs joins the warning surface ──
+  //
+  // `Features.handoffs` toggles the `.hatch3r/handoffs/` bridge segment for
+  // every adapter (base.ts threads `ctx.features.handoffs`). The matrix now
+  // carries a `handoffs` column (true for all 3 adapters) and the warning loop
+  // enumerates it, so the matrix contract "every emission-affecting Features key
+  // has a column + a warning row" holds. Because all 3 adapters support it, the
+  // warning never fires — pin that so a future `handoffs: false` adapter (or a
+  // dropped column) surfaces here.
+  it("does not warn when handoffs is enabled (all 3 adapters support it)", () => {
+    for (const tool of ["cursor", "claude", "copilot"] as Tool[]) {
+      const manifest = makeManifest({ handoffs: true });
+      const warnings = getUnsupportedFeatureWarnings(tool, manifest);
+      expect(
+        warnings.some((w) => w.includes("handoffs")),
+        `${tool}: handoffs is supported by every adapter — must not warn (got: ${JSON.stringify(warnings)})`,
+      ).toBe(false);
+    }
+  });
+
   // ── Cycle 11 D2-3 regression: default `prompts` warns no adapter ──
   //
   // A fresh `createManifest({ tools: [tool] })` applies DEFAULT_FEATURES
@@ -203,6 +228,48 @@ describe("getUnsupportedFeatureWarnings", () => {
         warnings.some((w) => w.includes("prompts")),
         `${tool}: default path must not warn about prompts (got: ${JSON.stringify(warnings)})`,
       ).toBe(false);
+    }
+  });
+});
+
+// ── D2-SA2.5-07: ADAPTER_CAPABILITY_KEYS runtime closed-enum ──
+//
+// pack-trust-model §5.2 binds a pack manifest's `required_capabilities` to the
+// key set of the `AdapterCapability` interface, promising "keys added to
+// AdapterCapability in future cycles join the enum automatically". A TS
+// interface erases at compile time, so the runtime list must be DERIVED from a
+// live matrix row (not hand-copied) for that promise to hold structurally.
+// These tests pin the derivation and the per-adapter row-key uniformity the
+// enum depends on.
+describe("ADAPTER_CAPABILITY_KEYS (D2-SA2.5-07)", () => {
+  it("derives the runtime key list from the live matrix row keys", () => {
+    const claudeKeys = Object.keys(ADAPTER_CAPABILITIES.claude).sort();
+    expect([...ADAPTER_CAPABILITY_KEYS].sort()).toEqual(claudeKeys);
+  });
+
+  it("every registered adapter row exposes exactly the ADAPTER_CAPABILITY_KEYS set", () => {
+    // The §5.2 closed enum is only well-defined if every adapter row carries the
+    // same key set as the derived list — a row that gained or dropped a key
+    // would make `required_capabilities` validation adapter-dependent.
+    const expected = [...ADAPTER_CAPABILITY_KEYS].sort();
+    for (const [tool, caps] of Object.entries(ADAPTER_CAPABILITIES)) {
+      expect(
+        Object.keys(caps).sort(),
+        `${tool}: row key set must equal ADAPTER_CAPABILITY_KEYS`,
+      ).toEqual(expected);
+    }
+  });
+
+  it("includes the feature-flag, extended, and handoffs columns", () => {
+    for (const key of [
+      "agents",
+      "commands",
+      "handoffs",
+      "worktree",
+      "cliTools",
+      "nativeQuestionTool",
+    ] as const) {
+      expect(ADAPTER_CAPABILITY_KEYS).toContain(key);
     }
   });
 });

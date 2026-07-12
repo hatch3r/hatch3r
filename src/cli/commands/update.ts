@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
-import { writeProvenance, type PerAdapterOutputs } from "../../manifest/provenance.js";
+import { writeProvenance, type PerAdapterOutputs, type ProvenanceCommand } from "../../manifest/provenance.js";
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
@@ -175,6 +175,53 @@ export function throwOnPartialAdapterFailure(failedTools: number, totalTools: nu
     "ADAPTER_ERROR",
     guidance,
   );
+}
+
+/**
+ * D15-SA15.4-03 (Cycle 12 Wave 4, D15, P6): validate a `--pin-version` value
+ * before it is persisted to `.hatch3r/hatch.json::versionConstraint` and fed to
+ * `npm install hatch3r@<spec>` (`selfUpdate.ts::buildInvocation`). Without this
+ * guard a typo'd pin (`2.2.o`, `^2,2`, a stray surrounding space) is written
+ * verbatim and re-read on every subsequent `hatch3r update`, which then runs
+ * `npm install hatch3r@<garbage>` — a failure that recurs until the manifest is
+ * hand-cleared and reads like a registry problem rather than a self-inflicted
+ * typo. `latest` is the pin-clearing sentinel handled by the caller and is not
+ * passed here.
+ *
+ * Accepts an exact semver version OR a semver RANGE (the forms
+ * `npm install hatch3r@<spec>` resolves): an optional comparator operator
+ * (`^ ~ > >= < <= =`) and optional leading `v`, a version core (`1` / `1.2` /
+ * `1.2.3` or an `x`/`*` wildcard segment), optional `-prerelease` and `+build`,
+ * composed into hyphen ranges (`1.2.3 - 2.3.4`), whitespace-joined comparator
+ * sets (`>=1.0.0 <2.0.0`), and `||` unions. Validated inline rather than via
+ * `node-semver`: that package is only a transitive dependency here (no
+ * `@types/semver`, and `package.json` is release-owned), so importing it
+ * directly would not type-check.
+ */
+export function isValidVersionPin(spec: string): boolean {
+  if (typeof spec !== "string") return false;
+  // Reject surrounding whitespace outright (`npm install hatch3r@ 2.2.0` cannot
+  // resolve); internal whitespace between comparators stays legal below.
+  if (spec.length === 0 || spec.trim() !== spec) return false;
+  const seg = "(?:[0-9]+|[xX*])"; // numeric or x-range wildcard segment
+  const core = `${seg}(?:\\.${seg})?(?:\\.${seg})?`; // 1 | 1.2 | 1.2.3 | 1.x
+  const pre = "(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?"; // -beta.1
+  const build = "(?:\\+[0-9A-Za-z][0-9A-Za-z.-]*)?"; // +build.5
+  const comparator = new RegExp(`^(?:[<>]=?|[=~^])?v?${core}${pre}${build}$`);
+  for (const orClause of spec.split("||")) {
+    const clause = orClause.trim();
+    if (clause.length === 0) return false;
+    // Hyphen range `A - B` (spaces mandatory around the hyphen per the semver
+    // grammar) → validate both endpoints; otherwise a whitespace-joined
+    // comparator set where every token must parse.
+    const hyphen = clause.split(/\s+-\s+/);
+    const tokens =
+      hyphen.length === 2
+        ? hyphen.map((t) => t.trim())
+        : clause.split(/\s+/).filter((t) => t.length > 0);
+    if (tokens.length === 0 || !tokens.every((t) => comparator.test(t))) return false;
+  }
+  return true;
 }
 
 export interface UpdateResult {
@@ -851,11 +898,21 @@ export async function runRegenerate(
   // and `hatch3r explain --source` reflect the regenerated outputs after an
   // `update` — previously only `sync` rewrote the baseline, so post-update the
   // provenance manifest was stale (its `lastCommand` was even hard-coded
-  // "sync"). `lastCommand: "update"` records the originating command;
-  // `failedAdapters` drives the D11-M2 carry-forward so a partially-failed
-  // update keeps the failed adapters' prior rows. Write failures surface via
-  // `warn()` and never abort the regenerate (Silent Failure Contract, P5).
-  await writeProvenance(rootDir, perAdapterOutputs, "update", {
+  // "sync"). `failedAdapters` drives the D11-M2 carry-forward so a partially-
+  // failed update keeps the failed adapters' prior rows. Write failures surface
+  // via `warn()` and never abort the regenerate (Silent Failure Contract, P5).
+  //
+  // D12-SA12.2-02 (Cycle 12 Wave 4, D12, P5): attribute `lastCommand` to the
+  // ORIGINATING command, not the shared regeneration mechanism. `runRegenerate`
+  // backs three entrypoints (`update`, `config <k>=<v>`, `verify --fix`) and
+  // already receives their distinct identity as `snapshotCommandName`; thread
+  // it into the provenance command so a `config` run stamps `"config"` instead
+  // of masquerading as `"update"`. `verify-fix` deliberately maps to `"update"`
+  // (a repair-regeneration is mechanically an update); every other name is
+  // identity — and, being a `ProvenanceCommand` member, type-checks directly.
+  const provenanceCommand: ProvenanceCommand =
+    snapshotCommandName === "verify-fix" ? "update" : snapshotCommandName;
+  await writeProvenance(rootDir, perAdapterOutputs, provenanceCommand, {
     failedAdapters: adapterFailures.map((f) => f.tool),
     onWarn: warn,
   });
@@ -1518,6 +1575,18 @@ export async function updateCommand(
   // subsequent runs honor the pin without re-passing the flag.
   let versionConstraint: string | undefined = _opts?.pinVersion ?? m.versionConstraint;
   if (_opts?.pinVersion) {
+    // D15-SA15.4-03 (Cycle 12 Wave 4, D15, P6): reject a malformed pin at accept
+    // time — before the dry-run fork, before `writeManifest`, before any install
+    // — so a typo cannot be persisted and silently re-break every future
+    // `update`. `latest` is the valid pin-clearing sentinel and skips the check.
+    if (_opts.pinVersion !== "latest" && !isValidVersionPin(_opts.pinVersion)) {
+      throw new HatchError(
+        `Invalid --pin-version value '${_opts.pinVersion}'. Expected a semver version or range (e.g. '2.2.0', '^2.2.0', '>=2.0.0 <3.0.0'), or 'latest' to clear the pin.`,
+        undefined,
+        "VALIDATION_ERROR",
+        "Pass a valid npm version spec, or `--pin-version latest` to remove the pin.",
+      );
+    }
     if (_opts.pinVersion === "latest") {
       versionConstraint = undefined;
       info(

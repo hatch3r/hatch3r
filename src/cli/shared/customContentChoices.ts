@@ -2,7 +2,14 @@ import inquirer from "inquirer";
 import { ORCHESTRATION_REQUIRED_AGENTS, type CatalogItem } from "../../content/index.js";
 import { admitsUnconditionally } from "../../content/tags.js";
 
-/** Display labels for primary content tags (custom profile checkbox groups). */
+/**
+ * Explicit display labels for primary content tags whose header text differs
+ * from a mechanical Title-Case of the tag (acronyms like `devops`→"DevOps",
+ * re-spellings like `a11y`→"Accessibility" / `customize`→"Customization", and
+ * the slash-styled `floor:ui-ux`→"UI/UX Floor"). Tags absent here fall through
+ * to {@link humanizeTag}, so this map only needs the special cases and never
+ * goes fully stale as the 76-tag registry (2.0.0) grows — D2-SA2.6-06.
+ */
 const CONTENT_TAG_LABELS: Record<string, string> = {
   planning: "Planning",
   implementation: "Implementation",
@@ -16,8 +23,52 @@ const CONTENT_TAG_LABELS: Record<string, string> = {
   a11y: "Accessibility",
   performance: "Performance",
   customize: "Customization",
+  "floor:ui-ux": "UI/UX Floor",
   other: "Other",
 };
+
+/**
+ * Acronyms / stylized tokens that a mechanical first-letter capitalization
+ * would mangle, keyed on the lowercased kebab/colon token. Grounded in the live
+ * tag registry (`src/content/tags.ts` — `cli`, `ui`, `ux`, `ai` appear as tag
+ * tokens; `api` added defensively for future tags). D2-SA2.6-06.
+ */
+const TAG_ACRONYMS: Record<string, string> = {
+  cli: "CLI",
+  ui: "UI",
+  ux: "UX",
+  ai: "AI",
+  api: "API",
+};
+
+/**
+ * Title-Case a primary tag into a picker group header when it has no explicit
+ * {@link CONTENT_TAG_LABELS} entry. Strips a `floor:` / `ctx:` facet prefix
+ * (appending " Floor" for the former, so `floor:security`→"Security Floor"),
+ * splits the remainder on `-`, `_`, `:`, and upper-cases each token (acronyms
+ * via {@link TAG_ACRONYMS}). This is the future-proof fallback that keeps every
+ * realized group header consistent instead of leaking raw kebab/facet syntax
+ * like "── floor:security (5) ──" or "── cli-tools (6) ──" (D2-SA2.6-06). The
+ * picker's own authoring contract says a `floor:*`/`ctx:*` facet must never
+ * lead a header, so this humanizes it rather than printing it verbatim.
+ */
+export function humanizeTag(tag: string): string {
+  let base = tag;
+  let suffix = "";
+  if (base.startsWith("floor:")) {
+    base = base.slice("floor:".length);
+    suffix = " Floor";
+  } else if (base.startsWith("ctx:")) {
+    base = base.slice("ctx:".length);
+  }
+  const titled = base
+    .split(/[-_:]/)
+    .filter((token) => token.length > 0)
+    .map((token) => TAG_ACRONYMS[token] ?? token.charAt(0).toUpperCase() + token.slice(1))
+    .join(" ");
+  // Fall back to the raw tag only if humanization produced nothing (empty tag).
+  return (titled + suffix).trim() || tag;
+}
 
 type TagGroupedCustomContentChoice =
   | InstanceType<typeof inquirer.Separator>
@@ -71,8 +122,10 @@ export function buildTagGroupedCustomContentChoices(
 
   const groupedChoices: TagGroupedCustomContentChoice[] = [];
   for (const [tag, groupItems] of tagGroups) {
+    // D2-SA2.6-06: explicit label when one exists, else Title-Case the tag via
+    // `humanizeTag` — never render a raw kebab/facet header (e.g. "floor:security").
     groupedChoices.push(
-      new inquirer.Separator(`── ${CONTENT_TAG_LABELS[tag] ?? tag} (${groupItems.length}) ──`),
+      new inquirer.Separator(`── ${CONTENT_TAG_LABELS[tag] ?? humanizeTag(tag)} (${groupItems.length}) ──`),
     );
     for (const item of groupItems) {
       // D10-13 (Cycle 11): floor items (`protected` OR any `floor:*` tag) are

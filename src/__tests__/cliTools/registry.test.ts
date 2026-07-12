@@ -332,19 +332,25 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(xh!.minVersion).toBe(">=0.25.3");
   });
 
-  it("playwright entry floors at >=1.55.1 + securityNote cites the installer-MitM + Chromium-roll CVEs (D21-4, Cycle 11)", () => {
-    // Cycle 11 D21-4 (SA21.6-F1): playwright was the only tier-2 browser tool
-    // with no version floor while its sandbox image is recommended for
-    // navigating untrusted URLs. CVE-2025-59288 (installer MitM in
-    // `npx playwright install`, CVSS 8.7) is fixed in 1.55.1; the bundled
-    // Chromium carries CVE-2026-2441 (rolled per monthly release). The entry
-    // pins >=1.55.1 and the securityNote carries the Chromium-currency caution.
+  it("playwright floors at >=1.60.0 to machine-cover the CVE-2026-2441 Chromium fix + retains the installer-MitM CVE note (D21-SA21.6-07, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.6-07: the prior >=1.55.1 floor machine-covered only the
+    // installer CVE (CVE-2025-59288, fixed 1.55.1), leaving the bundled-Chromium
+    // RCE CVE-2026-2441 (fixed in Chromium 146.0.7680.31, playwright issue
+    // #39574) to prose alone. v1.60.0 is the earliest release verified to bundle
+    // a Chromium past that fix (148.0.7778.96, per the playwright releases page
+    // accessed 2026-07-11) — 1.59.x's bundled Chromium is unlisted there — so the
+    // floor is raised to >=1.60.0 to enforce both CVEs. The installer-CVE tokens
+    // (CVE-2025-59288 / 1.55.1) and CVE-2026-2441 stay in the securityNote.
     const playwright = AVAILABLE_CLI_TOOLS.playwright;
-    expect(playwright.minVersion).toBe(">=1.55.1");
+    expect(playwright.minVersion).toBe(">=1.60.0");
     expect(playwright.securityNote).toBeDefined();
     expect(playwright.securityNote).toContain("CVE-2025-59288");
     expect(playwright.securityNote).toContain("CVE-2026-2441");
+    // The installer-CVE fix version is retained; the new browser-engine floor is named.
     expect(playwright.securityNote).toContain("1.55.1");
+    expect(playwright.securityNote).toContain("1.60.0");
+    // The Chromium fix build is cited so the floor's basis is auditable.
+    expect(playwright.securityNote).toContain("146.0.7680.31");
   });
 
   it("sd Linux recipe uses cargo binstall (v1.1.0 GitHub-release binary) + minVersion >=1.1.0 (D21-6, Cycle 11)", () => {
@@ -394,16 +400,146 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(containerUse!.minVersion).toBe(">=0.4.2");
   });
 
-  it("podman entry carries minVersion + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-F03)", () => {
+  it("podman floor is normalized to the >=5.8.2 range form + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-04, Cycle 12)", () => {
     // C9-H92: Podman 5.8.2 patches CVE-2026-33414 — Windows-only PowerShell
     // command injection on the Hyper-V backend via `podman machine init`.
-    // The securityNote carries an explicit `Windows only` prefix so mac /
-    // linux consumers see the platform scope inline.
+    // Cycle 12 D21-SA21.6-04: podman shipped a 6.x major that the unpinned
+    // channels now resolve to; the floor stays at 5.8.2 (still clears the only
+    // podman CVE) but is normalized from the bare "5.8.2" string to the
+    // ">=5.8.2" range form so it reads unambiguously as a floor (matching
+    // docker's ">=29.5.2"), not an exact pin.
     const podman = AVAILABLE_CLI_TOOLS.podman;
-    expect(podman.minVersion).toBe("5.8.2");
+    expect(podman.minVersion).toBe(">=5.8.2");
     expect(podman.securityNote).toBeDefined();
     expect(podman.securityNote).toContain("CVE-2026-33414");
     expect(podman.securityNote).toContain("Windows only");
+  });
+
+  it("ast-grep linux cargo recipe pins --locked for supply-chain reproducibility (D21-SA21.1-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.1-05: `cargo install ast-grep` omitted `--locked`,
+    // diverging from its own toolbox skill row and from every other
+    // cargo-installed registry tool (xh/taplo/qsv/difftastic). `--locked`
+    // resolves against the crate's committed Cargo.lock instead of
+    // channel-current transitive deps.
+    const astGrep = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)["ast-grep"];
+    expect(astGrep).toBeDefined();
+    const linux = astGrep!.install.linux.map((c) => c.command);
+    expect(linux).toContain("cargo install ast-grep --locked");
+    expect(linux).not.toContain("cargo install ast-grep");
+  });
+
+  it("dasel linux go-install is pinned to the v3.11.0 floor tag, not @latest (D15-SA15.7-05, Cycle 12)", () => {
+    // Cycle 12 D15-SA15.7-05: the dasel linux recipe installed `@latest` while
+    // the entry's own minVersion is ">=3.11.0" and the securityNote says pin
+    // >=3.11.0 — a floating @latest cannot honor the stated floor. Pinned to the
+    // v3.11.0 tag (the go-module `/v3` path takes `v3.x.y` tags).
+    const dasel = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).dasel;
+    expect(dasel).toBeDefined();
+    const linux = dasel!.install.linux.map((c) => c.command);
+    expect(linux.some((c) => c.includes("dasel/v3/cmd/dasel@v3.11.0"))).toBe(true);
+    expect(linux.some((c) => c.includes("@latest"))).toBe(false);
+    // The pinned tag satisfies the entry's own stated floor.
+    expect(dasel!.minVersion).toBe(">=3.11.0");
+  });
+
+  it("stagehand is marked packageType: 'library' — its npm package ships no bin (D21-SA21.7-04, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-04 (detection-contract class C): @browserbasehq/stagehand
+    // is an npm library with no executable bin, so a `command -v stagehand` PATH
+    // probe can never resolve. packageType: "library" records that shape so the
+    // npm-global-bin gate below exempts it (and the class-C detection follow-on
+    // can suppress the meaningless PATH probe).
+    const stagehand = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).stagehand;
+    expect(stagehand).toBeDefined();
+    expect(stagehand!.packageType).toBe("library");
+  });
+
+  it("registry invariant (i): every `npm install -g` tool declares a CLI bin or is packageType: 'library' (D21-SA21.7-04, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-04 (detection-contract class C — net-new gate): the
+    // detection contract resolves every tool by a single PATH probe, so a tool
+    // whose npm package ships NO executable (stagehand) registers a probe that
+    // can never resolve. This gate forces a bin-audit decision at every
+    // npm-global registration: the entry must EITHER be a bin-declaring package
+    // listed in NPM_GLOBAL_BIN_DECLARING (after verifying its published `bin`
+    // map) OR be explicitly marked packageType: "library". The curated allowlist
+    // is the offline-enforceable form of the finding's "fixture-checked" intent —
+    // no future tool can silently re-introduce the class-C bug.
+    const NPM_GLOBAL_BIN_DECLARING = new Set<string>([
+      // npm-global packages verified to ship an executable `bin`. Empty today:
+      // stagehand (the only `npm install -g` entry) ships no bin and is
+      // packageType: "library". Add an id here only after confirming the
+      // package's published `bin` map is non-empty.
+    ]);
+    for (const entry of allEntries) {
+      const npmGlobal = (["mac", "linux", "win"] as const).some((os) =>
+        entry.install[os].some((c) => /\bnpm install -g\b/.test(c.command)),
+      );
+      if (!npmGlobal) continue;
+      const accounted = NPM_GLOBAL_BIN_DECLARING.has(entry.id) || entry.packageType === "library";
+      expect(
+        accounted,
+        `${entry.id} installs via 'npm install -g' but neither declares a bin (add to NPM_GLOBAL_BIN_DECLARING after a bin audit) nor is marked packageType: "library" — a PATH probe on a no-bin package can never resolve (D21-SA21.7-04 class C)`,
+      ).toBe(true);
+    }
+  });
+
+  it("registry invariant (ii): every probe is collision-audited; colliding probes carry a disambiguation extensionProbe (D21-SA21.7-04, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-04 (detection-contract class A — net-new gate): a bare
+    // `command -v <probe>` false-positives when the probe name resolves for a
+    // machine that lacks the actual tool — either an unrelated system binary
+    // (ast-grep's `sg` => shadow-utils /usr/bin/sg) or a base CLI present without
+    // its extension (az-devops's `az` without the azure-devops extension). Every
+    // registry probe must carry an explicit collision verdict here (so adding a
+    // tool forces a probe audit), and any probe audited as colliding MUST declare
+    // an extensionProbe so detect.ts confirms identity before reporting installed.
+    const PROBE_COLLISION_AUDIT: Record<string, { collides: boolean; note?: string }> = {
+      rg: { collides: false },
+      fd: { collides: false },
+      jq: { collides: false },
+      yq: { collides: false },
+      gh: { collides: false },
+      delta: { collides: false },
+      bat: { collides: false },
+      sd: { collides: false },
+      sg: { collides: true, note: "shadow-utils /usr/bin/sg (setgroups) on Linux — ast-grep issue #706/#1659" },
+      zstd: { collides: false },
+      curl: { collides: false },
+      playwright: { collides: false },
+      http: { collides: false },
+      xh: { collides: false },
+      duckdb: { collides: false },
+      qsv: { collides: false },
+      taplo: { collides: false },
+      glab: { collides: false },
+      az: { collides: true, note: "base Azure CLI resolves without the azure-devops extension" },
+      docker: { collides: false },
+      llm: { collides: false },
+      fzf: { collides: false },
+      lazygit: { collides: false },
+      difft: { collides: false },
+      rtk: { collides: false },
+      stagehand: { collides: false },
+      aichat: { collides: false },
+      mods: { collides: false },
+      comby: { collides: false },
+      mlr: { collides: false },
+      csvlook: { collides: false },
+      podman: { collides: false },
+      dasel: { collides: false },
+      "container-use": { collides: false },
+    };
+    for (const entry of allEntries) {
+      const verdict = PROBE_COLLISION_AUDIT[entry.probe];
+      expect(
+        verdict,
+        `probe "${entry.probe}" (${entry.id}) is not in PROBE_COLLISION_AUDIT — add a collision verdict before registering the tool`,
+      ).toBeDefined();
+      if (verdict?.collides) {
+        expect(
+          entry.extensionProbe,
+          `probe "${entry.probe}" (${entry.id}) is audited as colliding but declares no extensionProbe to disambiguate (D21-SA21.7-04 class A)`,
+        ).toBeDefined();
+      }
+    }
   });
 
   it("optional schema fields are correctly typed on every entry (D15-SA15.7-F01 / D21-SA21.7-F02)", () => {

@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach, beforeEach, vi } from "vitest";
-import { mkdtemp, mkdir, writeFile, readFile, rm, access } from "node:fs/promises";
+import { mkdtemp, mkdir, writeFile, readFile, rm, access, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -15,6 +15,8 @@ import {
   readMaturityTier,
   readConfidenceFloor,
   isValidGitBranchName,
+  validateManifest,
+  collectManifestErrors,
 } from "../../manifest/hatchJson.js";
 import {
   DEFAULT_CONFIDENCE_FLOOR,
@@ -285,6 +287,43 @@ describe("hatchJson", () => {
       expect(result.platform).toBeUndefined();
       expect(result.namespace).toBe("");
       expect(result.project).toBe("");
+    });
+
+    // D3-SA3.3-08 (Low, CQ8): migrateManifest must not mutate the caller's
+    // input. The pre-fix shallow spread (`{ ...raw }`) left the nested
+    // `managedFilesByAdapter` object shared with the input, so the
+    // drop-shared-sentinel migration deleted `_shared` from the CALLER's object
+    // while top-level fields stayed copy-on-write — an asymmetric contract.
+    // structuredClone makes the function uniformly pure; this pins that BOTH
+    // nested and top-level input fields survive the call unchanged.
+    it("does not mutate the caller's input (nested objects included)", () => {
+      const raw: Record<string, unknown> = {
+        version: "2.0.0",
+        owner: "acme",
+        repo: "app",
+        tools: ["cursor", "agents-md"],
+        managedFilesByAdapter: {
+          cursor: [".cursor/rules/x.mdc"],
+          _shared: ["AGENTS.md"],
+        },
+      };
+      const before = JSON.stringify(raw);
+
+      const out = migrateManifest(raw);
+
+      // The returned object carries every migration…
+      expect(out.version).toBe("3.0.0");
+      expect(out.tools).not.toContain("agents-md");
+      expect(
+        (out.managedFilesByAdapter as Record<string, unknown>)._shared,
+      ).toBeUndefined();
+
+      // …but the caller's input is byte-for-byte unchanged — no nested leak.
+      expect(JSON.stringify(raw)).toBe(before);
+      expect(
+        (raw.managedFilesByAdapter as Record<string, unknown>)._shared,
+      ).toEqual(["AGENTS.md"]);
+      expect(raw.tools).toEqual(["cursor", "agents-md"]);
     });
   });
 
@@ -1092,6 +1131,32 @@ describe("hatchJson", () => {
       expect(result!.mcp.servers).toEqual(["github"]);
       expect(result!.owner).toBe("acme");
       expect(result!.repo).toBe("app");
+    });
+
+    // D11-SA11.4-05 (Info, CQ4): a second writeManifest with a byte-identical
+    // manifest must short-circuit before atomicWriteFile — mirroring
+    // safeWriteFile's G3 skip-unchanged guard — so `.hatch3r/hatch.json` does
+    // not churn its mtime on every idempotent sync/update/init. A differing
+    // manifest is still written (the guard only skips identical bytes).
+    it("skips the atomic write when the manifest is byte-identical (no mtime churn)", async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-write-"));
+      await mkdir(join(tempDir, ".hatch3r"), { recursive: true });
+      const manifestPath = join(tempDir, ".hatch3r", "hatch.json");
+
+      const manifest = createManifest({ tools: ["cursor"], mcpServers: ["github"] });
+      await writeManifest(tempDir, manifest);
+      const firstMtimeMs = (await stat(manifestPath)).mtimeMs;
+
+      // A second, byte-identical write returns before touching disk, so the
+      // file's mtime is unchanged (deterministic: the write never happens).
+      await writeManifest(tempDir, manifest);
+      expect((await stat(manifestPath)).mtimeMs).toBe(firstMtimeMs);
+
+      // A differing manifest is NOT skipped — the new bytes land on disk.
+      const changed = createManifest({ tools: ["cursor", "claude"], mcpServers: ["github"] });
+      await writeManifest(tempDir, changed);
+      const readBack = await readManifest(tempDir);
+      expect(readBack!.tools).toEqual(["cursor", "claude"]);
     });
   });
 
@@ -2387,5 +2452,73 @@ describe("migrateManifest — property-based idempotency (D3-SA3.5-04)", () => {
         ).not.toContain("_shared");
       }
     }
+  });
+});
+
+// ── validateManifest ⇄ collectManifestErrors parity (D3-SA3.3-11) ──────
+//
+// readManifest runs collectManifestErrors first (throwing on any error) and
+// then validateManifest as a defense-in-depth type-guard. validateManifest is
+// DEFINED as `collectManifestErrors(x).length === 0`, so that second check is
+// unreachable while both stay in sync — the throw is v8-ignored at the source
+// (src/manifest/hatchJson.ts::readManifest). This suite makes the parity
+// contract EXECUTABLE instead of aspirational: if a future refactor
+// reimplements validateManifest independently and it drifts from
+// collectManifestErrors, this property fails and re-arms the dead branch.
+describe("validateManifest ⇄ collectManifestErrors parity (D3-SA3.3-11)", () => {
+  function base(): Record<string, unknown> {
+    return {
+      version: "3.0.0",
+      hatch3rVersion: "2.0.0",
+      owner: "acme",
+      repo: "app",
+      namespace: "acme",
+      project: "app",
+      tools: ["cursor"],
+      features: { agents: true, skills: true, rules: true, prompts: true, commands: true, mcp: true, githubAgents: true, hooks: true },
+      mcp: { servers: [] },
+      managedFiles: [],
+    };
+  }
+
+  // A matrix spanning non-objects, structurally-broken manifests, one malformed
+  // instance of several optional sub-schemas, and well-formed controls — the
+  // same shapes the negative-path suites above drive through readManifest.
+  const inputs: unknown[] = [
+    base(),
+    null,
+    undefined,
+    42,
+    "nope",
+    [],
+    {},
+    { ...base(), tools: "cursor" },
+    { ...base(), mcp: [] },
+    { ...base(), mcp: { servers: [1] } },
+    { ...base(), managedFiles: null },
+    { ...base(), maturity: "enterprice" },
+    { ...base(), maturity: "enterprise" },
+    { ...base(), confidenceFloor: "paranoid" },
+    { ...base(), confidenceFloor: "high" },
+    { ...base(), board: { owner: 1 } },
+    { ...base(), board: { owner: "a", repo: "b", defaultBranch: "foo..bar" } },
+    { ...base(), models: { agents: { "hatch3r-researcher": 42 } } },
+    { ...base(), cliTools: { enabled: "yes", selected: [] } },
+    { ...base(), managedFilesByAdapter: { cursor: "x" } },
+    { ...base(), packageManager: "deno" },
+  ];
+
+  it("validateManifest(x) === (collectManifestErrors(x).length === 0) for every input", () => {
+    for (const x of inputs) {
+      expect(validateManifest(x)).toBe(collectManifestErrors(x).length === 0);
+    }
+  });
+
+  it("agrees on a well-formed manifest (both accept) and a broken one (both reject)", () => {
+    expect(validateManifest(base())).toBe(true);
+    expect(collectManifestErrors(base())).toEqual([]);
+    const broken = { ...base(), tools: "cursor" };
+    expect(validateManifest(broken)).toBe(false);
+    expect(collectManifestErrors(broken).length).toBeGreaterThan(0);
   });
 });

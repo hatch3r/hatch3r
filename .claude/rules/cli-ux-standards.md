@@ -9,9 +9,9 @@ precedence: high
 
 # CLI UX Standards
 
-> Last updated: 2026-07-09
+> Last updated: 2026-07-11
 
-**Pillars:** P1 (CLI UX Excellence)
+**Pillars:** P1 (Adoption Experience — CLI surface; the docs-currency and methodology-onboarding surfaces of P1 are audited under D10, not this rule)
 
 Requirements for all CLI code in `src/cli/`:
 
@@ -21,6 +21,6 @@ Requirements for all CLI code in `src/cli/`:
 4. **First-run success:** `npx hatch3r init` must succeed with only Node 22+ installed — no other prerequisites
 5. **Minimize decisions:** Reduce prompts per flow. Use smart defaults with override flags
 6. **Exit codes:** differentiated per failure kind via `ERROR_CODE_TO_EXIT_CODE` in `src/types.ts` (single source of truth, BSD `sysexits.h` convention): 0 = success / clean user cancel, 2 = usage error (Commander), 64 `VALIDATION_ERROR`, 65 `CONFIG_ERROR`, 69 `ADAPTER_ERROR`, 70 `UNKNOWN_ERROR`, 73 `INTEGRITY_ERROR`, 74 `FS_ERROR`/`CLEAN_ERROR`, 75 `NETWORK_ERROR`/`LOCK_TIMEOUT`, 130 = SIGINT. The published user-facing table lives in `docs/troubleshooting.md` → Exit Codes. CI scripts MUST branch on the exact code, not `[ $? -eq 1 ]` (hatch3r emits no exit 1 for command failures).
-7. **Standard flag matrix (2.0.0):** every non-stub command/subcommand registers `--format <human|json>` (normalized via `parseFormatOption` in `src/cli/shared/output.ts`) + `--quiet`; mutating commands register `--dry-run` with a wired preview; `--verbose` is registered only where detail output is actually read — a registered-but-unread flag violates the Silent Failure Contract (CONSTITUTION §2). Command endings flow through `finishCommand()` in `src/cli/shared/commandOutput.ts`: one outcome box + ≤3 next-steps in human mode, or exactly one JSON envelope (`status`, payload fields, `command`, `hatch3rVersion`, `timestamp`) on stdout in JSON mode — never both. `--format json` on a prompting invocation without `--yes` is an exit-2 usage error (`beginCommand` rejects before any UI flag mutates). Drift guard: the "W5 flag-surface drift guard" suite in `src/__tests__/cli/index.test.ts` fails when a new registration is not classified into the matrix.
+7. **Standard flag matrix (2.0.0):** every non-stub command/subcommand registers `--format <human|json>` (normalized via `parseFormatOption` in `src/cli/shared/output.ts`) + `--quiet`; mutating commands register `--dry-run` with a wired preview; `--verbose` is registered only where detail output is actually read — a registered-but-unread flag violates the Silent Failure Contract (CONSTITUTION §2). Command endings flow through `finishCommand()` in `src/cli/shared/commandOutput.ts`: one outcome box + ≤3 next-steps in human mode, or exactly one JSON envelope (`status`, payload fields, `command`, `hatch3rVersion`, `timestamp`) on stdout in JSON mode — never both. Adoption is incremental and not yet complete: 15 of the 20 files in `src/cli/commands/` route through `finishCommand()`; `validate`, `verify`, and `status` are the remaining JSON-emitting hold-outs, still emitting pre-W5 hand-rolled JSON without the `command` envelope field (`add` and `init` are prompt-first interactive commands). Those three payloads are the sanctioned exception pending migration, not a second endorsed pattern. `--format json` on a prompting invocation without `--yes` is an exit-2 usage error (`beginCommand` rejects before any UI flag mutates). Drift guard: the "W5 flag-surface drift guard" suite in `src/__tests__/cli/index.test.ts` fails when a new registration is not classified into the matrix.
 
 Audit checklist: `governance/audit/domains/D10-documentation-devex.md`

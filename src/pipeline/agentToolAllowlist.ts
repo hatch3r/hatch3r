@@ -504,6 +504,65 @@ export const ALL_TOOL_CATEGORIES = [
 ] as const;
 
 /**
+ * Per-adapter ASI02 per-category enforcement strength (D15-SA15.3-04).
+ *
+ * `AGENT_TOOL_POLICIES` is one canonical registry, but the three adapters
+ * block an out-of-policy tool CATEGORY at different strengths — hard
+ * per-category blocking at the tool-call boundary is Claude-only. This record
+ * makes that asymmetry explicit so the ASI02 self-assessment
+ * (`complianceVerification.ts` `asi02-tool-allowlists`) and SECURITY.md
+ * §Allowlist Hybrid Contract do not read as uniform hard enforcement across
+ * all three adapters.
+ *
+ * `perCategory` = per-category tool-call blocking strength:
+ *  - claude: hard — `buildClaudePreToolUseHookScript` denies an out-of-policy
+ *    category at the tool-call boundary (per-category `denyToolCall` on
+ *    `!policy.allowedTools.includes(category)`, this file).
+ *  - cursor: soft — Cursor's `preToolUse` payload carries no agent-identity
+ *    field (cursor.com/docs/agent/hooks, accessed 2026-07-10), so per-category
+ *    granularity is rule-delegated; the `subagentStart` NO_POLICY deny and the
+ *    `readonly: true` frontmatter still bind hard (see `hardControls`).
+ *  - copilot: none — no PreToolUse gate (`hooks: false`); the emitted `tools:`
+ *    array is an allowlist only, so per-category enforcement is
+ *    instruction-delegated (SECURITY.md §Allowlist Hybrid Contract, Copilot row).
+ *
+ * Re-verify each cycle: if Cursor adds an agent-identity field to `preToolUse`,
+ * promote cursor `perCategory` to `hard`.
+ */
+export type Asi02PerCategoryStrength = "hard" | "soft" | "none";
+
+export interface Asi02AdapterEnforcement {
+  /** Per-category tool-call blocking strength at the tool-call boundary. */
+  perCategory: Asi02PerCategoryStrength;
+  /** Runtime controls that bind hard regardless of `perCategory` strength. */
+  hardControls: readonly string[];
+  /** One-line summary rendered into the ASI02 self-assessment output. */
+  summary: string;
+}
+
+export const ASI02_ADAPTER_ENFORCEMENT_STRENGTH: Readonly<
+  Record<"claude" | "cursor" | "copilot", Asi02AdapterEnforcement>
+> = {
+  claude: {
+    perCategory: "hard",
+    hardControls: ["PreToolUse per-category deny", "PreToolUse NO_POLICY deny"],
+    summary: "Claude=hard per-category PreToolUse deny",
+  },
+  cursor: {
+    perCategory: "soft",
+    hardControls: ["subagentStart NO_POLICY deny", "readonly frontmatter"],
+    summary:
+      "Cursor=hard NO_POLICY-at-spawn + hard readonly + soft per-category (rule-delegated)",
+  },
+  copilot: {
+    perCategory: "none",
+    hardControls: [],
+    summary:
+      "Copilot=allowlist-only tools array, instruction-delegated (no runtime deny)",
+  },
+} as const;
+
+/**
  * Compute Levenshtein distance between two strings for "Did you mean?"
  * suggestions when a policy references an unknown tool category.
  *

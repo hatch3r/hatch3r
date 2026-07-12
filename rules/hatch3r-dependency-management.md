@@ -53,15 +53,15 @@ When trusted publishing is not yet enabled, publish with `npm publish --provenan
 
 > Maturity tier: team+ — solo projects may defer. Per-release SBOM publishing earns its cost once consumers or compliance audits depend on it.
 
-Every release artifact ships a CycloneDX 1.6 or SPDX 3.0.1 SBOM, committed as a release asset and signed with the same Sigstore identity that signed the artifact. CycloneDX 1.6 is ECMA-424 ratified and broadly supported (Syft, Trivy, cdxgen, GitLab native). SPDX 3.0.1 is the BSI TR-03183-2 / EU CRA baseline.
+Every release artifact ships a CycloneDX 1.7 (or 1.6) or SPDX 3.0.1 SBOM, committed as a release asset and signed with the same Sigstore identity that signed the artifact. CycloneDX 1.7 is ECMA-424 2nd Edition (December 2025); it stays backward-compatible with 1.4-1.6, so a 1.6 SBOM (ECMA-424 1st ed) remains a conformant floor, and the toolchain (Syft, Trivy, cdxgen, GitLab native) covers both. SPDX 3.0.1 is the BSI TR-03183-2 / EU CRA baseline.
 
 - Tooling baseline: `npm sbom --sbom-format=cyclonedx` (npm 10+), `cdxgen` (broad ecosystem coverage including Python, Java, Rust, Go), `syft` (containers + source repos).
 - CI step generates SBOM on every release tag and uploads as a release asset.
 - PR-time SBOM diff (`cyclonedx-cli diff` or `syft diff`) blocks PRs that introduce unexpected new transitive dependencies; reviewer approves the diff alongside the source diff.
 
-## SLSA v1.0 / v1.1 Build Provenance
+## SLSA Build Provenance
 
-Target SLSA Build L3 for production release artifacts: ephemeral hosted runner, isolated builder identity, signed in-toto provenance, transparency log inclusion. SLSA v1.1 (April 2025) is incremental on the Build track — v1.0 L3 artifacts also meet v1.1 L3.
+Target SLSA Build L3 for production release artifacts: ephemeral hosted runner, isolated builder identity, signed in-toto provenance, transparency log inclusion. SLSA v1.2 (November 2025) is the current spec — it adds a Source track and stays backward-compatible on the Build track, so v1.0/v1.1 Build L3 artifacts also meet v1.2 Build L3.
 
 - GitHub Actions implementation: `slsa-framework/slsa-github-generator` (language-agnostic generators for npm, container, generic artifact).
 - Deploy-time verification: `slsa-verifier` CLI confirms provenance, builder identity allow-list, and source-repo match before the artifact is consumed.
@@ -77,7 +77,7 @@ SLSA L3 attests build-pipeline integrity — which pipeline produced the artifac
 
 ## Malicious-Package Detection Beyond `npm audit`
 
-`npm audit` only flags published CVEs. The 2025-2026 incident class — Shai-Hulud (Sep-Nov 2025), Axios 1.14.1 maintainer hijack (Mar 2026), Mini-Shai-Hulud (May 2026), DevTap typosquat (Apr-May 2026) — never reaches a CVE filing. Layer install-time behavioral detection on top of `npm audit`:
+`npm audit` only flags published CVEs. The 2025-2026 incident class — Shai-Hulud (Sep-Nov 2025), Axios 1.14.1 maintainer hijack (Mar 2026), Mini-Shai-Hulud (May 2026), DevTap typosquat (Apr-May 2026) — rarely reaches a CVE filing in time for `npm audit` to help: when a CVE is assigned at all (e.g., Mini-Shai-Hulud's CVE-2026-45321), it lands after the incident is already remediated. Layer install-time behavioral detection on top of `npm audit`:
 
 - Pre-install behavioral scan: `socket.dev`, `snyk`, or `osv-scanner` against the lockfile in CI. `npq` adds a pre-install gate at the developer workstation.
 - pnpm `minimumReleaseAge: 4320` (4320 minutes = 3 days; raise to `10080` = 1 week for high-trust projects; the unit is minutes per pnpm docs, and pnpm 11 enables it on-by-default at `1440` = 1 day) blocks consumption of brand-new versions until the typosquat / maintainer-hijack window closes. npm ships a native `minimumReleaseAge` in npm CLI 11.10.0+, so the same cooldown is configurable directly in the npm ecosystem.

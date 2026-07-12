@@ -16,6 +16,7 @@ import {
   cliToolsStep,
   customItemsStep,
   identityStep,
+  maturityStep,
   mcpGateStep,
   mcpServersStep,
   platformStep,
@@ -25,7 +26,7 @@ import {
 import { pickCliTools, pickMcpServers, confirmMcpGate } from "../../../cli/shared/pickers.js";
 import type { RepoIdentity } from "../../../cli/shared/repoIdentityPrompt.js";
 import type { CatalogItem } from "../../../content/index.js";
-import type { CliToolId, Features, Platform, Tool } from "../../../types.js";
+import type { CliToolId, Features, MaturityTier, Platform, Tool } from "../../../types.js";
 import type { PresetId } from "../../../content/presets.js";
 
 // Mirror init.backNav.test.ts: mock inquirer.prompt so each builder call
@@ -498,5 +499,44 @@ describe("mcpServersStep", () => {
         ),
       ),
     ).toBe(true);
+  });
+});
+
+// ── maturityStep ────────────────────────────────────────────────────
+
+describe("maturityStep", () => {
+  interface S {
+    maturity: MaturityTier;
+  }
+
+  it("threads default then previous, and passes BACK through", async () => {
+    const inq = vi.mocked(inquirer.prompt);
+    const step = maturityStep<S>({ message: "Maturity tier:", defaultMaturity: "solo" });
+
+    inq.mockResolvedValueOnce({ maturity: "scaleup" });
+    expect(await step.run({}, undefined)).toBe("scaleup");
+    expect(questionAt(0)).toMatchObject({ name: "maturity", message: "Maturity tier:", default: "solo" });
+
+    inq.mockResolvedValueOnce({ maturity: "enterprise" });
+    await step.run({}, "team" as MaturityTier);
+    expect(questionAt(1)).toMatchObject({ default: "team" });
+
+    inq.mockResolvedValueOnce({ maturity: BACK });
+    expect(isBack(await step.run({}, undefined))).toBe(true);
+  });
+
+  it("disambiguates the 'team' tier from the --team-size content gate (D14-SA14.3-03)", async () => {
+    vi.mocked(inquirer.prompt).mockResolvedValueOnce({ maturity: "team" });
+    const step = maturityStep<S>({
+      message: "Project maturity (investment depth):",
+      defaultMaturity: "solo",
+    });
+    await step.run({}, undefined);
+
+    const choices = questionAt(0).choices as Array<{ value: string; name: string }>;
+    const team = choices.find((c) => c.value === "team");
+    // The maturity `team` tier's NAME collides with `--team-size team`; the
+    // row must steer a large-team lead to the separate content gate.
+    expect(team!.name).toContain("--team-size");
   });
 });

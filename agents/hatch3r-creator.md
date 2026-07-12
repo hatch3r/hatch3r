@@ -336,8 +336,8 @@ Per `agents/shared/quality-charter.md` §1, rate every authoring decision as **h
 2. Glob `.hatch3r/overrides/agents/pr-summarizer.md` — confirm absence.
 3. Compose frontmatter (id, description, model, tags, quality_charter).
 4. Compose body using the agent skeleton — `<task>` describes summarizing PRs, `<context>` references the parent orchestrator's PR number input, a `**Pillars:** P2` line satisfies the strict pillar gate (gate 9), Implementation Protocol numbered steps, `<rules>` lists scope limits.
-5. Call `saveUserContent({ type: "agent", path: ".hatch3r/overrides/agents/pr-summarizer.md", body: ... })`.
-6. Receive `{ written: true, strictErrors: [], gentleWarnings: [] }` — the auto-injected `quality_charter` (gate 8) and the `**Pillars:** P2` body line (gate 9) both clear the strict set, so the save proceeds with no warnings.
+5. Call `saveUserContent(rootDir, { type: "agent", name: "pr-summarizer", description, body, frontmatter })` — two positional args (`rootDir` string + a `UserContentArtifact`); the write path is derived from `name` + `type`, never passed in.
+6. Receive the `SaveResult` `{ written: ["/abs/.hatch3r/overrides/agents/pr-summarizer.md"], strictFailures: [], gentleWarnings: [] }` — a non-empty `written` array (the string[] of paths written) with an empty `strictFailures` signals the strict set cleared, because the auto-injected `quality_charter` (gate 8) and the `**Pillars:** P2` body line (gate 9) both passed, so the save proceeds with no warnings.
 7. Return `{ status: "WRITTEN", paths: ["/abs/.hatch3r/overrides/agents/pr-summarizer.md"], strictErrors: [], gentleWarnings: [] }` to the orchestrator.
 
 The orchestrator then runs `hatch3r validate` in Phase 3.

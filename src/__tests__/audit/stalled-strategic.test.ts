@@ -16,7 +16,12 @@ function finding(overrides: Partial<Finding> = {}): Finding {
     domain: "D16: Cross-Domain Synthesis",
     severity: "High",
     description: "strategic entry",
-    disposition: "human_only",
+    // Default to the non-strategic `targeted` disposition so a bare entry is
+    // strategic only via an explicit override. Before D16-SA16.2-02 the default
+    // was `human_only`, which was neutral; now that `human_only` is a strategic
+    // signal (the explicit human-block lane), the neutral default must be a
+    // non-strategic disposition or every non-strategic assertion below flips.
+    disposition: "targeted",
     ...overrides,
   };
 }
@@ -88,6 +93,46 @@ describe("strategicReason", () => {
     );
     expect(r).toContain("cl1_status=candidate");
     expect(r).toContain("cl-3-proposal");
+  });
+
+  // ── Explicit human-block lane (D16-SA16.2-02) ──────────────────────
+  it("matches a human_only disposition", () => {
+    expect(strategicReason(finding({ disposition: "human_only" }))).toBe(
+      "disposition=human_only",
+    );
+  });
+
+  it("matches an `Owner: Human` blocker_reason (tolerant whitespace + case)", () => {
+    expect(
+      strategicReason(
+        finding({
+          blocker_reason: "Owner:Human strategic/storefront item — surfaced to decision list",
+        }),
+      ),
+    ).toBe("owner-human-block");
+    // Space after the colon and mixed case still match.
+    expect(
+      strategicReason(finding({ blocker_reason: "owner: human decides" })),
+    ).toBe("owner-human-block");
+  });
+
+  it("reports both labels when a human-parked item carries both signals (the canonical cohort shape)", () => {
+    const r = strategicReason(
+      finding({
+        disposition: "human_only",
+        blocker_reason: "Owner:Human strategic/storefront item — surfaced to decision list, not auto-executed",
+      }),
+    );
+    expect(r).toContain("disposition=human_only");
+    expect(r).toContain("owner-human-block");
+  });
+
+  it("does not match a targeted entry with an ordinary blocker_reason", () => {
+    expect(
+      strategicReason(
+        finding({ disposition: "targeted", blocker_reason: "waiting on CI" }),
+      ),
+    ).toBe("");
   });
 });
 
@@ -199,6 +244,29 @@ describe("findStalledStrategic", () => {
       3,
     );
     expect(withDisposition[0].last_action).toBe("DN");
+  });
+
+  it("surfaces a stalled human-parked never_attempted cohort the status legs are blind to (D16-SA16.2-02)", () => {
+    // The exact shape of the invisible cohort: routed to a human decision list
+    // with no cl1/sdr/cl3 status — only the disposition + Owner:Human blocker.
+    const entries: Finding[] = [
+      finding({
+        finding_id: "D18-4",
+        cycle: 9,
+        disposition: "human_only",
+        execution_status: "never_attempted",
+        blocker_reason:
+          "Owner:Human strategic/storefront item — surfaced to decision list, not auto-executed",
+      }),
+    ];
+    // Before the human-block leg this returned []; now it surfaces (9 raised,
+    // 12 current → stalled 3 >= threshold 3).
+    const rows = findStalledStrategic(entries, 12, 3);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].finding_id).toBe("D18-4");
+    expect(rows[0].cycles_stalled).toBe(3);
+    expect(rows[0].reason).toContain("disposition=human_only");
+    expect(rows[0].reason).toContain("owner-human-block");
   });
 });
 

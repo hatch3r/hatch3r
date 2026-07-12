@@ -26,9 +26,21 @@
  *   - The metric is the same one jscpd reports: percentage of corpus lines
  *     that participate in at least one cross-file (or within-file repeated)
  *     clone of >= WINDOW_LINES consecutive non-trivial lines. The line-window
- *     granularity mirrors jscpd's `--min-lines`; trivial lines (blank,
- *     fence-only, frontmatter delimiters) are excluded so prose is compared
- *     on substantive content, matching jscpd's tokenizer ignoring whitespace.
+ *     granularity mirrors jscpd's `--min-lines`; the leading YAML frontmatter
+ *     block (`stripFrontmatter`) and trivial lines (blank, fence-only,
+ *     frontmatter/HR delimiters) are excluded so prose is compared on
+ *     substantive BODY content, matching jscpd's tokenizer ignoring whitespace.
+ *   - jscpd's markdown mode tokenizes fenced code blocks independently by
+ *     language (github.com/kucherenko/jscpd FORMATS.md), so two unrelated
+ *     artifacts that each embed a JSON or CSS block are reported as a cross-file
+ *     "clone" on shared structural tokens (`{ } " : ,`) — a false positive whose
+ *     first-file and second-file line spans are unequal (Cycle 12 D22-SA22.2-06:
+ *     a 61-line vs 15-line span between `design-system-detection.md` and
+ *     `findings-ledger.md`). This detector compares normalized whole lines, not
+ *     language-tokenized fence contents, so it does not fabricate those matches;
+ *     it agrees with jscpd where real line-for-line duplication exists (commands/)
+ *     and diverges only on the fence artifact. Cite THIS gate's `--report` for
+ *     corpus duplication percentages, not raw `jscpd --format markdown`.
  *
  * Ratchet model (mirrors `validate-efficiency-invariants.ts` --orch-contract,
  * which hard-errors the universally-compliant part and tolerates the part
@@ -62,6 +74,20 @@ const ROOT = resolve(__dirname, "..");
  * Mirrors jscpd `--min-lines` line granularity. A run of >= WINDOW_LINES
  * identical normalized lines appearing in two places marks every line it
  * covers as duplicated.
+ *
+ * Known blind spot (Cycle 12 D6-SA6.2-04, Info — recorded, no gate change this
+ * cycle): a clone shorter than WINDOW_LINES consecutive non-trivial lines is
+ * never counted, so the single- and double-line "constant-framing" class (a
+ * one-line Tier-calibration intro, a one-line threshold sentence) is invisible
+ * to this metric — the reported percentages are a floor for that class, not the
+ * true figure. This matches jscpd's own default (`minLines: 5`), which skips
+ * sub-window clones too, so the gate is faithful to the clone model, not
+ * defective. Lowering the window to 1 line is NOT the fix: it would false-
+ * positive on the intended DRY pointer lines ("Follow the shared protocol in
+ * `agents/shared/...`", "See ... §External Knowledge") that appear 9-10x BY
+ * DESIGN. Gating the constant-framing class directly needs a pointer-aware
+ * exclusion; until then the correct remedy is lifting a repeated block to a
+ * shared companion at the source (the D6-SA6.2-01 frame-lift), not a window change.
  */
 export const WINDOW_LINES = 5;
 
@@ -85,27 +111,29 @@ export const DEFAULT_MAX = 5;
  */
 export const CORPUS_CEILINGS: Readonly<Record<string, number>> = {
   // D6-5 / D22-4 extraction target. Measured 13.82% (jscpd) / 14.43% (this
-  // gate's line-window metric) at Cycle 12; ratchet down toward DEFAULT_MAX (5)
-  // as the shared command-orchestration blocks are extracted to
-  // `commands/shared/orchestration-frame.md`. D22-4 (this cycle) lifted the
-  // seven recurring scaffold blocks (§0 Detect Ambiguity, Confidence
-  // Propagation Contract, Checkpoint Contract, Per-Turn Pipeline-State Header,
-  // End-of-Turn Delegation Attestation, Cost Estimate, Effort Override) into the
-  // frame and replaced 10–30 inline copies each with one-line pointers, dropping
-  // the corpus to 11.78%. The remaining duplication is dominated by the
-  // identical pointer lines themselves (collapsing ~30 structurally-parallel
-  // commands to identical pointers) plus genuinely command-specific recurring
-  // patterns; driving lower needs command-shape consolidation or a pointer-aware
-  // exclusion, both out of D22-4 scope. Ceiling set to 12 to lock the gain:
-  // the gate fails the moment the corpus regresses past 12%. Lower further as
-  // any remaining inline restatement is collapsed.
-  commands: 12,
-  // Marginally over target at Cycle 12 introduction (within ~0.8 pt of 5%,
-  // not the 2.8x commands/ overshoot). Baselined so the gate lands green and
-  // ratchets: the value is the measured percent rounded UP to the next whole
-  // point. Lower toward DEFAULT_MAX as repeated frontmatter/role boilerplate
-  // is consolidated; delete the row once the corpus reaches 5%.
-  agents: 6, // measured 5.76%
+  // gate's line-window metric, frontmatter INCLUDED) at Cycle 12; D22-4 lifted
+  // the seven recurring orchestration scaffold blocks (§0 Detect Ambiguity,
+  // Confidence Propagation Contract, Checkpoint Contract, Per-Turn Pipeline-
+  // State Header, End-of-Turn Delegation Attestation, Cost Estimate, Effort
+  // Override) into `commands/shared/orchestration-frame.md` and replaced the
+  // inline copies with one-line pointers. Cycle 12 D22-SA22.2-05 then excluded
+  // YAML frontmatter from the metric (`stripFrontmatter`, above), re-basing the
+  // commands measurement to 6.41% (662/10335 body lines) — the residual is
+  // command-specific recurring body patterns plus the identical pointer lines
+  // themselves; reaching DEFAULT_MAX (5) needs command-shape consolidation or a
+  // pointer-aware exclusion, both tracked under sibling finding D6-5. Ceiling
+  // ratcheted 12 -> 7 (ceil of the 6.41% ex-frontmatter measurement) to re-lock
+  // the gain under the new metric — leaving it at 12 would silently tolerate a
+  // 5.6 pt regression the metric change had removed. The gate fails the moment
+  // the corpus regresses past 7%; lower further toward 5 as D6-5 collapses the
+  // remaining inline restatement, and delete the row once it reaches DEFAULT_MAX.
+  commands: 7,
+  // agents row removed at Cycle 12 D22-SA22.2-05: it existed only to absorb the
+  // near-identical CQ-specialist frontmatter (`phase_4_trigger`/`efficiency_tier`/
+  // `wall_clock_advisory_ms`), which the adapter reads per-artifact and cannot be
+  // pointerized. Excluding frontmatter from the metric (`stripFrontmatter`, above)
+  // dropped agents/ from 5.41% to 0.38% (22/5734 body lines) — back under
+  // DEFAULT_MAX (5), so the relaxation row is deleted per the ratchet policy.
   // skills row removed at Cycle 11 D22-5: the duplicated `## Fan-out
   // Discipline` scaffold was reduced to a one-line canonical-rule pointer +
   // skill-specific tier lines + the emit directive across the 43 hand-authored
@@ -165,6 +193,40 @@ function isTrivial(normalized: string): boolean {
 /** Collapse internal whitespace and trim — jscpd-style whitespace tolerance. */
 export function normalizeLine(line: string): string {
   return line.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Strip a leading YAML frontmatter block — the lines delimited by an opening
+ * `---` on line 1 and the next `---` line, inclusive — from raw file content,
+ * returning the body that follows.
+ *
+ * Frontmatter is per-artifact config (`id`/`type`/`description`/`tags`, plus the
+ * CQ-specialist `phase_4_trigger`/`efficiency_tier`/`wall_clock_advisory_ms`/
+ * `parallel_tool_default` blocks). The adapter reads each artifact's frontmatter
+ * directly — `src/adapters/canonical.ts` ships bodies verbatim and frontmatter is
+ * per-file config, not pointerizable prose — so a near-identical config block
+ * repeated across N specialist agents has no shared-companion extraction path the
+ * way body prose does. Counting it as duplication produces an irreducible floor
+ * that no legitimate extraction can drive down: agents/ measured 5.41% WITH
+ * frontmatter but 0.18% body-only (Cycle 12 D22-SA22.2-05). Excluding the block
+ * makes the metric reflect EXTRACTABLE duplication, which is what the
+ * CONSTITUTION §2 P5 "Cross-file duplication | <5%" target is meant to gate.
+ *
+ * A file whose first line is not `---`, or that opens with `---` but has no
+ * closing `---`, has no recognizable frontmatter and is returned unchanged (the
+ * `skills/**` `references/*.md` reference files carry no frontmatter and are left
+ * intact).
+ */
+export function stripFrontmatter(raw: string): string {
+  const lines = raw.split("\n");
+  if (lines[0]?.trim() !== "---") return raw;
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i]?.trim() === "---") {
+      return lines.slice(i + 1).join("\n");
+    }
+  }
+  // Opening delimiter with no close — not valid frontmatter; leave content intact.
+  return raw;
 }
 
 /** Recursively collect `.md` files under a directory, skipping dot-dirs. */
@@ -244,7 +306,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     const files: { rel: string; lines: string[] }[] = [];
     for (const p of paths) {
       const raw = await readFile(p, "utf-8");
-      const lines = raw
+      const lines = stripFrontmatter(raw)
         .split("\n")
         .map(normalizeLine)
         .filter((l) => !isTrivial(l));

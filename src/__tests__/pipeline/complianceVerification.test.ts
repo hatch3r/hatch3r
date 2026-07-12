@@ -5,6 +5,7 @@ import {
   detectResilienceInvocations,
   verifyMonotonicPrivilege,
   type EnforcementClass,
+  type ComplianceReport,
 } from "../../pipeline/complianceVerification.js";
 import { ALL_TOOL_CATEGORIES } from "../../pipeline/agentToolAllowlist.js";
 
@@ -37,6 +38,20 @@ describe("complianceVerification", () => {
       const report = await runComplianceChecks();
       const asi02Checks = report.checks.filter((c) => c.controlRef === "ASI02");
       expect(asi02Checks.length).toBeGreaterThanOrEqual(2);
+    });
+
+    // D15-SA15.3-04: the self-assessment must record that hard per-category
+    // enforcement is Claude-only (Cursor per-category is soft/rule-delegated),
+    // so it does not imply uniform hard enforcement across the three adapters.
+    it("records per-adapter ASI02 enforcement strength in the self-assessment (D15-SA15.3-04)", async () => {
+      const report = await runComplianceChecks();
+      const check = report.checks.find((c) => c.id === "asi02-tool-allowlists");
+      expect(check).toBeDefined();
+      const detail = check!.detail ?? "";
+      expect(detail).toContain("Claude=hard per-category PreToolUse deny");
+      expect(detail).toMatch(/Cursor=.*soft per-category \(rule-delegated\)/);
+      expect(detail).toContain("Copilot=");
+      expect(detail).toContain("instruction-delegated");
     });
 
     it("should include ASI07 check for phase schemas", async () => {
@@ -292,6 +307,59 @@ describe("complianceVerification", () => {
           /\((runtime-CLI|setup-time-shape-check|library-contract-for-downstream|prompt-directive)\)/,
         );
       }
+    });
+
+    // D15-SA15.3-05: a permanent WARN (integrity-signing-status) is structurally
+    // ignored by the `compliant = failed === 0` headline. The report surfaces a
+    // standing-advisories acknowledgment so the amber is not silently accumulated.
+    it("surfaces standing advisories (non-blocking) when warnings are present (D15-SA15.3-05)", async () => {
+      const report = await runComplianceChecks();
+      // integrity-signing-status is a permanent warn, so warnings > 0 by construction.
+      expect(report.summary.warnings).toBeGreaterThan(0);
+      const joined = formatComplianceReport(report).join("\n");
+      expect(joined).toMatch(/\d+ standing advisor(y|ies) \(non-blocking\)/);
+      expect(joined).toContain("not silently accumulated");
+    });
+
+    it("does not add a standing-advisories line when there are no warnings (D15-SA15.3-05)", () => {
+      const zeroWarnReport: ComplianceReport = {
+        timestamp: new Date().toISOString(),
+        compliant: true,
+        checks: [
+          {
+            id: "probe",
+            description: "probe check",
+            controlRef: "ASI02",
+            enforcement: "runtime-CLI",
+            status: "pass",
+          },
+        ],
+        summary: { total: 1, passed: 1, failed: 0, warnings: 0 },
+      };
+      const joined = formatComplianceReport(zeroWarnReport).join("\n");
+      expect(joined).not.toMatch(/standing advisor/);
+    });
+
+    it("pluralizes the standing-advisories noun by warning count (D15-SA15.3-05)", () => {
+      const base = {
+        timestamp: new Date().toISOString(),
+        compliant: true,
+        checks: [],
+      };
+      const oneWarn: ComplianceReport = {
+        ...base,
+        summary: { total: 1, passed: 0, failed: 0, warnings: 1 },
+      };
+      const twoWarn: ComplianceReport = {
+        ...base,
+        summary: { total: 2, passed: 0, failed: 0, warnings: 2 },
+      };
+      expect(formatComplianceReport(oneWarn).join("\n")).toContain(
+        "1 standing advisory (non-blocking)",
+      );
+      expect(formatComplianceReport(twoWarn).join("\n")).toContain(
+        "2 standing advisories (non-blocking)",
+      );
     });
   });
 

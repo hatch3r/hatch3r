@@ -171,6 +171,42 @@ Apply these rules in strict priority order. Each rule reduces the remaining ungr
 
 ---
 
+## Board Health Computation
+
+Board-health diagnostics computed from the single cached board scan. `board-refresh` runs these to populate the dashboard; `board-groom` runs the same three sub-computations to surface remediation targets. The label taxonomy below is the single source of truth — consuming skills point here instead of restating it.
+
+### Categorize Issues
+
+Classify every open issue (excluding `meta:board-overview`):
+
+- **Epic** -- has sub-issues
+- **Sub-issue** -- is a child of an epic
+- **Standalone** -- neither parent nor child
+
+### Status Distribution
+
+Count issues per status label:
+
+| Status | Source |
+| --- | --- |
+| Backlog / Triage | Issues with `status:triage` |
+| Ready | Issues with `status:ready` |
+| In Progress | Issues with `status:in-progress` |
+| In Review | Issues with `status:in-review` |
+| Externally Blocked | Issues with `status:blocked` |
+
+### Missing Metadata Detection
+
+For each open issue, check for required labels. Flag issues missing any of:
+
+- `type:*` (at least one type label)
+- `priority:*` (at least one priority label)
+- `executor:*` (at least one executor label)
+
+Optional but noted: missing `area:*`, missing `risk:*`.
+
+---
+
 ## Post-Merge Terminal State
 
 When a PR/MR merges and `Closes #N` auto-closes the referenced issues, the board item lifecycle must reach its terminal state. The `status:in-review` label should be replaced with `status:done`, and the board status should be set to "Done" using `board.statusOptions.done`.

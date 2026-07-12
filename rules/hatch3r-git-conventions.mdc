@@ -1,6 +1,5 @@
 ---
 description: Conventional Commits type list, subject line rules, breaking-change footer format, and branch naming template for type/short-description
-globs: ["**/.git/**", "**/.gitignore", "**/.gitattributes", "**/.gitmodules", "**/COMMIT_EDITMSG"]
 alwaysApply: false
 ---
 # Git Conventions

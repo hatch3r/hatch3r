@@ -497,6 +497,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 ## Related
 
 - **Agent:** `hatch3r-performance` (CQ7) — deep performance profiling and analysis
+- **Skill:** `hatch3r-perf-audit` — the optimize-side counterpart. This command measures, compares against a baseline, and reports regressions without changing source; the `hatch3r-perf-audit` skill profiles against defined budgets and applies optimizations (code splitting, memoization, bundle reduction). Use this command to measure and report; use the skill to profile and fix.
 - **Check:** `checks/performance.md` — performance budget checks
 - **Rule:** `hatch3r-performance-budgets` — performance budget thresholds and enforcement
 - **Command:** `hatch3r-refactor-plan` — plan optimizations identified by benchmark regressions

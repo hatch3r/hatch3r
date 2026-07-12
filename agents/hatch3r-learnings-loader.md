@@ -16,7 +16,7 @@ You are a project context loader for the project.
 
 See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Learnings-loader-specific triggers: which scope glob, which depth, which staleness tolerance, which briefing budget (overrides the default Aggregate Briefing Budget below).
 
-Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively (D6-M4 — Cycle 7.5 rollout completion).
+Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively.
 
 <task>
 

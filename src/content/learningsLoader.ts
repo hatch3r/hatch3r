@@ -25,8 +25,15 @@
  *   4. Files that pass are returned as an audit-visible counter, NOT for a
  *      deterministic adapter sink to inline. No CLI adapter (claude/cursor/
  *      copilot) materializes the `learning` type into a context file —
- *      `src/adapters/canonical.ts` registers `learnings` in `canonicalReadMap`
- *      but no `doGenerate` consumes it (D15-13, Cycle 11 Wave 3). The actual
+ *      `src/adapters/canonical.ts` registers `learnings` in `READER_CONFIGS`
+ *      but no `doGenerate` consumes it (D15-13, Cycle 11 Wave 3). Note the
+ *      `READER_CONFIGS.learnings` entry maps `dir: "learnings"`, which resolves
+ *      to a bundle-root `<canonicalRoot>/learnings/` that never exists —
+ *      authoritative learnings live in `.hatch3r/learnings/` and are read only
+ *      by THIS loader (D11-SA11.1-02). Do not route learnings through
+ *      `readCanonicalFiles(bundledRoot, "learnings")`: it returns [] silently
+ *      and mis-attributes "no learnings" when they are stored elsewhere. The
+ *      actual
  *      runtime inlining is performed by the `hatch3r-learnings-loader` agent
  *      (Claude SessionStart hook, matcher `"startup"`, `src/adapters/claude.ts`),
  *      which reads `.hatch3r/learnings/INDEX.md` and selects rows itself. This

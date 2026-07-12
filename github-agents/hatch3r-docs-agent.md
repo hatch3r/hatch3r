@@ -47,7 +47,6 @@ Rules: 2-4 numbered options, each with a one-line trade-off; the `Default if no 
   - `docs/adr/` — Architecture Decision Records (you WRITE here)
   - `docs/process/` — Process docs (you WRITE here)
   - `docs/vision/` — Product vision (you WRITE here)
-  - `.cursor/skills/` — Cursor skills (you WRITE here)
   - `AGENTS.md` — Root agent instructions (you WRITE here)
 
 ## Documentation Standards

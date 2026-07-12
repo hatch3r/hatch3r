@@ -454,9 +454,9 @@ const FRAMEWORK_DEP_INDICATORS: { framework: Framework; deps: string[] }[] = [
 /**
  * Config-file-based indicators for non-JS frameworks.
  * D14 Medium (#344-#357): Broader framework detection across language ecosystems.
- * D14-M1 (Cycle 10): Phoenix surfaces via `mix.exs` (Elixir-build manifest).
- * FastAPI / Axum / Actix are detected via dep-name lookup on Python / Rust
- * package manifests; see {@link NON_JS_FRAMEWORK_DEP_INDICATORS} below.
+ * FastAPI / Axum / Actix / Phoenix are detected by dep-name lookup on the
+ * Python / Rust / Elixir package manifests rather than config-file presence;
+ * see {@link NON_JS_FRAMEWORK_DEP_INDICATORS} below.
  */
 const NON_JS_FRAMEWORK_INDICATORS: { framework: Framework; configs: string[] }[] = [
   { framework: "django", configs: ["manage.py"] },
@@ -464,7 +464,6 @@ const NON_JS_FRAMEWORK_INDICATORS: { framework: Framework; configs: string[] }[]
   { framework: "rails", configs: ["Rakefile", "config/routes.rb"] },
   { framework: "spring", configs: ["src/main/resources/application.properties", "src/main/resources/application.yml"] },
   { framework: "laravel", configs: ["artisan"] },
-  { framework: "phoenix", configs: ["mix.exs"] },
 ];
 
 /**
@@ -475,11 +474,21 @@ const NON_JS_FRAMEWORK_INDICATORS: { framework: Framework; configs: string[] }[]
  *
  * Substring matching is intentional — `Cargo.toml` lists deps under
  * `[dependencies]` with `axum = "0.7"`, `pyproject.toml` lists `fastapi`
- * under `dependencies = [...]` or `[tool.poetry.dependencies]`, and
- * `requirements.txt` is a flat list. Parsing each format would multiply
+ * under `dependencies = [...]` or `[tool.poetry.dependencies]`,
+ * `requirements.txt` is a flat list, and `mix.exs` lists deps as Elixir
+ * atoms such as `{:phoenix, "~> 1.7"}`. Parsing each format would multiply
  * complexity for no detection benefit — every false-positive surface
  * (a comment mentioning the framework) is small and the resulting agent
  * output is still useful guidance.
+ *
+ * D1-SA1.6-12 (Cycle 12): Phoenix moved here from
+ * {@link NON_JS_FRAMEWORK_INDICATORS}. Keying it to the mere presence of
+ * `mix.exs` conflated the Elixir language axis (every Elixir library, CLI,
+ * and umbrella app carries `mix.exs`) with the framework axis, so every
+ * non-Phoenix Elixir repo falsely reported `frameworks: ["phoenix"]`. The
+ * `:phoenix` atom substring is present only when Phoenix is a declared
+ * dependency; the `elixir` {@link LANGUAGE_INDICATORS} row keeps the
+ * language signal on a bare `mix.exs`.
  */
 const NON_JS_FRAMEWORK_DEP_INDICATORS: {
   framework: Framework;
@@ -490,6 +499,7 @@ const NON_JS_FRAMEWORK_DEP_INDICATORS: {
   { framework: "fastapi", manifest: "requirements.txt", deps: ["fastapi"] },
   { framework: "axum", manifest: "Cargo.toml", deps: ["axum"] },
   { framework: "actix", manifest: "Cargo.toml", deps: ["actix-web", "actix_web"] },
+  { framework: "phoenix", manifest: "mix.exs", deps: [":phoenix"] },
 ];
 
 /**

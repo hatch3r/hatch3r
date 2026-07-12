@@ -5,7 +5,7 @@ title: Quality-Vector Specialists
 
 # Quality-Vector Specialists (2.0.0)
 
-hatch3r 2.0.0 introduces a two-axis pillar framework. The **governance axis** (P1-P8) defines how the framework operates -- CLI UX, scientific quality, adapter currency, lean coverage, self-quality, security, speed, and clarification/fan-out discipline. The **content-quality axis** (CQ1-CQ9) defines what the framework produces in end-user code. Each CQ pillar is owned by a specialist agent invoked at quality gates with measurable thresholds and a structured proof_trace contract.
+hatch3r 2.0.0 introduces a two-axis pillar framework. The **governance axis** (P1-P8) defines how the framework operates -- CLI UX, scientific quality, adapter currency, lean coverage, self-quality, security, speed, and clarification/fan-out discipline. The **content-quality axis** (CQ1-CQ10) defines what the framework produces in end-user code. Nine of the ten CQ pillars (CQ1-CQ9) are owned by a specialist agent invoked at quality gates with measurable thresholds and a structured proof_trace contract; CQ10 (Product & Spec Quality, added 2026-07-09) is enforced through the audit cycle until its specialist is assigned in the next-cycle taxonomy sweep.
 
 See the [pillar framework overview](https://docs.hatch3r.com/docs/about#pillar-framework) for the pillar definitions.
 
@@ -22,6 +22,7 @@ See the [pillar framework overview](https://docs.hatch3r.com/docs/about#pillar-f
 | **CQ7 Performance** | `hatch3r-performance` | Latency budgets per critical path, bundle-size budgets, runtime profiling baseline, regression gates |
 | **CQ8 Maintainability** | `hatch3r-maintainability` | Lean thresholds, cross-file duplication <5%, module cohesion, dead-code budget |
 | **CQ9 Enhancability** | `hatch3r-enhancability` | Extension-point contracts, customization escape hatches, migration paths, deprecation discipline |
+| **CQ10 Product & Spec** | queued (next-cycle taxonomy sweep) | Acceptance-criteria testability 100%, discovery claims evidence-cited 100%, spec-to-outcome traceability 100% |
 
 ## How Specialists Are Invoked
 

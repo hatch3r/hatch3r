@@ -150,7 +150,7 @@ A four-phase pipeline (Research, Implement, Review Loop with reviewer + fixer at
 AGENTS.md (Linux Foundation AAIF spec, 60K+ repos as of January 2026) is the greatest-common-denominator markdown standard for agent instructions; it is consumed by 20+ tools including Cursor, Copilot, Codex, and Gemini CLI. hatch3r is complementary: AGENTS.md describes one file's content; hatch3r owns the entire generation pipeline that emits tool-native configurations across 5 artifact classes (rules, skills, commands, hooks, MCP servers) for 3 supported platforms (Claude Code, Cursor, GitHub Copilot). Three measurable differences:
 
 - **Scope:** AGENTS.md is one flat instruction file per repo; hatch3r generates platform-specific structured output (`.mdc` rules with frontmatter scoping for Cursor, `CLAUDE.md` with managed blocks for Claude Code, `.github/instructions/` + `.github/prompts/` for Copilot) plus board commands, MCP server configs, and event-driven hooks.
-- **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (29 agents + 66 rules + 53 skills + 31 commands + 7 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited weekly across 24 governance domains.
+- **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (29 agents + 66 rules + 53 skills + 31 commands + 7 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited each release across 24 governance domains.
 - **Adoption path:** AGENTS.md remains the spec hatch3r-emitted Cursor / Claude / Copilot configurations align with — the 1.9.0 hard-cut withdrew direct AGENTS.md emission per CONSTITUTION §6 Decision #12, but AAIF spec evolution feeds per-adapter feature work for the 3 supported adapters. Use AGENTS.md alone when one flat file suffices for your project; use hatch3r when you need the full content + tooling stack.
 
 ## Customization
@@ -176,6 +176,10 @@ Full documentation is at [docs.hatch3r.com](https://docs.hatch3r.com).
 - [Agentic Process](https://docs.hatch3r.com/docs/guides/agentic-process) -- Visual diagrams of init flow, board workflow, and agent orchestration
 - [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting) -- Common issues and solutions
 - [Changelog](CHANGELOG.md) -- Release history
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and DCO sign-off requirement, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community standards, and [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made. Report security issues privately via [SECURITY.md](SECURITY.md).
 
 ## License
 

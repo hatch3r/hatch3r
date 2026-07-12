@@ -122,6 +122,20 @@ export interface CliToolMeta {
    */
   probeFallbacks?: readonly string[];
   /**
+   * Package-shape discriminant for entries whose upstream artifact is NOT a
+   * PATH-resolvable CLI binary (D21-SA21.7-04, Cycle 12 — detection-contract
+   * class C). `"library"` marks a package that ships no executable `bin`
+   * (e.g. `@browserbasehq/stagehand`, an npm library imported into a script),
+   * so a `command -v <probe>` PATH probe can never resolve and reporting the
+   * tool "absent" is a false negative rather than a real detection. The
+   * registry gate in `registry.test.ts` uses this field to exempt such entries
+   * from the "every `npm install -g` package must declare a bin" invariant;
+   * detect.ts PATH-suppression + scaffold-guidance consumption is the class-C
+   * runtime follow-on (tracked with home finding D21-SA21.6-01, the detect.ts
+   * lane). Omit for every tool that installs a real CLI binary — the common case.
+   */
+  packageType?: "library";
+  /**
    * Security advisory note — populated when the upstream tool has an active
    * CVE that ships in the recommended install version. Surfaced verbatim by
    * the picker/installer and embedded in the generated skill's Known Issues
@@ -211,6 +225,13 @@ export const AVAILABLE_CLI_TOOLS = {
     // false-negatives on Debian/Ubuntu. detect.ts tries this fallback before
     // reporting fd absent.
     probeFallbacks: ["fdfind"],
+    // Cycle 12 D15-SA15.7-05: a currency doc-pin for fd (verified latest v10.4.2,
+    // github.com/sharkdp/fd/releases, accessed 2026-07-11) is DEFERRED — fd is the
+    // suite's canonical "no minVersion / no securityNote" fixture (the
+    // skill.test.ts inline snapshot + scripts/__tests__/validate-cli-skills.test.ts
+    // fd exemplar and fd.minVersion-undefined assertion), so a floor here needs
+    // those paired fixture updates plus the fd standalone-skill floor line, all
+    // outside this registry-only file lock. Land the floor with those together.
     homepage: "https://github.com/sharkdp/fd",
     sourceRepo: "https://github.com/sharkdp/fd",
     license: "MIT OR Apache-2.0",
@@ -404,7 +425,12 @@ export const AVAILABLE_CLI_TOOLS = {
     tier: 1,
     install: {
       mac: [{ manager: "brew", command: "brew install ast-grep" }],
-      linux: [{ manager: "cargo", command: "cargo install ast-grep" }],
+      // Cycle 12 D21-SA21.1-05: `--locked` added so the build resolves against
+      // the crate's committed Cargo.lock instead of channel-current transitive
+      // deps — aligns with this tool's own toolbox skill row (`cargo install
+      // ast-grep --locked`) and the other cargo-installed registry tools
+      // (xh / taplo / qsv / difftastic all pin `--locked`).
+      linux: [{ manager: "cargo", command: "cargo install ast-grep --locked" }],
       win: [{ manager: "scoop", command: "scoop install ast-grep" }],
     },
     // Cycle 10 D21-SA21.1-F-21.1.2: ast-grep ships at rapid cadence — five
@@ -429,6 +455,12 @@ export const AVAILABLE_CLI_TOOLS = {
       expectInStdout: "ast-grep",
       name: "ast-grep",
     },
+    // Cycle 12 D15-SA15.7-05: a currency doc-pin for ast-grep (verified latest
+    // 0.44.1, github.com/ast-grep/ast-grep/releases 2026-07-04, accessed
+    // 2026-07-11) is DEFERRED — the toolbox parity gate
+    // (src/__tests__/content/cliSkills.test.ts) requires the paired `### ast-grep`
+    // version-floor line in skills/hatch3r-cli-toolbox/SKILL.md, outside this
+    // registry-only file lock. Land minVersion + the toolbox floor line together.
     homepage: "https://ast-grep.github.io/",
     sourceRepo: "https://github.com/ast-grep/ast-grep",
     license: "MIT",
@@ -515,16 +547,25 @@ export const AVAILABLE_CLI_TOOLS = {
     // with no version floor while the skill recommends its sandbox image for
     // navigating untrusted URLs. CVE-2025-59288 (CVSS 8.7) is an installer
     // man-in-the-middle in `npx playwright install` (browser binaries fetched
-    // without integrity verification) fixed in 1.55.1; the floor clears it.
-    // The bundled Chromium also carries CVE-2026-2441 (CSS use-after-free RCE);
-    // each monthly playwright release rolls a patched Chromium, so keeping the
-    // install current — not just at the floor — matters for the browser engine.
-    minVersion: ">=1.55.1",
+    // without integrity verification) fixed in 1.55.1.
+    // Cycle 12 D21-SA21.6-07: the 1.55.1 floor machine-covered only the installer
+    // CVE, leaving the bundled-Chromium RCE CVE-2026-2441 (CSS use-after-free,
+    // actively exploited) covered by prose alone. That Chromium fix shipped in
+    // Chromium 146.0.7680.31 (playwright issue #39574, closed); v1.58.2 still
+    // bundled the vulnerable 145.0.7632.6. v1.60.0 is the earliest release
+    // VERIFIED to bundle a Chromium past the fix — 148.0.7778.96, per
+    // github.com/microsoft/playwright/releases (accessed 2026-07-11); 1.59.x's
+    // bundled Chromium is unlisted there, so the floor is raised to the first
+    // provably-fixed release rather than guessing 1.59.x. The floor now
+    // machine-covers BOTH the installer and browser-engine CVEs; a future cycle
+    // may lower it to 1.59.x if that line is confirmed to ship Chromium
+    // >=146.0.7680.31.
+    minVersion: ">=1.60.0",
     // playwright ships ~monthly point releases pinned to a Chromium roll, so a
     // long gap is itself a currency signal (an un-rolled Chromium accrues
     // browser-engine CVEs) — keep the install current, not just at the floor.
     securityNote:
-      "CVE-2025-59288 (CVSS 8.7): `npx playwright install` in versions before 1.55.1 fetched browser binaries without integrity verification, allowing an installer man-in-the-middle to substitute a malicious browser build. Upgrade to >=1.55.1. The bundled Chromium also carries CVE-2026-2441 (CSS use-after-free RCE); each monthly playwright release rolls a patched Chromium, so track a current release and pin the sandbox container image to a current `*-noble` tag (not an 18-month-stale tag) when navigating untrusted URLs.",
+      "CVE-2025-59288 (CVSS 8.7): `npx playwright install` before 1.55.1 fetched browser binaries without integrity verification, allowing an installer man-in-the-middle to substitute a malicious browser build (fixed 1.55.1). CVE-2026-2441 (CSS use-after-free RCE, actively exploited): the bundled Chromium was patched in Chromium 146.0.7680.31; playwright first shipped a Chromium past that fix in the 1.60.0 line (Chromium 148.0.7778.96), so the floor is raised to >=1.60.0 to machine-cover both the installer and browser-engine CVEs. playwright rolls a fresh Chromium each release, so keep the install current (not just at the floor) and pin the sandbox container image to a current `*-noble` tag (not an 18-month-stale tag) when navigating untrusted URLs.",
     homepage: "https://playwright.dev/",
     sourceRepo: "https://github.com/microsoft/playwright",
     license: "Apache-2.0",
@@ -865,6 +906,15 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "npm", command: "npm install -g @browserbasehq/stagehand" }],
       win: [{ manager: "npm", command: "npm install -g @browserbasehq/stagehand" }],
     },
+    // Cycle 12 D21-SA21.7-04 (detection-contract class C): @browserbasehq/stagehand
+    // is an npm LIBRARY imported into a script — it ships no executable `bin`, so
+    // the `command -v stagehand` PATH probe can never resolve and reporting the
+    // tool "absent" would be a false negative rather than a real detection. The
+    // packageType discriminant records that shape; the registry.test.ts gate uses
+    // it to exempt this entry from the "every `npm install -g` package declares a
+    // bin" invariant. detect.ts PATH-suppression + scaffold guidance is the
+    // class-C runtime follow-on (home finding D21-SA21.6-01, the detect.ts lane).
+    packageType: "library",
     // Cycle 10 D15-SA15.7-F-15.7-08: Stagehand selects one of three browser-
     // driver peer deps — `playwright-core` (Microsoft) and `puppeteer-core`
     // (Google) are vendor-maintained, but `patchright-core` is a community
@@ -985,7 +1035,14 @@ export const AVAILABLE_CLI_TOOLS = {
     // `podman machine init --image`. The note is platform-windows-only; mac
     // and linux builds are not affected, but registry callers surface the
     // single securityNote with the explicit `Windows only` prefix.
-    minVersion: "5.8.2",
+    // Cycle 12 D21-SA21.6-04: podman shipped a 6.x major (v6.0.1, 2026-07-08)
+    // that the unpinned brew/apt/winget channels now resolve to. The floor stays
+    // 5.8.2 — it still clears CVE-2026-33414, the only podman advisory — but is
+    // normalized from the bare "5.8.2" string to the ">=5.8.2" range form so it
+    // reads unambiguously as a floor (matching docker's ">=29.5.2"), not an
+    // exact pin. Review the 6.x rootless / netavark / machine-init changes and
+    // re-verify no 6.x-specific advisory before raising the floor to a 6.x tag.
+    minVersion: ">=5.8.2",
     securityNote:
       "CVE-2026-33414 (Windows only): Podman before 5.8.2 is vulnerable to PowerShell command injection in `podman machine init --image` on the Hyper-V backend, allowing Hyper-V VM escape. Upgrade to 5.8.2 or later on Windows; mac and linux builds are unaffected. CVE-2024-3056 (GHSA-rpcc-p8xm-rc6p, Pasta DNS resolver) and CVE-2025-4953 (GHSA-m68q-4hqr-mc6f, memory corruption in netavark) are served by OSV as Go records without a numeric severity, so the CLI CVE gate surfaces them under 'unscored advisories — manual review' rather than as scored findings — both are fixed at or below the pinned 5.8.2 floor.",
     homepage: "https://podman.io/",
@@ -1000,7 +1057,11 @@ export const AVAILABLE_CLI_TOOLS = {
     tier: 3,
     install: {
       mac: [{ manager: "brew", command: "brew install dasel" }],
-      linux: [{ manager: "go", command: "go install github.com/tomwright/dasel/v3/cmd/dasel@latest" }],
+      // Cycle 12 D15-SA15.7-05: pinned from `@latest` to `@v3.11.0` so the
+      // install command honors this entry's own `minVersion: ">=3.11.0"` floor
+      // (below) — a floating `@latest` happens to satisfy the floor today but is
+      // not a pin, and the go-module `/v3` path takes `v3.x.y` tags.
+      linux: [{ manager: "go", command: "go install github.com/tomwright/dasel/v3/cmd/dasel@v3.11.0" }],
       win: [{ manager: "scoop", command: "scoop install dasel" }],
     },
     // Cycle 11 D21-11 (SA21.3-F2): the prior note said all 3 CVEs were "fixed

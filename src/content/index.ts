@@ -1371,7 +1371,7 @@ export async function getAvailableItems(
               installed.add(applyCommandPrefix(rawId, config.type));
             } catch (err) {
               recordContentProbeFailure(
-                `getRemovableContent: skipped ${dirPath}/${d.name}/SKILL.md`,
+                `getAvailableItems: skipped ${dirPath}/${d.name}/SKILL.md`,
                 err,
                 warnings,
               );
@@ -1380,7 +1380,7 @@ export async function getAvailableItems(
         }
       } catch (err) {
         recordContentProbeFailure(
-          `getRemovableContent: readdir(${dirPath}) — directory missing`,
+          `getAvailableItems: readdir(${dirPath}) — directory missing`,
           err,
           warnings,
         );
@@ -1396,7 +1396,7 @@ export async function getAvailableItems(
         }
       } catch (err) {
         recordContentProbeFailure(
-          `getRemovableContent: readdir(${dirPath}) — directory missing`,
+          `getAvailableItems: readdir(${dirPath}) — directory missing`,
           err,
           warnings,
         );

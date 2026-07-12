@@ -436,6 +436,20 @@ function appendMissingEnvVars(existingRaw: string, missing: EnvVar[]): string {
  * preserved verbatim and only required-but-absent vars are appended (never a
  * template re-render over an existing file). See {@link appendMissingEnvVars}
  * (D1-SA1.2-02).
+ *
+ * D1-SA1.2-12 (Cycle 12, D1, P6) — write-time secret scan DEFERRED (not wired).
+ * The finding asked whether this write path should run `detectSecrets` on the
+ * post-write `.env.mcp`. It is deliberately NOT wired: sibling finding
+ * D11-SA11.3-01 (landed this cycle) REMOVED the validate-time `.env.mcp` secret
+ * scan for exactly this reason — `.env.mcp` is hatch3r's by-design, gitignored,
+ * chmod-0600 secret store, so a correctly-filled `GITHUB_PAT=ghp_…` is a
+ * guaranteed false positive (see the `detectSecrets` docstring in
+ * `src/env/secretDetection.ts`). Scanning the same file at WRITE time would
+ * reintroduce that false positive. The leak-bearing channel
+ * is the COMMITTED generated config (`.mcp.json` / `.cursor/mcp.json` /
+ * `.vscode/mcp.json`), which carries `${env:VAR}` references not values — a
+ * write-time scan THERE, not here, is the only shift-left worth adding, left to
+ * a future cycle to avoid re-litigating the D11-SA11.3-01 decision.
  */
 export async function ensureEnvMcp(
   rootDir: string,

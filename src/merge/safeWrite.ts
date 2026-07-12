@@ -21,6 +21,7 @@ import {
   wouldChangeMarkerVariant,
 } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
+import { mapFsErrno } from "./fsErrors.js";
 
 /** Check whether a file exists. Returns false for ENOENT, throws for other errors. */
 async function fileExists(path: string): Promise<boolean> {
@@ -53,12 +54,78 @@ async function resolveNonClobberingBakPath(filePath: string): Promise<string> {
 }
 
 /**
- * D1-SA1.5.1: Default timeout in ms for cross-process file lock acquisition
- * when HATCH3R_LOCK=1 is set. 5 retries × 500ms ≈ 5s ceiling.
+ * D8-SA8.2-02 (Cycle 12, CQ4): verify a just-copied `.bak` backup against the
+ * in-memory source bytes BEFORE the destructive overwrite proceeds. #242
+ * (D8-8.9) + D1-M12 (Cycle 10 Wave 3) established the two-step check on the
+ * corruption-repair path: size equality is necessary but not sufficient — a
+ * partial copy that lands at the same byte count passes the size check while
+ * the bytes diverge, so SHA-256 digests of the in-memory source and the
+ * on-disk backup are compared too (`fs.copyFile` makes no atomicity or
+ * verification guarantee — nodejs.org/api/fs.html). Extracted to one shared
+ * helper because the force-overwrite path backs up IRREPLACEABLE user content
+ * (not regenerable from canonical, unlike the repair path's managed file) yet
+ * previously skipped this verification entirely — the guard sat on the branch
+ * protecting the LESS valuable data. Throws `FS_ERROR` naming `operation` on
+ * any divergence, so the original is never destroyed while the only local
+ * recovery copy is bad.
+ */
+async function verifyBackup(
+  filePath: string,
+  bakPath: string,
+  sourceContent: string,
+  operation: "auto-repair" | "force overwrite",
+): Promise<void> {
+  const srcStat = await stat(filePath);
+  const bakStat = await stat(bakPath);
+  if (bakStat.size !== srcStat.size) {
+    throw new HatchError(
+      `Backup verification failed for ${filePath}: source=${srcStat.size} bytes, backup=${bakStat.size} bytes. ` +
+        `Aborting ${operation} to prevent data loss.`,
+      1,
+      "FS_ERROR",
+    );
+  }
+  const srcHash = createHash("sha256").update(sourceContent, "utf-8").digest("hex");
+  const bakBytes = await readFile(bakPath);
+  const bakHash = createHash("sha256").update(bakBytes).digest("hex");
+  if (srcHash !== bakHash) {
+    throw new HatchError(
+      `Backup verification failed for ${filePath}: SHA-256 mismatch (source=${srcHash.slice(0, 12)}…, backup=${bakHash.slice(0, 12)}…). ` +
+        `Aborting ${operation} to prevent data loss.`,
+      1,
+      "FS_ERROR",
+    );
+  }
+}
+
+/**
+ * D1-SA1.5.1: cross-process lock-acquisition retry schedule when locking is
+ * active. D11-SA11.2-03 (Cycle 12, P1): `proper-lockfile` hands these to
+ * node-retry, whose per-attempt wait is
+ * `min(minTimeout × factor^attempt, maxTimeout)` with `randomize` off
+ * (retry@0.12.0 `createTimeout`), so the five waits are
+ * 100 + 200 + 400 + 800 + 1500 = 3000ms — a ~3s total backoff before
+ * `LOCK_TIMEOUT`. The pre-Cycle-12 prose here claimed "5 retries × 500ms ≈ 5s";
+ * that was stale arithmetic from an earlier constants set (no configured
+ * constant is 500ms). {@link LOCK_RETRY_TOTAL_BACKOFF_MS} derives the quoted
+ * figure from these constants so the user-facing message cannot drift again.
  */
 const LOCK_RETRIES = 5;
 const LOCK_RETRY_MIN_MS = 100;
 const LOCK_RETRY_MAX_MS = 1500;
+const LOCK_RETRY_FACTOR = 2;
+
+/**
+ * Total worst-case backoff wait (ms) across the retry schedule above —
+ * the figure the `LOCK_TIMEOUT` refusal quotes. Derived from the constants
+ * (D11-SA11.2-03) rather than hand-written, so changing the schedule updates
+ * the message automatically. Exported for the message-accuracy regression
+ * test only; evaluates to 3000 for the current schedule.
+ */
+export const LOCK_RETRY_TOTAL_BACKOFF_MS = Array.from(
+  { length: LOCK_RETRIES },
+  (_, attempt) => Math.min(LOCK_RETRY_MIN_MS * LOCK_RETRY_FACTOR ** attempt, LOCK_RETRY_MAX_MS),
+).reduce((sum, wait) => sum + wait, 0);
 /**
  * Default lock staleness threshold: a lock older than this is treated as
  * abandoned and may be stolen by another process. 15s is `proper-lockfile`'s
@@ -151,8 +218,10 @@ interface HeldLockEntry {
 const HELD_LOCKS = new Map<string, HeldLockEntry>();
 
 /**
- * Ceiling for a same-process queue wait on a held path. Mirrors the ~5s
- * cross-process retry budget of {@link acquireWriteLock} so in-process and
+ * Ceiling for a same-process queue wait on a held path. Sits just above the
+ * ~3s cross-process retry budget of {@link acquireWriteLock}
+ * ({@link LOCK_RETRY_TOTAL_BACKOFF_MS}; D11-SA11.2-03 corrected the budget
+ * figure — this in-process ceiling stays 5s) so in-process and
  * cross-process contention surface the same `LOCK_TIMEOUT` disposition —
  * e.g. a sibling task queued behind `configCommand`'s interactive hold times
  * out exactly like a second PROCESS retrying against the on-disk lockfile.
@@ -276,7 +345,7 @@ function isLockingEnabled(): boolean {
  * — even when the wrapped write throws — to prevent stale locks.
  *
  * Throws {@link HatchError} with code `LOCK_TIMEOUT` when contention exceeds
- * the retry budget (~5s).
+ * the retry budget (~3s — {@link LOCK_RETRY_TOTAL_BACKOFF_MS}).
  *
  * D1-SA1.5-F9 (Cycle 10, P6): a held lock is considered stale (and stealable
  * by another process) after {@link LOCK_STALE_DEFAULT_MS} (15s) by default.
@@ -337,7 +406,7 @@ async function acquireWriteLockImpl(
         retries: LOCK_RETRIES,
         minTimeout: LOCK_RETRY_MIN_MS,
         maxTimeout: LOCK_RETRY_MAX_MS,
-        factor: 2,
+        factor: LOCK_RETRY_FACTOR,
       },
     });
     return async () => {
@@ -354,8 +423,12 @@ async function acquireWriteLockImpl(
     // proper-lockfile surfaces contention as ELOCKED once retries are exhausted.
     const code = (err as NodeJS.ErrnoException).code;
     if (code === "ELOCKED") {
+      // D11-SA11.2-03: the quoted wait is DERIVED from the retry constants
+      // (100+200+400+800+1500 = 3000ms → "~3s"), so the message stays honest
+      // if the schedule changes. The prior hand-written "~5s" overstated the
+      // real wait by ~2s.
       throw new HatchError(
-        `Timed out acquiring file lock on ${filePath} after ~5s. ` +
+        `Timed out acquiring file lock on ${filePath} after ~${Math.round(LOCK_RETRY_TOTAL_BACKOFF_MS / 1000)}s. ` +
           `Another hatch3r process is writing to the same file. ` +
           `Re-run sequentially, or remove a stale ${lockfilePath} if no process is active.`,
         1,
@@ -366,40 +439,11 @@ async function acquireWriteLockImpl(
   }
 }
 
-/**
- * D8-SA8.2-F8.2.7 (Cycle 10, P1): errno → actionable-message table for
- * write-side filesystem failures. The catch handler in {@link atomicWriteFile}
- * previously classified only `ENOSPC` and `EACCES`; every other errno fell
- * through as a bare Node message with no recovery guidance. Linux quota mounts
- * raise `EDQUOT` (not `ENOSPC`) when a user quota is exhausted, so the old
- * "Not enough disk space" message actively misled operators who saw free space
- * in `df`. Read-only mounts (`EROFS`), FAT32 size ceilings (`EFBIG`), fd
- * exhaustion (`EMFILE`), and failing disks (`EIO`) all reach this path too.
- *
- * Each entry returns a complete sentence naming the cause and the operator's
- * next step. `ENOSPC` and `EACCES` keep their prior wording verbatim so no
- * existing assertion changes. The table is module-local rather than hoisted to
- * a shared `fsErrors.ts` because the other proposed consumers
- * (`archiveToolOutputs`, `applyRollback`) are out of this finding's file scope;
- * a future refactor can extract it.
- */
-const FS_ERRNO_MESSAGE: Record<string, (filePath: string) => string> = {
-  ENOSPC: (p) => `Not enough disk space to write ${p}. Free up space and re-run the command.`,
-  EACCES: (p) =>
-    `Permission denied writing ${p}. Check file/directory permissions and ensure the current user has write access.`,
-  EDQUOT: (p) =>
-    `Filesystem quota exceeded writing ${p}. Free space under your quota or ask an admin to raise it, then re-run.`,
-  EROFS: (p) =>
-    `Read-only filesystem at ${p}. The mount may be in recovery/snapshot mode — remount read-write and re-run.`,
-  EFBIG: (p) =>
-    `File too large for the filesystem at ${p}. Move ${dirname(p)} to a filesystem that supports larger files (ext4/APFS/NTFS instead of FAT32).`,
-  EMFILE: (p) =>
-    `Too many open files writing ${p}. Raise the file-descriptor limit (\`ulimit -n\`) or close other tools holding descriptors, then re-run.`,
-  ENFILE: (p) =>
-    `System-wide open-file limit reached writing ${p}. Close other processes or raise the system fd limit, then re-run.`,
-  EIO: (p) =>
-    `Low-level I/O error writing ${p}. The disk may be failing — check kernel logs (dmesg / Console.app) and consider running fsck.`,
-};
+// D8-SA8.2-F8.2.7 / D8-SA8.2-03: the errno → actionable-message table
+// (ENOSPC/EACCES/EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO) lives in
+// `./fsErrors.ts` and is applied via {@link mapFsErrno} at every write-side
+// call site in this module: the tmp+rename writer's catch, the
+// `safeWriteFile` entry `mkdir`, and both `.bak` backup `copyFile` calls.
 
 /**
  * Errnos tolerated when fsync-ing the parent directory of a just-renamed file.
@@ -494,13 +538,14 @@ export async function syncParentDirectory(filePath: string): Promise<void> {
  * lockfile across processes), so each write completes before the next
  * begins. SEQUENTIALLY-awaited writes always observe submission order.
  *
- * When locking is enabled and contention exceeds ~5s, throws {@link HatchError}
- * with code `LOCK_TIMEOUT`.
+ * When locking is enabled and contention exceeds ~3s
+ * ({@link LOCK_RETRY_TOTAL_BACKOFF_MS}), throws {@link HatchError} with code
+ * `LOCK_TIMEOUT`.
  *
  * Write-side filesystem failures (ENOSPC, EACCES, EDQUOT, EROFS, EFBIG, EMFILE,
  * ENFILE, EIO) are mapped to actionable `FS_ERROR` HatchErrors via
- * {@link FS_ERRNO_MESSAGE}; unrecognised errnos re-throw unchanged
- * (D8-SA8.2-F8.2.7, P1).
+ * {@link mapFsErrno} (`fsErrors.ts`); unrecognised errnos re-throw unchanged
+ * (D8-SA8.2-F8.2.7, P1; extracted per D8-SA8.2-03).
  *
  * **Binary content (D8-3, Cycle 11 Wave 2, CQ4):** `content` accepts a `Buffer`
  * as well as a `string`. A string is encoded UTF-8 (unchanged prior behavior);
@@ -614,14 +659,9 @@ async function atomicWriteFileUnlocked(
   } catch (err) {
     // #239 (D8-8.6) + D8-SA8.2-F8.2.7 (Cycle 10, P1): map known write-side
     // errnos (ENOSPC/EACCES and the EDQUOT/EROFS/EFBIG/EMFILE/ENFILE/EIO family)
-    // to actionable FS_ERROR messages via {@link FS_ERRNO_MESSAGE}. ENOSPC and
-    // EACCES keep their prior wording verbatim. Unrecognised errnos re-throw.
-    const code = (err as NodeJS.ErrnoException).code;
-    const messageFor = code ? FS_ERRNO_MESSAGE[code] : undefined;
-    if (messageFor) {
-      throw new HatchError(messageFor(filePath), 1, "FS_ERROR");
-    }
-    throw err;
+    // to actionable FS_ERROR messages via {@link mapFsErrno} (fsErrors.ts,
+    // extracted per D8-SA8.2-03). Unrecognised errnos re-throw unchanged.
+    throw mapFsErrno(err, filePath) ?? err;
   } finally {
     // Silent Failure Contract (P5): emit a diagnostic when tmp-file cleanup
     // fails for any reason other than "already renamed away" (ENOENT).
@@ -652,6 +692,10 @@ async function atomicWriteFileUnlocked(
 // unlink does not run and the orphan accumulates across runs. This sweep
 // finds such orphans, removes them, and returns a diagnostic list so the
 // caller can emit a warning per the Silent Failure Contract.
+//
+// D11-SA11.2-02 (Cycle 12): the sweep also reclaims aged `.bak.<8-hex>`
+// recovery backups (7-day gate) — the non-clobbering slots both destructive
+// recovery paths write, which previously had no cleanup path anywhere.
 //
 // CALLER CONTRACT (D1-SA1.5-F10, Cycle 10 Wave 4, P6): EVERY CLI command entry
 // point that reaches `atomicWriteFile` in-process invokes this at start-of-run
@@ -689,6 +733,29 @@ const ORPHAN_TMP_SUFFIX_RE = /[^/\\]\.tmp\.[0-9a-f]{8}$/;
  *  hardware, so a minute-old tmp file is almost certainly abandoned. */
 const ORPHAN_MIN_AGE_MS = 60_000;
 
+/** D11-SA11.2-02 (Cycle 12, P4): matches `<basename>.bak.<exactly-8 hex>` — the
+ *  non-clobbering backup slots {@link resolveNonClobberingBakPath} falls back
+ *  to when the canonical `<file>.bak` is already taken (both destructive
+ *  recovery paths — corruption auto-repair and force-overwrite — produce
+ *  them). Same end-anchoring + non-empty-basename + exactly-8-hex tightening
+ *  rationale as {@link ORPHAN_TMP_SUFFIX_RE} (D8-8): the canonical
+ *  `<file>.bak` deliberately does NOT match — that slot is reclaimed by
+ *  `hatch3r clean` and is also a shape users create by hand, so the sweep
+ *  touches only the hatch3r-random-suffixed variants that previously had NO
+ *  reclamation path at all (clean removes only `f + ".bak"`; the tmp sweep
+ *  matched only `.tmp.<8hex>` — every `.bak.<8hex>` leaked permanently). */
+const ORPHAN_BAK_SUFFIX_RE = /[^/\\]\.bak\.[0-9a-f]{8}$/;
+
+/** D11-SA11.2-02: minimum age (ms) before a `.bak.<8hex>` recovery backup is
+ *  swept — 7 days, deliberately far wider than the 60s tmp gate. These are
+ *  convenience copies of a file the operator just recovered (the session
+ *  snapshot under `.hatch3r/snapshots` remains the primary recovery path via
+ *  `hatch3r rollback`), so the gate must not reclaim a backup an operator is
+ *  actively inspecting mid-review; a week covers a review parked over a long
+ *  weekend while still bounding the leak. The sweep only runs at the start of
+ *  mutating hatch3r commands, so an untouched repo never loses a backup. */
+const ORPHAN_BAK_MIN_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
 /**
  * D8-8 (Cycle 11 Wave 3, P6): directory names the recursive tmp walk never
  * descends into. The prior implementation handed `{ recursive: true }` straight
@@ -716,14 +783,15 @@ const SWEEP_SKIP_DIRS = new Set<string>([
   ".cache",
 ]);
 
-/** One tmp-file candidate discovered by {@link walkTmpCandidates}: an absolute
- *  path plus its parent directory, before any age/stat gate is applied. */
+/** One candidate discovered by {@link walkTmpCandidates}: an absolute path,
+ *  before any age/stat gate is applied. */
 interface TmpCandidate {
   fullPath: string;
 }
 
 /**
- * Walk `dir` for files whose basename matches {@link ORPHAN_TMP_SUFFIX_RE},
+ * Walk `dir` for files whose basename matches one of `suffixPatterns`
+ * ({@link ORPHAN_TMP_SUFFIX_RE} and/or {@link ORPHAN_BAK_SUFFIX_RE}),
  * pruning {@link SWEEP_SKIP_DIRS} so noise trees (node_modules, VCS internals,
  * build output) are never entered. Non-recursive by default; `recursive: true`
  * descends via an explicit manual stack rather than `readdir`'s `recursive`
@@ -738,6 +806,7 @@ interface TmpCandidate {
 async function walkTmpCandidates(
   dir: string,
   recursive: boolean,
+  suffixPatterns: readonly RegExp[],
 ): Promise<TmpCandidate[]> {
   const candidates: TmpCandidate[] = [];
   // Manual stack so a skip-dir is never entered. `top` marks the root level:
@@ -765,7 +834,7 @@ async function walkTmpCandidates(
         continue;
       }
       if (!ent.isFile()) continue;
-      if (!ORPHAN_TMP_SUFFIX_RE.test(ent.name)) continue;
+      if (!suffixPatterns.some((re) => re.test(ent.name))) continue;
       candidates.push({ fullPath: join(current, ent.name) });
     }
   }
@@ -773,11 +842,12 @@ async function walkTmpCandidates(
 }
 
 /**
- * One orphan tmp file discovered by {@link sweepOrphanTmpFiles}.
+ * One orphan artifact — a `.tmp.<8hex>` writer leftover or an aged
+ * `.bak.<8hex>` recovery backup — discovered by {@link sweepOrphanTmpFiles}.
  * Exposed so callers can surface per-file diagnostics, not just a count.
  */
 export interface OrphanTmpSweepEntry {
-  /** Absolute path to the orphan tmp file. */
+  /** Absolute path to the swept orphan file. */
   path: string;
   /** mtime in ms since epoch when the sweep discovered it. */
   mtimeMs: number;
@@ -788,14 +858,22 @@ export interface OrphanTmpSweepEntry {
 }
 
 /**
- * Sweep orphan `.tmp.<8-hex>` files under a directory tree, removing any
- * older than {@link ORPHAN_MIN_AGE_MS}. Returns one entry per orphan so the
- * caller can emit a diagnostic per the Silent Failure Contract — the sweep
- * itself is NOT silent.
+ * Sweep orphan write artifacts under a directory tree, removing:
+ * - `.tmp.<8-hex>` writer leftovers older than {@link ORPHAN_MIN_AGE_MS}
+ *   (60s — a crash between tmp-write and rename orphans them), and
+ * - `.bak.<8-hex>` non-clobbering recovery backups older than
+ *   {@link ORPHAN_BAK_MIN_AGE_MS} (7 days — D11-SA11.2-02: these previously
+ *   leaked forever, since `hatch3r clean` removes only the canonical
+ *   `<file>.bak` and this sweep matched only the tmp shape). The canonical
+ *   `<file>.bak` is never swept here regardless of age.
  *
- * Safe against concurrent in-flight writes: only files older than
- * {@link ORPHAN_MIN_AGE_MS} are candidates, so a live atomicWriteFile on
- * another process (or in-flight on this one) is never swept.
+ * Returns one entry per swept artifact so the caller can emit a diagnostic
+ * per the Silent Failure Contract — the sweep itself is NOT silent.
+ *
+ * Safe against concurrent in-flight writes: only files past their class's
+ * age gate are candidates, so a live atomicWriteFile on another process (or
+ * in-flight on this one) — and a recovery backup still inside its operator
+ * review window — is never swept.
  *
  * Non-recursive by default; pass `{ recursive: true }` to walk subtrees
  * (e.g. `.agents/` which contains tool-specific nested layouts).
@@ -812,7 +890,10 @@ export async function sweepOrphanTmpFiles(
     // never entered (no full-tree readdir from the repo root, no by-name match
     // on a dependency's own temp file). A top-level readdir failure rethrows
     // from walkTmpCandidates; classify it here.
-    candidates = await walkTmpCandidates(dir, options.recursive === true);
+    candidates = await walkTmpCandidates(dir, options.recursive === true, [
+      ORPHAN_TMP_SUFFIX_RE,
+      ORPHAN_BAK_SUFFIX_RE,
+    ]);
   } catch (err) {
     const code = (err as NodeJS.ErrnoException).code;
     // ENOENT is expected on fresh checkouts before .agents/ is created.
@@ -835,7 +916,13 @@ export async function sweepOrphanTmpFiles(
       continue;
     }
     const age = nowMs - fileStat.mtimeMs;
-    if (age < ORPHAN_MIN_AGE_MS) continue;
+    // D11-SA11.2-02: per-class age gate — a `.bak.<8hex>` recovery backup
+    // keeps a 7-day operator review window; a `.tmp.<8hex>` writer leftover
+    // is orphaned after 60s. (A path cannot match both suffix shapes.)
+    const minAgeMs = ORPHAN_BAK_SUFFIX_RE.test(fullPath)
+      ? ORPHAN_BAK_MIN_AGE_MS
+      : ORPHAN_MIN_AGE_MS;
+    if (age < minAgeMs) continue;
     try {
       await unlink(fullPath);
       results.push({ path: fullPath, mtimeMs: fileStat.mtimeMs, removed: true });
@@ -883,7 +970,12 @@ export async function detectConcurrentWriteRisk(
   const nowMs = options.nowMs ?? Date.now();
   let candidates: TmpCandidate[];
   try {
-    candidates = await walkTmpCandidates(dir, options.recursive === true);
+    // Tmp-only on purpose (D11-SA11.2-02): a fresh `.tmp.<8hex>` means a
+    // writer is mid-flight RIGHT NOW; a `.bak.<8hex>` recovery backup persists
+    // by design inside its review window and is never a contention signal.
+    candidates = await walkTmpCandidates(dir, options.recursive === true, [
+      ORPHAN_TMP_SUFFIX_RE,
+    ]);
   } catch (err) {
     // Best-effort: an unreadable root is not a contention signal, so we return
     // null rather than a false warning. ENOENT (fresh checkout, dir absent) is
@@ -935,13 +1027,13 @@ export function formatOrphanTmpSweepDiagnostic(
   const parts: string[] = [];
   if (removed.length > 0) {
     parts.push(
-      `Swept ${removed.length} orphan temp file(s) from prior interrupted runs: ` +
+      `Swept ${removed.length} orphan temp/backup file(s) from prior interrupted runs or old recoveries: ` +
         removed.map((e) => e.path).join(", "),
     );
   }
   if (failed.length > 0) {
     parts.push(
-      `Failed to remove ${failed.length} orphan temp file(s); remove manually: ` +
+      `Failed to remove ${failed.length} orphan temp/backup file(s); remove manually: ` +
         failed.map((e) => `${e.path} (${e.error ?? "unknown"})`).join(", "),
     );
   }
@@ -977,9 +1069,12 @@ export function formatOrphanTmpSweepDiagnostic(
  *   - otherwise → `skipped`.
  *
  * The deny-pattern scan is intentionally NOT run here: a deny hit aborts the
- * live write (throws) rather than producing an action, and the dry-run preview
- * reports the disposition category, not the security verdict. `skipIfUnchanged`
- * defaults to `true` to match {@link safeWriteFile}.
+ * live write (throws) rather than producing an action, and this predictor
+ * reports the disposition category, not the security verdict. The
+ * security-refusal axis has its own predictor — {@link predictDenyRefusal}
+ * (D11-SA11.2-01) — which dry-run callers run alongside this one, rendering
+ * its non-null result as a `refused` row instead of the action predicted
+ * here. `skipIfUnchanged` defaults to `true` to match {@link safeWriteFile}.
  */
 export function predictMergeAction(
   existingContent: string | null,
@@ -1201,6 +1296,78 @@ const DENY_REFUSAL_REMEDY =
   `or open an issue with the matching snippet. ` +
   `Do NOT move the text inside the HATCH3R:BEGIN/END markers — the managed block is regenerated on every sync, which deletes anything placed inside it.`;
 
+/** Build the appendIfNoBlock (first-splice) deny-refusal message. Single
+ *  source for the live throw in `safeWriteFileLocked` AND the preview from
+ *  {@link predictDenyRefusal} (D11-SA11.2-01), so a dry-run refusal row is
+ *  byte-identical to the live error. */
+function spliceDenyRefusalMessage(filePath: string, blocked: string[]): string {
+  return (
+    `Refusing to splice managed block into ${filePath}: existing file content contains denied pattern(s): ${formatBlockedDenyFindings(blocked)}. ` +
+    DENY_REFUSAL_REMEDY
+  );
+}
+
+/** Build the existing-markers deny-refusal message — same single-sourcing
+ *  contract as {@link spliceDenyRefusalMessage}. */
+function updateDenyRefusalMessage(filePath: string, blocked: string[]): string {
+  return (
+    `Refusing to update ${filePath}: content outside the hatch3r-managed block contains denied pattern(s): ${formatBlockedDenyFindings(blocked)}. ` +
+    DENY_REFUSAL_REMEDY
+  );
+}
+
+/**
+ * D11-SA11.2-01 (Cycle 12, P1): predict whether {@link safeWriteFile} would
+ * REFUSE the write outright — throw `VALIDATION_ERROR` on a deny-pattern hit —
+ * for these inputs, WITHOUT writing anything. Returns the exact refusal
+ * message the live write would throw, or `null` when no refusal would occur.
+ *
+ * Companion to {@link predictMergeAction}: that predictor is pure over the
+ * merge-DISPOSITION axis (created/updated/skipped/unchanged) and is
+ * deliberately deny-blind, so `sync --dry-run` previewed `updated` for a file
+ * the live sync then hard-failed on — the exact preview-vs-reality divergence
+ * the predictor exists to eliminate, surviving for the security-refusal case.
+ * Dry-run callers run BOTH: a non-null result here renders as a distinct
+ * `refused` row instead of the predicted merge action.
+ *
+ * Mirrors `safeWriteFileLocked` branch-for-branch, including the reviewed
+ * allowlist consultation (read-only disk I/O — hence async), so a repo whose
+ * `.hatch3r/deny-scan-allowlist.json` covers the hit previews as writable,
+ * not refused:
+ * - file absent, or no `managedContent` → the live write never deny-scans
+ *   (the force path guards with a `.bak`, not a scan) → `null`.
+ * - `managedContent` + no markers + `appendIfNoBlock` → the live path scans
+ *   the ENTIRE existing body before splicing (C9-H41).
+ * - `managedContent` + no markers, no `appendIfNoBlock` → live returns
+ *   `skipped` without scanning → `null`.
+ * - `managedContent` + markers present → the live path scans the
+ *   out-of-block slice (`extractCustomContent`, D1-7).
+ *
+ * Unlike the live path this predictor does NOT emit the loud per-hit
+ * allowlist diagnostics — the live run reports them when it executes.
+ */
+export async function predictDenyRefusal(
+  existingContent: string | null,
+  filePath: string,
+  options: { managedContent?: string; appendIfNoBlock?: boolean } = {},
+): Promise<string | null> {
+  if (existingContent === null || !options.managedContent) return null;
+  if (!hasManagedBlock(existingContent, filePath)) {
+    if (!options.appendIfNoBlock) return null;
+    const denied = scanForDeniedPatterns(existingContent);
+    if (denied.length === 0) return null;
+    const disposition = await applyDenyScanAllowlist(filePath, denied);
+    if (disposition.blocked.length === 0) return null;
+    return spliceDenyRefusalMessage(filePath, disposition.blocked);
+  }
+  const customContent = extractCustomContent(existingContent, filePath);
+  const denied = customContent ? scanForDeniedPatterns(customContent) : [];
+  if (denied.length === 0) return null;
+  const disposition = await applyDenyScanAllowlist(filePath, denied);
+  if (disposition.blocked.length === 0) return null;
+  return updateDenyRefusalMessage(filePath, disposition.blocked);
+}
+
 /** Options accepted by {@link safeWriteFile}. */
 export interface SafeWriteFileOptions {
   managedContent?: string;
@@ -1252,7 +1419,16 @@ export async function safeWriteFile(
   options: SafeWriteFileOptions = {},
 ): Promise<MergeResult> {
   const skipIfUnchanged = options.skipIfUnchanged ?? true;
-  await mkdir(dirname(filePath), { recursive: true });
+  // D8-SA8.2-03 (Cycle 12, P1): this mkdir runs BEFORE any atomicWriteFile,
+  // so a parent-directory-creation failure (EACCES on the parent, EROFS on a
+  // read-only mount, ENOSPC/EDQUOT) previously surfaced as a raw Node error
+  // while the identical root condition one step later got a guided message.
+  // Map it through the same actionable-error table.
+  try {
+    await mkdir(dirname(filePath), { recursive: true });
+  } catch (err) {
+    throw mapFsErrno(err, filePath) ?? err;
+  }
 
   // D1-SA1.5-04: take the write lock BEFORE the existence check and content
   // read so the whole read-merge-write is one critical section. No-op when
@@ -1315,9 +1491,10 @@ async function safeWriteFileLocked(
           // finding without a matching reviewed exception still refuses.
           const disposition = await applyDenyScanAllowlist(filePath, deniedExisting);
           if (disposition.blocked.length > 0) {
+            // Message built by the shared builder so predictDenyRefusal's
+            // dry-run preview matches this throw byte-for-byte (D11-SA11.2-01).
             throw new HatchError(
-              `Refusing to splice managed block into ${filePath}: existing file content contains denied pattern(s): ${formatBlockedDenyFindings(disposition.blocked)}. ` +
-                DENY_REFUSAL_REMEDY,
+              spliceDenyRefusalMessage(filePath, disposition.blocked),
               1,
               "VALIDATION_ERROR",
             );
@@ -1391,9 +1568,10 @@ async function safeWriteFileLocked(
       // stay symmetric (F15.1-H1) including their recovery path.
       const disposition = await applyDenyScanAllowlist(filePath, deniedFindings);
       if (disposition.blocked.length > 0) {
+        // Message built by the shared builder so predictDenyRefusal's
+        // dry-run preview matches this throw byte-for-byte (D11-SA11.2-01).
         throw new HatchError(
-          `Refusing to update ${filePath}: content outside the hatch3r-managed block contains denied pattern(s): ${formatBlockedDenyFindings(disposition.blocked)}. ` +
-            DENY_REFUSAL_REMEDY,
+          updateDenyRefusalMessage(filePath, disposition.blocked),
           1,
           "VALIDATION_ERROR",
         );
@@ -1419,12 +1597,8 @@ async function safeWriteFileLocked(
       // branch — when we land here the structural markers really are broken, so
       // the warning below can name that cause honestly.
       // Create a .bak backup before overwriting so user content is not lost.
-      // #242 (D8-8.9): Verify backup integrity before proceeding with overwrite.
-      // D1-M12 (Cycle 10 Wave-3): file-size equality is necessary but not
-      // sufficient — a partial copy that happened to land at the same byte
-      // count would pass the size check while the bytes diverged. Compare
-      // SHA-256 digests of the in-memory source and the on-disk backup so
-      // we abort auto-repair on any byte-level divergence.
+      // #242 (D8-8.9) + D1-M12: the backup is integrity-verified (size +
+      // SHA-256) via {@link verifyBackup} before the overwrite proceeds.
       // Auto-repair always writes through — skipIfUnchanged does not apply
       // here because the file shape on disk is broken even when bytes
       // happen to match.
@@ -1440,31 +1614,19 @@ async function safeWriteFileLocked(
       // remains the primary, complete recovery path (`hatch3r rollback`); these
       // `.bak*` files are the convenience copy the warning still points at.
       const bakPath = await resolveNonClobberingBakPath(filePath);
-      await copyFile(filePath, bakPath);
-      const srcStat = await stat(filePath);
-      const bakStat = await stat(bakPath);
-      if (bakStat.size !== srcStat.size) {
-        throw new HatchError(
-          `Backup verification failed for ${filePath}: source=${srcStat.size} bytes, backup=${bakStat.size} bytes. ` +
-          `Aborting auto-repair to prevent data loss.`,
-          1,
-          "FS_ERROR",
-        );
+      try {
+        await copyFile(filePath, bakPath);
+      } catch (copyErr) {
+        // D8-SA8.2-03: a failed backup copy (ENOSPC/EDQUOT/EACCES/…) aborts
+        // BEFORE the overwrite — with the same guided message the atomic
+        // writer produces, not a raw Node errno. The original is intact.
+        throw mapFsErrno(copyErr, bakPath) ?? copyErr;
       }
-      // existingContent was read above as the file's pre-repair bytes. Hash
-      // it directly and compare with the just-written backup so we detect
-      // partial-write or fs-corruption cases the size check misses.
-      const srcHash = createHash("sha256").update(existingContent, "utf-8").digest("hex");
-      const bakBytes = await readFile(bakPath);
-      const bakHash = createHash("sha256").update(bakBytes).digest("hex");
-      if (srcHash !== bakHash) {
-        throw new HatchError(
-          `Backup verification failed for ${filePath}: SHA-256 mismatch (source=${srcHash.slice(0, 12)}…, backup=${bakHash.slice(0, 12)}…). ` +
-          `Aborting auto-repair to prevent data loss.`,
-          1,
-          "FS_ERROR",
-        );
-      }
+      // existingContent was read above as the file's pre-repair bytes;
+      // verifyBackup compares size AND SHA-256 against the on-disk backup so
+      // partial-write / fs-corruption cases the size check misses abort the
+      // repair (D1-M12) — see the helper for the full rationale.
+      await verifyBackup(filePath, bakPath, existingContent, "auto-repair");
       await atomicWriteFileUnlocked(filePath, content);
       const failureReason =
         mergeFailure instanceof Error ? mergeFailure.message : String(mergeFailure);
@@ -1515,7 +1677,21 @@ async function safeWriteFileLocked(
     // a pre-existing user `.bak` is never overwritten (the D11-12 invariant).
     if (options.force && !isManagedFile) {
       const bakPath = await resolveNonClobberingBakPath(filePath);
-      await copyFile(filePath, bakPath);
+      try {
+        await copyFile(filePath, bakPath);
+      } catch (copyErr) {
+        // D8-SA8.2-03: same guided FS_ERROR mapping as the repair-branch
+        // backup copy — a raw errno here left the operator unguided on the
+        // exact path that protects irreplaceable content.
+        throw mapFsErrno(copyErr, bakPath) ?? copyErr;
+      }
+      // D8-SA8.2-02 (Cycle 12): this branch backs up GENUINE user content
+      // (irreplaceable — not regenerable from canonical), so it verifies the
+      // backup exactly like the corruption-repair branch above before
+      // destroying the original. Previously only the repair branch — whose
+      // backed-up file IS regenerable — verified; the guard was missing where
+      // it mattered most.
+      await verifyBackup(filePath, bakPath, existingContent, "force overwrite");
       await atomicWriteFileUnlocked(filePath, content);
       return {
         path: filePath,

@@ -125,7 +125,7 @@ At the end of an auto session, generate a summary:
 - **Implementer / sub-agent failure:** route through the shared sub-agent-failure clause (`rules/hatch3r-agent-orchestration.md` → Sub-agent-failure handling) — retry once; if the retry fails, re-spawn `hatch3r-fixer` with the failure reason + partial output as failure context; if the re-spawn also fails, emit `BLOCKED_OTHER` and ASK. Never fall back to inline implementation (issue #73 bypass mode).
 - **Issue listing/search failure:** retry once, then ask user for issue number.
 - **Issue update failure:** warn and continue (labels not blocking).
-- **Quality verification failure:** fix before creating PR/MR.
+- **Quality verification failure:** max 2 fix attempts, then **ASK** the user for guidance: "Quality checks still failing after 2 fix attempts: {specific failures}. Fix confidence: {high/medium/low — based on whether root cause is identified}. Options: (a) commit the partial result and defer the issue, (b) keep trying, (c) abort." Do not loop unbounded before creating PR/MR.
 - **PR/MR creation failure:** present error and manual instructions.
 - **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback (inherited from `hatch3r-workflow`) is ~25 turns, at which point suggest splitting the batch or starting a fresh context with a progress summary of completed and remaining issues.
 
@@ -144,4 +144,4 @@ At the end of an auto session, generate a summary:
 - **Respect dependency and implementation order.** Warn and suggest blockers.
 - **Prefer `status:ready` issues.** Warn if selecting non-ready.
 - **Board Overview is auto-maintained.** Exclude from all analysis.
-- **Always create a PR.** Every board-pickup session MUST end with a PR (Steps 7a-8) unless explicitly abandoned by the user or the epic is an audit that produces no code changes. If quality checks fail in Step 7, fix the issues and re-run Step 7 -- do not exit without completing Steps 7a, 8, 8a, and 9.
+- **Always create a PR.** Every board-pickup session MUST end with a PR (Steps 7a-8) unless explicitly abandoned by the user or the epic is an audit that produces no code changes. If quality checks fail in Step 7, fix and re-run Step 7 within the 2-fix-attempt bound (Error Handling → Quality verification failure) -- do not exit without completing Steps 7a, 8, 8a, and 9, unless the user selects commit-partial-and-defer or abort at that ASK after 2 failed attempts.

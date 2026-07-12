@@ -43,6 +43,13 @@ const TERMINAL_CL3_STATUSES: ReadonlySet<string> = new Set([
   "superseded",
 ]);
 
+/**
+ * A `blocker_reason` that names an explicit human owner (`Owner: Human ...`)
+ * marks an explicit-block strategic item (D16-SA16.2-02). Matched
+ * case-insensitively with tolerant whitespace after the colon.
+ */
+const OWNER_HUMAN_BLOCK_RE = /Owner:\s*Human/i;
+
 /** A strategic finding the report surfaces, with its computed stall age. */
 export interface StalledStrategic {
   finding_id: string;
@@ -69,9 +76,18 @@ export function toCycleNumber(value: unknown): number | null {
  * Identify the strategic predicate(s) an entry matches; "" when none.
  * Strategic = cl1_status=candidate OR sdr_status ∈ {proposed, deferred} OR a
  * non-terminal cl3_status OR a CL-3 proposal id (the AUDIT-EXECUTE.md Phase 0
- * step 6 predicate). The cl3_status leg (D16-16) catches a regular finding that
- * carries an open audit-self-evolution disposition but whose id does not match
- * the CL-3 naming pattern.
+ * step 6 predicate) OR the explicit human-block lane (D16-SA16.2-02): a
+ * `human_only` disposition, or a `blocker_reason` naming an explicit human
+ * owner. The cl3_status leg (D16-16) catches a regular finding that carries an
+ * open audit-self-evolution disposition but whose id does not match the CL-3
+ * naming pattern.
+ *
+ * The human-block lane closes a structural blindness (D16-SA16.2-02): items
+ * routed to a human decision list exit the tactical pipeline WITHOUT any
+ * cl1/sdr/cl3 lifecycle status, so the four status-based legs above never see
+ * them and the detector returns 0 rows against a registry that holds a stalled
+ * human-parked strategic cohort. This leg reads the two fields those items DO
+ * carry — the `human_only` disposition and the `Owner: Human ...` blocker text.
  */
 export function strategicReason(f: Finding): string {
   const reasons: string[] = [];
@@ -91,6 +107,16 @@ export function strategicReason(f: Finding): string {
     !TERMINAL_CL3_STATUSES.has(f.cl3_status)
   ) {
     reasons.push(`cl3_status=${f.cl3_status}`);
+  }
+  // Explicit human-block lane (D16-SA16.2-02). Either signal qualifies; the
+  // canonical stalled cohort carries both, so both labels can appear.
+  if (typeof f.disposition === "string" && f.disposition === "human_only") {
+    reasons.push("disposition=human_only");
+  }
+  const blockerReason =
+    typeof f.blocker_reason === "string" ? f.blocker_reason : "";
+  if (OWNER_HUMAN_BLOCK_RE.test(blockerReason)) {
+    reasons.push("owner-human-block");
   }
   const id = typeof f.finding_id === "string" ? f.finding_id : "";
   if (/^CL-?3/i.test(id)) {
@@ -181,7 +207,8 @@ export function renderReport(
   lines.push("");
   lines.push(
     "Scope: strategic findings (`cl1_status=candidate`, `sdr_status ∈ {proposed, deferred}`, " +
-      "a non-terminal `cl3_status`, or CL-3 proposals) that are not terminal and have sat " +
+      "a non-terminal `cl3_status`, CL-3 proposals, or the explicit human-block lane — " +
+      "`disposition=human_only` / an `Owner: Human` blocker) that are not terminal and have sat " +
       "unresolved for at least the threshold cycles. Forcing function for AUDIT-EXECUTE.md " +
       "Phase 0 step 6 / F16.2-C1.",
   );

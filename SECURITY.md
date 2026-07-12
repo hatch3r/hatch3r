@@ -113,6 +113,18 @@ Rationale for Hybrid (not pure Code): the orchestrator-side check (`checkToolAcc
 
 Source of truth: `src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES`. Adapter emission helpers: `buildAgentToolPoliciesJson()`, `buildClaudePreToolUseHookScript()`, `buildCursorAllowlistRule()`, `buildCursorSubagentGuardHookScript()`.
 
+## Release Integrity
+
+hatch3r is published to npm through GitHub Actions Trusted Publishing (GitHub OIDC), which issues short-lived publish credentials per workflow run -- no long-lived npm token is stored in CI or the repository. Each published version carries npm provenance (Sigstore signing with a public transparency-log record), so the package bytes trace back to the workflow run that built them. This mirrors the Canonical-tier guarantees on the [Pack Trust Model](https://docs.hatch3r.com/docs/reference/trust-model) page.
+
+Consumers can verify a release before trusting it:
+
+```bash
+npm audit signatures
+```
+
+**Release policy.** Publishing uses the OIDC trusted-publishing workflow; long-lived npm tokens are not part of the release path. To close the residual legacy-token path at the registry itself, npm Publishing Access should be set to "Require two-factor authentication and disallow tokens" (npm's recommended posture after enabling trusted publishers) -- a maintainer account-side setting, not a repository change.
+
 ## Content Signing Limitations
 
 Integrity is **drift detection** — `hatch3r status` / `hatch3r verify` regenerate adapter outputs from the bundled canonical content shipped inside the npm package and diff them against the on-disk copies. There is no `.integrity.json` checksum file (the SHA-256 manifest was removed in 1.9.0 per CONSTITUTION §6 Decision 12). The mechanism is **not cryptographically signed**:

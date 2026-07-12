@@ -1990,10 +1990,18 @@ describe("MCP_ENV_VAR_FORMAT_PARITY (table-internal consistency)", () => {
     }
   });
 
-  it("copilot mcp-env is gated via envFile so the shell format never reaches a VS Code STDIO consumer", () => {
+  it("copilot mcp-env records the passthrough format the adapter requests and is gated via envFile", () => {
     const copilotEnv = MCP_ENV_VAR_FORMAT_PARITY.find(
       (r) => r.adapter === "copilot" && r.surface === "mcp-env",
     );
+    // D2-SA2.4-15 (Cycle 12): the row's `format` MUST equal the exact envVarFormat
+    // argument the copilot adapter passes to `buildStdMcpEntries` — `"passthrough"`
+    // in copilot.ts — not a hypothetical inline syntax. `viaEnvFile` then drops the
+    // env object so no substitution reaches the VS Code STDIO consumer. Pinning both
+    // here catches any regression to the stale pre-D11-C-2 `"shell"` value that made
+    // this row alone mean "hypothetical format" instead of "the format the adapter
+    // requests".
+    expect(copilotEnv?.format).toBe("passthrough");
     expect(copilotEnv?.viaEnvFile).toBe(true);
   });
 });

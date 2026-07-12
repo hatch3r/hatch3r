@@ -170,6 +170,25 @@ function isCopilotRecognizableModel(model: string): boolean {
 }
 
 /**
+ * hatch3r-internal `model:` placeholders the Copilot surface omits by design, so
+ * {@link CopilotAdapter.warnIfModelDropped} stays silent on them. Two provenance
+ * groups: (1) the capacity-tier words authored on canonical agents' `model:`
+ * frontmatter — `standard`/`fast` — plus the other `TriageTier` members `light`/`deep`
+ * (src/pipeline/costEstimator.ts) for forward-compat if an agent adopts them; (2) the
+ * `inherit` sentinel, which `resolveModelAlias` passes through verbatim and whose
+ * emission IS omission (src/models/resolve.ts). None is a user model choice, so a drop
+ * warning on any of them would be per-sync noise on the shipped agent corpus, not the
+ * signal D9-SA9.3-06 targets (an unrecognized USER-configured model).
+ */
+const COPILOT_INTENTIONALLY_OMITTED_MODELS: ReadonlySet<string> = new Set([
+  "standard",
+  "fast",
+  "light",
+  "deep",
+  "inherit",
+]);
+
+/**
  * D5-39 (Cycle 11 Wave 3, D5, P6): default tool-category grant per github-agent
  * role, keyed by emitted (prefixed) id. github-agents (`type: github-agent`)
  * are simplified cloud-agent definitions whose ids are outside the canonical
@@ -317,6 +336,35 @@ export class CopilotAdapter extends BaseAdapter {
     );
   }
 
+  /**
+   * D9-SA9.3-06 (Cycle 12, D9, P1 + P5 silent-failure): {@link isCopilotRecognizableModel}
+   * admits only the four provider-prefix families (`claude-`/`gpt-`/`codex-`/`gemini-`)
+   * plus a `(copilot)`-qualified display name. GitHub's supported-models reference
+   * (docs.github.com/en/copilot/reference/ai-models/supported-models, accessed
+   * 2026-07-12) also lists picker models OUTSIDE those prefixes — `MAI-Code-1-Flash`
+   * (Microsoft), `Raptor mini` (fine-tuned GPT-5 mini), `Kimi-K2.7-Code` (Moonshot AI).
+   * A user who sets `models.agents.<id>` to such a valid Copilot model has the `model:`
+   * field OMITTED by the recognizable-value gate at the emission sites, and Copilot falls
+   * back to the picker default — the explicit per-agent choice becomes a silent no-op. The
+   * non-prefix vendors are unpredictable (three already), so widening the regex cannot
+   * generalize; this converts the drop into an audit-visible sync warning per the Silent
+   * Failure Contract (CONSTITUTION §2 P5). The field stays omitted — D9-16's safe fallback
+   * is preserved, no dead field is shipped — only the operator-facing signal is added. The
+   * hatch3r-internal placeholders in {@link COPILOT_INTENTIONALLY_OMITTED_MODELS} are not
+   * user model choices and never warn.
+   */
+  private warnIfModelDropped(artifactPath: string, model: string | undefined): void {
+    if (!model || isCopilotRecognizableModel(model)) return;
+    if (COPILOT_INTENTIONALLY_OMITTED_MODELS.has(model)) return;
+    this.warnings.push(
+      `${artifactPath}: configured model "${model}" is not a Copilot-recognizable ` +
+        `value (expected a claude-/gpt-/codex-/gemini- id or a "(copilot)" display name), ` +
+        `so the model: field was omitted and Copilot falls back to the picker default — the ` +
+        `per-agent model choice is a no-op. Use a supported id from ` +
+        `docs.github.com/en/copilot/reference/ai-models/supported-models.`,
+    );
+  }
+
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
 
@@ -459,7 +507,7 @@ jobs:
       // X4/CD4: `globs` is the resolved pattern list from resolveRuleGlobs
       // (never the literal "conditional"). VS Code's `applyTo` is a single
       // comma-separated glob string per
-      // https://code.visualstudio.com/docs/copilot/copilot-customization
+      // https://code.visualstudio.com/docs/agent-customization/custom-instructions
       // (custom instructions `applyTo` frontmatter).
       const applyTo = globs.join(", ");
       const fmLines = [`applyTo: "${applyTo}"`];
@@ -538,6 +586,10 @@ jobs:
         }
         const fm = `---\n${lines.join("\n")}\n---`;
         const agentPath = `.github/agents/${prefixedId}.agent.md`;
+        // D9-SA9.3-06 (Cycle 12): if `model` resolved to a value the D9-16 gate
+        // above dropped (a user-configured non-prefix Copilot model), surface the
+        // omission — it is otherwise a silent per-agent no-op.
+        this.warnIfModelDropped(agentPath, model);
         // D9-SA9.3-01 (Cycle 12): warn if the below-frontmatter prompt exceeds
         // GitHub's 30,000-char custom-agent cap (the wrapped body is exactly what
         // Copilot ingests and counts).
@@ -621,6 +673,8 @@ jobs:
         // hatch3r tier words `standard`/`fast`.
         const model = agent.model ? resolveAgentModel(agent.id, agent, ctx.manifest, {}) : undefined;
         if (model && isCopilotRecognizableModel(model)) lines.push(`model: ${model}`);
+        // D9-SA9.3-06 (Cycle 12): same drop-visibility guard on the github-agent surface.
+        this.warnIfModelDropped(ghAgentPath, model);
         // D5-39: per-role least-privilege `tools:` allowlist (read-only baseline
         // for an unlisted github-agent), rendered through the shared category map.
         const categories = GITHUB_AGENT_TOOL_CATEGORIES[prefixedId] ?? GITHUB_AGENT_DEFAULT_CATEGORIES;
@@ -702,7 +756,7 @@ jobs:
       // D9-C-2 + D11-C-2 + D11-7 (Cycle 10–11, Pillars P3 + P6 + CQ4):
       //   - D9-C-2: VS Code's MCP schema requires per-server `type`
       //     (`stdio` | `http` | `sse`) — verified against
-      //     https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+      //     https://code.visualstudio.com/docs/agents/reference/mcp-configuration
       //     (accessed 2026-05-27). Without it, schema-aware tooling
       //     (mcp-inspector, VS Code 2026.05+ strict mode, awesome-copilot
       //     lint) rejects the server entries. `buildStdMcpEntries` now

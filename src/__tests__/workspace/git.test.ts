@@ -118,6 +118,32 @@ describe("workspace git detection", () => {
     it("defaults to GitHub for unknown URLs", () => {
       expect(detectPlatformFromRemote("https://example.com/repo.git")).toBe("github");
     });
+
+    // D1-SA1.10-08: match the HOST, not the whole URL. A GitHub repo whose
+    // *name* contains a host token ("gitlab.", "visualstudio.com") must not
+    // flip the platform.
+    it("does not mis-classify a GitHub repo whose name contains 'gitlab.'", () => {
+      expect(detectPlatformFromRemote("https://github.com/user/gitlab.mirror.git")).toBe("github");
+      expect(detectPlatformFromRemote("git@github.com:user/gitlab.ci-tools.git")).toBe("github");
+    });
+
+    it("does not mis-classify a GitHub repo whose name contains 'visualstudio.com'", () => {
+      expect(detectPlatformFromRemote("https://github.com/user/visualstudio.com-clone.git")).toBe("github");
+      expect(detectPlatformFromRemote("git@github.com:user/my.visualstudio.com.git")).toBe("github");
+    });
+
+    it("detects self-hosted GitLab over SSH and with a port", () => {
+      expect(detectPlatformFromRemote("git@gitlab.example.com:group/project.git")).toBe("gitlab");
+      expect(detectPlatformFromRemote("https://gitlab.example.com:8443/group/project.git")).toBe("gitlab");
+    });
+
+    it("detects Azure DevOps SSH host even when the repo name contains 'gitlab.'", () => {
+      expect(detectPlatformFromRemote("git@ssh.dev.azure.com:v3/org/project/gitlab.mirror")).toBe("azure-devops");
+    });
+
+    it("ignores credentials in the authority when matching the host", () => {
+      expect(detectPlatformFromRemote("https://token@github.com/user/gitlab.mirror.git")).toBe("github");
+    });
   });
 
   describe("detectRepoGitIdentity", () => {

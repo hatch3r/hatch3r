@@ -8,10 +8,12 @@ This directory holds the Claude Code configuration that ships with the repositor
 |------|-----------------|-----------------|
 | `settings.json` | Shared team settings (permissions, hooks, teammate mode) | Yes |
 | `settings.local.json` | **User-local overrides** layered on top of `settings.json` at session start | No — gitignored |
-| `rules/*.md` | Project rules auto-loaded each session | Yes |
-| `skills/h4tcher-*/SKILL.md` | Framework-internal slash commands (`/h4tcher-*`) | Yes |
-| `hooks/session-start-registry.mjs` | SessionStart hook implementation referenced from `settings.json` | Yes |
+| `rules/*.md` | Project rules auto-loaded each session | 12 of 13 — `audit-cycle-awareness.md` ships via the private overlay (`.gitignore:42`) |
+| `skills/h4tcher-*/SKILL.md` | Framework-internal slash commands (`/h4tcher-*`) | 9 of 15 — six governance-facing skills ship via the private overlay (`.gitignore:36-41`) |
+| `hooks/session-start-registry.mjs` | SessionStart hook implementation referenced from `settings.json`; inert on a public clone — the governance-context loader targets the private `governance/` overlay and is guarded by `[ -f ]` | Yes |
 | `hooks/pretooluse-allowlist.mjs`, `hooks/agent-tool-policies.json`, `hooks/hatch3r-hooks.json` | Generated dogfood: hatch3r's Claude adapter (`src/adapters/claude.ts`) writes these into this dev `.claude/` when the framework is run on itself; referenced from the generated `hooks/hatch3r-hooks.json`, not from `settings.json` | No — gitignored (`.gitignore` lines 54-56) |
+
+Six governance-facing skills (`/h4tcher-audit-cycle`, `/h4tcher-audit-execute`, `/h4tcher-evolve`, `/h4tcher-domain-author`, `/h4tcher-governance-check`, `/h4tcher-scoped-audit`) and one rule (`audit-cycle-awareness.md`) ship only via the private `hatch3r-governance` overlay (`.gitignore:36-42`), so a public clone runs the framework without them — references to those `/h4tcher-*` commands and the SessionStart governance-context loader resolve only in the maintainer checkout.
 
 ## User-local overrides
 
@@ -28,5 +30,5 @@ If you need a setting available to every contributor, add it to
 
 ## Reference
 
-- Claude Code settings docs: https://docs.claude.com/claude-code/settings
+- Claude Code settings docs: https://code.claude.com/docs/en/settings
 - Project pillar alignment: `governance/CONSTITUTION.md` §2 P5 (Governance Self-Quality)

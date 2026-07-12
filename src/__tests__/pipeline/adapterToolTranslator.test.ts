@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   ADAPTER_ALLOWLIST_COVERAGE,
@@ -370,5 +372,65 @@ describe("buildAskUserPlatformTable + substituteCanonicalPlatformMarker", () => 
 
   it("PLATFORM_TOOL_MARKER is the documented HTML comment token", () => {
     expect(PLATFORM_TOOL_MARKER).toBe("<!-- HATCH3R:PLATFORM-TOOL -->");
+  });
+});
+
+// D2-SA2.4-14 (Cycle 12 Wave 4, D2, P4): the module-doc header enumerates the
+// tool-allowlist TARGET platforms. It is prose, so no compiler/parity gate
+// caught the stale "Windsurf Cascade" row that survived the 1.9.0 three-adapter
+// hard-cut and contradicted the removal notes 70 lines below. This gate reads
+// the header block and binds its platform-bullet count to AdapterName's three
+// members (via ADAPTER_ALLOWLIST_COVERAGE, itself bound to AdapterName's exact
+// members by the coverage tests above), holding the D2 stale-surface metric at
+// 0 for this header so a removed adapter cannot silently reappear.
+describe("D2-SA2.4-14 module-header target-platform enumeration (stale-surface gate)", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/pipeline/adapterToolTranslator.ts"),
+    "utf-8",
+  );
+  // The "What this module does:" enumeration ends where "Design constraints:"
+  // begins; the removal-note comments (which correctly name windsurf as a
+  // REMOVED adapter) live far below this slice and are not gated here.
+  const headerStart = source.indexOf("What this module does:");
+  const headerEnd = source.indexOf("Design constraints:");
+  const headerBlock = source.slice(headerStart, headerEnd);
+
+  it("locates the header enumeration block", () => {
+    expect(headerStart).toBeGreaterThanOrEqual(0);
+    expect(headerEnd).toBeGreaterThan(headerStart);
+  });
+
+  it("lists exactly one platform bullet per AdapterName member (== ADAPTER_ALLOWLIST_COVERAGE length)", () => {
+    const bullets = headerBlock.match(/\n\s*\*\s+-\s/g) ?? [];
+    expect(bullets.length).toBe(ADAPTER_ALLOWLIST_COVERAGE.length);
+  });
+
+  it("names each of the three supported target platforms", () => {
+    expect(headerBlock).toContain("Claude Code");
+    expect(headerBlock).toContain("GitHub Copilot");
+    expect(headerBlock).toContain("Cursor");
+  });
+
+  it("names none of the 1.9.0-removed adapters (windsurf + the other 11)", () => {
+    const REMOVED_ADAPTERS = [
+      "windsurf",
+      "cline",
+      "opencode",
+      "amazonq",
+      "kiro",
+      "gemini",
+      "aider",
+      "amp",
+      "antigravity",
+      "codex",
+      "goose",
+      "zed",
+    ];
+    for (const name of REMOVED_ADAPTERS) {
+      expect(
+        new RegExp(`\\b${name}\\b`, "i").test(headerBlock),
+        `header enumeration must not name removed adapter "${name}"`,
+      ).toBe(false);
+    }
   });
 });

@@ -1,4 +1,4 @@
-import { describe, it, expect } from "vitest";
+import { describe, it, expect, beforeEach, afterEach } from "vitest";
 import { PassThrough } from "node:stream";
 import { Separator } from "@inquirer/core";
 import {
@@ -59,6 +59,7 @@ function render<Cfg, Val>(
   answer: Promise<Val>;
   keypress: (key: KeyEvent) => void;
   getScreen: () => string;
+  getRawScreen: () => string;
 } {
   const input = new PassThrough();
   const output = new PassThrough();
@@ -75,7 +76,12 @@ function render<Cfg, Val>(
       ...key,
     });
   };
-  return { answer, keypress, getScreen: () => plain(screen) };
+  return {
+    answer,
+    keypress,
+    getScreen: () => plain(screen),
+    getRawScreen: () => screen,
+  };
 }
 
 const SHIFT_TAB: KeyEvent = { name: "tab", shift: true, sequence: "[Z" };
@@ -345,5 +351,136 @@ describe("backableConfirm — fork body", () => {
     await tick();
     keypress({ name: "return" });
     expect(typeof (await answer)).toBe("boolean");
+  });
+});
+
+// D10-SA10.2-03 (Cycle 12): the fork inherits ui.ts's two shipped a11y fixes —
+// (1) key-cap help glyphs route through glyph() and degrade to ASCII words on
+// non-Unicode terminals instead of hardcoded `↑↓`/`⏎` literals rendering as
+// `?`; (2) help/default chrome follows the D10-23 WCAG 1.4.3 pattern: no SGR-2
+// dim on the action words or the default value (dim stays only on tertiary
+// `·` separators). SGR assertions force color via FORCE_COLOR, which
+// node:util styleText re-reads per call.
+describe("backable prompts — a11y port from ui.ts (D10-SA10.2-03)", () => {
+  const choices = [
+    { value: "go", name: "Go" },
+    { value: "stop", name: "Stop" },
+  ];
+
+  describe("ASCII key-cap fallback (HATCH3R_ASCII=1)", () => {
+    let priorAscii: string | undefined;
+
+    beforeEach(() => {
+      priorAscii = process.env.HATCH3R_ASCII;
+      process.env.HATCH3R_ASCII = "1";
+    });
+
+    afterEach(() => {
+      if (priorAscii === undefined) delete process.env.HATCH3R_ASCII;
+      else process.env.HATCH3R_ASCII = priorAscii;
+    });
+
+    it("select help line renders ASCII words, no Unicode literals", async () => {
+      const { answer, keypress, getScreen } = render(backableSelect, {
+        message: "Pick",
+        choices,
+      });
+      await tick();
+      const view = getScreen();
+      expect(view).toContain("up/down navigate");
+      expect(view).toContain("enter select");
+      expect(view).not.toContain("↑↓");
+      expect(view).not.toContain("⏎");
+      keypress(SHIFT_TAB);
+      await answer;
+    });
+
+    it("checkbox help line renders ASCII words, no Unicode literals", async () => {
+      const { answer, keypress, getScreen } = render(backableCheckbox, {
+        message: "Pick",
+        choices,
+      });
+      await tick();
+      const view = getScreen();
+      expect(view).toContain("up/down navigate");
+      expect(view).toContain("enter confirm");
+      expect(view).not.toContain("↑↓");
+      expect(view).not.toContain("⏎");
+      keypress(SHIFT_TAB);
+      await answer;
+    });
+
+    it("input help line renders the ASCII enter word", async () => {
+      const { answer, keypress, getScreen } = render(backableInput, {
+        message: "Name",
+      });
+      await tick();
+      const view = getScreen();
+      expect(view).toContain("enter submit");
+      expect(view).not.toContain("⏎");
+      keypress(SHIFT_TAB);
+      await answer;
+    });
+  });
+
+  describe("no SGR-2 dim on action words or default values (D10-23 port)", () => {
+    const DIM_OPEN = "[2m";
+    const CYAN_OPEN = "[36m";
+    let priorForceColor: string | undefined;
+
+    beforeEach(() => {
+      priorForceColor = process.env.FORCE_COLOR;
+      process.env.FORCE_COLOR = "3";
+    });
+
+    afterEach(() => {
+      if (priorForceColor === undefined) delete process.env.FORCE_COLOR;
+      else process.env.FORCE_COLOR = priorForceColor;
+    });
+
+    it("select help actions render at default weight; dim decorates only separators", async () => {
+      const { answer, keypress, getRawScreen } = render(backableSelect, {
+        message: "Pick",
+        choices,
+      });
+      await tick();
+      const raw = getRawScreen();
+      // Action words are NOT dim-wrapped (old contract dim-wrapped every action).
+      expect(raw).not.toContain(`${DIM_OPEN}navigate`);
+      expect(raw).not.toContain(`${DIM_OPEN}select`);
+      expect(raw).not.toContain(`${DIM_OPEN}back`);
+      // The tertiary `·` separator keeps its dim decoration.
+      expect(raw).toContain(`${DIM_OPEN} · `);
+      keypress(SHIFT_TAB);
+      await answer;
+    });
+
+    it("input default value renders normal-weight cyan, not dim", async () => {
+      const { answer, keypress, getRawScreen, getScreen } = render(backableInput, {
+        message: "Name",
+        default: "ada",
+      });
+      await tick();
+      expect(getScreen()).toContain("(ada)");
+      const raw = getRawScreen();
+      expect(raw).toContain(`${CYAN_OPEN}(ada)`);
+      expect(raw).not.toContain(`${DIM_OPEN}(ada)`);
+      keypress(SHIFT_TAB);
+      await answer;
+    });
+
+    it("confirm y/N default renders normal-weight cyan, not dim", async () => {
+      const { answer, keypress, getRawScreen, getScreen } = render(backableConfirm, {
+        message: "OK?",
+        default: false,
+      });
+      await tick();
+      expect(getScreen()).toContain("y/N");
+      const raw = getRawScreen();
+      expect(raw).toContain(`${CYAN_OPEN}(y/N)`);
+      expect(raw).not.toContain(`${DIM_OPEN}(y/N)`);
+      keypress(SHIFT_TAB);
+      await answer;
+    });
   });
 });

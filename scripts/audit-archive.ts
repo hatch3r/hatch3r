@@ -10,9 +10,14 @@
  *
  * Modes:
  *   (default)     --dry-run: read + split + report; no file mutation.
- *   --in-place    apply: atomic write of archive file → atomic rewrite of live
- *                 registry → atomic update of archive index → anchor-log rotation
- *                 → history-currency gate → insights drift gate (validateInsights).
+ *   --in-place    apply: strict-accumulator close gate (D16-SA16.2-01) → atomic
+ *                 write of archive file → atomic rewrite of live registry →
+ *                 atomic update of archive index → anchor-log rotation →
+ *                 history-currency gate → insights drift gate (validateInsights).
+ *                 The strict-accumulator gate fails loudly (before any write)
+ *                 when the current-cycle accumulator is absent, so a cycle's
+ *                 telemetry is never silently lost at close; pass
+ *                 --allow-missing-accumulator to archive without promotion.
  *   --list        enumerate cycle-N archive files (descending), no mutation.
  *   --cold-pack   gzip-bundle older cycle archives under archive/cold/, keeping
  *                 the `--keep <N>` newest loose (default 2; preservation-first —
@@ -81,6 +86,13 @@ interface CliFlags {
   coldPack: boolean;
   /** Loose archives to keep in --cold-pack mode (default 2). */
   keep: number;
+  /**
+   * Opt out of the strict-accumulator close gate (D16-SA16.2-01). By default an
+   * `--in-place` close fails loudly when the current-cycle accumulator is
+   * absent; this flag archives without promotion instead (the rare legitimate
+   * close of a cycle that produced no accumulator).
+   */
+  allowMissingAccumulator: boolean;
 }
 
 /** Default loose-archive count for `--cold-pack` when `--keep` is omitted. */
@@ -95,10 +107,12 @@ function parseFlags(argv: ReadonlyArray<string>): CliFlags {
   let list = false;
   let coldPack = false;
   let keep = DEFAULT_COLD_PACK_KEEP;
+  let allowMissingAccumulator = false;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i];
     if (arg === "--in-place") inPlace = true;
     else if (arg === "--dry-run") inPlace = false;
+    else if (arg === "--allow-missing-accumulator") allowMissingAccumulator = true;
     else if (arg === "--list") list = true;
     else if (arg === "--cold-pack") coldPack = true;
     else if (arg === "--keep") {
@@ -128,7 +142,17 @@ function parseFlags(argv: ReadonlyArray<string>): CliFlags {
       i += 1;
     }
   }
-  return { inPlace, cycle, generatedAt, baselineCommit, headCommit, list, coldPack, keep };
+  return {
+    inPlace,
+    cycle,
+    generatedAt,
+    baselineCommit,
+    headCommit,
+    list,
+    coldPack,
+    keep,
+    allowMissingAccumulator,
+  };
 }
 
 function emit(line: string): void {
@@ -247,6 +271,10 @@ async function main(): Promise<void> {
       generatedAt: flags.generatedAt,
       baselineCommit: flags.baselineCommit,
       headCommit: flags.headCommit,
+      // Strict-accumulator close gate (D16-SA16.2-01): a real `--in-place` close
+      // fails loudly when the current-cycle accumulator is missing, unless the
+      // operator explicitly opts out. Dry-run previews never carry the gate.
+      strictAccumulator: flags.inPlace && !flags.allowMissingAccumulator,
     });
   } catch (err) {
     if (err instanceof ArchiveError || err instanceof RegistryParseError) {

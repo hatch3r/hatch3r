@@ -8,9 +8,9 @@ tags: [orchestration, floor:security]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
-# Hook: review-loop-cap → review-loop-cap-enforcer
+# Hook: review-loop-cap → reviewer
 
-Activate the review-loop-cap-enforcer when the orchestrator attempts to spawn `hatch3r-fixer` after `hatch3r-reviewer` returned non-clean. The hook reads, increments, and gates a per-issue iteration counter so the Phase 3 review-fix loop cannot run unbounded.
+Fire this gate when the orchestrator attempts to spawn `hatch3r-fixer` after `hatch3r-reviewer` returned non-clean. The hook reads, increments, and gates a per-issue iteration counter so the Phase 3 review-fix loop cannot run unbounded. It is a deterministic circuit breaker, not an LLM-agent activation: the frontmatter `agent: reviewer` names the review phase's owner (`hatch3r-reviewer`), not a spawned "review-loop-cap-enforcer" — no such agent exists (see the Emission-template limitation below). For the same reason this hook's `id` is the event name (`hatch3r-review-loop-cap`) rather than the `<event>-<agent>` form the six agent-dispatch hooks carry (e.g. `session-start-learnings`): a gate encodes no dispatch agent, so appending one to the id would re-introduce the phantom-dispatch reading the bare-event id avoids.
 
 This hook specifies the target contract for the F15.2-H1 gap surfaced in cycle 10: the runtime `src/pipeline/reviewLoop.ts` carries `DEFAULT_MAX_REVIEW_ITERATIONS = 4` and `HARD_MAX_REVIEW_ITERATIONS = 10`, but that bound is enforced only inside the reviewer/fixer agent prompts, not at the adapter-emitted hook layer.
 

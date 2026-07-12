@@ -421,8 +421,22 @@ export async function cleanCommand(
   // it deletes `.hatch3r/snapshots/`, so the pre-clean rollback session no
   // longer exists.
   if (opts.purge) {
+    // D1-SA1.3-14 (Cycle 12, Low): the irreversibility notice must fire on
+    // BOTH the interactive and the headless (`--yes`) path. It previously lived
+    // only inside the `!opts.yes` confirmation block, so `--yes --purge` deleted
+    // `.hatch3r/snapshots/` — destroying the pre-clean rollback session captured
+    // moments earlier at :371 — with no log line recording that the run became
+    // unrecoverable. Emitting it unconditionally, naming the doomed session id,
+    // makes the run's own record state what was destroyed BEFORE purgeUserState
+    // runs (clig.dev: communicate destructive actions). `warn` writes to stderr,
+    // so it does not corrupt the single JSON stdout document under --format json.
+    warn(
+      cleanSessionId
+        ? `--purge: deleting .hatch3r/ including snapshots and .env.mcp — the pre-clean rollback session ${cleanSessionId} will not survive.`
+        : "--purge: deleting .hatch3r/ including snapshots and .env.mcp — no rollback snapshot survives a purge.",
+    );
+
     if (!opts.yes) {
-      warn("--purge will delete .hatch3r/ (including snapshots — the pre-clean rollback session) and .env.mcp.");
       console.log(chalk.dim("  This is irreversible: no rollback snapshot survives a purge.\n"));
       const { confirmPurge } = await inquirer.prompt<{ confirmPurge: boolean }>([
         {

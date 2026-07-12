@@ -183,6 +183,58 @@ describe("setup command", () => {
     expect(initCommand).not.toHaveBeenCalled();
   });
 
+  it("treats a directory holding only inert metadata (LICENSE/.gitignore/.DS_Store) as empty and scaffolds (D1-SA1.1-08)", async () => {
+    const target = join(tempDir, "ghclone");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "LICENSE"), "MIT");
+    await writeFile(join(target, ".gitignore"), "node_modules\n");
+    await writeFile(join(target, ".DS_Store"), "");
+
+    await expect(setupCommand("ghclone", { yes: true })).resolves.toBeUndefined();
+    expect(initCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a directory holding only a .cursor/ config as empty and scaffolds (import-source scenario, D1-SA1.1-08)", async () => {
+    await mkdir(join(tempDir, "cursoronly", ".cursor"), { recursive: true });
+
+    await expect(setupCommand("cursoronly", { yes: true })).resolves.toBeUndefined();
+    expect(initCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("still blocks when README.md sits alongside inert metadata — README is not ignored (D1-SA1.1-08)", async () => {
+    const target = join(tempDir, "withreadme");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "LICENSE"), "MIT");
+    await writeFile(join(target, "README.md"), "# Real project");
+
+    let thrown: unknown;
+    try {
+      await setupCommand("withreadme", { yes: true });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(HatchError);
+    expect((thrown as HatchError).errorCode).toBe("FS_ERROR");
+    expect(initCommand).not.toHaveBeenCalled();
+  });
+
+  it("names the tolerated metadata entries in the `Using directory` info line (D1-SA1.1-08)", async () => {
+    const target = join(tempDir, "named");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "LICENSE"), "MIT");
+    await writeFile(join(target, ".gitignore"), "dist\n");
+
+    await setupCommand("named", { yes: true });
+
+    const logged = consoleSpy.mock.calls
+      .flat()
+      .filter((l): l is string => typeof l === "string")
+      .join("\n");
+    expect(logged).toMatch(/keeping/i);
+    expect(logged).toContain("LICENSE");
+    expect(logged).toContain(".gitignore");
+  });
+
   it("throws an actionable CONFIG_ERROR naming git when git is missing from PATH (D1-SA1.1-06)", async () => {
     // Every git spawn fails with ENOENT (binary absent). The preflight probe
     // must convert this into a HatchError BEFORE any directory is created —

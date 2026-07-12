@@ -22,7 +22,6 @@
  *     (YAML array of primary aliases). Source:
  *     https://docs.github.com/en/copilot/reference/custom-agents-configuration
  *     (accessed 2026-04-20).
- *   - Windsurf Cascade: comma-separated tool names like Claude Code.
  *   - Cursor: exposes only a `readonly: true` boolean (no allowlist);
  *     we emit `readonly: true` when no write/execute categories are
  *     present so the invariant collapses to its strongest Cursor-native

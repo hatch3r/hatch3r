@@ -45,11 +45,33 @@ export interface SetupOptions {
 
 /**
  * Directory entries that do NOT make a target "non-empty" for the overwrite
- * guard. A lone `.git` is a VCS skeleton, not project content — treating it as
- * empty lets `hatch3r setup myrepo` run idempotently against a `git init`'d but
- * otherwise empty directory (git init is then skipped — see `gitDirExists`).
+ * guard — the OS/VCS/IDE metadata a fresh checkout commonly carries. A target
+ * holding only these is still "effectively empty", so both a lone `.git`
+ * skeleton (git init is then skipped — see `gitDirExists`) AND the GitHub-first
+ * flow (create a repo on github.com with a LICENSE/`.gitignore` → clone →
+ * scaffold locally) let `hatch3r setup` proceed instead of hard-failing with
+ * FS_ERROR (D1-SA1.1-08, Cycle 12).
+ *
+ * Scope is the conservative OS/VCS/IDE-metadata subset of create-next-app's
+ * is-folder-empty allowlist (vercel/next.js create-next-app
+ * helpers/is-folder-empty.ts, accessed 2026-07-09): OS dumps, VCS skeletons,
+ * IDE / AI-tool config dirs, and a top-level LICENSE. `README.md` is
+ * deliberately excluded — it is frequently real project content, so its
+ * presence still blocks the scaffold (falsifiability boundary asserted in
+ * setup.test.ts).
  */
-const EMPTINESS_IGNORED_ENTRIES = new Set([".git"]);
+const EMPTINESS_IGNORED_ENTRIES = new Set([
+  ".git", // VCS skeleton; also drives the `git init` skip via gitDirExists
+  ".gitignore", // VCS metadata (GitHub "Add .gitignore")
+  ".gitattributes", // VCS metadata
+  ".DS_Store", // macOS Finder metadata
+  "Thumbs.db", // Windows Explorer thumbnail cache
+  ".idea", // JetBrains IDE config dir
+  ".vscode", // VS Code workspace config dir
+  ".claude", // Claude Code config dir (also an `--import` source)
+  ".cursor", // Cursor config dir (the artifact `--import cursor` harvests)
+  "LICENSE", // GitHub "Choose a license" — inert, not project code
+]);
 
 /** True when `p` exists on disk (file or directory). */
 async function pathExists(p: string): Promise<boolean> {
@@ -77,6 +99,28 @@ async function isDirEffectivelyEmpty(dir: string): Promise<boolean> {
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") return true;
     throw err;
+  }
+}
+
+/**
+ * The emptiness-guard-ignored entries actually present in `dir` (a subset of
+ * {@link EMPTINESS_IGNORED_ENTRIES}), minus `.git`. `.git` is omitted because it
+ * has its own dedicated status line (the `git init` skip), so re-announcing it
+ * here would duplicate that signal. Sorted for stable output. Names the inert
+ * metadata the scaffold preserved so a GitHub-first clone shows the user its
+ * LICENSE/`.cursor`/… were kept, not silently scaffolded over (D1-SA1.1-08).
+ */
+async function ignoredEntriesPresent(dir: string): Promise<string[]> {
+  try {
+    const entries = await readdir(dir);
+    return entries.filter((e) => e !== ".git" && EMPTINESS_IGNORED_ENTRIES.has(e)).sort();
+  } catch (err) {
+    // Display-only helper: a read failure just drops the "keeping …" clause.
+    // Surface the reason under --verbose rather than collapsing it silently.
+    verbose(
+      `setup: could not list kept metadata in ${dir} — ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return [];
   }
 }
 
@@ -249,7 +293,15 @@ export async function setupCommand(
   if (willCreateDir) {
     info(`Created project directory ${chalk.bold(targetName)}`);
   } else {
-    info(`Using directory ${chalk.bold(targetName)}`);
+    // Name the inert metadata (LICENSE, .cursor, …) tolerated by the emptiness
+    // guard so the user sees what the scaffold kept rather than silently
+    // scaffolding over it (D1-SA1.1-08).
+    const kept = await ignoredEntriesPresent(targetDir);
+    info(
+      kept.length > 0
+        ? `Using directory ${chalk.bold(targetName)} (keeping ${kept.join(", ")})`
+        : `Using directory ${chalk.bold(targetName)}`,
+    );
   }
 
   if (willGitInit) {

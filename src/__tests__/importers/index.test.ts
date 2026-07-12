@@ -11,7 +11,10 @@ import {
   runImport,
   runFormatImport,
   resolveImportTargets,
+  detectShadows,
   type ImportFormat,
+  type ImportedRule,
+  type ShippedRuleTopics,
 } from "../../importers/index.js";
 
 describe("importers aggregator", () => {
@@ -245,5 +248,125 @@ describe("import runner (runImport / runFormatImport)", () => {
     expect(results).toHaveLength(4);
     expect(results.every((r) => r.sourceFiles === 0 && r.written.length === 0)).toBe(true);
     await expect(stat(overridesRulesDir(root))).rejects.toMatchObject({ code: "ENOENT" });
+  });
+});
+
+describe("import shadow detection (D14-SA14.4-05)", () => {
+  let tempDir: string | undefined;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+      tempDir = undefined;
+    }
+  });
+
+  async function makeRepo(): Promise<string> {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-import-shadow-"));
+    return tempDir;
+  }
+
+  function mkRule(
+    id: string,
+    opts: { description?: string; content?: string; tags?: string[]; sourcePath?: string } = {},
+  ): ImportedRule {
+    const { description = "", content = "", tags, sourcePath = `.src/${id}` } = opts;
+    return {
+      sourcePath,
+      canonicalFilename: `${id}.md`,
+      canonical: { id, type: "rule", description, tags, content, rawContent: content, sourcePath },
+    };
+  }
+
+  // "ui" is 2 chars → below the length floor → never matched.
+  const topics: ShippedRuleTopics = new Map<string, ReadonlySet<string>>([
+    ["security", new Set(["hatch3r-security-patterns"])],
+    ["accessibility", new Set(["hatch3r-accessibility"])],
+    ["ui", new Set(["hatch3r-ux-states-and-flows"])],
+  ]);
+
+  it("flags a converted rule whose body contains a shipped topic keyword", () => {
+    const rules = [mkRule("hatch3r-cursorrules-import", { content: "Always sanitize input for security." })];
+    expect(detectShadows(rules, topics)).toEqual([
+      {
+        importedId: "hatch3r-cursorrules-import",
+        sourcePath: ".src/hatch3r-cursorrules-import",
+        shippedRuleId: "hatch3r-security-patterns",
+        topic: "security",
+      },
+    ]);
+  });
+
+  it("matches on description and tags, not only body", () => {
+    expect(detectShadows([mkRule("a", { description: "security posture rules" })], topics).map((s) => s.topic)).toEqual(
+      ["security"],
+    );
+    expect(detectShadows([mkRule("b", { tags: ["security"] })], topics).map((s) => s.shippedRuleId)).toEqual([
+      "hatch3r-security-patterns",
+    ]);
+  });
+
+  it("ignores topics shorter than 3 chars (ui/ux/ai bare-word noise)", () => {
+    expect(detectShadows([mkRule("c", { content: "The ui must be responsive." })], topics)).toEqual([]);
+  });
+
+  it("matches whole words only — no substring false positive", () => {
+    // "insecurity" contains "security" as a substring but not as a whole word.
+    expect(detectShadows([mkRule("d", { content: "Job insecurity is stressful." })], topics)).toEqual([]);
+  });
+
+  it("emits one row per (imported, shipped) pair when a shipped rule maps to two topics", () => {
+    const twoTopic: ShippedRuleTopics = new Map<string, ReadonlySet<string>>([
+      ["security", new Set(["hatch3r-security-patterns"])],
+      ["secrets", new Set(["hatch3r-security-patterns"])],
+    ]);
+    const shadows = detectShadows([mkRule("e", { content: "Handle security and secrets in code." })], twoTopic);
+    expect(shadows).toHaveLength(1);
+    expect(shadows[0]!.shippedRuleId).toBe("hatch3r-security-patterns");
+    expect(shadows[0]!.topic).toBe("secrets"); // sorted: "secrets" < "security" wins
+  });
+
+  it("returns [] for an empty topic index or no converts", () => {
+    expect(detectShadows([mkRule("f", { content: "security" })], new Map())).toEqual([]);
+    expect(detectShadows([], topics)).toEqual([]);
+  });
+
+  it("runFormatImport populates summary.shadows from an injected topic index", async () => {
+    const rules = [mkRule("hatch3r-cursorrules-import", { description: "d", content: "always follow security practices" })];
+    // dryRun → rootDir is unused (no write), so a literal is safe here.
+    const summary = await runFormatImport({
+      rootDir: "/tmp/hatch3r-shadow-noop",
+      format: "cursorrules",
+      rules,
+      dryRun: true,
+      shippedRuleTopics: topics,
+    });
+    expect(summary.shadows).toHaveLength(1);
+    expect(summary.shadows[0]!.shippedRuleId).toBe("hatch3r-security-patterns");
+  });
+
+  it("runFormatImport leaves shadows empty when no topic index is supplied", async () => {
+    const rules = [mkRule("x", { description: "d", content: "security" })];
+    const summary = await runFormatImport({ rootDir: "/tmp/hatch3r-shadow-noop", format: "cursorrules", rules, dryRun: true });
+    expect(summary.shadows).toEqual([]);
+  });
+
+  it("runImport threads an injected topic-index override into each summary", async () => {
+    const root = await makeRepo();
+    await writeFile(join(root, ".cursorrules"), "Enforce strict security on all inputs.");
+    const results = await runImport({
+      rootDir: root,
+      target: "cursorrules",
+      dryRun: true,
+      shippedRuleTopics: new Map<string, ReadonlySet<string>>([["security", new Set(["hatch3r-security-patterns"])]]),
+    });
+    expect(results[0]!.shadows).toEqual([
+      {
+        importedId: "hatch3r-cursorrules-import",
+        sourcePath: ".cursorrules",
+        shippedRuleId: "hatch3r-security-patterns",
+        topic: "security",
+      },
+    ]);
   });
 });

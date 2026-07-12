@@ -263,6 +263,22 @@ const TASK_CONTEXT_ALLOWANCE_CHARS = 6_000;
 const UNKNOWN_AGENT_DEF_CHARS = 12_000;
 
 /**
+ * D6-SA6.3-06: default "typical" prompt-cache hit ratio for the second cost
+ * figure shown when the user does NOT pin `--cache-hit`. The framework ships a
+ * large static prompt frame to every sub-agent specifically so it is
+ * cache-eligible (static-first, CONSTITUTION §2 P7); Anthropic bills cached
+ * input at 0.1× base (`CACHE_READ_MULTIPLIER`), so a repeat-session agent loop
+ * reuses most of the frame across turns. 0.9 sits at the top of the 0.7–0.9
+ * band typical for such loops. It is the COMPANION to the uncached ceiling, not
+ * a replacement — the ceiling stays the conservative headline in the table.
+ *
+ * Source: Anthropic prompt-caching pricing — cache reads cost ~0.1× base input
+ * (https://platform.claude.com/docs/en/build-with-claude/prompt-caching,
+ * accessed 2026-07-11).
+ */
+const TYPICAL_CACHE_HIT_RATIO = 0.9;
+
+/**
  * Triage-tier sub-agent fan-out model. The numbers come from the tier
  * definitions in `agents/shared/efficiency-patterns.md` P3 (triage-first
  * orchestration) and the audit-execute tier classifier in
@@ -668,6 +684,11 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
     );
   }
 
+  // D6-SA6.3-06: did the user pin an explicit cache ratio? A non-empty
+  // --cache-hit (including "0") is a chosen scenario; absence means we show BOTH
+  // the uncached ceiling AND a typical-cached projection (computed below).
+  const userPinnedCacheHit = typeof opts?.cacheHit === "string" && opts.cacheHit.trim().length > 0;
+
   // D6-23: size each spawnable sub-agent by its own agent definition so input
   // tokens reflect (orchestrator body once) + (per sub-agent: its agent def +
   // task context), not the body re-billed to every sub-agent.
@@ -682,6 +703,23 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   // Totals shared by the human table and the W5 json envelope.
   const totalTokens = rows.reduce((sum, r) => sum + r.totalTokens, 0);
   const totalUsd = rows.reduce((sum, r) => sum + r.usd, 0);
+
+  // D6-SA6.3-06: the default headline (cacheHitRatio 0) is the uncached upper
+  // bound. Because the framework's static prompt frame is cache-eligible by
+  // design, that figure overstates realistic input cost by up to ~90% for the
+  // cache-heavy loops the framework is built around. When the user has NOT
+  // pinned --cache-hit, also project a "typical cached" total so the tool does
+  // not contradict its own caching thesis by showing only the pessimistic
+  // number. A pinned ratio is the user's own scenario — no projection then.
+  let typicalTotalUsd: number | null = null;
+  if (!userPinnedCacheHit) {
+    const typicalRows = computeTierRows(fm, bodyCharCount, agentDefCharCounts, {
+      inputCostPer1M: inputRate,
+      outputCostPer1M: outputRate,
+      cacheHitRatio: TYPICAL_CACHE_HIT_RATIO,
+    });
+    typicalTotalUsd = typicalRows.reduce((sum, r) => sum + r.usd, 0);
+  }
 
   // W5: `--cost --format json` emits one machine-readable document mirroring
   // the human header + per-tier table, then returns.
@@ -703,6 +741,12 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
         rates: { inputPer1M: inputRate, outputPer1M: outputRate, cacheHitRatio },
         tierRows: rows,
         totals: { tokens: totalTokens, usd: totalUsd },
+        // D6-SA6.3-06: typical-cache projection (null when the user pinned
+        // --cache-hit — that pinned ratio already governs `totals`/`tierRows`).
+        typical:
+          typicalTotalUsd !== null
+            ? { cacheHitRatio: TYPICAL_CACHE_HIT_RATIO, totalUsd: typicalTotalUsd }
+            : null,
       },
     });
     return;
@@ -757,6 +801,20 @@ export async function explainCommand(opts?: ExplainOptions): Promise<void> {
   );
 
   printBox("Per-tier cost estimate", tableLines, "info");
+
+  // D6-SA6.3-06: the second (typical-cached) figure. Shown only when the user
+  // did not pin --cache-hit; the table above is the uncached ceiling. This gives
+  // the default view two figures instead of only the pessimistic upper bound.
+  if (typicalTotalUsd !== null) {
+    info(
+      chalk.dim(
+        `Typical cached (~${Math.round(TYPICAL_CACHE_HIT_RATIO * 100)}% input cache-hit): ` +
+          `${formatUsd(typicalTotalUsd)} across all tiers — the static prompt frame is cache-eligible, ` +
+          `so repeat-session loops pay far less on input than the ${formatUsd(totalUsd)} uncached ceiling above. ` +
+          `Pass --cache-hit <0–1> to cost a specific ratio.`,
+      ),
+    );
+  }
 
   info(
     chalk.dim(
@@ -930,6 +988,31 @@ async function explainCustomizationsMode(format: CliOutputFormat = "human"): Pro
     // Indented continuation lines for the wrapped tail of a long reason.
     for (const segment of reasonSegments.slice(1)) {
       tableLines.push(`${" ".repeat(reasonIndent)}${segment.padEnd(COL_REASON)}`);
+    }
+
+    // D12-SA12.3-03: render the RESOLVED override VALUES for description / model
+    // / scope so a value override can be confirmed from the human table. The
+    // Overrides cell shows only WHICH fields applied (and `enabled` already
+    // carries its value inline), but description/model/scope did not — their
+    // value was one `--format json` away. Values live in `appliedOverrides`
+    // (customizationSummary.ts); each renders as an indented `↳ field = value`
+    // continuation, wrapped so a long description stays legible at 80 cols.
+    const overrideValues: Array<[string, string]> = [];
+    if (entry.appliedOverrides.description !== undefined) {
+      overrideValues.push(["description", entry.appliedOverrides.description]);
+    }
+    if (entry.appliedOverrides.model !== undefined) {
+      overrideValues.push(["model", entry.appliedOverrides.model]);
+    }
+    if (entry.appliedOverrides.scope !== undefined) {
+      overrideValues.push(["scope", entry.appliedOverrides.scope]);
+    }
+    for (const [field, value] of overrideValues) {
+      const segments = wrapToWidth(`${field} = ${value}`, Math.max(1, COL_REASON - 2));
+      segments.forEach((segment, i) => {
+        const prefix = i === 0 ? chalk.dim("↳ ") : "  ";
+        tableLines.push(`${" ".repeat(reasonIndent)}${prefix}${segment}`);
+      });
     }
   }
 
@@ -1138,10 +1221,33 @@ async function explainEfficiencyMode(format: CliOutputFormat = "human"): Promise
  * written by the shared `writeProvenance` helper that `sync`, `init`, and
  * `update` all call (D12-4).
  */
+/**
+ * D12-SA12.4-02: discriminator for WHY an output's `sourceFiles` is empty.
+ *   - `config`     — a config-only output assembled from user config with no
+ *                    canonical input (e.g. `mcp.json`, `settings.json`).
+ *   - `untracked`  — the adapter produced the output WITHOUT canonical tracking
+ *                    (a real provenance-tracking bug).
+ *   - `aggregated` / `single` — normal outputs that carry ≥1 source; listed for
+ *                    completeness so a persisted value round-trips through the
+ *                    reader even when non-empty.
+ */
+type ProvenanceSourceKind = "config" | "aggregated" | "single" | "untracked";
+
 interface ProvenanceEntry {
   path: string;
   adapter: string;
   sourceFiles: string[];
+  /**
+   * D12-SA12.4-02 (consumer half): distinguishes the two semantically distinct
+   * empty-`sourceFiles` cases at `explain --source` time, which otherwise renders
+   * both as the ambiguous "(none recorded)". OPTIONAL because the PRODUCER half —
+   * persisting this into `.hatch3r/provenance.json` at write time — lives in
+   * `src/manifest/provenance.ts` (the `ProvenanceEntry` schema) +
+   * `src/adapters/base.ts` (the two `sourceFiles = []` branches: config-only vs
+   * untracked). Until the producer lands, real manifests omit the field and the
+   * honest dual-possibility fallback in `describeEmptySources` renders instead.
+   */
+  sourceKind?: ProvenanceSourceKind;
 }
 
 interface ProvenanceManifest {
@@ -1284,6 +1390,8 @@ async function explainSourceMode(
           output: o.path,
           adapter: o.adapter,
           sourceFiles: o.sourceFiles,
+          // D12-SA12.4-02: null until the producer half persists a discriminator.
+          sourceKind: o.sourceKind ?? null,
         })),
       });
       return;
@@ -1309,6 +1417,8 @@ async function explainSourceMode(
       output: match.path,
       adapter: match.adapter,
       sourceFiles: match.sourceFiles,
+      // D12-SA12.4-02: null until the producer half persists a discriminator.
+      sourceKind: match.sourceKind ?? null,
       hatch3rVersion: manifest.hatch3rVersion ?? HATCH3R_VERSION,
       generatedAt: manifest.generatedAt ?? null,
     });
@@ -1399,6 +1509,29 @@ async function explainSourceMode(
 }
 
 /**
+ * D12-SA12.4-02: render an empty `sourceFiles` list. With a persisted
+ * `sourceKind` discriminator the two semantically distinct empty cases render
+ * distinctly; without it (real manifests until the producer half lands in
+ * `src/adapters/base.ts` + `src/manifest/provenance.ts`) the message names BOTH
+ * possibilities and the remediation instead of the bare, ambiguous
+ * "(none recorded)" — so an operator inspecting the trace later is not left
+ * unable to tell a by-design source-less output from a tracking regression.
+ */
+function describeEmptySources(kind?: ProvenanceSourceKind): string {
+  switch (kind) {
+    case "config":
+      return chalk.dim("(no canonical source — config-only output)");
+    case "untracked":
+      return chalk.dim("(source tracking unavailable — re-run `hatch3r sync`)");
+    default:
+      return chalk.dim(
+        "(none recorded — either a config-only output with no canonical source, " +
+          "or source tracking was unavailable; re-run `hatch3r sync` to refresh)",
+      );
+  }
+}
+
+/**
  * SA12.4-F1 (D12): print a single output's provenance block — the generated
  * path, the adapter that emitted it, and each canonical source file. Used by
  * both the single-path and `--source all` forms.
@@ -1417,7 +1550,7 @@ function printSourceBlock(entry: ProvenanceEntry, manifest?: ProvenanceManifest)
     if (manifest.lastRunId) lines.push(label("Run id", manifest.lastRunId));
   }
   if (entry.sourceFiles.length === 0) {
-    lines.push(label("Sources", chalk.dim("(none recorded)")));
+    lines.push(label("Sources", describeEmptySources(entry.sourceKind)));
   } else {
     lines.push(label("Sources", `${entry.sourceFiles.length} canonical file(s):`));
     for (const src of entry.sourceFiles) {

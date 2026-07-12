@@ -75,7 +75,7 @@ sub_agents_spawned:
   task_structure: parallelizable | sequential | mixed
 ```
 
-Omitting the field — or its required `task_structure` companion — on a delegating artifact is a P8 B2 violation (D07 fan-out-discipline audit). The `rationale` states the decomposition basis (module count, specialist-gate count, research-question count) so a reviewer can check the count against the task without re-deriving it; `task_structure` classifies the fan-out topology — `parallelizable` (independent work under the three safety conditions), `sequential` (a true dependency chain), or `mixed` (parallel fan-out with a dependency tail such as a reviewer↔fixer review loop).
+Omitting the field — or its required `task_structure` companion — on a delegating artifact is a P8 B2 violation (D07 fan-out-discipline audit). The `rationale` states the decomposition basis (module count, specialist-gate count, research-question count) so a reviewer can check the count against the task without re-deriving it; `task_structure` classifies the fan-out topology — `parallelizable` (independent work under the three safety conditions), `sequential` (a true dependency chain), or `mixed` (parallel fan-out with a dependency tail such as a reviewer↔fixer review loop). The `count` lower bound is context-dependent: a command declares a config-time `count ≥ 1` — an `orchestrator: true` command spawns at least one sub-agent by definition — whereas a runtime agent or skill emission may report `count: 0` to record that a run fanned out to nobody (as `agents/hatch3r-dependency-drafter.md` does for a single-dependency draft).
 
 ## Static intent vs runtime attestation
 

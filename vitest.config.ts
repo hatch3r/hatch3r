@@ -89,14 +89,19 @@ const HEAVY_FS_TEST_FILES = [
   // Snapshot/rollback engine: real createSnapshot tmp+rename batches.
   "src/__tests__/pipeline/snapshot.test.ts",
   "src/__tests__/pipeline/snapshot.errorPaths.test.ts",
+  // D3-SA3.5-08 (Cycle 12 Wave 4): runs 3 unmocked createSnapshot() batches over
+  // a real mkdtemp(os.tmpdir()) tree — belongs here per the iff membership rule
+  // above; previously ran (undetected) in the fully-parallel main group.
+  "src/__tests__/pipeline/bucket-2x-composition.test.ts",
 ];
 
 // Test-file glob for the "main" project. Must match the SAME file set vitest's
 // built-in default include resolved before this split — the suite has tests in
-// BOTH `src/__tests__/` (186 files) and `scripts/__tests__/` (18 files), 204
-// total. Restricting to `src/**` here would silently drop the 18 script tests,
-// so both roots are listed explicitly. `node_modules`/`dist` are covered by
-// vitest's default excludes.
+// BOTH `src/__tests__/` and `scripts/__tests__/`. Restricting to `src/**` here
+// would silently drop every `scripts/` gate test, so both roots are listed
+// explicitly. `node_modules`/`dist` are covered by vitest's default excludes.
+// (Count-free by policy — D3-SA3.5-10, Cycle 12 Wave 4: embedded file/test
+// counts drift silently against the growing suite; the glob is behavior-gated.)
 const DEFAULT_TEST_GLOB = [
   "src/**/*.{test,spec}.?(c|m)[jt]s?(x)",
   "scripts/**/*.{test,spec}.?(c|m)[jt]s?(x)",

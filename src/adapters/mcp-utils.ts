@@ -185,6 +185,18 @@ export const DEFAULT_TRANSFORM_MAX_DEPTH = 32;
  * otherwise exhaust the call stack. Legitimate MCP config depth is <=5 levels,
  * so the default has wide headroom and will not trip on real inputs.
  *
+ * D2-SA2.1-08 (Cycle 12, D2, Pillar P4) — extensibility seam, recorded not acted
+ * on: the env-var format vocabulary (`"claude" | "shell" | "passthrough"`) is
+ * declared as a closed inline union in TWO places — this function's `format`
+ * parameter and `BaseAdapter.buildStdMcpEntries` (base.ts). Admitting a 4th adapter
+ * whose platform needs a novel env syntax would require widening BOTH unions plus
+ * this switch. At the committed 3-adapter scope (CONSTITUTION §6 Decision 12) the
+ * closed union is the leaner design (P4), so no abstraction is added ahead of need.
+ * If a 4th adapter is ever admitted, consolidate the format vocabulary here
+ * (alongside this function) so the base layer stops owning adapter-format literals —
+ * the translator modules (this file / adapterToolTranslator) already own the other
+ * per-platform vocabularies.
+ *
  * @throws {RangeError} When the input nesting exceeds `maxDepth`.
  */
 export function transformEnvVarSyntax(
@@ -307,7 +319,15 @@ export const MCP_ENV_VAR_FORMAT_PARITY: ReadonlyArray<McpEnvVarFormatRow> = [
   { adapter: "claude", surface: "mcp-headers", format: "claude" },
   { adapter: "cursor", surface: "mcp-env", format: "passthrough" },
   { adapter: "cursor", surface: "mcp-headers", format: "passthrough" },
-  { adapter: "copilot", surface: "mcp-env", format: "shell", viaEnvFile: true },
+  // D2-SA2.4-15 (Cycle 12, D2, P2): `format` records the exact envVarFormat the
+  // copilot adapter passes to `buildStdMcpEntries` — `"passthrough"` (copilot.ts,
+  // `buildStdMcpEntries(mcp, "passthrough", "${workspaceFolder}/.env.mcp")`), NOT a
+  // hypothetical inline syntax. `viaEnvFile` drops the `env` object entirely
+  // (base.ts), so no substitution is applied to env; the passthrough argument serves
+  // the header path. Was `"shell"` pre-D11-C-2 — a stale value that made this one row
+  // mean "hypothetical format" while every other row means "the format the adapter
+  // requests", the ambiguity a parity contract exists to remove.
+  { adapter: "copilot", surface: "mcp-env", format: "passthrough", viaEnvFile: true },
   { adapter: "copilot", surface: "mcp-headers", format: "passthrough", viaInputs: true },
 ] as const;
 

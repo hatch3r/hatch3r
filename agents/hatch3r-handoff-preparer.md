@@ -124,7 +124,7 @@ Before reporting Step 4:
 | Body exceeds 50 KB | List byte counts per section; abort write; suggest compressing `Work Done` history first |
 | `git_ref` cannot be read (detached HEAD, missing repo) | Surface the git command output; abort write; report BLOCKED |
 | Schema validation failure | Name the offending field; abort write; report FAILED |
-| Injection pattern detected (P-LEARN-01..05) | Name the matching pattern id; abort write; report BLOCKED — content rephrase required |
+| Injection or deny-pattern detected (P-LEARN-01..05, deny set per `scanForDeniedPatterns`) | Name the matching pattern id or deny-set hit; abort write; report BLOCKED — content rephrase required |
 
 ## References
 

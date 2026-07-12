@@ -121,6 +121,29 @@ function makeManifest(servers: string[] = [], platform: string = "github"): Hatc
   } as unknown as HatchManifest;
 }
 
+/**
+ * D1-SA1.2-10: `mcp list` / `mcp env-check` now consult `process.env` as a second
+ * env-var supply channel. Tests asserting a var is "missing" need a deterministic
+ * baseline, so the list/env-check describes clear these keys in beforeEach and
+ * restore them afterEach (a CI runner or dev shell that exported one would
+ * otherwise flip those assertions).
+ */
+const MCP_ENV_KEYS = ["GITHUB_PAT", "LINEAR_API_KEY", "BRAVE_API_KEY"] as const;
+
+function clearMcpEnvKeys(saved: Record<string, string | undefined>): void {
+  for (const k of MCP_ENV_KEYS) {
+    saved[k] = process.env[k];
+    delete process.env[k];
+  }
+}
+
+function restoreMcpEnvKeys(saved: Record<string, string | undefined>): void {
+  for (const k of MCP_ENV_KEYS) {
+    if (saved[k] === undefined) delete process.env[k];
+    else process.env[k] = saved[k];
+  }
+}
+
 // ── mcpSetupCommand ───────────────────────────────────────────
 
 describe("mcpSetupCommand", () => {
@@ -323,11 +346,18 @@ describe("mcpSetupCommand", () => {
 // ── mcpListCommand ────────────────────────────────────────────
 
 describe("mcpListCommand", () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(existsSync).mockReturnValue(false);
     vi.mocked(parseEnvFile).mockReturnValue({});
     vi.mocked(collectRequiredEnvVars).mockReturnValue([]);
+    clearMcpEnvKeys(savedEnv);
+  });
+
+  afterEach(() => {
+    restoreMcpEnvKeys(savedEnv);
   });
 
   it("prints (no MCP servers configured) when the manifest list is empty", async () => {
@@ -381,6 +411,48 @@ describe("mcpListCommand", () => {
     vi.mocked(readManifest).mockResolvedValue(null);
 
     await expect(mcpListCommand()).rejects.toThrow(HatchError);
+  });
+
+  // D1-SA1.2-10: a required var absent from .env.mcp but exported in the shell is
+  // satisfied via the process-env channel — not reported missing, labelled "shell
+  // env". Adapters resolve `${env:VAR}` from the editor's process environment, of
+  // which .env.mcp is only one supply channel.
+  it("treats a required var present in process.env (shell) as satisfied, not missing (D1-SA1.2-10)", async () => {
+    vi.mocked(readManifest).mockResolvedValue(makeManifest(["github"]));
+    vi.mocked(existsSync).mockReturnValue(false); // no .env.mcp on disk
+    vi.mocked(parseEnvFile).mockReturnValue({});
+    vi.mocked(collectRequiredEnvVars).mockReturnValue([
+      { name: "GITHUB_PAT", server: "github", comment: "PAT", url: "" },
+    ]);
+    process.env.GITHUB_PAT = "ghp_from_shell";
+
+    await mcpListCommand();
+
+    const lines = (vi.mocked(printBox).mock.calls[0]?.[1] as string[]).join("\n");
+    // Not in the Missing set (the label mock renders "Missing: <vars>").
+    expect(lines).not.toContain("Missing:");
+    // Surfaced under the shell-env label with the GUI-inherit caveat.
+    expect(lines).toContain("From shell env");
+    expect(lines).toContain("GITHUB_PAT");
+    expect(lines).toContain("GUI-launched editors may not inherit");
+    expect(lines).toContain("all required vars set");
+  });
+
+  it("still reports a var missing when it is in neither .env.mcp nor process.env (D1-SA1.2-10 negative)", async () => {
+    vi.mocked(readManifest).mockResolvedValue(makeManifest(["github"]));
+    vi.mocked(existsSync).mockReturnValue(false);
+    vi.mocked(parseEnvFile).mockReturnValue({});
+    vi.mocked(collectRequiredEnvVars).mockReturnValue([
+      { name: "GITHUB_PAT", server: "github", comment: "PAT", url: "" },
+    ]);
+    // GITHUB_PAT cleared by beforeEach — absent from both channels.
+
+    await mcpListCommand();
+
+    const lines = (vi.mocked(printBox).mock.calls[0]?.[1] as string[]).join("\n");
+    expect(lines).toContain("Missing:");
+    expect(lines).toContain("GITHUB_PAT");
+    expect(lines).not.toContain("From shell env");
   });
 });
 
@@ -443,6 +515,23 @@ describe("mcpRemoveCommand", () => {
     expect(writeManifest).not.toHaveBeenCalled();
   });
 
+  // D1-SA1.2-09: the not-configured recovery hint must name a REAL add path.
+  // `mcp add` is not a registered subcommand (setup/list/remove/env-check only),
+  // so the prior `mcp add <id>` hint dead-ended at commander's exit-2 usage error.
+  it("names `mcp setup` (a real subcommand), not the phantom `mcp add`, in the not-configured hint (D1-SA1.2-09)", async () => {
+    vi.mocked(readManifest).mockResolvedValue(makeManifest(["github"]));
+
+    try {
+      await mcpRemoveCommand("brave-search");
+      throw new Error("expected mcpRemoveCommand to throw for an unconfigured server");
+    } catch (e) {
+      expect(e).toBeInstanceOf(HatchError);
+      const hint = (e as HatchError).recoveryHint ?? "";
+      expect(hint).toContain("mcp setup");
+      expect(hint).not.toContain("mcp add");
+    }
+  });
+
   it("throws HatchError when no manifest exists", async () => {
     vi.mocked(readManifest).mockResolvedValue(null);
 
@@ -493,10 +582,17 @@ describe("mcpRemoveCommand", () => {
 // ── mcpEnvCheckCommand ────────────────────────────────────────
 
 describe("mcpEnvCheckCommand", () => {
+  const savedEnv: Record<string, string | undefined> = {};
+
   beforeEach(() => {
     vi.clearAllMocks();
     vi.mocked(existsSync).mockReturnValue(false);
     vi.mocked(parseEnvFile).mockReturnValue({});
+    clearMcpEnvKeys(savedEnv);
+  });
+
+  afterEach(() => {
+    restoreMcpEnvKeys(savedEnv);
   });
 
   it("short-circuits with 'nothing to check' when no servers are configured", async () => {
@@ -549,6 +645,27 @@ describe("mcpEnvCheckCommand", () => {
 
     const lines = (vi.mocked(printBox).mock.calls[0]?.[1] as string[]).join("\n");
     expect(lines).toContain("no env vars required");
+  });
+
+  // D1-SA1.2-10: a required var exported in the shell (not in .env.mcp) is
+  // satisfied via process.env — env-check reports success and labels it "shell
+  // env" instead of falsely flagging it missing.
+  it("treats a shell-exported required var as satisfied and reports success (D1-SA1.2-10)", async () => {
+    vi.mocked(readManifest).mockResolvedValue(makeManifest(["github"]));
+    vi.mocked(existsSync).mockReturnValue(false); // no .env.mcp on disk
+    vi.mocked(parseEnvFile).mockReturnValue({});
+    process.env.GITHUB_PAT = "ghp_from_shell";
+
+    await mcpEnvCheckCommand();
+
+    const call = vi.mocked(printBox).mock.calls[0];
+    // Every required var satisfied (via the shell channel) → success style.
+    expect(call?.[2]).toBe("success");
+    const lines = (call?.[1] as string[]).join("\n");
+    expect(lines).not.toContain("missing: GITHUB_PAT");
+    expect(lines).toContain("From shell env");
+    expect(lines).toContain("GITHUB_PAT");
+    expect(lines).toContain("GUI-launched editors may not inherit");
   });
 
   it("throws HatchError when no manifest exists", async () => {

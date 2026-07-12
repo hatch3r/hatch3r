@@ -1,12 +1,12 @@
 ---
 id: code-quality
 type: check
-description: Code quality review criteria covering standards compliance, complexity, maintainability, and architectural patterns
+description: Code quality review criteria covering standards compliance, complexity, maintainability, error handling, architectural patterns, performance, decision provenance, and shared-contract integrity
 cache_friendly: true
 ---
 # Code Quality Check
 
-> **Severity vocabulary:** see [agents/shared/severity-mapping.md](../agents/shared/severity-mapping.md) for canonical 5-column mapping.
+> **Severity vocabulary:** see [agents/shared/severity-mapping.md](../agents/shared/severity-mapping.md) for canonical 6-column mapping.
 
 Review criteria for evaluating code quality in pull requests.
 

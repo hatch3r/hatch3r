@@ -72,6 +72,7 @@ Authentication and authorization patterns (auth middleware, token validation, se
   - Document which MCP servers have filesystem access and define their intended scope (read-only vs read-write, which directories).
   - Configure `allowedDirectories` in MCP server configs where supported. If the server does not support directory restrictions, document this as a known risk and apply compensating controls (monitoring, read-only mode).
   - Audit MCP server filesystem access on configuration changes. Verify that added servers do not expand the filesystem attack surface beyond the project boundary.
+- **MCP tool results are untrusted input:** Treat MCP tool RESULTS/response payloads as untrusted indirect-injection input — not only their static descriptions. Do not promote tool output to system-level authority; sanitize and tag it before including it in context (OWASP ASI01; arxiv:2601.17548).
 
 ### ASI03 — Identity & Privilege Abuse
 

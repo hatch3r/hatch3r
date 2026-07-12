@@ -8,6 +8,15 @@ name: Trust model audit (weekly)
 # verification surface so the Weekly cadence has a machine-verifiable
 # attestation in the repo's Actions history.
 #
+# Verified-scope split (D4-SA4.3-07): the trust-reference doc is private
+# governance IP (gitignored; SSoT hatch3r-governance), absent on the PUBLIC
+# runner — so the doc-currency assertions run only where the governance overlay
+# is mounted (the doc is present at checkout). Every run of the doc-currency
+# step writes its verified scope to the job summary ($GITHUB_STEP_SUMMARY), so
+# the weekly green checkmark names exactly the evidence it holds (public:
+# pipeline-compliance surface only; overlay: + doc currency) instead of the
+# silent exit-0 skip implying the full review ran everywhere.
+#
 # Cron: every Monday 06:00 UTC (offset from the busiest publish window).
 # Manual: `gh workflow run trust-model-audit.yml` triggers an ad-hoc run.
 #
@@ -96,7 +105,19 @@ jobs:
           # finding-registry step. Where the governance overlay is mounted the
           # file is present and the full currency check below runs.
           if [ ! -f "$DOC" ]; then
-            echo "::notice::$DOC not present (private governance IP) — skipping trust-reference doc currency check."
+            echo "::notice::$DOC not present (private governance IP) — trust-reference doc-currency assertions skipped on this runner."
+            # D4-SA4.3-07: the skip is correct by construction (private-IP split),
+            # but a silent exit 0 lets the green check overclaim its scope. Write
+            # the narrowed verified scope to the job summary so the attestation
+            # names exactly the evidence this run holds (sign-off doctrine). Guard
+            # $GITHUB_STEP_SUMMARY (set -u) so a missing sink never fails the skip.
+            {
+              echo "### Trust-reference doc currency — SKIPPED (scope-narrowed)"
+              echo ""
+              echo "\`$DOC\` is private governance IP (gitignored; SSoT hatch3r-governance) and is absent on this runner, so the D15-30 doc-currency assertions (implementation paths resolve, \`accessed\` dates within ${WINDOW_DAYS}d, framework versions current) did **not** run here."
+              echo ""
+              echo "**Verified scope of this run:** the pipeline-compliance surface only (ASI01 / ASI02 / ASI03 / ASI07 + the D15-M12 monotonic-privilege check + the D15-M6 fixer write-scope assertion, via the \`Compliance verification (pipeline)\` step). Doc currency is attested only where the governance overlay is mounted (the doc is present at checkout)."
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             exit 0
           fi
           if ! grep -q "## Compliance Verification Schedule" "$DOC"; then
@@ -267,6 +288,15 @@ jobs:
           );
           CURRENCY_CHECK
           node "$RUNNER_TEMP/trust-crosswalk-currency.cjs"
+          # D4-SA4.3-07: doc present + assertions passed (set -e aborts the step
+          # above on any node exit 1, so this only runs on success). Write the
+          # affirmative doc-currency attestation to the job summary so the overlay
+          # run's checkmark names the doc-currency evidence it holds.
+          {
+            echo "### Trust-reference doc currency — VERIFIED"
+            echo ""
+            echo "\`$DOC\` present at checkout (governance overlay mounted). The D15-30 doc-currency assertions passed: every Control-to-Trust Mapping implementation path resolves on disk, every \`accessed\` provenance date is within the ${WINDOW_DAYS}d window, and each framework version in \`$VERSIONS\` still matches the crosswalk (no known-stale predecessor version cited)."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
 
   # D4-SA4.3-01 (Cycle 12): branch-protection drift probe. Repo settings are
   # invisible to CI — the required-check list drifted from the ci.yml contract

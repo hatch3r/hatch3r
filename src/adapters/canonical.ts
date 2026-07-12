@@ -629,6 +629,34 @@ export function parseFrontmatter(
   metadata.type = metadata.type ?? "rule";
   metadata.description = metadata.description ?? "";
 
+  // D2-SA2.2-05 (D2 Low, P6): warn on frontmatter truncated at an interior
+  // column-0 `---`. FRONTMATTER_REGEX's non-greedy first group stops at the
+  // FIRST `\r?\n---`, so a YAML block scalar (`description: |`) whose text holds
+  // a column-0 `---` — or any stray `---` above the real closer — truncates the
+  // frontmatter mid-document. The prefix still parses as valid YAML (no
+  // YAML_PARSE_ERROR fires), so every field after the divider (`precedence:`,
+  // `protected:`, `floor:*` tags — the D02 §2.3 Layer-1 admission floor) lands
+  // in the BODY and coerces to its empty fallback with zero signal, silently
+  // disabling the customization Layer-1 lock so a protected/floor artifact
+  // becomes disableable at Layer 2. Warn when the first non-empty body line
+  // still looks like frontmatter (a `key: value` line or a bare `---`) so the
+  // drop surfaces on the `typeMismatches` channel (CONSTITUTION §2 P5 Silent
+  // Failure Contract) instead of vanishing. Cheap single-line heuristic, not a
+  // re-parse: 0 hits across the 261-file canonical corpus + every test fixture;
+  // a body that legitimately opens with `Word: ...` warns advisorily (remedy:
+  // lead with a `#` heading or quote the value). Guarded by `typeMismatches`, so
+  // the channel-less callers (content/index.ts, base.ts, userContent.ts, …) stay
+  // unaffected — only the canonical read path (readSingleMd) opts in.
+  if (typeMismatches) {
+    const firstBodyLine = content.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
+    if (/^[A-Za-z_][\w-]*:\s/.test(firstBodyLine) || /^---\s*$/.test(firstBodyLine)) {
+      typeMismatches.push(
+        "frontmatter may have been truncated at an interior `---`: the body opens with a " +
+          "frontmatter-looking line; quote or indent any `---` divider placed inside a block scalar",
+      );
+    }
+  }
+
   return { metadata, content: content ?? "", rawType };
 }
 
@@ -986,6 +1014,16 @@ function scanCanonicalInjectionTokens(
 async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Promise<CanonicalReadResult[]> {
   let dirents: Dirent[];
   try {
+    // D2-SA2.2-09 (D2 Low, P3 — UPSTREAM WATCH): the dedup guarantee below rests
+    // on `readdir({ withFileTypes: true, recursive: true })` NOT descending
+    // symlinked directories. That behavior is undocumented and contested
+    // upstream — nodejs/node#51858 (make readdir stop following symlinks) and
+    // nodejs/node#52663 (withFileTypes:false DOES descend) are the watch items;
+    // if the Dirent form unifies toward following, the 16× id-duplication D2-9
+    // fixed returns. The regression is pinned by the "does not duplicate ids
+    // when a symlinked directory points back into the tree" test in
+    // canonical.test.ts (DO NOT DELETE — a Node behavior change reds CI on the
+    // Node 22/24/26 matrix before user impact).
     dirents = await readdir(baseDir, { withFileTypes: true, recursive: true });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {

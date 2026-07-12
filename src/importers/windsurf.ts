@@ -1,25 +1,34 @@
 /**
- * Windsurf (Cascade) rules importer (F14.4-H1, D14, Cycle 10).
+ * Windsurf / Devin Desktop (Cascade) rules importer (F14.4-H1, D14, Cycle 10;
+ * `.devin/rules/` read path added Cycle 12 per D14-SA14.4-07).
  *
- * Scope: parse the two Windsurf rule shapes into canonical hatch3r rule
+ * Scope: parse the Windsurf/Devin rule shapes into canonical hatch3r rule
  * objects, mirroring the minimal-parser baseline of `src/importers/cursor.ts`:
  *
- *   1. Modern directory rules: `.windsurf/rules/*.md` with YAML frontmatter
- *      carrying an activation `trigger` (`always_on` | `manual` |
- *      `model_decision` | `glob`) and, for `trigger: glob`, a `globs` value.
+ *   1. Modern directory rules: `.devin/rules/*.md` (preferred) and
+ *      `.windsurf/rules/*.md` (fallback), each with YAML frontmatter carrying an
+ *      activation `trigger` (`always_on` | `manual` | `model_decision` | `glob`)
+ *      and, for `trigger: glob`, a `globs` value.
  *   2. Legacy single-file rules: `.windsurfrules` at the repo root — plain text
- *      where every rule is always active (pre-Wave-8 format).
+ *      where every rule is always active (pre-Wave-8 format). No `.devinrules`
+ *      single-file equivalent exists.
+ *
+ * Cognition rebranded Windsurf to Devin Desktop on 2026-06-02: `.devin/rules/`
+ * is the preferred path and takes precedence, with `.windsurf/rules/` and the
+ * legacy `.windsurfrules` retained for backward compatibility. The
+ * `docs.windsurf.com` reference URL below now 307-redirects to `docs.devin.ai`.
  *
  * Out of scope (cross-WU — owned by init.ts/program.ts, tracked under F14.4-H2):
  *   - disk write (`.hatch3r/overrides/<id>.md`), CLI wiring (`--import windsurf`)
  *   - conflict detection / dry-run / summary reporting
  *
- * Windsurf rule format reference:
- *   https://docs.windsurf.com/windsurf/cascade/memories (accessed 2026-05-28)
- *     — `.windsurf/rules/` directory, version-controlled rule files.
- *   https://thepromptshelf.dev/blog/windsurfrules-complete-guide-2026/
- *     (accessed 2026-05-28) — `trigger` activation modes, `globs`, and the
- *     legacy plain-text `.windsurfrules` always-active single-file format.
+ * Rule format reference (re-verified 2026-07-12 against the rebranded docs):
+ *   https://docs.devin.ai/desktop/cascade/memories (accessed 2026-07-12)
+ *     — `.devin/rules/` preferred + `.windsurf/rules/` fallback directories of
+ *       version-controlled rule files; `.devin/` takes precedence.
+ *   https://docs.devin.ai/desktop/devin-desktop-faq (accessed 2026-07-12)
+ *     — precedence + backward-compatibility statement; legacy `.windsurfrules`
+ *       still read; no `.devinrules` single-file equivalent.
  */
 import { readFile, readdir } from "node:fs/promises";
 import { join } from "node:path";
@@ -162,22 +171,16 @@ export function parseWindsurfLegacyRules(rawContent: string): ImportedRule {
 }
 
 /**
- * Read and parse every Windsurf rule source under a repository root.
- *
- * Discovers (in deterministic, path-sorted order):
- *   1. `.windsurf/rules/*.md` (modern directory rules).
- *   2. `.windsurfrules` (legacy single file), appended last.
- *
- * Returns one `ImportedRule` per source. Missing directory/file yields no
- * entry for that source. Non-`.md` files in the rules directory are ignored.
- * This parser does not write to disk, detect conflicts, or wire into the CLI.
- *
- * @param rootDir - Absolute path to the repository root directory.
+ * Read and parse every `.md` rule file under a single Windsurf/Devin rules
+ * directory (`.devin/rules/` or `.windsurf/rules/`), in deterministic
+ * path-sorted order. A missing directory (`ENOENT`) or a non-directory at the
+ * path (`ENOTDIR`) yields an empty list; any other read error propagates.
+ * Non-`.md` files are ignored. The `parseWindsurfRule` id is derived from the
+ * bare filename, so the same rule name under either directory resolves to the
+ * same canonical id (the property `parseWindsurfRulesDir` relies on for
+ * precedence).
  */
-export async function parseWindsurfRulesDir(rootDir: string): Promise<ImportedRule[]> {
-  const results: ImportedRule[] = [];
-
-  const rulesDir = join(rootDir, ".windsurf", "rules");
+async function readWindsurfRuleDir(rulesDir: string): Promise<ImportedRule[]> {
   let entries: string[] = [];
   try {
     entries = (await readdir(rulesDir)).filter((f) => f.toLowerCase().endsWith(".md")).sort();
@@ -186,11 +189,47 @@ export async function parseWindsurfRulesDir(rootDir: string): Promise<ImportedRu
       throw err;
     }
   }
+  const rules: ImportedRule[] = [];
   for (const filename of entries) {
     const raw = await readFile(join(rulesDir, filename), "utf-8");
-    results.push(parseWindsurfRule(filename, raw));
+    rules.push(parseWindsurfRule(filename, raw));
   }
+  return rules;
+}
 
+/**
+ * Read and parse every Windsurf/Devin rule source under a repository root.
+ *
+ * Discovers (in deterministic order):
+ *   1. `.devin/rules/*.md` (preferred directory rules — take precedence).
+ *   2. `.windsurf/rules/*.md` (backward-compatibility fallback directory rules).
+ *   3. `.windsurfrules` (legacy single file), appended last.
+ *
+ * Returns one `ImportedRule` per source file. A rule present in both
+ * `.devin/rules/` and `.windsurf/rules/` yields two entries that resolve to the
+ * same canonical id, `.devin/` first; the downstream runner's first-id-wins
+ * pass keeps the `.devin/` copy and reports the `.windsurf/` copy as a shadowed
+ * duplicate — mirroring Devin Desktop's own `.devin/` > `.windsurf/` precedence.
+ * Missing directory/file yields no entry for that source. Non-`.md` files in a
+ * rules directory are ignored. This parser does not write to disk, detect
+ * conflicts, or wire into the CLI.
+ *
+ * @param rootDir - Absolute path to the repository root directory.
+ */
+export async function parseWindsurfRulesDir(rootDir: string): Promise<ImportedRule[]> {
+  const results: ImportedRule[] = [];
+
+  // Directory rules in Devin Desktop precedence order. Reading `.devin/rules/`
+  // before `.windsurf/rules/` means a rule that exists in both directories is
+  // adopted from `.devin/` (read first) by the runner's first-id-wins pass,
+  // with the `.windsurf/` copy flagged as the shadowed duplicate.
+  results.push(...(await readWindsurfRuleDir(join(rootDir, ".devin", "rules"))));
+  results.push(...(await readWindsurfRuleDir(join(rootDir, ".windsurf", "rules"))));
+
+  // Legacy single-file rules at the repo root. Devin Desktop still reads the
+  // legacy `.windsurfrules` file and has no `.devinrules` single-file
+  // equivalent (new rules use the directory format), so only `.windsurfrules`
+  // is read here.
   try {
     const legacyPath = join(rootDir, ".windsurfrules");
     const raw = await readFile(legacyPath, "utf-8");

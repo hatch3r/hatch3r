@@ -34,8 +34,15 @@ import type { CustomizableType } from "../models/customize.js";
  * adapters run, every Layer-4 entry has been promoted to a Layer-2 file on
  * disk.
  *
- * Idempotent: a second call is a no-op once YAML files exist. Safe to run
- * on every init and every sync.
+ * Idempotent: a second call is a no-op once YAML files exist. Because it
+ * writes `.customize.yaml` files, it belongs on the disk-materializing
+ * generation paths — init, sync, and update — and only outside `--dry-run`:
+ * treat it as a pre-generation invariant those commands run before adapter
+ * emission, so Layer-4 materialization does not depend on which of them a
+ * user runs first. Read-only drift commands (status, verify) must NOT call
+ * this writer — they regenerate adapter output in memory and must stay
+ * write-free, applying the manifest Layer-4 payload in-memory during
+ * comparison instead (D2-SA2.3-10).
  *
  * @param projectRoot Absolute path to the project root (the dir containing
  *   `.hatch3r/`).

@@ -3,10 +3,13 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
+import { PROGRAM_DESCRIPTION } from "../../cli/program.js";
 
 const CLI_PATH = resolve(import.meta.dirname, "../../../dist/cli/index.js");
 
-// D3-2: this suite is the only assertion of the "Battle-tested" help banner
+// D3-2 / D3-SA3.2-09: this suite asserts the program's `--help` banner (against
+// the exported PROGRAM_DESCRIPTION constant — no longer the hard-coded
+// "Battle-tested" marketing phrase, which coupled the suite to unevidenced copy)
 // and the unknown-command / agent-command redirects, but it can only run
 // against the built `dist/cli/index.js`. `scripts.test` is a bare `vitest run`
 // with no `pretest` build, so on a fresh clone the artifact is absent and the
@@ -51,7 +54,10 @@ describe.skipIf(!HAS_DIST)("CLI entry point (src/cli/index.ts)", () => {
       const { stdout, exitCode } = runCli(["--help"]);
       expect(exitCode).toBe(0);
       expect(stdout).toContain("hatch3r");
-      expect(stdout).toContain("Battle-tested");
+      // D3-SA3.2-09: assert the description via the exported constant (single
+      // source of truth) rather than a hard-coded marketing phrase. Whitespace
+      // is normalized because commander wraps the description to the help width.
+      expect(stdout.replace(/\s+/g, " ")).toContain(PROGRAM_DESCRIPTION);
     });
 
     it("lists core registered commands", () => {

@@ -8,7 +8,7 @@ import {
   createWorkspaceManifest,
   isUnsafeRepoPath,
 } from "../../workspace/manifest.js";
-import { HATCH3R_DIR, DEFAULT_FEATURES } from "../../types.js";
+import { HATCH3R_DIR, DEFAULT_FEATURES, HatchError } from "../../types.js";
 
 // Wave 6: manifest moved from `.agents/` to `.hatch3r/`. The workspace
 // manifest tracks `workspace.json` under the same directory.
@@ -265,6 +265,87 @@ describe("workspace manifest", () => {
       });
       await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
       await expect(readWorkspaceManifest(dir)).rejects.toThrow("Invalid workspace manifest");
+    });
+
+    // D2-SA2.5-05: #108 parity — the workspace reader must reject retired tool
+    // ids at the boundary the way the repo-manifest reader does, instead of
+    // letting a pre-1.9.0 id (windsurf, cline, ...) reach getAdapter during
+    // sync where its structured HatchError.recoveryHint is dropped.
+
+    it("rejects a stale tool id in defaults.tools with a supported-tools recoveryHint", async () => {
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "stale-defaults",
+        repos: [],
+        defaults: { ...minimalDefaults, tools: ["windsurf"] },
+        syncStrategy: "manual",
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+
+      let caught: unknown;
+      try {
+        await readWorkspaceManifest(dir);
+      } catch (err) {
+        caught = err;
+      }
+      expect(caught).toBeInstanceOf(HatchError);
+      const hatchErr = caught as HatchError;
+      expect(hatchErr.message).toContain("windsurf");
+      expect(hatchErr.message).toContain("Supported tools: claude, cursor, copilot");
+      expect(hatchErr.errorCode).toBe("VALIDATION_ERROR");
+      // Parity with #108: the recoveryHint survives to the top-level handler
+      // rather than being flattened away like the sync-loop warning path.
+      expect(hatchErr.recoveryHint).toBeDefined();
+      expect(hatchErr.recoveryHint).toContain("cursor");
+    });
+
+    it("rejects an unknown tool id in a per-repo override", async () => {
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "stale-override",
+        repos: [{ path: "api", name: "api", sync: true, overrides: { tools: ["cline"] } }],
+        defaults: minimalDefaults,
+        syncStrategy: "manual",
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+      await expect(readWorkspaceManifest(dir)).rejects.toThrow(/overrides\.tools.*cline/);
+    });
+
+    it("rejects an unknown tool id in a group delta", async () => {
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "stale-group",
+        repos: [],
+        defaults: { ...minimalDefaults, groups: { "sec-lead": { tools: ["windsurf"] } } },
+        syncStrategy: "manual",
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+      await expect(readWorkspaceManifest(dir)).rejects.toThrow(/groups\.sec-lead\.tools.*windsurf/);
+    });
+
+    it("accepts a manifest whose defaults, group, and override tools are all supported", async () => {
+      const dir = await setup();
+      const raw = JSON.stringify({
+        version: "1.0.0",
+        hatch3rVersion: "1.4.0",
+        name: "all-valid-tools",
+        repos: [{ path: "api", name: "api", sync: true, overrides: { tools: ["copilot"] } }],
+        defaults: { ...minimalDefaults, groups: { core: { tools: ["claude"] } } },
+        syncStrategy: "manual",
+      });
+      await writeFile(join(dir, AGENTS_DIR, "workspace.json"), raw);
+
+      const read = await readWorkspaceManifest(dir);
+      expect(read).not.toBeNull();
+      expect(read!.defaults.tools).toEqual(["cursor"]);
+      expect(read!.defaults.groups?.core.tools).toEqual(["claude"]);
+      expect(read!.repos[0].overrides?.tools).toEqual(["copilot"]);
     });
   });
 

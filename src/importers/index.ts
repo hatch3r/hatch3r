@@ -16,13 +16,16 @@ import {
   cursorCompanionFrontmatter,
   resolveUserContentRoot,
 } from "../content/index.js";
+import { resolveBundledContentRoot } from "../content/contentRoot.js";
+import { parseFrontmatter } from "../adapters/canonical.js";
+import { verbose } from "../cli/shared/ui.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import type { ImportedRule } from "./shared.js";
 import { parseAwesomeCursorrulesFile } from "./awesomeCursorrules.js";
 import { parseCopilotInstructionsDir } from "./copilot.js";
 import { parseCursorRulesDir, type ImportedCursorRule } from "./cursor.js";
 import { parseWindsurfRulesDir } from "./windsurf.js";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 import { stringify as yamlStringify } from "yaml";
 
@@ -123,9 +126,11 @@ export const IMPORT_TARGETS: readonly ImportTarget[] = [
 
 /**
  * Structured outcome of a single format's import run. Every parsed source rule
- * lands in exactly one of `converted`, `conflicts`, or `manualReview`. Mirrors
- * the cursor importer's `CursorImportSummary` shape so the CLI renders every
- * format with one summary renderer.
+ * lands in exactly one of `converted`, `conflicts`, or `manualReview`. `shadows`
+ * is not a fourth exclusive bucket — it annotates the subset of `converted`
+ * whose topic overlaps a shipped canonical rule those imports now outrank via
+ * override precedence. Mirrors the cursor importer's `CursorImportSummary` shape
+ * so the CLI renders every format with one summary renderer.
  */
 export interface FormatImportSummary {
   /** The source format this summary describes. */
@@ -138,6 +143,15 @@ export interface FormatImportSummary {
   conflicts: { sourcePath: string; canonicalFilename: string; reason: string }[];
   /** Rules deferred for human review (empty / missing frontmatter). */
   manualReview: { sourcePath: string; reason: string }[];
+  /**
+   * Converted rules whose topic overlaps a shipped canonical rule they now
+   * outrank via `.hatch3r/overrides/rules/` precedence — the layer adapters
+   * prefer over bundled canonical content. Informational: these rules are still
+   * written (migration intent); the entry surfaces the otherwise-silent
+   * precedence effect. Keyword topic overlap is a heuristic, not a semantic
+   * diff. One entry per (imported rule, shipped rule) overlap.
+   */
+  shadows: { importedId: string; sourcePath: string; shippedRuleId: string; topic: string }[];
   /** Paths written to disk (`.md` + `.mdc` per converted rule); empty under dryRun. */
   written: string[];
   /** True when the run computed the summary without writing any file. */
@@ -178,6 +192,119 @@ function hasEmptyFrontmatter(rule: ImportedRule): boolean {
 }
 
 /**
+ * Topic index: a normalized topic keyword → the shipped canonical rule ids that
+ * declare it as a tag. Injected into the import runner (mirrors `existingRuleIds`)
+ * so shadow detection stays pure and unit-testable; {@link runImport} seeds a
+ * default from the bundled canonical rule tags via {@link buildShippedRuleTopics}.
+ * Keys are lowercase, `floor:` prefixes stripped, `ctx:` context tags excluded.
+ */
+export type ShippedRuleTopics = ReadonlyMap<string, ReadonlySet<string>>;
+
+/** Shared empty index — no shipped topics means no shadow detection. */
+const EMPTY_SHIPPED_RULE_TOPICS: ShippedRuleTopics = new Map();
+
+/** Escape a topic keyword for safe embedding in a word-boundary RegExp. */
+function escapeRegExp(literal: string): string {
+  return literal.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+/**
+ * Detect which converted rules SHADOW a shipped canonical rule. A shipped topic
+ * keyword (length >= 3) that appears as a whole word in a converted rule's tags
+ * + description + body flags that imported rule as a potential silent override
+ * of every shipped rule carrying that topic — the import lands in
+ * `.hatch3r/overrides/rules/`, the layer adapters prefer over bundled canonical
+ * content. Keyword overlap is a heuristic, not a semantic diff: false positives
+ * are acceptable because the goal is surfacing the precedence effect, not
+ * proving contradiction. Deterministic output — topics and shipped ids are
+ * visited in sorted order and each (imported rule, shipped rule) pair is emitted
+ * once (the first matching topic wins). The >= 3 length floor drops 2-char tags
+ * (`ui`, `ux`, `ai`) whose bare-word matches against prose would be noise.
+ */
+export function detectShadows(
+  converted: readonly ImportedRule[],
+  shippedRuleTopics: ShippedRuleTopics,
+): FormatImportSummary["shadows"] {
+  if (shippedRuleTopics.size === 0 || converted.length === 0) return [];
+
+  const topics = [...shippedRuleTopics.keys()].filter((t) => t.length >= 3).sort();
+  const shadows: FormatImportSummary["shadows"] = [];
+
+  for (const rule of converted) {
+    const haystack = [
+      ...(rule.canonical.tags ?? []),
+      rule.canonical.description,
+      rule.canonical.content,
+    ]
+      .join("\n")
+      .toLowerCase();
+    const emittedShipped = new Set<string>();
+    for (const topic of topics) {
+      if (!new RegExp(`\\b${escapeRegExp(topic)}\\b`).test(haystack)) continue;
+      for (const shippedRuleId of [...(shippedRuleTopics.get(topic) ?? [])].sort()) {
+        if (emittedShipped.has(shippedRuleId)) continue;
+        emittedShipped.add(shippedRuleId);
+        shadows.push({
+          importedId: rule.canonical.id,
+          sourcePath: rule.sourcePath,
+          shippedRuleId,
+          topic,
+        });
+      }
+    }
+  }
+  return shadows;
+}
+
+/**
+ * Build the default {@link ShippedRuleTopics} index from the bundled canonical
+ * rule tags: read `rules/*.md` under the bundled content root, lift each rule's
+ * `tags`, strip `floor:` prefixes, and drop `ctx:` context tags (compatibility
+ * statements, not topics). Resilient — a missing bundled root, unreadable dir,
+ * or unparseable rule file yields whatever was accumulated so far, so a failure
+ * to locate bundled rules disables shadow detection rather than failing the
+ * import.
+ */
+async function buildShippedRuleTopics(): Promise<ShippedRuleTopics> {
+  const topics = new Map<string, Set<string>>();
+  try {
+    const rulesDir = join(resolveBundledContentRoot(), "rules");
+    const files = (await readdir(rulesDir)).filter((f) => f.endsWith(".md"));
+    for (const file of files) {
+      try {
+        const { metadata } = parseFrontmatter(await readFile(join(rulesDir, file), "utf-8"));
+        const id = metadata.id;
+        if (!id) continue;
+        for (const tag of metadata.tags ?? []) {
+          if (tag.startsWith("ctx:")) continue;
+          const topic = tag.replace(/^floor:/, "").toLowerCase();
+          if (!topic) continue;
+          let ids = topics.get(topic);
+          if (!ids) {
+            ids = new Set<string>();
+            topics.set(topic, ids);
+          }
+          ids.add(id);
+        }
+      } catch (err) {
+        // Skip an unreadable/unparseable rule file; keep scanning the rest.
+        verbose(
+          `importers: skipped shipped rule "${file}" for the shadow-topic index — ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+  } catch (err) {
+    // No bundled rules dir (or resolution failed) → shadow detection disabled.
+    verbose(
+      `importers: shadow-topic index disabled (bundled canonical rules unavailable) — ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+  return topics;
+}
+
+/**
  * Classify already-parsed rules for one format and (unless `dryRun`) write each
  * converted rule as BOTH a canonical `.md` and a Cursor-native `.mdc` companion
  * under `.hatch3r/overrides/rules/`. Pure of process.exit / console.
@@ -187,12 +314,18 @@ function hasEmptyFrontmatter(rule: ImportedRule): boolean {
  *   2. Canonical id already in `existingRuleIds`, OR two parsed rules resolve to
  *      the same canonical id → `conflicts` (skip writing).
  *   3. Otherwise → `converted`.
+ * Converted rules are additionally cross-referenced against `shippedRuleTopics`
+ * (when supplied) via {@link detectShadows} to populate `summary.shadows` — the
+ * subset of converts whose topic overlaps a shipped rule they now outrank via
+ * override precedence. This is annotation only; shadowed rules are still written.
  *
- * @param rootDir         - Absolute path to the repository root directory.
- * @param format          - The source format these rules came from.
- * @param rules           - Parsed rules for this format (from {@link importFormat}).
- * @param dryRun          - When true, classify only; write nothing.
- * @param existingRuleIds - Canonical + user rule ids already present (conflict source).
+ * @param rootDir           - Absolute path to the repository root directory.
+ * @param format            - The source format these rules came from.
+ * @param rules             - Parsed rules for this format (from {@link importFormat}).
+ * @param dryRun            - When true, classify only; write nothing.
+ * @param existingRuleIds   - Canonical + user rule ids already present (conflict source).
+ * @param shippedRuleTopics - Shipped-rule topic index for shadow detection; when
+ *                            omitted, `summary.shadows` is empty.
  */
 export async function runFormatImport(opts: {
   rootDir: string;
@@ -200,8 +333,9 @@ export async function runFormatImport(opts: {
   rules: ImportedRule[];
   dryRun: boolean;
   existingRuleIds?: ReadonlySet<string>;
+  shippedRuleTopics?: ShippedRuleTopics;
 }): Promise<FormatImportSummary> {
-  const { rootDir, format, rules, dryRun, existingRuleIds } = opts;
+  const { rootDir, format, rules, dryRun, existingRuleIds, shippedRuleTopics } = opts;
 
   const summary: FormatImportSummary = {
     format,
@@ -209,6 +343,7 @@ export async function runFormatImport(opts: {
     converted: [],
     conflicts: [],
     manualReview: [],
+    shadows: [],
     written: [],
     dryRun,
   };
@@ -248,6 +383,14 @@ export async function runFormatImport(opts: {
     seenIds.add(id);
     summary.converted.push(rule);
   }
+
+  // Annotate (do not gate) the converts that shadow a shipped rule via override
+  // precedence. Computed from `converted` regardless of dryRun, so a dry-run
+  // preview surfaces the precedence warning before any write.
+  summary.shadows = detectShadows(
+    summary.converted,
+    shippedRuleTopics ?? EMPTY_SHIPPED_RULE_TOPICS,
+  );
 
   if (!dryRun && summary.converted.length > 0) {
     const rulesDir = join(resolveUserContentRoot(rootDir), "rules");
@@ -297,24 +440,36 @@ export function resolveImportTargets(target: ImportTarget): readonly ImportForma
  * sequentially in {@link IMPORT_FORMATS} order so cross-format id precedence is
  * deterministic.
  *
- * @param rootDir         - Absolute path to the repository root directory.
- * @param target          - One of {@link IMPORT_TARGETS}.
- * @param dryRun          - When true, classify only; write nothing.
- * @param existingRuleIds - Canonical + user rule ids already present (conflict source).
+ * Shadow detection: unless `shippedRuleTopics` is supplied, the topic index is
+ * seeded once from the bundled canonical rule tags ({@link buildShippedRuleTopics})
+ * and reused for every covered format, so each summary's `shadows` surfaces
+ * imports that outrank a shipped rule via override precedence.
+ *
+ * @param rootDir           - Absolute path to the repository root directory.
+ * @param target            - One of {@link IMPORT_TARGETS}.
+ * @param dryRun            - When true, classify only; write nothing.
+ * @param existingRuleIds   - Canonical + user rule ids already present (conflict source).
+ * @param shippedRuleTopics - Optional shipped-rule topic index override; when
+ *                            omitted, seeded from the bundled canonical rules.
  */
 export async function runImport(opts: {
   rootDir: string;
   target: ImportTarget;
   dryRun: boolean;
   existingRuleIds?: ReadonlySet<string>;
+  shippedRuleTopics?: ShippedRuleTopics;
 }): Promise<FormatImportSummary[]> {
-  const { rootDir, target, dryRun, existingRuleIds } = opts;
+  const { rootDir, target, dryRun, existingRuleIds, shippedRuleTopics } = opts;
   const formats = resolveImportTargets(target);
 
   // Parse all covered formats up front (disjoint read paths → parallel-safe).
   const parsed = await Promise.all(
     formats.map(async (format) => ({ format, rules: await importFormat(rootDir, format) })),
   );
+
+  // Seed the shadow-detection topic index once for the whole run (caller
+  // override wins; otherwise read the bundled canonical rule tags).
+  const shippedTopics = shippedRuleTopics ?? (await buildShippedRuleTopics());
 
   // Carry already-claimed ids across formats so the same canonical id can only
   // be written once across the whole run. Seed with the caller's existing ids.
@@ -327,6 +482,7 @@ export async function runImport(opts: {
       rules,
       dryRun,
       existingRuleIds: claimedIds,
+      shippedRuleTopics: shippedTopics,
     });
     for (const c of summary.converted) {
       claimedIds.add(c.canonical.id);

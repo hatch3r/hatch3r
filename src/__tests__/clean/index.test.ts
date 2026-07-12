@@ -266,6 +266,57 @@ describe("clean/index", () => {
       expect(await exists(join(tempDir, ".cursor", "rules", "hatch3r-test.mdc"))).toBe(true);
     });
 
+    it("dry run buckets a user-content adapter file under kept, not removed (D1-SA1.3-11)", async () => {
+      // An adapter-output file with user-authored content wrapped around the
+      // managed block: the live run strips the block and KEEPS the file, so the
+      // dry-run preview must report it under `kept`, not `removed`, matching
+      // what a live run actually does.
+      await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
+      const wrappedRel = ".cursor/rules/hatch3r-wrapped.mdc";
+      const wrappedAbs = join(tempDir, ".cursor", "rules", "hatch3r-wrapped.mdc");
+      const wrapped = [
+        "# My own cursor notes",
+        "",
+        "<!-- HATCH3R:BEGIN -->",
+        "managed body",
+        "<!-- HATCH3R:END -->",
+        "",
+        "# more of my notes",
+      ].join("\n");
+      await writeFile(wrappedAbs, wrapped);
+
+      const inv = await inventoryArtifacts(tempDir);
+      const result = await executeClean(tempDir, inv, true);
+
+      // Bucketed as kept (managed block would be stripped), NOT removed.
+      expect(
+        result.kept.some((k) => k.includes(wrappedRel) && k.includes("user content preserved")),
+      ).toBe(true);
+      expect(result.removed).not.toContain(wrappedRel);
+      // Dry-run is non-mutating: the file is untouched on disk.
+      expect(await exists(wrappedAbs)).toBe(true);
+      expect(await readFile(wrappedAbs, "utf-8")).toBe(wrapped);
+    });
+
+    it("dry run buckets a pure-managed adapter file (no user content) under removed (D1-SA1.3-11)", async () => {
+      // A file that is ONLY the managed block (nothing user-authored outside the
+      // markers) is deleted outright by the live run, so the preview lists it
+      // under `removed` — the complementary bucket to the test above.
+      await mkdir(join(tempDir, ".cursor", "rules"), { recursive: true });
+      const pureRel = ".cursor/rules/hatch3r-pure.mdc";
+      const pureAbs = join(tempDir, ".cursor", "rules", "hatch3r-pure.mdc");
+      const pure = ["<!-- HATCH3R:BEGIN -->", "managed body", "<!-- HATCH3R:END -->"].join("\n");
+      await writeFile(pureAbs, pure);
+
+      const inv = await inventoryArtifacts(tempDir);
+      const result = await executeClean(tempDir, inv, true);
+
+      expect(result.removed).toContain(pureRel);
+      expect(result.kept.some((k) => k.includes(pureRel))).toBe(false);
+      // Still non-mutating.
+      expect(await exists(pureAbs)).toBe(true);
+    });
+
     it("handles AGENTS.md with managed block — strips block, preserves user content", async () => {
       // Create AGENTS.md with managed block and user content
       const agentsMd = [

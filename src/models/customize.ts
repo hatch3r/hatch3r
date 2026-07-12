@@ -215,6 +215,53 @@ async function statMtimeMs(path: string): Promise<number | undefined> {
 }
 
 /**
+ * mtime observations for a customization pair (`.customize.yaml` +
+ * `.customize.md`) captured at one instant. `undefined` means the file did not
+ * exist at that observation (ENOENT); a number is the file's `mtimeMs`.
+ */
+export interface SnapshotMtimes {
+  yaml: number | undefined;
+  md: number | undefined;
+}
+
+/**
+ * Pure TOCTOU drift comparator for {@link readCustomizationSnapshot}.
+ *
+ * Given the mtime observations captured before (`pre`) and after (`post`) the
+ * customization reads, return the edit-during-sync warning(s). A file "changed"
+ * when its pre- and post-observation differ — an mtime bump OR an existence
+ * transition (`undefined` <-> number, i.e. ENOENT <-> present).
+ *
+ * Extracted from the snapshot reader (D3-SA3.4-07): detecting the race is
+ * best-effort, but the warning emission GIVEN a detected mismatch is
+ * deterministic pure logic (mtime inequality -> exact message + named files).
+ * Isolating it here makes that logic unit-testable without racing a real
+ * filesystem `utimes` bump against the read window, so a regression in the
+ * message text, the recovery guidance, or the file naming fails a test
+ * deterministically instead of only when the race happens to land. The
+ * real-race integration tests stay as best-effort smoke.
+ */
+export function detectSnapshotDrift(
+  type: CustomizableType,
+  id: string,
+  pre: SnapshotMtimes,
+  post: SnapshotMtimes,
+): string[] {
+  const yamlChanged = pre.yaml !== post.yaml;
+  const mdChanged = pre.md !== post.md;
+  if (!yamlChanged && !mdChanged) return [];
+  const which: string[] = [];
+  if (yamlChanged) which.push(".customize.yaml");
+  if (mdChanged) which.push(".customize.md");
+  return [
+    `Customization file(s) for "${id}" changed during sync (${which.join(", ")}). ` +
+      `Snapshot may be inconsistent — the output for this run is based on a partial read. ` +
+      `To regenerate cleanly: save all .hatch3r/${type}/*.customize.{yaml,md} edits, then ` +
+      `run \`hatch3r sync\` (no flags needed).`,
+  ];
+}
+
+/**
  * Read both `.customize.yaml` and `.customize.md` for a content item as a
  * time-consistent snapshot, guarding against TOCTOU (time-of-check to
  * time-of-use) edit-during-sync races (C8-D2-M4).
@@ -274,19 +321,14 @@ export async function readCustomizationSnapshot(
     mdSafe ? statMtimeMs(mdPath) : Promise.resolve(undefined),
   ]);
 
-  const yamlChanged = yamlPreMtime !== yamlPostMtime;
-  const mdChanged = mdPreMtime !== mdPostMtime;
-  if (yamlChanged || mdChanged) {
-    const which: string[] = [];
-    if (yamlChanged) which.push(".customize.yaml");
-    if (mdChanged) which.push(".customize.md");
-    warnings.push(
-      `Customization file(s) for "${id}" changed during sync (${which.join(", ")}). ` +
-      `Snapshot may be inconsistent — the output for this run is based on a partial read. ` +
-      `To regenerate cleanly: save all .hatch3r/${type}/*.customize.{yaml,md} edits, then ` +
-      `run \`hatch3r sync\` (no flags needed).`,
-    );
-  }
+  warnings.push(
+    ...detectSnapshotDrift(
+      type,
+      id,
+      { yaml: yamlPreMtime, md: mdPreMtime },
+      { yaml: yamlPostMtime, md: mdPostMtime },
+    ),
+  );
 
   return { yaml: yamlRead.value, md: mdRead.value, warnings };
 }

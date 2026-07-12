@@ -136,7 +136,7 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 | Body exceeds 50 KB | List section byte counts; refuse write; suggest compressing `Work Done` history |
 | Required frontmatter field missing | Name the missing field; refuse write |
 | Duplicate active handoff for same `work_item` | If existing < 24h: surface path, refuse with hint; if ≥ 24h: **ASK** whether to supersede (writes `superseded_by` link in old) |
-| Injection pattern detected (P-LEARN-01..05) | List the matching pattern id; refuse write; instruct user to rephrase |
+| Injection or deny-pattern detected (P-LEARN-01..05, deny set per `scanForDeniedPatterns`) | List the matching pattern id or deny-set hit; refuse write; instruct user to rephrase |
 | `git_ref` does not match HEAD | Refuse write; advise running `git status` to confirm the working tree is in the expected state |
 | Schema validation failure | Surface the schema path and value; refuse write |
 

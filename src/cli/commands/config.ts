@@ -814,13 +814,21 @@ async function configCommandImpl(
   // recurring confusion where users removed items from selection to change
   // behavior (losing the override); rendering this distinction before any
   // prompt nudges them to `.customize.yaml` / `.customize.md` instead.
+  // D10-SA10.4-05 (Cycle 12, D10, P1): the Customization branch enumerates all
+  // four routes to change a shipped item without deselecting it — not only the
+  // two `.customize.*` files. Prior wording named only customize.yaml/.md, so the
+  // box's "Two ways" (Selection vs Customization) framing read as an exhaustive
+  // customize menu while managed-block tails and `.hatch3r/overrides/` were one
+  // doc-layer away. The Selection-vs-Customization frame is kept.
   printBox(
     "Two ways to change content",
     [
       "Selection — adds or removes content items in this config flow.",
-      "Customization — overrides an item's behavior without removing it.",
-      "  Place .hatch3r/<type>/<id>.customize.yaml (settings) or",
-      "  .hatch3r/<type>/<id>.customize.md (content append).",
+      "Customization — overrides an item's behavior without removing it:",
+      "  .hatch3r/<type>/<id>.customize.yaml (settings) or",
+      "  .hatch3r/<type>/<id>.customize.md (content append);",
+      "  edit outside the HATCH3R:BEGIN/END markers for free-form notes;",
+      "  .hatch3r/overrides/<type>/<id>.md for a whole-body rewrite.",
     ],
     "info",
   );

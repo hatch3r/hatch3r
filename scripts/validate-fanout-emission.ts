@@ -153,6 +153,30 @@ const SKILLS_DIR = join(ROOT, "skills");
 // obligation as the canonical skill class.
 const MAINTAINER_SKILLS_DIR = join(ROOT, ".claude", "skills");
 
+// The canonical, shipped, CI-present twin of the CONSTITUTION §2 P8 B2 directive
+// (`governance/CONSTITUTION.md` is privatized and absent in public CI, so the
+// rule twin — not the constitution — is the derivable source of truth for the
+// required-output-field set). Its "## Required output field" block is the
+// contract this validator certifies; the meta-invariant below derives the field
+// set from it at runtime.
+const CANONICAL_RULE_PATH = join(ROOT, "rules", "hatch3r-fan-out-discipline.md");
+
+// ── Derive-don't-enumerate SSoT (D16-SA16.1-01) ───────────────────
+//
+// The single place this validator NAMES the P8 B2 `sub_agents_spawned` output
+// fields it enforces. The meta-invariant (`checkContractScopeParity`) fails
+// when this hand-enumerated set diverges from the field set the canonical rule
+// declares — the "does this verifier still cover what it claims to verify?"
+// check. Enforcement SEVERITY still differs per field by rollout policy (count
+// + rationale are hard errors; task_structure is a corpus-backfill WARNING),
+// but every field the contract mandates must appear here or the gate is
+// silently narrower than the contract it certifies.
+const P8_REQUIRED_OUTPUT_FIELDS: readonly string[] = [
+  "count",
+  "rationale",
+  "task_structure",
+];
+
 // ── Audit-cycle exempt list (hard-coded) ──────────────────────────
 //
 // Mirrors `scripts/validate-efficiency-invariants.ts`: audit-cycle
@@ -191,6 +215,13 @@ export interface RunOptions {
   skillsDir?: string;
   /** Maintainer-preset root (`.claude/skills/`); test fixtures inject a tmpdir. */
   maintainerSkillsDir?: string;
+  /**
+   * Canonical fan-out rule whose "Required output field" block is the P8 B2
+   * contract the meta-invariant derives from. Defaults to the shipped
+   * `rules/hatch3r-fan-out-discipline.md`; injectable so a test can point it at
+   * a synthetic contract to prove the drift check fires.
+   */
+  canonicalRulePath?: string;
 }
 
 export interface RunResult {
@@ -622,6 +653,105 @@ function checkMaintainerSkillEmission(file: ParsedFile): Finding[] {
   ];
 }
 
+// ── Derive-don't-enumerate meta-invariant (D16-SA16.1-01) ─────────
+//
+// Root cause the meta-invariant closes: an enforcement instrument hand-scoped
+// once stays green under contract drift — it keeps fully covering its ORIGINAL
+// surface while the contract widens, so it certifies compliance it no longer
+// checks. This validator's antidote for its own field set: DERIVE the required
+// `sub_agents_spawned` fields from the canonical rule at runtime and fail when
+// the hand-enumerated `P8_REQUIRED_OUTPUT_FIELDS` no longer matches.
+
+/**
+ * Extract the `sub_agents_spawned` child-field names from the canonical rule's
+ * "## Required output field" fenced block. Returns the field list, or `null`
+ * when the section / fenced block / anchor is absent (a shape this parser does
+ * not recognize) so the caller can fail-safe rather than derive a wrong set.
+ */
+export function deriveContractFieldSet(ruleText: string): string[] | null {
+  const heading = /^#{1,6}\s+Required output field\s*$/im.exec(ruleText);
+  if (!heading) return null;
+  const after = ruleText.slice(heading.index + heading[0].length);
+  const fence = /```[^\n]*\n([\s\S]*?)```/m.exec(after);
+  if (!fence) return null;
+  const block = fence[1];
+  const anchorIdx = block.indexOf("sub_agents_spawned:");
+  if (anchorIdx === -1) return null;
+  // Child keys are the 2-space-indented `key:` lines after the anchor; the
+  // first non-indented / non-blank line ends the mapping.
+  const childLines = block.slice(anchorIdx).split("\n").slice(1);
+  const fields: string[] = [];
+  for (const line of childLines) {
+    const m = /^ {2}([A-Za-z_][A-Za-z0-9_]*):/.exec(line);
+    if (m) {
+      fields.push(m[1]);
+    } else if (line.trim().length > 0) {
+      break;
+    }
+  }
+  return fields.length > 0 ? fields : null;
+}
+
+/**
+ * Read the canonical rule and derive its field set; `null` on any read failure
+ * (fail-safe: a partial checkout without the rule skips the meta-check rather
+ * than false-failing the gate). Surfaces a diagnostic on non-ENOENT errors per
+ * the Silent Failure Contract — a skipped check is not a passed one.
+ */
+async function readContractFieldSet(rulePath: string): Promise<string[] | null> {
+  let raw: string;
+  try {
+    raw = await readFile(rulePath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `validate-fanout-emission: could not read ${rulePath} for contract-scope ` +
+          `parity (${(err as Error).message}); skipping the meta-invariant check.`,
+      );
+    }
+    return null;
+  }
+  return deriveContractFieldSet(raw);
+}
+
+/**
+ * Meta-invariant: the validator's declared enforced field set
+ * (`P8_REQUIRED_OUTPUT_FIELDS`) must equal the field set the canonical contract
+ * declares. Any divergence is a `P8-FANOUT-CONTRACT-DRIFT` ERROR — the gate has
+ * fallen out of scope-parity with the contract it certifies.
+ */
+export function checkContractScopeParity(
+  validatorFields: readonly string[],
+  contractFields: readonly string[],
+): Finding[] {
+  const validatorSet = new Set(validatorFields);
+  const contractSet = new Set(contractFields);
+  const unenforced = contractFields.filter((f) => !validatorSet.has(f));
+  const orphaned = validatorFields.filter((f) => !contractSet.has(f));
+  if (unenforced.length === 0 && orphaned.length === 0) return [];
+  return [
+    {
+      level: "error",
+      code: "P8-FANOUT-CONTRACT-DRIFT",
+      file: "rules/hatch3r-fan-out-discipline.md",
+      message:
+        "fan-out validator scope has drifted from the P8 B2 contract's " +
+        "`sub_agents_spawned` field set (Required output field block). " +
+        (unenforced.length > 0
+          ? `Contract mandates field(s) this validator does not enforce: ${unenforced.join(", ")}. `
+          : "") +
+        (orphaned.length > 0
+          ? `Validator enforces field(s) the contract no longer names: ${orphaned.join(", ")}. `
+          : "") +
+        "Re-derive P8_REQUIRED_OUTPUT_FIELDS (and the per-field checks) from the " +
+        "contract so the gate certifies what it claims to " +
+        "(D16-SA16.1-01 derive-don't-enumerate meta-invariant).",
+    },
+  ];
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
@@ -691,6 +821,20 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     if (!isDelegatingMaintainerSkill(f)) continue;
     checkedMaintainerSkills += 1;
     findings.push(...checkMaintainerSkillEmission(f));
+  }
+
+  // ── Meta-invariant: gate-scope parity with the P8 B2 contract ──────
+  // Derive the required-output-field set from the canonical rule and fail when
+  // this validator's hand-enumerated `P8_REQUIRED_OUTPUT_FIELDS` no longer
+  // matches (D16-SA16.1-01). Fail-safe: an absent/unparseable rule skips the
+  // check rather than false-failing the gate.
+  const contractFields = await readContractFieldSet(
+    opts.canonicalRulePath ?? CANONICAL_RULE_PATH,
+  );
+  if (contractFields !== null) {
+    findings.push(
+      ...checkContractScopeParity(P8_REQUIRED_OUTPUT_FIELDS, contractFields),
+    );
   }
 
   let errorCount = 0;

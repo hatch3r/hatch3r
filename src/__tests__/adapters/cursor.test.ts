@@ -451,9 +451,15 @@ You are a test agent.`,
     const bridge = outputs.find((o) => o.path === ".cursor/rules/hatch3r-bridge.mdc");
     expect(bridge).toBeDefined();
     expect(bridge!.content).toContain("Cursor Subagent Configuration (v2.5+)");
-    expect(bridge!.content).toContain("up to 4 subagents");
+    expect(bridge!.content).toContain("many subagents in parallel");
     expect(bridge!.content).toContain("readonly");
-    expect(bridge!.content).toContain("background");
+    // D9-SA9.2-06: field name is `is_background` (matches the emitted frontmatter
+    // at cursor.ts and Cursor docs), not the silently-ignored `background`.
+    expect(bridge!.content).toContain("is_background");
+    // D9-SA9.2-06: the stale Cursor-2.5-era "up to 4" cap is removed —
+    // Cursor 3.0 documents no fixed parallelism cap.
+    expect(bridge!.content).not.toContain("up to 4 subagents");
+    expect(bridge!.content).not.toContain("up to 4 in parallel");
   });
 
   // C7.5-W2B2-H30 (D9-SA9.1.1): Cursor 3.0 /worktree and /best-of-n commands in bridge.

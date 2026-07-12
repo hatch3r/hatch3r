@@ -165,8 +165,35 @@ export async function executeClean(
   const errors: string[] = [];
 
   if (dryRun) {
+    // D1-SA1.3-11: simulate the live branch's per-file strip-vs-remove decision
+    // as a read-only probe so the preview matches what a live run does. An
+    // adapter-output file whose managed block is wrapped in user-authored
+    // content is rewritten in place by the live run (managed block stripped,
+    // file KEPT — see lines below), not deleted; the prior static echo listed
+    // every such file under "would remove". Same read-only probe
+    // (hasManagedBlock + extractCustomContent) as the live loop, with no
+    // writeFile/rm here.
     for (const f of inventory.adapterFiles) {
-      removed.push(f);
+      const absPath = join(rootDir, f);
+      let wouldStrip = false;
+      try {
+        const content = await readFile(absPath, "utf-8");
+        if (hasManagedBlock(content, absPath)) {
+          const userContent = extractCustomContent(content, absPath).trim();
+          if (userContent.length > 0) {
+            kept.push(`${f} (user content preserved, managed block stripped)`);
+            wouldStrip = true;
+          }
+        }
+      } catch (err) {
+        const code = (err as NodeJS.ErrnoException).code;
+        if (code !== "ENOENT") {
+          errors.push(`${f}: ${(err as Error).message}`);
+        }
+      }
+      if (!wouldStrip) {
+        removed.push(f);
+      }
     }
     if (inventory.manifestPresent) removed.push(`${HATCH3R_DIR}/hatch.json`);
     if (inventory.worktreeInclude) removed.push(WORKTREE_INCLUDE_FILE);

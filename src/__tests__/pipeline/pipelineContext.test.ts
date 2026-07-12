@@ -684,6 +684,21 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     expect(always.mandatory).toBeUndefined();
   });
 
+  it("stays tier-agnostic — no tier parameter exists to suppress mandatory (recorded limit, D7-SA7.3-06)", () => {
+    // Recorded typed-contract limit: the predicate cannot express the Tier-1
+    // carve-out ("Tier 1 keeps its Phase Skip Criteria skip") — a Tier-1
+    // orchestrator issues the identical call and receives the identical
+    // mandatory: true; the tier gate is layered by the caller from prose
+    // (rules/hatch3r-agent-orchestration.md → Tier-to-Phase-4 depth mapping).
+    // Arity pin: 3 declared parameters (specialist, changedFiles,
+    // projectType), no tier input. Landing the recorded hardening path (an
+    // optional tier argument that suppresses mandatory at Tier 1) must
+    // update this pin and the shouldTriggerSpecialist JSDoc record together.
+    expect(shouldTriggerSpecialist.length).toBe(3);
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
+    expect(result.mandatory).toBe(true);
+  });
+
   it("should trigger hatch3r-ui on UI component file changes", () => {
     const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
     expect(result.triggered).toBe(true);
@@ -1194,6 +1209,27 @@ describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
     const result = evaluatePhase4Completion(q, { unresolvedCriticalFindings: 0 });
     expect(result.unresolvedCriticalFindings).toBe(0);
     expect(result.complete).toBe(true);
+  });
+
+  it("accepts SUCCESS without criticalCount as reviewed-clean — the count-on-SUCCESS invariant is un-typed (recorded limit, D7-SA7.3-06)", () => {
+    // Recorded typed-contract limit: SpecialistResult stays a single
+    // interface (the SUCCESS-requires-count discriminated union was rejected
+    // in the D7-SA7.3-01 fix for @library_export_only back-compat), so this
+    // literal compiles WITHOUT the field and the gate trusts absent → 0 once
+    // the status sweep passes — a SUCCESS producer that forgets the count
+    // reads as reviewed-clean. Narrowing the type later turns this literal
+    // into a compile error — update the criticalCount JSDoc record with it.
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-ui",
+      status: "SUCCESS",
+      findingsCount: 0,
+      summary: "CQ1 review clean",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(true);
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.incompletionReason).toBeUndefined();
   });
 
   it("fails closed when a triggered mandatory-on-match specialist TIMEOUTs with no criticalCount (D7-SA7.3-01)", () => {

@@ -68,6 +68,29 @@ function extractPathSegments(url: string): string[] | null {
 }
 
 /**
+ * Pull the hostname portion of a git remote URL, mirroring the anchors used by
+ * `extractPathSegments`. Handles HTTPS forms (`https://host/path`,
+ * `https://user@host/path`), the `ssh://`/`git://` schemes, and SSH short-form
+ * (`git@host:path`). Strips an optional `user@` credential prefix and a `:port`
+ * suffix so callers match on the bare host. Returns `null` when no host can be
+ * extracted.
+ */
+function extractHost(url: string): string | null {
+  // SSH short-form `git@host:path` — host sits between `@` and the first `:`.
+  const sshMatch = url.match(/^[^@]+@([^:]+):/);
+  if (sshMatch) {
+    return sshMatch[1];
+  }
+  // HTTPS / ssh:// / git:// — the authority sits between `://` and the first `/`.
+  const protoMatch = url.match(/^[a-z][a-z0-9+.-]*:\/\/([^/]+)\//i);
+  if (protoMatch) {
+    // Drop an optional `user@` credential prefix and any `:port` suffix.
+    return protoMatch[1].replace(/^[^@]*@/, "").replace(/:\d+$/, "");
+  }
+  return null;
+}
+
+/**
  * Parse the owner and repo name from the git `origin` remote URL.
  * Returns empty strings on failure. When `warnings` is provided, a descriptive
  * entry is appended on failure (verbose() always fires regardless).
@@ -189,10 +212,24 @@ export function parseGitDefaultBranch(
   }
 }
 
-/** Infer the hosting platform (github, gitlab, azure-devops) from a remote URL. */
+/**
+ * Infer the hosting platform (github, gitlab, azure-devops) from a remote URL.
+ *
+ * D1-SA1.10-08 (Cycle 12): the heuristic matches on the HOST only, not the
+ * whole URL. Substring-scanning the entire URL mis-classified a GitHub repo
+ * whose *name* contained a host token — e.g. `github.com/user/gitlab.mirror`
+ * matched `gitlab.` in the path and wrongly persisted platform "gitlab". The
+ * `gitlab.` (rather than exact `gitlab.com`) test is retained on the hostname
+ * so self-hosted GitLab installs (`gitlab.example.com`) still match, per
+ * https://docs.gitlab.com/ee/user/group/subgroups/ (accessed 2026-07-09) and
+ * https://learn.microsoft.com/en-us/azure/devops/repos/git/clone (accessed
+ * 2026-07-09). When the host can't be extracted (malformed URL), fall back to
+ * scanning the whole string for a best-effort guess.
+ */
 export function detectPlatformFromRemote(remoteUrl: string): Platform {
-  if (remoteUrl.includes("dev.azure.com") || remoteUrl.includes("visualstudio.com")) return "azure-devops";
-  if (remoteUrl.includes("gitlab.com") || remoteUrl.includes("gitlab.")) return "gitlab";
+  const host = extractHost(remoteUrl) ?? remoteUrl;
+  if (host.includes("dev.azure.com") || host.includes("visualstudio.com")) return "azure-devops";
+  if (host.includes("gitlab.")) return "gitlab";
   return "github";
 }
 

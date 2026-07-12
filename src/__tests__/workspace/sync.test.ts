@@ -364,6 +364,62 @@ describe("workspace sync", () => {
     expect(result.repos[0].path).toBe("api");
   });
 
+  // D1-SA1.10-12 (Cycle 12, Info): an explicit --repos path that matches no
+  // registered repo must surface an onWarn line naming it (with the known repo
+  // set) — otherwise the CLI reports a green "0 repo(s) synced" and an operator
+  // typo reads as a clean no-op (Silent Failure Contract).
+  it("warns per unmatched --repos path instead of silently syncing nothing", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-unmatched-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "api", name: "api", sync: true },
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    const warnings: string[] = [];
+    const result = await syncWorkspaceRepos(tempDir, {
+      repos: ["ap"], // typo of "api"
+      onWarn: (m) => warnings.push(m),
+    });
+
+    // Nothing matched — no repo synced (the prior silent behavior).
+    expect(result.repos).toHaveLength(0);
+    // But the typo is now audible: a warning names the unmatched path AND lists
+    // the registered repo so the operator can spot the typo.
+    const unmatchedWarn = warnings.find((w) => /matched no registered repo/.test(w));
+    expect(unmatchedWarn).toBeDefined();
+    expect(unmatchedWarn).toContain("ap"); // the unmatched path
+    expect(unmatchedWarn).toContain("api"); // the registered repo set
+  });
+
+  // D1-SA1.10-12 (Cycle 12, Info): an explicit --repos path selects by path
+  // membership alone, so a repo with sync:false IS synced when named directly.
+  // Pins the opt-out override the option contract now documents.
+  it("syncs a sync:false repo when its path is named explicitly via --repos", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-optout-override-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "web"));
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "web", name: "web", sync: false },
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    // The no-argument default would skip web (sync:false); naming it explicitly
+    // overrides the opt-out and must not emit an unmatched-path warning.
+    const warnings: string[] = [];
+    const result = await syncWorkspaceRepos(tempDir, {
+      repos: ["web"],
+      onWarn: (m) => warnings.push(m),
+    });
+    expect(result.repos).toHaveLength(1);
+    expect(result.repos[0].path).toBe("web");
+    expect(result.repos[0].action).toBe("synced");
+    expect(warnings.some((w) => /matched no registered repo/.test(w))).toBe(false);
+  });
+
   it("updates lastSync in workspace manifest after sync", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-ts-"));
     await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });

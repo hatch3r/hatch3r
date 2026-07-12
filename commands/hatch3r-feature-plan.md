@@ -531,3 +531,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **All 4 researchers must complete before proceeding to Step 4.** Do not generate specs from partial research.
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs first, then codebase exploration, then Context7 MCP, then web research.
 - **Preserve existing todo.md content.** Never overwrite or reorganize existing items without explicit user approval.
+
+## Related
+
+- **Skill:** `hatch3r-feature` — the implement-side counterpart to this plan-only command. This command fans out parallel researcher sub-agents and a docs-writer to produce a feature spec (`docs/specs/`), ADRs, and epic-shaped `todo.md` entries; it writes no product code. Use this command to design and spec a new capability (user stories, acceptance criteria, sub-issue breakdown); use the `hatch3r-feature` skill to implement an approved spec as a vertical slice. Sequential plan → implement seam.

@@ -184,7 +184,7 @@ describe("formatOrphanTmpSweepDiagnostic — unknown-error fallback", () => {
     const msg = formatOrphanTmpSweepDiagnostic([
       { path: "/tmp/x.md.tmp.ffffffff", mtimeMs: 0, removed: false },
     ]);
-    expect(msg).toContain("Failed to remove 1 orphan temp file");
+    expect(msg).toContain("Failed to remove 1 orphan temp/backup file");
     expect(msg).toContain("/tmp/x.md.tmp.ffffffff");
     expect(msg).toContain("unknown");
   });

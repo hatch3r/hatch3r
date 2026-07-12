@@ -49,6 +49,16 @@ Use the platform-native question tool per `agents/shared/user-question-protocol.
 
 When an ASK goes unanswered, the default-if-no-response contract owns the outcome — silent-picking is never permitted. The workflow MUST take exactly one of two paths: (a) apply the declared default AND log a `Default applied: <q> → option <N> (<reason>)` line in the Iteration Summary — the `Default applied:` exception line, a registered line of the recap contract (`rules/hatch3r-iteration-summary.md` → Exception Lines — the catching gate that makes the default audit-visible); or (b) if no `Default if no response:` line was emitted with the question (an authoring bug), return Status `BLOCKED_AMBIGUITY` (`agents/shared/quality-charter.md` §17) instead of guessing. An applied default with no Default-applied line is a P8 B1 gate failure. This default-handling contract is operationalised in `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response; runtime emission of the `Default applied:` line is interpreted markdown the orchestrator produces, so static gates cannot verify it fired — D05/D13 audit-cycle spot checks plus the per-run Iteration Summary validation gate enforce it.
 
+## Decision-class annotation (addressee)
+
+When a live trigger maps to a decision class in the senior-expert consent-routing table (`agents/shared/senior-expert-charter.md` → Consent Routing by Decision Class), prefix the rendered ASK with a one-token class + addressee label so the human answering sees whose authority the question implicates before deciding on someone else's behalf:
+
+- Irreversible action (trigger 3) → `[Irreversible — on-call owner]`.
+- Product-shaping — ambiguous scope, missing acceptance criteria, or an unattested user-visible / user-data decision (triggers 1, 4, 5) → `[Product — product owner]`.
+- Multiple valid interpretations that fix a contract, system boundary, or cross-cutting technology choice (trigger 2) → `[Architecture — tech lead]`.
+
+The label is a routing signal — it names which owner's authority the question carries so a single human can escalate before answering on someone else's behalf (self-certification is not attestation), not machine dispatch. Optional and one-token; omit it on a solo project (one human wears all hats) or when a trigger maps to no class.
+
 ## Scope
 
 Binds every hatch3r-invoked workflow that mutates artifacts in the end-user repo — every `agents/hatch3r-*.md`, every `commands/hatch3r-*.md` with `orchestrator: true`, and every mutating `skills/hatch3r-*/SKILL.md`. Read-only or report-only workflows ask only when the report would be meaningless without scope clarification.

@@ -113,7 +113,7 @@ jobs:
         run: |
           TAG_SHA=$(git rev-list -n 1 "$GITHUB_REF")
           echo "Tag $GITHUB_REF -> commit $TAG_SHA"
-          # actions/checkout@v7 with fetch-depth: 0 fetches all branches and
+          # actions/checkout with fetch-depth: 0 fetches all branches and
           # tags but does NOT create a local tracking branch for `main` unless
           # explicitly asked. Resolve via the remote ref directly.
           git fetch --no-tags origin main
@@ -123,6 +123,15 @@ jobs:
           fi
           echo "Tag ancestry verified: $TAG_SHA reachable from origin/main"
 
+      # Cycle 12 L D4-SA4.3-10 (D4): cache deliberately omitted. Every other
+      # npm-installing job in this repo declares `cache: npm`, but the release
+      # path must not restore cross-branch-writable Actions cache content into
+      # the environment that runs `npm ci`, builds, and packs the shipped
+      # tarball — GitHub Actions caches are writable from any branch, a
+      # documented poisoning path into release artifacts (Adnan Khan,
+      # adnanthekhan.com/2024/05/06 GitHub Actions cache-poisoning writeup,
+      # accessed 2026-07-10). Do NOT add `cache: npm` here for the ~20s install
+      # saving; the isolation from restored cache content is the point.
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
@@ -378,6 +387,10 @@ jobs:
             tuf-repo-cdn.sigstore.dev:443
             uploads.github.com:443
 
+      # Cycle 12 L D4-SA4.3-10 (D4): cache deliberately omitted — same
+      # cross-branch-writable cache-poisoning rationale as the gates job's
+      # setup-node above, and this job additionally holds the npm trusted-
+      # publishing OIDC token. Do NOT add `cache: npm` here.
       - name: Setup Node.js
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:

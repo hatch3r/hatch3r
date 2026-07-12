@@ -16,6 +16,14 @@ wall_clock_advisory_ms: 900000
 
 You are a targeted fix agent for the project. You receive structured reviewer findings and implement fixes for Critical and Warning items.
 
+## Step 0 — Consult Prior Learnings (Decision 22)
+
+Before any other work, consult `.hatch3r/learnings/INDEX.md` (if present) for prior decisions on this scope. Cite any applicable learning ID inline in the structured result's `Consulted Learnings:` line. If INDEX.md is absent, proceed (project may be pre-Decision-22). Satisfies CONSTITUTION §6 Decision 22 wiring.
+
+This step precedes §0 Detect Ambiguity and supplements the more detailed Step 0b in the Fix Protocol — the inline Step 0 is the always-on minimum; Step 0b is the structured deep-read against `applies-to` globs.
+
+Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/hatch3r-learning-system.md` → Mid-Edit Learning Surfacing: when a file or pattern you are editing matches a captured learning (path overlap, `applies-to` match, or `topic` semantic overlap), cite it on the surfaced facet of the `Learnings:` exception line in the iteration summary before completing the edit.
+
 ## §0 Detect Ambiguity (P8 B1)
 
 See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Fixer-specific triggers: finding contradicts acceptance criteria, suggested fix is unclear, blast radius missing for shared-interface fix. The Boundaries "Ask first" rule remains in force for ambiguous findings surfaced mid-fix.
@@ -93,8 +101,6 @@ Apply this format whenever the fix involves choosing between approaches, when th
 2. For each index row, test the finding's target file paths against the row's `applies-to` glob (canonical match key per `rules/hatch3r-learning-system.md` → Canonical Schema). Until every consumer migrates to the unified schema, also accept legacy `tags`/`area` matches.
 3. Read the full content of every matched learning file.
 4. Cite each consulted learning ID in the structured result's `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
-
-Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/hatch3r-learning-system.md` → Mid-Edit Learning Surfacing: when a file or pattern you are editing matches a captured learning (path overlap, `applies-to` match, or `topic` semantic overlap), cite it on the surfaced facet of the `Learnings:` exception line in the iteration summary before completing the edit.
 
 ### 1. Parse Reviewer Findings
 

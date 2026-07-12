@@ -1,17 +1,10 @@
 {
   "compilerOptions": {
-    // ignoreDeprecations "6.0" (D4-SA4.1-F4.1.F5): forward-compat acknowledgment
-    // for the TypeScript 6.x deprecation wave. As of TS 6.0.3 this config declares
-    // NONE of the options deprecated/removed in the 5.0->6.0 cycle (target ES3,
-    // out, charset, importsNotUsedAsValues, preserveValueImports, keyofStringsOnly,
-    // noImplicitUseStrict, suppressImplicitAnyIndexErrors, suppressExcessPropertyErrors,
-    // noStrictGenericChecks, prepend) — it uses target ES2022, moduleResolution
-    // "bundler", isolatedModules, and no legacy flags. Suppressed set: none today.
-    // Re-evaluate every audit cycle; remove this flag once TS 6.x is the floor and
-    // no deprecated option is in use (do not let a stop-gap become silent permanent
-    // suppression). Removing it without a tsc run was out of scope for the Low-wave
-    // fix that added this note.
-    "ignoreDeprecations": "6.0",
+    // ignoreDeprecations removed (D4-SA4.1-04): no deprecated compiler option is in use as of
+    // TS 6.0.3, so `npm run typecheck` (src + tsconfig.scripts.json passes) is clean without it.
+    // TS-7 hazard: ignoreDeprecations values are release-wave-specific (the "6.0" value silenced
+    // only the 5.0->6.0 wave), so re-add a freshly-versioned value ONLY inside a major-TS
+    // migration window (e.g. the TS-7 bump) — a stale value becomes a hard config error, not a no-op.
     "target": "ES2022",
     "module": "ESNext",
     "moduleResolution": "bundler",

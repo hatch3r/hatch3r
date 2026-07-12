@@ -55,7 +55,11 @@ export function getAdapter(tool: Tool): Adapter {
 
 // #258 (D9-9.29): Extended AdapterCapability to include worktree, customization, and modelOverride
 // columns that were tracked in the external audit matrix but missing from the type.
-interface AdapterCapability {
+// D2-SA2.5-07 (Cycle 12 Wave 4): `export`ed so the future `hatch3r add`
+// validator can bind a pack manifest's `required_capabilities` to this key set
+// at runtime via `ADAPTER_CAPABILITY_KEYS` (declared below the matrix).
+// D2-SA2.5-02 (Cycle 12 Wave 4): added the `handoffs` column.
+export interface AdapterCapability {
   agents: boolean;
   skills: boolean;
   rules: boolean;
@@ -64,6 +68,16 @@ interface AdapterCapability {
   commands: boolean;
   prompts: boolean;
   githubAgents: boolean;
+  /**
+   * Whether the adapter's bridge output honours the manifest `Features.handoffs`
+   * flag — emits the `.hatch3r/handoffs/` segment in the bridge Canonical
+   * Structure line when the flag is on and drops it when off (D1-30). `true` for
+   * all 3 adapters: `BaseAdapter.bridgeOrchestration` threads
+   * `ctx.features.handoffs` into `generateBridgeOrchestration` unconditionally,
+   * so the column is digest-diff observable and pinned by the
+   * `capabilityMatrixDrift` feature-flag loop (D2-SA2.5-02).
+   */
+  handoffs: boolean;
   /** Whether the adapter supports git worktree file-isolation. */
   worktree: boolean;
   /** Whether the adapter supports per-item customization (.customize.md). */
@@ -111,9 +125,18 @@ interface AdapterCapability {
 // `processSkillsWithFmCliFiltered` / `processCommandsWithFm` in base.ts
 // (claude: skills + commands; copilot: commands→prompts only; cursor: none) —
 // and does not feed this boolean.
+//
+// D11-SA11.1-03 (Cycle 12 Wave 4): the boolean columns below are NOT the
+// complete emitted surface. The `checks` artifact class (`type: check`, counted
+// as its own class in governance/inventory.json) has no column here — its
+// emission is DERIVED from `agents || commands` in every adapter's doGenerate
+// (`["checks", ctx.features.agents || ctx.features.commands, …]` in cursor.ts /
+// claude.ts / copilot.ts), not a standalone `features.checks` flag. A new
+// adapter author must reproduce that derived gate; do not assume these columns
+// enumerate every emitted artifact class.
 export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
-  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: WORKTREE_CAPABLE_TOOLS.has("cursor"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
-  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, worktree: WORKTREE_CAPABLE_TOOLS.has("claude"),  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },
+  cursor:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("cursor"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  claude:   { agents: true, skills: true, rules: true, hooks: true,  mcp: true,  commands: true,  prompts: false, githubAgents: false, handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("claude"),  customization: true,  modelOverride: true,  nativeQuestionTool: true,  cliTools: true  },
   // D9-H-5 (Cycle 10 D9, Pillar P4): `prompts: false`. hatch3r ships no
   // canonical `prompts/` content, so the Copilot adapter emits no
   // `.github/prompts/*.prompt.md` from a prompts source — the prior
@@ -136,8 +159,21 @@ export const ADAPTER_CAPABILITIES: Record<Tool, AdapterCapability> = {
   // it pinned to the no-hook-file output. Sources (accessed 2026-06-09):
   // https://code.visualstudio.com/docs/agent-customization/hooks
   // https://code.visualstudio.com/docs/agent-customization/custom-agents
-  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  worktree: WORKTREE_CAPABLE_TOOLS.has("copilot"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
+  copilot:  { agents: true, skills: true, rules: true, hooks: false, mcp: true,  commands: true,  prompts: false, githubAgents: true,  handoffs: true, worktree: WORKTREE_CAPABLE_TOOLS.has("copilot"),  customization: true,  modelOverride: true,  nativeQuestionTool: false, cliTools: true  },
 };
+
+// D2-SA2.5-07 (Cycle 12 Wave 4): value-level projection of the AdapterCapability
+// key set. pack-trust-model §5.2 designates this key set as the closed enum the
+// future `hatch3r add` uses to validate a pack manifest's `required_capabilities`
+// — but a TypeScript interface erases at compile time, so no runtime list existed
+// to enforce it. Derived (not hand-copied) from a live matrix row via
+// `Object.keys` so a column added to `AdapterCapability` + the rows above joins
+// the enum automatically, keeping §5.2's "joins the enum automatically" promise
+// structurally true. Every row is compile-checked to be `AdapterCapability`, so a
+// row's own-enumerable keys are exactly `keyof AdapterCapability`.
+export const ADAPTER_CAPABILITY_KEYS = Object.keys(
+  ADAPTER_CAPABILITIES.claude,
+) as (keyof AdapterCapability)[];
 
 /**
  * Return warnings for features enabled in the manifest but not supported
@@ -163,6 +199,11 @@ export function getUnsupportedFeatureWarnings(tool: string, manifest: HatchManif
     { key: "commands", label: "commands" },
     { key: "prompts", label: "prompts" },
     { key: "githubAgents", label: "GitHub agents" },
+    // D2-SA2.5-02 (Cycle 12 Wave 4): handoffs joins the warning surface so the
+    // matrix contract holds — every emission-affecting Features key has a column
+    // AND a warning row. All 3 adapters set `handoffs: true`, so this row never
+    // fires today; it closes the contract rather than changing current output.
+    { key: "handoffs", label: "handoffs" },
   ];
 
   const unsupported: string[] = [];

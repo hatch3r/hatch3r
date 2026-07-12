@@ -1,6 +1,6 @@
 import { mkdir, readFile } from "node:fs/promises";
 import { dirname, join, normalize, isAbsolute } from "node:path";
-import { HATCH3R_DIR, HatchError } from "../types.js";
+import { HATCH3R_DIR, HatchError, VALID_TOOLS, TOOL_CHOICES } from "../types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { atomicWriteFile, acquireWriteLock } from "../merge/safeWrite.js";
 import type { WorkspaceManifest } from "./types.js";
@@ -109,6 +109,44 @@ function validateWorkspaceManifest(data: unknown): data is WorkspaceManifest {
   return true;
 }
 
+/**
+ * D2-SA2.5-05: collect every workspace tool id that is not in VALID_TOOLS.
+ * The 1.9.0 hard-cut (15 adapters to 3) means an upgraded workspace can
+ * legitimately still hold retired ids (windsurf, cline, ...) in
+ * `defaults.tools`, a `groups[<name>].tools` delta, or a per-repo
+ * `overrides.tools`. `validateWorkspaceManifest` above only checks each of
+ * those for array-ness, so a stale id survives read and flows through the
+ * sync merge into `getAdapter` — which throws a structured HatchError whose
+ * recoveryHint the sync resilience catch discards. This mirrors the
+ * repo-manifest reader's #108 entry check (manifest/hatchJson.ts:398) so the
+ * two manifest readers reject unknown tool ids symmetrically. Returns [] when
+ * every tool id across all three sites is known.
+ */
+function collectWorkspaceToolErrors(manifest: WorkspaceManifest): string[] {
+  const errors: string[] = [];
+  const checkEntries = (tools: unknown, where: string): void => {
+    // Array-ness is already enforced by validateWorkspaceManifest; a
+    // non-array (or absent) field simply has no entries to validate here.
+    if (!Array.isArray(tools)) return;
+    for (const tool of tools as unknown[]) {
+      if (typeof tool !== "string" || !VALID_TOOLS.has(tool)) {
+        errors.push(`${where} contains unknown tool ${JSON.stringify(tool)}`);
+      }
+    }
+  };
+
+  checkEntries(manifest.defaults.tools, "`defaults.tools`");
+  if (manifest.defaults.groups) {
+    for (const [name, delta] of Object.entries(manifest.defaults.groups)) {
+      checkEntries(delta.tools, `\`groups.${name}.tools\``);
+    }
+  }
+  for (const repo of manifest.repos) {
+    checkEntries(repo.overrides?.tools, `repo \`${repo.path}\` \`overrides.tools\``);
+  }
+  return errors;
+}
+
 /** Read and validate the workspace manifest, returning null if not found. */
 export async function readWorkspaceManifest(
   rootDir: string,
@@ -141,6 +179,23 @@ export async function readWorkspaceManifest(
       `Invalid workspace manifest in ${manifestPath}: required fields missing or malformed.`,
       1,
       "VALIDATION_ERROR",
+    );
+  }
+
+  // D2-SA2.5-05: reject stale/unknown tool ids at the manifest boundary,
+  // matching the repo-manifest reader's #108 check (manifest/hatchJson.ts:398).
+  // Left unchecked, a retired id (windsurf, cline, ...) in defaults.tools, a
+  // groups delta, or a per-repo override reaches getAdapter during sync, which
+  // throws a HatchError whose recoveryHint the sync resilience catch discards.
+  // Surfacing the supported set + file path here — with a recoveryHint —
+  // keeps the actionable next step intact.
+  const toolErrors = collectWorkspaceToolErrors(parsed);
+  if (toolErrors.length > 0) {
+    throw new HatchError(
+      `Invalid workspace manifest in ${manifestPath}: ${toolErrors.join("; ")}. Supported tools: ${TOOL_CHOICES}.`,
+      1,
+      "VALIDATION_ERROR",
+      `Remove retired tool ids from the tool list(s) in ${manifestPath} — the 1.9.0 release cut all adapters except ${TOOL_CHOICES} — then re-run \`hatch3r sync\`.`,
     );
   }
 

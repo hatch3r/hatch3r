@@ -213,7 +213,18 @@ jobs:
       # job-level `env:` block (see the supply-chain job header) — a step-level
       # declaration is invisible to its own `if` (D4-SA4.2-01). Pinned to the
       # v1.3.2 commit SHA (2026-03-27); SocketDev/socket-security-action from the
-      # finding was superseded by SocketDev/action. Vendor-decision record: D04.
+      # finding was superseded by SocketDev/action.
+      #
+      # Vendor-decision record (D4-SA4.2-08, Cycle 12): Socket chosen over
+      # osv-scanner (OSV.dev) and GitHub-native (dependency-review-action + npm
+      # audit). Both alternatives are advisory-database-bound — reactive lookups
+      # that miss the malicious-install class (typosquat / compromised-maintainer
+      # payload) until a GHSA/OSV advisory publishes, whereas Socket's install-
+      # time behavioral/AST analysis (see above) flags the PR diff before any
+      # advisory exists. Constraint: fail-open for forks — the SOCKET_API_KEY `if`
+      # guard no-ops when secrets are withheld so external contributors are never
+      # blocked, with the reactive OSV/GitHub gates above as the always-on floor.
+      # Re-confirm the vendor when D4-SA4.2-01's secret provisioning lands.
       - name: Socket supply-chain scan
         if: github.event_name == 'pull_request' && env.SOCKET_API_KEY != ''
         uses: SocketDev/action@ba6de6cc0565af1f42295590380973573297e31f # v1.3.2

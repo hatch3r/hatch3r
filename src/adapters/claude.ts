@@ -26,6 +26,7 @@ import {
   deriveUserAgentPolicy,
   type AgentToolPolicy,
 } from "../pipeline/agentToolAllowlist.js";
+import { maxIterationsForClass } from "../pipeline/reviewLoop.js";
 import type { HookDefinition, HookEvent } from "../hooks/types.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { stat } from "node:fs/promises";
@@ -290,6 +291,21 @@ const AGENT_TEAMS_SECTION_MINIMAL = [
 const AGENT_TEAM_DESCRIPTION =
   "Launch a Claude Code Agent Team that runs the hatch3r 4-phase pipeline — Research, Implement, Review, then parallel Quality gates — across coordinating teammates.";
 
+/**
+ * D15-SA15.2-04 (Cycle 12, D15/D9, P5): the reviewer-loop cap in this generated
+ * Agent-Teams command is DERIVED from the review-loop code-class cap
+ * (`maxIterationsForClass("code")` = `DEFAULT_MAX_REVIEW_ITERATIONS - 1` = 3),
+ * not a hardcoded literal. The Agent-Teams reviewer↔fixer round runs over a CODE
+ * diff (the implementer's changes), so the code class is the semantically-correct
+ * cap — the same class command bodies pass to `createReviewLoop`
+ * (src/pipeline/reviewLoop.ts::ReviewLoopClass). Pre-fix the "up to 3 iterations"
+ * string was a bare literal outside the CAP_SURFACE_REGISTRY parity guard
+ * (`reviewLoop.test.ts` scans canonical `.md` prose dirs, not adapter TS), so it
+ * could drift from the code constant with no CI signal. The interpolation removes
+ * the drift path; `claude.test.ts` pins the rendered value to
+ * `maxIterationsForClass("code")` so a divergent hardcode fails CI, while a
+ * legitimate change to `DEFAULT_MAX_REVIEW_ITERATIONS` re-derives the render.
+ */
 const AGENT_TEAM_COMMAND = `# hatch3r Agent Team
 
 Create a Claude Code Agent Team that follows the hatch3r 4-phase pipeline.
@@ -325,7 +341,7 @@ Spawn a \`reviewer\` teammate after implementation:
 - Review all changes made by the implementer
 - Post findings (Critical/Warning/Info) to the task list
 - If Critical or Warning findings exist, message the implementer to fix
-- Re-review after fixes; repeat up to 3 iterations
+- Re-review after fixes; repeat up to ${maxIterationsForClass("code")} iterations
 
 ### Phase 4 — Quality (parallel)
 

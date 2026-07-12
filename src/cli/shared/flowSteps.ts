@@ -188,6 +188,14 @@ export function presetStep<TState extends { preset: PresetId }>(
             // drops because floor-tagged items ship regardless of preset.
             const omittedClusters = presetOmittedClusters(p, opts.index);
             const omitLine = omittedClusters.length ? `omits: ${omittedClusters.join(", ")}` : undefined;
+            // D10-SA10.6-05: the `omits:` detail is the choice `description`,
+            // not part of `name`, on purpose — @inquirer/select renders
+            // `description` only under the highlighted row (progressive
+            // disclosure), while the `(excludes N of M)` count stays in `name`
+            // so the magnitude is visible for every row at a glance. Note the
+            // preset id `minimal` (presets.ts) is distinct from the unrelated
+            // generation-mode `minimal` (adapter `generate(..., "minimal")`
+            // verbosity strip) — a known naming overload, not a bug.
             return {
               name: `${p.name} — ${p.description}${countHint}${suffix}`,
               value: p.id,
@@ -436,9 +444,12 @@ export interface MaturityStepOptions {
  * Single-select maturity-tier picker (`name: "maturity"`). The choice copy
  * names what each tier adds on top of the universal floor (see the
  * `MaturityTier` JSDoc in `src/types.ts`); the tier is an investment dial, not
- * a content gate (Decision 16). Used by both the init single-repo machine (the
- * 4th of ≤6 interactive prompts; Decision 25 raised the ceiling 5→6 to admit
- * it) and the config machine.
+ * a content gate (Decision 16). The `team` row's copy cross-references
+ * `--team-size` (the actual `ctx:team-only` content gate) so a large-team lead
+ * does not mistake this investment tier for the content-scoping knob — the two
+ * knobs both spell "team" but are orthogonal (D14-SA14.3-03). Used by both the
+ * init single-repo machine (the 4th of ≤6 interactive prompts; Decision 25
+ * raised the ceiling 5→6 to admit it) and the config machine.
  */
 export function maturityStep<TState extends { maturity: MaturityTier }>(
   opts: MaturityStepOptions,
@@ -453,7 +464,7 @@ export function maturityStep<TState extends { maturity: MaturityTier }>(
           message: opts.message,
           choices: [
             { name: "solo — individual / hobby; universal floor, warn-only gates", value: "solo" as MaturityTier },
-            { name: "team — shared repo; + duplication/design discipline, strict gates", value: "team" as MaturityTier },
+            { name: "team — shared repo; + duplication/design discipline, strict gates (investment tier, not the --team-size content gate)", value: "team" as MaturityTier },
             { name: "scaleup — multi-team; + SLOs, tracing, performance budgets", value: "scaleup" as MaturityTier },
             { name: "enterprise — regulated; + mutation/contract testing, AI evals, FinOps", value: "enterprise" as MaturityTier },
           ],

@@ -10,7 +10,14 @@ import { HATCH3R_DIR } from "../types.js";
  * Behavior mirrors the inlined logic in `init.ts` (post-content-copy MCP
  * pruning): read the JSON, restrict `mcpServers` keys to `selectedIds`, drop
  * the `_disabled` marker on each retained entry, and atomically rewrite. When
- * the file does not exist, no-op (ENOENT). Any other error is re-thrown.
+ * the file does not exist, no-op (ENOENT). When the file is present but not
+ * valid JSON, emit a named warning via `onWarn` and no-op the write (never
+ * clobber a file we cannot parse) — see the SyntaxError branch below. Any
+ * other error is re-thrown.
+ *
+ * @param onWarn Optional sink for the present-but-unparseable diagnostic
+ * (D1-SA1.6-10). Defaults to a no-op; the sole caller (`init.ts` runInit MCP
+ * block) should pass its `warn` channel so the dropped selection surfaces.
  *
  * **Caller wiring (F1.6-H1, Cycle 10 D1).** This function is called only by
  * `init` (initial filter after copying the bundled `mcp.json` to
@@ -47,7 +54,9 @@ function filterServers(
 export async function filterMcpJsonOnDisk(
   targetPath: string,
   selectedIds: Set<string>,
+  onWarn?: (message: string) => void,
 ): Promise<void> {
+  const warn = onWarn ?? (() => {});
   let raw: string;
   try {
     raw = await readFile(targetPath, "utf-8");
@@ -60,7 +69,23 @@ export async function filterMcpJsonOnDisk(
   try {
     parsed = JSON.parse(raw) as Record<string, unknown>;
   } catch (err) {
-    if (err instanceof SyntaxError) return;
+    if (err instanceof SyntaxError) {
+      // D1-SA1.6-10 (Cycle 12 Wave 4, D1, P6): a present-but-unparseable
+      // mcp.json previously no-op'd here with zero signal, silently dropping
+      // the user's server deselection — a trust decision per the MCP
+      // blast-radius doc — which is a Silent Failure Contract violation
+      // (CONSTITUTION §2 P5). Mirror the sibling readCustomizationWithWarnings
+      // (D2-12) and materializeUserMcpJson: surface a named warning through
+      // `onWarn`, and still no-op the write (never clobber a file we cannot
+      // parse). Wiring status: `init.ts` (the sole caller) passes its `warn`
+      // sink as `onWarn` — a one-line follow-up owned by the concurrent
+      // Cycle-12 init.ts work unit; until wired, the default sink swallows it.
+      warn(
+        `mcp.json is not valid JSON — server selection was NOT applied; ` +
+          `fix or delete ${targetPath}, then re-run.`,
+      );
+      return;
+    }
     throw err;
   }
 

@@ -2,8 +2,8 @@
  * src/audit/cleanup.ts
  *
  * Workspace cleanup enforcer for `.audit-workspace/`. Code-enforces the
- * cleanup contract that lives in `governance/AUDIT.md:108` today as a
- * prompt instruction with no enforcement. Stale-cycle markers are
+ * cleanup contract that lives in `governance/AUDIT.md` §Result Management
+ * Protocol item 4 today as a prompt instruction with no enforcement. Stale-cycle markers are
  * detected via baseline-commit time comparison; preserve list keeps
  * `registry-anchor-log.jsonl`, `verified-inventory.json`, and
  * `current-insights.json` regardless of mtime.
@@ -35,7 +35,8 @@ const execFileAsync = promisify(execFile);
 
 /**
  * Files that always stay in the workspace root regardless of mtime.
- * Mirrors the prompt-only contract at `governance/AUDIT.md:108`.
+ * Mirrors the prompt-only contract at `governance/AUDIT.md` §Result
+ * Management Protocol item 4.
  *
  * - `registry-anchor-log.jsonl`: chain-of-custody for registry writes;
  *   rotation handled by `npm run audit:archive` (Phase 3 / 4).

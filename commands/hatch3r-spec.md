@@ -25,6 +25,15 @@ sub_agents_spawned:
 
 Spec orchestrator that detects project state, picks the matching spec agent (`hatch3r-greenfield-spec` or `hatch3r-brownfield-spec`), and aggregates the per-state deliverable manifest — 8 deliverables greenfield, 9 brownfield: shared core (requirements, acceptance criteria, risk inventory, test plan) plus state-specific deliverables (greenfield: market/competitive/persona/tech-stack; brownfield: codebase-map/pattern-detection/integration/migration/non-destructive-check). The Deliverable Manifest below is the single source of truth for filenames and output location; both agents mirror it. Routing is mutually exclusive — exactly one spec agent runs per invocation.
 
+## Relationship to /hatch3r-project-spec
+
+`/hatch3r-spec` and `/hatch3r-project-spec` are both greenfield entry points and overlap on business research (market, competitive analysis, personas). They are meant to run in sequence, not in parallel:
+
+- **This command** produces the **PRD** (`docs/specs/prd.md`) plus market/competitive/persona/tech-stack research — the product-requirements layer.
+- **`/hatch3r-project-spec`** produces the **technical-design tree** (ADRs, domain model, per-module specs, `todo.md`, `AGENTS.md`) plus business-doc specs — the layer that consumes the PRD.
+
+Sequence: run `/hatch3r-spec` first, then hand its `docs/specs/` output to `/hatch3r-project-spec`. project-spec's Step 1 extracts vision, personas, and market context from the PRD instead of re-interviewing, and skips regenerating the market/competitive research this command already wrote. Running both from scratch re-executes the overlapping business-research fan-out and yields two unreconciled spec trees — sequence them to avoid it.
+
 ## Deliverable Manifest (single source of truth)
 
 This table is the one authoritative contract for what a spec run writes — filename, output location, and count. Both spec agents (`hatch3r-greenfield-spec`, `hatch3r-brownfield-spec`) mirror these filenames and write to the passed `output_root`; where an agent and this table disagree, this table wins. Agents cite this manifest rather than restating a divergent contract.

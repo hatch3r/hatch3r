@@ -14,12 +14,21 @@
  * prints those references in a separate clearly-labelled section — replacing
  * the misleading "(none declared)" empty state for prose-heavy agents.
  *
+ * D12-SA12.4-03 (Cycle 12 Wave 4, D12, CQ2): MCP references in that scan are
+ * now confirmed against the bundled `mcp/mcp.json` registry and split into a
+ * registry-confirmed tier (carrying the registry `_disabled` flag) and a
+ * remaining advisory tier — the same referential-integrity gate the skill/rule
+ * facet already receives via the content index (`knownIds`). Previously every
+ * MCP name was surfaced pattern-only, so a typo'd or removed server ("Context8
+ * MCP") was indistinguishable from a real one.
+ *
  * Pillar service: P1 (CLI affordance for orchestration topology),
  * P5 (delegates to `buildContentIndex` + frontmatter parser; no separate
  * dependency graph to drift out of sync).
  */
 
 import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 import chalk from "chalk";
 import { parse as parseYaml } from "yaml";
 import { buildContentIndex, resolveUserContentRoot, resolveArtifactFilePath, type CatalogItem } from "../../content/index.js";
@@ -72,6 +81,74 @@ function stripFrontmatter(raw: string): string {
 }
 
 /**
+ * A prose-derived MCP server reference (D12-SA12.4-03). `confirmed` is true when
+ * the normalized name matched a key in the bundled `mcp/mcp.json` registry;
+ * `disabled` mirrors that entry's `_disabled: true` flag and is meaningful only
+ * when `confirmed`.
+ */
+export interface McpServerRef {
+  name: string;
+  confirmed: boolean;
+  disabled: boolean;
+}
+
+/**
+ * Normalize an MCP server name for registry lookup: lowercase and fold the
+ * tool-id underscore form onto the registry's hyphen form (`brave_search` →
+ * `brave-search`), so both the `mcp__<server>__` and "<Name> MCP" surface forms
+ * resolve to the same `mcp/mcp.json` key.
+ */
+function normalizeMcpName(name: string): string {
+  return name.toLowerCase().replace(/_/g, "-");
+}
+
+/**
+ * D12-SA12.4-03 (Cycle 12 Wave 4, D12, CQ2): load the bundled MCP registry
+ * (`mcp/mcp.json`) into a normalized lookup so `scanBodyReferences` can confirm
+ * prose-derived MCP names against the authoritative server list — the same
+ * referential-integrity gate skill/rule ids already receive via the content
+ * index. A read/parse failure degrades to an empty map: every MCP reference
+ * then falls back to the advisory tier (the pre-D12-SA12.4-03 behavior), never a
+ * hard failure of this informational command.
+ */
+async function loadKnownMcpServers(
+  canonicalRoot: string,
+): Promise<Map<string, { disabled: boolean }>> {
+  const known = new Map<string, { disabled: boolean }>();
+  const registryPath = join(canonicalRoot, "mcp", "mcp.json");
+  let raw: string;
+  try {
+    raw = await readFile(registryPath, "utf-8");
+  } catch (err) {
+    // Silent Failure Contract (P5): a broken/missing registry must be visible,
+    // not silently degrade every MCP reference to advisory without explanation.
+    console.error(
+      `  ${chalk.dim("ℹ")} deps: MCP registry ${registryPath} unreadable (${(err as NodeJS.ErrnoException).code ?? "UNKNOWN"}) — MCP references left advisory`,
+    );
+    return known;
+  }
+  let parsed: Record<string, unknown>;
+  try {
+    parsed = JSON.parse(raw) as Record<string, unknown>;
+  } catch (err) {
+    console.error(
+      `  ${chalk.dim("ℹ")} deps: MCP registry ${registryPath} is not valid JSON (${err instanceof Error ? err.message : String(err)}) — MCP references left advisory`,
+    );
+    return known;
+  }
+  const rawServers = parsed.mcpServers;
+  if (!rawServers || typeof rawServers !== "object") return known;
+  for (const [key, val] of Object.entries(rawServers as Record<string, unknown>)) {
+    const disabled =
+      typeof val === "object" &&
+      val !== null &&
+      (val as Record<string, unknown>)._disabled === true;
+    known.set(normalizeMcpName(key), { disabled });
+  }
+  return known;
+}
+
+/**
  * D12-10 (Cycle 11 Wave 3, D12, P1): the authoritative downstream list is
  * frontmatter-only (`agentPipeline`/`delegates`). Agents routinely reference
  * skills, rules, and MCP servers in prose that the frontmatter never declares,
@@ -80,14 +157,20 @@ function stripFrontmatter(raw: string): string {
  *
  * Skill/rule ids are confirmed against the content index (`knownIds`) so an
  * arbitrary `skills/foo` mention that is not a real artifact never appears —
- * zero false positives on the id facet. MCP server names are pattern-derived
- * and therefore advisory only.
+ * zero false positives on the id facet. MCP server names are pattern-derived,
+ * then confirmed against the bundled `mcp/mcp.json` registry (`knownMcpServers`)
+ * and split into a registry-confirmed tier (with the registry `_disabled` flag)
+ * and a remaining advisory (unmatched) tier — D12-SA12.4-03.
+ *
+ * Exported for direct unit testing of the reference-confirmation logic
+ * (tool-id vs display forms, normalization, confirmed/advisory/disabled tiers).
  */
-function scanBodyReferences(
+export function scanBodyReferences(
   body: string,
   selfId: string,
   knownIds: ReadonlySet<string>,
-): { skills: string[]; rules: string[]; mcpServers: string[] } {
+  knownMcpServers: ReadonlyMap<string, { disabled: boolean }>,
+): { skills: string[]; rules: string[]; mcpServers: McpServerRef[] } {
   const skills = new Set<string>();
   const rules = new Set<string>();
 
@@ -101,24 +184,40 @@ function scanBodyReferences(
     (cls === "skills" ? skills : rules).add(id);
   }
 
-  // MCP server names: best-effort, advisory. Two recognizable forms appear in
-  // canonical prose: tool ids (`mcp__<server>__<tool>`) and the "<Name> MCP"
-  // shorthand (e.g. "Context7 MCP"). Lowercase the set key for dedup, but keep
-  // the first-seen surface form for display.
-  const mcpServers = new Map<string, string>();
+  // MCP server names: two recognizable forms appear in canonical prose — tool
+  // ids (`mcp__<server>__<tool>`) and the "<Name> MCP" shorthand (e.g.
+  // "Context7 MCP"). Normalize (lowercase, `_`→`-`) for the dedup key so both
+  // forms collapse onto the registry key, but keep the first-seen surface form
+  // for display.
+  const mcpSurface = new Map<string, string>();
   for (const m of body.matchAll(/\bmcp__([a-z0-9_]+?)__/gi)) {
-    const name = m[1];
-    mcpServers.set(name.toLowerCase(), name);
+    const key = normalizeMcpName(m[1]);
+    if (!mcpSurface.has(key)) mcpSurface.set(key, m[1]);
   }
   for (const m of body.matchAll(/\b([A-Z][A-Za-z0-9]+)\s+MCP\b/g)) {
-    const name = m[1];
-    mcpServers.set(name.toLowerCase(), name);
+    const key = normalizeMcpName(m[1]);
+    if (!mcpSurface.has(key)) mcpSurface.set(key, m[1]);
   }
+
+  // D12-SA12.4-03: confirm each extracted name against the bundled registry —
+  // the same referential-integrity gate the skill/rule facet applies via
+  // `knownIds`. Confirmed names carry the registry `_disabled` flag; unmatched
+  // names stay in the advisory tier.
+  const mcpServers: McpServerRef[] = [...mcpSurface.entries()]
+    .map(([key, surface]) => {
+      const entry = knownMcpServers.get(key);
+      return {
+        name: surface,
+        confirmed: entry !== undefined,
+        disabled: entry?.disabled ?? false,
+      };
+    })
+    .sort((a, b) => a.name.localeCompare(b.name));
 
   return {
     skills: [...skills].sort(),
     rules: [...rules].sort(),
-    mcpServers: [...mcpServers.values()].sort((a, b) => a.localeCompare(b)),
+    mcpServers,
   };
 }
 
@@ -224,12 +323,15 @@ export async function depsCommand(
   // human view and the W5 json envelope share one data pass. The frontmatter
   // block is the only authoritative downstream declaration; skills, rules,
   // and MCP servers are referenced in prose and would otherwise be invisible.
-  // Skill/rule ids are index-confirmed; MCP names are pattern-derived (advisory).
+  // Skill/rule ids are index-confirmed; MCP names are pattern-derived, then
+  // registry-confirmed against mcp/mcp.json (D12-SA12.4-03) into confirmed +
+  // advisory tiers.
   const knownSkillRuleIds = new Set<string>([
     ...(index.byType.skill ?? []).map((c) => c.id),
     ...(index.byType.rule ?? []).map((c) => c.id),
   ]);
-  const refs = scanBodyReferences(body, item.id, knownSkillRuleIds);
+  const knownMcpServers = await loadKnownMcpServers(canonicalRoot);
+  const refs = scanBodyReferences(body, item.id, knownSkillRuleIds, knownMcpServers);
 
   // W5: json mode emits one `{id, declared, prose}` envelope mirroring the
   // human sections (declared = frontmatter downstream/upstream; prose = the
@@ -294,8 +396,20 @@ export async function depsCommand(
     for (const id of refs.rules) {
       console.log(`  ${chalk.cyan("•")} ${id} ${chalk.dim("(rule)")}`);
     }
-    for (const name of refs.mcpServers) {
-      console.log(`  ${chalk.cyan("•")} ${name} ${chalk.dim("(MCP server, name-matched)")}`);
+    // D12-SA12.4-03: registry-confirmed tier first, then the advisory tier —
+    // mirroring the separate skill/rule groups above.
+    for (const ref of refs.mcpServers.filter((r) => r.confirmed)) {
+      const disabledTag = ref.disabled
+        ? chalk.yellow(" [referenced but disabled]")
+        : "";
+      console.log(
+        `  ${chalk.cyan("•")} ${ref.name}${disabledTag} ${chalk.dim("(MCP server, registry-confirmed)")}`,
+      );
+    }
+    for (const ref of refs.mcpServers.filter((r) => !r.confirmed)) {
+      console.log(
+        `  ${chalk.cyan("•")} ${ref.name} ${chalk.dim("(MCP server, advisory — not in mcp/mcp.json)")}`,
+      );
     }
   }
   console.log();

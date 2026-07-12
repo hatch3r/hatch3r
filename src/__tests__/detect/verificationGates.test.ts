@@ -4,6 +4,7 @@ import {
   DEFAULT_GATE_COMMANDS,
   getLanguageGateConfig,
 } from "../../detect/verificationGates.js";
+import { DETECTABLE_LANGUAGES } from "../../detect/repoAnalyzer.js";
 
 describe("resolveVerificationGates", () => {
   describe("default fallback", () => {
@@ -141,6 +142,23 @@ describe("resolveVerificationGates", () => {
     });
   });
 
+  describe("D1-SA1.6-11: native gates for the six previously-unmapped languages", () => {
+    it.each([
+      ["scala", "sbt test", "sbt scalafmtCheckAll", "sbt compile"],
+      ["zig", "zig build test", "zig fmt --check .", null],
+      ["ocaml", "dune test", "dune build @fmt", "dune build"],
+      ["haskell", "stack test", "hlint .", "stack build"],
+      ["clojure", "lein test", "clj-kondo --lint src", null],
+      ["lua", "busted", "luacheck .", null],
+    ] as const)("maps %s to its native toolchain, not npm defaults", (lang, test, lint, typecheck) => {
+      const gates = resolveVerificationGates([lang]);
+      expect(gates.test).toBe(test);
+      expect(gates.lint).toBe(lint);
+      expect(gates.typecheck).toBe(typecheck);
+      expect(gates).not.toEqual(DEFAULT_GATE_COMMANDS);
+    });
+  });
+
   describe("multi-language projects", () => {
     it("uses the first detected language for gate commands", () => {
       const gates = resolveVerificationGates(["python", "typescript"]);
@@ -162,13 +180,16 @@ describe("getLanguageGateConfig", () => {
     expect(config).toBeUndefined();
   });
 
-  it("returns config for all supported languages", () => {
-    const supported = [
-      "typescript", "javascript", "python", "go", "rust",
-      "java", "ruby", "kotlin", "php", "swift", "dart", "elixir", "csharp",
-    ];
-    for (const lang of supported) {
-      expect(getLanguageGateConfig(lang)).toBeDefined();
+  // D1-SA1.6-11: bind the two lists that previously drifted — every language
+  // repoAnalyzer can positively detect (DETECTABLE_LANGUAGES) must have a gate
+  // row, so a future indicator addition without a matching gate fails here
+  // instead of silently emitting npm commands into a non-npm repo.
+  it("returns a config for every detectable language (indicator ↔ gate exhaustiveness)", () => {
+    for (const lang of DETECTABLE_LANGUAGES) {
+      expect(
+        getLanguageGateConfig(lang),
+        `missing gate config for detectable language '${lang}'`,
+      ).toBeDefined();
     }
   });
 });

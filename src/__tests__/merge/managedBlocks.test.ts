@@ -250,6 +250,34 @@ describe("managedBlocks", () => {
     });
   });
 
+  // D11-SA11.2-04 (Cycle 12 Wave 4, D11, CQ4): out-of-block user content is
+  // preserved byte-for-byte with ONE documented exception — the G6 final-newline
+  // guarantee. A user file whose content outside the block lacks a POSIX-final
+  // newline gains exactly one "\n" on the first merge, then is byte-stable. These
+  // tests pin that exception per the finding's falsifiability clause: dropping
+  // the conditional append, or trimming the raw before/after slices, would change
+  // the audited "user content preserved byte-for-byte" verdict.
+  describe("documented final-newline exception (D11-SA11.2-04)", () => {
+    it("appends exactly one final newline when out-of-block user content lacks one", () => {
+      const existing = `Header\n${START}\nold\n${END}\nUser footer no newline`;
+      expect(existing.endsWith("\n")).toBe(false); // precondition: no final newline
+      const result = insertManagedBlock(existing, "managed body");
+      // Out-of-block user bytes survive verbatim; the sole added byte is a single
+      // trailing "\n" — never a second one, since the append is conditional.
+      expect(result).toBe(`Header\n${START}\nmanaged body\n${END}\nUser footer no newline\n`);
+      expect(result.endsWith("\n\n")).toBe(false);
+    });
+
+    it("is a one-time +1 byte — the second merge adds nothing (idempotent exception)", () => {
+      const existing = `${START}\nold\n${END}\nfooter with no newline`;
+      expect(existing.endsWith("\n")).toBe(false);
+      const once = insertManagedBlock(existing, "body");
+      const twice = insertManagedBlock(once, "body");
+      expect(once.endsWith("\n")).toBe(true);
+      expect(twice).toBe(once);
+    });
+  });
+
   describe("extractCustomContent", () => {
     it("returns full content when no block present", () => {
       const content = "All custom content here";

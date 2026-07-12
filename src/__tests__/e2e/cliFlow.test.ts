@@ -29,6 +29,18 @@ const CLI_PATH = join(REPO_ROOT, "dist", "cli", "index.js");
 // of producing a useless ENOENT trace.
 const HAS_DIST = existsSync(CLI_PATH);
 
+// D3-SA3.4-08 (Cycle 12 Wave-4 Low): the skipIf gate below is correct for local
+// checkouts, but in CI the build always precedes tests, so a missing dist/ is a
+// real failure — not an optional-artifact skip. Without this guard a future
+// ci.yml reorder that ran this suite before `npm run build` would silently drop
+// the ONLY subprocess coverage of the exit-code wiring (65/CONFIG_ERROR sysexits
+// contract, JSON envelope) and CI would stay green. Fail loud in CI instead.
+if (process.env.CI && !HAS_DIST) {
+  throw new Error(
+    "dist/cli/index.js missing in CI — build must precede tests (e2e suite would silently skip)",
+  );
+}
+
 function runCli(
   args: string[],
   cwd: string,

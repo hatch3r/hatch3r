@@ -83,7 +83,7 @@ Tracks whether the adapter exposes a documented platform-native question/triage 
 | Adapter | Native question tool | Notes |
 |---------|:--------------------:|-------|
 | **claude** | Y | `AskUserQuestion` tool (verified 2026-05-28 @ https://code.claude.com/docs/en/sub-agents) |
-| **cursor** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://cursor.com/docs/agent/subagents) |
+| **cursor** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://cursor.com/docs/subagents) |
 | **copilot** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://docs.github.com/en/copilot/reference/custom-agents-configuration) |
 
 When `nativeQuestionTool: false` (deny-by-default) the agent uses the plain-text numbered-options fallback per `agents/shared/user-question-protocol.md`.
@@ -198,6 +198,18 @@ Support subdirectories under `agents/`, `commands/`, and `skills/` — `agents/m
 | **copilot** | `.github/agents/modes/architecture.md` |
 
 ~52 companion files emit per adapter. Mechanism: the "Always copy support subdirectories" block in `src/content/index.ts::copySelectedContent`; these paths are excluded from the manifest `managedFiles` set and the `hatch3r-` prefix check (`.claude/rules/content-authoring.md` §2a).
+
+### Shared surfaces (co-tenancy)
+
+The tables above enumerate every emitted path; the classes below mark which of those paths co-tenant user- or IDE-native content, so a reader can tell which rows carry a collision surface (the "identify shared files" half of the output-path deliverable). Each path falls into one isolation class, and the class fixes how much of the file hatch3r may touch on `update` or `clean`:
+
+| Isolation class | Paths | Collision surface |
+|-----------------|-------|-------------------|
+| **Whole-file, no prefix** (highest risk) | `.cursor/mcp.json`, `.vscode/mcp.json`, `.mcp.json`, `.claude/settings.json` | IDE-native config files hatch3r writes in full; a user's own MCP servers / Claude settings live in the same JSON, so update must reconcile at the entry level and clean must preserve non-hatch3r keys |
+| **Managed-block** | `CLAUDE.md`, `.github/copilot-instructions.md` | User-owned files; hatch3r fences its bytes with `HATCH3R:BEGIN`/`HATCH3R:END` markers, so content outside the block is preserved on rewrite |
+| **Prefix-isolated dir** | `.github/{prompts,instructions,agents,skills}/hatch3r-{id}.*`, `.github/workflows/copilot-setup-steps.yml`, `.cursor/{rules,agents,skills,commands}/`, `.claude/{rules,agents,skills,commands}/` | IDE-native dirs shared with user/IDE files; hatch3r's leaf files carry the `hatch3r-` prefix (or, for `copilot-setup-steps.yml`, a fixed filename) so removal/update touch only hatch3r-named files |
+
+Every other emitted path (`.cursor/hooks.json`, `.cursor/agents-policy.json`, `.claude/hooks/*`, `.cursor/environment.json`) is a hatch3r-authored file the framework owns outright. The whole-file rows are the surfaces the removal-collateral and JSON-merge behaviors act on; the prefix and managed-block rows bound that blast radius to hatch3r-named content.
 
 ---
 

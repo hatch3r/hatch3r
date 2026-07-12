@@ -121,6 +121,21 @@ export interface SpecialistResult {
    * non-SUCCESS specialist blocks completion before its count is consulted
    * (Finding D7-SA7.3-01, Cycle 12), so a specialist that crashed or timed
    * out before setting `criticalCount` can no longer read as "reviewed clean".
+   *
+   * Recorded typed-contract limit (Finding D7-SA7.3-06, Cycle 12): the field
+   * stays optional even when `status: "SUCCESS"`, so the "a SUCCESS
+   * specialist reports its Criticals" invariant is NOT compiler-enforced — a
+   * producer that forgets to set it on SUCCESS reads as 0 unresolved
+   * Criticals. The discriminated-union narrowing (SUCCESS requires a numeric
+   * `criticalCount`) was evaluated and rejected in the D7-SA7.3-01 fix: this
+   * interface is `@library_export_only`, so a required field breaks
+   * downstream pack-integrator construction and the CI-enforced D7-19
+   * back-compat contract test. Enforcement therefore stays behavioral — the
+   * status sweep plus this absent → 0 default — with both halves (and this
+   * limit itself) pinned in `pipelineContext.test.ts`; narrowing the type
+   * later must update that pin and this record together. The sibling
+   * un-typed invariant (the Tier-1 mandatory carve-out) is recorded on
+   * {@link shouldTriggerSpecialist}.
    */
   criticalCount?: number;
 }
@@ -1570,6 +1585,22 @@ function pathMatchesSegmentGlob(file: string, glob: string): boolean {
  * hatch3r-ux CQ2) returns `mandatory: true` — the orchestrator treats that
  * flag as a non-skippable dedicated-instance spawn at deep-context Tier 2/3
  * (tier gate is orchestrator prose; this predicate stays tier-agnostic).
+ *
+ * Recorded typed-contract limit (Finding D7-SA7.3-06, Cycle 12): the
+ * predicate takes no `tier` parameter, so `mandatory: true` is returned on
+ * any mandatory-on-match hit at EVERY tier — including Tier 1, whose "keeps
+ * its Phase Skip Criteria skip" carve-out is therefore inexpressible through
+ * this return type. Every caller must layer the tier gate itself
+ * (`rules/hatch3r-agent-orchestration.md` → Tier-to-Phase-4 specialist depth
+ * mapping); a Tier-1 caller that obeys `mandatory: true` unconditionally
+ * over-spawns. Deliberate for a markdown-orchestrated runtime (the host LLM
+ * reads the prose gate; this process never executes the spawn), not a
+ * defect. The recorded hardening path is an optional `tier?: DeepContextTier`
+ * argument that suppresses `mandatory` at Tier 1; landing it moves the
+ * carve-out into the type and must update this record plus the arity pin in
+ * `pipelineContext.test.ts` together. The sibling un-typed invariant
+ * ("SUCCESS must carry a count") is recorded on
+ * {@link SpecialistResult.criticalCount}.
  */
 export function shouldTriggerSpecialist(
   specialist: string,

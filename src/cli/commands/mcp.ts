@@ -68,6 +68,36 @@ function wslThemeOrUndefined(): unknown {
 }
 
 /**
+ * D1-SA1.2-10 (Cycle 12, D1, P1): which supply channel satisfies a required MCP
+ * env var. The runtime contract is two-channel — adapters emit `${env:VAR}`
+ * references the editor resolves from ITS process environment, and `.env.mcp` is
+ * only one way to populate that environment (the file's own disclaimer documents
+ * shell-sourcing + launchctl, see mcpEnv.ts). `mcp list` / `mcp env-check`
+ * previously parsed `.env.mcp` alone, so an operator who exports a token in their
+ * shell profile — a standard secrets posture that keeps tokens out of on-disk
+ * files — got a false "missing" verdict. Consulting `process.env` as the second
+ * channel closes that. Runtime `process.env` is a proxy for the editor's env
+ * (GUI-launched editors from Finder/Dock/Spotlight may not inherit it), so a
+ * shell-sourced var is LABELLED "shell env" rather than asserted editor-visible.
+ * The var names read here come from `AVAILABLE_MCP_SERVERS[*].requiresEnv`
+ * (developer-controlled), not user input.
+ */
+type EnvVarSource = "file" | "shell" | "missing";
+
+function resolveEnvVarSource(
+  name: string,
+  fileEnv: Record<string, string>,
+): EnvVarSource {
+  if (name in fileEnv && fileEnv[name] !== "") return "file";
+  const fromProcess = process.env[name];
+  if (fromProcess !== undefined && fromProcess !== "") return "shell";
+  return "missing";
+}
+
+/** Caveat appended to a "From shell env" label so the GUI-inherit note travels with it. */
+const SHELL_ENV_CAVEAT = "(GUI-launched editors may not inherit — see .env.mcp)";
+
+/**
  * D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
  * left under the project root by a prior SIGKILL'd run before a mutating MCP
  * subcommand writes. `mcp setup` / `mcp remove` persist via `writeManifest`
@@ -259,7 +289,14 @@ export async function mcpListCommand(opts: McpCommandOptions = {}): Promise<void
   const hasEnvFile = existsSync(envPath);
   const envExisting = hasEnvFile ? parseEnvFile(await readFile(envPath, "utf-8")) : {};
   const requiredVars = collectRequiredEnvVars(servers);
-  const missingVars = requiredVars.filter((v) => !(v.name in envExisting) || envExisting[v.name] === "");
+  // D1-SA1.2-10: classify each required var by supply channel (file / shell env /
+  // missing) so a shell-exported token is not reported as missing.
+  const requiredSources = requiredVars.map((v) => ({
+    name: v.name,
+    source: resolveEnvVarSource(v.name, envExisting),
+  }));
+  const missingVars = requiredSources.filter((r) => r.source === "missing").map((r) => r.name);
+  const shellEnvVars = requiredSources.filter((r) => r.source === "shell").map((r) => r.name);
 
   const lines: string[] = [];
   if (servers.length === 0) {
@@ -276,8 +313,13 @@ export async function mcpListCommand(opts: McpCommandOptions = {}): Promise<void
     lines.push(label(".env.mcp", hasEnvFile ? "present" : chalk.yellow("missing")));
     if (requiredVars.length > 0) {
       lines.push(label("Required vars", requiredVars.map((v) => v.name).join(", ")));
+      if (shellEnvVars.length > 0) {
+        lines.push(
+          label("From shell env", `${chalk.cyan(shellEnvVars.join(", "))} ${chalk.dim(SHELL_ENV_CAVEAT)}`),
+        );
+      }
       if (missingVars.length > 0) {
-        lines.push(label("Missing", chalk.yellow(missingVars.map((v) => v.name).join(", "))));
+        lines.push(label("Missing", chalk.yellow(missingVars.join(", "))));
       } else {
         lines.push(label("Status", chalk.green("all required vars set")));
       }
@@ -293,7 +335,8 @@ export async function mcpListCommand(opts: McpCommandOptions = {}): Promise<void
       servers,
       envFilePresent: hasEnvFile,
       requiredVars: requiredVars.map((v) => v.name),
-      missingVars: missingVars.map((v) => v.name),
+      missingVars,
+      shellEnvVars,
     },
   });
 }
@@ -336,7 +379,11 @@ async function mcpRemoveCommandImpl(
       `MCP server "${id}" not configured`,
       undefined,
       "VALIDATION_ERROR",
-      "Run `npx hatch3r mcp list` to see configured servers, or `npx hatch3r mcp add <id>` to add one.",
+      // D1-SA1.2-09 (Cycle 12, D1, P1): `mcp setup` is the real add path — there is
+      // no `mcp add` subcommand (registered set: setup/list/remove/env-check in
+      // program.ts), so the prior `mcp add <id>` hint dead-ended at commander's
+      // unknown-command usage error (exit 2).
+      "Run `npx hatch3r mcp list` to see configured servers, or `npx hatch3r mcp setup` to add one.",
     );
   }
 
@@ -415,17 +462,32 @@ export async function mcpEnvCheckCommand(opts: McpCommandOptions = {}): Promise<
   }
 
   let missingTotal = 0;
-  const serverReports: Array<{ id: string; required: string[]; missing: string[] }> = [];
+  const shellEnvSatisfied = new Set<string>();
+  const serverReports: Array<{ id: string; required: string[]; missing: string[]; fromShellEnv: string[] }> = [];
   for (const id of servers) {
     const meta = AVAILABLE_MCP_SERVERS[id];
     const required = meta?.requiresEnv ?? [];
     if (required.length === 0) {
       lines.push(`${chalk.green("✓")} ${id} — no env vars required`);
-      serverReports.push({ id, required: [], missing: [] });
+      serverReports.push({ id, required: [], missing: [], fromShellEnv: [] });
       continue;
     }
-    const missing = required.filter((name) => !(name in envExisting) || envExisting[name] === "");
-    serverReports.push({ id, required, missing });
+    // D1-SA1.2-10: a var set in the live process env (e.g. exported in the
+    // operator's shell profile) counts as satisfied — the editor resolves
+    // `${env:VAR}` from its process environment, of which `.env.mcp` is only one
+    // supply channel — so it is not reported missing, but labelled "shell env".
+    const missing: string[] = [];
+    const fromShellEnv: string[] = [];
+    for (const name of required) {
+      const source = resolveEnvVarSource(name, envExisting);
+      if (source === "missing") {
+        missing.push(name);
+      } else if (source === "shell") {
+        fromShellEnv.push(name);
+        shellEnvSatisfied.add(name);
+      }
+    }
+    serverReports.push({ id, required, missing, fromShellEnv });
     if (missing.length === 0) {
       lines.push(`${chalk.green("✓")} ${id} — ${required.join(", ")}`);
     } else {
@@ -436,6 +498,11 @@ export async function mcpEnvCheckCommand(opts: McpCommandOptions = {}): Promise<
 
   lines.push("");
   lines.push(label(".env.mcp", hasEnvFile ? "present" : chalk.yellow("missing")));
+  if (shellEnvSatisfied.size > 0) {
+    lines.push(
+      label("From shell env", `${chalk.cyan([...shellEnvSatisfied].join(", "))} ${chalk.dim(SHELL_ENV_CAVEAT)}`),
+    );
+  }
   if (missingTotal > 0) {
     lines.push(label("Action", `Fill ${missingTotal} env var(s) in .env.mcp, then \`${getSourceEnvMcpCommand()}\``));
   }

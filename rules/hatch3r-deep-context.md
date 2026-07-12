@@ -104,17 +104,17 @@ Worked examples that reconcile signals to a tier (only firing signals listed):
 **Example 1: "Fix typo in error message" -- Tier 1 (score 0)**
 No signals triggered. Single file, no cross-module impact, no ambiguity.
 
-**Example 2: "Add email validation to signup form" -- Tier 2 (score 4)**
+**Example 2: "Add email validation to signup form" -- Tier 2 (score 3)**
 - Multiple layers touched (API + UI): +3
-- May trigger cross-cutting i18n for error messages: +1 (partial cross-cutting)
+- Cross-cutting i18n for error messages only *might* apply — an uncertain signal rounds down to 0: +0
 - 2-3 files, clear requirements, input validation not in a security-sensitive area: +0 each
 
-**Example 3: "Migrate auth from session-based to JWT" -- Tier 3 (score 12)**
+**Example 3: "Migrate auth from session-based to JWT" -- Tier 3 (score 13)**
 - Multiple layers (auth middleware + API + UI + storage): +3
 - Vague term "migrate", cross-cutting auth, security-sensitive area, behavioral contract change (session API to JWT API): +2 each
-- Estimated >5 files: +1 (partial -- easily >5)
+- Estimated file count > 5 (the four layers above plus their tests exceed 5 files — a full signal, not partial): +2
 
-When a signal partially applies (e.g., "maybe 5 files, maybe 4"), round down. Tier upgrades from adaptation (see `hatch3r-agent-orchestration-detail`) compensate for underestimates.
+Weights are fixed integers — a signal fires at its full table weight or scores 0; there is no partial credit. When a signal is uncertain (e.g., "maybe 5 files, maybe 4"), round down so it does not fire (0). Tier upgrades from adaptation (see `hatch3r-agent-orchestration-detail`) compensate for underestimates.
 
 ## Exceptions
 

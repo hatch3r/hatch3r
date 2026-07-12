@@ -80,6 +80,10 @@ Fan-out scales with task size; token cost never justifies serializing independen
 - Delete unused migration scripts after they've been applied to all environments.
 - Write a migration retrospective noting what went well and any issues encountered.
 
+## Related
+
+- **Command:** `hatch3r-migration-plan` — the plan-only counterpart. That command fans out parallel researcher sub-agents (changelog + breaking-change inventory) and an architect to produce a phased plan under `docs/migrations/` plus board-ready `todo.md` entries; it never runs install, upgrade, or codemod commands. Use `/hatch3r-migration-plan` to produce the researcher-backed phased plan for a major dependency or framework upgrade; use this skill to execute an approved plan phase-by-phase or to run a single-dependency migration inline.
+
 ## Error Handling
 
 - **Migration phase fails partway through**: Roll back to the last successful phase checkpoint. Diagnose the failure before retrying. Each phase must leave the codebase in a working state.

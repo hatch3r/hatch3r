@@ -332,7 +332,7 @@ Install commands:
 | `curl` | `brew install curl` (pin >=8.21.0) | `apt install curl` (verify >=8.21.0) |
 | `dasel` | `brew install dasel` (pin >=3.11.0) | `go install github.com/tomwright/dasel/v3/cmd/dasel@latest` |
 | `delta` | `brew install git-delta` | `apt install git-delta` (or download release) |
-| `difftastic` | `brew install difftastic` | `cargo install difftastic` |
+| `difftastic` | `brew install difftastic` | `cargo install --locked difftastic` |
 | `docker` | `brew install --cask docker` | `apt install docker.io` |
 | `duckdb` | `brew install duckdb` | download from https://duckdb.org/ |
 | `glab` | `brew install glab` | `snap install glab` (only in Ubuntu universe 24.04+; or GitLab release `.deb`) |

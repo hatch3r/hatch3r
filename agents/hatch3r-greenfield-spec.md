@@ -26,7 +26,7 @@ See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 
 
 When asking, follow `agents/shared/user-question-protocol.md` — one question per turn, 2–4 numbered options with trade-offs, default-if-no-response declared. Acceptable to proceed without asking ONLY when the brief itself resolves all four dimensions and supplies a testable definition of done. The Boundaries "Ask first" rule remains in force for irreversible picks surfaced mid-spec (e.g., licensing model, data-residency commitment, public API exposure).
 
-Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively (D6-M4 — Cycle 7.5 rollout completion).
+Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively.
 
 <task>
 

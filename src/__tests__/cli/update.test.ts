@@ -601,6 +601,88 @@ describe("update command", () => {
     });
   });
 
+  // D15-SA15.4-03 (Cycle 12 Wave 4, D15, P6): a `--pin-version` typo must be
+  // rejected at accept time. Before the fix it was persisted verbatim to
+  // `.hatch3r/hatch.json::versionConstraint` and re-fed to `npm install
+  // hatch3r@<garbage>` on every subsequent `update`, so the failure recurred
+  // until the manifest was hand-cleared.
+  describe("--pin-version validation (D15-SA15.4-03)", () => {
+    it("isValidVersionPin accepts semver versions and ranges", async () => {
+      const { isValidVersionPin } = await import("../../cli/commands/update.js");
+      for (const ok of [
+        "2.2.0", "0.0.9", "v2.2.0", "^2.2.0", "~2.2.0", ">=2.0.0",
+        ">=2.0.0 <3.0.0", "1.0.0 || 2.0.0", "1.2.3 - 2.3.4",
+        "2.x", "2.2.x", "2.*", "*", "2.2.0-beta.1", "2.2.0-rc.1+build.5",
+      ]) {
+        expect(isValidVersionPin(ok), ok).toBe(true);
+      }
+    });
+
+    it("isValidVersionPin rejects malformed pins (the finding's failure cases)", async () => {
+      const { isValidVersionPin } = await import("../../cli/commands/update.js");
+      for (const bad of [
+        "", " ", "2.2.o", "^2,2", " 2.2.0", "2.2.0 ", "not-a-version",
+        "2..0", "2,2,0", "@2.2.0", "1.0.0 ||", "1.2.3 - ",
+      ]) {
+        expect(isValidVersionPin(bad), JSON.stringify(bad)).toBe(false);
+      }
+    });
+
+    it("updateCommand rejects an invalid --pin-version before the dry-run fork and persists nothing", async () => {
+      await createTestProject(tempDir);
+      const manifestPath = join(tempDir, HATCH3R_DIR, "hatch.json");
+      const before = await readFile(manifestPath, "utf-8");
+      vi.mocked(execFileSync).mockClear();
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      // Validation runs before the dry-run fork, so even a dry-run preview of a
+      // typo rejects — and it never reaches the package fetch.
+      await expect(updateCommand({ dryRun: true, pinVersion: "2.2.o" })).rejects.toMatchObject({
+        errorCode: "VALIDATION_ERROR",
+        exitCode: 64,
+      });
+      expect(vi.mocked(execFileSync)).not.toHaveBeenCalled();
+      // The malformed pin was never written to the manifest.
+      expect(await readFile(manifestPath, "utf-8")).toBe(before);
+      expect(JSON.parse(await readFile(manifestPath, "utf-8")).versionConstraint).toBeUndefined();
+    });
+
+    it("updateCommand accepts a well-formed --pin-version (no validation throw) under dry-run", async () => {
+      await createTestProject(tempDir);
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      // A valid pin passes the accept-time gate; dry-run previews without persisting.
+      await expect(updateCommand({ dryRun: true, pinVersion: "2.9.9" })).resolves.toBeUndefined();
+    });
+  });
+
+  // D12-SA12.2-02 (Cycle 12 Wave 4, D12, P5): `runRegenerate` backs update,
+  // config, and verify --fix. It must attribute provenance `lastCommand` to the
+  // ORIGINATING command (via the caller's snapshotCommandName), not collapse all
+  // three into "update".
+  describe("provenance command attribution (D12-SA12.2-02)", () => {
+    it("stamps lastCommand from snapshotCommandName (config→config, verify-fix→update, default→update)", async () => {
+      await createTestProject(tempDir);
+      const { runRegenerate } = await import("../../cli/commands/update.js");
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+
+      const readLastCommand = async (): Promise<string> =>
+        JSON.parse(
+          await readFile(join(tempDir, HATCH3R_DIR, "provenance.json"), "utf-8"),
+        ).lastCommand;
+
+      await runRegenerate(tempDir, manifest!, { snapshotCommandName: "config" });
+      expect(await readLastCommand()).toBe("config");
+
+      await runRegenerate(tempDir, manifest!, { snapshotCommandName: "verify-fix" });
+      expect(await readLastCommand()).toBe("update");
+
+      await runRegenerate(tempDir, manifest!, { snapshotCommandName: "update" });
+      expect(await readLastCommand()).toBe("update");
+    });
+  });
+
   // D1-SA1.3-04 (Cycle 12, D1, P1): `update` prompts via the content-selections-init
   // and platform-selection migration checkpoints on a legacy manifest. beginCommand
   // must reject `--format json` without `--yes` (exit 2) BEFORE any prompt runs, so a

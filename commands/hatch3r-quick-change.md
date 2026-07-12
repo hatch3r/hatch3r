@@ -92,6 +92,8 @@ Every sub-agent delegation prompt in this command MUST include the confidence ex
 
 Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
+Absent-confidence clause (D13-SA13.2-F3): a clean verdict (0 Critical + 0 Warning) whose reviewer `confidence` field is absent or unparseable is treated as `confidence: low` at every gate — trigger the second pass, never proceed. This matches the code gate in `src/pipeline/reviewLoop.ts` (`evaluateReviewGate`), where an `unknown`/absent confidence ranks below `low` (`CONFIDENCE_RANK.unknown = 0`) and so does not pass. A prose gate that reads `confidence != low` would otherwise let absence pass silently — inverting the code gate. Resolve absence to `low` before applying the Step 6a floor.
+
 ---
 
 ## Triage
@@ -337,7 +339,7 @@ The reviewer prompt MUST include:
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 - Requirement that the reviewer output include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
 
-2. Process reviewer output (confidence-aware gate — the second-pass trigger tightens with the `--confidence-floor` set in the Effort Override section above; `any` = default below, `medium`/`high` raise the bar):
+2. Process reviewer output (confidence-aware gate — the second-pass trigger tightens with the `--confidence-floor` set in the Effort Override section above; `any` = default below, `medium`/`high` raise the bar). First resolve the reviewer `confidence` field per the Confidence Propagation Contract absent-confidence clause: an absent or unparseable value is treated as `low` (it does NOT satisfy `!= low`), matching the code gate where `unknown` ranks below `low`. Then apply the gate below:
    - If **0 Critical + 0 Warning AND reviewer confidence != low**: review loop is clean. Proceed to Step 6b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
    - If **0 Critical + 0 Warning AND reviewer confidence == low**: trigger a second reviewer pass before exiting. Do not proceed to 6b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them, then re-run the reviewer (next iteration).
@@ -466,7 +468,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ## Error Handling
 
-- **Quality check failure after 2 retries**: Present the specific failures and ASK the user whether to commit partial progress, keep trying, or abort.
+- **Quality check failure after 2 retries**: Present the specific failures and ASK the user whether to commit partial progress, keep trying, or abort — per the shared Quality-gate-failure escalation clause in `rules/hatch3r-agent-orchestration.md` → Cross-Phase Error Propagation.
 - **Implementer sub-agent failure** (nontrivial Step-4b items): route through the shared sub-agent-failure clause (`rules/hatch3r-agent-orchestration.md` → Sub-agent-failure handling) — retry once; if the retry fails, re-spawn `hatch3r-fixer` with the failure reason + partial output as failure context; if the re-spawn also fails, emit `BLOCKED_OTHER` with a one-sentence reason and ASK. Never fall back to inline implementation for a nontrivial item — that is the issue #73 bypass mode. Inline implementation stays sanctioned only for Step-4a trivial (Tier-1) items per this command's declared scope.
 - **Reviewer flags critical issues**: Present them and ASK whether to fix or proceed without fixing.
 - **Scope creep during implementation**: If actual changes exceed the soft guard thresholds (5 files / 200 lines), warn the user and suggest deferring remaining items to a `hatch3r-workflow` session.

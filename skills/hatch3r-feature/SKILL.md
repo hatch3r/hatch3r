@@ -159,8 +159,9 @@ You MUST spawn these agents via the Task tool (`subagent_type: "general-purpose"
 - **`hatch3r-implementer`** — MUST spawn one per sub-issue when the feature is decomposed into multiple tasks. Each implementer receives its own sub-issue context, plus reference conventions and resolved requirements from the researcher output.
 - **`hatch3r-reviewer`** — MUST spawn after implementation for code review before PR creation.
 
-## Related Skills
+## Related
 
+- **Command**: `hatch3r-feature-plan` — the plan-only counterpart. That command fans out parallel researcher sub-agents and a docs-writer to produce a feature spec (`docs/specs/`), ADRs, and an epic-shaped `todo.md`; it writes no product code. Use `/hatch3r-feature-plan` to design and spec a new capability (user stories, acceptance criteria, sub-issue breakdown); use this skill to implement an approved spec as a vertical slice. Sequential plan → implement seam.
 - **Skill**: `hatch3r-qa-validation` — use this skill for end-to-end verification of the implemented feature
 
 ## Error Handling

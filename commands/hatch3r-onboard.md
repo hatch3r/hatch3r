@@ -45,6 +45,10 @@ Acceptable to proceed without asking ONLY when scope is single-target, single-co
 
 Take a new developer's role, experience level, and focus areas and produce a comprehensive onboarding guide covering project setup, architecture, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet. Spawns parallel researcher sub-agents (codebase overview, architecture mapping, conventions extraction) to analyze the project from multiple angles before generating a tailored guide document. AI proposes all outputs; user confirms before any files are written. Adapts depth and focus to the developer's experience level and role.
 
+## Scope boundary — one-shot guide, not an interactive mentor
+
+onboard analyzes a codebase and writes one onboarding document, then exits — it is a one-shot document generator, not an interactive teaching loop. Walking a user through the *why* of a change or a pattern in a review-and-adapt exchange (an explain-as-you-work / mentor interaction) is a different information flow — teaching the user during the work rather than emitting a document to read later — and hatch3r ships no first-class artifact for it today (the existing `hatch3r explain` CLI command inspects cost and customization state; it is not this teaching interaction). When a run needs that skill-transfer interaction, treat it as outside onboard's scope: the shape that would serve it is a lightweight, request-driven mentor skill rather than another orchestrator, and adding it is a roadmap decision, not an onboard responsibility.
+
 ---
 
 ## Shared Context

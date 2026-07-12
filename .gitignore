@@ -5,7 +5,6 @@ coverage/
 .DS_Store
 .env
 .env.*
-.env.mcp
 
 # hatch3r safe-write backups
 .backups/
@@ -69,5 +68,7 @@ social_preview.png
 .evolve-workspace/
 .re-envision-workspace/
 .agents/
-.hatch3r/
+# Root-only user-state dir (D4-SA4.5-07): anchored with a leading slash so it
+# does not also ignore the tracked test-fixture tree at src/__tests__/fixtures/.hatch3r/.
+/.hatch3r/
 skills-lock.json

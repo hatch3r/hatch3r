@@ -4,9 +4,6 @@ name: hatch3r-testability-verify
 type: skill
 description: Testability verification gate before commit/release — per-feature test-class mandate map, real-deal-first ratio, coverage thresholds, AI eval coverage, mutation kill-rate, contract tests, property tests, determinism contract
 tags: [review, testing, floor:content-quality]
-scope: conditional
-globs: "src/__tests__/**,tests/**,test/**,spec/**,e2e/**,evals/**,**/stryker.conf.json,**/pom.xml,**/pacts/**"
-precedence: normal
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -97,7 +94,7 @@ No duplication: the agent decides WHEN, this skill defines HOW.
 
 ## Gate 8: Determinism contract — 0 flaky tests over 30 days
 
-- Read CI flake history: `gh run list --status failure --created >=$(date -d '30 days ago' +%Y-%m-%d) --json conclusion,name,startedAt | jq '[.[] | select(.conclusion=="failure")] | length'`.
+- Read CI flake history: `gh run list --status failure --created ">=$(python3 -c 'from datetime import date, timedelta; print(date.today() - timedelta(days=30))')" --json conclusion,name,startedAt | jq '[.[] | select(.conclusion=="failure")] | length'`.
 - Quarantined tests carry a tracking issue assignee and a re-enable date, not `test.skip` / `test.todo` / `@pytest.mark.skip` in perpetuity.
 - Flake count >0 with no owner → FINDINGS. Silenced flake without tracking issue → FINDINGS per occurrence.
 

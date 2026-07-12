@@ -15,6 +15,16 @@ export interface ResolvedRepoConfig {
   /** Content IDs added by the repo override. */
   addedContent: string[];
   /**
+   * Content IDs present in the resolved selection that match no known content
+   * artifact — a typo in a workspace `include` or `lockedContent` entry. Empty
+   * unless the caller passes `knownContentIds`. Such an id can never
+   * materialize (`buildSelectionFromIds` finds no index item for it), so it is
+   * removed from `contentIds` and `addedContent` here and surfaced to the
+   * caller (`syncSingleRepo`), which warns once per id — mirroring the
+   * unknown-group-name warning (D1-SA1.10-10, Cycle 12).
+   */
+  unknownContent: string[];
+  /**
    * Effective CLI tools after applying workspace defaults plus per-member
    * `localCliTools` / `excludedCliTools`. Absent when the workspace has no
    * `defaults.cliTools` configured.
@@ -55,12 +65,20 @@ export interface ResolvedRepoConfig {
  *   two-layer (defaults + overrides) merge (D14-M4; resolution-time wiring
  *   added D1-10, Cycle 11 — the deltas were validated and persisted but never
  *   applied before this).
+ * @param knownContentIds - Optional set of every known content-artifact id
+ *   (the content-index item ids). When supplied, the resolver moves any
+ *   effective id absent from it — a workspace `include`/`lockedContent` typo —
+ *   into `unknownContent` and removes it from `contentIds`/`addedContent`, so a
+ *   phantom id is never reported as "added" (D1-SA1.10-10, Cycle 12). Omitted =
+ *   no id validation, byte-identical to the pre-fix behaviour, so the existing
+ *   sync.ts and floorInvariant callers stay unchanged until they opt in.
  */
 export function resolveRepoConfig(
   defaults: WorkspaceDefaults,
   overrides?: WorkspaceRepoOverrides,
   unconditionalIds?: Set<string>,
   groupDeltas?: WorkspaceGroupDelta[],
+  knownContentIds?: Set<string>,
 ): ResolvedRepoConfig {
   const deltas = groupDeltas ?? [];
 
@@ -171,6 +189,27 @@ export function resolveRepoConfig(
     }
   }
 
+  // D1-SA1.10-10 (Cycle 12, Low): when the caller supplies the known-id
+  // universe (the content-index item ids), drop every effective id that
+  // matches no known artifact. An unknown id from a workspace
+  // `include`/`lockedContent` typo can never materialize —
+  // `buildSelectionFromIds` finds no index item for it — so leaving it in
+  // `contentIds`/`addedContent` misreports a phantom as "added" while nothing
+  // changes on disk. Collecting them in `unknownContent` lets the caller warn
+  // once per id, mirroring the unknown-group-name verbose() warning
+  // (sync.ts resolveGroupDeltas). No-op when `knownContentIds` is omitted, so
+  // existing callers keep byte-identical behaviour.
+  const unknownContent: string[] = [];
+  if (knownContentIds) {
+    for (const id of contentIds) {
+      if (!knownContentIds.has(id)) unknownContent.push(id);
+    }
+    for (const id of unknownContent) {
+      contentIds.delete(id);
+      removeFrom(addedContent, id);
+    }
+  }
+
   return {
     platform,
     tools,
@@ -180,6 +219,7 @@ export function resolveRepoConfig(
     contentIds,
     excludedContent,
     addedContent,
+    unknownContent,
     cliTools: defaults.cliTools,
   };
 }

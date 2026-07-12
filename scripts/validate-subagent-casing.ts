@@ -21,6 +21,12 @@
  *     snake_case / dotted identifiers).
  *   - the `*-sub-agent.md` audit-template FILENAMES are already conformant
  *     (lowercase-hyphen) and are scanned only for their prose, not their name.
+ *   - `Sub-Agent N` / `Sub-Agents N–M` numbered proper-noun labels (a digit
+ *     follows the token) — the legible fan-out labels the planning commands use
+ *     (`#### Sub-Agent 1: Stack Researcher`; `skip Sub-Agents 6–7`). Lowercasing
+ *     a numbered label reads worse than the label, so the convention carves them
+ *     out via a `\s+\d` lookahead rather than grinding them to zero
+ *     (D5-SA5.8-03, Cycle 12).
  *
  * Ratchet (D5-44): a corpus-wide scrub spans files owned by multiple work
  * units, so a zero-tolerance gate cannot land in one wave without breaking CI
@@ -117,9 +123,12 @@ async function collectContentFiles(rootDir: string): Promise<string[]> {
 //
 // Two violating spellings. The closed-form regex uses a negative lookahead on
 // `[A-Za-z_.]` so identifier forms (`subagent_type`, `subagent.spawn`,
-// `subagentStart`, `subagent_invocations`) are not matched.
+// `subagentStart`, `subagent_invocations`) are not matched. The Title-Case
+// regex uses a negative lookahead on `\s+\d` so numbered proper-noun labels
+// (`Sub-Agent 1`, `Sub-Agents 6–7`) are exempt — see the carve-out note in the
+// header block (D5-SA5.8-03, Cycle 12).
 
-const TITLE_CASE_RE = /Sub-Agents?\b/g;
+const TITLE_CASE_RE = /Sub-Agents?\b(?!\s+\d)/g;
 const CLOSED_FORM_RE = /(?<![A-Za-z])subagents?(?![A-Za-z_.])/g;
 
 export interface CasingFinding {

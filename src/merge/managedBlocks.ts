@@ -394,6 +394,21 @@ export function insertManagedBlock(
   // that appends a trailing \n on save (editors, prettier, EditorConfig
   // insert_final_newline=true) creates drift that the next sync rewrites,
   // producing the worktree-setup "many local git changes" symptom.
+  //
+  // D11-SA11.2-04 (Cycle 12 Wave 4, D11, CQ4) — the ONE documented exception to
+  // byte-for-byte out-of-block preservation. `before` and `after` are RAW
+  // substrings (not the trimmed slices extractCustomContent uses), so user bytes
+  // outside the block survive verbatim; the sole deviation is this conditional
+  // append. It adds a single "\n" when a user file whose out-of-block content
+  // lacks a POSIX-final newline is merged for the FIRST time, then is byte-stable
+  // on every later merge (the append is idempotent — it fires only when the
+  // whole result does not already end in "\n"). The append moves the file toward
+  // POSIX text-file conformance (a line is newline-terminated: The Open Group
+  // POSIX.1-2017 base definitions §3) and the EditorConfig insert_final_newline
+  // default, so it normalizes rather than corrupts. A format that needs strict
+  // no-final-newline bit-preservation would gate this append behind a per-path
+  // opt-out; not warranted today. Pinned by the "documented final-newline
+  // exception (D11-SA11.2-04)" tests.
   const result = `${before}${block}${after}`;
   return result.endsWith("\n") ? result : result + "\n";
 }

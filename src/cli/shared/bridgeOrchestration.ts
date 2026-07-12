@@ -1,4 +1,5 @@
 import { join } from "node:path";
+import { HatchError, VALID_TOOLS, type Tool } from "../../types.js";
 import {
   buildContentIndex,
   COMMAND_ID_PREFIX,
@@ -36,7 +37,16 @@ import {
  * the bridge text references the destination paths now so the file is
  * forward-compatible.
  */
-export type BridgeAdapter = "claude" | "cursor" | "copilot";
+/**
+ * D2-SA2.5-03 (Cycle 12 Wave 4, D2, P2): aliased to `Tool` (types.ts) rather
+ * than an independent hand-listed union, so a 4th adapter added to `TOOLS`
+ * cascades a compile error through {@link BRIDGE_ADAPTER_PATHS} (typed
+ * `Record<Tool, …>`) until its bridge paths are stated — the derive-from-
+ * registry discipline D2-17 set for `WORKTREE_CAPABLE_TOOLS`. Kept as a named
+ * alias (not inlined) because `agentsContent.ts` re-exports the `BridgeAdapter`
+ * name.
+ */
+export type BridgeAdapter = Tool;
 
 interface BridgeAdapterPaths {
   rulesDir: string;
@@ -45,7 +55,7 @@ interface BridgeAdapterPaths {
   commandsDir: string;
 }
 
-const BRIDGE_ADAPTER_PATHS: Record<BridgeAdapter, BridgeAdapterPaths> = {
+const BRIDGE_ADAPTER_PATHS: Record<Tool, BridgeAdapterPaths> = {
   claude: {
     rulesDir: ".claude/rules/",
     agentsDir: ".claude/agents/",
@@ -67,11 +77,28 @@ const BRIDGE_ADAPTER_PATHS: Record<BridgeAdapter, BridgeAdapterPaths> = {
 };
 
 function bridgeAdapterPaths(adapter?: string): BridgeAdapterPaths {
-  // Default to claude paths when no adapter is named — keeps standalone
-  // callers (and the static BRIDGE_ORCHESTRATION export) compiling without
-  // forcing every caller to thread the adapter id immediately.
-  return BRIDGE_ADAPTER_PATHS[(adapter ?? "claude") as BridgeAdapter]
-    ?? BRIDGE_ADAPTER_PATHS.claude;
+  // Default to claude paths ONLY for the `undefined` caller case — keeps
+  // standalone callers (and the static BRIDGE_ORCHESTRATION export) compiling
+  // without forcing every caller to thread the adapter id immediately.
+  if (adapter === undefined) return BRIDGE_ADAPTER_PATHS.claude;
+  // D2-SA2.5-03: a named-but-unknown adapter id must not silently resolve to
+  // claude paths (the prior `?? BRIDGE_ADAPTER_PATHS.claude` swallow). That
+  // fallback would emit `.claude/*` paths into a non-claude adapter's bridge
+  // doc with no compile error, no runtime warning, and no failing test. Fail
+  // loud with the same HatchError idiom as getAdapter (adapters/index.ts) and
+  // enumerateAdapterCapabilities (adapters/capabilityMatrix.ts); the
+  // expected-tools list derives from the `Tool` registry, not a hand-listed
+  // literal.
+  if (!VALID_TOOLS.has(adapter)) {
+    throw new HatchError(
+      `bridgeAdapterPaths: unknown adapter "${adapter}". ` +
+        `Expected one of: ${[...VALID_TOOLS].sort().join(", ")} ` +
+        `(or omit for the claude default).`,
+      undefined,
+      "VALIDATION_ERROR",
+    );
+  }
+  return BRIDGE_ADAPTER_PATHS[adapter as Tool];
 }
 
 /**

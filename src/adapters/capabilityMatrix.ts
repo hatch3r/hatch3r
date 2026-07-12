@@ -216,7 +216,8 @@ export interface Finding {
  * @returns Frozen-style AdapterCapabilities row (caller may not mutate the
  *   returned object's `declared` map without copying — it shares structure
  *   with the matrix to keep the source-of-truth promise auditable).
- * @throws Error if `adapter` is not in `ADAPTER_CAPABILITIES`.
+ * @throws {HatchError} `VALIDATION_ERROR` if `adapter` is not in
+ *   `ADAPTER_CAPABILITIES`.
  */
 export function enumerateAdapterCapabilities(
   adapter: AuditedAdapter,
@@ -225,7 +226,7 @@ export function enumerateAdapterCapabilities(
   if (!row) {
     throw new HatchError(
       `enumerateAdapterCapabilities: unknown adapter "${adapter}". ` +
-        `Expected one of: claude, cursor, copilot.`,
+        `Expected one of: ${Object.keys(ADAPTER_CAPABILITIES).sort().join(", ")}.`,
       undefined,
       "VALIDATION_ERROR",
     );

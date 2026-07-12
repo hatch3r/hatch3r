@@ -9,6 +9,7 @@ import {
   CACHE_BREAKPOINT_SENTINEL_END,
 } from "../../adapters/claude.js";
 import { createManifest } from "../../manifest/hatchJson.js";
+import { maxIterationsForClass } from "../../pipeline/reviewLoop.js";
 import type { HatchManifest } from "../../types.js";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
@@ -2122,6 +2123,49 @@ Low priority rule body.
       for (const out of managed) {
         expect(out.content.includes(out.managedContent!.trim())).toBe(true);
       }
+    });
+  });
+
+  // D15-SA15.2-04 (Cycle 12, D15/D9, P5): the reviewer-loop cap in the generated
+  // .claude/commands/hatch3r-agent-team.md is DERIVED from the review-loop
+  // code-class cap (maxIterationsForClass("code")), not a hardcoded literal.
+  // Pre-fix the "up to 3 iterations" string was a bare literal outside the
+  // CAP_SURFACE_REGISTRY parity guard (reviewLoop.test.ts scans canonical .md
+  // prose dirs, not adapter TS), so it could silently drift from the code
+  // constant. This block is the missing CI signal: it pins the rendered cap to
+  // the code-class cap and asserts the default/spec cap does not leak into this
+  // CODE-review surface — so a wrong-class wiring or a divergent literal fails.
+  describe("Agent-Teams reviewer-loop cap derivation (D15-SA15.2-04)", () => {
+    it("renders the review-loop code-class cap, not the default/spec cap or a stray literal", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const agentTeam = outputs.find(
+        (o) => o.path === ".claude/commands/hatch3r-agent-team.md",
+      );
+      expect(agentTeam).toBeDefined();
+
+      const codeClassCap = maxIterationsForClass("code");
+      const defaultCap = maxIterationsForClass("default");
+      // The Agent-Teams reviewer↔fixer round runs over a CODE diff, so it opts
+      // down to the code-class cap — strictly below the default/spec cap. This
+      // relationship is the non-vacuous core: it documents why the surface
+      // states 3, not 4, and anchors the leak assertion below.
+      expect(codeClassCap).toBeLessThan(defaultCap);
+
+      // Every "up to N iterations" cap the command states equals the code cap.
+      // With the render interpolated the values move in lockstep with the
+      // constant; the loop still catches a stated cap that diverges from it.
+      const statedCaps = [
+        ...agentTeam!.content.matchAll(/up to (\d+) iterations/g),
+      ].map((m) => Number(m[1]));
+      expect(statedCaps.length).toBeGreaterThan(0);
+      for (const cap of statedCaps) {
+        expect(cap).toBe(codeClassCap);
+      }
+      // Genuinely non-vacuous guard: fails if the adapter is wired to the
+      // default class / DEFAULT_MAX_REVIEW_ITERATIONS, or a "up to 4 iterations"
+      // literal creeps back into this code-review surface.
+      expect(agentTeam!.content).not.toContain(`up to ${defaultCap} iterations`);
     });
   });
 

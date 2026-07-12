@@ -656,14 +656,19 @@ describe("analyzeRepo", () => {
 
   // ── D3-SA3.4-02: non-JS + 2026-era framework detection ────────────
   // The D14 Medium (#344-#357) and D14-M1 (Cycle 10) rows added non-JS config
-  // indicators (django/flask/rails/spring/laravel/phoenix), manifest-substring
-  // dep indicators (fastapi/axum/actix), four newer JS meta-framework rows
-  // (tanstack-start/solid-start/qwik/nestjs), and the tanstack-start→react
+  // indicators (django/flask/rails/spring/laravel), manifest-substring
+  // dep indicators (fastapi/axum/actix/phoenix), four newer JS meta-framework
+  // rows (tanstack-start/solid-start/qwik/nestjs), and the tanstack-start→react
   // suppression — none of which had a paired detection test. Stages 3 and 3b of
   // detectFrameworks are SEPARATE loops from the tested stage-1/2 JS surface
   // (repoAnalyzer.ts:551-598), so a regression in any row shipped silently. One
   // fixture test per untested identifier, exercised through analyzeRepo the same
   // way the JS framework tests above are.
+  //
+  // D1-SA1.6-12 (Cycle 12): phoenix moved from the config-presence probe to a
+  // `:phoenix` dep-substring probe on `mix.exs`, so a bare Elixir library no
+  // longer misreports as the Phoenix framework while `elixir` stays on the
+  // language axis. The two mix.exs cases below assert that split.
   describe("non-JS + 2026-era framework detection (D3-SA3.4-02)", () => {
     it("detects Django from manage.py", async () => {
       const root = await createTempRepo();
@@ -709,11 +714,31 @@ describe("analyzeRepo", () => {
       expect(info.frameworks).toContain("laravel");
     });
 
-    it("detects Phoenix from mix.exs", async () => {
+    // D1-SA1.6-12: Phoenix is detected only when `mix.exs` declares the
+    // `:phoenix` dep atom, not from the mere presence of `mix.exs` (which is
+    // Elixir's universal build manifest).
+    it("detects Phoenix from a :phoenix dep atom in mix.exs", async () => {
       const root = await createTempRepo();
-      await writeFile(join(root, "mix.exs"), "defmodule MyApp.MixProject do\nend\n");
+      await writeFile(
+        join(root, "mix.exs"),
+        "defmodule MyApp.MixProject do\n  defp deps do\n    [{:phoenix, \"~> 1.7.14\"}, {:phoenix_ecto, \"~> 4.5\"}]\n  end\nend\n",
+      );
       const info = await analyzeRepo(root);
       expect(info.frameworks).toContain("phoenix");
+    });
+
+    // D1-SA1.6-12: a bare Elixir library `mix.exs` (no `:phoenix` dep) must NOT
+    // report the Phoenix framework, while the `elixir` language axis is kept —
+    // this is the language↔framework separation the finding restores.
+    it("does not report Phoenix for a bare-library mix.exs but keeps the elixir language", async () => {
+      const root = await createTempRepo();
+      await writeFile(
+        join(root, "mix.exs"),
+        "defmodule MyLib.MixProject do\n  defp deps do\n    [{:jason, \"~> 1.4\"}]\n  end\nend\n",
+      );
+      const info = await analyzeRepo(root);
+      expect(info.frameworks).not.toContain("phoenix");
+      expect(info.languages).toContain("elixir");
     });
 
     it("detects FastAPI from a fastapi substring in pyproject.toml", async () => {

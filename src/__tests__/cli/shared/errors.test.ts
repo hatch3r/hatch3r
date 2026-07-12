@@ -83,6 +83,34 @@ describe("formatActionableError() — HatchError without recoveryHint", () => {
     expect(result.lines.some((l) => l.includes("Try:"))).toBe(false);
   });
 
+  it("surfaces non-empty stderr for the ergonomic 2-arg form `new HatchError(\"boom\", 70)` (D12-SA12.1-03)", () => {
+    // The constructor's 1-2-arg ergonomic shapes default errorCode to
+    // UNKNOWN_ERROR (src/types.ts), which has no DEFAULT_RECOVERY_HINT row —
+    // the exact trap D12-SA12.1-03 flagged: a future `new HatchError("msg",
+    // 70)` call site must never exit non-zero with zero bytes on stderr.
+    // Locks the funnel end-to-end: format → write → non-empty console.error.
+    const err = new HatchError("boom", 70);
+    const result = formatActionableError(err);
+    expect(result.kind).toBe("hatch-error");
+    // Explicitly passed exit code is preserved unchanged.
+    expect(result.exitCode).toBe(70);
+    expect(result.lines.some((l) => l.includes("boom"))).toBe(true);
+    expect(result.runId).toBeDefined();
+
+    const errors: string[] = [];
+    const originalError = console.error;
+    console.error = (msg: unknown) => {
+      errors.push(String(msg));
+    };
+    try {
+      writeFormattedCliError(result);
+    } finally {
+      console.error = originalError;
+    }
+    expect(errors.join("\n")).toContain("boom");
+    expect(errors.join("\n")).toContain(`Run id: ${result.runId}`);
+  });
+
   it("treats HatchError with exitCode 0 as a clean cancellation (no output)", () => {
     const err = new HatchError("Init cancelled.", 0);
     const result = formatActionableError(err);

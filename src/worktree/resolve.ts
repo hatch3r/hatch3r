@@ -316,10 +316,17 @@ export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
       // received, so it would NOT collapse the two — only `.native` does.
       try {
         pathStr = realpathSync.native(pathStr);
-      } catch {
+      } catch (err) {
         // Prunable worktree — path may not exist on disk anymore.
         // Best-effort: normalise separators only so downstream string
-        // comparisons against platform-native paths still align.
+        // comparisons against platform-native paths still align. Per the
+        // module's Silent Failure Contract (recordWorktreeProbeFailure,
+        // resolve.ts:11-18), the swallowed realpath failure still emits a
+        // --verbose diagnostic instead of vanishing.
+        recordWorktreeProbeFailure(
+          `listWorktrees(${mainRoot}) realpath(${pathStr}) — worktree may be prunable/missing`,
+          err,
+        );
         pathStr = pathStr.split("/").join(sep);
       }
       current = { path: pathStr };
@@ -372,10 +379,18 @@ export function getWorktreeStatus(worktreePath: string): WorktreeStatus {
       if (line.startsWith("?? ")) status.untracked += 1;
       else status.modified += 1;
     }
-  } catch {
+  } catch (err) {
     // Soft probe: a missing or broken worktree returns zero counts so the caller
     // can still render the badge; the subsequent `git worktree remove` will
-    // surface the real error.
+    // surface the real error. Per the module's Silent Failure Contract
+    // (recordWorktreeProbeFailure, resolve.ts:11-18), the swallowed probe
+    // failure still emits a --verbose diagnostic so a systemic git failure
+    // (git missing from PATH, permission wall) is not invisible — otherwise
+    // every worktree badges "clean" with zero signal.
+    recordWorktreeProbeFailure(
+      `getWorktreeStatus(${worktreePath}) — git status probe failed, returning zero counts`,
+      err,
+    );
     status = { modified: 0, untracked: 0 };
   }
   return status;

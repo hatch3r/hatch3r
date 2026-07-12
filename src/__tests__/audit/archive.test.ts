@@ -666,6 +666,68 @@ describe("archiveCycle — insights ring-buffer integration (Phase 4)", () => {
     expect(result.insightsPromoted).toBe(false);
     expect(result.warnings).toBeUndefined();
   });
+
+  it("throws a loud ArchiveError at a real close when strictAccumulator is set and the accumulator is absent (D16-SA16.2-01)", async () => {
+    const insightsFile = join(
+      fx.dir,
+      "governance",
+      "audit",
+      "execution-insights.json",
+    );
+    const currentInsightsFile = join(
+      fx.dir,
+      ".audit-workspace",
+      "current-insights.json",
+    );
+    // currentInsightsFile deliberately NOT written — the exact cycle-close
+    // condition that silently lost telemetry before this gate.
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    await expect(
+      archiveCycle({
+        paths: { ...fx.paths, insightsFile, currentInsightsFile },
+        cycle: 8,
+        strictAccumulator: true,
+        generatedAt: FIXED_DATE,
+      }),
+    ).rejects.toThrow(ArchiveError);
+
+    // Pre-write abort: the archive file was never written (no partial close).
+    expect(
+      await fileExists(join(fx.paths.archiveDir, "cycle-8-finding-registry.json")),
+    ).toBe(false);
+  });
+
+  it("does NOT throw in dryRun even when strictAccumulator is set and the accumulator is absent", async () => {
+    const insightsFile = join(
+      fx.dir,
+      "governance",
+      "audit",
+      "execution-insights.json",
+    );
+    const currentInsightsFile = join(
+      fx.dir,
+      ".audit-workspace",
+      "current-insights.json",
+    );
+    const reg = v2Registry([
+      modernEntry({ finding_id: "C5-D1-M1", cycle: 5, execution_status: "done" }),
+    ]);
+    await writeRegistry(fx.paths.registry, reg);
+
+    // A dry-run preview must not fail on a missing accumulator.
+    const result = await archiveCycle({
+      paths: { ...fx.paths, insightsFile, currentInsightsFile },
+      cycle: 8,
+      dryRun: true,
+      strictAccumulator: true,
+      generatedAt: FIXED_DATE,
+    });
+    expect(result.insightsPromoted).toBeUndefined();
+  });
 });
 
 describe("archive + finder round-trip", () => {

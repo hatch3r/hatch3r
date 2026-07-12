@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import {
   writeProvenance,
   relativizeSourceFile,
+  hashEmittedContent,
   PROVENANCE_FILE,
   type ProvenanceManifest,
 } from "../../manifest/provenance.js";
@@ -319,5 +320,87 @@ describe("writeProvenance idempotency + carry-forward + silent-failure contracts
     expect(after.hatch3rVersion).toBe(HATCH3R_VERSION);
     expect(after.generatedAt).not.toBe(SENTINEL_AT);
     expect(after.lastRunId).not.toBe(SENTINEL_RUN);
+  });
+});
+
+// D12-SA12.2-03 (drift-hash path-awareness) + D12-SA12.2-02 (command
+// attribution). The writer previously (a) hashed the emit-time baseline WITHOUT
+// the output path, so a `.yml` output whose user region quotes an HTML marker
+// pair was reduced to the wrong (HTML-first) block while the status reader used
+// the path-aware YAML block — flipping drift attribution to a phantom
+// `(your edit)`; and (b) could only stamp `sync`/`init`/`update`, so a
+// `config`-originated write was unrepresentable.
+describe("writeProvenance drift-hash path-awareness + command attribution (D12-SA12.2-03, D12-SA12.2-02)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-prov-drift-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  async function readManifest(): Promise<ProvenanceManifest> {
+    return JSON.parse(
+      await readFile(join(tempDir, HATCH3R_DIR, PROVENANCE_FILE), "utf-8"),
+    ) as ProvenanceManifest;
+  }
+
+  // (a) D12-SA12.2-03: the baseline hash is computed with the output path, so it
+  // uses the SAME path-aware, variant-ordered block extraction the status reader
+  // applies. Fixture: a `.yml` output (YAML `#` markers) whose user region quotes
+  // a complete HTML marker pair on their own lines — the one shape where the
+  // two extraction orders diverge (YAML-first with a path, HTML-first without).
+  it("hashes the baseline with the output path so a .yml output matches the reader's path-aware block", async () => {
+    const ymlPath = ".github/workflows/copilot-setup-steps.yml";
+    const ymlContent = [
+      "on: push",
+      "# HATCH3R:BEGIN",
+      "jobs:",
+      "  build:",
+      "    runs-on: ubuntu-latest",
+      "# HATCH3R:END",
+      "# The note below quotes a complete HTML marker pair on their own lines:",
+      "<!-- HATCH3R:BEGIN -->",
+      "<!-- HATCH3R:END -->",
+      "",
+    ].join("\n");
+
+    // Guard: the fixture is only meaningful if the two extraction orders diverge
+    // for this content. If this ever stops holding, the regression is inert.
+    const withPath = hashEmittedContent(ymlContent, undefined, ymlPath);
+    const withoutPath = hashEmittedContent(ymlContent, undefined);
+    expect(withPath).not.toBe(withoutPath);
+
+    const res = await writeProvenance(
+      tempDir,
+      [
+        {
+          adapter: "copilot",
+          outputs: [{ path: ymlPath, content: ymlContent, action: "create", sourceFiles: [] }],
+        },
+      ],
+      "sync",
+    );
+    expect(res.written).toBe(true);
+
+    const entry = (await readManifest()).outputs.find((o) => o.path === ymlPath);
+    // The persisted baseline now equals the path-aware (reader-consistent) hash,
+    // not the path-less HTML-first one the pre-fix writer computed.
+    expect(entry?.contentHash).toBe(withPath);
+    expect(entry?.contentHash).not.toBe(withoutPath);
+  });
+
+  // (b) D12-SA12.2-02: `"config"` is a representable, persisted originating
+  // command — a config-driven regeneration no longer masquerades as `"update"`.
+  it('persists lastCommand "config" for a config-originated write', async () => {
+    const res = await writeProvenance(
+      tempDir,
+      [{ adapter: "claude", outputs: [{ path: "CLAUDE.md", content: "body", action: "create", sourceFiles: [] }] }],
+      "config",
+    );
+    expect(res.written).toBe(true);
+    expect((await readManifest()).lastCommand).toBe("config");
   });
 });

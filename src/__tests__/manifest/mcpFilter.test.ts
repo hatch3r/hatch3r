@@ -39,6 +39,22 @@ describe("filterMcpJsonOnDisk", () => {
     expect(await readFile(target, "utf-8")).toBe("{ not valid json");
   });
 
+  it("D1-SA1.6-10: warns via onWarn on malformed JSON without clobbering (Silent Failure Contract)", async () => {
+    const target = join(tmpDir, "mcp.json");
+    await writeFile(target, "{ not valid json");
+    const warnings: string[] = [];
+    await expect(
+      filterMcpJsonOnDisk(target, new Set(["github"]), (m) => warnings.push(m)),
+    ).resolves.toBeUndefined();
+    // The deselection is no longer dropped without a trace: a named warning fires.
+    expect(warnings).toHaveLength(1);
+    expect(warnings[0]).toContain("not valid JSON");
+    expect(warnings[0]).toContain("server selection was NOT applied");
+    expect(warnings[0]).toContain(target);
+    // Still no clobber — the unparseable file is preserved byte-for-byte.
+    expect(await readFile(target, "utf-8")).toBe("{ not valid json");
+  });
+
   it("returns silently when the payload has no mcpServers field", async () => {
     const target = join(tmpDir, "mcp.json");
     const original = JSON.stringify({ otherKey: 1 });

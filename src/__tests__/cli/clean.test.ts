@@ -62,7 +62,7 @@ import {
 } from "../../clean/index.js";
 import { analyzeRepo } from "../../detect/repoAnalyzer.js";
 import { runInit } from "../../cli/commands/init.js";
-import { info, printBox } from "../../cli/shared/ui.js";
+import { info, printBox, warn } from "../../cli/shared/ui.js";
 
 // ── Import module under test ──────────────────────────────────
 
@@ -649,6 +649,39 @@ describe("cleanCommand", () => {
     const lines = (boxCall?.[1] as string[]).join("\n");
     expect(lines).toContain(".hatch3r/");
     expect(lines).not.toContain(".env.mcp");
+  });
+
+  // ── D1-SA1.3-14: headless purge must log the irreversibility notice ──────
+  //
+  // The purge warning previously lived inside the `!opts.yes` confirmation
+  // block, so `--yes --purge` deleted `.hatch3r/snapshots/` — destroying the
+  // just-captured pre-clean rollback session — with no log line marking the
+  // irreversibility. The notice is now emitted unconditionally, so a headless
+  // run records what became unrecoverable before purgeUserState runs. `warn`
+  // goes to stderr, so it never corrupts the --format json stdout document.
+  it("--purge --yes logs the irreversibility notice before purging (D1-SA1.3-14)", async () => {
+    const inv = makeInventory({
+      adapterFiles: [".cursor/rules/hatch3r-test.mdc"],
+      hatch3rDir: true,
+      envMcp: true,
+      manifest: makeManifest(),
+    });
+    vi.mocked(inventoryArtifacts).mockResolvedValue(inv);
+    vi.mocked(executeClean).mockResolvedValue({
+      removed: [".cursor/rules/hatch3r-test.mdc"],
+      kept: [],
+      errors: [],
+    });
+
+    await cleanCommand({ yes: true, purge: true });
+
+    // No prompt runs under --yes, yet the notice must still fire (the fix).
+    // Substring is branch-agnostic: it is shared by both the "session <id> will
+    // not survive" and the "no rollback snapshot survives" fallback variants.
+    expect(vi.mocked(warn)).toHaveBeenCalledWith(
+      expect.stringContaining("--purge: deleting .hatch3r/ including snapshots"),
+    );
+    expect(inquirer.prompt).not.toHaveBeenCalled();
   });
 
   // W5 JSON stdout purity (mutating representative): `clean --yes --dry-run

@@ -26,6 +26,15 @@ sub_agents_spawned:
 
 Take a project idea or vision and produce complete project documentation across **two dimensions**: business strategy and technical architecture. Spawns parallel researcher sub-agents (stack, features, architecture, pitfalls, UX, business model & market, production & scale) to analyze the vision from every angle before generating artifacts. Outputs business specs to `docs/specs/business/` (business model, competitive analysis, GTM strategy, production blueprint), technical specs to `docs/specs/technical/` (glossary, overview, per-module specs), ADRs to `docs/adr/`, and a `todo.md` ready for `hatch3r-board-fill`. Optionally generates a root-level `AGENTS.md` as the project's "README for agents." AI proposes all outputs; user confirms before any files are written.
 
+## Relationship to /hatch3r-spec
+
+`/hatch3r-project-spec` and `/hatch3r-spec` are both greenfield entry points and overlap on business research (market, competitive analysis, personas). They are meant to run in sequence, not in parallel:
+
+- **`/hatch3r-spec`** produces the **PRD** (`docs/specs/prd.md`) plus market/competitive/persona/tech-stack research — the product-requirements layer.
+- **This command** produces the **technical-design tree** (ADRs, domain model, per-module specs, `todo.md`, `AGENTS.md`) plus business-doc specs — the layer that consumes the PRD.
+
+If a PRD already exists, share it at the **Step 1** ASK ("Gather Project Vision & Business Context") — this command extracts vision, personas, and market context from it instead of re-interviewing, and shrinks Sub-Agent 6 (Business Model & Market) to a reconciliation pass rather than regenerating the market/competitive research `/hatch3r-spec` already wrote. If no PRD exists and you want the requirements layer first, run `/hatch3r-spec` before this command. With no PRD supplied, this command interviews from scratch.
+
 ## Agent Pipeline
 
 | Stage | Agent(s) | Parallel | Required |

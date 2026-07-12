@@ -16,8 +16,16 @@ import { resolveBundledContentRoot } from "../content/contentRoot.js";
  */
 export const PROVENANCE_FILE = "provenance.json";
 
-/** The CLI command that materialized a given provenance manifest. */
-export type ProvenanceCommand = "sync" | "init" | "update";
+/**
+ * The CLI command that materialized a given provenance manifest.
+ *
+ * D12-SA12.2-02 (Cycle 12 Wave 4, D12, P5): `"config"` was added so a
+ * `config`-originated regeneration attributes to its real entrypoint rather
+ * than collapsing into `"update"`. `verify --fix` deliberately reuses
+ * `"update"` (it is a repair-regeneration, mechanically identical to update) —
+ * see the `runRegenerate` provenance write in `update.ts`.
+ */
+export type ProvenanceCommand = "sync" | "init" | "update" | "config";
 
 /**
  * SA12.4-F1 / F2.7-F5 (D2/D12): canonical normalization used by BOTH the
@@ -136,8 +144,8 @@ function sortEntries<T extends { adapter: string; path: string }>(entries: T[]):
  * into their summary so the gap is visible.
  *
  * @param command which CLI command produced this manifest (`sync` | `init`
- *   | `update`) — persisted as `lastCommand` so `explain --source` and CI
- *   consumers can attribute the manifest to the originating run.
+ *   | `update` | `config`) — persisted as `lastCommand` so `explain --source`
+ *   and CI consumers can attribute the manifest to the originating run.
  * @param failedAdapters adapter ids whose generation did NOT complete this
  *   run; their prior provenance rows are carried forward. Pass an empty array
  *   (init/update have no partial-success carry-forward today) or the failed
@@ -191,7 +199,15 @@ export async function writeProvenance(
           // this from the on-disk file to tell a user edit (on-disk differs
           // from this baseline) from an outdated canonical block (a fresh
           // regeneration differs from this baseline).
-          contentHash: hashEmittedContent(out.content, out.managedContent),
+          // D12-SA12.2-03 (Cycle 12 Wave 4, D12, CQ2): pass `out.path` so the
+          // baseline uses the SAME path-aware, variant-ordered block extraction
+          // the status reader applies (status.ts computes BOTH its hashes with
+          // filePath). Without it, a `.yml` output whose user region quotes a
+          // complete HTML marker pair on its own lines hashes the HTML-first
+          // block here but the YAML block in the reader — flipping drift
+          // attribution to a phantom `(your edit)` on an untouched safe-to-sync
+          // file. `out.path` is already the row's key two lines up.
+          contentHash: hashEmittedContent(out.content, out.managedContent, out.path),
         })),
       ),
     );

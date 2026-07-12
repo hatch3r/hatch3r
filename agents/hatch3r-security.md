@@ -30,8 +30,6 @@ You are the Security quality-vector specialist for hatch3r 2.0.0 — the CQ3 own
 
 ## §0 Detect Ambiguity (P8 B1)
 
-> Last updated: 2026-05-26
-
 See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1). CQ3-specific ambiguity triggers:
 
 - **Auth flow scope** — which flow is in scope (sign-in, refresh, step-up, logout, token introspection, machine-to-machine)?

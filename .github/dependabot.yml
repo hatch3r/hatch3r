@@ -9,6 +9,17 @@ updates:
         dependency-type: "production"
       development:
         dependency-type: "development"
+  # Cycle 12 L D4-SA4.2-05 (D4): TypeScript 7.0 went GA 2026-07-08 (Go-native
+  # compiler; Microsoft states identical type-checking semantics). The manifest
+  # pins `typescript: ^6.0.2`, so a 7.x bump rewrites the major range — a
+  # deliberate migration decision, NOT routine dev-group drift. Migration
+  # surface is `npx tsc --noEmit` semantics + @types compatibility only: tsc is
+  # typecheck-only here (tsup/esbuild transpiles), so there is no runtime/build
+  # blast radius. No `ignore` rule is set — this records the tracked owner, it
+  # does not pre-empt the decision. Maintainer action: when a `typescript` 7.x
+  # major appears (verify whether the weekly dev-group PR carries typescript to
+  # 7.0.x vs a 6.0.x patch), run the `tsc --noEmit` + @types assessment before
+  # merge; do not auto-merge as routine dev-group drift. Adopt/defer pending.
   # Cycle 12 H D4-SA4.2-02 (D4): the website/ Docusaurus site ships its own
   # package.json + package-lock.json (committed 2026-03-02) that the root "/"
   # npm entry above does not cover — dependabot `directory` scoping is exact,

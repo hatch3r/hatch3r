@@ -72,7 +72,17 @@ async function estimateTokensForContent(
 }
 
 export interface WorkspaceSyncOptions {
-  /** Only sync these repo paths (sync all opted-in repos if empty/undefined). */
+  /**
+   * Only sync these repo paths (sync all opted-in repos if empty/undefined).
+   *
+   * D1-SA1.10-12 (Cycle 12, Info): an explicit path list selects by path
+   * membership ALONE — a repo whose entry has `sync: false` IS synced when its
+   * path is named here, overriding the opt-out. This differs from the
+   * no-argument default, which syncs only `sync: true` repos. Requested paths
+   * that match no registered repo are skipped with an `onWarn` line naming them
+   * (see {@link syncWorkspaceRepos}), so an operator typo is audible instead of
+   * reading as a green "0 repo(s) synced" no-op.
+   */
   repos?: string[];
   /** Show what would change without modifying files. */
   dryRun?: boolean;
@@ -260,6 +270,27 @@ export async function syncWorkspaceRepos(
   const targetRepos = options.repos?.length
     ? wsManifest.repos.filter((r) => options.repos!.includes(r.path))
     : wsManifest.repos.filter((r) => r.sync);
+
+  // D1-SA1.10-12 (Cycle 12, Info, P1): when explicit `--repos` paths are given,
+  // warn per requested path that matches no registered repo. targetRepos above
+  // filters by path membership only, so an unknown/typo'd path drops out and the
+  // CLI reports a green "0 repo(s) synced" — the typo reads as a clean no-op.
+  // Name each unmatched path (with the registered repo set) via onWarn so the
+  // operator can fix the typo instead of trusting a misleading success (Silent
+  // Failure Contract, CONSTITUTION §2 P5; unmatched-argument feedback per
+  // clig.dev). No-op on the no-argument default (every opted-in repo is a match).
+  if (options.repos?.length) {
+    const knownPaths = new Set(wsManifest.repos.map((r) => r.path));
+    const unmatched = [...new Set(options.repos)].filter((p) => !knownPaths.has(p));
+    if (unmatched.length > 0) {
+      const known = wsManifest.repos.map((r) => r.path).join(", ") || "(none registered)";
+      options.onWarn?.(
+        `--repos: ${unmatched.length} requested path(s) matched no registered repo ` +
+          `and were skipped: ${unmatched.join(", ")}. ` +
+          `Registered repos: ${known}. Check for a typo in the --repos value.`,
+      );
+    }
+  }
 
   // D14-SA14.2-H01 (High): Sub-repo syncs are independent at the canonical-
   // content level — each writes to a distinct `<workspace>/<repo>/.agents/`

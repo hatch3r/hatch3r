@@ -18,7 +18,7 @@ Run the project's quality checks (linting, type checking, tests). Refer to the p
 
 Verify: all AC met, tests passing, no lint errors, dead code removed, project-specific invariants respected.
 
-Rate confidence in quality verification: high (all checks pass with comprehensive coverage), medium (checks pass but coverage gaps exist), low (checks pass minimally, recommend additional human review).
+Rate confidence in quality verification per the quality charter §1 verification-method framing (`agents/shared/quality-charter.md`): high (verified against code, tests, or browser), medium (based on established patterns, not independently verified), low (best judgment, recommend additional human review).
 
 ---
 

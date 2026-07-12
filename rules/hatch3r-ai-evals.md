@@ -31,6 +31,8 @@ Pick one tool by task class:
 - **TruLens** — observability-coupled, runs evals against live traces
 - **Arize Phoenix** — open-source observability with eval modules
 
+**Grader-owner neutrality.** When the eval tool is owned by a model vendor — promptfoo has been OpenAI-owned since 2026-03-09 — prefer an independently-owned grader or a second-tool cross-check for cross-vendor model comparison; promptfoo remains OSS MIT, so this is a grading-independence input, not a reason to drop the tool.
+
 Document the chosen tool in `evals/README.md` so the agent picks the same tool on every future change.
 
 ## Golden Dataset Versioning

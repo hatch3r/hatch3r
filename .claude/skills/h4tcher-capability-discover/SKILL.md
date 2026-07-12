@@ -2,7 +2,7 @@
 name: h4tcher-capability-discover
 description: Pre-flight read-only scan for a planned capability change — maps what exists, what would collide, and which pillar gap a new artifact would close.
 effort: medium
-allowed-tools: Read Grep Glob Bash(*) WebSearch WebFetch
+allowed-tools: Read Grep Glob Bash(wc *) Bash(grep *) Bash(ls *) Bash(cat *) Bash(git status *) Bash(git branch *) Bash(jq *) WebSearch WebFetch
 triage_tiers: [1, 2, 3]
 parallel_tool_default: true
 cache_friendly: true

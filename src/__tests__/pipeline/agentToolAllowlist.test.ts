@@ -13,6 +13,7 @@ import {
   validateToolPolicies,
   buildClaudePreToolUseHookScript,
   buildCursorSubagentGuardHookScript,
+  ASI02_ADAPTER_ENFORCEMENT_STRENGTH,
   type AgentToolPolicy,
   type AllowlistDenialEvent,
 } from "../../pipeline/agentToolAllowlist.js";
@@ -827,6 +828,44 @@ describe("agentToolAllowlist", () => {
       const invalidDenies = script.split('reasonCode: "POLICY_FILE_INVALID"').length - 1;
       expect(invalidDenies).toBe(2);
       expect(script).toContain("policy evaluation failed");
+    });
+  });
+
+  // D15-SA15.3-04: the emitted per-adapter hooks block an out-of-policy tool
+  // category at different strengths — hard per-category enforcement is
+  // Claude-only. ASI02_ADAPTER_ENFORCEMENT_STRENGTH records that asymmetry so
+  // the ASI02 self-assessment does not imply uniform hard enforcement.
+  describe("ASI02_ADAPTER_ENFORCEMENT_STRENGTH (D15-SA15.3-04)", () => {
+    it("covers exactly the three supported adapters", () => {
+      expect(Object.keys(ASI02_ADAPTER_ENFORCEMENT_STRENGTH).sort()).toEqual([
+        "claude",
+        "copilot",
+        "cursor",
+      ]);
+    });
+
+    it("records hard per-category enforcement only for Claude", () => {
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.claude.perCategory).toBe("hard");
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.perCategory).toBe("soft");
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.copilot.perCategory).toBe("none");
+    });
+
+    it("records Cursor's hard NO_POLICY + readonly controls despite soft per-category", () => {
+      // The finding's substance: Cursor per-category is soft, but the
+      // subagentStart NO_POLICY deny and the readonly frontmatter bind hard.
+      const cursorHard = ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.hardControls;
+      expect(cursorHard.length).toBeGreaterThan(0);
+      expect(cursorHard.join(" ")).toMatch(/NO_POLICY/);
+      expect(cursorHard.join(" ")).toMatch(/readonly/);
+    });
+
+    it("gives each adapter a self-describing summary line", () => {
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.claude.summary).toMatch(/^Claude=/);
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.summary).toMatch(/^Cursor=/);
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.copilot.summary).toMatch(/^Copilot=/);
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.summary).toMatch(
+        /soft per-category/,
+      );
     });
   });
 });

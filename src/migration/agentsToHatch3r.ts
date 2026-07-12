@@ -106,9 +106,15 @@ async function exists(path: string): Promise<boolean> {
 }
 
 /**
- * Byte-by-byte equality between two regular files. Read fully into memory
- * because the migration shim only handles small bookkeeping files
- * (`hatch.json`, `mcp.json`) — multi-MB payloads are out of scope.
+ * Byte-by-byte equality between two regular files, read fully into memory
+ * after a cheap size short-circuit. The input set is every file the shim
+ * moves — the small bookkeeping files (`hatch.json`, `mcp.json`) AND, via
+ * `directoriesEqual` on the destination-exists conflict path, each file in
+ * the `learnings/`, `handoffs/`, and `user/` subtrees — so a pathological
+ * multi-MB handoff is read into memory (one buffer per side) when both
+ * copies exist with equal sizes. Tolerated on the one-shot migration path;
+ * stream-compare or add a stat-based size cap before reusing this helper
+ * on any hot path (D8-SA8.1-05).
  */
 async function filesEqual(a: string, b: string): Promise<boolean> {
   const [aStat, bStat] = await Promise.all([stat(a), stat(b)]);

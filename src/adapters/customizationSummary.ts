@@ -55,7 +55,8 @@ export interface CustomizationStatus {
    *   - `skipped` — `enabled: false` honored; artifact dropped from emission.
    *   - `failed`  — at least one rejection warning surfaced (protected lock,
    *                 floor-tag lock, fail-closed deny-pattern drop, byte-cap
-   *                 truncation, promptGuard block).
+   *                 truncation, promptGuard block, model override dropped on a
+   *                 modelless type, or a YAML read failure — oversize/parse-error).
    *   - `inert`   — an override exists but the artifact is NOT in the current
    *                 content selection (`manifest.content.items`), so no adapter
    *                 ever emits it. The override is real but has no effect on
@@ -156,15 +157,33 @@ function classifyOutcome(args: {
   mdContentApplied: boolean;
 }): { outcome: CustomizationStatus["outcome"]; reason?: string } {
   const { skip, overrideKeys, warnings, mdContentApplied } = args;
-  // A rejection warning is the dominant signal. Every drop path (protected,
-  // floor, promptGuard, deny-pattern, byte-cap) emits a warning we can key off.
+  // A rejection warning is the dominant signal. Every drop path — protected /
+  // floor lock, promptGuard block, deny-pattern, byte-cap truncation, model
+  // no-op on a modelless type, and YAML read failure (oversize / parse-error) —
+  // emits a warning we key off. This prefix list is a hand-maintained mirror of
+  // the emitters in customization.ts + customize.ts; keep it in sync when a new
+  // warning family is added (D2-SA2.3-09: three families had drifted un-mirrored
+  // and fell through to `none`).
   const rejectionWarning = warnings.find(
     (w) =>
       w.startsWith("Cannot disable") ||
       w.startsWith("Cannot override scope") ||
       w.startsWith("Cannot override description") ||
       w.startsWith("Scope override on") ||
+      // D11-SA11.4-02: a `model:` override on a rule/prompt/hook is dropped with
+      // this warning (customization.ts) — the structural twin of the "Scope
+      // override on" no-op above; D02 §2.3 lists BOTH as When-warns rows, so the
+      // classifier catches them symmetrically, not scope-only.
+      w.startsWith("Model override on") ||
       w.startsWith("Blocked: ") ||
+      // D2-SA2.3-09: both YAML-read failure families drop the override —
+      // oversize ("Customization YAML for … exceeds … bytes. Skipping.") and the
+      // D2-12 parse-error ("Customization YAML for … failed to parse …", whose
+      // visibility was the point of that fix). "Customization YAML" uniquely
+      // prefixes these two (snapshot warnings begin "Customization file(s)", md
+      // warnings "Customization markdown"), so this catches both drops without
+      // over-matching.
+      w.startsWith("Customization YAML") ||
       (w.includes("exceeds ") && w.includes(" bytes. Truncating")),
   );
   if (rejectionWarning) {
@@ -272,7 +291,7 @@ export async function buildCustomizationSummary(
       //     surfaced (Cannot disable / override / Scope override).
       //   - `hasMd` true when md content was applied OR a md-shaped warning
       //     surfaced (Blocked: Customization, byte-cap truncation).
-      const yamlWarningPattern = /^(Cannot (disable|override)|Scope override|Customization YAML)/;
+      const yamlWarningPattern = /^(Cannot (disable|override)|Scope override|Model override|Customization YAML)/;
       const mdWarningPattern = /^(Blocked: Customization|Customization markdown)/;
       const hasYaml = overrideKeys.length > 0 || result.skip || result.warnings.some((w) => yamlWarningPattern.test(w));
       const hasMd = hasMdContent || result.warnings.some((w) => mdWarningPattern.test(w));

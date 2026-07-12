@@ -698,12 +698,12 @@ ${bridgeOrchestration}
 
 ## Cursor Subagent Configuration (v2.5+)
 
-Cursor supports up to 4 subagents running in parallel. Custom subagents in \`.cursor/agents/\` support these frontmatter fields:
+Cursor runs many subagents in parallel (across git worktrees, cloud, and remote environments — Cursor 3.0), with no fixed cap. Custom subagents in \`.cursor/agents/\` support these frontmatter fields:
 - \`model\`: \`fast\`, \`inherit\`, or a specific model ID
 - \`readonly\`: \`true\` to restrict write permissions (verification/audit agents)
-- \`background\`: \`true\` to run without blocking the parent agent
+- \`is_background\`: \`true\` to run without blocking the parent agent
 
-When delegating to hatch3r agents, explicitly request "up to 4 in parallel" for maximum throughput.
+When delegating to hatch3r agents, fan out one subagent per independent unit of work — Cursor 3.0 documents no fixed parallelism cap, so match your fan-out to the task's decomposition rather than an arbitrary number.
 Background subagents write output to \`~/.cursor/subagents/\` for later inspection.
 
 ## Cursor v2.6 Capabilities
@@ -724,7 +724,7 @@ New to this project's agent setup? Progress through these stages:
 
 **Start here:** Rules in \`.cursor/rules/\` are loaded automatically. The orchestration bridge above guides your workflow.
 **Next:** Use \`/hatch3r-feature\` or \`/hatch3r-bug-fix\` commands in Cursor chat for guided workflows.
-**Then:** Delegate to agents in \`.cursor/agents/\` — Cursor supports up to 4 subagents in parallel.
+**Then:** Delegate to agents in \`.cursor/agents/\` — Cursor runs many subagents in parallel (worktrees, cloud, remote).
 **Later:** Customize agent behavior via \`.hatch3r/{type}/{id}.customize.yaml\` without editing managed files.`;
     results.push(mdcOutput(".cursor/rules/hatch3r-bridge.mdc", bridgeFm, bridgeBody));
 

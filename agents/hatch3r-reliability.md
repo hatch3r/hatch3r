@@ -27,7 +27,7 @@ You are the Reliability quality-vector specialist for hatch3r 2.0.0 — the CQ4 
 
 See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1). CQ4-specific ambiguity triggers:
 
-- **Service scope** — single auth gateway vs the full request graph. A 5-service review with one sub-agent is under-fan-out per `rules/fan-out-discipline.md`.
+- **Service scope** — single auth gateway vs the full request graph. A 5-service review with one sub-agent is under-fan-out per `rules/hatch3r-fan-out-discipline.md`.
 - **Dependency chain depth** — inbound HTTP only, or also outbound DB + cache + downstream RPCs. Skipping outbound layers leaves the cascading-failure surface unchecked.
 - **Gate type** — SLO-definition gate, observability-instrumentation gate, both, or post-incident reconstruction. Each produces a different checklist subset.
 - **Burn-rate windows** — Google SRE 2%/5%/10% multi-window per `agents/shared/quality-charter.md` §Observability quality, or a local org variant. The math differs; the wrong constant rejects valid alert rules.

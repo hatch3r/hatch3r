@@ -2,7 +2,7 @@
 id: hatch3r-a11y-audit
 name: hatch3r-a11y-audit
 type: skill
-description: Runs a WCAG AA accessibility audit with findings and fixes across 7 scan categories (keyboard, contrast, ARIA, reduced motion, screen reader, high contrast, automated axe). Use when auditing accessibility or verifying WCAG compliance.
+description: Runs a WCAG AA accessibility audit with findings and fixes across 7 scan categories (keyboard, contrast, ARIA, reduced motion, screen reader, high contrast, automated axe). Use when auditing and remediating accessibility.
 tags: [review, floor:ui-ux, a11y]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -30,6 +30,15 @@ Before any work, scan the invocation for unresolved questions in scope, intent, 
 ## Fan-out Discipline (P8 B2)
 
 Fan-out scales with task size; token cost never justifies serializing independent work (`rules/hatch3r-fan-out-discipline.md` P8 B2; `agents/shared/efficiency-patterns.md`). Emit `sub_agents_spawned: { count, rationale }` in your output.
+
+## Relationship to the verification gates
+
+This skill is the accessibility audit-and-fix WORKFLOW — enumerate violations (Steps 2-4), fix critical and major findings (Step 5), re-verify (Step 6). Its unique value is that fix loop plus the 7-category manual audit in `references/manual-audit-checklist.md`; no gate re-runs those. Two sibling skills own the pass/fail side of the same WCAG territory:
+
+- `skills/hatch3r-ui-ux-verify/SKILL.md` — the pass/fail GATE. Its Gate 1 (axe-core), Gate 2 (keyboard trace), and Gate 3 (accessibility-tree snapshot) supersede this skill's Step 2 automated scan when both run in one flow: cite the gate's verdict instead of re-scanning the same routes.
+- `skills/hatch3r-browser-verify/SKILL.md` — the Playwright execution layer that `hatch3r-ui-ux-verify` Gates 1/3/5 call.
+
+Delegation chain: this skill's Required Agent Delegation spawns `agents/hatch3r-ui.md` (CQ1), and `hatch3r-ui` runs `hatch3r-ui-ux-verify` as its gate — so a11y-audit → `hatch3r-ui` → `hatch3r-ui-ux-verify`. No duplication: this skill owns the audit-and-fix workflow; the gate owns the pass/fail verdict.
 
 ## Progressive Disclosure
 

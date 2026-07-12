@@ -407,6 +407,32 @@ describe("config command", () => {
     });
   });
 
+  // ── Customize-explainer box (D10-SA10.4-05) ──────────────────
+
+  describe("'Two ways to change content' box", () => {
+    it("enumerates all four customize routes, not only the two .customize.* files (D10-SA10.4-05)", async () => {
+      const manifest = makeManifest();
+      primeConfig(manifest, { platform: "github" });
+
+      await (await importConfigCommand())();
+
+      const box = vi
+        .mocked(printBox)
+        .mock.calls.find((c) => c[0] === "Two ways to change content");
+      expect(box).toBeDefined();
+      const lines = (box?.[1] as string[]).join("\n");
+      // The two .customize.* files (kept) …
+      expect(lines).toContain(".customize.yaml");
+      expect(lines).toContain(".customize.md");
+      // … plus the two routes the prior wording omitted.
+      expect(lines).toContain("HATCH3R:BEGIN/END");
+      expect(lines).toContain(".hatch3r/overrides/");
+      // Selection-vs-Customization framing retained.
+      expect(lines).toContain("Selection");
+      expect(lines).toContain("Customization");
+    });
+  });
+
   // ── Platform flows ───────────────────────────────────────────
 
   describe("platform flows", () => {

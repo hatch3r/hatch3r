@@ -8,6 +8,10 @@ All notable changes to hatch3r are documented in this file.
 
 Executes the Cycle-12 framework audit drain: 832 post-dedup findings (2 Critical, 96 High, 319 Medium, 289 Low, 126 Info) across the 4-wave progressive execution model with 19-check regression gates. Section is seeded at wave start; per-category entries are reconciled at release prep from the wave summaries.
 
+### Chore
+
+- **treeshake A/B benchmark executed and closed (D4-SA4.1-09)** — the standing per-cycle instruction in `tsup.config.ts` to re-run the treeshake benchmark had gone unexecuted for two cycles with no owner and no result home. Measured 2026-07-12 (tsup 8.5.1, three-way, one source tree): `treeshake: true` produces a 1,325,930 B `dist/cli/index.js` vs 1,359,021 B for the `false` baseline — a 33,091 B (2.4%) reduction at ~9x build time (~480 ms vs ~55 ms for the Rollup pass). Omitting the key is byte-identical to `false`, which answers egoist/tsup#1136 for this single-entry build: `false` and `undefined` both leave the Rollup pass off. `treeshake: false` is retained (2.4% is below the self-imposed 5% flip threshold) and the config comment is rewritten from a recurring benchmark instruction into a dated closed decision with a bundle-budget-breach re-open trigger.
+
 ## [2.2.0] - 2026-07-08
 
 ### Headline

@@ -94,7 +94,7 @@ describe("CopilotAdapter", () => {
   // the X4/CD4 GLOBS-DROP regression broke, which emitted `applyTo: "conditional"`
   // and silently never auto-attached the rule. VS Code `applyTo` is a single
   // comma-separated glob string per
-  // https://code.visualstudio.com/docs/copilot/copilot-customization — pins the
+  // https://code.visualstudio.com/docs/agent-customization/custom-instructions — pins the
   // exact rendered value and asserts the scope keyword never leaks. Isolated
   // temp dir keeps the shared `FIXTURES_DIR` scoped-count assertion untouched.
   it("emits the real conditional glob set in applyTo, never the scope keyword", async () => {
@@ -423,7 +423,7 @@ Applies to API code and protobufs.`,
 
   // D9-C-2 (Cycle 10, Pillar P3): VS Code's MCP schema requires per-server
   // `type` discriminator. Verified against
-  // https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+  // https://code.visualstudio.com/docs/agents/reference/mcp-configuration
   // (accessed 2026-05-27). Every emitted server entry must carry
   // `type: "stdio"` or `type: "http"`.
   it("emits per-server `type` discriminator on every entry (D9-C-2)", async () => {
@@ -454,7 +454,7 @@ Applies to API code and protobufs.`,
   // NOT perform shell expansion — the prior `${env:VAR}` → `$VAR`
   // (shell) transform silently shipped each placeholder as a literal
   // string, breaking every secret-bearing STDIO MCP server. Verified
-  // against https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+  // against https://code.visualstudio.com/docs/agents/reference/mcp-configuration
   // (accessed 2026-05-27). `${workspaceFolder}/.env.mcp` matches the
   // existing `TOOL_SECRET_NOTES.copilot` UX promise that `.env.mcp` is
   // auto-loaded.
@@ -786,6 +786,71 @@ You are a test agent.`,
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  // D9-SA9.3-06 (Cycle 12, D9, P1/P5): the D9-16 recognizable-value gate omits any
+  // model outside the four provider prefixes — including valid non-prefix Copilot
+  // picker models (Microsoft MAI-Code-1-Flash, Moonshot Kimi-K2.7-Code, etc., per
+  // docs.github.com/en/copilot/reference/ai-models/supported-models, accessed
+  // 2026-07-12). A user-configured such model was dropped with no signal; the
+  // adapter now emits an audit-visible warning (Silent Failure Contract) while still
+  // omitting the field (safe fallback preserved) and staying quiet on the intended
+  // hatch3r tier-word omissions.
+  describe("unrecognized configured-model warning (D9-SA9.3-06)", () => {
+    it("warns and omits model: when a configured model is not Copilot-recognizable", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-drop-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "agents", "drop-agent.md"),
+          `---\nid: drop-agent\ntype: agent\ndescription: An agent pinned to a non-prefix Copilot model\n---\n# drop-agent\n\nYou are a test agent.`,
+          "utf-8",
+        );
+        // A real current Copilot picker model (Microsoft) matching none of the four
+        // provider prefixes, so the D9-16 gate drops it.
+        const manifest = makeManifest({ models: { agents: { "drop-agent": "MAI-Code-1-Flash" } } });
+        const outputs = await adapter.generate(agentsDir, manifest);
+
+        const agentFile = outputs.find((o) => o.path === ".github/agents/hatch3r-drop-agent.agent.md");
+        expect(agentFile).toBeDefined();
+        // Safe fallback preserved: no dead model: field is shipped.
+        const fm = agentFile!.content.slice(0, agentFile!.content.indexOf(MANAGED_BLOCK_START));
+        expect(fm).not.toContain("model:");
+        // But the drop is now audit-visible, naming the agent and the dropped value.
+        const dropWarning = adapter.warnings.find(
+          (w) => w.includes("hatch3r-drop-agent.agent.md") && w.includes("MAI-Code-1-Flash"),
+        );
+        expect(dropWarning).toBeDefined();
+        expect(dropWarning).toContain("picker default");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not warn for the intended hatch3r tier-word omissions (standard/fast)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-tierquiet-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        for (const [slug, tier] of [["std-agent", "standard"], ["fast-agent", "fast"]]) {
+          await writeFile(
+            join(agentsDir, "agents", `${slug}.md`),
+            `---\nid: ${slug}\ntype: agent\ndescription: A ${tier}-tier agent\nmodel: ${tier}\n---\n# ${slug}\n\nYou are a ${tier}-tier agent.`,
+            "utf-8",
+          );
+        }
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        expect(
+          outputs.filter((o) => /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path)).length,
+        ).toBeGreaterThanOrEqual(2);
+        // The tier words are hatch3r-internal placeholders, not user model choices —
+        // no drop warning, or the shipped agent corpus would warn on every sync.
+        expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 
   // release/2.2.0: commands→prompts model emission. Copilot documents a
