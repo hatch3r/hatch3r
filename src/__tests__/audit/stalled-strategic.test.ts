@@ -134,6 +134,11 @@ describe("strategicReason", () => {
       ),
     ).toBe("");
   });
+
+  it("ignores a non-string blocker_reason", () => {
+    expect(strategicReason(finding({ blocker_reason: 42 }))).toBe("");
+    expect(strategicReason(finding({ blocker_reason: null }))).toBe("");
+  });
 });
 
 describe("isTerminal", () => {
@@ -267,6 +272,19 @@ describe("findStalledStrategic", () => {
     expect(rows[0].cycles_stalled).toBe(3);
     expect(rows[0].reason).toContain("disposition=human_only");
     expect(rows[0].reason).toContain("owner-human-block");
+  });
+
+  it("excludes a terminal human-parked item — the explicit-block lane still respects isTerminal", () => {
+    const entries: Finding[] = [
+      finding({
+        finding_id: "D18-5",
+        cycle: 5,
+        disposition: "human_only",
+        execution_status: "done",
+        blocker_reason: "Owner:Human — decided and landed",
+      }),
+    ];
+    expect(findStalledStrategic(entries, 12, 3)).toEqual([]);
   });
 });
 

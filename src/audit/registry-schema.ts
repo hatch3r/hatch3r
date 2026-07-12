@@ -831,6 +831,125 @@ export function migrate(
   };
 }
 
+// ── CL-row balance invariant (Cycle-12 CL-3 Proposal 6c / D16-SA16.2-02) ──
+//
+// The stalled-strategic detector's data producers (Phase 5/7 CL writes) and
+// the detector itself form a circular dependency: a phase stall guarantees
+// detector silence. The balance invariant breaks the circle at the data layer:
+// when BOTH the registry AND a cycle's AUDIT-REPORT.md CL tables are readable,
+// every Phase CL-1 / CL-3 table row must be materialized as a registry entry
+// (`C<cycle>-CL1-<n>` / `C<cycle>-CL3-<n>` — the Phase-1 drops-log pattern).
+// AUDIT-REPORT.md is private (absent in public clones), so the wrapper script
+// (scripts/validate-finding-registry.ts) only runs the check when both files
+// exist and skips with a notice otherwise.
+
+/** The two report phases whose rows must balance against registry entries. */
+export type ClPhase = "CL-1" | "CL-3";
+
+/** Report-side row counts; `null` = the phase's section/table was not found. */
+export interface ClBalanceCounts {
+  cl1ReportRows: number | null;
+  cl3ReportRows: number | null;
+}
+
+/**
+ * Count the body rows of the FIRST markdown table inside the report's
+ * `## Phase CL-1:` / `## Phase CL-3:` section. Returns `null` when the section
+ * heading or its table is absent. Scanning stops at the next `##`/`###`
+ * heading so subsection tables (CL-3's "### Routed to EVOLVE") are never
+ * counted — only the phase's own candidate/proposal table balances against
+ * registry entries.
+ */
+export function countClReportRows(
+  reportMarkdown: string,
+  phase: ClPhase,
+): number | null {
+  const lines = reportMarkdown.split(/\r?\n/);
+  const headingRe = new RegExp(`^##\\s+Phase ${phase}\\b`);
+  let i = lines.findIndex((line) => headingRe.test(line));
+  if (i === -1) return null;
+  i += 1;
+  while (i < lines.length && !lines[i].startsWith("|")) {
+    if (/^#{2,}\s/.test(lines[i])) return null;
+    i += 1;
+  }
+  if (i >= lines.length) return null;
+  let tableLines = 0;
+  while (i < lines.length && lines[i].startsWith("|")) {
+    tableLines += 1;
+    i += 1;
+  }
+  // Header row + separator row precede the body; fewer than 2 lines is not a
+  // markdown table.
+  if (tableLines < 2) return null;
+  return tableLines - 2;
+}
+
+/**
+ * Count registry entries materialized from a cycle's CL rows: `finding_id`
+ * matching `^C<cycle>-CL1-<n>$` / `^C<cycle>-CL3-<n>$` (anchored — other
+ * cycles' entries and suffixed ids do not count).
+ */
+export function countClRegistryEntries(
+  entries: ReadonlyArray<Finding>,
+  cycle: number,
+  phase: ClPhase,
+): number {
+  const idRe = new RegExp(`^C${cycle}-${phase.replace("-", "")}-\\d+$`);
+  let count = 0;
+  for (const f of entries) {
+    if (typeof f.finding_id === "string" && idRe.test(f.finding_id)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * The balance assertion: per phase, report-CL-row count === materialized
+ * registry-entry count. Empty array = balanced. A `null` report-row count is
+ * itself a failure (the report exists but its phase table could not be
+ * located — the invariant must not silently pass on a shape drift).
+ */
+export function checkClBalance(
+  entries: ReadonlyArray<Finding>,
+  cycle: number,
+  counts: ClBalanceCounts,
+): DriftReport[] {
+  const reports: DriftReport[] = [];
+  const phases: ReadonlyArray<[ClPhase, number | null]> = [
+    ["CL-1", counts.cl1ReportRows],
+    ["CL-3", counts.cl3ReportRows],
+  ];
+  for (const [phase, reportRows] of phases) {
+    const idStem = `C${cycle}-${phase.replace("-", "")}`;
+    if (reportRows === null) {
+      reports.push({
+        finding_id: `${idStem}-*`,
+        reason: `cl-balance table missing (${phase})`,
+        detail:
+          `cycle ${cycle}: no "## Phase ${phase}" table found in AUDIT-REPORT.md — ` +
+          `the balance invariant reads the section's first markdown table; ` +
+          `restore the heading/table or fix the section shape`,
+      });
+      continue;
+    }
+    const registryCount = countClRegistryEntries(entries, cycle, phase);
+    if (reportRows !== registryCount) {
+      reports.push({
+        finding_id: `${idStem}-*`,
+        reason: `cl-row balance broken (${phase})`,
+        detail:
+          `cycle ${cycle}: AUDIT-REPORT.md §Phase ${phase} has ${reportRows} table row(s) ` +
+          `but the registry holds ${registryCount} ${idStem}-<n> entr${registryCount === 1 ? "y" : "ies"}; ` +
+          `materialize one registry entry per report CL row at report assembly ` +
+          `(or prune orphan entries) — CL-3 Proposal 6c balance invariant`,
+      });
+    }
+  }
+  return reports;
+}
+
 /**
  * Internal export for the validator script — knows the closed Tier-1 enum
  * and surfaces it for human inspection on demand.
