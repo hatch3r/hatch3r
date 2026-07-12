@@ -153,6 +153,16 @@ export interface RunOptions {
 export interface RunResult {
   findings: Finding[];
   scannedSurfaces: number;
+  /**
+   * Rel paths actually scanned, partitioned by pattern-set kind (CI-RECON-05):
+   * `scannedMarketingSurfaces` is the fixed hand-maintained marketing list;
+   * `scannedFrameworkDevSurfaces` is glob-discovered (D19-SA19.2-07) and its
+   * length is environment-dependent (e.g. untracked overlay skills exist
+   * locally but not in CI), so consumers assert membership / family
+   * non-emptiness against these lists — never a total-count pin.
+   */
+  scannedMarketingSurfaces: string[];
+  scannedFrameworkDevSurfaces: string[];
   errorCount: number;
 }
 
@@ -314,7 +324,8 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const surfaces =
     opts.surfaces ?? [...defaultSurfaces(rootDir), ...(await frameworkDevSurfaces(rootDir))];
   const findings: Finding[] = [];
-  let scanned = 0;
+  const scannedMarketingSurfaces: string[] = [];
+  const scannedFrameworkDevSurfaces: string[] = [];
 
   for (const s of surfaces) {
     let raw: string;
@@ -325,13 +336,20 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       // the repo may not ship every listed file in every layout.
       continue;
     }
-    scanned += 1;
-    const compiled = s.kind === "framework-dev" ? COMPILED_FRAMEWORK_DEV : COMPILED_MARKETING;
+    const isFrameworkDev = s.kind === "framework-dev";
+    (isFrameworkDev ? scannedFrameworkDevSurfaces : scannedMarketingSurfaces).push(s.rel);
+    const compiled = isFrameworkDev ? COMPILED_FRAMEWORK_DEV : COMPILED_MARKETING;
     const { text, startLine } = s.extract ? s.extract(raw) : { text: raw, startLine: 1 };
     scanText(s.rel, text, startLine, compiled, findings);
   }
 
-  return { findings, scannedSurfaces: scanned, errorCount: findings.length };
+  return {
+    findings,
+    scannedSurfaces: scannedMarketingSurfaces.length + scannedFrameworkDevSurfaces.length,
+    scannedMarketingSurfaces,
+    scannedFrameworkDevSurfaces,
+    errorCount: findings.length,
+  };
 }
 
 // ── Output ────────────────────────────────────────────────────────
@@ -361,7 +379,10 @@ async function main(): Promise<void> {
     }
     // eslint-disable-next-line no-console
     console.log(
-      `validate-anti-slop: ${result.scannedSurfaces} surface(s) scanned, ${result.errorCount} hit(s)`,
+      `validate-anti-slop: ${result.scannedSurfaces} surface(s) scanned ` +
+        `(${result.scannedMarketingSurfaces.length} marketing + ` +
+        `${result.scannedFrameworkDevSurfaces.length} framework-dev), ` +
+        `${result.errorCount} hit(s)`,
     );
   }
   if (result.errorCount > 0) process.exit(1);

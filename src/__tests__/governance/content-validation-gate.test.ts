@@ -26,7 +26,9 @@ import { resolve } from "node:path";
  *     type from the bundled content root; 0 warnings is a release precondition.
  *   - validate-anti-slop:  whole-phrase wordlist scan of the user-facing
  *     surfaces (README/SECURITY/CONTRIBUTING/current CHANGELOG/manifest
- *     descriptions); 0 hits required.
+ *     descriptions) plus the glob-discovered framework-dev surfaces
+ *     (.claude/rules/*.md and .claude/skills/h4tcher-<name>/SKILL.md —
+ *     D19-SA19.2-07); 0 hits required.
  *
  * The subprocess form keeps every import inside `src/` (the scripts live under
  * `scripts/`, outside tsconfig `rootDir: "src"`), so `tsc --noEmit` stays
@@ -92,9 +94,37 @@ describe("Content + governance validation gate (Cycle 11 D16-1)", () => {
     const { result, exitCode, stderr } = runValidator("scripts/validate-anti-slop.ts");
     expect(result.errorCount, `validate-anti-slop hits:\n${stderr}`).toBe(0);
     expect(exitCode).toBe(0);
-    // the surface list (README, SECURITY, CONTRIBUTING, CHANGELOG, two manifests)
-    // is fully present in this repo layout, so all 6 are scanned
-    expect(result.scannedSurfaces).toBe(6);
+    // CI-RECON-05 (reconciles D19-SA19.2-07): the validator glob-expanded onto
+    // the framework-dev surfaces (.claude/rules/*.md,
+    // .claude/skills/h4tcher-*/SKILL.md), so the TOTAL surface count is
+    // environment-dependent — untracked overlay skills exist locally but not
+    // in CI (32 local vs 25 CI at reconciliation time). Assert the invariant
+    // via the kind-partitioned payload, never an absolute count pin:
+    //   1. every original marketing surface is scanned (fixed 6-file list);
+    //   2. both framework-dev glob families are non-empty (both dirs are
+    //      tracked in this repo layout);
+    //   3. the partition sums to the reported total.
+    const marketing = result.scannedMarketingSurfaces as string[];
+    const frameworkDev = result.scannedFrameworkDevSurfaces as string[];
+    for (const rel of [
+      "README.md",
+      "SECURITY.md",
+      "CONTRIBUTING.md",
+      "CHANGELOG.md",
+      "package.json",
+      ".cursor-plugin/plugin.json",
+    ]) {
+      expect(marketing, `marketing surface ${rel} must be scanned`).toContain(rel);
+    }
+    expect(
+      frameworkDev.some((rel) => rel.startsWith(".claude/rules/")),
+      "at least one .claude/rules/*.md framework-dev surface must be scanned",
+    ).toBe(true);
+    expect(
+      frameworkDev.some((rel) => rel.startsWith(".claude/skills/")),
+      "at least one .claude/skills/h4tcher-*/SKILL.md framework-dev surface must be scanned",
+    ).toBe(true);
+    expect(result.scannedSurfaces).toBe(marketing.length + frameworkDev.length);
   });
 
   it("both corpus gates exit 0, proving the umbrella's content invariant holds", () => {

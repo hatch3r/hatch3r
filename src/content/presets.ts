@@ -48,11 +48,14 @@ export type PresetId =
  * tags fall in the 32-tag refinement set, with no `floor:*` tag and
  * `protected !== true`, intersects no preset's `capabilities` and is dropped by
  * EVERY preset including `full` (a silent corpus hole — `full` is meant to ship
- * everything). The corpus currently has 0 such orphans. The
+ * everything). The sanctioned escape for a deliberate refinement-only artifact
+ * is a per-id `includeIds` entry on the preset(s) that should ship it — the
+ * corpus has exactly one such artifact: `hatch3r-capability-matrix`, admitted
+ * via `full.includeIds` only (D5-SA5.4-09 + CI-RECON-05, Cycle 12). The
  * "every canonical artifact is admitted by `full` OR floor-tagged OR protected"
  * guard in `src/__tests__/content/compound.test.ts` fails the build the moment
- * one is introduced, converting the silent drop into a CI failure that names the
- * offending file.
+ * an UNSANCTIONED orphan is introduced, converting the silent drop into a CI
+ * failure that names the offending file.
  */
 export type CapabilityTag =
   | typeof TAG_PLANNING
@@ -95,8 +98,9 @@ export interface ContentPreset {
   /**
    * Optional per-id additive override — admits a specific artifact whose
    * capability tags do not intersect the preset's capabilities. Used sparingly;
-   * the capability gate should cover the common case. Empty for all presets at
-   * launch.
+   * the capability gate should cover the common case. Sole registry use:
+   * `full.includeIds` carries `hatch3r-capability-matrix` (D5-SA5.4-09 +
+   * CI-RECON-05); every other registry preset leaves this unset.
    */
   includeIds?: ReadonlyArray<string>;
   /**
@@ -184,6 +188,20 @@ export const PRESETS: ContentPreset[] = [
       TAG_AI,
     ],
     includeCustomize: true,
+    // D5-SA5.4-09 reconciliation (CI-RECON-05, Cycle 12): the wave-3 fix
+    // removed `floor:content-quality` from `rules/hatch3r-capability-matrix.md`
+    // because the rule is framework-internal (it governs hatch3r's own
+    // per-cycle adapter audit, inert in consumer repos) and must stay
+    // user-disableable — a floor tag rejects `enabled: false` at customization
+    // layer 2. Its remaining tags (adapters/currency/capability) are refinement
+    // tags outside the 9-tag preset-positive union, so without this carve-out
+    // NO preset would ship it. Per the finding's own intent ("until then it
+    // ships as canonical content"), `full` — the everything preset — admits it
+    // explicitly here; minimal/standard/archetypes deliberately exclude it.
+    // Retagging with a lifecycle capability tag was rejected: capability tags
+    // express a semantic work-type match (see CapabilityTag JSDoc), which a
+    // framework-internal audit procedure does not have for end-user work.
+    includeIds: ["hatch3r-capability-matrix"],
     // Full is the capability superset, so it omits nothing.
     omits: [],
     // v1.9.0 toolbox consolidation: tier-3 CLI tools are now sections inside

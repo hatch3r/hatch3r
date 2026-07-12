@@ -306,19 +306,45 @@ describe("validate-specialist-roster", () => {
 
   it("does NOT require a mandatory-on-match specialist on quick-change (always floor only)", async () => {
     // quick-change is the Tier-1 carve-out held only to the always-mode floor;
-    // the mandatory-on-match Tier 2/3 mandate never binds at Tier 1, so
-    // dropping hatch3r-ui from its agentPipeline must not error.
+    // the mandatory-on-match Tier 2/3 mandate never binds at Tier 1.
+    //
+    // CI-RECON-05 fixture reconciliation: wave 3 (D7-SA7.5-03, 9c8c087)
+    // removed the over-declared hatch3r-ui/hatch3r-ux from the LIVE
+    // agentPipeline (0 body dispatches — "declare what the body dispatches"),
+    // so the old `body.replace("hatch3r-ui, ", "")` mutation no-opped and
+    // tripped the mutation-detection guard. The live file now already IS the
+    // "no mandatory-on-match specialist in the pipeline" state this test used
+    // to create by stripping. Keep the mutation-detection intent by:
+    //   1. guarding that neither mandatory-on-match id re-appears in the
+    //      pipeline (if one does, restore the original strip-that-id form);
+    //   2. stripping a dynamically derived, genuinely present core-pipeline
+    //      token (not an SSOT specialist, so it can never intersect the
+    //      always-mode floor) — proving the validator runs against a real
+    //      mutation and still demands no mandatory-on-match specialist.
     const qcPath = join(fx.rootDir, "commands", "hatch3r-quick-change.md");
     const { readFile } = await import("node:fs/promises");
     const body = await readFile(qcPath, "utf-8");
-    const stripped = body.replace("hatch3r-ui, ", "");
+    const pipelineMatch = body.match(/agentPipeline:\s*\[([^\]]*)\]/);
+    expect(pipelineMatch, "quick-change must declare an agentPipeline").not.toBeNull();
+    const pipeline = pipelineMatch![1].split(",").map((s) => s.trim());
+    expect(pipeline).not.toContain("hatch3r-ui");
+    expect(pipeline).not.toContain("hatch3r-ux");
+
+    const specialistIds = new Set(SPECIALIST_TRIGGER_TABLE.map((t) => t.specialist));
+    const stripToken = pipeline.find((id) => !specialistIds.has(id));
+    expect(
+      stripToken,
+      "pipeline must contain a non-specialist core agent to strip",
+    ).toBeDefined();
+    const stripped = body.replace(`${stripToken}, `, "");
     expect(stripped).not.toBe(body);
     await writeFile(qcPath, stripped, "utf-8");
 
     const r = await runValidator({ rootDir: fx.rootDir });
     const uiMiss = r.findings.find(
       (f) =>
-        f.file === "commands/hatch3r-quick-change.md" && f.message.includes("hatch3r-ui"),
+        f.file === "commands/hatch3r-quick-change.md" &&
+        (f.message.includes("hatch3r-ui") || f.message.includes("hatch3r-ux")),
     );
     expect(uiMiss).toBeUndefined();
   });
