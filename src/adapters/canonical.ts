@@ -312,6 +312,27 @@ export interface CanonicalReadError {
   cause?: unknown;
 }
 
+/**
+ * CI-RECON-06 (Cycle 12 FIX-AND-SHIP): normalize path separators to `/` in
+ * reader DIAGNOSTIC MESSAGES only. On win32, `join()`/`readdir` produce
+ * backslash-separated paths (`checks\accessibility.md`), so a message built
+ * from `${fullPath}` diverges per-platform and any consumer keying on a
+ * `dir/file.md` fragment (tests, CI grep, docs examples) silently misses on
+ * Windows. The replacement is unconditional — matching the in-repo precedent
+ * in `src/detect/repoAnalyzer.ts:355` / `src/merge/orphanCleanup.ts:188` —
+ * because `\` is a reserved separator on win32 (never a filename character)
+ * and the canonical corpus contains no posix filename embedding a literal
+ * backslash; unconditional also means the win32 branch is exercised verbatim
+ * by posix test runs (backslash-input regression cases in canonical.test.ts).
+ * SCOPE BOUNDARY: `CanonicalReadResult.file` and `CanonicalFile.sourcePath`
+ * stay OS-native — they feed real fs calls and `path.relative()` checks
+ * (`isTopLevelMd`) downstream. Only the human/CI-facing `message` channel is
+ * normalized.
+ */
+export function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 /** Map a node:fs ErrnoException code to a CanonicalReadError code. */
 function classifyFsError(err: unknown): CanonicalReadError["code"] {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
@@ -331,7 +352,10 @@ function toReadError(file: string, err: unknown, override?: CanonicalReadError["
   const baseMessage = err instanceof Error ? err.message : String(err);
   return {
     code,
-    message: `${file}: ${baseMessage}`,
+    // CI-RECON-06: interpolated path is posix-normalized for the message
+    // channel; `baseMessage` free text is left untouched (a YAML/TypeError
+    // message may legitimately contain backslash escapes).
+    message: `${toPosixPath(file)}: ${baseMessage}`,
     cause: err,
   };
 }
@@ -758,7 +782,7 @@ async function readSingleMd(
     // instead of crashing; symlinks are not a user error and need no warning.
     return {
       file: fullPath,
-      error: { code: "NOT_FOUND", message: `${fullPath}: skipped (symbolic link)` },
+      error: { code: "NOT_FOUND", message: `${toPosixPath(fullPath)}: skipped (symbolic link)` },
     };
   }
 
@@ -893,8 +917,10 @@ async function readSingleMd(
   // the wrong YAML type — closing the silent id-manipulation vector
   // without breaking existing content.
   if (typeMismatches.length > 0) {
+    // CI-RECON-06: posix-normalized path in the message channel (win32
+    // `join()` yields backslashes; see toPosixPath).
     result.typeMismatches = typeMismatches.map(
-      (m) => ({ code: "TYPE_MISMATCH" as const, message: `${fullPath}: ${m}` }),
+      (m) => ({ code: "TYPE_MISMATCH" as const, message: `${toPosixPath(fullPath)}: ${m}` }),
     );
   }
   // C7.5-W2B2-H43 (D15-F15.1-02): wire the pipeline promptGuard into the
@@ -921,7 +947,7 @@ async function readSingleMd(
   const injectionScan = scanCanonicalInjectionTokens(content);
   if (injectionScan.length > 0) {
     const injectionEntries = injectionScan.map(
-      (v) => ({ code: "INJECTION_TOKEN" as const, message: `${fullPath}: promptGuard: ${v}` }),
+      (v) => ({ code: "INJECTION_TOKEN" as const, message: `${toPosixPath(fullPath)}: promptGuard: ${v}` }),
     );
     result.typeMismatches = result.typeMismatches
       ? [...result.typeMismatches, ...injectionEntries]
@@ -942,7 +968,7 @@ async function readSingleMd(
     const fmInjectionScan = scanCanonicalInjectionTokens(frontmatterBlock, "frontmatter");
     if (fmInjectionScan.length > 0) {
       const fmInjectionEntries = fmInjectionScan.map(
-        (v) => ({ code: "INJECTION_TOKEN" as const, message: `${fullPath}: promptGuard: ${v}` }),
+        (v) => ({ code: "INJECTION_TOKEN" as const, message: `${toPosixPath(fullPath)}: promptGuard: ${v}` }),
       );
       result.typeMismatches = result.typeMismatches
         ? [...result.typeMismatches, ...fmInjectionEntries]

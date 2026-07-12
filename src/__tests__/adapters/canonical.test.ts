@@ -10,6 +10,7 @@ import {
   precedenceRank,
   resolveRuleGlobs,
   sortByPrecedence,
+  toPosixPath,
 } from "../../adapters/canonical.js";
 import type { CanonicalFile } from "../../types.js";
 import { HatchError } from "../../types.js";
@@ -655,6 +656,72 @@ describe("readCanonicalFiles", () => {
 
       const typeMismatchCount = warnings.filter((w) => w.includes("TYPE_MISMATCH")).length;
       expect(typeMismatchCount).toBeGreaterThanOrEqual(3);
+    });
+  });
+
+  // CI-RECON-06 (Cycle 12 FIX-AND-SHIP): reader diagnostics carry posix path
+  // separators on every platform. On win32, `join()`/`readdir` build
+  // backslash paths, so pre-fix a message read `...checks\accessibility.md`
+  // and any consumer keying on the documented `dir/file.md` fragment missed
+  // — the exact windows-latest failure of the validate.test.ts checks/hooks
+  // hardened-reader tests. `toPosixPath` normalizes unconditionally, so the
+  // backslash cases below execute the identical branch Windows CI runs — the
+  // win32 semantic is covered without a Windows runner.
+  describe("CI-RECON-06 diagnostic-message path normalization", () => {
+    it("toPosixPath converts win32 drive-letter paths (win32 simulation)", () => {
+      expect(toPosixPath("C:\\Temp\\validate\\checks\\accessibility.md")).toBe(
+        "C:/Temp/validate/checks/accessibility.md",
+      );
+    });
+
+    it("toPosixPath converts UNC and mixed-separator paths (win32 simulation)", () => {
+      expect(toPosixPath("\\\\server\\share\\hooks\\hatch3r-bad.md")).toBe(
+        "//server/share/hooks/hatch3r-bad.md",
+      );
+      expect(toPosixPath("C:\\repo/mixed\\commands\\board\\x.md")).toBe(
+        "C:/repo/mixed/commands/board/x.md",
+      );
+    });
+
+    it("toPosixPath is identity for posix paths", () => {
+      expect(toPosixPath("/tmp/x/checks/accessibility.md")).toBe(
+        "/tmp/x/checks/accessibility.md",
+      );
+    });
+
+    it("wires normalization into TYPE_MISMATCH messages for nested files", async () => {
+      // End-to-end pin through the public API: the message must contain the
+      // posix `commands/board/<file>.md` fragment regardless of the host
+      // separator that built the absolute path.
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "commands", "board"), { recursive: true });
+      await writeFile(
+        join(dir, "commands", "board", "nested-bad.md"),
+        "---\nid: 9\ntype: command\ndescription: numeric id\n---\n# Body",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "commands", warnings);
+      expect(
+        warnings.some(
+          (w) => w.includes("TYPE_MISMATCH") && w.includes("commands/board/nested-bad.md"),
+        ),
+      ).toBe(true);
+    });
+
+    it("wires normalization into read-error messages (toReadError channel)", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "broken.md"),
+        `---\nid: broken\ntype: rule\ndescription: "unterminated\n---\n# Body`,
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      expect(
+        warnings.some((w) => w.includes("YAML_PARSE_ERROR") && w.includes("rules/broken.md")),
+      ).toBe(true);
     });
   });
 
