@@ -659,25 +659,43 @@ describe("update command", () => {
   // config, and verify --fix. It must attribute provenance `lastCommand` to the
   // ORIGINATING command (via the caller's snapshotCommandName), not collapse all
   // three into "update".
+  //
+  // CI-RECON-04 interaction: the sibling wave-4 unit D1-SA1.6-07 added
+  // `lastCommand` to the F2.7-F5 idempotency carry set (provenance.ts) — a
+  // byte-identical re-run carries the PRIOR lastCommand forward instead of
+  // re-stamping, so the three fields (generatedAt/lastRunId/lastCommand) keep
+  // naming the one run that produced the current bytes. Consecutive
+  // regenerations of an unchanged project are exactly such no-op re-runs, so
+  // the attribution mapping is only observable on the fresh-stamp path
+  // (`previousLastCommand === null`): each attribution case below removes the
+  // prior provenance manifest first, and the carry itself is asserted once.
   describe("provenance command attribution (D12-SA12.2-02)", () => {
-    it("stamps lastCommand from snapshotCommandName (config→config, verify-fix→update, default→update)", async () => {
+    it("stamps lastCommand from snapshotCommandName (config→config, verify-fix→update, default→update); byte-identical re-runs carry the prior stamp (D1-SA1.6-07)", async () => {
       await createTestProject(tempDir);
       const { runRegenerate } = await import("../../cli/commands/update.js");
       const { readManifest } = await import("../../manifest/hatchJson.js");
       const manifest = await readManifest(tempDir);
       expect(manifest).not.toBeNull();
 
+      const provenancePath = join(tempDir, HATCH3R_DIR, "provenance.json");
       const readLastCommand = async (): Promise<string> =>
-        JSON.parse(
-          await readFile(join(tempDir, HATCH3R_DIR, "provenance.json"), "utf-8"),
-        ).lastCommand;
+        JSON.parse(await readFile(provenancePath, "utf-8")).lastCommand;
 
       await runRegenerate(tempDir, manifest!, { snapshotCommandName: "config" });
       expect(await readLastCommand()).toBe("config");
 
+      // D1-SA1.6-07 carry: re-running with byte-identical output under a
+      // DIFFERENT originating command keeps the prior stamp.
+      await runRegenerate(tempDir, manifest!, { snapshotCommandName: "update" });
+      expect(await readLastCommand()).toBe("config");
+
+      // Fresh-stamp path: with no prior manifest there is no carry, so the
+      // snapshotCommandName mapping is what lands on disk.
+      await rm(provenancePath, { force: true });
       await runRegenerate(tempDir, manifest!, { snapshotCommandName: "verify-fix" });
       expect(await readLastCommand()).toBe("update");
 
+      await rm(provenancePath, { force: true });
       await runRegenerate(tempDir, manifest!, { snapshotCommandName: "update" });
       expect(await readLastCommand()).toBe("update");
     });

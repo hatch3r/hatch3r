@@ -62,6 +62,26 @@ vi.mock("../../../cli/shared/ui.js", async (importOriginal) => {
   };
 });
 
+// D3-SA3.2-11 (D3, CQ5 / P1) / CI-RECON-04: init's interactive flow now refuses
+// to run when stdin is not a TTY (non-TTY preflight, src/cli/commands/init.ts).
+// Under vitest stdin is not a TTY, so the interactive tip test below would trip
+// that guard before reaching its mocked prompts. Force `process.stdin.isTTY =
+// true` per test and restore it afterwards — the established pattern from
+// src/__tests__/cli/init.test.ts's file-level hook. `--yes` short-circuits the
+// gate, so the headless test is unaffected either way.
+let savedStdinIsTTY: boolean | undefined;
+beforeEach(() => {
+  savedStdinIsTTY = process.stdin.isTTY;
+  (process.stdin as { isTTY?: boolean }).isTTY = true;
+});
+afterEach(() => {
+  if (savedStdinIsTTY === undefined) {
+    delete (process.stdin as { isTTY?: boolean }).isTTY;
+  } else {
+    (process.stdin as { isTTY?: boolean }).isTTY = savedStdinIsTTY;
+  }
+});
+
 describe("init post-init tip", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
   let tempDir: string;
