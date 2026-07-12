@@ -71,7 +71,7 @@ Rigor extends from findings to role claims: a role claim missing its evidence cl
 
 Severity-floor directives applied when grading artifact classes — distinct from the six finding-quality tests above, which accept or reject a finding on its evidence.
 
-**Clarification gate (P8 B1).** When grading an agent, command, skill, or rule, a missing ambiguity-detection gate — or one not referencing `agents/shared/user-question-protocol.md`, or one that is exception-only rather than default — is a finding at **Medium minimum**. For entry-point agents and always-on rules, the minimum severity is **High**. Per the Clarification-First Verification behavioral charter directive and the clarification & fan-out discipline pillar P8 B1.
+**Clarification gate (P8 B1).** When grading an agent, command, or skill, a missing ambiguity-detection gate — or one not referencing `agents/shared/user-question-protocol.md`, or one that is exception-only rather than default — is a finding at **Medium minimum**. For entry-point agents, the minimum severity is **High** (rules are non-executing context with no workflow to gate; the always-on B1 rule `rules/hatch3r-clarification-default.md` states the default rather than gating it). Per the Clarification-First Verification behavioral charter directive and the clarification & fan-out discipline pillar P8 B1.
 
 ---
 
