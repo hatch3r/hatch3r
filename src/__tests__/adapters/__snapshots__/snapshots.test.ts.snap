@@ -93,7 +93,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "1f66726280e0ebf465eb41b68bfa54218d39dfb61a180d2c5cd2ba349d86fe9e",
+    "bodyHash": "b871404e86bc21851b496bade7fc1a29c0bb466e567529dd8193989b9340d5e3",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -349,7 +349,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
 [
   {
     "action": "create",
-    "bodyHash": "1f66726280e0ebf465eb41b68bfa54218d39dfb61a180d2c5cd2ba349d86fe9e",
+    "bodyHash": "b871404e86bc21851b496bade7fc1a29c0bb466e567529dd8193989b9340d5e3",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -547,7 +547,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "d2ebbbe25afc508938adbd765240455370cde85f0a1d2b3cfa1f72b538166144",
+    "bodyHash": "57ab0c4ad2a0e1c6e0e014ff0ea8895fdc33f438aac27565c74f7dbe01505743",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",
