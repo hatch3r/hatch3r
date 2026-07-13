@@ -62,7 +62,7 @@ Unlike the other eight vectors, the authentication/secrets/correctness floor bin
 
 ## When to invoke
 
-- **Reviewer pass on security-sensitive PRs** — any PR touching `src/auth/*`, JWT verification, cookie wiring, OAuth client config, WebAuthn ceremony, or release workflow under `.github/workflows/*.yml`.
+- **Reviewer pass** — any code change (always-mode floor per `agents/shared/cq-specialist-roster.md` CQ3 row); coverage focus — the surfaces that receive the deepest pass: `src/auth/*`, JWT verification, cookie wiring, OAuth client config, WebAuthn ceremony, release workflow under `.github/workflows/*.yml`.
 - **Implementer pre-write** — before authoring an auth flow, JWT verification routine, WebAuthn handler, or release workflow, this agent renders the CQ3 checklist as authoring guardrails.
 - **Verifier pre-merge gate** — Verifier invokes before merge when `tags: floor:security` or `tags: floor:content-quality` items are present in the changeset.
 - **CVE response** — invoked when an advisory ≤90 days old matches a dependency in `package.json` lockfiles or a SHA-pinned GitHub Action.
