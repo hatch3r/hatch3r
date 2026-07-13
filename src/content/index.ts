@@ -1629,6 +1629,38 @@ export function selectionSummary(selection: ContentSelection): string {
 // ── MDC companion generation ───────────────────────────────────
 
 /**
+ * Render a description as a single-line `.mdc` frontmatter scalar that cannot
+ * break out of its `description:` line (frontmatter-injection hardening,
+ * pr-resolve 2026-07-13). Line breaks are THE injection vector for a plain
+ * scalar (`description: x\nalwaysApply: true` would append a frontmatter
+ * line), so runs of `\r`/`\n` collapse to a single space first. A value that
+ * would then corrupt or escape the plain-scalar parse — interior `"` or `\`,
+ * a `: ` mapping indicator, a ` #` comment introducer, or a leading YAML
+ * indicator character — is emitted JSON-quoted, which is a valid YAML
+ * double-quoted scalar and the committed corpus `.mdc` convention for
+ * colon-bearing descriptions (e.g. `rules/hatch3r-clarification-default.mdc`).
+ * The rule-parity gate (`scripts/validate-rule-parity.ts`) compares PARSED
+ * descriptions, so the quoting is transparent to it. Well-formed single-line
+ * descriptions pass through byte-identical to the historical raw
+ * interpolation.
+ */
+function mdcDescriptionScalar(description: string): string {
+  const singleLine = description.replace(/\s*[\r\n]+\s*/g, " ").trim();
+  if (singleLine === "") return singleLine;
+  const needsQuoting =
+    // Interior `"`/`\` — kept faithful via JSON escaping rather than dropped.
+    /["\\]/.test(singleLine) ||
+    // `: ` (or trailing `:`) reads as a mapping indicator inside a plain scalar.
+    /:(\s|$)/.test(singleLine) ||
+    // ` #` starts a YAML comment, silently truncating the description.
+    /\s#/.test(singleLine) ||
+    // Leading c-indicators cannot start a plain scalar; `-`/`?`/`:` only
+    // when followed by whitespace (YAML 1.2 §7.3.3 plain-scalar rules).
+    /^(?:[,[\]{}#&*!|>'%@`]|[-?:](?:\s|$))/.test(singleLine);
+  return needsQuoting ? JSON.stringify(singleLine) : singleLine;
+}
+
+/**
  * Generate Cursor-native frontmatter from canonical rule metadata.
  * Maps `scope` (+ a separate `globs` CSV) to `alwaysApply` / `globs` using the
  * same `.md → .mdc` transform the Cursor adapter applies via `resolveRuleGlobs`
@@ -1653,13 +1685,22 @@ export function selectionSummary(selection: ContentSelection): string {
  * Routing the CSV through `csvToGlobList` mirrors the parity gate
  * (`scripts/validate-rule-parity.ts` `csvToSet`) so the emitted `.mdc` glob set
  * matches what the validator derives from the same `.md`.
+ *
+ * Injection hardening (pr-resolve 2026-07-13): `description` is rendered via
+ * {@link mdcDescriptionScalar} and each glob via `JSON.stringify`, so imported
+ * or user-authored values carrying interior `"` / line breaks (which survive
+ * `normaliseGlobs` in `src/importers/cursor.ts` and `csvToGlobList` — both trim
+ * ends only) cannot break out of their frontmatter line and inject e.g.
+ * `alwaysApply: true`. For well-formed inputs (no quotes/backslashes/control
+ * characters) both renderings are byte-identical to the historical raw
+ * interpolation.
  */
 function cursorCompanionFrontmatter(
   description: string,
   scope?: string,
   globs?: string,
 ): string {
-  const lines: string[] = [`description: ${description}`];
+  const lines: string[] = [`description: ${mdcDescriptionScalar(description)}`];
   if (scope === "always") {
     lines.push("alwaysApply: true");
   } else if (scope === "agent-requested") {
@@ -1675,7 +1716,7 @@ function cursorCompanionFrontmatter(
     // globs-less rule → manual-only (alwaysApply: false), per the transform.
     const list = csvToGlobList(globs);
     if (list.length > 0) {
-      lines.push(`globs: [${list.map((g) => `"${g}"`).join(", ")}]`);
+      lines.push(`globs: [${list.map((g) => JSON.stringify(g)).join(", ")}]`);
     } else {
       lines.push("alwaysApply: false");
     }
@@ -1684,7 +1725,7 @@ function cursorCompanionFrontmatter(
     // glob): the patterns live in the scope string itself.
     const list = csvToGlobList(scope);
     if (list.length > 0) {
-      lines.push(`globs: [${list.map((g) => `"${g}"`).join(", ")}]`);
+      lines.push(`globs: [${list.map((g) => JSON.stringify(g)).join(", ")}]`);
     } else {
       lines.push("alwaysApply: false");
     }
