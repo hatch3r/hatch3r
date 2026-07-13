@@ -2,8 +2,10 @@ import { describe, it, expect, afterEach } from "vitest";
 import { mkdtemp, mkdir, writeFile, rm, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
+import { parse as parseYaml } from "yaml";
 
 import { importCursorRules } from "../../importers/cursor.js";
+import { canonicalScopeFields } from "../../importers/shared.js";
 
 /**
  * Cursor import runner (Cycle 8) — conflict detection, dry-run, summary
@@ -182,5 +184,145 @@ describe("cursor importer (import runner)", () => {
     // line accompanies the glob case.
     expect(globMdc).toContain('globs: ["**/*.ts", "**/*.tsx"]');
     expect(globMdc).not.toContain("alwaysApply: true");
+  });
+
+  /** Parse the YAML frontmatter block out of an emitted canonical `.md`. */
+  function mdFrontmatter(md: string): Record<string, unknown> {
+    const match = md.match(/^---\n([\s\S]*?)\n---/);
+    expect(match).not.toBeNull();
+    return parseYaml(match![1]!) as Record<string, unknown>;
+  }
+
+  it("(h) glob-scoped source emits canonical two-line scope, not inline CSV (D1-SA1.1-09)", async () => {
+    const root = await makeProject({ "typescript-style.mdc": globRule });
+
+    await importCursorRules({ rootDir: root, dryRun: false });
+    const md = await readFile(
+      join(overridesRulesDir(root), "hatch3r-cursor-import-typescript-style.md"),
+      "utf-8",
+    );
+
+    const fm = mdFrontmatter(md);
+    expect(fm.scope).toBe("conditional");
+    expect(fm.globs).toBe("**/*.ts,**/*.tsx");
+    // Glob-set parity with scripts/validate-rule-parity.ts::csvToSet — the
+    // emitted CSV splits to exactly the source globs.
+    expect(new Set((fm.globs as string).split(",").map((g) => g.trim()))).toEqual(
+      new Set(["**/*.ts", "**/*.tsx"]),
+    );
+    // The deprecated inline-CSV form never appears in the raw text.
+    expect(md).toContain("scope: conditional");
+    expect(md).not.toMatch(/scope:.*\*\*/);
+  });
+
+  it("(i) scope 'always' passes through unchanged with no globs line", async () => {
+    const root = await makeProject({ "always.mdc": alwaysRule });
+
+    await importCursorRules({ rootDir: root, dryRun: false });
+    const md = await readFile(
+      join(overridesRulesDir(root), "hatch3r-cursor-import-always.md"),
+      "utf-8",
+    );
+
+    const fm = mdFrontmatter(md);
+    expect(fm.scope).toBe("always");
+    expect(fm.globs).toBeUndefined();
+    expect(md).not.toContain("globs:");
+  });
+
+  it("(j) single-glob source emits conditional + single-entry globs", async () => {
+    const singleGlobRule = [
+      "---",
+      "description: Python rules",
+      "globs: src/**/*.py",
+      "alwaysApply: false",
+      "---",
+      "Use type hints.",
+      "",
+    ].join("\n");
+    const root = await makeProject({ "python.mdc": singleGlobRule });
+
+    await importCursorRules({ rootDir: root, dryRun: false });
+    const md = await readFile(
+      join(overridesRulesDir(root), "hatch3r-cursor-import-python.md"),
+      "utf-8",
+    );
+
+    const fm = mdFrontmatter(md);
+    expect(fm.scope).toBe("conditional");
+    expect(fm.globs).toBe("src/**/*.py");
+  });
+
+  it("(k) description-only source (no scope) emits neither scope nor globs", async () => {
+    const noScopeRule = [
+      "---",
+      "description: A rule with no activation scope declared in the source",
+      "---",
+      "Body only.",
+      "",
+    ].join("\n");
+    const root = await makeProject({ "no-scope.mdc": noScopeRule });
+
+    await importCursorRules({ rootDir: root, dryRun: false });
+    const md = await readFile(
+      join(overridesRulesDir(root), "hatch3r-cursor-import-no-scope.md"),
+      "utf-8",
+    );
+
+    const fm = mdFrontmatter(md);
+    expect(fm.scope).toBeUndefined();
+    expect(fm.globs).toBeUndefined();
+    expect(md).not.toContain("scope:");
+    expect(md).not.toContain("globs:");
+  });
+});
+
+describe("canonicalScopeFields (D1-SA1.1-09 scope normalizer)", () => {
+  it("passes 'always' and 'agent-requested' through without globs", () => {
+    expect(canonicalScopeFields("always")).toEqual({ scope: "always" });
+    expect(canonicalScopeFields("agent-requested")).toEqual({ scope: "agent-requested" });
+  });
+
+  it("passes 'conditional' through, keeping its separate globs CSV when present", () => {
+    expect(canonicalScopeFields("conditional", "**/*.ts")).toEqual({
+      scope: "conditional",
+      globs: "**/*.ts",
+    });
+    expect(canonicalScopeFields("conditional")).toEqual({ scope: "conditional" });
+  });
+
+  it("rewrites an inline glob CSV to the canonical two-line form", () => {
+    expect(canonicalScopeFields("**/*.ts,**/*.tsx")).toEqual({
+      scope: "conditional",
+      globs: "**/*.ts,**/*.tsx",
+    });
+    expect(canonicalScopeFields("src/**/*.py")).toEqual({
+      scope: "conditional",
+      globs: "src/**/*.py",
+    });
+  });
+
+  it("returns no fields for an undefined scope", () => {
+    expect(canonicalScopeFields(undefined)).toEqual({});
+  });
+
+  it("returns no fields for an empty or whitespace-only scope", () => {
+    // Guard added pr-resolve 2026-07-13: an empty-string scope previously fell
+    // through to the inline-CSV branch and emitted `scope: conditional` +
+    // `globs: ""` — now it is treated as absent, matching
+    // cursorCompanionFrontmatter's truthiness handling.
+    expect(canonicalScopeFields("")).toEqual({});
+    expect(canonicalScopeFields("   ")).toEqual({});
+    expect(canonicalScopeFields(" \t ")).toEqual({});
+  });
+
+  it("keyword wins over a glob literally named 'always' (pre-existing collision semantics)", () => {
+    // A source glob whose entire text is the literal token "always" (or
+    // "agent-requested"/"conditional") cannot be expressed through this
+    // normalizer: the sanctioned-keyword branch matches first, so the value is
+    // interpreted as `scope: always`, never as a glob CSV. Pinned deliberately
+    // — changing keyword-wins would require migrating every importer and the
+    // `.md → .mdc` transform table in lockstep.
+    expect(canonicalScopeFields("always")).toEqual({ scope: "always" });
   });
 });

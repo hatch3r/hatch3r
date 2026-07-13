@@ -284,9 +284,9 @@ After the loop exits clean, Phase 4 specialists run bounded by the orchestrator-
 
 - `hatch3r-ui` (CQ1) — dispatch when any file matches `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` (covers WCAG criteria, ARIA, reduced-motion scope).
 - `hatch3r-ux` (CQ2) — dispatch when UX flow files (route handlers, page components, form components, navigation, empty/error/loading states) are touched.
-- `hatch3r-security` (CQ3) — dispatch when `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline files, or dependency manifest/lockfile are touched (covers OWASP, supply-chain, OAuth 2.1, OIDC, DPoP, WebAuthn server, dependency review).
+- `hatch3r-security` (CQ3, always-mode floor) — dispatch on any code change (absorbs legacy security-auditor scope); coverage focus: `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline files, dependency manifest/lockfile, and DB rules / data flows / privacy invariants (covers OWASP, supply-chain, OAuth 2.1, OIDC, DPoP, WebAuthn server, dependency review).
 - `hatch3r-reliability` (CQ4) — dispatch when service handlers, OpenTelemetry instrumentation, SLO files, or RFC 9457 error responses are touched.
-- `hatch3r-testability` (CQ5) — dispatch when parsers, payment flows, RPC contracts, AI feature handlers, or test files are touched (per-feature mandate-map from CONSTITUTION §2B CQ5).
+- `hatch3r-testability` (CQ5, always-mode floor) — dispatch on any code change (absorbs legacy test-writer scope); coverage focus: parsers, payment flows, RPC contracts, AI feature handlers, test files (per-feature mandate-map from CONSTITUTION §2B CQ5).
 - `hatch3r-scalability` (CQ6) — dispatch when stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, or connection-pool config is touched.
 - `hatch3r-performance` (CQ7) — dispatch when LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size-affecting imports, or N+1 query candidates are touched (CQ7 enforces budget thresholds and runs measurement when a budget breach is detected).
 - `hatch3r-maintainability` (CQ8) — dispatch when expand-contract migrations, API breaking-change candidates, duplication-risk patterns, or high cyclomatic-complexity branches are touched.
@@ -295,7 +295,7 @@ After the loop exits clean, Phase 4 specialists run bounded by the orchestrator-
 SSOT specialists from `SPECIALIST_TRIGGER_TABLE` dispatched alongside the CQ vector:
 
 - `hatch3r-docs-writer` (evaluate) — dispatch when reviewed changes touch public API, CLI surface, or end-user docs.
-- `hatch3r-lint-fixer` (always) — dispatch on every reviewed code mutation to verify project-configured linters and type-check.
+- `hatch3r-lint-fixer` (conditional) — dispatch when lint or type errors are present after implementation, to apply project-configured linters and type-check.
 - `hatch3r-architect` (conditional) — dispatch when reviewed changes cross architectural seams (new module, dependency-graph change, cross-layer call).
 - `hatch3r-devops` (conditional) — dispatch when `.github/workflows/*.yml`, infrastructure manifests, or release pipeline files change.
 
