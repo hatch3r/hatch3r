@@ -585,10 +585,13 @@ describe("status command", () => {
   // is in vitest.config.ts: status.test.ts + verify.test.ts run in a separate
   // "heavy-fs" project at a later sequence.groupOrder, so they execute ALONE
   // after the parallel "main" group drains — no concurrent FS churn. The prior
-  // per-test `retry` is gone (the contention it papered over no longer occurs);
-  // `timeout` stays as a margin for the genuinely-large FS batch. Assertions
+  // per-test `retry` is gone (the contention it papered over no longer occurs).
+  // No suite-level `timeout` here: a per-suite value overrides the heavy-fs
+  // project's platform-aware testTimeout (120s on win32, 30s elsewhere), so a
+  // flat 30s override silently clamped windows-latest back to 30s — the exact
+  // spurious-timeout class the 120s headroom exists to absorb. Assertions
   // (0 false orphans / in-sync) are unchanged.
-  describe("monorepo per-package drift (D14-1)", { timeout: 30_000 }, () => {
+  describe("monorepo per-package drift (D14-1)", () => {
     it("reports a 2-package monorepo in-sync with 0 false orphans", async () => {
       // Two-package workspace fixture. The package directories do not need to
       // pre-exist — sync's safeWriteFile creates `<package>/...` parents
