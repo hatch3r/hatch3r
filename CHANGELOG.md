@@ -2,6 +2,20 @@
 
 All notable changes to hatch3r are documented in this file.
 
+## [2.6.0] - Unreleased
+
+### Headline
+
+(Scaffold — completed at release cut.) Sub-agent quality batch: per-sub-agent model-class allocation (economy/default/strongest, adapter-mapped), a sub-agent context-budget rule (input-frame caps + distilled returns, fan-out never reduced), a `hatch3r-plan` routing command, a mandatory plan-execution handoff prompt on all planning flows with `hatch3r-workflow --plan-file` intake, `hatch3r-revision` → `hatch3r-rework` (plans, never fixes inline), the slash-picker teaser fix for pre-2.5 repos + companion subcommands, an emission-completeness check, and a configurable learnings cap (default 150) with a consolidation pass.
+
+### Adapters
+
+### Content
+
+### CLI
+
+### Governance
+
 ## [2.5.0] - 2026-07-13
 
 ### Headline
