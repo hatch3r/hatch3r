@@ -26,6 +26,7 @@ import type { CanonicalFile } from "../types.js";
 import { HATCH3R_PREFIX } from "../types.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
 import { cursorCompanionFrontmatter, resolveUserContentRoot } from "../content/index.js";
+import { canonicalScopeFields } from "./shared.js";
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
@@ -320,9 +321,12 @@ export interface CursorImportSummary {
 /**
  * Compose the canonical `.md` payload (frontmatter + body) for an imported
  * rule. Frontmatter carries the namespaced id, `type: rule`, description,
- * the `cursor-import` tag, and `scope` when the source declared one. Mirrors
- * the `---\n<yaml>\n---\n<body>` shape that `composeArtifactFile`
- * (`src/content/userContent.ts`) emits for user artifacts.
+ * the `cursor-import` tag, and — when the source declared a scope — the
+ * canonical scope fields per `canonicalScopeFields` (D1-SA1.1-09: a glob CSV
+ * is emitted as `scope: conditional` + `globs: "<csv>"`, never as the
+ * deprecated inline-CSV `scope`). Mirrors the `---\n<yaml>\n---\n<body>`
+ * shape that `composeArtifactFile` (`src/content/userContent.ts`) emits for
+ * user artifacts.
  */
 function composeCanonicalMd(rule: ImportedCursorRule): string {
   const fm: Record<string, unknown> = {
@@ -331,9 +335,9 @@ function composeCanonicalMd(rule: ImportedCursorRule): string {
     description: rule.canonical.description,
     tags: rule.canonical.tags ?? ["cursor-import"],
   };
-  if (rule.canonical.scope !== undefined) {
-    fm.scope = rule.canonical.scope;
-  }
+  const scopeFields = canonicalScopeFields(rule.canonical.scope, rule.canonical.globs);
+  if (scopeFields.scope !== undefined) fm.scope = scopeFields.scope;
+  if (scopeFields.globs !== undefined) fm.globs = scopeFields.globs;
   const yaml = yamlStringify(fm).trim();
   const body = rule.canonical.content.startsWith("\n")
     ? rule.canonical.content

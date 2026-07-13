@@ -20,7 +20,7 @@ import { resolveBundledContentRoot } from "../content/contentRoot.js";
 import { parseFrontmatter } from "../adapters/canonical.js";
 import { verbose } from "../cli/shared/ui.js";
 import { atomicWriteFile } from "../merge/safeWrite.js";
-import type { ImportedRule } from "./shared.js";
+import { canonicalScopeFields, type ImportedRule } from "./shared.js";
 import { parseAgentsMdFile } from "./agentsMd.js";
 import { parseAwesomeCursorrulesFile } from "./awesomeCursorrules.js";
 import { parseCopilotInstructionsDir } from "./copilot.js";
@@ -170,7 +170,10 @@ export interface FormatImportSummary {
 /**
  * Compose the canonical `.md` payload (frontmatter + body) for an imported
  * rule. Frontmatter carries the namespaced id, `type: rule`, description,
- * the format's import tag, and `scope` when the source declared one. Mirrors
+ * the format's import tag, and — when the source declared a scope — the
+ * canonical scope fields per `canonicalScopeFields` (D1-SA1.1-09: a glob CSV
+ * is emitted as `scope: conditional` + `globs: "<csv>"`, never as the
+ * deprecated inline-CSV `scope`). Mirrors
  * `src/importers/cursor.ts::composeCanonicalMd` so cursor and the other three
  * formats emit byte-identical canonical files.
  */
@@ -181,9 +184,9 @@ function composeCanonicalMd(canonical: CanonicalFile): string {
     description: canonical.description,
     tags: canonical.tags ?? [],
   };
-  if (canonical.scope !== undefined) {
-    fm.scope = canonical.scope;
-  }
+  const scopeFields = canonicalScopeFields(canonical.scope, canonical.globs);
+  if (scopeFields.scope !== undefined) fm.scope = scopeFields.scope;
+  if (scopeFields.globs !== undefined) fm.globs = scopeFields.globs;
   const yaml = yamlStringify(fm).trim();
   const body = canonical.content.startsWith("\n")
     ? canonical.content

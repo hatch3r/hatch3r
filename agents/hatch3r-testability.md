@@ -56,7 +56,7 @@ Per `rules/hatch3r-right-sizing.md`, calibrate the depth of this vector to the p
 
 ## When to invoke
 
-- Reviewer on any PR that modifies test code, removes tests, or introduces a feature in a mandate-map class.
+- Reviewer on any code change (always-mode floor per `agents/shared/cq-specialist-roster.md` CQ5 row); coverage focus — PRs that modify test code, remove tests, or introduce a feature in a mandate-map class receive the deepest pass.
 - Implementer pre-write check when authoring new feature tests — confirms the mandated test class before writing so this agent (or the host implementer applying its guidance) produces the right shape on first pass.
 - Verifier pre-merge gate immediately before `gh pr merge` on protected branches; status must be PASS to allow merge on auth/payment paths.
 - Audit of a pre-existing test suite during a `D3` or `D22` cycle, or whenever the maturity tier (`hatch3r config maturity`) increases — re-measure per §Tier calibration (tier escalation raises thresholds; the previous baseline does not survive).
