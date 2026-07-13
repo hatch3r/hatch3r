@@ -165,6 +165,31 @@ describe("import runner (runImport / runFormatImport)", () => {
     expect(mdc).toContain("alwaysApply: true");
   });
 
+  it("runImport copilot emits canonical two-line scope for applyTo globs (D1-SA1.1-09)", async () => {
+    const root = await makeRepo();
+    const instructionsDir = join(root, ".github", "instructions");
+    await mkdir(instructionsDir, { recursive: true });
+    await writeFile(
+      join(instructionsDir, "typescript.instructions.md"),
+      ["---", "description: TS conventions", 'applyTo: "**/*.ts, **/*.tsx"', "---", "Prefer const.", ""].join(
+        "\n",
+      ),
+    );
+
+    const [summary] = await runImport({ rootDir: root, target: "copilot", dryRun: false });
+    expect(summary!.converted).toHaveLength(1);
+
+    const md = await readFile(
+      join(overridesRulesDir(root), "hatch3r-copilot-import-typescript.md"),
+      "utf-8",
+    );
+    // The runner's composer never emits the deprecated inline-CSV scope form:
+    // glob-bearing sources land as `scope: conditional` + a `globs:` CSV line.
+    expect(md).toContain("scope: conditional");
+    expect(md).toContain('globs: "**/*.ts,**/*.tsx"');
+    expect(md).not.toMatch(/scope:\s*["']?\*\*/);
+  });
+
   it("runImport windsurf writes the legacy .windsurfrules rule to disk", async () => {
     const root = await makeRepo();
     await writeFile(join(root, ".windsurfrules"), "Numbered windsurf rules");
