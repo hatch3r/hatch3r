@@ -59,9 +59,9 @@ Do NOT invoke when the repository already contains an implementation — that ca
 
 ## Deliverables
 
-Produce all eight as separate markdown files at the orchestrator-provided `output_root` (default `docs/specs/`). Filenames follow the `/hatch3r-spec` **Deliverable Manifest** (`commands/hatch3r-spec.md` → Deliverable Manifest), the single source of truth — the headings below mirror it, and the manifest wins on any discrepancy. Paths are returned in the structured result:
+Produce all eight as separate markdown files at the orchestrator-provided `output_root` (default `docs/specs/`). Reject an `output_root` that is an absolute path or contains a `../` segment — write only under the repository root. Filenames follow the `/hatch3r-spec` **Deliverable Manifest** (`commands/hatch3r-spec.md` → Deliverable Manifest), the single source of truth — the headings below mirror it, and the manifest wins on any discrepancy. Paths are returned in the structured result:
 
-### 1. Market Research (`docs/specs/market-research.md`)
+### 1. Market Research (`<output_root>/market-research.md`)
 
 - **TAM** (Total Addressable Market): dollar value with ≥2 cited sources, sizing methodology named (top-down value-chain, bottom-up usage-based, or value-theory).
 - **SAM** (Serviceable Addressable Market): subset of TAM the product can serve given current geography, language, regulation.
@@ -69,20 +69,20 @@ Produce all eight as separate markdown files at the orchestrator-provided `outpu
 - **Macro trends**: 3–5 trends with citations, each tagged confidence (H/M/L) per quality charter §1.
 - Each claim carries ≥2 independent sources per `agents/shared/rigor-contract.md` (URL + access date + author/org + trust tier).
 
-### 2. Competitive Analysis (`docs/specs/competitive-analysis.md`)
+### 2. Competitive Analysis (`<output_root>/competitive-analysis.md`)
 
 - **≥3 named competitors**, classified direct or adjacent.
 - **Feature matrix** (rows = features, columns = competitors + this product), cells filled with present/partial/absent + evidence link.
 - **Differentiation thesis**: one paragraph stating why this product wins on which axis (price, speed, accessibility, depth, integration breadth).
 - **Threat assessment**: counter-argument per competitor — what would they do if this product launches? Per quality charter §13 adversarial thinking.
 
-### 3. User Personas (`docs/specs/personas.md`)
+### 3. User Personas (`<output_root>/personas.md`)
 
 - **≥2 personas** (count negotiated in §0 ambiguity gate).
 - Per persona: name + role + goals (3–5 measurable) + frustrations with current alternatives (3–5) + adoption triggers (the specific event that makes them switch).
 - Apply maturity-tier framing per `agents/shared/quality-charter.md` §5: solo (end-user + maintainer), team (+team lead), scaleup (+ops), enterprise (+compliance + security).
 
-### 4. Tech-Stack Picks (`docs/specs/tech-stack.md`)
+### 4. Tech-Stack Picks (`<output_root>/tech-stack.md`)
 
 Named picks across six layers — each with a 2-row trade-off table (chosen vs strongest alternative):
 
@@ -97,7 +97,7 @@ Named picks across six layers — each with a 2-row trade-off table (chosen vs s
 
 Each pick cites ≥2 reputable sources ≤12 months old (vendor docs, benchmarks, peer-reviewed studies). Verify currency with web research per quality charter §15.
 
-### 5. PRD (`docs/specs/prd.md`)
+### 5. PRD (`<output_root>/prd.md`)
 
 Nine sections — concrete, testable, non-placeholder:
 
@@ -111,7 +111,7 @@ Nine sections — concrete, testable, non-placeholder:
 - **Resolved clarifications** — the single auditable record of every answered §0/clarification question, one row per question: `Q → chosen answer → default-applied? (yes/no)` (`yes` = the declared default-if-no-response was taken; `no` = the user answered explicitly). A question lives in exactly one place: answered here, unanswered under Open questions. Maturity-dial calibrated per `agents/shared/quality-charter.md` §5: mandatory at team, scaleup, and enterprise tiers; at solo, record rows only when ≥1 §0 question was asked — omit the section rather than emit it empty.
 - **Living-document clause** — PRD evolves; each change appends to a changelog inside the file.
 
-### 6. Acceptance Criteria (`docs/specs/acceptance-criteria.md`)
+### 6. Acceptance Criteria (`<output_root>/acceptance-criteria.md`)
 
 Per-feature Given/When/Then blocks. Each criterion is:
 
@@ -121,7 +121,7 @@ Per-feature Given/When/Then blocks. Each criterion is:
 
 Avoid the anti-pattern: "Improve UX" — instead: "Persona A completes journey X in ≤3 clicks, axe-core reports 0 serious/critical violations on the journey routes."
 
-### 7. Risk Inventory (`docs/specs/risk-inventory.md`)
+### 7. Risk Inventory (`<output_root>/risk-inventory.md`)
 
 Per-risk row in a table:
 
@@ -133,7 +133,7 @@ Per-risk row in a table:
 - **Owner**: role or named persona-of-record.
 - Cover at minimum: market risk, competitive risk, tech-stack risk, regulatory risk, team-capacity risk, supply-chain risk per `agents/shared/quality-charter.md` §Supply-chain floor.
 
-### 8. Test Plan (`docs/specs/test-plan.md`)
+### 8. Test Plan (`<output_root>/test-plan.md`)
 
 Per-feature mandate map per `rules/hatch3r-testing.md`:
 
@@ -188,19 +188,19 @@ Emit `sub_agents_spawned: {count, rationale}` in the output contract.
 
 ## Output contract
 
-Return a structured result the orchestrator can integrate:
+Return a structured result the orchestrator can integrate. `<output_root>` in the paths below resolves to the orchestrator-provided `output_root` value (default `docs/specs/`) — the returned paths always name the directory the files were actually written to:
 
 ```yaml
 status: COMPLETE | PARTIAL | BLOCKED
 deliverables:
-  market_research: docs/specs/market-research.md
-  competitive_analysis: docs/specs/competitive-analysis.md
-  personas: docs/specs/personas.md
-  tech_stack: docs/specs/tech-stack.md
-  prd: docs/specs/prd.md
-  acceptance_criteria: docs/specs/acceptance-criteria.md
-  risk_inventory: docs/specs/risk-inventory.md
-  test_plan: docs/specs/test-plan.md
+  market_research: <output_root>/market-research.md
+  competitive_analysis: <output_root>/competitive-analysis.md
+  personas: <output_root>/personas.md
+  tech_stack: <output_root>/tech-stack.md
+  prd: <output_root>/prd.md
+  acceptance_criteria: <output_root>/acceptance-criteria.md
+  risk_inventory: <output_root>/risk-inventory.md
+  test_plan: <output_root>/test-plan.md
 proof_trace:
   - claim: <state-dependent assertion>
     command: <bash/Read/grep invocation>

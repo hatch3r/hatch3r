@@ -15,9 +15,9 @@ At a quality gate, the orchestrator MAY delegate to one or more of the 10 CQ spe
 |-----------|------------|---------|
 | CQ1 UI | `hatch3r-ui` | Files matching `**/*.{tsx,jsx,vue,svelte}`, Angular `*.component.{ts,html}`, theme/design-token configs (`tailwind.config.{js,ts}`, `theme.ts`), or source files under `**/components/**` |
 | CQ2 UX | `hatch3r-ux` | Route-transition and page components, form components, navigation, empty/error/loading states, microcopy or i18n strings changed, locale-catalog files (`locales/` / `i18n/`) |
-| CQ3 Security | `hatch3r-security` | `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline, dependency manifest/lockfile, DB rules/data flows/privacy invariants |
+| CQ3 Security | `hatch3r-security` | Any code change (always-mode floor — absorbs legacy security-auditor scope); coverage focus: `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline, dependency manifest/lockfile, DB rules/data flows/privacy invariants |
 | CQ4 Reliability | `hatch3r-reliability` | Service handlers, OTel instrumentation, SLO files, RFC 9457 error responses |
-| CQ5 Testability | `hatch3r-testability` | Parsers, payment flows, RPC contracts, AI feature handlers, test files |
+| CQ5 Testability | `hatch3r-testability` | Any code change (always-mode floor — absorbs legacy test-writer scope); coverage focus: parsers, payment flows, RPC contracts, AI feature handlers, test files |
 | CQ6 Scalability | `hatch3r-scalability` | Stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, connection-pool config |
 | CQ7 Performance | `hatch3r-performance` | LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size imports, N+1 query candidates |
 | CQ8 Maintainability | `hatch3r-maintainability` | Expand-contract migrations, API breaking-change candidates, duplication-risk patterns, high cyclomatic-complexity branches |

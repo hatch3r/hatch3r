@@ -47,6 +47,34 @@ export function splitFrontmatter(rawContent: string): {
 }
 
 /**
+ * Normalize a parsed canonical scope into the frontmatter fields the canonical
+ * `.md` form requires (D1-SA1.1-09 emitter mandate, mirrored in
+ * `.claude/rules/content-authoring.md` §Rule Scope Transform):
+ *
+ *   - `"always"` / `"agent-requested"` / `"conditional"` — sanctioned keywords,
+ *     passed through (`conditional` keeps its separate `globs` CSV when present).
+ *   - any other non-empty value — a glob CSV carried inline in `scope` (the
+ *     DEPRECATED legacy form the source parsers produce); rewritten to the
+ *     canonical two-line form `scope: conditional` + `globs: "<csv>"`. The CSV
+ *     string is passed through verbatim, so the glob set the parity gate derives
+ *     (`scripts/validate-rule-parity.ts::csvToSet`) is unchanged.
+ *   - `undefined` or empty/whitespace-only — no scope; both fields absent
+ *     (matches `cursorCompanionFrontmatter`'s truthiness handling, which
+ *     treats a falsy scope as scope-less rather than emitting empty fields).
+ */
+export function canonicalScopeFields(
+  scope: string | undefined,
+  globs?: string,
+): { scope?: string; globs?: string } {
+  if (scope === undefined || scope.trim() === "") return {};
+  if (scope === "always" || scope === "agent-requested") return { scope };
+  if (scope === "conditional") {
+    return globs !== undefined ? { scope, globs } : { scope };
+  }
+  return { scope: "conditional", globs: scope };
+}
+
+/**
  * Derive a filesystem-safe kebab-case slug from an arbitrary base name. Slashes
  * (from nested source paths) collapse to hyphens so a nested instruction file
  * maps to a flat canonical id. Lowercases, collapses runs of non-alphanumeric
