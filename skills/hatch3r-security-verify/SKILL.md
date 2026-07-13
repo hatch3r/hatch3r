@@ -34,7 +34,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 
 This skill is the verification HARNESS — it declares HOW each security gate is checked. The DISPATCHER that decides WHEN to run it is the CQ specialist agent:
 
-- `agents/hatch3r-security.md` — invokes this skill as the closing security gate (CQ3) on auth-touching PRs and release-prep flows. The agent contributes the review trigger and Phase-4 dispatch; this skill contributes the 8-gate procedure.
+- `agents/hatch3r-security.md` — invokes this skill as the closing security gate (CQ3) on auth-touching PRs and release-prep flows (a skill-invocation timing cue for the maintainer, not an agent-dispatch condition). The agent contributes the review trigger and Phase-4 dispatch; this skill contributes the 8-gate procedure.
 
 No duplication: the agent decides WHEN, this skill defines HOW.
 
