@@ -102,7 +102,7 @@
     "chalk": "5.6.2",
     "commander": "15.0.0",
     "inquirer": "14.0.2",
-    "ora": "9.4.0",
+    "ora": "9.4.1",
     "p-limit": "^7.3.0",
     "proper-lockfile": "4.1.2",
     "update-notifier": "7.3.1",
