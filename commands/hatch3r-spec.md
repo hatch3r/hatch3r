@@ -19,6 +19,7 @@ parallel_tool_default: true
 sub_agents_spawned:
   count: 1
   rationale: "one spec sub-agent per invocation — chosen between greenfield/brownfield by project-state detection (not parallel; mutually exclusive)"
+  task_structure: sequential
 ---
 
 # /hatch3r-spec
