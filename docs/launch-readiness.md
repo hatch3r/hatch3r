@@ -19,9 +19,9 @@ This document is the single decision point. If a prerequisite is not GREEN, the 
 
 | Field | Value |
 |-------|-------|
-| Current readiness | NO-GO (Cycle 12 refresh, 2026-07-11) — see §3 status snapshot. The launch this gate governs is the T2 promotion wave (Show HN, r/ClaudeAI), HELD by the PRD §1 distribution HOLD; T0/T1 storefront + directory submissions clear separately in PRD §22. |
-| Last reviewed | 2026-07-11 (Cycle 12) |
-| Next review trigger | Any §2 prerequisite flips RED→GREEN, or the PRD §1 distribution HOLD's named-blocker cluster clears |
+| Current readiness | NO-GO (v2.5.0 release-cut refresh, 2026-07-13) — see §3 status snapshot. The launch this gate governs is the T2 promotion wave (Show HN, r/ClaudeAI); the PRD §1 HOLD was dispositioned cleared-with-exception (2026-07-12, C12-CL1-1): the named-blocker Critical cluster is registry-done, so T2 now waits only on the three human acts — T0 storefront-count repair, T1 directory submissions, and a GO row in §6/the decision log. |
+| Last reviewed | 2026-07-13 (v2.5.0 release cut) |
+| Next review trigger | Any §2 prerequisite flips, or any of the three remaining human acts (T0 storefront repair, T1 submissions, GO decision row) lands |
 
 ## 2. Prerequisites
 
@@ -36,18 +36,18 @@ All six must read GREEN before any external-facing launch posts. Each row cites 
 | P5 | Marketplace submission package current (`docs/marketplace-submission.md`) | `docs/marketplace-submission.md` (referenced from F18.3.4) | Status field reads `READY` not `PARTIAL`; counts match `governance/inventory.json`; in-app form URLs reachable |
 | P6 | Latest release published with npm provenance + SBOM | Supply-chain floor policy (npm provenance + SBOM + SHA-pinned actions) | `npm view hatch3r@latest dist.signatures` returns provenance attestation; SBOM artifact present on the corresponding GitHub release |
 
-## 3. Status snapshot (Cycle 12 refresh, 2026-07-11)
+## 3. Status snapshot (v2.5.0 release-cut refresh, 2026-07-13)
 
 | Prereq | Status | Blocker / evidence |
 |--------|--------|--------------------|
-| P1 | RED | PRD §1 distribution HOLD active (re-anchored Cycle 12, 2026-07-11); named blockers D1-SA1.10-01 (registry `execution_status: done`) + D4-SA4.3-01 (`partial` — human branch-protection repo-settings change) not both done, so the T2 promotion wave stays HELD |
-| P2 | RED | AUDIT-REPORT Cycle-12 distribution recommendation = Staged GO (T2 promotion held), not full GO; PRD §1 posture pointer resolves to "Not Ready (distribution + release)" |
+| P1 | GREEN | Named-blocker cluster registry-done: D1-SA1.10-01 (`done`, commit a7a6212) + D4-SA4.3-01 (`done` 2026-07-12 — branch-protection contract applied, drift probe green, actions run 29204707085); zero open Criticals in the live registry; HOLD dispositioned cleared-with-exception (PRD v4.10, C12-CL1-1) |
+| P2 | RED | No full-GO distribution recommendation and no GO decision-log row yet — the cleared-with-exception ruling holds T2 on the three human acts (T0 storefront repair, T1 directory submissions, GO row) |
 | P3 | GREEN | PRD §5.x is standards-watch only; PRD §14 records the AAIF-stance gate satisfied |
-| P4 | GREEN | PRD §14 documents npm/CLI + Cursor + Claude Code marketplace lanes as live channels; §14 records the 3-lane-documented gate satisfied. Sub-note (not a launch blocker): `add <pack>` pack-install remains a stub (`src/cli/commands/add.ts`) — a pack-supply feature, not one of the 3 distribution lanes |
+| P4 | GREEN | PRD §14 documents npm/CLI + Cursor + Claude Code marketplace lanes as live channels; §14 records the 3-lane-documented gate satisfied. Prior sub-note resolved: `add <pack>` shipped as a trust-gated v1 installer in 2.5.0 (Cycle-12 CL-2, D5-SA5.3-09) |
 | P5 | AMBER | `docs/marketplace-submission.md` Status = PARTIAL (agent portion done); human in-app form submissions pending (PRD §1 "submissions pending") |
-| P6 | GREEN | npm provenance live — 2.0.0 (published 2026-06-22) and 2.2.0 (2026-07-08) both carry SLSA-v1 provenance attestations; the 2.2.0 GitHub release ships an `sbom.cdx.json` SBOM asset (verified `npm view hatch3r@2.0.0 dist.attestations` + `gh release view v2.2.0`, 2026-07-11) |
+| P6 | GREEN | v2.5.0 (published 2026-07-13) verified same-day: `npm view hatch3r@2.5.0 dist.attestations` returns SLSA-v1 provenance; `npm audit signatures` on a scratch install reports 101 verified registry signatures + 7 verified attestations, 0 invalid; `gh release view v2.5.0` ships the `sbom.cdx.json` SBOM asset; dist-tag `latest` = 2.5.0 |
 
-Overall: **NO-GO** for the T2 promotion wave — P1/P2 stay RED under the PRD §1 distribution HOLD until its named-blocker cluster clears and a GO decision-log row lands.
+Overall: **NO-GO** for the T2 promotion wave — P2 RED (no GO decision row) + P5 AMBER (submissions pending); P1 flipped GREEN at this refresh, so the gate now waits on human acts only, not engineering.
 
 ## 4. Launch sequence (recommended)
 
@@ -87,6 +87,7 @@ Append one row per launch-go/no-go decision. Date in ISO format. Status snapshot
 | 2026-07-07 | release/2.1.1 maintainers | (none — no launch attempted) | not evaluated at cut (backfilled Cycle 12) | NO-GO (implicit) | 2.1.1 published; §7 §3 re-check missed |
 | 2026-07-08 | release/2.2.0 maintainers | (none — no launch attempted) | not evaluated at cut (backfilled Cycle 12) | NO-GO (implicit) | 2.2.0 published with provenance + `sbom.cdx.json` SBOM asset; §7 §3 re-check missed |
 | 2026-07-11 | Cycle-12 audit-execute | (none — gate refresh) | RED/RED/GREEN/GREEN/AMBER/GREEN | NO-GO | §2 P1/P2/P4 criteria re-keyed to canonical-source pointers (D18-SA18.3-03); P6 backfilled GREEN with provenance + SBOM evidence (D4-SA4.4-03); T2 promotion remains HELD by the PRD §1 HOLD |
+| 2026-07-13 | release/2.5.0 maintainers | (none — no launch attempted) | GREEN/RED/GREEN/GREEN/AMBER/GREEN | NO-GO | 2.5.0 published with SLSA-v1 provenance + `sbom.cdx.json` (verified same-day, §3 P6); P1 flipped GREEN — HOLD cleared-with-exception (C12-CL1-1), Critical cluster registry-done; T2 waits on T0 storefront repair + T1 submissions + a GO row |
 
 ## 7. Maintenance
 
