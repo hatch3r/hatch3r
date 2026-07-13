@@ -359,10 +359,13 @@ describe("verify command", () => {
   // is in vitest.config.ts: status.test.ts + verify.test.ts run in a separate
   // "heavy-fs" project at a later sequence.groupOrder, so they execute ALONE
   // after the parallel "main" group drains — no concurrent FS churn. The prior
-  // per-test `retry` is gone (the contention it papered over no longer occurs);
-  // `timeout` stays as a margin for the genuinely-large FS batch. Assertions
+  // per-test `retry` is gone (the contention it papered over no longer occurs).
+  // No per-test `timeout` here: a per-test value overrides the heavy-fs
+  // project's platform-aware testTimeout (120s on win32, 30s elsewhere), so a
+  // flat 30s override silently clamped windows-latest back to 30s — the exact
+  // spurious-timeout class the 120s headroom exists to absorb. Assertions
   // (verify PASS / 0 false orphans) are unchanged.
-  it("verifies a 2-package monorepo as PASS with no false-orphan drift (D14-1)", { timeout: 30_000 }, async () => {
+  it("verifies a 2-package monorepo as PASS with no false-orphan drift (D14-1)", async () => {
     await createTestProject(tempDir, {
       tools: ["cursor", "claude"],
       packages: [
