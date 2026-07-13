@@ -11,7 +11,6 @@ import {
   TAG_PERFORMANCE,
   TAG_AI,
   // Capability tags (2.0.0 expansion — CQ-vector + work-type)
-  TAG_ORCHESTRATOR,
   TAG_SECURITY,
   TAG_RELIABILITY,
   TAG_TESTING,
@@ -85,6 +84,7 @@ import {
   TAG_LANG_GO,
   TAG_LANG_RUST,
   TAG_LANG_JAVA,
+  TAG_LANG_KOTLIN,
   TAG_LANG_RUBY,
   // Role (D14-M6)
   TAG_ROLE_REVIEWER,
@@ -109,6 +109,14 @@ import {
   LANGUAGE_TO_TAG,
   resolveLanguageTags,
   filterByLanguages,
+  // Pillar coverage map (D22-SA22.3-01)
+  PILLAR_MAP,
+  PILLAR_ROLE_WEIGHT,
+  GOVERNANCE_PILLARS,
+  CONTENT_QUALITY_PILLARS,
+  ALL_PILLARS,
+  pillarsForTag,
+  weightedPillarTally,
 } from "../../content/tags.js";
 
 // ── Capability tag constants ─────────────────────────────────────
@@ -247,7 +255,7 @@ describe("TAG_REGISTRY consistency", () => {
       TAG_CAT_EDIT, TAG_CAT_ARCHIVE, TAG_CAT_DATA, TAG_CAT_FORGE,
       TAG_CAT_BROWSER, TAG_CAT_CONTAINER, TAG_CAT_AI, TAG_CAT_INTERACTIVE,
       TAG_LANG_TYPESCRIPT, TAG_LANG_PYTHON, TAG_LANG_GO, TAG_LANG_RUST,
-      TAG_LANG_JAVA, TAG_LANG_RUBY,
+      TAG_LANG_JAVA, TAG_LANG_KOTLIN, TAG_LANG_RUBY,
     ];
     for (const tag of exportedTagValues) {
       expect(TAG_REGISTRY[tag], `expected TAG_REGISTRY to contain ${tag}`).toBeDefined();
@@ -263,7 +271,7 @@ describe("TAG_REGISTRY consistency", () => {
     expect(unique.size).toBe(ALL_TAGS.length);
   });
 
-  it("ALL_TAGS contains exactly 80 elements (41 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 6 language + 3 role) — tier facet retired, right-sizing capability added", () => {
+  it("ALL_TAGS contains exactly 80 elements (40 capability + 4 floor + 3 context + 1 customize + 5 ui-ux + 4 cli-tool + 13 cli-cat + 7 language + 3 role) — `orchestrator` alias retired (D22-SA22.3-05); lang:kotlin split from lang:java (D14-SA14.1-03)", () => {
     expect(ALL_TAGS).toHaveLength(80);
   });
 
@@ -273,7 +281,7 @@ describe("TAG_REGISTRY consistency", () => {
       TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
       TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
       // 2.0.0 expansion
-      TAG_ORCHESTRATOR, TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
+      TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
       TAG_MAINTAINABILITY, TAG_ENHANCABILITY, TAG_OBSERVABILITY, TAG_SUPPLY_CHAIN,
       TAG_ACCESSIBILITY, TAG_SPEC, TAG_GREENFIELD, TAG_BROWNFIELD, TAG_MIGRATION,
       TAG_TELEMETRY, TAG_COST, TAG_ANTI_DUPLICATION, TAG_CODE_QUALITY, TAG_CODE_STANDARDS,
@@ -336,6 +344,7 @@ describe("TAG_REGISTRY consistency", () => {
     expect(facetOf(TAG_LANG_GO)).toBe("language");
     expect(facetOf(TAG_LANG_RUST)).toBe("language");
     expect(facetOf(TAG_LANG_JAVA)).toBe("language");
+    expect(facetOf(TAG_LANG_KOTLIN)).toBe("language");
     expect(facetOf(TAG_LANG_RUBY)).toBe("language");
   });
 
@@ -367,16 +376,16 @@ describe("TAG_REGISTRY consistency", () => {
 // ── tagsForFacet — facet enumeration ─────────────────────────────
 
 describe("tagsForFacet", () => {
-  it("returns the 41 capability tags (9 base + 32 2.0.0 expansion incl. right-sizing)", () => {
+  it("returns the 40 capability tags (9 base + 31 2.0.0 expansion incl. right-sizing; `orchestrator` alias retired — D22-SA22.3-05)", () => {
     const result = tagsForFacet("capability");
-    expect(result).toHaveLength(41);
+    expect(result).toHaveLength(40);
     expect(result.sort()).toEqual(
       [
         // 1.x base
         TAG_PLANNING, TAG_IMPLEMENTATION, TAG_REVIEW, TAG_DEVOPS, TAG_MAINTENANCE,
         TAG_ORCHESTRATION, TAG_BOARD, TAG_PERFORMANCE, TAG_AI,
         // 2.0.0 expansion
-        TAG_ORCHESTRATOR, TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
+        TAG_SECURITY, TAG_RELIABILITY, TAG_TESTING, TAG_SCALABILITY,
         TAG_MAINTAINABILITY, TAG_ENHANCABILITY, TAG_OBSERVABILITY, TAG_SUPPLY_CHAIN,
         TAG_ACCESSIBILITY, TAG_SPEC, TAG_GREENFIELD, TAG_BROWNFIELD, TAG_MIGRATION,
         TAG_TELEMETRY, TAG_COST, TAG_ANTI_DUPLICATION, TAG_CODE_QUALITY, TAG_CODE_STANDARDS,
@@ -432,9 +441,10 @@ describe("tagsForFacet", () => {
     expect(TAG_CAT_AI).toBe("ai-cat");
   });
 
-  it("returns the 6 language tags", () => {
+  it("returns the 7 language tags (lang:kotlin split from lang:java — D14-SA14.1-03)", () => {
     const result = tagsForFacet("language");
-    expect(result).toHaveLength(6);
+    expect(result).toHaveLength(7);
+    expect(result).toContain(TAG_LANG_KOTLIN);
     for (const t of result) {
       expect(t).toMatch(/^lang:/);
     }
@@ -692,8 +702,13 @@ describe("LANGUAGE_TO_TAG", () => {
     expect(LANGUAGE_TO_TAG["java"]).toBe(TAG_LANG_JAVA);
   });
 
-  it("maps kotlin to lang:java (shared ecosystem)", () => {
-    expect(LANGUAGE_TO_TAG["kotlin"]).toBe(TAG_LANG_JAVA);
+  it("maps kotlin to lang:kotlin — distinct from java (D14-SA14.1-03)", () => {
+    expect(LANGUAGE_TO_TAG["kotlin"]).toBe(TAG_LANG_KOTLIN);
+    // Kotlin and Java are no longer collapsed onto one JVM tag: a Kotlin repo
+    // resolves lang:kotlin (the retagged android-patterns rule), a Java repo
+    // resolves lang:java, and the two never alias.
+    expect(LANGUAGE_TO_TAG["kotlin"]).not.toBe(LANGUAGE_TO_TAG["java"]);
+    expect(TAG_LANG_KOTLIN).not.toBe(TAG_LANG_JAVA);
   });
 
   it("maps ruby to lang:ruby", () => {
@@ -849,5 +864,240 @@ describe("filterByLanguages", () => {
     const snapshot = [...items];
     filterByLanguages(items, ["python"]);
     expect(items).toEqual(snapshot);
+  });
+});
+
+// ── Pillar coverage map (D22-SA22.3-01) ──────────────────────────
+
+describe("pillar id constants", () => {
+  it("GOVERNANCE_PILLARS is exactly P1-P8", () => {
+    expect([...GOVERNANCE_PILLARS]).toEqual(["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"]);
+  });
+
+  it("CONTENT_QUALITY_PILLARS is exactly CQ1-CQ10 (CQ10 added 2026-07-09)", () => {
+    expect([...CONTENT_QUALITY_PILLARS]).toEqual([
+      "CQ1", "CQ2", "CQ3", "CQ4", "CQ5", "CQ6", "CQ7", "CQ8", "CQ9", "CQ10",
+    ]);
+  });
+
+  it("ALL_PILLARS is the 18-id union of both axes with no duplicates", () => {
+    expect(ALL_PILLARS).toHaveLength(18);
+    expect(new Set(ALL_PILLARS).size).toBe(18);
+    expect(ALL_PILLARS).toEqual([...GOVERNANCE_PILLARS, ...CONTENT_QUALITY_PILLARS]);
+  });
+});
+
+describe("PILLAR_ROLE_WEIGHT (22.3-L1 weights)", () => {
+  it("primary counts 1.0 and supporting counts 0.4", () => {
+    expect(PILLAR_ROLE_WEIGHT.primary).toBe(1.0);
+    expect(PILLAR_ROLE_WEIGHT.supporting).toBe(0.4);
+  });
+});
+
+describe("PILLAR_MAP structural invariants (the reproducibility substrate)", () => {
+  it("COMPLETENESS — every capability + floor tag has a PILLAR_MAP edge set", () => {
+    const tallyTags = [...tagsForFacet("capability"), ...tagsForFacet("floor")];
+    for (const tag of tallyTags) {
+      expect(pillarsForTag(tag).length, `expected PILLAR_MAP to cover ${tag}`).toBeGreaterThan(0);
+    }
+  });
+
+  it("NO-DANGLING — every PILLAR_MAP key is a registered capability or floor tag", () => {
+    for (const tag of Object.keys(PILLAR_MAP)) {
+      const facet = facetOf(tag);
+      expect(facet === "capability" || facet === "floor", `${tag} is facet ${facet}`).toBe(true);
+    }
+  });
+
+  it("VALIDITY — every edge cites a pillar in ALL_PILLARS and a real role", () => {
+    const valid = new Set(ALL_PILLARS);
+    for (const [tag, edges] of Object.entries(PILLAR_MAP)) {
+      expect(edges.length, `${tag} has an empty edge list`).toBeGreaterThan(0);
+      for (const edge of edges) {
+        expect(valid.has(edge.pillar), `${tag} → ${edge.pillar}`).toBe(true);
+        expect(["primary", "supporting"]).toContain(edge.role);
+      }
+    }
+  });
+
+  it("covers exactly the capability + floor facets and nothing else", () => {
+    const tallyTags = new Set([...tagsForFacet("capability"), ...tagsForFacet("floor")]);
+    expect(new Set(Object.keys(PILLAR_MAP))).toEqual(tallyTags);
+  });
+});
+
+describe("PILLAR_MAP grounded edges", () => {
+  it("pins the checklist 22.3-L1 authoritative example: orchestration → P5(P), P7(S), P8(S)", () => {
+    expect(pillarsForTag(TAG_ORCHESTRATION)).toEqual([
+      { pillar: "P5", role: "primary" },
+      { pillar: "P7", role: "supporting" },
+      { pillar: "P8", role: "supporting" },
+    ]);
+  });
+
+  it("honours the CQ-vector tag comments (security→CQ3, reliability→CQ4, observability→CQ4 supporting)", () => {
+    expect(pillarsForTag(TAG_SECURITY)).toContainEqual({ pillar: "CQ3", role: "primary" });
+    expect(pillarsForTag(TAG_RELIABILITY)).toContainEqual({ pillar: "CQ4", role: "primary" });
+    expect(pillarsForTag(TAG_OBSERVABILITY)).toEqual([{ pillar: "CQ4", role: "supporting" }]);
+    expect(pillarsForTag(TAG_ACCESSIBILITY)).toEqual([{ pillar: "CQ1", role: "supporting" }]);
+    expect(pillarsForTag(TAG_SUPPLY_CHAIN)).toContainEqual({ pillar: "CQ3", role: "supporting" });
+  });
+
+  it("maps the floor tags to the pillars they floor", () => {
+    expect(pillarsForTag(TAG_FLOOR_SECURITY)).toContainEqual({ pillar: "P6", role: "primary" });
+    expect(pillarsForTag(TAG_FLOOR_UI_UX)).toEqual([
+      { pillar: "CQ1", role: "primary" },
+      { pillar: "CQ2", role: "primary" },
+    ]);
+    expect(pillarsForTag(TAG_FLOOR_PROTOCOL)).toContainEqual({ pillar: "P5", role: "primary" });
+  });
+});
+
+describe("pillarsForTag", () => {
+  it("returns [] for non-tally facets (context / language / role / customize)", () => {
+    expect(pillarsForTag(TAG_CTX_TEAM_ONLY)).toEqual([]);
+    expect(pillarsForTag(TAG_LANG_TYPESCRIPT)).toEqual([]);
+    expect(pillarsForTag(TAG_ROLE_REVIEWER)).toEqual([]);
+    expect(pillarsForTag(TAG_CUSTOMIZE)).toEqual([]);
+  });
+
+  it("returns [] for unknown / legacy tags", () => {
+    expect(pillarsForTag("core")).toEqual([]);
+    expect(pillarsForTag("")).toEqual([]);
+    expect(pillarsForTag("not-a-tag")).toEqual([]);
+  });
+});
+
+describe("weightedPillarTally (D22 §22.3 reproducible tally)", () => {
+  it("weights a single orchestration artifact as P5=1.0, P7=0.4, P8=0.4", () => {
+    const tally = weightedPillarTally([{ tags: [TAG_ORCHESTRATION] }]);
+    expect(tally).toEqual({ P5: 1, P7: 0.4, P8: 0.4 });
+  });
+
+  it("takes the MAX edge weight per pillar so a cross-cutting tag does not multi-count one pillar", () => {
+    // orchestration→P5 primary(1.0) and learning→P5 supporting(0.4) on one
+    // artifact contribute P5=1.0 (max), not 1.4.
+    const tally = weightedPillarTally([{ tags: [TAG_ORCHESTRATION, TAG_LEARNING] }]);
+    expect(tally.P5).toBe(1);
+  });
+
+  it("dedupes two tags that both map a pillar as primary (orchestration + floor:protocol → P5=1.0)", () => {
+    const tally = weightedPillarTally([{ tags: [TAG_ORCHESTRATION, TAG_FLOOR_PROTOCOL] }]);
+    expect(tally.P5).toBe(1);
+  });
+
+  it("sums independent artifacts (two security artifacts → CQ3=2.0)", () => {
+    const tally = weightedPillarTally([{ tags: [TAG_SECURITY] }, { tags: [TAG_SECURITY] }]);
+    expect(tally.CQ3).toBe(2);
+  });
+
+  it("is deterministic — identical input yields an identical tally", () => {
+    const corpus = [{ tags: [TAG_ORCHESTRATION] }, { tags: [TAG_SECURITY, TAG_SUPPLY_CHAIN] }];
+    expect(weightedPillarTally(corpus)).toEqual(weightedPillarTally(corpus));
+  });
+
+  it("returns {} for empty corpus and for artifacts whose tags map no pillar", () => {
+    expect(weightedPillarTally([])).toEqual({});
+    expect(weightedPillarTally([{ tags: [TAG_CTX_TEAM_ONLY, TAG_LANG_GO] }])).toEqual({});
+  });
+
+  it("rounds 0.4-sum artifacts free of float dust (three supporting-only edges → 1.2)", () => {
+    // observability→CQ4(S) across three artifacts sums to 0.4*3; assert clean 1.2.
+    const tally = weightedPillarTally([
+      { tags: [TAG_OBSERVABILITY] },
+      { tags: [TAG_OBSERVABILITY] },
+      { tags: [TAG_OBSERVABILITY] },
+    ]);
+    expect(tally.CQ4).toBe(1.2);
+  });
+});
+
+// ── Property-based invariants (D3-SA3.5-04) ──────────────────────
+//
+// CQ5 self-application: rules/hatch3r-testing.md §Property-Based Testing binds
+// framework-dev on invariant-bearing pure functions. These suites pin two of
+// tags.ts's invariants as properties over generated inputs rather than fixed
+// fixtures: weightedPillarTally reproducibility (D22-SA22.3-01) and
+// filterByLanguages idempotency + universal-floor preservation. A seeded
+// vitest-native generator (mulberry32) stands in for `fast-check` until that
+// devDependency is added. Policy: .claude/rules/test-requirements.md → CQ5
+// self-application scope.
+describe("weightedPillarTally + filterByLanguages — property-based invariants (D3-SA3.5-04)", () => {
+  function makePrng(seed: number): () => number {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) | 0;
+      let t = Math.imul(a ^ (a >>> 15), 1 | a);
+      t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+  function pick<T>(rng: () => number, xs: readonly T[]): T {
+    return xs[Math.floor(rng() * xs.length)];
+  }
+  function shuffle<T>(rng: () => number, xs: readonly T[]): T[] {
+    const a = [...xs];
+    for (let i = a.length - 1; i > 0; i--) {
+      const j = Math.floor(rng() * (i + 1));
+      [a[i], a[j]] = [a[j], a[i]];
+    }
+    return a;
+  }
+  function genTagBag(rng: () => number): string[] {
+    const n = 1 + Math.floor(rng() * 4);
+    return Array.from({ length: n }, () => pick(rng, ALL_TAGS));
+  }
+
+  it("weightedPillarTally is deterministic AND order-independent over 200 generated corpora", () => {
+    const rng = makePrng(0x7a3c);
+    for (let i = 0; i < 200; i++) {
+      const size = 1 + Math.floor(rng() * 11); // 1..12 artifacts
+      const corpus = Array.from({ length: size }, () => ({ tags: genTagBag(rng) }));
+      const base = weightedPillarTally(corpus);
+      // Determinism: identical input yields an identical tally.
+      expect(weightedPillarTally(corpus), `nondeterministic on iter ${i}`).toEqual(base);
+      // Order-independence: per-artifact contribution is a MAX (order-free) and
+      // the cross-corpus combine is summation with 3dp rounding, so a permuted
+      // corpus yields the same tally — the D22-SA22.3-01 reproducibility
+      // property generalized past its fixed fixtures.
+      expect(
+        weightedPillarTally(shuffle(rng, corpus)),
+        `order-dependent on iter ${i}`,
+      ).toEqual(base);
+    }
+  });
+
+  const LANG_POOL = ["typescript", "python", "go", "java", "kotlin", "php"] as const;
+
+  it("filterByLanguages is idempotent AND preserves every unconditionally-admitted item (200 cases)", () => {
+    const rng = makePrng(0x2f19);
+    for (let i = 0; i < 200; i++) {
+      const nItems = 1 + Math.floor(rng() * 6);
+      const items = Array.from({ length: nItems }, (_unused, k) => ({
+        id: `item-${k}`,
+        tags: genTagBag(rng),
+        protected: rng() > 0.8,
+      }));
+      const nLangs = Math.floor(rng() * 3);
+      const langs = Array.from({ length: nLangs }, () => pick(rng, LANG_POOL));
+
+      const once = filterByLanguages(items, langs);
+      const twice = filterByLanguages(once, langs);
+      // Idempotency: re-filtering an already-filtered set with the same
+      // languages is a no-op (the predicate depends only on item tags + langs).
+      expect(twice.map((x) => x.id), `not idempotent on iter ${i}`).toEqual(
+        once.map((x) => x.id),
+      );
+      // Universal-floor preservation: any protected OR floor-tagged item
+      // survives every language set (D16-2).
+      for (const it of items) {
+        if (admitsUnconditionally(it)) {
+          expect(
+            once.some((x) => x.id === it.id),
+            `dropped floor/protected item on iter ${i}`,
+          ).toBe(true);
+        }
+      }
+    }
   });
 });

@@ -1,0 +1,182 @@
+{
+  "$comment": "Allowlist for scripts/validate-skill-refs.ts (section `refs`) and scripts/validate-skill-contracts.ts (section `contracts`). Entries match on (file, token, code) — one entry suppresses every same-token hit in that file. Two sanctioned reason classes: `pre-existing (cycle-12 CL-2 U9 census)` = dangler found when the gate first ran (recorded so the gate starts green but visible; the fixing unit removes the entry with its fix), and `forward-reference: <finding-id>` = intentional reference to an artifact queued for authoring. Mechanism spec: .audit-workspace/content-specs/skill-eval-harness.spec.md.",
+  "refs": [
+    {
+      "file": "agents/hatch3r-enhancability.md",
+      "token": "rules/hatch3r-plugin-architecture.md",
+      "code": "SKILL-REF-PATH-MISSING",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — ghost rule: no hatch3r-plugin-architecture rule exists in rules/",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-enhancability-verify/SKILL.md",
+      "token": "rules/hatch3r-plugin-architecture.md",
+      "code": "SKILL-REF-PATH-MISSING",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — same ghost rule as agents/hatch3r-enhancability.md:135",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-healthcheck.md",
+      "token": "rules/fan-out-discipline.md",
+      "code": "SKILL-REF-PATH-MISSING",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — missing hatch3r- prefix; real file is rules/hatch3r-fan-out-discipline.md (2 sites)",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-security-audit.md",
+      "token": "rules/fan-out-discipline.md",
+      "code": "SKILL-REF-PATH-MISSING",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — missing hatch3r- prefix; real file is rules/hatch3r-fan-out-discipline.md (2 sites)",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-healthcheck.md",
+      "token": "commands/hatch3r-board-shared/SKILL.md",
+      "code": "SKILL-REF-PATH-MISSING",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — wrong class dir; board-shared lives at skills/hatch3r-board-shared/SKILL.md",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-pr-resolve.md",
+      "token": "commands/hatch3r-board-shared/SKILL.md",
+      "code": "SKILL-REF-PATH-MISSING",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — wrong class dir; board-shared lives at skills/hatch3r-board-shared/SKILL.md",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-security-audit.md",
+      "token": "commands/hatch3r-board-shared/SKILL.md",
+      "code": "SKILL-REF-PATH-MISSING",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — wrong class dir; board-shared lives at skills/hatch3r-board-shared/SKILL.md",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-feedback/SKILL.md",
+      "token": "commands/hatch3r-feedback.md",
+      "code": "SKILL-REF-PATH-MISSING",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — ghost route: no feedback command exists (feedback is skill-only); sibling of the fixed SA5.6-03 /h4tcher-learn class",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-release.md",
+      "token": "/h4tcher-release-prep",
+      "code": "SKILL-REF-ID-UNRESOLVED",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — framework-dev skill referenced from a shipped command (D5-9 leak class, 8 sites); owned by the SA5.6-03 follow-up",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "agents/hatch3r-handoff-loader.md",
+      "token": "sanitizeUserContent(body, { source: \"handoff-loader\", reference: <handoff-id> })",
+      "code": "SKILL-REF-TS-CALL",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — SA5.6-02 class in an agent body: CLI-internal TS function presented in call notation",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "agents/hatch3r-handoff-loader.md",
+      "token": "loadHandoffFile()",
+      "code": "SKILL-REF-TS-CALL",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — SA5.6-02 class in an agent body",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "agents/hatch3r-learnings-loader.md",
+      "token": "sanitizeUserContent(body, { source: \"learnings-loader\", reference: <filename> })",
+      "code": "SKILL-REF-TS-CALL",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — SA5.6-02 class in an agent body",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "agents/hatch3r-researcher.md",
+      "token": "isHaltStatus()",
+      "code": "SKILL-REF-TS-CALL",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — call-notation pairing with src/ path; verify descriptive-vs-instructional in the fixing unit",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-handoff.md",
+      "token": "listHandoffs({ status: [\"open\",\"in-progress\",\"blocked\",\"handed-off\"] })",
+      "code": "SKILL-REF-TS-CALL",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — the SA5.6-02 handoff sibling in the command body (skill instances were fixed, this one was not)",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-workflow.md",
+      "token": "validatePhaseTransition(context, targetPhase)",
+      "code": "SKILL-REF-TS-CALL",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — SA5.6-02 class in a command body",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "commands/hatch3r-workflow.md",
+      "token": "proposeAlternativeTier(currentTier, currentEstimate, budget)",
+      "code": "SKILL-REF-TS-CALL",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — SA5.6-02 class in a command body",
+      "added": "2026-07-12"
+    }
+  ],
+  "contracts": [
+    {
+      "file": "skills/hatch3r-board-init/SKILL.md",
+      "token": "hatch3r-board-init",
+      "code": "SKILL-CONTRACT-NO-QUICK-START",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — board family predates the Quick Start + Step pattern",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-board-init/SKILL.md",
+      "token": "hatch3r-board-init",
+      "code": "SKILL-CONTRACT-NO-STEP",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — board family predates the Quick Start + Step pattern",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-board-groom/SKILL.md",
+      "token": "hatch3r-board-groom",
+      "code": "SKILL-CONTRACT-NO-QUICK-START",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — board family predates the Quick Start + Step pattern",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-board-groom/SKILL.md",
+      "token": "hatch3r-board-groom",
+      "code": "SKILL-CONTRACT-NO-STEP",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — board family predates the Quick Start + Step pattern",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-board-refresh/SKILL.md",
+      "token": "hatch3r-board-refresh",
+      "code": "SKILL-CONTRACT-NO-QUICK-START",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — board family predates the Quick Start + Step pattern",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-board-refresh/SKILL.md",
+      "token": "hatch3r-board-refresh",
+      "code": "SKILL-CONTRACT-NO-STEP",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — board family predates the Quick Start + Step pattern",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-board-shared/SKILL.md",
+      "token": "hatch3r-board-shared",
+      "code": "SKILL-CONTRACT-NO-QUICK-START",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — shared reference companion, not a stepwise procedure",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-board-shared/SKILL.md",
+      "token": "hatch3r-board-shared",
+      "code": "SKILL-CONTRACT-NO-STEP",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — shared reference companion, not a stepwise procedure",
+      "added": "2026-07-12"
+    },
+    {
+      "file": "skills/hatch3r-gh-agentic-workflows/SKILL.md",
+      "token": "hatch3r-gh-agentic-workflows",
+      "code": "SKILL-CONTRACT-NO-QUICK-START",
+      "reason": "pre-existing (cycle-12 CL-2 U9 census) — carries Step headings but no Quick Start section",
+      "added": "2026-07-12"
+    }
+  ]
+}

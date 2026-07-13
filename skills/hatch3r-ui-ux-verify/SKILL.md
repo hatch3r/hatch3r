@@ -54,13 +54,13 @@ No duplication: the agent decides WHEN, this skill defines HOW. The agent bodies
 
 ## Gate 3: Accessibility-tree snapshot
 
-- Playwright captures the accessibility tree on each route via `page.accessibility.snapshot()`.
-- Per-route assertions:
-  - Exactly one `<h1>`.
-  - Landmark coverage: `banner`, `main`, `nav`, `contentinfo` present.
-  - Every form input has an accessible name.
+- Playwright captures the accessibility tree on each route via `await expect(page.locator('body')).toMatchAriaSnapshot()` (Playwright 1.49+). The committed ariaSnapshot YAML is the baseline; the legacy `page.accessibility.snapshot()` API was removed — its docs page returns HTTP 404. Regenerate baselines with `--update-snapshots` (`-u`) and review the emitted diff before committing (`--update-source-method patch` writes a `git apply`-able patch).
+- Per-route assertions via `getByRole` queries alongside the committed aria snapshot:
+  - Exactly one `<h1>` — `await expect(page.getByRole('heading', { level: 1 })).toHaveCount(1)`.
+  - Landmark coverage: `banner`, `main`, `navigation`, `contentinfo` roles present — e.g. `await expect(page.getByRole('main')).toBeVisible()`, one assertion per landmark.
+  - Every form input has an accessible name — resolve each field with `getByRole` for its role (`textbox`, `combobox`, `checkbox`, `radio`, `spinbutton`) plus `{ name }`; a field with no accessible name is unresolvable and fails the gate.
   - Every image has an `alt` attribute or `role="presentation"`.
-- Snapshots committed to the repo. Diff on every PR surfaces visual a11y regression.
+- The committed aria snapshot diffs on every PR to surface structural a11y regression (heading order, landmarks, accessible names). axe-core (Gate 1) covers the semantic-violation half; this gate covers structure.
 
 ## Gate 4: Four-state coverage check
 
@@ -142,5 +142,5 @@ The orchestrator running this skill emits a single-line verdict per gate (`GATE_
 - Playwright accessibility testing — `playwright.dev/docs/accessibility-testing`
 - Deque axe-core — `github.com/dequelabs/axe-core`
 - Google Core Web Vitals 2026 thresholds — `web.dev/articles/vitals`
-- Vercel AI SDK UI documentation — `sdk.vercel.ai/docs/ai-sdk-ui`
+- Vercel AI SDK UI documentation — `ai-sdk.dev/docs/ai-sdk-ui`
 - WCAG 2.2 — `www.w3.org/TR/WCAG22/`

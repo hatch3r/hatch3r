@@ -35,8 +35,16 @@
  *   the directory tree, so a `<package>/CLAUDE.md` copy of the root content
  *   double-loads the same guidance (root + package) for any file under the
  *   package. Per-package emission is OFF.
- * - **copilot** — reads only the repo-root `.github/copilot-instructions.md`;
- *   a `<package>/.github/...` copy is never read. Per-package emission is OFF.
+ * - **copilot** — reads the repo-root `.github/copilot-instructions.md` for
+ *   every request PLUS central path-scoped `.github/instructions/*.instructions.md`
+ *   files whose `applyTo` glob matches the file being worked on (both surfaces
+ *   emitted by `src/adapters/copilot.ts`); a directory-NESTED
+ *   `<package>/.github/...` copy is still never read, so per-package emission
+ *   is OFF. Central `applyTo: "<pkg>/**"` package targeting is a separate,
+ *   unbuilt capability — evaluated 2026-07-12 and HELD (D14-SA14.2-04 CL-2:
+ *   a verbatim package-glob duplicate of root content adds no load-model
+ *   value, and differentiated content needs the per-package config layer
+ *   whose re-entry is CL-1-gated).
  *
  * Emitting verbatim copies for claude/copilot manufactures exactly the
  * duplicate/stale-guidance harm `src/merge/orphanCleanup.ts` exists to clean
@@ -73,8 +81,9 @@ import type { AdapterOutput, PackageEntry, Tool } from "../types.js";
  * `<package>/<rel>` copy is a capability rather than dead weight. Only `cursor`
  * qualifies today (`.cursor/rules/*.mdc` resolves from the nearest ancestor of
  * the edited file). `claude` (root + ancestor CLAUDE.md load → double-load) and
- * `copilot` (root-only `.github/copilot-instructions.md`) are intentionally
- * absent — see the module header. Adding a tool here is the single edit needed
+ * `copilot` (directory-nested copies unread; its path scoping is central
+ * `applyTo` globs, not nesting) are intentionally absent — see the module
+ * header. Adding a tool here is the single edit needed
  * to opt it into per-package emission across init, sync, and status.
  */
 const PER_PACKAGE_TOOLS: ReadonlySet<Tool> = new Set<Tool>(["cursor"]);
@@ -126,8 +135,9 @@ export function planPerPackageOutputs(
   rootOutputs: readonly AdapterOutput[],
 ): PerPackageOutput[] {
   // D14-6: skip tools whose load model makes per-package copies dead weight
-  // (copilot, root-only) or double-loads (claude, ancestor-loads root). Only
-  // per-directory tools (cursor) re-target.
+  // (copilot — nested copies unread; path scoping is central applyTo globs)
+  // or double-loads (claude, ancestor-loads root). Only per-directory tools
+  // (cursor) re-target.
   if (!emitsPerPackage(tool)) return [];
   if (!packages || packages.length === 0) return [];
   if (rootOutputs.length === 0) return [];

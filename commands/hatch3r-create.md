@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-creator]
 description: Author a custom user-tier artifact (agent, skill, rule, command, or hook) for this project. Generates frontmatter and body skeleton, applies strict + gentle quality gates, writes to .hatch3r/overrides/{type}/, and offers to sync to all enabled adapters.
+disable-model-invocation: true
 tags: [customize]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,6 +16,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 1
   rationale: Single hatch3r-creator delegation in Phase 2 — body composition plus the strict + gentle gate funnel run as one atomic Task per artifact; multi-artifact runs invoke one creator per artifact in parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -122,7 +124,7 @@ Reject and re-ask if the description is shorter than 60 characters. Cache as `de
 
 #### 1.4: Tags
 
-Present the known capability tags (the registered set in `src/content/tags.ts::TAG_REGISTRY` — single source of truth): `orchestration, planning, implementation, review, devops, maintenance, board, performance, ai` plus the content-quality vectors `security, reliability, testing, scalability, maintainability, enhancability` and work-type tags `spec, migration`. Lead with a capability tag (it is the primary classification — `tags[0]` groups the artifact in the picker per `.claude/rules/content-authoring.md` item 12). Append context facets (`ctx:team-only`, `ctx:greenfield-only`, `ctx:brownfield-only`) and floor facets (`floor:security`, `floor:ui-ux`, `floor:protocol`, `floor:content-quality`) after the primary, never first.
+Present the known capability tags: `orchestration, planning, implementation, review, devops, maintenance, board, performance, ai` plus the content-quality vectors `security, reliability, testing, scalability, maintainability, enhancability` and work-type tags `spec, migration`. Lead with a capability tag (it is the primary classification — `tags[0]` groups the artifact in the picker). Append context facets (`ctx:team-only`, `ctx:greenfield-only`, `ctx:brownfield-only`) and floor facets (`floor:security`, `floor:ui-ux`, `floor:protocol`, `floor:content-quality`) after the primary, never first.
 
 **ASK:** "Select one or more tags (comma-separated), capability tag first. You may add custom project tags after the known set, e.g., `implementation, my-team`."
 
@@ -130,10 +132,11 @@ Cache as `tags` (array).
 
 #### 1.4a: Pillar Declaration (C9-H80, D20-F20.1.2)
 
-Every user artifact must declare at least one Binding Pillar — strict-gate enforced at `saveUserContent` (`src/content/userContent.ts`). Present the 8 pillars with one-line descriptors:
+Every user artifact must declare at least one Binding Pillar — strict-gate enforced at `saveUserContent` (`src/content/userContent.ts`). Present both pillar axes (P1–P8 governance, CQ1–CQ10 content-quality) with one-line descriptors:
 
 ```
 Which pillar(s) does this artifact serve? (one or more — comma-separated)
+  Governance axis (how the framework operates):
   P1 — CLI UI/UX Excellence
   P2 — Scientific & Practical Quality
   P3 — Adapter & External Tool Currency
@@ -142,11 +145,22 @@ Which pillar(s) does this artifact serve? (one or more — comma-separated)
   P6 — Security & Trust Governance
   P7 — Speed & Token Efficiency
   P8 — Clarification & Fan-out Discipline
+  Content-quality axis (what the end-user artifact helps produce):
+  CQ1 — UI Quality
+  CQ2 — UX Quality
+  CQ3 — Security & Compliance Quality
+  CQ4 — Reliability Quality
+  CQ5 — Testability Quality
+  CQ6 — Scalability Quality
+  CQ7 — Performance Quality
+  CQ8 — Maintainability Quality
+  CQ9 — Enhancability Quality
+  CQ10 — Product & Spec Quality
 ```
 
-**ASK:** "Select pillar(s) (e.g., `P4, P6`). At least one is required."
+**ASK:** "Select pillar(s) (e.g., `P4, P6` or `CQ3`). At least one is required."
 
-Reject empty input and re-ask. Validate every entry against the `P1..P8` enum. Cache as `pillars` (array). The frontmatter emitter writes the array as `pillars: [P1, P4]`; the strict gate also accepts a `**Pillars:** ...` line in the body.
+Reject empty input and re-ask. Validate every entry against the P1–P8 ∪ CQ1–CQ10 union (matching `VALID_PILLAR_IDS` in `src/content/userContent.ts`). Cache as `pillars` (array). The frontmatter emitter writes the array as `pillars: [P1, P4]`; the strict gate also accepts a `**Pillars:** ...` line in the body.
 
 #### 1.4b: Pillar Rationale (Optional, D20-F20.1.D4)
 
@@ -296,15 +310,15 @@ create is long-running in multi-artifact mode — Phase 1 collects every artifac
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Phase 2 `hatch3r-creator` delegation.
 - **Post-execution `cost_actuals` + `delta`** — the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
@@ -319,7 +333,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Never write to canonical content directories.** All output goes under `.hatch3r/overrides/`. Writes to `agents/`, `skills/`, `rules/`, `commands/`, or `hooks/` are rejected.
 - **Never bypass strict gates.** Strict failures (frontmatter, ID collision, deny patterns, paired-file parity, orchestrator contract, hook event enum, ≤10KB size, quality_charter reference, pillar declaration, structured `tools` field shape + category membership) block the save.
 - **Structured tool allowlist required (strict shape).** When `tools` is supplied for an `agent` artifact, every entry in `tools.allowed` and `tools.denied` must resolve to a canonical category from `ALL_TOOL_CATEGORIES` in `src/pipeline/agentToolAllowlist.ts` (`read | search | write | execute | web | mcp | git | board`). Overlap between the two lists is rejected. Strict-gate enforced at `saveUserContent` (C9-H81, D20-F20.1.3; depends on C9-H49 Hybrid allowlist).
-- **Pillar coverage required (strict).** Every user artifact must declare at least one of P1–P8 — via `pillars: [...]` in frontmatter (collected at Step 1.4a) or a `**Pillars:** ...` line in the body. The strict gate at `saveUserContent` blocks the save when neither is present (C9-H80, D20-F20.1.2).
+- **Pillar coverage required (strict).** Every user artifact must declare at least one of P1–P8 or CQ1–CQ10 — via `pillars: [...]` in frontmatter (collected at Step 1.4a) or a `**Pillars:** ...` line in the body. The strict gate at `saveUserContent` blocks the save when neither is present (C9-H80, D20-F20.1.2).
 - **Quality charter inheritance required (strict).** Every user artifact must reference `agents/shared/quality-charter.md` — via `quality_charter:` in frontmatter or a `quality_charter` mention in the body. Strict-gate enforced at `saveUserContent` (C9-H79, D20-F20.1.1, closes CD-12 partial).
 - **One artifact per invocation.** Re-run `/hatch3r-create` for additional artifacts.
 

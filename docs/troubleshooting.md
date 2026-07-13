@@ -288,11 +288,12 @@ See [CONTRIBUTING.md](../CONTRIBUTING.md#troubleshooting) for additional develop
 
 ## Exit Codes
 
-hatch3r returns a differentiated POSIX exit code per failure kind so CI scripts can branch on *what* failed, not just *whether* it failed. The kind-specific codes follow the BSD `sysexits.h` convention (FreeBSD `/usr/include/sysexits.h`). Source of truth: `ERROR_CODE_TO_EXIT_CODE` in `src/types.ts` — this table mirrors it row-for-row.
+hatch3r returns a differentiated POSIX exit code per failure kind so CI scripts can branch on *what* failed, not just *whether* it failed. The kind-specific codes (64/65/69/70/73/74/75) follow the BSD `sysexits.h` convention (FreeBSD `/usr/include/sysexits.h`); their source of truth is `ERROR_CODE_TO_EXIT_CODE` in `src/types.ts`, which those rows mirror row-for-row. The remaining rows — `1` (unclassified crash), `2` (usage error), and `129`/`130`/`143` (termination signals) — are process-level codes emitted by the CLI entrypoint, not entries in that map.
 
 | Exit code | Name (`sysexits.h`) | Error kind | When it fires |
 |----------:|---------------------|------------|---------------|
 | 0 | — | success / user cancel | Command succeeded, or you cancelled an interactive prompt (Ctrl+C at a question). |
+| 1 | — | unexpected crash | An unclassified error or unhandled promise rejection escaped a command (report as a bug — a run id, and a `.hatch3r/.failure-log.jsonl` pointer when the log was written, print to stderr), or the Node.js &lt; 22 startup guard fired. |
 | 2 | — | usage error | Bad flag or argument; Commander wrote the usage help. |
 | 64 | `EX_USAGE` | `VALIDATION_ERROR` | Content/structure validation failed, or an unknown `--tools` value. |
 | 65 | `EX_DATAERR` | `CONFIG_ERROR` | Manifest or config malformed / missing (`.hatch3r/hatch.json`). |
@@ -301,11 +302,24 @@ hatch3r returns a differentiated POSIX exit code per failure kind so CI scripts 
 | 73 | `EX_CANTCREAT` | `INTEGRITY_ERROR` | Generated output drifted and cannot be regenerated to match canonical (`hatch3r verify`). |
 | 74 | `EX_IOERR` | `FS_ERROR`, `CLEAN_ERROR` | Filesystem read/write/clean failure. |
 | 75 | `EX_TEMPFAIL` | `NETWORK_ERROR`, `LOCK_TIMEOUT` | Retryable failure — network fetch, or another hatch3r process holds the lock. |
+| 129 | — | SIGHUP | Terminated by hang-up — the controlling terminal closed or an SSH session dropped (128 + signal 1). |
 | 130 | — | SIGINT | Interrupted with Ctrl+C (128 + signal 2). |
+| 143 | — | SIGTERM | Terminated by `kill` or a supervisor/orchestrator requesting shutdown (128 + signal 15). |
 
 **JSON output note:** every non-stub command accepts `--format <human|json>`. An invalid `--format` value is an exit-2 usage error, and so is `--format json` on an invocation that would prompt (e.g. `mcp setup`, bare `cli-tools`, interactive flows without `--yes`) — the prompts would interleave with the JSON document. In JSON mode, stdout carries exactly one JSON document (envelope: `status`, command payload fields, `command`, `hatch3rVersion`, `timestamp`); diagnostics and spinners go to stderr.
 
-**Scripting note (CI):** branch on the exact code, not `[ $? -eq 1 ]`. hatch3r does not emit exit 1 for command failures — `VALIDATION_ERROR`, `CONFIG_ERROR`, and `ADAPTER_ERROR` surface as 64/65/69, so a `-eq 1` check misses every one of them. The structured `errorCode` string also prints to stderr, and `npx hatch3r validate --format json` emits it as a machine-readable field. Example:
+**Envelope `status` values.** In JSON mode the first field to branch on is `status`. The lifecycle commands (`init`, `sync`, `update`, `config`) share one vocabulary:
+
+| `status` | Meaning |
+|----------|---------|
+| `passed` | The run completed and every adapter write succeeded. |
+| `partial` | The run completed but at least one adapter failed while others succeeded — some tool outputs were written, some were not. |
+| `failed` | The operation could not complete. |
+| `dry-run` | A `--dry-run` preview; no files were written. A `--dry-run --format json` run emits this one envelope in place of the human box, so a preview is machine-readable rather than empty stdout. |
+
+The `status` label for a some-adapters-failed run can read `partial` or `failed` depending on the command, so branch on the **exit code** (`69` `ADAPTER_ERROR`, above) — not the label string — to catch every partial-failure. Read-only commands reuse the field for command-specific values (`verify` → `pass`/`fail`, `status` → `in-sync`/`drift`, `validate` → `passed`/`failed`), so the exit code stays the portable, command-agnostic success signal.
+
+**Scripting note (CI):** branch on the exact code, not `[ $? -eq 1 ]`. Structured command failures never collapse to 1 — `VALIDATION_ERROR`, `CONFIG_ERROR`, and `ADAPTER_ERROR` surface as 64/65/69, so a `-eq 1` check misses every one of them. Exit 1 is reserved for the unclassified-crash class (the code-`1` row above), so a `-eq 1` branch catches only that bug class and never a classified failure. The structured `errorCode` string also prints to stderr, and `npx hatch3r validate --format json` emits it as a machine-readable field. Example:
 
 ```bash
 npx hatch3r validate

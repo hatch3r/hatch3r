@@ -121,6 +121,22 @@ const COPILOT_ORCHESTRATOR_ONLY_AGENTS = new Set<string>([
 ]);
 
 /**
+ * D9-SA9.3-01 (Cycle 12, D9, P3): GitHub caps a custom-agent prompt — the
+ * Markdown content below the YAML frontmatter of a `.github/agents/*.agent.md`
+ * file — at 30,000 characters
+ * (docs.github.com/en/copilot/reference/custom-agents-configuration, accessed
+ * 2026-07-11: "The prompt can be a maximum of 30,000 characters"). The docs do
+ * not specify the overflow behavior, so an over-cap prompt is truncated or
+ * rejected with no signal to the user or the framework — a silent runtime loss
+ * on the highest-value agents (reviewer, implementer, learnings-loader,
+ * testability all exceed it as of Cycle 12). {@link CopilotAdapter.warnIfPromptOverCap}
+ * converts that into an audit-visible sync warning per the Silent Failure
+ * Contract (CONSTITUTION §2 P5); the canonical-body trim that brings the four
+ * agents back under the cap routes through the content lifecycle.
+ */
+const COPILOT_AGENT_PROMPT_CAP = 30_000;
+
+/**
  * D9-16 (Cycle 11 Wave 3, D9, P3 model resolution + P5 silent-failure): the
  * GitHub Copilot `.agent.md` `model:` frontmatter field expects a model the
  * Copilot model picker resolves — a provider-dated model ID
@@ -152,6 +168,25 @@ function isCopilotRecognizableModel(model: string): boolean {
     /\(copilot\)\s*$/.test(model)
   );
 }
+
+/**
+ * hatch3r-internal `model:` placeholders the Copilot surface omits by design, so
+ * {@link CopilotAdapter.warnIfModelDropped} stays silent on them. Two provenance
+ * groups: (1) the capacity-tier words authored on canonical agents' `model:`
+ * frontmatter — `standard`/`fast` — plus the other `TriageTier` members `light`/`deep`
+ * (src/pipeline/costEstimator.ts) for forward-compat if an agent adopts them; (2) the
+ * `inherit` sentinel, which `resolveModelAlias` passes through verbatim and whose
+ * emission IS omission (src/models/resolve.ts). None is a user model choice, so a drop
+ * warning on any of them would be per-sync noise on the shipped agent corpus, not the
+ * signal D9-SA9.3-06 targets (an unrecognized USER-configured model).
+ */
+const COPILOT_INTENTIONALLY_OMITTED_MODELS: ReadonlySet<string> = new Set([
+  "standard",
+  "fast",
+  "light",
+  "deep",
+  "inherit",
+]);
 
 /**
  * D5-39 (Cycle 11 Wave 3, D5, P6): default tool-category grant per github-agent
@@ -281,8 +316,127 @@ function collectMcpHeaderInputs(
 export class CopilotAdapter extends BaseAdapter {
   readonly name = "copilot";
 
+  /**
+   * D9-SA9.3-01 (Cycle 12, D9, P3): push an audit-visible warning when an
+   * emitted `.github/agents/*.agent.md` prompt exceeds GitHub's documented
+   * 30,000-character cap ({@link COPILOT_AGENT_PROMPT_CAP}). `prompt` is the
+   * Markdown below the YAML frontmatter — the managed-block-wrapped body, which
+   * is exactly what Copilot ingests and counts. Over the cap, Copilot truncates
+   * or rejects the prompt with no signal; naming the agent, its measured size,
+   * and the cap satisfies the Silent Failure Contract (CONSTITUTION §2 P5) so
+   * the operator sees which agent will be truncated before shipping it.
+   */
+  private warnIfPromptOverCap(agentPath: string, prompt: string): void {
+    if (prompt.length <= COPILOT_AGENT_PROMPT_CAP) return;
+    this.warnings.push(
+      `${agentPath}: emitted Copilot agent prompt is ${prompt.length} characters, ` +
+        `over GitHub's ${COPILOT_AGENT_PROMPT_CAP}-character custom-agent limit — Copilot ` +
+        `truncates or rejects the prompt, silently dropping instruction. Reduce the ` +
+        `agent's canonical body below ${COPILOT_AGENT_PROMPT_CAP} characters.`,
+    );
+  }
+
+  /**
+   * D9-SA9.3-06 (Cycle 12, D9, P1 + P5 silent-failure): {@link isCopilotRecognizableModel}
+   * admits only the four provider-prefix families (`claude-`/`gpt-`/`codex-`/`gemini-`)
+   * plus a `(copilot)`-qualified display name. GitHub's supported-models reference
+   * (docs.github.com/en/copilot/reference/ai-models/supported-models, accessed
+   * 2026-07-12) also lists picker models OUTSIDE those prefixes — `MAI-Code-1-Flash`
+   * (Microsoft), `Raptor mini` (fine-tuned GPT-5 mini), `Kimi-K2.7-Code` (Moonshot AI).
+   * A user who sets `models.agents.<id>` to such a valid Copilot model has the `model:`
+   * field OMITTED by the recognizable-value gate at the emission sites, and Copilot falls
+   * back to the picker default — the explicit per-agent choice becomes a silent no-op. The
+   * non-prefix vendors are unpredictable (three already), so widening the regex cannot
+   * generalize; this converts the drop into an audit-visible sync warning per the Silent
+   * Failure Contract (CONSTITUTION §2 P5). The field stays omitted — D9-16's safe fallback
+   * is preserved, no dead field is shipped — only the operator-facing signal is added. The
+   * hatch3r-internal placeholders in {@link COPILOT_INTENTIONALLY_OMITTED_MODELS} are not
+   * user model choices and never warn.
+   */
+  private warnIfModelDropped(artifactPath: string, model: string | undefined): void {
+    if (!model || isCopilotRecognizableModel(model)) return;
+    if (COPILOT_INTENTIONALLY_OMITTED_MODELS.has(model)) return;
+    this.warnings.push(
+      `${artifactPath}: configured model "${model}" is not a Copilot-recognizable ` +
+        `value (expected a claude-/gpt-/codex-/gemini- id or a "(copilot)" display name), ` +
+        `so the model: field was omitted and Copilot falls back to the picker default — the ` +
+        `per-agent model choice is a no-op. Use a supported id from ` +
+        `docs.github.com/en/copilot/reference/ai-models/supported-models.`,
+    );
+  }
+
+  /**
+   * D9-SA9.3-08 / CL-2 U11 (Cycle 12, D9, P6): opt-in VS Code MCP sandbox
+   * hardening. Applies `sandboxEnabled: true` to the emitted stdio server
+   * entries selected by `copilot.mcpSandbox.servers` (`"all"` = every stdio
+   * entry) and returns the configured top-level `sandbox` rules object when at
+   * least one server was actually sandboxed. VS Code schema (accessed
+   * 2026-07-12, code.visualstudio.com/docs/agents/reference/mcp-configuration):
+   * per-server `sandboxEnabled` is stdio-only and macOS/Linux-only; the
+   * top-level `sandbox` object (sibling of `servers`/`inputs`) carries
+   * `filesystem.{allowWrite,denyRead,denyWrite}` +
+   * `network.{allowedDomains,deniedDomains}` and applies to all sandboxed
+   * servers, which "can only access the file system paths and network domains
+   * that you explicitly permit" (default-deny — the reason this emission is
+   * OPT-IN: blanket enablement would break every network-reaching stdio MCP
+   * server in the canonical set). Warnings per the Silent Failure Contract:
+   * a named-but-absent server, a named HTTP server (skipped — stdio-only), and
+   * rules configured with zero sandboxed servers (rules omitted, never inert).
+   */
+  private applyMcpSandbox(
+    ctx: AdapterContext,
+    servers: Record<string, Record<string, unknown>>,
+  ): Record<string, unknown> | undefined {
+    const cfg = ctx.manifest.copilot?.mcpSandbox;
+    if (!cfg) return undefined;
+    const requested =
+      cfg.servers === "all"
+        ? Object.keys(servers).filter((name) => servers[name].type === "stdio")
+        : cfg.servers;
+    let sandboxedCount = 0;
+    for (const name of requested) {
+      const entry = servers[name];
+      if (!entry) {
+        this.warnings.push(
+          `copilot: mcpSandbox names server "${name}" but no such server is emitted to ` +
+            `.vscode/mcp.json — no sandboxEnabled applied for it. Check manifest mcp.servers ` +
+            `and the copilot.mcpSandbox.servers list.`,
+        );
+        continue;
+      }
+      if (entry.type !== "stdio") {
+        this.warnings.push(
+          `copilot: mcpSandbox names server "${name}", but VS Code's sandboxEnabled field ` +
+            `applies to stdio servers only — "${name}" is ${String(entry.type)}-transport, ` +
+            `so it was skipped (code.visualstudio.com/docs/agents/reference/mcp-configuration).`,
+        );
+        continue;
+      }
+      entry.sandboxEnabled = true;
+      sandboxedCount++;
+    }
+    if (!cfg.rules) return undefined;
+    if (sandboxedCount === 0) {
+      this.warnings.push(
+        "copilot: mcpSandbox.rules is configured but no emitted server was sandboxed — " +
+          "omitting the top-level sandbox object (its rules apply only to sandboxed servers, " +
+          "so emitting it would ship dead config).",
+      );
+      return undefined;
+    }
+    return cfg.rules as Record<string, unknown>;
+  }
+
   protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
     const results: AdapterOutput[] = [];
+
+    // D2-SA2.4-01 (D9/D15, P3): the selected MCP server set, threaded into the
+    // emitted Copilot `tools:` allowlist so an mcp-granted agent names each
+    // reachable `<server>/*`. Copilot has no `mcp-servers` frontmatter primitive
+    // in VS Code/IDE custom agents, so the `tools:` list is the only MCP grant
+    // mechanism there — an enumerated list without `<server>/*` tokens excludes
+    // every MCP tool. Gated on `ctx.features.mcp` to match the MCP-emission gate.
+    const mcpServers = ctx.features.mcp ? ctx.manifest.mcp.servers : [];
 
     const alwaysRules: { rule: CanonicalFile; content: string }[] = [];
     // X4/CD4 (D6-1/D9-1/D11-1 — GLOBS DROP): carry the RESOLVED glob list
@@ -415,7 +569,7 @@ jobs:
       // X4/CD4: `globs` is the resolved pattern list from resolveRuleGlobs
       // (never the literal "conditional"). VS Code's `applyTo` is a single
       // comma-separated glob string per
-      // https://code.visualstudio.com/docs/copilot/copilot-customization
+      // https://code.visualstudio.com/docs/agent-customization/custom-instructions
       // (custom instructions `applyTo` frontmatter).
       const applyTo = globs.join(", ");
       const fmLines = [`applyTo: "${applyTo}"`];
@@ -475,7 +629,7 @@ jobs:
         // invariant. Copilot frontmatter format:
         // https://docs.github.com/en/copilot/reference/custom-agents-configuration
         // (accessed 2026-04-20).
-        const copilotTools = toCopilotToolsFrontmatter(prefixedId);
+        const copilotTools = toCopilotToolsFrontmatter(prefixedId, mcpServers);
         if (copilotTools) {
           lines.push(`tools: [${copilotTools.map((t) => `"${t}"`).join(", ")}]`);
         }
@@ -494,7 +648,16 @@ jobs:
         }
         const fm = `---\n${lines.join("\n")}\n---`;
         const agentPath = `.github/agents/${prefixedId}.agent.md`;
-        results.push(output(agentPath, `${fm}\n\n${wrapManagedFor(agentPath, content)}`, content, copilotSingleSource(agent)));
+        // D9-SA9.3-06 (Cycle 12): if `model` resolved to a value the D9-16 gate
+        // above dropped (a user-configured non-prefix Copilot model), surface the
+        // omission — it is otherwise a silent per-agent no-op.
+        this.warnIfModelDropped(agentPath, model);
+        // D9-SA9.3-01 (Cycle 12): warn if the below-frontmatter prompt exceeds
+        // GitHub's 30,000-char custom-agent cap (the wrapped body is exactly what
+        // Copilot ingests and counts).
+        const wrappedAgent = wrapManagedFor(agentPath, content);
+        this.warnIfPromptOverCap(agentPath, wrappedAgent);
+        results.push(output(agentPath, `${fm}\n\n${wrappedAgent}`, content, copilotSingleSource(agent)));
       }
     }
 
@@ -572,15 +735,19 @@ jobs:
         // hatch3r tier words `standard`/`fast`.
         const model = agent.model ? resolveAgentModel(agent.id, agent, ctx.manifest, {}) : undefined;
         if (model && isCopilotRecognizableModel(model)) lines.push(`model: ${model}`);
+        // D9-SA9.3-06 (Cycle 12): same drop-visibility guard on the github-agent surface.
+        this.warnIfModelDropped(ghAgentPath, model);
         // D5-39: per-role least-privilege `tools:` allowlist (read-only baseline
         // for an unlisted github-agent), rendered through the shared category map.
         const categories = GITHUB_AGENT_TOOL_CATEGORIES[prefixedId] ?? GITHUB_AGENT_DEFAULT_CATEGORIES;
-        const tools = toCopilotToolsFrontmatterFromCategories(categories);
+        const tools = toCopilotToolsFrontmatterFromCategories(categories, mcpServers);
         if (tools) {
           lines.push(`tools: [${tools.map((t) => `"${t}"`).join(", ")}]`);
         }
         const fm = `---\n${lines.join("\n")}\n---`;
         const wrappedBody = wrapManagedFor(ghAgentPath, body);
+        // D9-SA9.3-01 (Cycle 12): same cap guard on the github-agent surface.
+        this.warnIfPromptOverCap(ghAgentPath, wrappedBody);
         const content = `${fm}\n\n${wrappedBody}`;
         results.push(output(ghAgentPath, content, body, copilotSingleSource(agent)));
       }
@@ -634,6 +801,11 @@ jobs:
       ["agents/shared", ctx.features.agents, (f) => `.github/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.github/prompts/board/${f}`],
       ["commands/revision", ctx.features.commands, (f) => `.github/prompts/revision/${f}`],
+      // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion referenced by
+      // every emitted orchestrator command. Copilot routes command companions
+      // under `.github/prompts/` (matching the board/revision rows above), so the
+      // shared frame ships to `.github/prompts/shared/` and its references resolve.
+      ["commands/shared", ctx.features.commands, (f) => `.github/prompts/shared/${f}`],
       ["checks", ctx.features.agents || ctx.features.commands, (f) => `.github/checks/${f}`],
     ];
     for (const [subdir, enabled, pathFn] of companionMappings) {
@@ -646,7 +818,7 @@ jobs:
       // D9-C-2 + D11-C-2 + D11-7 (Cycle 10–11, Pillars P3 + P6 + CQ4):
       //   - D9-C-2: VS Code's MCP schema requires per-server `type`
       //     (`stdio` | `http` | `sse`) — verified against
-      //     https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+      //     https://code.visualstudio.com/docs/agents/reference/mcp-configuration
       //     (accessed 2026-05-27). Without it, schema-aware tooling
       //     (mcp-inspector, VS Code 2026.05+ strict mode, awesome-copilot
       //     lint) rejects the server entries. `buildStdMcpEntries` now
@@ -683,9 +855,15 @@ jobs:
       // tooling D9-C-2 targets (mcp-inspector / VS Code strict mode /
       // awesome-copilot lint). The shared rationale and the Claude-side emission
       // contrast live at `MCP_DEFAULT_PROTOCOL_VERSION` in mcp-utils.ts.
+      // D9-SA9.3-08 / CL-2 U11 (Cycle 12, D9, P6): opt-in MCP sandbox — flags
+      // selected stdio entries `sandboxEnabled: true` in place and returns the
+      // top-level `sandbox` rules object (or undefined). Default OFF; see
+      // applyMcpSandbox for the schema citation + default-deny rationale.
+      const sandboxRules = this.applyMcpSandbox(ctx, vscodeServers);
       const doc: Record<string, unknown> = {};
       if (inputs.length > 0) doc.inputs = inputs;
       doc.servers = vscodeServers;
+      if (sandboxRules) doc.sandbox = sandboxRules;
       results.push(output(".vscode/mcp.json", JSON.stringify(doc, null, 2) + "\n"));
       // D15-28 (Cycle 11 Wave 3, D15, P6, SA15.5-F7): Silent Failure Contract.
       // A non-empty `inputs[]` means at least one HTTP MCP server carried a

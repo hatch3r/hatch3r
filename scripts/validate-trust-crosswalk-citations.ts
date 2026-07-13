@@ -69,7 +69,7 @@
  *   tsx scripts/validate-trust-crosswalk-citations.ts --json
  *   npm run validate:trust-crosswalk
  */
-import { existsSync } from "node:fs";
+import { existsSync, type Dirent } from "node:fs";
 import { readFile, readdir, stat } from "node:fs/promises";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -127,7 +127,7 @@ const VALIDATE_PROSE_WORDS = new Set([
 
 /** Recursively list files under `dir`, returning paths relative to `root`. */
 async function listFiles(dir: string, root: string): Promise<string[]> {
-  let entries: Awaited<ReturnType<typeof readdir>>;
+  let entries: Dirent[];
   try {
     entries = await readdir(dir, { withFileTypes: true });
   } catch { // eslint-disable-line silent-failure/no-silent-catch

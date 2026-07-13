@@ -25,6 +25,12 @@ import inquirer from "inquirer";
 // is handled by src/__tests__/migration/agentsToHatch3r.test.ts.
 const AGENTS_DIR = ".hatch3r";
 
+// D3-SA3.2-01 (Cycle 12): the Shift+Tab BACK sentinel. `Symbol.for` guarantees
+// identity across module boundaries, so this equals the sentinel that
+// `src/cli/shared/initSteps.ts::isBack` compares against (production code and
+// this test resolve the SAME registered symbol).
+const BACK = Symbol.for("hatch3r.BACK");
+
 // ── Fixture helpers ────────────────────────────────────────────
 
 function makeContentSelection(overrides: Partial<ContentSelection> = {}): ContentSelection {
@@ -434,6 +440,79 @@ describe("migration checkpoints", () => {
       expect(updated.namespace).toBe("my-gitlab-group");
       expect(updated.project).toBe("my-gl-project");
       expect(updated.repo).toBe("my-gl-repo");
+    });
+  });
+
+  // D3-SA3.2-01 (Cycle 12, D3/D1): Shift+Tab (BACK sentinel) coverage for the
+  // platform-selection checkpoint. `update` is in BACKABLE_COMMANDS, so BACK is
+  // reachable at every one of its prompts; before the fix the platform select
+  // and the identity inputs lacked the isBack guard their sibling
+  // content-selections-init checkpoint has, so a BACK keypress either detoured
+  // into a CONFIG_ERROR crash (platform branch) or silently dropped
+  // owner/repo/namespace/project (identity branch).
+  describe("platform-selection BACK sentinel (D3-SA3.2-01)", () => {
+    it("cancels cleanly (exit 0) with no manifest write when BACK is pressed at the platform prompt", async () => {
+      await createTestProject(tempDir, { platform: undefined });
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      const raw = JSON.parse(await readFile(manifestPath, "utf-8"));
+      delete raw.platform;
+      const before = JSON.stringify(raw, null, 2);
+      await writeFile(manifestPath, before);
+
+      // Shift+Tab at the platform select resolves the BACK sentinel.
+      vi.mocked(inquirer.prompt).mockResolvedValueOnce({ platform: BACK });
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      let thrown: unknown;
+      try {
+        await updateCommand({ backup: false });
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(HatchError);
+      expect((thrown as HatchError).exitCode).toBe(0);
+      expect((thrown as HatchError).message).toContain("cancelled");
+
+      // The BACK symbol must never be assigned to `platform` and persisted.
+      const after = await readFile(manifestPath, "utf-8");
+      expect(after).toBe(before);
+      expect(JSON.parse(after).platform).toBeUndefined();
+    });
+
+    it("cancels cleanly with no silent owner/repo loss when BACK is pressed at the identity inputs", async () => {
+      await createTestProject(tempDir, {
+        platform: undefined,
+        owner: "old-owner",
+        repo: "old-repo",
+      });
+      const manifestPath = join(tempDir, AGENTS_DIR, "hatch.json");
+      const raw = JSON.parse(await readFile(manifestPath, "utf-8"));
+      delete raw.platform;
+      const before = JSON.stringify(raw, null, 2);
+      await writeFile(manifestPath, before);
+
+      // Select Azure DevOps, then Shift+Tab (BACK) at the identity inputs.
+      vi.mocked(inquirer.prompt)
+        .mockResolvedValueOnce({ platform: "azure-devops" })
+        .mockResolvedValueOnce({ namespace: BACK, project: BACK, repo: BACK });
+
+      const { updateCommand } = await import("../../cli/commands/update.js");
+      let thrown: unknown;
+      try {
+        await updateCommand({ backup: false });
+      } catch (e) {
+        thrown = e;
+      }
+      expect(thrown).toBeInstanceOf(HatchError);
+      expect((thrown as HatchError).exitCode).toBe(0);
+
+      // Regression guard: the BACK symbol must never reach owner/repo/namespace/
+      // project and be silently dropped by JSON.stringify at write time.
+      const after = await readFile(manifestPath, "utf-8");
+      expect(after).toBe(before);
+      const parsed = JSON.parse(after);
+      expect(parsed.owner).toBe("old-owner");
+      expect(parsed.repo).toBe("old-repo");
     });
   });
 

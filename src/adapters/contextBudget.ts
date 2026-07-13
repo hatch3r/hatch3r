@@ -25,6 +25,16 @@ import type { AdapterOutput, Tool } from "../types.js";
  *     Cursor reserves tokens for its system prompt + codebase index, so 120K
  *     is a conservative Normal-Mode instruction budget. Source:
  *     https://cursor.com/docs/context/max-mode (Max Mode + Normal Mode windows)
+ *     D6-SA6.1-02 (Cycle 12): this 120K figure is the window-FIT budget
+ *     (single-window OOM-avoidance headroom for the always-loaded slice). It is
+ *     a DIFFERENT quantity from — and ~15x larger than — Cursor's ~30.7 KB
+ *     (~7.7K-token) always-apply PERFORMANCE guidance, the soft per-turn
+ *     ceiling above which always-on rule content degrades Cursor
+ *     responsiveness, documented at `resolveRuleGlobs` in
+ *     `src/adapters/canonical.ts`. The context-budget gate here answers "does
+ *     the always-loaded slice fit the window?"; that separate figure answers
+ *     "does it stay performant as always-apply content?" — do not conflate the
+ *     two "budget" numbers.
  *   - copilot = 128K. Raised from the v1.9.0 value of 64K: the prior 64K floor
  *     was stale. GitHub Copilot now ships a 128K standard tier (GPT-4o extended)
  *     and a 1M-token window in VS Code, Copilot CLI, and the Copilot app

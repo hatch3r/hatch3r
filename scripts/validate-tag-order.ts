@@ -22,11 +22,28 @@
  * `src/content/tags.ts` via `isContextTag` — no hard-coded tag list here,
  * so the gate tracks the registry automatically.
  *
- * Failure mode (emits one ERROR finding):
+ * Failure modes (each emits one ERROR finding):
  *
- *   TAG-ORDER-CTX-FIRST   `tags[0]` is a context (`ctx:*`) tag while the
- *                         artifact also carries a non-context tag that
- *                         should lead instead.
+ *   TAG-ORDER-CTX-FIRST         `tags[0]` is a context (`ctx:*`) tag while the
+ *                               artifact also carries a non-context tag that
+ *                               should lead instead.
+ *   TAG-CTX-BODY-CONTRADICTION  the artifact carries a project-type context
+ *                               tag (`ctx:greenfield-only` /
+ *                               `ctx:brownfield-only`) while its body
+ *                               advertises support for the OPPOSITE project
+ *                               type (D10-SA10.7-01). The ctx facet is a hard
+ *                               install-time removal filter
+ *                               (`src/content/index.ts` projectType guard +
+ *                               `src/content/routing.ts` drop), so a
+ *                               greenfield-only tag on a body that documents
+ *                               brownfield support strips the artifact from
+ *                               every brownfield install its own body claims
+ *                               to serve. Detection is noun-anchored — the
+ *                               opposite type word followed by a support noun
+ *                               ("brownfield projects", "greenfield repos",
+ *                               "brownfield discovery") — so adjective or
+ *                               redirect mentions ("greenfield-new contract",
+ *                               "Greenfield default: Atlas") do not match.
  *
  * Floor-leading (`floor:*` first) is permitted: the content-authoring rule
  * accepts a floor primary when the artifact has no capability tag, and
@@ -51,7 +68,11 @@ import { readdir, readFile, stat } from "node:fs/promises";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
-import { isContextTag } from "../src/content/tags.js";
+import {
+  isContextTag,
+  TAG_CTX_BROWNFIELD_ONLY,
+  TAG_CTX_GREENFIELD_ONLY,
+} from "../src/content/tags.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -72,6 +93,10 @@ interface ParsedFile {
   relPath: string;
   tags: string[];
   fmParseFailed: boolean;
+  /** Body lines (content after the frontmatter block; whole file when none). */
+  bodyLines: string[];
+  /** 1-indexed file line number of the first body line. */
+  bodyStartLine: number;
 }
 
 export interface RunOptions {
@@ -161,10 +186,28 @@ async function collectArtifacts(root: string): Promise<string[]> {
   return [...agents, ...rules, ...commands, ...hooks, ...skills];
 }
 
+/**
+ * Split the body off the frontmatter so the contradiction check never scans
+ * the `tags:` line itself (the ctx tag value contains the project-type word).
+ * Unterminated frontmatter falls through to the whole file — the paired
+ * `fmParseFailed` warning already skips such files before any body check.
+ */
+function extractBody(raw: string): { bodyLines: string[]; bodyStartLine: number } {
+  const lines = raw.split(/\r?\n/);
+  if (lines[0]?.trim() !== "---") return { bodyLines: lines, bodyStartLine: 1 };
+  for (let i = 1; i < lines.length; i++) {
+    if (lines[i].trim() === "---") {
+      return { bodyLines: lines.slice(i + 1), bodyStartLine: i + 2 };
+    }
+  }
+  return { bodyLines: lines, bodyStartLine: 1 };
+}
+
 async function loadFile(absPath: string, baseDir: string): Promise<ParsedFile> {
   const raw = await readFile(absPath, "utf-8");
   const { tags, fmParseFailed } = extractTags(raw);
-  return { relPath: toPosixRel(absPath, baseDir), tags, fmParseFailed };
+  const { bodyLines, bodyStartLine } = extractBody(raw);
+  return { relPath: toPosixRel(absPath, baseDir), tags, fmParseFailed, bodyLines, bodyStartLine };
 }
 
 // ── Core check ────────────────────────────────────────────────────
@@ -190,6 +233,55 @@ function checkTagOrder(file: ParsedFile): Finding[] {
   ];
 }
 
+// ── Tag-vs-body contradiction check (D10-SA10.7-01) ───────────────
+
+/**
+ * Opposite-project-type SUPPORT language: the opposite type word immediately
+ * followed by a support noun ("brownfield projects", "greenfield codebase",
+ * "brownfield discovery"). Calibrated against the live corpus 2026-07-11:
+ * fires on the three support claims in the pre-fix `hatch3r-roadmap.md`
+ * body (lines 26/112/603) while passing the two adjective/redirect uses that
+ * a bare word match would false-positive on (`rules/hatch3r-contract-census.md`
+ * "greenfield-new contract", `rules/hatch3r-migrations.md` "Greenfield
+ * default: Atlas").
+ */
+function oppositeSupportRe(oppositeWord: string): RegExp {
+  return new RegExp(
+    `\\b${oppositeWord}[-\\s]+(?:projects?|repos?|repositories|codebases?|installs?|modes?|discovery|support(?:ed)?)\\b`,
+    "i",
+  );
+}
+
+const CTX_PROJECT_TYPE_PAIRS: ReadonlyArray<{ tag: string; opposite: string }> = [
+  { tag: TAG_CTX_GREENFIELD_ONLY, opposite: "brownfield" },
+  { tag: TAG_CTX_BROWNFIELD_ONLY, opposite: "greenfield" },
+];
+
+function checkCtxBodyContradiction(file: ParsedFile): Finding[] {
+  const findings: Finding[] = [];
+  for (const { tag, opposite } of CTX_PROJECT_TYPE_PAIRS) {
+    if (!file.tags.includes(tag)) continue;
+    const re = oppositeSupportRe(opposite);
+    const hitLines: number[] = [];
+    for (let i = 0; i < file.bodyLines.length; i++) {
+      if (re.test(file.bodyLines[i])) hitLines.push(file.bodyStartLine + i);
+    }
+    if (hitLines.length > 0) {
+      findings.push({
+        level: "error",
+        code: "TAG-CTX-BODY-CONTRADICTION",
+        file: file.relPath,
+        message:
+          `tagged \`${tag}\` but the body advertises ${opposite} support at line(s) ${hitLines.join(", ")}; ` +
+          `the ctx facet is a hard install-time removal filter (src/content/tags.ts — "removed regardless of preset"), ` +
+          `so this tag strips the artifact from every ${opposite} install its own body claims to serve — ` +
+          `drop the tag or remove the ${opposite}-support language (D10-SA10.7-01)`,
+      });
+    }
+  }
+  return findings;
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
@@ -211,6 +303,7 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     }
     checkedFiles += 1;
     findings.push(...checkTagOrder(f));
+    findings.push(...checkCtxBodyContradiction(f));
   }
 
   let errorCount = 0;

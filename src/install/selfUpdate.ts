@@ -121,6 +121,20 @@ function describe(loc: InstallLocation): string {
 export interface AuditSignaturesResult {
   ok: boolean;
   unsupported: boolean;
+  /**
+   * D1-SA1.3-01 (D1, P6): the audit could not run because the cwd has no
+   * installed dependency tree / lockfile to inspect — `npm audit signatures`
+   * emits "found no installed dependencies to audit" / ENOLOCK here. This
+   * happens for any non-Node repo (hatch3r targets polyglot repos) and for a
+   * global package dir without a lockfile. It is an ENVIRONMENT limitation,
+   * NOT a tamper verdict: the caller degrades to a warning that states what
+   * was and was not verified instead of refusing the update with a
+   * "compromised registry artifacts" error (which trained users to
+   * permanently pass --skip-audit-signatures, eroding the control).
+   * Sources: https://docs.npmjs.com/cli/v11/commands/npm-audit ,
+   * https://github.com/npm/cli/issues/4318 (accessed 2026-07-09).
+   */
+  envLimited: boolean;
   details: string;
 }
 
@@ -143,11 +157,23 @@ export interface AuditSignaturesResult {
  * steps. This helper returns a structured result instead so the caller
  * controls the failure mode.
  *
- * Context:
- * - Mini Shai-Hulud (May 2026) — 170+ npm packages, 518M downloads
- *   compromised via maintainer-credential takeover.
- * - CVE-2026-45321 — TanStack provenance-bypass; `npm audit signatures`
- *   is the consumer-side detection that closes that class of attack.
+ * Scope (governance/pack-trust-model.md §2.1 — authorship vs
+ * publish-authorization; corrected under D15-SA15.4-02):
+ * - What this PROVES: npm's REGISTRY signature (Sigstore + Rekor inclusion) is
+ *   present and valid across the audited tree, and no attestation is
+ *   `tampered`/`invalid`. Catches a registry-served-without-signature artifact
+ *   and a Rekor mismatch.
+ * - What it CANNOT prove, by construction: that the human holding the signing
+ *   credential authorized the publish. A compromised-but-valid maintainer
+ *   credential (Mini Shai-Hulud, May 2026 — 170+ packages / 518M downloads via
+ *   credential takeover) or a worm in a compromised CI runner (the May 19 2026
+ *   Sigstore-bypass worm; CVE-2026-45321 shipped valid SLSA Build L3
+ *   provenance) mints a valid signature that PASSES this check. That class is
+ *   addressed by `hatch3r update --pin-version <semver>` (freeze to a
+ *   known-good version; update only after the registry revokes the malicious
+ *   release) plus registry/marketplace revocation — NOT by this check. Treat
+ *   signature verification as authorship attestation, never as
+ *   publish-authorization proof.
  */
 export async function runAuditSignatures(
   cwd: string,
@@ -166,9 +192,9 @@ export async function runAuditSignatures(
     // lines for packages that lack attestations — treat as failure per
     // the secure-default contract.
     if (/signatures:\s*invalid|tampered/i.test(stdout)) {
-      return { ok: false, unsupported: false, details: stdout.trim() };
+      return { ok: false, unsupported: false, envLimited: false, details: stdout.trim() };
     }
-    return { ok: true, unsupported: false, details: stdout.trim() };
+    return { ok: true, unsupported: false, envLimited: false, details: stdout.trim() };
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err);
     // execFileSync wraps the child stderr in the thrown error; surface the
@@ -181,9 +207,22 @@ export async function runAuditSignatures(
     const combined = `${raw}\n${stderr}`.trim();
     if (/Unknown command:\s*"audit signatures"|audit signatures/i.test(stderr) &&
         /unknown|not.*recognized/i.test(stderr)) {
-      return { ok: false, unsupported: true, details: combined };
+      return { ok: false, unsupported: true, envLimited: false, details: combined };
     }
-    return { ok: false, unsupported: false, details: combined };
+    // D1-SA1.3-01: npm needs an installed dependency tree / lockfile in cwd to
+    // audit. A repo without one (any non-Node project, or a global package dir
+    // with no lockfile) makes npm exit non-zero with a no-dependencies / ENOLOCK
+    // message. That is an environment limitation, not a tamper signal — classify
+    // it distinctly so the caller degrades to a warning instead of a
+    // "compromised registry artifacts" refusal.
+    if (
+      /found no installed dependencies to audit|ENOLOCK|no lockfile|requires (?:an?|existing|the) .*lock/i.test(
+        combined,
+      )
+    ) {
+      return { ok: false, unsupported: false, envLimited: true, details: combined };
+    }
+    return { ok: false, unsupported: false, envLimited: false, details: combined };
   }
 }
 
@@ -206,9 +245,15 @@ function formatSignatureFailureMessage(
   }
   return (
     `npm audit signatures verification FAILED for ${label}. ` +
-    `Refusing to regenerate adapter outputs from an unverified package — ` +
-    `this is the consumer-side defense against compromised registry artifacts ` +
-    `(Shai-Hulud / Mini-Shai-Hulud / CVE-2026-45321 class). Next steps: ` +
+    `Refusing to regenerate adapter outputs from a package whose registry ` +
+    `signature could not be verified (missing/invalid signature, or a ` +
+    `\`tampered\` Sigstore/Rekor mismatch). Scope: this gate verifies npm ` +
+    `REGISTRY-signature integrity; it does NOT by itself detect the ` +
+    `credential-theft / forged-provenance class (Shai-Hulud / Mini-Shai-Hulud ` +
+    `/ CVE-2026-45321), which ships valid signatures — pin a known-good ` +
+    `version with \`hatch3r update --pin-version <semver>\` and update only ` +
+    `after the registry revokes the malicious release to defend that class. ` +
+    `Next steps: ` +
     `(1) run \`npm audit signatures\` manually to inspect the failure, ` +
     `(2) clear the package cache and retry: \`npm cache clean --force && hatch3r update\`, ` +
     `(3) if you have verified the package out-of-band, re-run with --skip-audit-signatures. ` +
@@ -321,22 +366,33 @@ export async function runSelfUpdate(
       // --skip-audit-signatures is an emergency override that the CLI
       // surface warns about loudly.
       if (!options.skipAuditSignatures) {
-        // npm audit signatures inspects the dependency tree rooted at the
-        // current cwd; for both project-local and global targets the
-        // freshly-installed hatch3r package is reachable from rootDir
-        // (project-local: rootDir/node_modules/hatch3r; global: covered
-        // by npm's global lockfile reachability).
+        // D1-SA1.3-01 (D1, P6): `npm audit signatures` inspects the dependency
+        // tree rooted at cwd, so cwd must be the tree that actually CONTAINS the
+        // freshly-installed hatch3r. For a project-local install that is the
+        // host repo (`rootDir/node_modules/hatch3r`). For a GLOBAL install the
+        // host repo is irrelevant — hatch3r lives at the global package root —
+        // so auditing rootDir both (a) false-blocked global users on non-Node
+        // repos every run and (b) verified the wrong tree. Point the audit at
+        // the installed package's own root for global targets.
+        const auditCwd = target.kind === "global" ? target.packageRoot : rootDir;
         //
-        // C9-H51 (D15-SA15.4-F01): treat ALL audit-signature failures as
-        // fatal, regardless of primary/secondary classification. The
-        // security contract is binary: a successfully-fetched package the
-        // CLI cannot verify is a refusal-to-regenerate event. We do not
-        // degrade audit failures for the same reason we do not degrade
-        // a `tampered` integrity result — the consumer-side defense
-        // against compromised registry artifacts is the whole point of
-        // running the check at all.
-        const auditResult = await runAuditSignatures(rootDir);
-        if (!auditResult.ok) {
+        // C9-H51 (D15-SA15.4-F01): treat a genuine audit-signature FAILURE as
+        // fatal, regardless of primary/secondary classification. The security
+        // contract is binary: a successfully-fetched package the CLI cannot
+        // verify is a refusal-to-regenerate event.
+        const auditResult = await runAuditSignatures(auditCwd);
+        if (auditResult.envLimited) {
+          // D1-SA1.3-01: the audit could not run because there is no dependency
+          // tree/lockfile to inspect at `auditCwd`. This is an environment
+          // limitation, not a tamper verdict — state what was and was not
+          // verified and PROCEED (refusing here trained users to permanently
+          // pass --skip-audit-signatures, eroding the control).
+          warn(
+            `Signature verification unavailable for ${label}: no installed dependency tree to audit at ${auditCwd}. ` +
+              `hatch3r was installed but its signatures could not be verified from this location — the package itself is not flagged as compromised. ` +
+              `To verify manually, run \`npm audit signatures\` in a directory with an installed hatch3r dependency tree.`,
+          );
+        } else if (!auditResult.ok) {
           const msg = formatSignatureFailureMessage(label, auditResult);
           throw new HatchError(
             msg,

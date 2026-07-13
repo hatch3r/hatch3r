@@ -121,7 +121,13 @@ export interface RuleGlobOverrides {
  * explicit keyword, this shape was reachable only via the deprecated
  * globs-less-`conditional` form, so a large optional rule with no natural file
  * glob (e.g. a 200-line workflow rule) was forced to `scope: always` and loaded
- * on every Cursor turn (~23 KB of the 30.7 KB budget). Returning [] here routes
+ * on every Cursor turn (~23 KB against Cursor's ~30.7 KB always-apply
+ * performance guidance — a soft per-turn ceiling for always-loaded rule
+ * content, a DIFFERENT quantity from the window-fit context budget the runtime
+ * gate enforces via `CONTEXT_BUDGET_TOKENS` in `src/adapters/contextBudget.ts`
+ * (~120K tokens for Cursor). The two figures are ~15x apart by design: one
+ * measures always-apply responsiveness, the other single-window fit — see the
+ * `CONTEXT_BUDGET_TOKENS` docstring, D6-SA6.1-02). Returning [] here routes
  * an `agent-requested` rule to the same no-glob emission as `always` for glob
  * purposes; the `alwaysApply` distinction (true vs false) is applied by each
  * adapter's frontmatter builder, not here. Claude Code and Copilot have no
@@ -138,10 +144,16 @@ export interface RuleGlobOverrides {
  * `scope === "conditional"` and emitted `["conditional"]` as the glob, dropping
  * the real patterns for 52/65 conditional rules (incl. `floor:security` /
  * `precedence: critical` `hatch3r-security-patterns`).
+ *
+ * D2-SA2.3-06 (D2 Medium, P6): pass an optional `warnings` array to receive an
+ * advisory when the effective scope is neither a known keyword nor glob-shaped
+ * — the case where a `.customize.yaml` typo (`scope: alway`) would otherwise
+ * silently turn an always-on rule into a dead glob. Emission is unchanged.
  */
 export function resolveRuleGlobs(
   rule: Pick<CanonicalFile, "scope" | "globs">,
   overrides?: RuleGlobOverrides,
+  warnings?: string[],
 ): string[] {
   const scope = overrides?.scope ?? rule.scope;
   if (!scope || scope === "always" || scope === "agent-requested") return [];
@@ -151,6 +163,21 @@ export function resolveRuleGlobs(
   // Legacy inline-CSV form (`scope: "src/**/*.ts,*.md"` or a single bare
   // glob like `scope: "**/*.ts"`): the glob patterns live in the scope
   // string itself. Parse it directly so back-compat rules keep working.
+  //
+  // D2-SA2.3-06 (D2 Medium): a scope value that is neither a known keyword nor
+  // glob-shaped (contains none of `* / . ,`) parses here as a literal
+  // one-token CSV glob that matches no file — silently converting an always-on
+  // rule (including a `precedence: critical` security rule re-scoped via a
+  // `.customize.yaml` override) into a dead glob. When a `warnings` channel is
+  // supplied, surface the near-miss so a `scope: alway` typo is caught instead
+  // of dropping the rule from every session; emission stays unchanged.
+  if (warnings && !/[*/.,]/.test(scope)) {
+    warnings.push(
+      `Scope override "${scope}" is not one of always|agent-requested|conditional ` +
+        `and is not glob-shaped — the rule will match no files. ` +
+        `Did you mean one of those keywords?`,
+    );
+  }
   return csvToGlobList(scope);
 }
 
@@ -171,10 +198,10 @@ export function resolveRuleGlobs(
  *    companion file (e.g., a `type: shared-context` file) that sits next to
  *    real commands but must not be invocable.
  *
- * Canonical `.agents/` content (populated by `src/content/index.ts`)
- * remains unfiltered, so parent commands can continue referencing
- * companion files by name — this helper only gates per-tool adapter
- * emission.
+ * Canonical content (bundled in the npm package, read via
+ * `resolveBundledContentRoot()`) remains unfiltered, so parent commands can
+ * continue referencing companion files by name — this helper only gates
+ * per-tool adapter emission.
  *
  * Cross-platform: uses `path.relative` to normalise the pair of absolute
  * paths before the subdirectory check, because on Windows `sourcePath` and
@@ -285,6 +312,27 @@ export interface CanonicalReadError {
   cause?: unknown;
 }
 
+/**
+ * CI-RECON-06 (Cycle 12 FIX-AND-SHIP): normalize path separators to `/` in
+ * reader DIAGNOSTIC MESSAGES only. On win32, `join()`/`readdir` produce
+ * backslash-separated paths (`checks\accessibility.md`), so a message built
+ * from `${fullPath}` diverges per-platform and any consumer keying on a
+ * `dir/file.md` fragment (tests, CI grep, docs examples) silently misses on
+ * Windows. The replacement is unconditional — matching the in-repo precedent
+ * in `src/detect/repoAnalyzer.ts:355` / `src/merge/orphanCleanup.ts:188` —
+ * because `\` is a reserved separator on win32 (never a filename character)
+ * and the canonical corpus contains no posix filename embedding a literal
+ * backslash; unconditional also means the win32 branch is exercised verbatim
+ * by posix test runs (backslash-input regression cases in canonical.test.ts).
+ * SCOPE BOUNDARY: `CanonicalReadResult.file` and `CanonicalFile.sourcePath`
+ * stay OS-native — they feed real fs calls and `path.relative()` checks
+ * (`isTopLevelMd`) downstream. Only the human/CI-facing `message` channel is
+ * normalized.
+ */
+export function toPosixPath(p: string): string {
+  return p.replace(/\\/g, "/");
+}
+
 /** Map a node:fs ErrnoException code to a CanonicalReadError code. */
 function classifyFsError(err: unknown): CanonicalReadError["code"] {
   const code = (err as NodeJS.ErrnoException | undefined)?.code;
@@ -304,7 +352,10 @@ function toReadError(file: string, err: unknown, override?: CanonicalReadError["
   const baseMessage = err instanceof Error ? err.message : String(err);
   return {
     code,
-    message: `${file}: ${baseMessage}`,
+    // CI-RECON-06: interpolated path is posix-normalized for the message
+    // channel; `baseMessage` free text is left untouched (a YAML/TypeError
+    // message may legitimately contain backslash escapes).
+    message: `${toPosixPath(file)}: ${baseMessage}`,
     cause: err,
   };
 }
@@ -561,6 +612,22 @@ export function parseFrontmatter(
           `tools.deny field must be an array of strings, got ${describeYamlType(denyRaw)} (value: ${JSON.stringify(denyRaw)})`,
         );
       }
+      // D20-SA20.1-02 (D20 Medium, P6): surface a near-miss/typo `tools`
+      // sub-key. The four recognized sub-keys are `allowed`/`denied` (D20-1
+      // category grant) and `allow`/`deny` (D15-3 tool-name grant). Any other
+      // key (e.g. `allowd`, `denyed`) silently declares no grant, so the
+      // width-based security-baseline gate reads `undefined` and requires no
+      // baseline citation. Emit a warning so the misspelling surfaces instead
+      // of silently disabling the grant.
+      if (typeMismatches) {
+        for (const key of Object.keys(toolsObj)) {
+          if (key !== "allowed" && key !== "denied" && key !== "allow" && key !== "deny") {
+            typeMismatches.push(
+              `tools.${key} is not a recognized sub-key (expected allowed | denied | allow | deny); its grant is ignored`,
+            );
+          }
+        }
+      }
     } else if (toolsRaw !== undefined && typeMismatches) {
       typeMismatches.push(
         `tools field must be an object of shape { allowed?: string[], denied?: string[] }, got ${describeYamlType(toolsRaw)} (value: ${JSON.stringify(toolsRaw)})`,
@@ -586,6 +653,34 @@ export function parseFrontmatter(
   metadata.type = metadata.type ?? "rule";
   metadata.description = metadata.description ?? "";
 
+  // D2-SA2.2-05 (D2 Low, P6): warn on frontmatter truncated at an interior
+  // column-0 `---`. FRONTMATTER_REGEX's non-greedy first group stops at the
+  // FIRST `\r?\n---`, so a YAML block scalar (`description: |`) whose text holds
+  // a column-0 `---` — or any stray `---` above the real closer — truncates the
+  // frontmatter mid-document. The prefix still parses as valid YAML (no
+  // YAML_PARSE_ERROR fires), so every field after the divider (`precedence:`,
+  // `protected:`, `floor:*` tags — the D02 §2.3 Layer-1 admission floor) lands
+  // in the BODY and coerces to its empty fallback with zero signal, silently
+  // disabling the customization Layer-1 lock so a protected/floor artifact
+  // becomes disableable at Layer 2. Warn when the first non-empty body line
+  // still looks like frontmatter (a `key: value` line or a bare `---`) so the
+  // drop surfaces on the `typeMismatches` channel (CONSTITUTION §2 P5 Silent
+  // Failure Contract) instead of vanishing. Cheap single-line heuristic, not a
+  // re-parse: 0 hits across the 261-file canonical corpus + every test fixture;
+  // a body that legitimately opens with `Word: ...` warns advisorily (remedy:
+  // lead with a `#` heading or quote the value). Guarded by `typeMismatches`, so
+  // the channel-less callers (content/index.ts, base.ts, userContent.ts, …) stay
+  // unaffected — only the canonical read path (readSingleMd) opts in.
+  if (typeMismatches) {
+    const firstBodyLine = content.split(/\r?\n/).find((line) => line.trim().length > 0) ?? "";
+    if (/^[A-Za-z_][\w-]*:\s/.test(firstBodyLine) || /^---\s*$/.test(firstBodyLine)) {
+      typeMismatches.push(
+        "frontmatter may have been truncated at an interior `---`: the body opens with a " +
+          "frontmatter-looking line; quote or indent any `---` divider placed inside a block scalar",
+      );
+    }
+  }
+
   return { metadata, content: content ?? "", rawType };
 }
 
@@ -594,7 +689,7 @@ export function parseFrontmatter(
  *
  * C8-D2-M3: Widened from the original 6 (`rules`/`agents`/`skills`/
  * `commands`/`prompts`/`github-agents`) to cover every on-disk
- * `.agents/{dir}/` directory that holds frontmatter-bearing markdown.
+ * `<canonicalRoot>/{dir}/` directory that holds frontmatter-bearing markdown.
  *
  * - `hooks` — hook definition files. Note: the full hook lifecycle is still
  *   parsed by {@link readHookDefinitions} in `src/hooks/index.ts` because
@@ -606,11 +701,12 @@ export function parseFrontmatter(
  * - `checks` — reusable quality-charter checklists referenced by agents
  *   (e.g. `accessibility.md`, `security.md`, `testing.md`).
  * - `policy` — optional deny-list and guardrail markdown under
- *   `.agents/policy/` (referenced by `src/cli/shared/agentsContent.ts`).
- * - `learnings` — project-specific `.agents/learnings/*.md` entries seeded
- *   by `hatch3r init` (see `src/cli/commands/init.ts:195-199`). Learnings
- *   carry lightweight frontmatter so agents can surface pitfalls/patterns
- *   during sync; extending the canonical type keeps that path uniform.
+ *   `<canonicalRoot>/policy/` (referenced by `src/cli/shared/agentsContent.ts`).
+ * - `learnings` — reserved member kept so generic tooling enumerates the
+ *   canonical type uniformly; no `doGenerate` consumes it and the bundled
+ *   `<canonicalRoot>/learnings/` never exists (D15-13). Authoritative learnings
+ *   live under `.hatch3r/learnings/`, read directly by `loadValidatedLearnings`
+ *   in `src/content/learningsLoader.ts`, not through this reader (D11-SA11.1-02).
  */
 export type CanonicalType =
   | "rules"
@@ -686,7 +782,7 @@ async function readSingleMd(
     // instead of crashing; symlinks are not a user error and need no warning.
     return {
       file: fullPath,
-      error: { code: "NOT_FOUND", message: `${fullPath}: skipped (symbolic link)` },
+      error: { code: "NOT_FOUND", message: `${toPosixPath(fullPath)}: skipped (symbolic link)` },
     };
   }
 
@@ -821,13 +917,15 @@ async function readSingleMd(
   // the wrong YAML type — closing the silent id-manipulation vector
   // without breaking existing content.
   if (typeMismatches.length > 0) {
+    // CI-RECON-06: posix-normalized path in the message channel (win32
+    // `join()` yields backslashes; see toPosixPath).
     result.typeMismatches = typeMismatches.map(
-      (m) => ({ code: "TYPE_MISMATCH" as const, message: `${fullPath}: ${m}` }),
+      (m) => ({ code: "TYPE_MISMATCH" as const, message: `${toPosixPath(fullPath)}: ${m}` }),
     );
   }
   // C7.5-W2B2-H43 (D15-F15.1-02): wire the pipeline promptGuard into the
   // canonical read path so every sync/update/add/verify invocation that
-  // reads .agents/ content exercises ASI01 structural-injection scanning
+  // reads canonical content exercises ASI01 structural-injection scanning
   // for the unambiguous tokens only. The template-literal check
   // (`{{...}}`) and role-colon checks are deliberately SKIPPED here
   // because legitimate canonical files intentionally embed Handlebars
@@ -849,18 +947,40 @@ async function readSingleMd(
   const injectionScan = scanCanonicalInjectionTokens(content);
   if (injectionScan.length > 0) {
     const injectionEntries = injectionScan.map(
-      (v) => ({ code: "INJECTION_TOKEN" as const, message: `${fullPath}: promptGuard: ${v}` }),
+      (v) => ({ code: "INJECTION_TOKEN" as const, message: `${toPosixPath(fullPath)}: promptGuard: ${v}` }),
     );
     result.typeMismatches = result.typeMismatches
       ? [...result.typeMismatches, ...injectionEntries]
       : injectionEntries;
+  }
+  // D2-SA2.2-03 (D2 Medium, P6): extend the smoking-gun injection detector to
+  // the frontmatter half of the file. A chat-template/ANSI/null-byte token
+  // placed in a frontmatter string value (e.g. `description:`) evaded the
+  // body-only scan above yet still propagates into generated output —
+  // `description` is re-emitted into `.mdc`/agent frontmatter and picker text,
+  // and `rawContent` (which includes the frontmatter block) is re-emitted
+  // verbatim on some Copilot paths (see the F2.2-F3 note above). Scan the raw
+  // frontmatter block so a token moved one line up from the body no longer
+  // skips the detector. Legitimate frontmatter never carries these structural
+  // tokens (zero false positives on the current corpus).
+  const frontmatterBlock = rawContent.match(FRONTMATTER_REGEX)?.[1] ?? "";
+  if (frontmatterBlock) {
+    const fmInjectionScan = scanCanonicalInjectionTokens(frontmatterBlock, "frontmatter");
+    if (fmInjectionScan.length > 0) {
+      const fmInjectionEntries = fmInjectionScan.map(
+        (v) => ({ code: "INJECTION_TOKEN" as const, message: `${toPosixPath(fullPath)}: promptGuard: ${v}` }),
+      );
+      result.typeMismatches = result.typeMismatches
+        ? [...result.typeMismatches, ...fmInjectionEntries]
+        : fmInjectionEntries;
+    }
   }
   return result;
 }
 
 /**
  * C7.5-W2B2-H43: narrow subset of pipeline promptGuard checks applied to
- * canonical file bodies. Returns a list of human-readable violation
+ * canonical file content. Returns a list of human-readable violation
  * descriptions. Skips the template-literal and role-colon checks that the
  * general pipeline guard runs because legitimate canonical docs contain
  * Handlebars examples and RFC-style role markers. The retained checks
@@ -868,23 +988,32 @@ async function readSingleMd(
  * canonical markdown and therefore produce zero false positives on the
  * hatch3r content library.
  *
+ * D2-SA2.2-03 (D2 Medium, P6): `location` distinguishes the body scan from
+ * the frontmatter scan so the emitted message pinpoints which half of the
+ * file carried the token. Callers scan both halves (`readSingleMd`) because
+ * a frontmatter string value (e.g. `description:`) reaches generated output
+ * just as the body does.
+ *
  * The trust delegation that justifies this narrow scope — canonical content
  * is trusted at the npm-tarball-signature layer, not by per-file body
  * inspection — is governed in governance/pack-trust-model.md §3.4
  * (D11-SA11.1-07).
  */
-function scanCanonicalInjectionTokens(body: string): string[] {
+function scanCanonicalInjectionTokens(
+  text: string,
+  location: "body" | "frontmatter" = "body",
+): string[] {
   const violations: string[] = [];
-  if (/\x00/.test(body)) violations.push("null byte in canonical body");
-  if (/\x1b\[/.test(body)) violations.push("ANSI escape sequence in canonical body");
-  if (/\[INST\]|\[\/INST\]|<\|im_start\|>|<\|im_end\|>/i.test(body)) {
-    violations.push("chat template injection tokens in canonical body");
+  if (/\x00/.test(text)) violations.push(`null byte in canonical ${location}`);
+  if (/\x1b\[/.test(text)) violations.push(`ANSI escape sequence in canonical ${location}`);
+  if (/\[INST\]|\[\/INST\]|<\|im_start\|>|<\|im_end\|>/i.test(text)) {
+    violations.push(`chat template injection tokens in canonical ${location}`);
   }
-  if (/<\|(?:tool|function|plugin)\|>/i.test(body)) {
-    violations.push("tool delimiter injection token in canonical body");
+  if (/<\|(?:tool|function|plugin)\|>/i.test(text)) {
+    violations.push(`tool delimiter injection token in canonical ${location}`);
   }
-  if (/<!--\s*(?:SYSTEM|ADMIN|ROOT)\s*-->/i.test(body)) {
-    violations.push("HTML comment role escalation in canonical body");
+  if (/<!--\s*(?:SYSTEM|ADMIN|ROOT)\s*-->/i.test(text)) {
+    violations.push(`HTML comment role escalation in canonical ${location}`);
   }
   return violations;
 }
@@ -912,6 +1041,16 @@ function scanCanonicalInjectionTokens(body: string): string[] {
 async function readGlobMd(baseDir: string, fileType: CanonicalFile["type"]): Promise<CanonicalReadResult[]> {
   let dirents: Dirent[];
   try {
+    // D2-SA2.2-09 (D2 Low, P3 — UPSTREAM WATCH): the dedup guarantee below rests
+    // on `readdir({ withFileTypes: true, recursive: true })` NOT descending
+    // symlinked directories. That behavior is undocumented and contested
+    // upstream — nodejs/node#51858 (make readdir stop following symlinks) and
+    // nodejs/node#52663 (withFileTypes:false DOES descend) are the watch items;
+    // if the Dirent form unifies toward following, the 16× id-duplication D2-9
+    // fixed returns. The regression is pinned by the "does not duplicate ids
+    // when a symlinked directory points back into the tree" test in
+    // canonical.test.ts (DO NOT DELETE — a Node behavior change reds CI on the
+    // Node 22/24/26 matrix before user impact).
     dirents = await readdir(baseDir, { withFileTypes: true, recursive: true });
   } catch (err) {
     if ((err as NodeJS.ErrnoException).code === "ENOENT") {
@@ -1070,9 +1209,9 @@ async function readUserCanonicalResults(
  * (`VALIDATION_ERROR`) instead of returning a degraded file list. The default
  * (`strict` omitted/false) preserves the resilient soft-warning behavior every
  * current caller relies on — sync/init/update continue to surface warnings and
- * proceed. Strict mode is opt-in tooling for a release/CI integrity gate (e.g.
- * a future `validate:canonical` step asserting `0` canonical warnings); see the
- * recommendation in `.audit-workspace/.../D2-SA2.2` finding 2.2-F7.
+ * proceed. Strict mode is opt-in tooling for a release/CI integrity gate: the
+ * `validate:canonical` step asserting `0` canonical warnings; see
+ * `scripts/validate-canonical.ts`, which implements finding 2.2-F7.
  */
 export async function readCanonicalFiles(
   canonicalRoot: string,

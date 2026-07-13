@@ -18,9 +18,27 @@ function recordWorktreeProbeFailure(operation: string, err: unknown): void {
 }
 
 /**
+ * D1-SA1.10-03 (D1, P2): structured result of {@link resolvePatterns} so a hard
+ * resolution failure is DISTINGUISHABLE from "no matches". Previously both
+ * returned `[]`, so `setupWorktree` could not tell an empty match set apart
+ * from a git failure and proceeded to a success box with an empty include set.
+ */
+export interface ResolvePatternsResult {
+  /** Matched (untracked + gitignored) file paths, relative to `rootDir`. */
+  paths: string[];
+  /**
+   * Set when the `git ls-files` probe HARD-FAILED (10 MiB stdout-buffer overrun
+   * or a git error). Callers push this into `result.errors` so the failure is
+   * surfaced (warn loop + non-zero exit) instead of being swallowed.
+   */
+  error?: string;
+}
+
+/**
  * Writes the given gitignore-style patterns to a temp file, then runs
  * `git ls-files --others --ignored --exclude-from=<tmpfile>` to resolve
- * them against the working tree. Returns the matched file paths.
+ * them against the working tree. Returns the matched file paths plus an
+ * optional hard-failure `error` (D1-SA1.10-03).
  *
  * D1-M21 (Cycle 10): emits a verbose() progress trace at entry/exit so the
  * shell-out is observable under `--verbose`, and explicitly classifies an
@@ -34,8 +52,8 @@ function recordWorktreeProbeFailure(operation: string, err: unknown): void {
 export async function resolvePatterns(
   rootDir: string,
   patterns: string[],
-): Promise<string[]> {
-  if (patterns.length === 0) return [];
+): Promise<ResolvePatternsResult> {
+  if (patterns.length === 0) return { paths: [] };
 
   const tmpFile = join(
     tmpdir(),
@@ -60,7 +78,7 @@ export async function resolvePatterns(
       .map((l) => l.trim())
       .filter(Boolean);
     verbose(`worktree/resolve: resolvePatterns matched ${resolved.length} path(s)`);
-    return resolved;
+    return { paths: resolved };
   } catch (err) {
     // D1-M21: distinguish stdout-buffer overrun (ENOBUFS or the textual
     // form Node emits when `maxBuffer` is exceeded) from a generic git
@@ -72,15 +90,17 @@ export async function resolvePatterns(
     const message = (err as Error).message ?? String(err);
     const isBufferOverrun =
       e.code === "ENOBUFS" || /maxBuffer length exceeded/.test(message);
-    if (isBufferOverrun) {
-      console.error(
-        `[hatch3r] worktree pattern resolution exceeded the 10 MiB stdout buffer in ${rootDir}. ` +
-          `Narrow your .worktreeinclude patterns (avoid build-artifact trees like dist/ or node_modules/) or split into multiple worktrees.`,
-      );
-    } else {
-      console.error(`[hatch3r] worktree pattern resolution failed: ${message}`);
-    }
-    return [];
+    // D1-SA1.10-03 (D1, P2): return the failure to the caller (not just a bare
+    // console.error). Previously this returned [] indistinguishably from "no
+    // matches", so `setupWorktree` proceeded to a success box on an EMPTY
+    // include set — a near-silent total failure when one over-broad pattern
+    // overran the buffer.
+    const errorMessage = isBufferOverrun
+      ? `worktree pattern resolution exceeded the 10 MiB stdout buffer in ${rootDir}. ` +
+        `Narrow your .worktreeinclude patterns (avoid build-artifact trees like dist/ or node_modules/) or split into multiple worktrees.`
+      : `worktree pattern resolution failed: ${message}`;
+    console.error(`[hatch3r] ${errorMessage}`);
+    return { paths: [], error: errorMessage };
   } finally {
     try {
       unlinkSync(tmpFile);
@@ -296,10 +316,17 @@ export function listWorktrees(mainRoot: string): WorktreeListEntry[] {
       // received, so it would NOT collapse the two — only `.native` does.
       try {
         pathStr = realpathSync.native(pathStr);
-      } catch {
+      } catch (err) {
         // Prunable worktree — path may not exist on disk anymore.
         // Best-effort: normalise separators only so downstream string
-        // comparisons against platform-native paths still align.
+        // comparisons against platform-native paths still align. Per the
+        // module's Silent Failure Contract (recordWorktreeProbeFailure,
+        // resolve.ts:11-18), the swallowed realpath failure still emits a
+        // --verbose diagnostic instead of vanishing.
+        recordWorktreeProbeFailure(
+          `listWorktrees(${mainRoot}) realpath(${pathStr}) — worktree may be prunable/missing`,
+          err,
+        );
         pathStr = pathStr.split("/").join(sep);
       }
       current = { path: pathStr };
@@ -352,10 +379,18 @@ export function getWorktreeStatus(worktreePath: string): WorktreeStatus {
       if (line.startsWith("?? ")) status.untracked += 1;
       else status.modified += 1;
     }
-  } catch {
+  } catch (err) {
     // Soft probe: a missing or broken worktree returns zero counts so the caller
     // can still render the badge; the subsequent `git worktree remove` will
-    // surface the real error.
+    // surface the real error. Per the module's Silent Failure Contract
+    // (recordWorktreeProbeFailure, resolve.ts:11-18), the swallowed probe
+    // failure still emits a --verbose diagnostic so a systemic git failure
+    // (git missing from PATH, permission wall) is not invisible — otherwise
+    // every worktree badges "clean" with zero signal.
+    recordWorktreeProbeFailure(
+      `getWorktreeStatus(${worktreePath}) — git status probe failed, returning zero counts`,
+      err,
+    );
     status = { modified: 0, untracked: 0 };
   }
   return status;

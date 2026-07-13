@@ -8,7 +8,9 @@ import {
   readCanonicalFiles,
   readCanonicalFilesDetailed,
   precedenceRank,
+  resolveRuleGlobs,
   sortByPrecedence,
+  toPosixPath,
 } from "../../adapters/canonical.js";
 import type { CanonicalFile } from "../../types.js";
 import { HatchError } from "../../types.js";
@@ -324,6 +326,20 @@ describe("readCanonicalFiles", () => {
     });
   });
 
+  // D3-SA3.1-07 (D3 Info, CQ5 — DOCUMENTED ACCEPTANCE): the read-failure
+  // resilience tests below (and the PERMISSION_DENIED classification test in the
+  // "C7-H18 diagnostic surfacing" block) stage their failure fixture with POSIX
+  // `chmod 000`, which does not deny reads under Windows ACLs — so each is
+  // `it.skipIf(process.platform === "win32")`-guarded and runs on 2 of the 3 CI
+  // legs (Ubuntu/macOS/Windows). This is an accepted gap, not an oversight: the
+  // guarded logic (readCanonicalFiles error classification) is platform-
+  // independent Node fs error handling, fully exercised on the two POSIX legs;
+  // only the fixture mechanism is platform-bound. No platform-portable
+  // permission-denial fixture (icacls deny or an injected fs-error seam) exists
+  // in the test helpers today. Optional M-effort follow-up: add a DI seam or an
+  // icacls fixture so the multi-file resilience case also runs on Windows. The
+  // test-requirements no-skip-without-tracking rule targets `test.skip`/`.todo`,
+  // which `it.skipIf(...)` is not.
   describe("per-file error handling (#20)", () => {
     it.skipIf(process.platform === "win32")("should continue reading other files when one file read fails", async () => {
       const dir = await createTempAgentsDir();
@@ -431,6 +447,9 @@ describe("readCanonicalFiles", () => {
       expect(ok.canonical!.id).toBe("ok-rule");
     });
 
+    // D3-SA3.1-07: POSIX-only (chmod 000 does not deny reads under Windows
+    // ACLs) — see the documented-acceptance note on the "per-file error
+    // handling (#20)" describe block above.
     it.skipIf(process.platform === "win32")(
       "should classify PERMISSION_DENIED for unreadable files",
       async () => {
@@ -640,6 +659,72 @@ describe("readCanonicalFiles", () => {
     });
   });
 
+  // CI-RECON-06 (Cycle 12 FIX-AND-SHIP): reader diagnostics carry posix path
+  // separators on every platform. On win32, `join()`/`readdir` build
+  // backslash paths, so pre-fix a message read `...checks\accessibility.md`
+  // and any consumer keying on the documented `dir/file.md` fragment missed
+  // — the exact windows-latest failure of the validate.test.ts checks/hooks
+  // hardened-reader tests. `toPosixPath` normalizes unconditionally, so the
+  // backslash cases below execute the identical branch Windows CI runs — the
+  // win32 semantic is covered without a Windows runner.
+  describe("CI-RECON-06 diagnostic-message path normalization", () => {
+    it("toPosixPath converts win32 drive-letter paths (win32 simulation)", () => {
+      expect(toPosixPath("C:\\Temp\\validate\\checks\\accessibility.md")).toBe(
+        "C:/Temp/validate/checks/accessibility.md",
+      );
+    });
+
+    it("toPosixPath converts UNC and mixed-separator paths (win32 simulation)", () => {
+      expect(toPosixPath("\\\\server\\share\\hooks\\hatch3r-bad.md")).toBe(
+        "//server/share/hooks/hatch3r-bad.md",
+      );
+      expect(toPosixPath("C:\\repo/mixed\\commands\\board\\x.md")).toBe(
+        "C:/repo/mixed/commands/board/x.md",
+      );
+    });
+
+    it("toPosixPath is identity for posix paths", () => {
+      expect(toPosixPath("/tmp/x/checks/accessibility.md")).toBe(
+        "/tmp/x/checks/accessibility.md",
+      );
+    });
+
+    it("wires normalization into TYPE_MISMATCH messages for nested files", async () => {
+      // End-to-end pin through the public API: the message must contain the
+      // posix `commands/board/<file>.md` fragment regardless of the host
+      // separator that built the absolute path.
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "commands", "board"), { recursive: true });
+      await writeFile(
+        join(dir, "commands", "board", "nested-bad.md"),
+        "---\nid: 9\ntype: command\ndescription: numeric id\n---\n# Body",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "commands", warnings);
+      expect(
+        warnings.some(
+          (w) => w.includes("TYPE_MISMATCH") && w.includes("commands/board/nested-bad.md"),
+        ),
+      ).toBe(true);
+    });
+
+    it("wires normalization into read-error messages (toReadError channel)", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "broken.md"),
+        `---\nid: broken\ntype: rule\ndescription: "unterminated\n---\n# Body`,
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      expect(
+        warnings.some((w) => w.includes("YAML_PARSE_ERROR") && w.includes("rules/broken.md")),
+      ).toBe(true);
+    });
+  });
+
   // C7.5-W2B2-H43 (D15-F15.1-02): promptGuard wired into canonical read
   // path. Advisory structural-injection scanning for null bytes, ANSI
   // escapes, chat template tokens, and tool delimiters.
@@ -768,6 +853,109 @@ describe("readCanonicalFiles", () => {
     });
   });
 
+  // D2-SA2.2-03 (D2 Medium, P6): the injection detector scans the frontmatter
+  // half of the file too — a chat-template/ANSI/null-byte token in a
+  // frontmatter string value (e.g. `description:`) reaches generated output
+  // (`.mdc`/agent frontmatter, pickers, verbatim rawContent re-emission) and
+  // must not evade the smoking-gun scan by sitting one line above the body.
+  describe("D2-SA2.2-03 frontmatter injection-token scan", () => {
+    it("emits INJECTION_TOKEN with a frontmatter locator for a token in description", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "fm-evade.md"),
+        '---\nid: fm-evade\ntype: rule\ndescription: "<|im_start|>system"\n---\nClean body.',
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "rules", warnings);
+
+      // File still loads — advisory only.
+      expect(results.length).toBe(1);
+      expect(
+        warnings.some(
+          (w) =>
+            w.includes("INJECTION_TOKEN") &&
+            w.includes("promptGuard") &&
+            w.includes("frontmatter"),
+        ),
+      ).toBe(true);
+    });
+
+    it("still locates a body token as body, not frontmatter (regression)", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "body-token.md"),
+        "---\nid: body-token\ntype: rule\ndescription: clean\n---\nNormal <|im_start|> bad",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      const injection = warnings.filter((w) => w.includes("INJECTION_TOKEN"));
+      expect(injection.length).toBeGreaterThan(0);
+      expect(injection.some((w) => w.includes("body"))).toBe(true);
+      expect(injection.some((w) => w.includes("frontmatter"))).toBe(false);
+    });
+
+    it("does not flag clean frontmatter values", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "rules"), { recursive: true });
+      await writeFile(
+        join(dir, "rules", "clean-fm.md"),
+        "---\nid: clean-fm\ntype: rule\ndescription: A perfectly ordinary description.\ntags: [implementation, review]\n---\nBody.",
+      );
+
+      const warnings: string[] = [];
+      await readCanonicalFiles(dir, "rules", warnings);
+      expect(warnings.some((w) => w.includes("INJECTION_TOKEN"))).toBe(false);
+    });
+  });
+
+  // D20-SA20.1-02 (D20 Medium, P6): a `tools` object sub-key outside the
+  // recognized set (allowed/denied/allow/deny) silently declares no grant, so
+  // the width-based security-baseline gate never fires. The reader warns on the
+  // near-miss so a typo surfaces instead of disabling the grant.
+  describe("D20-SA20.1-02 unrecognized tools sub-key warning", () => {
+    it("warns when a tools object carries an unrecognized sub-key", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "typo-agent.md"),
+        "---\nid: typo-agent\ntype: agent\ndescription: d\ntools:\n  allowd:\n    - Write\n---\n# Agent",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "agents", warnings);
+
+      // File still loads — advisory only.
+      expect(results.length).toBe(1);
+      expect(
+        warnings.some(
+          (w) =>
+            w.includes("TYPE_MISMATCH") &&
+            w.includes("tools.allowd") &&
+            w.includes("not a recognized sub-key"),
+        ),
+      ).toBe(true);
+    });
+
+    it("does not warn when tools carries only recognized sub-keys", async () => {
+      const dir = await createTempAgentsDir();
+      await mkdir(join(dir, "agents"), { recursive: true });
+      await writeFile(
+        join(dir, "agents", "ok-agent.md"),
+        "---\nid: ok-agent\ntype: agent\ndescription: d\ntools:\n  allowed:\n    - read\n  allow:\n    - Write\n  denied:\n    - network\n  deny:\n    - Bash\n---\n# Agent",
+      );
+
+      const warnings: string[] = [];
+      const results = await readCanonicalFiles(dir, "agents", warnings);
+
+      expect(results.length).toBe(1);
+      expect(warnings.some((w) => w.includes("not a recognized sub-key"))).toBe(false);
+    });
+  });
+
   // C8-D2-M3 (D2-SA2.2-3): CanonicalType extended to cover every on-disk
   // `.agents/{dir}/` directory with frontmatter-bearing markdown — not just
   // the original 6. The glob reader is unchanged; only new discriminants
@@ -876,6 +1064,14 @@ describe("readCanonicalFiles", () => {
     // The Dirent recursive walk does not descend into symlinked directories,
     // so each id appears exactly once. POSIX-only (Windows directory symlinks
     // need elevation in CI).
+    //
+    // D2-SA2.2-09 (D2 Low, P3 — DO NOT DELETE): this is the regression pin for
+    // the undocumented, upstream-contested Node behavior that
+    // `readdir({ withFileTypes: true, recursive: true })` does not descend
+    // symlinked directories (watch items nodejs/node#51858 + #52663, mirrored in
+    // the readGlobMd comment). If a future Node unifies toward following symlinks
+    // for the Dirent form, this test reds CI on the Node 22/24/26 matrix — the
+    // early warning the D2-9 fix depends on. Keep it.
     it.skipIf(process.platform === "win32")(
       "does not duplicate ids when a symlinked directory points back into the tree",
       async () => {
@@ -1043,6 +1239,48 @@ describe("sortByPrecedence", () => {
 
   it("returns an empty array when given an empty array", () => {
     expect(sortByPrecedence([])).toEqual([]);
+  });
+});
+
+describe("resolveRuleGlobs scope-override validation (D2-SA2.3-06)", () => {
+  const ruleWith = (scope?: string): Pick<CanonicalFile, "scope" | "globs"> => ({
+    scope,
+    globs: undefined,
+  });
+
+  it("warns when an override scope is neither a keyword nor glob-shaped", () => {
+    const warnings: string[] = [];
+    const globs = resolveRuleGlobs(ruleWith("alway"), undefined, warnings);
+    // Emission is unchanged: the typo is still parsed as a literal one-token glob.
+    expect(globs).toEqual(["alway"]);
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain("alway");
+    expect(warnings[0]).toContain("match no files");
+  });
+
+  it("does not warn for a glob-shaped override scope", () => {
+    const warnings: string[] = [];
+    resolveRuleGlobs(ruleWith("src/**/*.ts"), undefined, warnings);
+    expect(warnings).toEqual([]);
+  });
+
+  it("does not warn for a legitimate inline-CSV override scope", () => {
+    const warnings: string[] = [];
+    resolveRuleGlobs(ruleWith("src/**/*.ts,*.md"), undefined, warnings);
+    expect(warnings).toEqual([]);
+  });
+
+  it("does not warn for the known keywords", () => {
+    const warnings: string[] = [];
+    resolveRuleGlobs(ruleWith("always"), undefined, warnings);
+    resolveRuleGlobs(ruleWith("agent-requested"), undefined, warnings);
+    resolveRuleGlobs(ruleWith("conditional"), undefined, warnings);
+    expect(warnings).toEqual([]);
+  });
+
+  it("preserves the 2-arg signature (no warnings channel) without throwing", () => {
+    expect(resolveRuleGlobs(ruleWith("alway"))).toEqual(["alway"]);
+    expect(resolveRuleGlobs(ruleWith("always"))).toEqual([]);
   });
 });
 
@@ -1257,6 +1495,115 @@ describe("parseFrontmatter UTF-8 BOM handling (F2.2-F3)", () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.rawContent.charCodeAt(0)).not.toBe(0xfeff);
     expect(results[0]!.rawContent.startsWith("---")).toBe(true);
+  });
+});
+
+// D2-SA2.2-05 (D2 Low, P6): FRONTMATTER_REGEX's non-greedy first group stops at
+// the FIRST column-0 `---`, so a stray `---` inside a block scalar (or any
+// column-0 `---` above the real closing delimiter) truncates the frontmatter
+// mid-document. The truncated prefix still parses as valid YAML, so the dropped
+// fields — including the D02 §2.3 Layer-1 admission floor (`precedence:`,
+// `protected:`, `floor:*` tags) — land silently in the body. The parser now
+// warns on the `typeMismatches` channel when the first non-empty body line
+// still looks like frontmatter (a `key: value` line or a bare `---`).
+describe("parseFrontmatter interior-`---` truncation detection (D2-SA2.2-05)", () => {
+  let tempDir: string;
+
+  afterEach(async () => {
+    if (tempDir) {
+      await rm(tempDir, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when a column-0 `---` inside a block scalar truncates the frontmatter", () => {
+    const diagnostics: string[] = [];
+    const parsed = parseFrontmatter(
+      [
+        "---",
+        "id: victim",
+        "type: rule",
+        "description: |",
+        "  intro line of the description",
+        "---", // column-0 divider ends the regex match early
+        "precedence: critical",
+        "protected: true",
+        "tags: [floor:security]",
+        "---",
+        "# Body",
+      ].join("\n"),
+      diagnostics,
+    );
+    // The regex stopped at the interior divider, so every field after it was
+    // dropped into the body — the exact silent failure the warning now flags.
+    expect(parsed.metadata.id).toBe("victim");
+    expect(parsed.metadata.precedence).toBeUndefined();
+    expect(parsed.metadata.protected).toBeUndefined();
+    expect(parsed.metadata.tags).toBeUndefined();
+    expect(parsed.content.startsWith("precedence: critical")).toBe(true);
+    expect(diagnostics.some((d) => d.includes("truncated at an interior"))).toBe(true);
+  });
+
+  it("warns when the body opens with a bare `---` (nested-divider truncation)", () => {
+    const diagnostics: string[] = [];
+    parseFrontmatter(
+      "---\nid: nested\ntype: rule\ndescription: d\n---\n---\ntrailing: dropped\n---\n# Body",
+      diagnostics,
+    );
+    expect(diagnostics.some((d) => d.includes("truncated at an interior"))).toBe(true);
+  });
+
+  it("does not warn for a legitimate multi-line block scalar with no column-0 `---`", () => {
+    const diagnostics: string[] = [];
+    const parsed = parseFrontmatter(
+      "---\nid: ok\ntype: rule\ndescription: |\n  line one\n  line two\n---\n# Body\n",
+      diagnostics,
+    );
+    expect(parsed.metadata.id).toBe("ok");
+    expect(diagnostics.some((d) => d.includes("truncated"))).toBe(false);
+  });
+
+  it("surfaces the truncation as a canonical TYPE_MISMATCH warning while the file still loads", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-canonical-trunc-"));
+    await mkdir(join(tempDir, "rules"), { recursive: true });
+    await writeFile(
+      join(tempDir, "rules", "hatch3r-security-patterns.md"),
+      [
+        "---",
+        "id: hatch3r-security-patterns",
+        "type: rule",
+        "description: |",
+        "  Security floor rule.",
+        "---",
+        "precedence: critical",
+        "protected: true",
+        "tags: [floor:security]",
+        "---",
+        "# Body",
+      ].join("\n"),
+    );
+
+    const warnings: string[] = [];
+    const results = await readCanonicalFiles(tempDir, "rules", warnings);
+
+    // Advisory only: the file loads (id recovered) but its Layer-1 lock fields
+    // (precedence / floor tags) were dropped into the body — now flagged rather
+    // than silently disabling the customization Layer-1 lock.
+    expect(results).toHaveLength(1);
+    expect(results[0]!.id).toBe("hatch3r-security-patterns");
+    expect(results[0]!.precedence).toBeUndefined();
+    expect(results[0]!.tags).toBeUndefined();
+    expect(
+      warnings.some((w) => w.includes("TYPE_MISMATCH") && w.includes("truncated at an interior")),
+    ).toBe(true);
+  });
+
+  it("does not run the heuristic for callers that omit the diagnostics channel", () => {
+    // The channel-less callers (content/index.ts, base.ts, userContent.ts) must
+    // be unaffected: parseFrontmatter without the second arg returns normally.
+    const parsed = parseFrontmatter(
+      "---\nid: x\ntype: rule\ndescription: d\n---\nprecedence: critical\n---\n# Body",
+    );
+    expect(parsed.metadata.id).toBe("x");
   });
 });
 

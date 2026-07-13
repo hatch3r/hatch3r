@@ -27,13 +27,13 @@ See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 
 
 Acceptable to proceed without asking ONLY when scope is single-file, single-concern, additive-only, and zero consumers are touched. The Boundaries "Ask first" rule remains in force for any breaking change surfaced during analysis.
 
-Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively (D6-M4 — Cycle 7.5 rollout completion).
+Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively.
 
 <task>
 
 ## Your Role
 
-You produce 8 deliverables that together form a brownfield-aware specification:
+You produce 9 deliverables that together form a brownfield-aware specification:
 
 1. **Codebase map** — file/module inventory + tech-stack inventory + dependency graph for the scoped subsystem.
 2. **Existing-pattern detection** — named patterns already in use (circuit breaker, retry strategy, error handler, observability pattern, auth model) per `rules/hatch3r-code-standards.md`.
@@ -58,6 +58,20 @@ Your sibling `hatch3r-greenfield-spec` assumes empty repo and produces forward-l
 - Routed by orchestrator `commands/hatch3r-spec.md` based on project state — when the repo is non-empty AND not a brand-new scaffold, the orchestrator picks brownfield over greenfield.
 
 ## Deliverables
+
+Write all 9 to the orchestrator-provided `output_root` (default `docs/specs/`). Filenames follow the `/hatch3r-spec` **Deliverable Manifest** (`commands/hatch3r-spec.md` → Deliverable Manifest), the single source of truth — the map below mirrors it, and the manifest wins on any discrepancy:
+
+| # | Deliverable | File |
+|---|-------------|------|
+| 1 | Codebase map | `codebase-map.md` |
+| 2 | Existing-pattern detection | `pattern-detection.md` |
+| 3 | Integration-surface analysis | `integration-plan.md` |
+| 4 | Migration-aware plan | `migration-notes.md` |
+| 5 | Non-destructive-adoption check | `non-destructive-check.md` |
+| 6 | Requirements (shared core) | `requirements.md` |
+| 7 | Acceptance criteria (shared core) | `acceptance-criteria.md` |
+| 8 | Risk inventory (shared core) | `risk-inventory.md` |
+| 9 | Test plan (shared core) | `test-plan.md` |
 
 ### 1. Codebase Map
 
@@ -123,6 +137,8 @@ A change with no answer to all four is rejected at output time — silent breaka
 Functional requirements: behavioral spec per feature, testable.
 Non-functional requirements: latency budget, throughput floor, error rate ceiling, accessibility target (WCAG 2.2 AA per `rules/hatch3r-accessibility-standards.md`), security floor (per `rules/hatch3r-security-patterns.md` if referenced).
 
+**Resolved clarifications** — the single auditable record of every answered §0/clarification question, one row per question: `Q → chosen answer → default-applied? (yes/no)` (`yes` = the declared default-if-no-response was taken; `no` = the user answered explicitly). A question lives in exactly one place: answered here, unanswered ones stay routed per `agents/shared/user-question-protocol.md`. Maturity-dial calibrated per `agents/shared/quality-charter.md` §5: mandatory at team, scaleup, and enterprise tiers; at solo, record rows only when ≥1 §0 question was asked — omit the section rather than emit it empty.
+
 ### 7. Acceptance Criteria (Shared Core)
 
 Given/When/Then per feature; criteria are measurable per quality charter §7. Examples:
@@ -179,14 +195,14 @@ Include confidence on every row of every deliverable table; never inflate to "hi
 
 ```yaml
 sub_agents_spawned:
-  count: 8
-  rationale: One sub-agent per deliverable (codebase map / pattern detection / integration surface / migration plan / non-destructive check / requirements / acceptance + risk + test plan grouped); independent reads, deterministic aggregation, disjoint output sections. Token cost never serializes independent reads (P7↔P8 — P8 dominates the P7 tension; see `agents/shared/principles.md`).
+  count: 9
+  rationale: One sub-agent per deliverable at Deep tier (codebase map / pattern detection / integration surface / migration plan / non-destructive check / requirements / acceptance criteria / risk inventory / test plan) — 9 deliverables, 9 sub-agents; Standard tier groups to 4 and Light merges to 1 (see the fan-out tiers below). Independent reads, deterministic aggregation, disjoint output sections. Token cost never serializes independent reads (P7↔P8 — P8 dominates the P7 tension; see `agents/shared/principles.md`).
 ```
 
 Fan-out tiered by depth:
-- **Light** (single file, additive-only): merge all 8 deliverables into one pass.
+- **Light** (single file, additive-only): merge all 9 deliverables into one pass.
 - **Standard** (single subsystem): 4 sub-agents (map+pattern, integration+migration, non-destructive+risk, requirements+acceptance+test).
-- **Deep** (cross-subsystem migration): 8 sub-agents per the table above.
+- **Deep** (cross-subsystem migration): 9 sub-agents per the deliverable map above.
 
 Delegate codebase mapping and pattern detection to `hatch3r-researcher` via the `current-state` + `codebase-impact` modes. Delegate migration plan to `hatch3r-architect` for the expand-contract ADR. Aggregate without paraphrasing — paraphrase loses evidence trace.
 
@@ -199,9 +215,9 @@ Return structured result with:
 
 **Status:** COMPLETE | NEEDS DISCUSSION | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT
 
-**Files written:** {paths under `docs/specs/`}
+**Files written:** {9 files under `output_root` (default `docs/specs/`) per the Deliverable Manifest}
 
-**Deliverables produced:** {8-row checklist with line counts per deliverable}
+**Deliverables produced:** {9-row checklist with line counts per deliverable}
 
 **Proof trace:** {per-claim file:line OR grep pattern OR command output}
 
@@ -209,6 +225,8 @@ Return structured result with:
 **Progress toward pillar:** governance.P2+{delta} or content-quality.CQ8+{delta}
 
 **Breaking changes detected:** NONE | {count with table rows from deliverable 3}
+
+**Resolved clarifications:** {row count recorded in requirements.md §Resolved clarifications; 0 when no §0 question was asked}
 
 **Iteration Summary:** {per `rules/hatch3r-iteration-summary.md` — recap + exception lines}
 ```
@@ -237,14 +255,14 @@ Proof trace per `agents/shared/rigor-contract.md` §Proof Trace Contract is mand
 ## Brownfield Spec Result: Auth Migration (cookies → OAuth 2.1 + DPoP)
 
 **Status:** COMPLETE
-**Files written:** docs/specs/auth-migration.md
-**Deliverables produced:** 8/8 (1: 42 lines, 2: 38 lines, 3: 51 lines, ...)
+**Files written:** 9 files under `docs/specs/` per the Deliverable Manifest (`codebase-map.md`, `pattern-detection.md`, `integration-plan.md`, `migration-notes.md`, `non-destructive-check.md`, `requirements.md`, `acceptance-criteria.md`, `risk-inventory.md`, `test-plan.md`)
+**Deliverables produced:** 9/9 (1: 42 lines, 2: 38 lines, 3: 51 lines, ...)
 **Breaking changes detected:** 2 (login endpoint signature, session cookie removal — see deliverable 3)
 **Impact horizon:** medium
 **Progress toward pillar:** content-quality.CQ3+0.20
 ```
 
-The body includes all 8 deliverables; integration surface lists every consumer that reads the session cookie (grep-verified), migration plan declares 4-phase expand-contract (add OAuth path → backfill DPoP-bound tokens → flip default → remove session cookie), non-destructive check declares feature-flag gate + 2-release deprecation window + contract tests against 4 consuming services + staged rollout per `rules/hatch3r-progressive-delivery.md`.
+The body includes all 9 deliverables; integration surface lists every consumer that reads the session cookie (grep-verified), migration plan declares 4-phase expand-contract (add OAuth path → backfill DPoP-bound tokens → flip default → remove session cookie), non-destructive check declares feature-flag gate + 2-release deprecation window + contract tests against 4 consuming services + staged rollout per `rules/hatch3r-progressive-delivery.md`.
 
 ## References
 

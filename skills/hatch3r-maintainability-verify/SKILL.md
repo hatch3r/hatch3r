@@ -4,9 +4,6 @@ name: hatch3r-maintainability-verify
 type: skill
 description: Maintainability verification gate before commit/release — jscpd duplication index, pattern reuse ratio, cyclomatic complexity, expand-contract migrations, API breaking-change discipline, ADR presence
 tags: [review, maintainability, code-standards, floor:content-quality]
-scope: conditional
-globs: "src/**,**/migrations/**,**/db/migrations/**,**/prisma/migrations/**,openapi.yaml,openapi.json,**/*.proto,**/schema.graphql,**/docs/adr/**"
-precedence: normal
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

@@ -1,0 +1,33 @@
+{
+  "skill": "hatch3r-cli-jq",
+  "skillPath": "skills/hatch3r-cli-jq/SKILL.md",
+  "cohort": "cli",
+  "cases": [
+    {
+      "id": "cli-jq-001",
+      "input": "From this npm audit JSON, list the names and severities of all high or critical vulnerabilities.",
+      "context": "jq is installed; the JSON is on stdin or in a file.",
+      "expected": [
+        "Builds a single jq filter using select() on the severity field (e.g. `jq -r '.vulnerabilities[] | select(.severity==\"high\" or .severity==\"critical\") | \"\\(.name) \\(.severity)\"'`)",
+        "Streams via stdin/pipeline rather than loading and re-serializing with an ad-hoc script"
+      ],
+      "forbidden": [
+        "Writes a throwaway Python/Node script for a transformation jq expresses in one filter",
+        "Greps the raw JSON text for severity strings"
+      ],
+      "rubric": "PASS iff a syntactically valid jq filter with select() performs the extraction in the pipeline."
+    },
+    {
+      "id": "cli-jq-002",
+      "input": "Merge these two config JSON files, with values from override.json winning.",
+      "context": "base.json and override.json exist.",
+      "expected": [
+        "Uses jq's multiplication/merge semantics across two file inputs (e.g. `jq -s '.[0] * .[1]' base.json override.json`) and notes that `*` merges recursively while `+` replaces at the top level"
+      ],
+      "forbidden": [
+        "Concatenates the files or hand-edits one into the other"
+      ],
+      "rubric": "PASS iff the merge uses jq two-input semantics with the correct deep-merge operator for the stated precedence."
+    }
+  ]
+}

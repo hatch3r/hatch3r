@@ -17,7 +17,12 @@ import {
   validateUserArtifact,
   validateContentBody,
   LEAN_LINE_THRESHOLDS,
+  leanLineViolation,
+  qualityCharterViolation,
+  pillarDeclarationViolation,
+  validateStructuredPillars,
   type UserContentArtifact,
+  type UserArtifactType,
 } from "../../content/userContent.js";
 import { buildContentIndex, resolveUserContentRoot } from "../../content/index.js";
 import { VALID_HOOK_EVENTS } from "../../hooks/types.js";
@@ -781,7 +786,24 @@ describe("saveUserContent — pillar-enum parity (F20.1.A2 / F20.2.A2, two-axis)
     expect(result.written).toHaveLength(1);
   });
 
-  it("REJECTS a value outside the P1–P8 ∪ CQ1–CQ9 union (CQ99)", async () => {
+  it("ACCEPTS the CQ10 content-quality pillar (D20-SA20.2-03: ratified in CONSTITUTION §2B, EVOLVE run 21ec6aa3)", async () => {
+    const result = await saveUserContent(
+      tempDir,
+      makeArtifact({
+        name: "cq10-pillar",
+        frontmatter: {
+          tags: ["core"],
+          quality_charter: "agents/shared/quality-charter.md",
+          pillars: ["CQ10"],
+        },
+        body: "A body declaring the CQ10 Product & Spec Quality content-quality pillar.\n",
+      }),
+    );
+    expect(result.strictFailures).toEqual([]);
+    expect(result.written).toHaveLength(1);
+  });
+
+  it("REJECTS a value outside the P1–P8 ∪ CQ1–CQ10 union (CQ99)", async () => {
     const result = await saveUserContent(
       tempDir,
       makeArtifact({
@@ -1227,7 +1249,7 @@ describe("validateUserArtifact", () => {
   });
 });
 
-describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 4 / #16)", () => {
+describe("tier-aware floor (F20.2.A1 / F20.2.A3, Decision 16)", () => {
   // Build a minimal canonical-only index once per test by pointing at an empty
   // dir — the collision check then has no canonical to compare against, so the
   // gates exercise only the tier-aware floor.
@@ -1530,7 +1552,17 @@ describe("validateContentBody — agent tool-grant security baseline (D20-2)", (
     "tools:\n  allowed:\n    - read\n    - search\n    - write\n    - execute\n    - web";
   const NARROW_TOOLS_YAML = "tools:\n  allowed:\n    - read\n    - search";
 
-  it("flags a wide agent tool grant with no security baseline as severity=error", async () => {
+  // D20-SA20.2-04: the pre-flight tool-grant baseline is TIER-AWARE (error at
+  // team+, warning at solo), matching the save funnel and the
+  // user-content-templates.md §1 contract. It previously emitted an
+  // unconditional error, contradicting the documented solo-gentle disposition
+  // and making `sync` hard-block a solo project the funnel had let save with a
+  // gentle nudge. The message + width/threshold reporting is unchanged; only the
+  // severity now varies by tier.
+  const grantMatches = (violations: { severity: string; message: string; relativePath: string }[]) =>
+    violations.filter((v) => /tool categories .* without a security baseline/.test(v.message));
+
+  it("flags a wide agent tool grant with no security baseline (tier-aware: error at team+, warning at solo)", async () => {
     const userRoot = resolveUserContentRoot(tempDir);
     await mkdir(join(userRoot, "agents"), { recursive: true });
     await writeFile(
@@ -1538,15 +1570,25 @@ describe("validateContentBody — agent tool-grant security baseline (D20-2)", (
       `---\nid: wide-grant\ntype: agent\ndescription: ${VALID_DESCRIPTION}\n${WIDE_TOOLS_YAML}\n---\nA hand-authored agent body with no baseline citation.\n`,
     );
 
-    const violations = await validateContentBody(tempDir);
-    const grantErrors = violations.filter(
-      (v) => v.severity === "error" && /tool categories .* without a security baseline/.test(v.message),
-    );
-    expect(grantErrors.length).toBe(1);
-    expect(grantErrors[0]?.relativePath).toContain("wide-grant.md");
+    // team+ → strict error (matches the funnel's team+ disposition).
+    const teamGrant = grantMatches(await validateContentBody(tempDir, "team"));
+    expect(teamGrant.length).toBe(1);
+    expect(teamGrant[0]?.severity).toBe("error");
+    expect(teamGrant[0]?.relativePath).toContain("wide-grant.md");
     // The width (5) and the threshold (3) are both surfaced in the message.
-    expect(grantErrors[0]?.message).toContain("5 tool categories");
-    expect(grantErrors[0]?.message).toContain("> 3");
+    expect(teamGrant[0]?.message).toContain("5 tool categories");
+    expect(teamGrant[0]?.message).toContain("> 3");
+
+    // solo (explicit) → gentle warning, matching the funnel + template contract.
+    const soloGrant = grantMatches(await validateContentBody(tempDir, "solo"));
+    expect(soloGrant.length).toBe(1);
+    expect(soloGrant[0]?.severity).toBe("warning");
+
+    // default (no explicit tier, no manifest) collapses to the solo baseline →
+    // warning, never a harder error, when the project tier cannot be read.
+    const defaultGrant = grantMatches(await validateContentBody(tempDir));
+    expect(defaultGrant.length).toBe(1);
+    expect(defaultGrant[0]?.severity).toBe("warning");
   });
 
   it("clears the grant when the body cites hatch3r-security-patterns", async () => {
@@ -1667,6 +1709,42 @@ describe("hook-event enum parity (F20.1.A1)", () => {
     for (const event of VALID_HOOK_EVENTS) {
       expect(message, `message should list "${event}"`).toContain(event);
     }
+  });
+
+  // D20-SA20.1-01: the canonical authoring template
+  // `agents/shared/user-content-templates.md` §5 "Hook Skeleton" documents the
+  // Event enum an author — and `hatch3r-creator`, which reads this file for the
+  // body skeleton — validates a hook against. It drifted to 8 values (omitting
+  // `review-loop-cap`) after Cycle 10 F15.2-H1 expanded the runtime enum to 9,
+  // while the command and creator agent were updated. Assert the rendered §5
+  // enum equals `[...VALID_HOOK_EVENTS]` so any future enum change that skips
+  // the template is a CI failure (recommendation step 2, mirrors the
+  // lean-threshold doc round-trip below).
+  it("user-content-templates.md §5 Event enum equals the runtime VALID_HOOK_EVENTS", async () => {
+    const repoRoot = resolve(__dirname, "..", "..", "..");
+    const templatePath = join(
+      repoRoot,
+      "agents",
+      "shared",
+      "user-content-templates.md",
+    );
+    expect(
+      existsSync(templatePath),
+      "agents/shared/user-content-templates.md must exist (canonical shared context)",
+    ).toBe(true);
+
+    const template = await readFile(templatePath, "utf-8");
+    // §5 renders the enum as: **Event enum:** `a | b | c | ...`.
+    const enumMatches = [
+      ...template.matchAll(/\*\*Event enum:\*\*\s*`([^`]+)`/g),
+    ];
+    expect(
+      enumMatches.length,
+      "template §5 must carry exactly one **Event enum:** `...` list",
+    ).toBe(1);
+
+    const documented = enumMatches[0][1].split("|").map((e) => e.trim());
+    expect([...documented].sort()).toEqual([...VALID_HOOK_EVENTS].sort());
   });
 });
 
@@ -1909,5 +1987,151 @@ describe("saveUserContent — description-keyword overlap (D20-M7)", () => {
     expect(
       result.gentleWarnings.some((w) => /keyword overlap with canonical/.test(w)),
     ).toBe(false);
+  });
+});
+
+// ── Shared single-source gate decisions (D20-SA20.2-02) ─────────────
+//
+// The deterministic user-content gates were three hand-rolled divergent copies
+// (funnel `runUserContentGates`, pre-flight `validateContentBody`, CI-facing
+// `validateUserContent`). These helpers extract the funnel's decisions into one
+// exported source so the CI surface can consume the identical logic + message
+// text instead of its stale private copies (flat 120 lean cap, warning-only
+// charter/pillar dispositions, the `[P1...P6]` enum, and a missing tags surface).
+// These suites lock the helper contracts AND assert the funnel routes through
+// them verbatim (the in-file no-residual-copy guard for divergence points a–f).
+describe("shared single-source gate decisions (D20-SA20.2-02)", () => {
+  describe("leanLineViolation (divergence point a — per-type SSOT, not a flat cap)", () => {
+    it("returns undefined when the body is within the per-type threshold", () => {
+      const body = Array.from({ length: 10 }, (_, i) => `line ${i}`).join("\n");
+      expect(leanLineViolation("agent", body)).toBeUndefined();
+    });
+
+    it("returns a per-type message when the agent body exceeds 350 lines", () => {
+      const body = Array.from({ length: 360 }, (_, i) => `line ${i}`).join("\n");
+      expect(leanLineViolation("agent", body)).toContain(
+        "lean threshold for agent: 350",
+      );
+    });
+
+    it("uses the per-type map, not a flat 120 cap: 150 lines trips rule/hook (100) but not skill/command/agent", () => {
+      const body = Array.from({ length: 150 }, (_, i) => `line ${i}`).join("\n");
+      expect(leanLineViolation("rule", body)).toContain("lean threshold for rule: 100");
+      expect(leanLineViolation("hook", body)).toContain("lean threshold for hook: 100");
+      expect(leanLineViolation("skill", body)).toBeUndefined();
+      expect(leanLineViolation("command", body)).toBeUndefined();
+      expect(leanLineViolation("agent", body)).toBeUndefined();
+    });
+
+    it("every per-type message number equals the exported LEAN_LINE_THRESHOLDS entry", () => {
+      for (const [type, threshold] of Object.entries(LEAN_LINE_THRESHOLDS)) {
+        const body = Array.from({ length: threshold + 5 }, (_, i) => `l${i}`).join("\n");
+        expect(
+          leanLineViolation(type as UserArtifactType, body),
+          `type ${type} should warn above its threshold`,
+        ).toContain(`lean threshold for ${type}: ${threshold}`);
+      }
+    });
+  });
+
+  describe("qualityCharterViolation (divergence point b)", () => {
+    it("returns undefined when quality_charter is present in frontmatter", () => {
+      expect(
+        qualityCharterViolation(
+          { quality_charter: "agents/shared/quality-charter.md" },
+          "no charter mention in body",
+        ),
+      ).toBeUndefined();
+    });
+
+    it("returns undefined when the body references quality-charter (hyphen or underscore)", () => {
+      expect(qualityCharterViolation({}, "inherits the quality_charter discipline")).toBeUndefined();
+      expect(qualityCharterViolation({}, "see agents/shared/quality-charter.md")).toBeUndefined();
+    });
+
+    it("returns the strict message when neither surface declares the charter", () => {
+      expect(
+        qualityCharterViolation({ tags: ["core"] }, "a body with no charter reference"),
+      ).toContain("quality_charter");
+    });
+  });
+
+  describe("pillarDeclarationViolation (divergence points c/d/e — 3 surfaces, union message)", () => {
+    it("returns undefined when pillars are declared in frontmatter", () => {
+      expect(pillarDeclarationViolation({ pillars: ["P4"] }, "no body pillar line")).toBeUndefined();
+    });
+
+    it("returns undefined when a **Pillars:** body line is present", () => {
+      expect(pillarDeclarationViolation({}, "**Pillars:** P5\n\nbody")).toBeUndefined();
+    });
+
+    it("returns undefined when a pillar token rides in the tags array (3rd surface, F20.2.B3)", () => {
+      // The CI copy has no tags surface (divergence e); the SSOT honors it.
+      expect(pillarDeclarationViolation({ tags: ["core", "P5"] }, "no pillar body")).toBeUndefined();
+      expect(pillarDeclarationViolation({ tags: ["CQ3"] }, "no pillar body")).toBeUndefined();
+    });
+
+    it("returns the two-axis-union message (not the stale [P1...P6]) when no surface declares a pillar", () => {
+      // The CI copy still advertises the pre-fix [P1...P6] enum (divergence d).
+      const msg = pillarDeclarationViolation({ tags: ["core"] }, "a body with no pillar mention");
+      expect(msg).toBeDefined();
+      expect(msg).toContain("P1...P8");
+      expect(msg).toContain("CQ1...CQ10");
+      expect(msg).not.toContain("P1...P6");
+    });
+  });
+
+  describe("validateStructuredPillars (divergence point f — exported for the CI surface)", () => {
+    it("accepts the full two-axis union (P8, CQ9, CQ10)", () => {
+      expect(validateStructuredPillars(["P8", "CQ9", "CQ10"])).toEqual([]);
+    });
+
+    it("flags an out-of-range id with a single Unknown-pillar-id violation", () => {
+      const violations = validateStructuredPillars(["P9"]);
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toContain('Unknown pillar id "P9"');
+    });
+
+    it("flags a non-array pillars value", () => {
+      const violations = validateStructuredPillars("P4");
+      expect(violations).toHaveLength(1);
+      expect(violations[0]).toContain("expected an array");
+    });
+  });
+
+  describe("funnel ↔ helper parity (runUserContentGates routes through the shared decisions)", () => {
+    let tempDir: string;
+    beforeEach(async () => {
+      tempDir = await mkdtemp(join(tmpdir(), "hatch3r-uc-ssot-"));
+    });
+    afterEach(async () => {
+      await rm(tempDir, { recursive: true, force: true });
+    });
+
+    it("emits the leanLineViolation message verbatim as a gentle warning", async () => {
+      const body =
+        "**Pillars:** P5\n" + Array.from({ length: 360 }, (_, i) => `line ${i}`).join("\n");
+      const expected = leanLineViolation("agent", body);
+      const result = await saveUserContent(tempDir, makeArtifact({ body }));
+      expect(expected).toBeDefined();
+      expect(result.gentleWarnings).toContain(expected);
+    });
+
+    it("emits the pillarDeclarationViolation message verbatim as a strict failure", async () => {
+      const artifact = makeArtifact({ body: "A body with no pillar mention or section heading.\n" });
+      const expected = pillarDeclarationViolation(artifact.frontmatter, artifact.body);
+      const result = await saveUserContent(tempDir, artifact);
+      expect(expected).toBeDefined();
+      expect(result.strictFailures).toContain(expected);
+    });
+
+    it("emits the qualityCharterViolation message verbatim as a strict failure", async () => {
+      const fm = { tags: ["core", "customize"] };
+      const body = "**Pillars:** P5\n\nA body with no charter reference.\n";
+      const expected = qualityCharterViolation(fm, body);
+      const result = await saveUserContent(tempDir, makeArtifact({ frontmatter: fm, body }));
+      expect(expected).toBeDefined();
+      expect(result.strictFailures).toContain(expected);
+    });
   });
 });

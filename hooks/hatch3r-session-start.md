@@ -29,6 +29,8 @@ When this hook fires, the assigned agent should:
 
 ## Configuration
 
-- **Max learnings**: Default 5. Adjust via `maxLearnings` in hook config.
-- **Recency window**: Default 7 days. Adjust via `recencyDays` to widen or narrow the time window.
-- **Area filter**: If set, only surface learnings matching the specified areas. By default, infers areas from the working tree.
+The items below are agent-runtime defaults rather than config-file settings. To use a different value, name it in your prompt when the hook fires.
+
+- **Max learnings**: The agent surfaces the top 5 by default. Ask for a different count in your prompt.
+- **Recency window**: The agent prioritizes the last 7 days by default. Ask it to widen or narrow the window in your prompt.
+- **Area filter**: By default, the agent infers areas from the working tree. Name specific areas in your prompt to restrict the surface.

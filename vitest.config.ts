@@ -1,5 +1,5 @@
 import { readFileSync } from "node:fs";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { defineConfig } from "vitest/config";
 
 const pkg = JSON.parse(readFileSync("./package.json", "utf-8")) as {
@@ -19,7 +19,18 @@ const pkg = JSON.parse(readFileSync("./package.json", "utf-8")) as {
 // two consecutive `--coverage` runs both exit 1 (vitest v8 provider, #5903
 // / #4943 / #5521). Verify: `npm test -- --coverage` exits 0 with a summary
 // table printed.
-const coverageDir = join(import.meta.dirname, "coverage");
+//
+// D3-SA3.5-05 (Cycle 12 Wave 3): a SHARED coverage/ tree makes concurrent
+// vitest runs mutually destructive — the first finisher's post-merge temp
+// cleanup removes coverage/.tmp out from under an in-flight sibling (ENOENT,
+// exit 1), observed twice when the audit fan-out ran D3 SAs in parallel in one
+// checkout. Honor a HATCH3R_COVERAGE_DIR override so a concurrent run can point
+// at its own isolated tree (e.g. HATCH3R_COVERAGE_DIR="$(mktemp -d)/coverage");
+// a relative value resolves against the repo root, preserving the chdir-immunity
+// above. Unset → the default coverage/ tree.
+const coverageDir = process.env.HATCH3R_COVERAGE_DIR
+  ? resolve(import.meta.dirname, process.env.HATCH3R_COVERAGE_DIR)
+  : join(import.meta.dirname, "coverage");
 
 // D3/D14-1 heavy-FS lane isolation (widened: D14 lane-fix-v2). A class of tests
 // drive a real command/snapshot path — `initCommand()`, `syncCommand()`,
@@ -78,14 +89,19 @@ const HEAVY_FS_TEST_FILES = [
   // Snapshot/rollback engine: real createSnapshot tmp+rename batches.
   "src/__tests__/pipeline/snapshot.test.ts",
   "src/__tests__/pipeline/snapshot.errorPaths.test.ts",
+  // D3-SA3.5-08 (Cycle 12 Wave 4): runs 3 unmocked createSnapshot() batches over
+  // a real mkdtemp(os.tmpdir()) tree — belongs here per the iff membership rule
+  // above; previously ran (undetected) in the fully-parallel main group.
+  "src/__tests__/pipeline/bucket-2x-composition.test.ts",
 ];
 
 // Test-file glob for the "main" project. Must match the SAME file set vitest's
 // built-in default include resolved before this split — the suite has tests in
-// BOTH `src/__tests__/` (186 files) and `scripts/__tests__/` (18 files), 204
-// total. Restricting to `src/**` here would silently drop the 18 script tests,
-// so both roots are listed explicitly. `node_modules`/`dist` are covered by
-// vitest's default excludes.
+// BOTH `src/__tests__/` and `scripts/__tests__/`. Restricting to `src/**` here
+// would silently drop every `scripts/` gate test, so both roots are listed
+// explicitly. `node_modules`/`dist` are covered by vitest's default excludes.
+// (Count-free by policy — D3-SA3.5-10, Cycle 12 Wave 4: embedded file/test
+// counts drift silently against the growing suite; the glob is behavior-gated.)
 const DEFAULT_TEST_GLOB = [
   "src/**/*.{test,spec}.?(c|m)[jt]s?(x)",
   "scripts/**/*.{test,spec}.?(c|m)[jt]s?(x)",
@@ -164,13 +180,25 @@ export default defineConfig({
     coverage: {
       provider: "v8",
       reporter: ["text", "json-summary", "lcov"],
+      // D3-SA3.5-02 (Cycle 12 Wave 2, D3): generate the coverage report and
+      // evaluate thresholds even when the suite has failing tests. The default
+      // (`false`) skips report generation on any test failure, so a
+      // coverage regression that rides along during a red window stays dark
+      // until the suite is green again — the threshold gate is blind exactly
+      // when the tree is unhealthy. Cost: report generation on failed runs.
+      reportOnFailure: true,
       reportsDirectory: coverageDir,
       // Do not wipe `reportsDirectory` at run start. The default `clean: true`
       // races with in-flight `forks` workers flushing into `coverage/.tmp/`
       // and removes the directory out from under them (D3-4). The dir is
       // .gitignore'd and overwritten per run, so a pre-run wipe buys nothing.
       clean: false,
-      all: true,
+      // `coverage.all` was removed in Vitest 4 (vitest.dev/guide/migration:
+      // "we have removed coverage.all completely and defaulted to include only
+      // covered files in the report"). It was dead config under vitest ^4 —
+      // silently ignored — and a type error once `scripts/` + root configs are
+      // type-checked (tsconfig.scripts.json). Removed D4-SA4.1-01 (Cycle 12);
+      // the `include` glob below already scopes the report surface.
       include: ["src/**/*.ts"],
       exclude: [
         "src/hooks/types.ts",
@@ -285,6 +313,26 @@ export default defineConfig({
           functions: 85,
           lines: 85,
         },
+        // src/manifest/** (D3-SA3.3-04, Cycle 12 Wave 3, D3 Test Infrastructure).
+        // The persistence boundary for all user state — hatch.json, provenance,
+        // rehydration, MCP filtering. Before this row the family rode the global
+        // 78/65/80/80 aggregate, the same masking the config was amended three
+        // times to prevent (orphanScan F3.5-F2, pipelineContext D7-4, src/cli
+        // D3-11): provenance.ts sits at 34.78% branch file-scoped while the
+        // repo-wide aggregate stays green, so a manifest-module regression is
+        // mergeable. Pinned to the measured slice floor (83.7/80.93/86.66/84.42,
+        // src/__tests__/manifest+manifests+migration) minus a 1-2pt variance
+        // buffer. Vitest still counts glob-matched files into the global
+        // aggregate (vitest.dev/config/coverage), so this cannot weaken the
+        // global gate. Lift to the content tier (85/70/85/85) after D3-SA3.3-03's
+        // tests land; re-measure under the full CI coverage gate first (slice
+        // figures are lower bounds).
+        "src/manifest/**": {
+          statements: 83,
+          branches: 78,
+          functions: 85,
+          lines: 84,
+        },
         // src/cli/** (D3-11, Cycle 11 Wave-3 Medium). Before this row the CLI —
         // 19 command files (one, src/cli/index.ts, is coverage-excluded above)
         // plus 20 shared modules under src/cli/shared/, the largest user-facing
@@ -303,24 +351,31 @@ export default defineConfig({
         // the global tier so the protection comes from the per-directory scoping
         // rather than from raising every dimension on an aggregate that cannot be
         // re-measured inside a non-coverage work unit. These match the SA3.5-F3
-        // recommended floor verbatim. Orchestrator-confirmation step (snapshot.ts
-        // precedent above): the value pins are conservative; if the serialized
-        // final `npm test -- --coverage` gate reports any src/cli/** dimension
-        // below its pin here, lower that single dimension to the measured floor —
-        // a measured-floor pin still gates regression, which is the finding's
-        // intent. Do not lower below the global 78/65/80/80 (that would erase the
-        // gate). Re-measure-and-pin is pre-authorized for this row only.
+        // recommended floor verbatim. Policy for this row (reconciled by
+        // D3-SA3.2-03, Cycle 12 — the pre-authorization text below previously
+        // read "Do not lower below the global 78/65/80/80", which contradicted
+        // the applied sub-global pins and mis-led a top-down reader into
+        // "correcting" them upward): a measured-floor pin BELOW the global
+        // 78/65/80/80 tier is permitted ONLY when a serialized `--coverage`
+        // measurement disproves the above-global premise — as the correction
+        // below records. A sub-global pin still gates regression at its measured
+        // level; its restoration to the global tier is tracked as a registered
+        // finding (here D3-SA3.2-03), never silently raised. Hand-raising these
+        // pins without the backing test work reds all 9 CI cells, so re-measure
+        // first (a fresh `--coverage` run) before moving any dimension up.
+        // Re-measure-and-pin is pre-authorized for this row only.
         // Measured-floor correction (Cycle 11 close-out, serialized --coverage gate):
         // D3-11's pins above ASSUMED src/cli rode ABOVE the global 78/65/80/80 on
         // the post-D3-3 command-body tests. The serialized `npm test -- --coverage`
         // gate disproved that premise — src/cli/** measures 74.03/59.85/75.56/75.82
         // (stmts/branch/func/lines), genuinely BELOW the global tier (it is the
         // repo's lowest-covered surface; the global aggregate passes only on
-        // over-covered dirs elsewhere). Per the pre-authorized "re-measure-and-pin"
-        // step above, the floor is pinned to the measured level minus a ~1-2pt
-        // cross-platform-variance buffer, so it still trips on a real src/cli
-        // regression. Raising src/cli to the global 80-line floor is follow-up test
-        // work (a Cycle-12 testability finding), not a close-out blocker.
+        // over-covered dirs elsewhere). The floor is pinned to the measured level
+        // minus a ~1-2pt cross-platform-variance buffer, so it still trips on a
+        // real src/cli regression. Lifting src/cli to the global tier is follow-up
+        // test work tracked as Cycle-12 finding D3-SA3.2-03 (raise in <=2 waves:
+        // land the missing prompt-layer / cancel-branch / error-path tests,
+        // re-measure, then raise these pins to the new measured floor).
         "src/cli/**": {
           statements: 73,
           branches: 58,

@@ -364,6 +364,62 @@ describe("workspace sync", () => {
     expect(result.repos[0].path).toBe("api");
   });
 
+  // D1-SA1.10-12 (Cycle 12, Info): an explicit --repos path that matches no
+  // registered repo must surface an onWarn line naming it (with the known repo
+  // set) — otherwise the CLI reports a green "0 repo(s) synced" and an operator
+  // typo reads as a clean no-op (Silent Failure Contract).
+  it("warns per unmatched --repos path instead of silently syncing nothing", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-unmatched-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "api", name: "api", sync: true },
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    const warnings: string[] = [];
+    const result = await syncWorkspaceRepos(tempDir, {
+      repos: ["ap"], // typo of "api"
+      onWarn: (m) => warnings.push(m),
+    });
+
+    // Nothing matched — no repo synced (the prior silent behavior).
+    expect(result.repos).toHaveLength(0);
+    // But the typo is now audible: a warning names the unmatched path AND lists
+    // the registered repo so the operator can spot the typo.
+    const unmatchedWarn = warnings.find((w) => /matched no registered repo/.test(w));
+    expect(unmatchedWarn).toBeDefined();
+    expect(unmatchedWarn).toContain("ap"); // the unmatched path
+    expect(unmatchedWarn).toContain("api"); // the registered repo set
+  });
+
+  // D1-SA1.10-12 (Cycle 12, Info): an explicit --repos path selects by path
+  // membership alone, so a repo with sync:false IS synced when named directly.
+  // Pins the opt-out override the option contract now documents.
+  it("syncs a sync:false repo when its path is named explicitly via --repos", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-optout-override-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "web"));
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "web", name: "web", sync: false },
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    // The no-argument default would skip web (sync:false); naming it explicitly
+    // overrides the opt-out and must not emit an unmatched-path warning.
+    const warnings: string[] = [];
+    const result = await syncWorkspaceRepos(tempDir, {
+      repos: ["web"],
+      onWarn: (m) => warnings.push(m),
+    });
+    expect(result.repos).toHaveLength(1);
+    expect(result.repos[0].path).toBe("web");
+    expect(result.repos[0].action).toBe("synced");
+    expect(warnings.some((w) => /matched no registered repo/.test(w))).toBe(false);
+  });
+
   it("updates lastSync in workspace manifest after sync", async () => {
     tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-ts-"));
     await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
@@ -495,6 +551,63 @@ describe("workspace sync", () => {
     // tracked as excluded.
     expect(manifest.content.items.rules).toContain("hatch3r-agent-orchestration");
     expect(manifest.workspace.excludedContent).not.toContain("hatch3r-agent-orchestration");
+  });
+
+  // D1-SA1.10-05 (Cycle 12): a workspace member must sweep adapter outputs the
+  // prior run recorded but this run no longer emits (renamed output shape,
+  // dropped tool, removed rule), and persist managedFilesByAdapter so the next
+  // sync has a diff baseline — otherwise the coding tool keeps loading a
+  // "ghost" file the workspace lead believes is gone, and the stale file falls
+  // out of tracking so `hatch3r clean` can never reclaim it. Ports the
+  // single-repo orphan sweep (src/cli/commands/sync.ts) into syncSingleRepo.
+  // Seeds a stale prior path the current sync will not re-emit — the same
+  // approach as the single-repo orphan test in src/__tests__/cli/sync.test.ts
+  // (deterministic regardless of how the adapter maps a selection to outputs).
+  it("sweeps a member's orphaned adapter output recorded by a prior run", async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-ws-orphan-"));
+    await mkdir(join(tempDir, AGENTS_DIR), { recursive: true });
+    await createGitRepo(join(tempDir, "api"));
+
+    const wsManifest = createWorkspaceManifest("test", defaults, [
+      { path: "api", name: "api", sync: true },
+    ], "manual");
+    await writeWorkspaceManifest(tempDir, wsManifest);
+
+    // Sync 1 establishes the member. The fix persists managedFilesByAdapter on
+    // the member manifest — the prior code never wrote it (createManifest built
+    // a fresh manifest and only populated the flat managedFiles list).
+    await syncWorkspaceRepos(tempDir);
+    const memberManifestPath = join(tempDir, "api", AGENTS_DIR, "hatch.json");
+    const m1 = JSON.parse(await readFile(memberManifestPath, "utf-8"));
+    expect(Array.isArray(m1.managedFilesByAdapter?.cursor)).toBe(true);
+    expect(m1.managedFilesByAdapter.cursor.length).toBeGreaterThan(0);
+
+    // Seed a stale prior path (a pre-rename shape) into the member's per-adapter
+    // history AND place the physical file, so sync 2's diff flags it as an
+    // orphan the current emission set does not include.
+    const stalePath = ".cursor/rules/50-hatch3r-removed-rule.mdc";
+    m1.managedFilesByAdapter.cursor.push(stalePath);
+    await writeFile(memberManifestPath, JSON.stringify(m1, null, 2));
+    const staleAbs = join(tempDir, "api", stalePath);
+    await mkdir(join(tempDir, "api", ".cursor", "rules"), { recursive: true });
+    await writeFile(staleAbs, "# stale hatch3r rule output from a prior run\n");
+
+    // Sync 2 re-emits the same corpus (which never includes the seeded stale
+    // path), so the sweep reclaims it.
+    const warnings: string[] = [];
+    await syncWorkspaceRepos(tempDir, { onWarn: (msg) => warnings.push(msg) });
+
+    // The stale file is unlinked from the member repo (the sweep).
+    await expect(access(staleAbs)).rejects.toThrow();
+    // It is dropped from the member manifest's per-adapter tracking.
+    const m2 = JSON.parse(await readFile(memberManifestPath, "utf-8"));
+    const cursorPaths2: string[] = m2.managedFilesByAdapter?.cursor ?? [];
+    expect(cursorPaths2).not.toContain(stalePath);
+    // A real, still-emitted output is NOT swept (no over-reclaim).
+    const survivor: string = m2.managedFilesByAdapter.cursor[0];
+    await expect(access(join(tempDir, "api", survivor))).resolves.toBeUndefined();
+    // The operator sees an audible removal diagnostic.
+    expect(warnings.some((w) => /Unlinked \d+ orphaned adapter output/.test(w))).toBe(true);
   });
 
   it("uses per-repo owner/repo/branch when syncing", async () => {

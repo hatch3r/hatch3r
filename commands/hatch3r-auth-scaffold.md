@@ -5,6 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-security]
 description: "Scaffold authentication boilerplate for a greenfield API service — OAuth 2.1 authorization-code-with-PKCE flow, OIDC ID-token validation, and hashed personal-access-token (PAT) issuance/verification. Implementer writes the code; hatch3r-security gates it against the CQ3 auth-depth floor."
 argument-hint: "[service-name]"
+disable-model-invocation: true
 tags: [implementation, security, floor:security, floor:content-quality]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,11 +16,12 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-implementer writes the OAuth 2.1 / OIDC / PAT boilerplate (code mutation flows through the implementer per the Mandatory Delegation Directive); one hatch3r-security gates the result against the CQ3 auth-depth floor (PKCE, exact redirect-URI match, ID-token claim validation, token-secret hashing). Independent auth modes (interactive OAuth vs machine-to-machine PAT) fan out to parallel implementers; the implement -> security-gate edge is the only serialization. Cost-dominance per CONSTITUTION §2 P8.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the request for unresolved questions in auth mode, threat model, and identity provider. If the request does not name which flow(s) to scaffold (interactive sign-in via OAuth 2.1, machine-to-machine via PAT, or both), the OIDC provider / issuer, or the client type (public SPA vs confidential server), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — the token-binding decision (DPoP for browser vs bare bearer) and the redirect-URI allowlist depend on these, and a wrong assumption ships an exploitable flow. Proceed without asking ONLY when the flow set, provider, and client type are all explicit. Scaffolding auth boilerplate is high-blast-radius; default to asking. Source: `.claude/rules/clarification-default.md`.
+Before any action, scan the request for unresolved questions in auth mode, threat model, and identity provider. If the request does not name which flow(s) to scaffold (interactive sign-in via OAuth 2.1, machine-to-machine via PAT, or both), the OIDC provider / issuer, or the client type (public SPA vs confidential server), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — the token-binding decision (DPoP for browser vs bare bearer) and the redirect-URI allowlist depend on these, and a wrong assumption ships an exploitable flow. Proceed without asking ONLY when the flow set, provider, and client type are all explicit. Scaffolding auth boilerplate is high-blast-radius; default to asking. Source: `rules/hatch3r-clarification-default.md`.
 
 ## Agent Pipeline
 
@@ -154,7 +156,7 @@ Each implementer prompt MUST include the resolved spec, the target module paths,
 
 **PAT issuance/verification (`src/auth/pat/`):** generate a 256-bit cryptographically-random token, return it to the caller exactly once at issue time, and store only its Argon2id hash (bcrypt fallback) — never the plaintext. On verification, hash the presented token and compare against the stored hash in constant time. Tokens carry a scope set and an expiry; revocation is a hash-table delete.
 
-**Secrets:** the client secret, issuer URL, and signing keys are referenced via `${env:VAR}` and emitted to `.env.example` with placeholder values — never inlined. (Project secret convention: `.claude/rules/security-patterns.md` rule 3.)
+**Secrets:** the client secret, issuer URL, and signing keys are referenced via `${env:VAR}` and emitted to `.env.example` with placeholder values — never inlined. (Project secret convention: `rules/hatch3r-security-patterns.md` — `${env:VAR}` placeholders for secrets.)
 
 Also include in the prompt: all `scope: always` rule directives; the confidence expression requirement (verbatim, high/medium/low per `agents/shared/quality-charter.md` §1); the implementer's standing test obligation (unit tests for token validation: positive = valid token reaches the resource, negative = `alg:none`/expired/wrong-`aud` token is rejected); and the boundary "do NOT create branches, commits, or PRs". Await the structured result; capture `Files changed`, `Tests written`, and the `Delegation proof ID` per file.
 
@@ -186,7 +188,7 @@ Run the project verification gates and record exit codes: `npm test` (or the pro
 
 ### Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
 Worked example for this domain:
 

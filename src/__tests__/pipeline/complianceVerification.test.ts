@@ -5,6 +5,7 @@ import {
   detectResilienceInvocations,
   verifyMonotonicPrivilege,
   type EnforcementClass,
+  type ComplianceReport,
 } from "../../pipeline/complianceVerification.js";
 import { ALL_TOOL_CATEGORIES } from "../../pipeline/agentToolAllowlist.js";
 
@@ -37,6 +38,20 @@ describe("complianceVerification", () => {
       const report = await runComplianceChecks();
       const asi02Checks = report.checks.filter((c) => c.controlRef === "ASI02");
       expect(asi02Checks.length).toBeGreaterThanOrEqual(2);
+    });
+
+    // D15-SA15.3-04: the self-assessment must record that hard per-category
+    // enforcement is Claude-only (Cursor per-category is soft/rule-delegated),
+    // so it does not imply uniform hard enforcement across the three adapters.
+    it("records per-adapter ASI02 enforcement strength in the self-assessment (D15-SA15.3-04)", async () => {
+      const report = await runComplianceChecks();
+      const check = report.checks.find((c) => c.id === "asi02-tool-allowlists");
+      expect(check).toBeDefined();
+      const detail = check!.detail ?? "";
+      expect(detail).toContain("Claude=hard per-category PreToolUse deny");
+      expect(detail).toMatch(/Cursor=.*soft per-category \(rule-delegated\)/);
+      expect(detail).toContain("Copilot=");
+      expect(detail).toContain("instruction-delegated");
     });
 
     it("should include ASI07 check for phase schemas", async () => {
@@ -151,19 +166,89 @@ describe("complianceVerification", () => {
       for (const mod of required) {
         const check = report.checks.find((c) => c.id === `resilience-${mod}`);
         expect(check, `expected resilience check for ${mod}`).toBeDefined();
-        expect(check!.controlRef).toBe("ASI-RESILIENCE");
+        expect(check!.controlRef).toBe("ASI08");
       }
     });
 
     it("should report PASS for every wired resilience module (regression)", async () => {
       const report = await runComplianceChecks();
-      const resilienceChecks = report.checks.filter((c) => c.controlRef === "ASI-RESILIENCE");
+      const resilienceChecks = report.checks.filter((c) => c.controlRef === "ASI08");
       expect(resilienceChecks.length).toBeGreaterThan(0);
       const failed = resilienceChecks.filter((c) => c.status === "fail");
       expect(
         failed,
         `unwired resilience modules: ${failed.map((f) => f.id).join(", ")}`,
       ).toEqual([]);
+    });
+
+    // D15-SA15.3-01 (Cycle-12): the per-commit ASI self-assessment must cover
+    // all ten official OWASP ASI:2026 categories. This enumeration invariant
+    // binds the check set to the fixed taxonomy so the report can no longer
+    // drift to the prior 40%-labeled, pseudo-ref scheme (ASI-LOOP/-TIMEOUT/
+    // -RESILIENCE/-MCP/-CONTENT/-INTEGRITY) that hid 6 of 10 categories.
+    it("labels every one of the ten official ASI:2026 categories at least once", async () => {
+      const report = await runComplianceChecks();
+      const refs = new Set(report.checks.map((c) => c.controlRef));
+      for (let n = 1; n <= 10; n++) {
+        const id = `ASI${String(n).padStart(2, "0")}`;
+        expect(refs.has(id), `missing official ASI control ${id}`).toBe(true);
+      }
+    });
+
+    // D15-SA15.3-01: no invented `ASI-*` pseudo-ref may survive — every
+    // controlRef is an official `ASI0N` id, honoring the field contract that
+    // declares controlRef holds an ASI control reference.
+    it("uses only official ASI0N control references (no ASI-* pseudo-refs)", async () => {
+      const report = await runComplianceChecks();
+      for (const check of report.checks) {
+        expect(check.controlRef, `pseudo-ref on ${check.id}`).toMatch(
+          /^ASI(0[1-9]|10)$/,
+        );
+      }
+    });
+
+    // D15-SA15.3-01: ASI05 was the only category with no existing check to
+    // relabel; the new explicit check earns its pass by flagging a
+    // `curl … | bash` remote-code-execution injection probe.
+    it("includes an earned ASI05 code-execution check", async () => {
+      const report = await runComplianceChecks();
+      const asi05 = report.checks.find((c) => c.id === "asi05-code-execution");
+      expect(asi05).toBeDefined();
+      expect(asi05!.controlRef).toBe("ASI05");
+      expect(asi05!.status).toBe("pass");
+    });
+
+    // D15-SA15.6-01: the D15 crosswalk ASI03 row cites `validate asi03-*`, a glob
+    // that resolved to zero checks (the only ASI03 token was a controlRef on
+    // asi02-monotonic-privilege, a tool-allowlist containment test). This genuine
+    // asi03-agent-identity check makes the cite resolve and EARNS its pass by
+    // round-tripping the agentIdentity provenance contract (annotate → verify
+    // agent/phase → reject mismatch).
+    it("includes an earned asi03-agent-identity check that resolves the `validate asi03-*` cite", async () => {
+      const report = await runComplianceChecks();
+      const asi03 = report.checks.find((c) => c.id === "asi03-agent-identity");
+      expect(asi03).toBeDefined();
+      expect(asi03!.controlRef).toBe("ASI03");
+      expect(asi03!.status).toBe("pass");
+      expect(asi03!.enforcement).toBe("library-contract-for-downstream");
+      expect(asi03!.detail).toMatch(/round-trip self-test|provenance/);
+      // The `validate asi03-*` glob now resolves to >=1 check id.
+      expect(report.checks.some((c) => c.id.startsWith("asi03"))).toBe(true);
+    });
+
+    // D15-SA15.3-02: agentIdentity.ts was 0-caller dead code whose ASI10 drift
+    // fingerprint was never exercised on a CLI path, yet carried a weekly test
+    // reading as active coverage. This asi10-capability-drift check wires the
+    // fingerprint onto the validate path and EARNS its pass by round-tripping
+    // detectCapabilityGoalDrift (unchanged → no drift; widened caps → drift).
+    it("includes an earned asi10-capability-drift check that wires the agentIdentity drift fingerprint", async () => {
+      const report = await runComplianceChecks();
+      const drift = report.checks.find((c) => c.id === "asi10-capability-drift");
+      expect(drift).toBeDefined();
+      expect(drift!.controlRef).toBe("ASI10");
+      expect(drift!.status).toBe("pass");
+      expect(drift!.enforcement).toBe("library-contract-for-downstream");
+      expect(drift!.detail).toMatch(/self-test|drift fingerprint/);
     });
   });
 
@@ -197,7 +282,7 @@ describe("complianceVerification", () => {
       expect(joined).toContain("ASI01");
       expect(joined).toContain("ASI02");
       expect(joined).toContain("ASI07");
-      expect(joined).toContain("ASI-RESILIENCE");
+      expect(joined).toContain("ASI08");
     });
 
     it("should not include NON-COMPLIANT when all checks pass", async () => {
@@ -223,6 +308,59 @@ describe("complianceVerification", () => {
         );
       }
     });
+
+    // D15-SA15.3-05: a permanent WARN (integrity-signing-status) is structurally
+    // ignored by the `compliant = failed === 0` headline. The report surfaces a
+    // standing-advisories acknowledgment so the amber is not silently accumulated.
+    it("surfaces standing advisories (non-blocking) when warnings are present (D15-SA15.3-05)", async () => {
+      const report = await runComplianceChecks();
+      // integrity-signing-status is a permanent warn, so warnings > 0 by construction.
+      expect(report.summary.warnings).toBeGreaterThan(0);
+      const joined = formatComplianceReport(report).join("\n");
+      expect(joined).toMatch(/\d+ standing advisor(y|ies) \(non-blocking\)/);
+      expect(joined).toContain("not silently accumulated");
+    });
+
+    it("does not add a standing-advisories line when there are no warnings (D15-SA15.3-05)", () => {
+      const zeroWarnReport: ComplianceReport = {
+        timestamp: new Date().toISOString(),
+        compliant: true,
+        checks: [
+          {
+            id: "probe",
+            description: "probe check",
+            controlRef: "ASI02",
+            enforcement: "runtime-CLI",
+            status: "pass",
+          },
+        ],
+        summary: { total: 1, passed: 1, failed: 0, warnings: 0 },
+      };
+      const joined = formatComplianceReport(zeroWarnReport).join("\n");
+      expect(joined).not.toMatch(/standing advisor/);
+    });
+
+    it("pluralizes the standing-advisories noun by warning count (D15-SA15.3-05)", () => {
+      const base = {
+        timestamp: new Date().toISOString(),
+        compliant: true,
+        checks: [],
+      };
+      const oneWarn: ComplianceReport = {
+        ...base,
+        summary: { total: 1, passed: 0, failed: 0, warnings: 1 },
+      };
+      const twoWarn: ComplianceReport = {
+        ...base,
+        summary: { total: 2, passed: 0, failed: 0, warnings: 2 },
+      };
+      expect(formatComplianceReport(oneWarn).join("\n")).toContain(
+        "1 standing advisory (non-blocking)",
+      );
+      expect(formatComplianceReport(twoWarn).join("\n")).toContain(
+        "2 standing advisories (non-blocking)",
+      );
+    });
   });
 
   // D15-4: every compliance check declares an enforcement class, and the
@@ -247,8 +385,16 @@ describe("complianceVerification", () => {
       const report = await runComplianceChecks();
       const reviewLoop = report.checks.find((c) => c.id === "review-loop-limit");
       const diffHash = report.checks.find((c) => c.id === "diff-hash-verify");
+      // D15-SA15.6-01 / D15-SA15.3-02: agentIdentity.ts is the third
+      // @library_export_only module self-tested by validate (mirrors
+      // diffHash/reviewLoop) — its provenance + drift checks must carry the
+      // same class so the report never implies a live CLI gate.
+      const agentIdentity = report.checks.find((c) => c.id === "asi03-agent-identity");
+      const drift = report.checks.find((c) => c.id === "asi10-capability-drift");
       expect(reviewLoop?.enforcement).toBe("library-contract-for-downstream");
       expect(diffHash?.enforcement).toBe("library-contract-for-downstream");
+      expect(agentIdentity?.enforcement).toBe("library-contract-for-downstream");
+      expect(drift?.enforcement).toBe("library-contract-for-downstream");
     });
 
     it("classifies CLI-wired controls as runtime-CLI", async () => {

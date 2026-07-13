@@ -45,11 +45,33 @@ export interface SetupOptions {
 
 /**
  * Directory entries that do NOT make a target "non-empty" for the overwrite
- * guard. A lone `.git` is a VCS skeleton, not project content — treating it as
- * empty lets `hatch3r setup myrepo` run idempotently against a `git init`'d but
- * otherwise empty directory (git init is then skipped — see `gitDirExists`).
+ * guard — the OS/VCS/IDE metadata a fresh checkout commonly carries. A target
+ * holding only these is still "effectively empty", so both a lone `.git`
+ * skeleton (git init is then skipped — see `gitDirExists`) AND the GitHub-first
+ * flow (create a repo on github.com with a LICENSE/`.gitignore` → clone →
+ * scaffold locally) let `hatch3r setup` proceed instead of hard-failing with
+ * FS_ERROR (D1-SA1.1-08, Cycle 12).
+ *
+ * Scope is the conservative OS/VCS/IDE-metadata subset of create-next-app's
+ * is-folder-empty allowlist (vercel/next.js create-next-app
+ * helpers/is-folder-empty.ts, accessed 2026-07-09): OS dumps, VCS skeletons,
+ * IDE / AI-tool config dirs, and a top-level LICENSE. `README.md` is
+ * deliberately excluded — it is frequently real project content, so its
+ * presence still blocks the scaffold (falsifiability boundary asserted in
+ * setup.test.ts).
  */
-const EMPTINESS_IGNORED_ENTRIES = new Set([".git"]);
+const EMPTINESS_IGNORED_ENTRIES = new Set([
+  ".git", // VCS skeleton; also drives the `git init` skip via gitDirExists
+  ".gitignore", // VCS metadata (GitHub "Add .gitignore")
+  ".gitattributes", // VCS metadata
+  ".DS_Store", // macOS Finder metadata
+  "Thumbs.db", // Windows Explorer thumbnail cache
+  ".idea", // JetBrains IDE config dir
+  ".vscode", // VS Code workspace config dir
+  ".claude", // Claude Code config dir (also an `--import` source)
+  ".cursor", // Cursor config dir (the artifact `--import cursor` harvests)
+  "LICENSE", // GitHub "Choose a license" — inert, not project code
+]);
 
 /** True when `p` exists on disk (file or directory). */
 async function pathExists(p: string): Promise<boolean> {
@@ -80,9 +102,53 @@ async function isDirEffectivelyEmpty(dir: string): Promise<boolean> {
   }
 }
 
+/**
+ * The emptiness-guard-ignored entries actually present in `dir` (a subset of
+ * {@link EMPTINESS_IGNORED_ENTRIES}), minus `.git`. `.git` is omitted because it
+ * has its own dedicated status line (the `git init` skip), so re-announcing it
+ * here would duplicate that signal. Sorted for stable output. Names the inert
+ * metadata the scaffold preserved so a GitHub-first clone shows the user its
+ * LICENSE/`.cursor`/… were kept, not silently scaffolded over (D1-SA1.1-08).
+ */
+async function ignoredEntriesPresent(dir: string): Promise<string[]> {
+  try {
+    const entries = await readdir(dir);
+    return entries.filter((e) => e !== ".git" && EMPTINESS_IGNORED_ENTRIES.has(e)).sort();
+  } catch (err) {
+    // Display-only helper: a read failure just drops the "keeping …" clause.
+    // Surface the reason under --verbose rather than collapsing it silently.
+    verbose(
+      `setup: could not list kept metadata in ${dir} — ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return [];
+  }
+}
+
 /** Run `git <args>` in `cwd`, inheriting nothing to stdout (output captured). */
 function runGit(args: string[], cwd: string): void {
   execFileSync("git", args, { cwd, stdio: ["ignore", "pipe", "pipe"] });
+}
+
+/**
+ * True when a `git` binary is invocable on PATH. D1-SA1.1-06 (Cycle 12 Wave 3,
+ * D1, P1): git is setup's one hard prerequisite beyond Node itself (docstring
+ * above + `src/cli/program.ts` registration text), but `runGit`'s bare
+ * `execFileSync` gave a missing binary no dependency-failure strategy — the
+ * ENOENT fell through to the generic funnel as a raw `spawnSync git ENOENT`
+ * crash. Probe shape mirrors `isGhReady` below; the difference is policy:
+ * `gh` is optional and degrades to a warning, git is load-bearing so absence
+ * aborts with an actionable CONFIG_ERROR at the preflight call site.
+ */
+function isGitAvailable(): boolean {
+  try {
+    execFileSync("git", ["--version"], { stdio: ["ignore", "pipe", "pipe"] });
+    return true;
+  } catch (err) {
+    verbose(
+      `setup: git availability probe failed — ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return false;
+  }
 }
 
 /**
@@ -205,12 +271,37 @@ export async function setupCommand(
     return;
   }
 
+  // ── Preflight: git (D1-SA1.1-06) ──────────────────────────────────────────
+  // Probe only when this run will actually spawn git (`git init`, or the
+  // `runGit(["status"])` readability check before `gh repo create`) so the
+  // no-git-needed path stays free of extra subprocess calls, mirroring the
+  // gated `isGhReady()` probe above. A missing binary aborts BEFORE any
+  // directory is created, with what failed + why + next step instead of the
+  // raw `spawnSync git ENOENT` the generic funnel previously emitted.
+  const needsGit = willGitInit || (opts.remote === true && ghReady);
+  if (needsGit && !isGitAvailable()) {
+    throw new HatchError(
+      "git is required by `hatch3r setup` but was not found on PATH.",
+      undefined,
+      "CONFIG_ERROR",
+      "Install git (https://git-scm.com/downloads) and re-run, or run `hatch3r init` inside an existing git repository instead.",
+    );
+  }
+
   // ── Scaffold ──────────────────────────────────────────────────────────────
   await mkdir(targetDir, { recursive: true });
   if (willCreateDir) {
     info(`Created project directory ${chalk.bold(targetName)}`);
   } else {
-    info(`Using directory ${chalk.bold(targetName)}`);
+    // Name the inert metadata (LICENSE, .cursor, …) tolerated by the emptiness
+    // guard so the user sees what the scaffold kept rather than silently
+    // scaffolding over it (D1-SA1.1-08).
+    const kept = await ignoredEntriesPresent(targetDir);
+    info(
+      kept.length > 0
+        ? `Using directory ${chalk.bold(targetName)} (keeping ${kept.join(", ")})`
+        : `Using directory ${chalk.bold(targetName)}`,
+    );
   }
 
   if (willGitInit) {

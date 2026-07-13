@@ -2,8 +2,9 @@
 id: hatch3r-incident-response
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-incident-responder, hatch3r-reliability]
+agentPipeline: [hatch3r-incident-responder, hatch3r-reliability, hatch3r-security]
 description: Drive a live production incident through a structured lifecycle -- triage + topology, bounded-autonomy mitigation, stakeholder communication, then a blameless post-mortem with runbook -- via delegated sub-agents.
+disable-model-invocation: true
 tags: [devops, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -14,6 +15,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-incident-responder specialist drives the live lifecycle (triage → bounded-autonomy mitigation → communication → blameless post-mortem); one hatch3r-reliability specialist runs the post-incident telemetry/SLO reconstruction in parallel once the incident is stabilized. Tier 1 spawns only the incident-response specialist (count 1); a security-suspected incident adds hatch3r-security. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -171,9 +173,9 @@ Commit message format: `docs: post-mortem for {incident-slug}` (post-mortem + ru
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 

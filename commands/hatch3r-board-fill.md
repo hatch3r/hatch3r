@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-reviewer, hatch3r-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
 description: Create epics and issues/work items from todo.md, reorganize the board with dependency analysis, readiness assessment, and implementation ordering. Supports GitHub, Azure DevOps, and GitLab.
+disable-model-invocation: true
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,6 +16,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 11
   rationale: Per-issue review cycle (reviewer + fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) consulted on readiness assessment so that issue acceptance criteria encode the measurable floors the implementation must meet; batch mode scales reviewer count to N issues with serialization only on the per-issue reviewer→fixer hand-off. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -336,7 +338,7 @@ Use explore subagents or direct file reads to understand the current state of so
 #### 4b.5. Consult Project Learnings
 
 1. If `.hatch3r/learnings/` exists, scan for learnings relevant to the areas touched by the todo items.
-2. Match by `area` and `tags` in learning frontmatter against the area labels assigned in Step 3.
+2. Match each learning by testing the touched file paths against its `applies-to` glob and the assigned area labels (Step 3) against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`); accept legacy `area`/`tags` frontmatter only as a transitional fallback.
 3. Surface relevant learnings in the Context Summary output:
    - **Pitfalls** for areas being touched (highest priority -- include specific warnings)
    - **Patterns** that could inform issue scoping or acceptance criteria
@@ -743,7 +745,7 @@ For issues where the reviewer returned `REQUEST CHANGES`:
 
 Per-issue loop, max 4 iterations (spec-class cap). Loop semantics mirror `src/pipeline/reviewLoop.ts`.
 
-> **Iteration-cap rationale (D10-SA10.7-F10.7.7).** This spec-class loop caps at 4 (matching `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`) because issue-spec reviews converge more slowly and deterministically — they refine text against the production-readiness checklist with no runtime regressions feeding back. Code-class loops (`hatch3r-workflow` Phase 4a, `hatch3r-board-pickup` Step 7a review loop, `hatch3r-quick-change` Step 6a) cap at 3 because code reviews diverge faster (a fix can spawn a regression the next iteration must catch). Expected convergence is 1–2 iterations; the cap is the divergence backstop, not the target.
+> **Iteration-cap rationale (D10-SA10.7-F10.7.7).** This spec-class loop caps at 4 (matching `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`) because issue-spec reviews converge more slowly and deterministically — they refine text against the production-readiness checklist with no runtime regressions feeding back. Code-class loops (`hatch3r-workflow` Phase 4a, `hatch3r-board-pickup` Step 7a review loop, `hatch3r-quick-change` Step 6a) cap at 3 because code reviews diverge faster (a fix can spawn a regression the next iteration must catch). Expected convergence is 1–2 iterations (informed estimate — `CALIBRATION.basis` in `src/pipeline/reviewLoop.ts`, unmeasured on hatch3r runs until the runtime telemetry ledger `.hatch3r/review-loop-metrics.jsonl`, read by `scripts/calibrate-review-loop.ts`, reaches its 30-sample threshold); the cap is the divergence backstop, not the target.
 
 **Clean termination** (issue passes review):
 - Reviewer returns `APPROVE`, AND
@@ -831,15 +833,15 @@ board-fill is long-running — a Tier 3 batch can span 15+ items with per-issue 
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 7.9 reviewer/fixer loops or Step 1 explore sub-agents).
 - **Post-execution `cost_actuals` + `delta`** — the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.

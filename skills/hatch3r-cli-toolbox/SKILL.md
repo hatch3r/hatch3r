@@ -2,7 +2,7 @@
 id: hatch3r-cli-toolbox
 name: hatch3r-cli-toolbox
 type: skill
-description: "Category-indexed reference for 29 specialist CLI tools beyond the always-on five (ripgrep, jq, gh, fd, fzf). Use to pick the right tool for HTTP clients, ai-chat, structural-search, sed-style edits, data ops, browser automation, container ops, and more."
+description: "Category-indexed reference for 34 specialist CLI tools beyond the always-on five (ripgrep, jq, gh, fd, fzf). Use to pick the right tool for HTTP clients, ai-chat, structural-search, sed-style edits, data ops, browser automation, container ops, and more."
 tags: [cli-tools, reference, orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -10,7 +10,7 @@ cache_friendly: true
 ---
 # CLI Toolbox
 
-Compact decision reference for 29 specialist CLI tools agents may reach for in addition to the five always-on skills (`hatch3r-cli-ripgrep`, `hatch3r-cli-jq`, `hatch3r-cli-gh`, `hatch3r-cli-fd`, `hatch3r-cli-fzf`).
+Compact decision reference for 34 specialist CLI tools agents may reach for in addition to the five always-on skills (`hatch3r-cli-ripgrep`, `hatch3r-cli-jq`, `hatch3r-cli-gh`, `hatch3r-cli-fd`, `hatch3r-cli-fzf`).
 
 Each entry below states a single discriminator ("When to use"), one representative recipe, and the better alternative ("Wrong choice when"). Tools are installed via `npx hatch3r cli-tools`; this skill governs *selection*, not installation.
 
@@ -30,19 +30,18 @@ Tier 1 reference card — no fan-out. This skill is a category-indexed selection
 
 | Category | Tools |
 |----------|-------|
-| HTTP clients | `curl`, `httpie`, `xh` |
-| AI / LLM | `aichat`, `llm`, `mods`, `rtk` |
+| HTTP clients | `curl`, `httpie`, `xh`, `hurl` (declarative test files) |
+| AI / LLM | `aichat`, `crush`, `llm`, `mods` (archived — prefer `crush`), `rtk` |
 | Structural search & rewrite | `ast-grep`, `comby` |
 | Sed-style literal edits | `sd` |
-| Format converters / queriers | `yq`, `taplo`, `dasel` |
+| Format converters / queriers | `yq`, `taplo`, `dasel`, `jaq` (memory-safe jq peer), `tombi` (maintained taplo peer) |
 | Data ops (CSV / Parquet / JSON-Lines) | `csvkit`, `duckdb`, `miller`, `qsv` |
 | Containers | `docker`, `podman`, `container-use` |
 | Git TUI / diff viewers | `lazygit`, `delta`, `difftastic`, `bat` |
 | Visualisation / view | `bat`, `overview` |
-| Forges (non-GitHub) | `glab` (GitLab), `az-devops` (Azure DevOps) |
+| Forges (non-GitHub) | `glab` (GitLab), `az-devops` (Azure DevOps), `tea` (Gitea / Forgejo / Codeberg) |
 | Browser automation | `playwright`, `stagehand` |
 | Compression | `zstd` |
-| React state | `rtk` (caveat — see below) |
 
 (Some tools appear in two cells when their best use spans categories.)
 
@@ -57,7 +56,7 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### curl
 - **When to use:** scripted HTTP/S transfers across any platform — file upload (`--upload-file`), header injection (`-H`), cookie sessions (`-b`/`-c`), OAuth flows, custom write-out templates (`-w`). Tier-1 default-on.
 - **Recipe:** `curl -sS -H "Authorization: Bearer $TOKEN" https://api.example.com/v1/runs | jq '.runs[] | {id, status}'`
-- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.20.0 (released 2026-04-29) clears the cumulative advisory backlog of every earlier release. The advisories specific to 8.20.0 are CVE-2026-5773 / CVE-2026-5545 / CVE-2026-4873; earlier builds also carry a High-severity advisory (CVE-2026-6253) plus credential-leak and connection-reuse issues fixed across 8.17.0–8.19.0. See curl.se/docs/security.html for the per-version roster.
+- **Wrong choice when:** quick exploratory request that you want highlighted — use `httpie`; HTTP/2 / HTTP/3 throughput-sensitive bulk transfers — use `xh`. **Version floor:** >=8.21.0 (released 2026-06-24) — curl.se/docs/vuln-8.21.0.html lists 0 published problems for that build. The prior 8.20.0 floor is now advisory-affected (18 published problems per curl.se/docs/vuln-8.20.0.html, including CVE-2026-11856, fixed in 8.21.0). Earlier builds also carry the CVE-2026-5773 / CVE-2026-5545 / CVE-2026-4873 cluster and a High-severity advisory (CVE-2026-6253). See curl.se/docs/security.html for the per-version roster.
 
 ### httpie
 - **When to use:** human-readable HTTP/S exploration — JSON-first defaults, syntax highlighting, persistent named sessions, intuitive expression DSL for query params and headers.
@@ -70,6 +69,11 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 - **Install (D21-SA21.4-F07):** mac `brew install xh`; linux `cargo install xh --locked`; Windows `winget install ducaale.xh` (signed first-party channel) with `cargo install xh --locked` as the fallback when winget is unavailable — Windows users are not forced onto a Rust-toolchain-only path.
 - **Wrong choice when:** existing `httpie` workflows that depend on a Python plugin — keep `httpie`; environments without a Rust toolchain (or no Homebrew/winget) — use `curl`. **Version floor:** >=0.25.3 (2025-12-16) — earlier 0.24.x builds miss recent `--http3` and resume fixes.
 
+### hurl
+- **When to use:** declarative HTTP integration tests — plain-text `.hurl` files chaining requests with captures and header/body asserts, version-controlled and run in CI (`hurl --test`). The one HTTP cell curl/httpie/xh do not cover.
+- **Recipe:** `hurl --test --variable host=https://api.example.com specs/*.hurl`
+- **Wrong choice when:** one-shot exploratory requests — use `xh`/`httpie`; scripted transfers — use `curl`. **Version floor:** >=7.0.0 — GHSA-v33j-v3x4-42qg (Moderate): `hurlfmt --out html` on 6.1.1 and earlier does not escape regex literals, so a crafted `.hurl` file injects script into the exported HTML; fixed in 7.0.0 (current release 8.0.1, 2026-04-29).
+
 ---
 
 ## AI / LLM
@@ -77,7 +81,12 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ### aichat
 - **When to use:** RAG-enabled multi-provider conversational shell with saved session history; preferred for multi-turn refinement.
 - **Recipe:** `aichat --rag mydocs 'how do we configure auth?'` — query a pre-built local RAG index.
-- **Wrong choice when:** scripted Unix-pipeline transforms — use `mods`; plugin-rich CI workflows — use `llm`.
+- **Wrong choice when:** scripted Unix-pipeline transforms — use `crush run` (or legacy `mods`); plugin-rich CI workflows — use `llm`.
+
+### crush
+- **When to use:** terminal agentic coding sessions — multi-model (Anthropic / OpenAI / local), MCP-server and LSP context awareness; `crush run '<prompt>'` covers the non-interactive pipeline mode the archived `mods` provided.
+- **Recipe:** `git diff | crush run 'write a conventional-commits message for this diff'`
+- **Wrong choice when:** plugin/template CI batch jobs — use `llm`; RAG-backed multi-turn chat — use `aichat`. **Tested-against version:** 0.84.1 (2026-07-11; documentation pin, not a CVE floor — crush ships on a near-daily cadence, so expect drift).
 
 ### llm
 - **When to use:** model-agnostic shell prompting with prompt templates, embeddings, and a plugin ecosystem; preferred for CI batch jobs.
@@ -86,9 +95,10 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 - **Wrong choice when:** deterministic text rewrites — use `sd`/`comby`/`ast-grep`; multi-turn TTY chat — use `aichat`.
 
 ### mods
-- **When to use:** Unix-pipeline LLM inference reading Markdown stdin and writing Markdown stdout; preferred for one-shot transforms.
+- **Caveat (upstream archived 2026-03-09):** charmbracelet/mods is archived — no further fixes or releases. Charm's designated successor is `crush` (`crush run` covers the pipeline mode); prefer `crush` for new work. mods remains listed for existing pipelines only, pending the next-cycle replace-or-remove evaluation.
+- **When to use:** existing Unix-pipeline LLM transforms already built on mods (Markdown stdin → Markdown stdout).
 - **Recipe:** `git diff | mods 'write a conventional-commits message for this diff'`
-- **Wrong choice when:** plugin/template needs — use `llm`; multi-turn session — use `aichat`.
+- **Wrong choice when:** any new pipeline — use `crush run`; plugin/template needs — use `llm`; multi-turn session — use `aichat`.
 
 ### rtk
 - **When to use:** compressing oversize tool output payloads before they enter an LLM prompt (test-runner output, traces).
@@ -101,9 +111,9 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 ## Structural search & rewrite
 
 ### ast-grep
-- **Binary:** `sg` (the `ast-grep` package installs the binary as `sg` — run `command -v sg` to detect it, not `command -v ast-grep`).
+- **Binary:** the `ast-grep` package installs both `ast-grep` and `sg` (aliases for the same tool). **Detection caveat (D21-SA21.1-01 / D5-SA5.6-09):** on Linux the shadow-utils `login` package ships an unrelated `/usr/bin/sg` (setgroups) in the base system, so `command -v sg` alone false-positives when ast-grep is absent — on Linux detect and invoke via the `ast-grep` binary (`command -v ast-grep`), never via `sg`. When a caller uses the registry `sg` probe, disambiguate with `sg --version` (the real tool prints `ast-grep <version>`). Upstream is deprecating the `sg` alias for exactly this collision (ast-grep issue #1659).
 - **When to use:** Tree-sitter AST pattern matches and rewrites scoped to a single grammar (TS, Python, Rust, Go).
-- **Recipe:** `sg run -p 'await $FN()' -r 'await ($FN()).catch(e => log(e))' --update-all src/`
+- **Recipe:** `ast-grep run -p 'await $FN()' -r 'await ($FN()).catch(e => log(e))' --update-all src/` (the `ast-grep` binary is collision-free on Linux; `sg run` there may hit setgroups)
 - **Wrong choice when:** plain literal text — use `hatch3r-cli-ripgrep`; multi-language SAST rule packs — use `semgrep`.
 
 ### comby
@@ -139,6 +149,16 @@ CLI tools return structured stdout that fits in <1 KB for typical queries; equiv
 - **When to use:** single binary spanning JSON / YAML / TOML / XML / CSV under one path-query DSL — handy in CI where you do not want jq+yq+taplo and the input format is not known up-front. NDJSON read support added in v3.11.0.
 - **Recipe:** `dasel -r yaml -w json -f config.yaml '.services.app.env'`
 - **Wrong choice when:** format-specific in-place edits with comment preservation — use `yq` (YAML) or `taplo` (TOML); stream-friendly JSON filtering — use `jq` with its richer filter language. **Version floor:** >=3.11.0 (the current stable) — earlier builds carry CVE-2026-33320 (YAML alias DoS, fixed in 3.3.2), CVE-2026-46378 (selector-lexer DoS, fixed in 3.10.1), and CVE-2026-46377 (index-out-of-range panic, fixed in 3.10.1); pinning >=3.11.0 clears all three.
+
+### jaq
+- **When to use:** jq-compatible JSON filtering where memory safety or startup latency matters — a security-audited Rust clone of `jq` (audited by Radically Open Security under two NLnet grants), a deliberate hedge while jq builds below 1.8.2 carry the 2026 16-CVE memory-safety cluster.
+- **Recipe:** `cat runs.json | jaq '.runs[] | {id, status}'`
+- **Wrong choice when:** filters relying on jq edge-case semantics — the dialect is jq-compatible but not byte-identical; `hatch3r-cli-jq` stays the default JSON tool at >=1.8.2. **Tested-against version:** 3.1.0 (2026-06-11; documentation pin, not a CVE floor).
+
+### tombi
+- **When to use:** TOML formatting, linting, and LSP-backed editing (`pyproject.toml`, `Cargo.toml`) under active maintenance — avoids taplo's incomplete-file data-loss lexer bug and navigates pyproject/Cargo workspaces (taplo's upstream is 400+ days stale with the maintainer stepped down).
+- **Recipe:** `tombi format pyproject.toml && tombi lint pyproject.toml`
+- **Wrong choice when:** existing taplo setups that depend on its formatter options — tombi is zero-config by design; TOML path queries — use `taplo get` or `dasel`. **Tested-against version:** 1.2.0 (2026-07-05; documentation pin, not a CVE floor).
 
 ---
 
@@ -204,6 +224,15 @@ docker run --rm --read-only --tmpfs /tmp \
 - **Recipe:** `container-use env create --git-ref refs/heads/main --image node:22 --workdir /repo` then `cu exec npm test`.
 - **Wrong choice when:** general-purpose container runtime — use `docker` or `podman`; stable D15 sandbox-escape boundary required — use `podman` rootless + selinux relabel.
 
+#### Sandbox callout — boundary is upstream-unverified
+
+container-use runs each environment as a Dagger-managed container, but the project is pre-1.0 with no published `SECURITY.md` and no CVE-disclosure path (see caveat above), so treat its isolation as unverified rather than a hardened boundary (D15-SA15.7-04). Item 6 of the D15 sandbox checklist names container-use alongside docker and playwright; unlike those two it had no callout until now. Before running agent-generated or untrusted work through `container-use env create` / `cu exec`, confirm what the invocation does and does not isolate:
+
+- **Host container socket:** container-use drives a container runtime — if it reaches a host `/var/run/docker.sock`, a task inside the environment reaches the host daemon (host-root equivalent). Point it at a rootless backend (podman rootless, or Dagger's own engine) so no host-root socket is exposed.
+- **Credential inheritance:** the environment can inherit the host user's environment (`AWS_*`, `GH_TOKEN`, `~/.npmrc`, `~/.aws`, `.hatch3r/learnings/`). Pass only the env vars the task needs; do not export a credential-bearing shell into `cu exec`.
+- **`--workdir /repo` mount semantics:** the `--git-ref` checkout is writable inside the environment — scope it to the sub-tree the task needs and review any write-back before it merges into the host branch.
+- **Untrusted workloads:** prefer `podman` rootless + SELinux relabel (`:Z`) as the stable D15 sandbox-escape boundary until container-use ships a `SECURITY.md` and a tagged post-1.0 release. Reference: https://genai.owasp.org/resource/owasp-top-10-for-agentic-applications-for-2026/ (AAI sandbox-escape controls), https://github.com/dagger/container-use.
+
 ---
 
 ## Git TUI / diff viewers
@@ -249,6 +278,11 @@ docker run --rm --read-only --tmpfs /tmp \
 - **Recipe:** `az repos pr list --status active --query '[].pullRequestId' --output tsv`
 - **Wrong choice when:** GitHub — use `hatch3r-cli-gh`; GitLab — use `glab`. **Tested version:** az-devops extension 1.0.4 (documentation pin; the extension floats under `az extension update`). **Install posture:** the linux `curl -sL https://aka.ms/InstallAzureCLIDeb | sudo bash` recipe is an unsigned channel that runs as root — prefer Microsoft's signed apt repository (packages.microsoft.com, signed-by GPG key) or the signed winget (win) / brew (mac) channels.
 
+### tea
+- **When to use:** Gitea / Forgejo / Codeberg issue, pull-request, and release management — the first-party Gitea CLI; `tea login add` stores per-instance tokens (no env var required).
+- **Recipe:** `tea pr ls --repo owner/repo`
+- **Wrong choice when:** GitHub — use `hatch3r-cli-gh`; GitLab — use `glab`; Azure Repos — use `az-devops`. **Tested-against version:** 0.14.2 (2026-06-26; documentation pin, not a CVE floor). **Detection:** the bare `tea` binary name collides with Debian's unrelated TEA text editor and legacy teaxyz installs — confirm identity via `tea --help` (its usage line names Gitea) before invoking.
+
 ---
 
 ## Browser automation
@@ -290,6 +324,7 @@ docker run --rm --network none -v "$PWD:/work:ro" -w /work \
 ### zstd
 - **When to use:** high-ratio compression with single-digit-millisecond decompress speeds — cold-storage payloads, CI artifact upload.
 - **Recipe:** `tar --zstd -cf bundle.tar.zst dist/ docs/`
+- **Version floor:** 1.5.7 (2025-02-19, the current release) — a documentation drift-baseline pin (Meta ships zstd on a ~annual tag cadence), not a live-CVE floor. Any current build clears CVE-2022-4899 (HIGH, CVSS 7.5, empty-string CLI argument → buffer overrun in the 1.4.x era).
 - **Wrong choice when:** distribution where every byte counts and decompress speed is irrelevant — use `xz -9e`; legacy Windows recipients — use `zip`; already-compressed payloads — skip compression.
 
 ---
@@ -315,23 +350,26 @@ Install commands:
 |------|--------------|--------------------------------|
 | `aichat` | `brew install aichat` | `cargo install aichat` |
 | `ast-grep` | `brew install ast-grep` | `cargo install ast-grep --locked` |
-| `az-devops` | `brew install azure-cli && az extension add --name azure-devops` | `apt install azure-cli && az extension add --name azure-devops` |
+| `az-devops` | `brew install azure-cli && az extension add --name azure-devops` | `curl -sL https://aka.ms/InstallAzureCLIDeb \| sudo bash && az extension add --name azure-devops` (unsigned — prefer the signed apt repo per Install posture) |
 | `bat` | `brew install bat` | `apt install bat` (binary may be `batcat`) |
 | `comby` | `brew install comby` | `bash <(curl -sL get.comby.dev)` |
 | `container-use` | `brew install dagger/tap/container-use` | `curl -fsSL https://raw.githubusercontent.com/dagger/container-use/main/install.sh \| bash` |
+| `crush` | `brew install charmbracelet/tap/crush` (pin 0.84.1) | `sudo mkdir -p /etc/apt/keyrings && curl -fsSL https://repo.charm.sh/apt/gpg.key \| sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg && echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" \| sudo tee /etc/apt/sources.list.d/charm.list && sudo apt update && sudo apt install crush` (signed Charm repo — bare `apt install crush` fails without it) |
 | `csvkit` | `pipx install csvkit` | `pipx install csvkit` |
-| `curl` | `brew install curl` (pin >=8.20.0) | `apt install curl` (verify >=8.20.0) |
-| `dasel` | `brew install dasel` (pin >=3.11.0) | `go install github.com/tomwright/dasel/v3/cmd/dasel@latest` |
+| `curl` | `brew install curl` (pin >=8.21.0) | `apt install curl` (verify >=8.21.0) |
+| `dasel` | `brew install dasel` (pin >=3.11.0) | `go install github.com/tomwright/dasel/v3/cmd/dasel@v3.11.0` (pinned to the floor tag — a floating `@latest` cannot honor the >=3.11.0 floor) |
 | `delta` | `brew install git-delta` | `apt install git-delta` (or download release) |
-| `difftastic` | `brew install difftastic` | `cargo install difftastic` |
+| `difftastic` | `brew install difftastic` | `cargo install --locked difftastic` |
 | `docker` | `brew install --cask docker` | `apt install docker.io` |
 | `duckdb` | `brew install duckdb` | download from https://duckdb.org/ |
 | `glab` | `brew install glab` | `snap install glab` (only in Ubuntu universe 24.04+; or GitLab release `.deb`) |
 | `httpie` | `brew install httpie` | `snap install httpie` (or `pipx install httpie`) |
+| `hurl` | `brew install hurl` (pin >=7.0.0) | `cargo install --locked hurl` |
+| `jaq` | `brew install jaq` (pin 3.1.0) | `cargo install --locked jaq` |
 | `lazygit` | `brew install lazygit` | `apt install lazygit` |
 | `llm` | `brew install llm` | `pipx install llm` |
 | `miller` | `brew install miller` | `apt install miller` |
-| `mods` | `brew install charmbracelet/tap/mods` | `apt install mods` (Charm repo) |
+| `mods` | `brew install charmbracelet/tap/mods` | `apt install mods` (Charm repo; upstream archived — prefer `crush`) |
 | `playwright` | `npm install -D @playwright/test && npx playwright install` (pin >=1.55.1) | same (verify >=1.55.1; sandbox image `mcr.microsoft.com/playwright:v1.60.0-noble`) |
 | `podman` | `brew install podman` | `apt install podman` |
 | `qsv` | `brew install qsv` | `cargo install qsv` |
@@ -339,13 +377,15 @@ Install commands:
 | `sd` | `brew install sd` (1.1.0) | `cargo binstall sd` (v1.1.0 GitHub release; `cargo install sd` pins crates.io 1.0.0 — older, no `-A`/`--across`) |
 | `stagehand` | `npm install -g @browserbasehq/stagehand` | same |
 | `taplo` | `brew install taplo` | `cargo install taplo-cli --locked` |
+| `tea` | `brew install tea` (pin 0.14.2) | `go install gitea.dev/tea@v0.14.2` |
+| `tombi` | `brew install tombi` (pin 1.2.0) | `pipx install tombi` |
 | `xh` | `brew install xh` (pin >=0.25.3) | `cargo install xh --locked` |
 | `yq` | `brew install yq` | `apt install yq` (verify mikefarah Go build, not python wrapper) |
 | `zstd` | `brew install zstd` | `apt install zstd` |
 
 ## References
 
-This skill synthesizes 25 pre-existing in-repo per-tool skills (collapsed in v1.9.0 per the Decision #14 toolbox criterion in `.claude/rules/content-authoring.md`). The original source files (now removed) lived at the following paths (IDs intentionally un-backticked here so the cross-reference scanner does not treat removed standalone skills as broken canonical IDs):
+This skill synthesizes 25 pre-existing in-repo per-tool skills (collapsed in v1.9.0 under the toolbox criterion: a family of related single-purpose CLI-tool helpers is authored as one multi-tool skill rather than as N separate artifacts, for lean single-source coverage). The original source files (now removed) lived at the following paths (IDs intentionally un-backticked here so the cross-reference scanner does not treat removed standalone skills as broken canonical IDs):
 
 - skills/hatch3r-cli-aichat/SKILL.md
 - skills/hatch3r-cli-ast-grep/SKILL.md
@@ -373,4 +413,4 @@ This skill synthesizes 25 pre-existing in-repo per-tool skills (collapsed in v1.
 - skills/hatch3r-cli-yq/SKILL.md
 - skills/hatch3r-cli-zstd/SKILL.md
 
-Per hatch3r's artifact-inventory and redundancy analysis, the rejected merge alternative (keep every tool as a standalone skill) was rejected because the 25 collapsed entries averaged 75 lines each (1.9k lines total) with >70% structural duplication of the same "When to Use / Token Cost / Recipes / Wrong Choice / Alternatives / Install" frame — collapse into a single category-indexed reference cuts the surface to ~250 lines while preserving the discriminator that picks one tool over another.
+Per hatch3r's artifact-inventory and redundancy analysis, the rejected merge alternative (keep every tool as a standalone skill) was rejected because the 25 collapsed entries averaged 75 lines each (1.9k lines total) with >70% structural duplication of the same "When to Use / Token Cost / Recipes / Wrong Choice / Alternatives / Install" frame — collapse into a single category-indexed reference cuts the surface to ~385 lines — grown from the initial ~250-line target as per-tool security and sandbox callouts were added, still far below the ~1.9k lines of 25 standalone skills — while preserving the discriminator that picks one tool over another.

@@ -6,6 +6,13 @@
  * `cleanWorkspace`. Code-enforces the workspace cleanup contract that
  * lives in `governance/AUDIT.md:108` today as a prompt instruction.
  *
+ * Also performs coverage/ provenance hygiene (D3-SA3.5-05): a collided
+ * concurrent --coverage run leaves a PARTIAL coverage-summary.json /
+ * coverage-final.json / .tmp that misrepresents repo coverage to any tool that
+ * reads coverage/ without checking provenance. --auto removes those stale
+ * summary artifacts; --check reports them. Honors HATCH3R_COVERAGE_DIR (the same
+ * override vitest.config.ts reads).
+ *
  * Pillars: P5 (Governance Self-Quality), P4 (Lean Coverage).
  *
  * Mode matrix:
@@ -23,7 +30,9 @@
  *   npm run audit:reset -- --auto --strict    # remove all non-preserved, exit 0
  *   npm run audit:reset -- --auto --dry-run   # preview removal plan
  */
-import { dirname, resolve } from "node:path";
+import { existsSync } from "node:fs";
+import { rm } from "node:fs/promises";
+import { dirname, join, relative, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   checkWorkspace,
@@ -41,6 +50,43 @@ const PATHS = {
   workspaceDir: resolve(ROOT, ".audit-workspace"),
   baseline: resolve(ROOT, "governance/audit/baseline.json"),
 };
+
+// D3-SA3.5-05 (Cycle 12): coverage/ provenance hygiene. A collision between a
+// full-suite --coverage run and a concurrent scoped run — both sharing the
+// default coverage/ tree — leaves a PARTIAL coverage-summary.json /
+// coverage-final.json (and a half-written .tmp) on disk that misrepresents repo
+// coverage to any tool or agent that reads coverage/ without checking
+// provenance. Remove those stale summary artifacts at audit reset so a fresh
+// cycle never reads a leftover partial one. coverage/ is .gitignore'd and
+// regenerated per run, so removal is safe. Honors the same HATCH3R_COVERAGE_DIR
+// override vitest.config.ts reads (a relative value resolves against the repo
+// root).
+const COVERAGE_SUMMARY_ARTIFACTS = [
+  "coverage-summary.json",
+  "coverage-final.json",
+  ".tmp",
+] as const;
+
+function coverageDirPath(): string {
+  const override = process.env.HATCH3R_COVERAGE_DIR;
+  return override ? resolve(ROOT, override) : resolve(ROOT, "coverage");
+}
+
+async function cleanStaleCoverageArtifacts(opts: {
+  dryRun: boolean;
+}): Promise<string[]> {
+  const dir = coverageDirPath();
+  const removed: string[] = [];
+  for (const name of COVERAGE_SUMMARY_ARTIFACTS) {
+    const target = join(dir, name);
+    if (!existsSync(target)) continue;
+    if (!opts.dryRun) {
+      await rm(target, { recursive: true, force: true });
+    }
+    removed.push(relative(ROOT, target));
+  }
+  return removed;
+}
 
 interface CliFlags {
   auto: boolean;
@@ -139,6 +185,19 @@ async function main(): Promise<void> {
         for (const r of result.removed) emit(`  - ${r}`);
       }
     }
+
+    const coverageRemoved = await cleanStaleCoverageArtifacts({
+      dryRun: flags.dryRun,
+    });
+    emit("");
+    if (coverageRemoved.length === 0) {
+      emit("audit:reset: coverage hygiene — no stale summary artifacts");
+    } else {
+      emit(
+        `audit:reset: coverage hygiene — ${flags.dryRun ? "dry-run — would remove" : "removed"} ${coverageRemoved.length} stale summary artifact(s):`,
+      );
+      for (const r of coverageRemoved) emit(`  - ${r}`);
+    }
     process.exit(0);
     return;
   }
@@ -158,6 +217,13 @@ async function main(): Promise<void> {
 
   emit(formatReport(report, cutoffSource));
   emit("");
+  const staleCoverage = await cleanStaleCoverageArtifacts({ dryRun: true });
+  if (staleCoverage.length > 0) {
+    emit(
+      `audit:reset: ${staleCoverage.length} stale coverage summary artifact(s) present — run \`--auto\` to remove: ${staleCoverage.join(", ")}`,
+    );
+    emit("");
+  }
   const hasStale = report.stale.length > 0;
   const hasFresh = report.fresh.length > 0;
   if (hasStale) {

@@ -76,6 +76,39 @@ describe("showCommand", () => {
     await showCommand("implementer");
     expect(logged()).toContain("Artifact: hatch3r-implementer");
   });
+
+  // D1-SA1.7-01 (D1, P1): `hatch3r show <skill-id>` previously called
+  // readFile() on the skill's DIRECTORY (skills are indexed by dir), throwing a
+  // raw EISDIR for every skill artifact — the sibling `deps` command had the
+  // skill branch but `show` did not. These pin that a skill id now resolves to
+  // <dir>/SKILL.md and prints its frontmatter box, in both output modes.
+  it("prints frontmatter for a skill id without crashing on EISDIR (D1-SA1.7-01)", async () => {
+    const { showCommand } = await import("../../../cli/commands/show.js");
+    await expect(showCommand("hatch3r-a11y-audit")).resolves.toBeUndefined();
+    const out = logged();
+    expect(out).toContain("Artifact: hatch3r-a11y-audit");
+    expect(out).toContain("skill");
+  });
+
+  it("reaches finishCommand for a skill id in --format json (crash was pre-envelope)", async () => {
+    // Pre-fix the EISDIR threw before finishCommand emitted the envelope, so
+    // `--format json` CI consumers got nothing. Resolving without throwing
+    // proves the envelope path is now reached (the envelope itself is written
+    // to stdout via emitJson, a separate channel from console.log).
+    const { showCommand } = await import("../../../cli/commands/show.js");
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(() => true);
+    try {
+      await expect(
+        showCommand("hatch3r-a11y-audit", { format: "json" }),
+      ).resolves.toBeUndefined();
+      const written = stdoutSpy.mock.calls.map((c) => String(c[0])).join("");
+      expect(written).toContain("hatch3r-a11y-audit");
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+  });
 });
 
 describe("listCommand", () => {

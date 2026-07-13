@@ -12,11 +12,11 @@ scope: always
 
 ## When Required
 
-Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 23, superseded in place 2026-07-06 (the recap contract replaces the former sectioned template).
+Every orchestrator command (`commands/hatch3r-*.md` with `orchestrator: true`) AND every meaningful skill run (`/h4tcher-*` or `/hatch3r-*` that mutates state) MUST close with the recap-contract Iteration Summary as the final user-facing output. The block opens with the literal heading `## Iteration Summary` — the stable extraction anchor for downstream consumers. Governance anchor: CONSTITUTION §6 Decision 28, superseded in place 2026-07-06 (the recap contract replaces the former sectioned template).
 
 ## Pre-Execution Cost Preview
 
-Every orchestrator command MUST emit the pre-dispatch cost preview defined at `rules/hatch3r-cost-visibility.md` → Pre-Execution Estimate BEFORE its first sub-agent dispatch (Decision 24 at the user-facing surface). That rule owns the preview schema — do not restate it here. Commands wire the preview as an explicit pre-dispatch step (e.g., `commands/hatch3r-workflow.md` Step 0.5); the recap's cost facet closes the loop by reporting deltas against it.
+Every orchestrator command MUST emit the pre-dispatch cost preview defined at `rules/hatch3r-cost-visibility.md` → Pre-Execution Estimate BEFORE its first sub-agent dispatch (Decision 29 at the user-facing surface). That rule owns the preview schema — do not restate it here. Commands wire the preview as an explicit pre-dispatch step (e.g., `commands/hatch3r-workflow.md` Step 0.5); the recap's cost facet closes the loop by reporting deltas against it.
 
 ## The Recap
 
@@ -40,10 +40,11 @@ Below the recap, a line appears ONLY when its firing condition holds. An absent 
 | Open findings | `Open findings: <finding_id> <sev> — <disposition>; …` | any findings-ledger row folds non-terminal, or terminal as `escalated`/`surfaced`, at recap time | findings-ledger run-exit invariant (`rules/hatch3r-findings-ledger.md`) | no ledger file for this run, or every row folds to done/deferred/declined/accepted-risk/already-resolved |
 | Default applied | `Default applied: <question summary> → option <N> (<one-line reason>)` — format unchanged from the superseded template, one per default | ASK default exercised | **P8 B1** | no default taken |
 | Gates failed | `Gates failed: <gate>: <one-line cause>; …` | recap gates shows failure | P1 actionability | all gates passed |
-| Cost | `Cost: flagged_for_review: true` + fenced cost_actuals/delta YAML (the one multi-line exception) | any delta > 25% absolute | **Decision 24** / cost-visibility AC5 | deltas within ±25% (recap Δ facet suffices; telemetry persists regardless) |
+| Cost | `Cost: flagged_for_review: true` + fenced cost_actuals/delta YAML (the one multi-line exception) | any delta > 25% absolute | **Decision 29** / cost-visibility AC5 | deltas within ±25% (recap Δ facet suffices; telemetry persists regardless) |
 | Confidence | `Confidence: <high\|medium\|low> — <basis>[. <D13 action string verbatim>]` | review loop ran OR confidence < high OR status ≠ SUCCESS | D13 mapping; reviewer-calibration; anti-inflation | SUCCESS + high + direct measurement + no loop |
+| Review independence | `Review independence: <same-family\|not-declared> — self-preference bias possible; clean PASS is not provider-independent` | a review loop ran AND its resolved reviewer↔fixer `verdictIndependence` (`src/pipeline/reviewLoop.ts`) is `same_family` or `unknown` — the hatch3r default routes both agents to one model family | D13-SA13.2-01 trust-calibration disclosure; reviewer D15-M8 limitation | reviewer and fixer ran on `different_family` (clean PASS is provider-independent), or no review loop ran |
 | User-Accepted Bypass | `User-Accepted Bypass: yes — <verbatim reason ≤200 chars>` + JSONL append | accepted low-confidence PASS | D13 bypass record | no bypass |
-| Learnings | `Learnings: consulted <ids> · surfaced <ids> · captured <ids>` (omit empty facets) | any facet non-empty | learning-system gates | no INDEX / zero matches / nothing captured |
+| Learnings | `Learnings: consulted <ids> · surfaced <ids> · captured <ids> · outcome <id:helpful\|neutral\|harmful\|untested>` (omit empty facets) | any facet non-empty; `outcome` carries one verdict per consulted id at run close | learning-system gates; outcome capture for `rules/hatch3r-learning-system.md` → Outcome-Weighted Promotion | no INDEX / zero matches / nothing captured |
 | Tier | `formatTierUpgradeNote` output verbatim (one-liner, `src/pipeline/pipelineContext.ts:647-655`) | mid-run tier upgrade | D7-14 | no upgrade |
 | Duplication | `Duplication: <n> match(es), closest <path>, overlap <none\|partial\|high>` or `Duplication: scan skipped (<reason>)` | scan matched OR skipped | anti-duplication silent-failure | scan ran clean |
 | Next (optional, never gated) | `Next: <one-line suggested action>` | concrete next step exists | charter optional-sections precedent | nothing to suggest |
@@ -103,4 +104,4 @@ The Validation Gate asserts recap presence per run; no automated cross-run emiss
 
 ## Pillar Service
 - P5 — one standardised recap plus an auditable exception-line registry prevents drift across orchestrators
-- P7 — the recap cost facet surfaces token + duration deltas per Decision 24 at a fraction of the former template's token footprint
+- P7 — the recap cost facet surfaces token + duration deltas per Decision 29 at a fraction of the former template's token footprint

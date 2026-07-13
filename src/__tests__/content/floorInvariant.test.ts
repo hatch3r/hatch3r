@@ -26,7 +26,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { buildContentIndex, type CatalogItem } from "../../content/index.js";
 import { isFloorTag, filterByLanguages } from "../../content/tags.js";
-import { applyCustomization } from "../../adapters/customization.js";
+import { applyCustomization, TYPE_TO_DIR } from "../../adapters/customization.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { resolveRepoConfig } from "../../workspace/resolve.js";
 import { buildTagGroupedCustomContentChoices } from "../../cli/shared/customContentChoices.js";
@@ -35,16 +35,13 @@ import type { WorkspaceDefaults } from "../../workspace/types.js";
 import type { ContentSelection } from "../../types.js";
 import { TYPE_TO_SELECTION_KEY } from "../../content/index.js";
 
-// Mirror of the module-private TYPE_TO_DIR in `src/adapters/customization.ts`.
-// Only these types are customizable (the customization layer returns
-// `skip: false` for any other type before reading .customize.yaml, so they
-// cannot be disabled via the reverse channel this invariant defends).
-const TYPE_TO_DIR: Record<string, string> = {
-  agent: "agents",
-  skill: "skills",
-  command: "commands",
-  rule: "rules",
-};
+// D3-SA3.3-10: TYPE_TO_DIR is imported from `src/adapters/customization.ts` (its
+// single source) instead of hand-mirrored, so this invariant automatically
+// covers any type that becomes customizable there — the mirror could otherwise
+// silently narrow the invariant. Only types in that map are customizable: the
+// customization layer returns `skip: false` for any other type before reading
+// .customize.yaml, so they cannot be disabled via the reverse channel this
+// invariant defends.
 
 describe("floor-admission structural invariant (F2.3-C1)", () => {
   let tempDirs: string[] = [];

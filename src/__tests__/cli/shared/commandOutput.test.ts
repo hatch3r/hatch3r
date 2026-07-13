@@ -45,6 +45,7 @@ import { HATCH3R_VERSION } from "../../../version.js";
 import {
   beginCommand,
   finishCommand,
+  buildJsonEnvelope,
   type CommandOutcome,
 } from "../../../cli/shared/commandOutput.js";
 
@@ -301,5 +302,51 @@ describe("finishCommand() — json mode", () => {
     expect(vi.mocked(printBox)).not.toHaveBeenCalled();
     expect(vi.mocked(printNextSteps)).not.toHaveBeenCalled();
     expect(vi.mocked(printTimingSummary)).not.toHaveBeenCalled();
+  });
+});
+
+// ── buildJsonEnvelope (D10-SA10.2-02) ──────────────────────────
+//
+// The reusable builder that makes the legacy direct-emitJson envelopes
+// (status/verify/validate/…) self-identifying: it appends command +
+// hatch3rVersion + timestamp AFTER the fields spread (identity fields win) and
+// adds a normalized `outcome` tri-state alongside the command's domain status
+// WITHOUT renaming the domain `status`.
+describe("buildJsonEnvelope() — self-identifying legacy envelope (D10-SA10.2-02)", () => {
+  it("appends the command, hatch3rVersion, and timestamp identity fields", () => {
+    const env = buildJsonEnvelope("status", { counts: { synced: 3 } });
+    expect(env.command).toBe("status");
+    expect(env.hatch3rVersion).toBe(HATCH3R_VERSION);
+    expect(typeof env.timestamp).toBe("string");
+    expect(env.timestamp).not.toBe("");
+  });
+
+  it("preserves the caller's domain-specific status verbatim (no rename)", () => {
+    const env = buildJsonEnvelope("status", { status: "in-sync", counts: {} });
+    expect(env.status).toBe("in-sync");
+  });
+
+  it("adds the normalized outcome when supplied, omits it otherwise", () => {
+    const withOutcome = buildJsonEnvelope("verify", { status: "fail" }, { outcome: "failed" });
+    expect(withOutcome.outcome).toBe("failed");
+    const withoutOutcome = buildJsonEnvelope("verify", { status: "pass" });
+    expect("outcome" in withoutOutcome).toBe(false);
+  });
+
+  it("keeps the domain status and the normalized outcome as distinct fields", () => {
+    const env = buildJsonEnvelope("status", { status: "drift" }, { outcome: "partial" });
+    expect(env.status).toBe("drift");
+    expect(env.outcome).toBe("partial");
+  });
+
+  it("never lets a fields key clobber command, hatch3rVersion, or timestamp", () => {
+    const env = buildJsonEnvelope(
+      "status",
+      { command: "forged", hatch3rVersion: "0.0.0", timestamp: "forged" },
+      { outcome: "passed" },
+    );
+    expect(env.command).toBe("status");
+    expect(env.hatch3rVersion).toBe(HATCH3R_VERSION);
+    expect(env.timestamp).not.toBe("forged");
   });
 });

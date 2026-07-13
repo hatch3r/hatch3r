@@ -4,9 +4,6 @@ name: hatch3r-testability-verify
 type: skill
 description: Testability verification gate before commit/release — per-feature test-class mandate map, real-deal-first ratio, coverage thresholds, AI eval coverage, mutation kill-rate, contract tests, property tests, determinism contract
 tags: [review, testing, floor:content-quality]
-scope: conditional
-globs: "src/__tests__/**,tests/**,test/**,spec/**,e2e/**,evals/**,**/stryker.conf.json,**/pom.xml,**/pacts/**"
-precedence: normal
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true
@@ -63,7 +60,7 @@ No duplication: the agent decides WHEN, this skill defines HOW.
 ## Gate 3: Coverage thresholds met per file class
 
 - Global floor 78% statements / 65% branches / 80% functions / 80% lines from `vitest.config.ts` (or equivalent).
-- Critical modules in this repo: `src/merge/` 90/80/90/90; `src/content/` 85/70/85/85; `src/adapters/customization.ts` 85/75/85/85.
+- Critical / high-risk modules meet a stricter per-module floor than the global one (commonly ~85–90% statements/functions/lines with ~75–80% branches for the highest-risk paths), read from the project's own coverage config (`vitest.config.ts` / `jest.config.js` per-path threshold overrides) — not a fixed table.
 - Read coverage from `coverage/coverage-summary.json` (Istanbul/v8) or `coverage.xml` (Cobertura).
 - Below floor → FINDINGS with the specific module + metric named.
 
@@ -97,7 +94,7 @@ No duplication: the agent decides WHEN, this skill defines HOW.
 
 ## Gate 8: Determinism contract — 0 flaky tests over 30 days
 
-- Read CI flake history: `gh run list --status failure --created >=$(date -d '30 days ago' +%Y-%m-%d) --json conclusion,name,startedAt | jq '[.[] | select(.conclusion=="failure")] | length'`.
+- Read CI flake history: `gh run list --status failure --created ">=$(python3 -c 'from datetime import date, timedelta; print(date.today() - timedelta(days=30))')" --json conclusion,name,startedAt | jq '[.[] | select(.conclusion=="failure")] | length'`.
 - Quarantined tests carry a tracking issue assignee and a re-enable date, not `test.skip` / `test.todo` / `@pytest.mark.skip` in perpetuity.
 - Flake count >0 with no owner → FINDINGS. Silenced flake without tracking issue → FINDINGS per occurrence.
 
@@ -107,7 +104,7 @@ All 8 gates pass = the feature is "done". Anything less = not done.
 
 - Mandate-map class compliance: 100% on changed features.
 - Real-deal ratio: ≥80% per cycle.
-- Coverage floors: met per file class (global 78/65/80/80; critical modules per `.claude/rules/test-requirements.md`).
+- Coverage floors: met per file class (global thresholds from the project's coverage config; critical modules per that config's per-path overrides).
 - AI eval coverage: 100% on release-bound prompt or model changes.
 - Mutation kill rate: ≥80% on payment + auth + critical paths.
 - Property-test coverage: 100% of pure functions with stated invariants.
@@ -133,7 +130,7 @@ Failure escalation per `agents/hatch3r-testability.md` status mapping: Gate 1 fa
 - `rules/hatch3r-testing.md` — per-feature test-class mandate map.
 - `rules/hatch3r-ai-evals.md` — AI feature eval coverage.
 - `rules/hatch3r-contract-testing.md` — Pact + Schemathesis boundaries.
-- `.claude/rules/test-requirements.md` — coverage thresholds per file class.
+- The project's coverage config (`vitest.config.ts` / `jest.config.js`) — global + per-file-class coverage thresholds.
 - `agents/shared/quality-charter.md` §Testing depth — mock-justification budget.
 
 ## References

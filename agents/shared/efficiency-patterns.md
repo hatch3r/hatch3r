@@ -8,7 +8,7 @@ cache_friendly: true
 
 ## Efficiency Patterns
 
-> Last updated: 2026-04-27
+> Last updated: 2026-07-12
 
 ### Purpose
 
@@ -29,9 +29,9 @@ This file lists the eight P7 efficiency patterns referenced by agents, orchestra
 
 ### Pattern detail
 
-**P1. Static-first prompt structure.** Do this: place tool definitions, role, contracts, and examples at the top of every artifact; place variable inputs (issue body, diff, user message) at the bottom. Verification: `scripts/validate-efficiency-invariants.ts --static-first` scans the first 60 lines for volatile-token regex hits.
+**P1. Static-first prompt structure.** Do this: place tool definitions, role, contracts, and examples at the top of every artifact; place variable inputs (issue body, diff, user message) at the bottom. Verification: `scripts/validate-efficiency-invariants.ts --static-first` scans the first 80 body lines in two bands — a bare volatile-token match in the preamble before the first `##` heading, and a template-substitution form (e.g. `{{timestamp}}`, `${run_id}`) after it (Cycle 11 D6-10 widened the scan from 60 lines to this whole-body-to-80 model).
 
-**P2. Parallel-tool-by-default.** Do this: when two or more tool calls have no data dependency, emit them in a single assistant turn rather than serial turns. Verification: `scripts/validate-efficiency-invariants.ts --parallel-tool` warns when an artifact has >=2 tool/sub-agent mentions without a parallel-dispatch directive nearby.
+**P2. Parallel-tool-by-default.** Do this: when two or more tool calls have no data dependency, emit them in a single assistant turn rather than serial turns. Verification: `scripts/validate-efficiency-invariants.ts --parallel-tool` **errors** (promoted from warning at Cycle 9 D6-M9) when an artifact has >=2 tool/sub-agent mentions with no parallel-dispatch directive within 3 lines of a mention and no `parallel_tool_default: true` frontmatter flag.
 
 **P3. Triage-first orchestration.** Do this: every command with `orchestrator: true` classifies inputs into Tier 1 (trivial, single-agent), Tier 2 (standard pipeline), or Tier 3 (research-first) before delegating. Verification: `scripts/validate-efficiency-invariants.ts --triage-first` requires a `triage_tiers` array in frontmatter and a Triage/Tier/Scale Assessment heading in body.
 

@@ -3,11 +3,13 @@ import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import { readManifest, writeManifest } from "../../manifest/hatchJson.js";
-import { sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
+import { acquireWriteLock, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
 import {
   AVAILABLE_MCP_SERVERS,
   DEFAULT_FEATURES,
+  HATCH3R_DIR,
   HatchError,
+  MANIFEST_FILE,
 } from "../../types.js";
 // D8-SA8.1-F8.1.8 (Cycle 10 Wave 4, P1): shared missing-manifest preflight,
 // replacing the per-command copy that previously lived in this file.
@@ -28,6 +30,7 @@ import {
   label,
 } from "../shared/ui.js";
 import { beginCommand, finishCommand } from "../shared/commandOutput.js";
+import { type CliOutputFormat } from "../shared/output.js";
 import { pickMcpServers } from "../shared/pickers.js";
 import { isBack } from "../shared/initSteps.js";
 import { isWSL } from "../shared/constants.js";
@@ -65,6 +68,36 @@ function wslThemeOrUndefined(): unknown {
 }
 
 /**
+ * D1-SA1.2-10 (Cycle 12, D1, P1): which supply channel satisfies a required MCP
+ * env var. The runtime contract is two-channel — adapters emit `${env:VAR}`
+ * references the editor resolves from ITS process environment, and `.env.mcp` is
+ * only one way to populate that environment (the file's own disclaimer documents
+ * shell-sourcing + launchctl, see mcpEnv.ts). `mcp list` / `mcp env-check`
+ * previously parsed `.env.mcp` alone, so an operator who exports a token in their
+ * shell profile — a standard secrets posture that keeps tokens out of on-disk
+ * files — got a false "missing" verdict. Consulting `process.env` as the second
+ * channel closes that. Runtime `process.env` is a proxy for the editor's env
+ * (GUI-launched editors from Finder/Dock/Spotlight may not inherit it), so a
+ * shell-sourced var is LABELLED "shell env" rather than asserted editor-visible.
+ * The var names read here come from `AVAILABLE_MCP_SERVERS[*].requiresEnv`
+ * (developer-controlled), not user input.
+ */
+type EnvVarSource = "file" | "shell" | "missing";
+
+function resolveEnvVarSource(
+  name: string,
+  fileEnv: Record<string, string>,
+): EnvVarSource {
+  if (name in fileEnv && fileEnv[name] !== "") return "file";
+  const fromProcess = process.env[name];
+  if (fromProcess !== undefined && fromProcess !== "") return "shell";
+  return "missing";
+}
+
+/** Caveat appended to a "From shell env" label so the GUI-inherit note travels with it. */
+const SHELL_ENV_CAVEAT = "(GUI-launched editors may not inherit — see .env.mcp)";
+
+/**
  * D1-SA1.5-F10 (Cycle 10 Wave 4, D1, P6): sweep orphan `.tmp.<8-hex>` files
  * left under the project root by a prior SIGKILL'd run before a mutating MCP
  * subcommand writes. `mcp setup` / `mcp remove` persist via `writeManifest`
@@ -84,15 +117,89 @@ async function sweepOrphanTmpAtEntry(rootDir: string): Promise<void> {
   }
 }
 
+/**
+ * D1-SA1.2-05 (Cycle 12, D1, P2): run `fn` while holding the cross-process
+ * manifest write lock, mirroring config's F1.2-H1 full-window lock. Both mutating
+ * mcp subcommands (setup, remove) read-modify-write the same `.hatch3r/hatch.json`;
+ * without an outer lock a concurrent config/sync/workspace-sync completing between
+ * an mcp command's read and its write is clobbered by mcp's stale in-memory
+ * manifest — and `mcp setup`'s window additionally spans an UNBOUNDED interactive
+ * picker wait. Holding the lock across the whole critical section (fn runs every
+ * early return inside it) closes that race. Reentrant via HELD_LOCKS: the inner
+ * writeManifest -> atomicWriteFile acquire on the same path re-uses this lock
+ * instead of self-deadlocking. A no-op unless HATCH3R_LOCK is set or a
+ * workspace/worktree context enabled the default (D8-M3), so single-repo runs are
+ * unchanged. Release failures are surfaced per the Silent Failure Contract (P5),
+ * never swallowed. Local helper rather than the shared `withManifestMutation` the
+ * finding suggests long-term — safeWrite.ts / hatchJson.ts are outside scope here.
+ */
+async function withManifestLock(
+  rootDir: string,
+  fn: () => Promise<void>,
+): Promise<void> {
+  const manifestPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
+  const releaseManifestLock = await acquireWriteLock(manifestPath);
+  try {
+    await fn();
+  } finally {
+    try {
+      await releaseManifestLock();
+    } catch (releaseErr) {
+      // The release is a no-op when locking was inactive, so reaching this catch
+      // implies a real lock was taken — surface it so operators can clear a stale
+      // lockfile rather than have the failure vanish.
+      console.error(
+        `hatch3r: failed to release manifest write lock at ${manifestPath}: ` +
+          `${releaseErr instanceof Error ? releaseErr.message : String(releaseErr)}`,
+      );
+    }
+  }
+}
+
 export async function mcpSetupCommand(opts: McpMutateOptions = {}): Promise<void> {
   // W5: setup ALWAYS opens the interactive picker (no --yes escape hatch), so
-  // `--format json` is rejected here by beginCommand's interactive gate.
+  // `--format json` is rejected here by beginCommand's interactive gate. This
+  // gate runs BEFORE the lock so a rejected --format json never takes a lock.
   const format = beginCommand(opts, { banner: "compact", interactive: true });
   const rootDir = process.cwd();
+  await withManifestLock(rootDir, () => mcpSetupCommandImpl(rootDir, format, opts));
+}
+
+/**
+ * Body of {@link mcpSetupCommand}, lifted into a helper so {@link withManifestLock}
+ * holds the manifest lock across the full critical section — the interactive
+ * picker plus every early `return` — without duplicating the release per exit.
+ * Mirrors the `configCommand` / `configCommandImpl` split.
+ */
+async function mcpSetupCommandImpl(
+  rootDir: string,
+  format: CliOutputFormat,
+  opts: McpMutateOptions,
+): Promise<void> {
   // The orphan-tmp sweep unlinks files; skip it under --dry-run (no writes).
   if (opts.dryRun !== true) await sweepOrphanTmpAtEntry(rootDir);
   const manifest = await readManifest(rootDir);
   assertManifest(manifest);
+
+  // D1-SA1.2-07 (Cycle 12, D1, P1): non-TTY preflight, mirroring config's D1-18
+  // gate. `mcp setup` always opens the inquirer checkbox picker below (even
+  // under --dry-run, which previews the would-be selection). Under a pipe,
+  // redirect, or CI runner stdin is not a TTY, so inquirer renders the checkbox
+  // into the stream and the stdin EOF aborts it — the error funnel then
+  // misclassifies that abort as a clean user cancel and exits 130 with no
+  // actionable output (errors.ts). Fail fast with an exit-2 usage error instead.
+  // Placed after assertManifest so a missing manifest still reports CONFIG_ERROR
+  // first (config's precedence). A per-command gate rather than a beginCommand
+  // hoist — the shared-path hoist would change every interactive command's
+  // behavior and is out of this finding's file scope.
+  if (!process.stdin.isTTY) {
+    throw new HatchError(
+      "`hatch3r mcp setup` requires a TTY — stdin is not interactive (piped, redirected, or CI).",
+      2,
+      "VALIDATION_ERROR",
+      "mcp setup opens an interactive picker and has no headless mode. Run it from a terminal, or set `mcp.servers` in `.hatch3r/hatch.json` directly and run `hatch3r sync`.",
+    );
+  }
 
   const platform = manifest.platform ?? "github";
   const selectedResult = await pickMcpServers({
@@ -123,7 +230,13 @@ export async function mcpSetupCommand(opts: McpMutateOptions = {}): Promise<void
     return;
   }
 
-  manifest.mcp = { servers: selected };
+  // D1-SA1.2-04 (Cycle 12, D1, P2): SPREAD manifest.mcp rather than replacing the
+  // whole object, so operator-set optional McpConfig fields (e.g. protocolVersion,
+  // the documented control for staging the MCP 2026-07-28 RC — types.ts McpConfig)
+  // survive the write. The prior `{ servers: selected }` whole-object replacement
+  // silently dropped every non-servers field on each setup, reverting an explicit
+  // operator pin (round-trip field loss / Silent Failure Contract).
+  manifest.mcp = { ...manifest.mcp, servers: selected };
   // W3-mcp-optin: keep the feature flag in lockstep with the server list.
   // sync/update/validate/adapters all gate MCP emission on
   // `features.mcp && mcp.servers.length > 0`, and DEFAULT_FEATURES.mcp is
@@ -176,7 +289,14 @@ export async function mcpListCommand(opts: McpCommandOptions = {}): Promise<void
   const hasEnvFile = existsSync(envPath);
   const envExisting = hasEnvFile ? parseEnvFile(await readFile(envPath, "utf-8")) : {};
   const requiredVars = collectRequiredEnvVars(servers);
-  const missingVars = requiredVars.filter((v) => !(v.name in envExisting) || envExisting[v.name] === "");
+  // D1-SA1.2-10: classify each required var by supply channel (file / shell env /
+  // missing) so a shell-exported token is not reported as missing.
+  const requiredSources = requiredVars.map((v) => ({
+    name: v.name,
+    source: resolveEnvVarSource(v.name, envExisting),
+  }));
+  const missingVars = requiredSources.filter((r) => r.source === "missing").map((r) => r.name);
+  const shellEnvVars = requiredSources.filter((r) => r.source === "shell").map((r) => r.name);
 
   const lines: string[] = [];
   if (servers.length === 0) {
@@ -193,8 +313,13 @@ export async function mcpListCommand(opts: McpCommandOptions = {}): Promise<void
     lines.push(label(".env.mcp", hasEnvFile ? "present" : chalk.yellow("missing")));
     if (requiredVars.length > 0) {
       lines.push(label("Required vars", requiredVars.map((v) => v.name).join(", ")));
+      if (shellEnvVars.length > 0) {
+        lines.push(
+          label("From shell env", `${chalk.cyan(shellEnvVars.join(", "))} ${chalk.dim(SHELL_ENV_CAVEAT)}`),
+        );
+      }
       if (missingVars.length > 0) {
-        lines.push(label("Missing", chalk.yellow(missingVars.map((v) => v.name).join(", "))));
+        lines.push(label("Missing", chalk.yellow(missingVars.join(", "))));
       } else {
         lines.push(label("Status", chalk.green("all required vars set")));
       }
@@ -210,7 +335,8 @@ export async function mcpListCommand(opts: McpCommandOptions = {}): Promise<void
       servers,
       envFilePresent: hasEnvFile,
       requiredVars: requiredVars.map((v) => v.name),
-      missingVars: missingVars.map((v) => v.name),
+      missingVars,
+      shellEnvVars,
     },
   });
 }
@@ -220,6 +346,24 @@ export async function mcpRemoveCommand(id: string, opts: McpMutateOptions = {}):
   // prompts), so `--format json` is valid without --yes.
   const format = beginCommand(opts, { banner: "compact" });
   const rootDir = process.cwd();
+  // D1-SA1.2-05: same F1.2-H1 full-window manifest lock as mcp setup — mcp remove
+  // read-modify-writes the same hatch.json, so a concurrent writer completing
+  // between its read and write is otherwise clobbered by the stale in-memory
+  // manifest. See {@link withManifestLock} for the full rationale.
+  await withManifestLock(rootDir, () => mcpRemoveCommandImpl(id, rootDir, format, opts));
+}
+
+/**
+ * Body of {@link mcpRemoveCommand}, lifted so {@link withManifestLock} holds the
+ * manifest lock across the read-modify-write and both early returns (the
+ * not-configured throw and the --dry-run report) in one place.
+ */
+async function mcpRemoveCommandImpl(
+  id: string,
+  rootDir: string,
+  format: CliOutputFormat,
+  opts: McpMutateOptions,
+): Promise<void> {
   // The orphan-tmp sweep unlinks files; skip it under --dry-run (no writes).
   if (opts.dryRun !== true) await sweepOrphanTmpAtEntry(rootDir);
   const manifest = await readManifest(rootDir);
@@ -235,7 +379,11 @@ export async function mcpRemoveCommand(id: string, opts: McpMutateOptions = {}):
       `MCP server "${id}" not configured`,
       undefined,
       "VALIDATION_ERROR",
-      "Run `npx hatch3r mcp list` to see configured servers, or `npx hatch3r mcp add <id>` to add one.",
+      // D1-SA1.2-09 (Cycle 12, D1, P1): `mcp setup` is the real add path — there is
+      // no `mcp add` subcommand (registered set: setup/list/remove/env-check in
+      // program.ts), so the prior `mcp add <id>` hint dead-ended at commander's
+      // unknown-command usage error (exit 2).
+      "Run `npx hatch3r mcp list` to see configured servers, or `npx hatch3r mcp setup` to add one.",
     );
   }
 
@@ -256,7 +404,11 @@ export async function mcpRemoveCommand(id: string, opts: McpMutateOptions = {}):
     return;
   }
 
-  manifest.mcp = { servers: before.filter((s) => s !== id) };
+  // D1-SA1.2-04 (Cycle 12, D1, P2): SPREAD manifest.mcp so operator-set optional
+  // McpConfig fields (protocolVersion, …) survive a removal write; the prior
+  // whole-object `{ servers: … }` replacement dropped them. See the mcp setup
+  // write site for the full rationale.
+  manifest.mcp = { ...manifest.mcp, servers: before.filter((s) => s !== id) };
   // W3-mcp-optin: recompute the feature flag from the remaining server list —
   // removing the last server turns MCP off so sync/update/validate/adapters
   // (which gate on `features.mcp && mcp.servers.length > 0`) stay consistent.
@@ -310,17 +462,32 @@ export async function mcpEnvCheckCommand(opts: McpCommandOptions = {}): Promise<
   }
 
   let missingTotal = 0;
-  const serverReports: Array<{ id: string; required: string[]; missing: string[] }> = [];
+  const shellEnvSatisfied = new Set<string>();
+  const serverReports: Array<{ id: string; required: string[]; missing: string[]; fromShellEnv: string[] }> = [];
   for (const id of servers) {
     const meta = AVAILABLE_MCP_SERVERS[id];
     const required = meta?.requiresEnv ?? [];
     if (required.length === 0) {
       lines.push(`${chalk.green("✓")} ${id} — no env vars required`);
-      serverReports.push({ id, required: [], missing: [] });
+      serverReports.push({ id, required: [], missing: [], fromShellEnv: [] });
       continue;
     }
-    const missing = required.filter((name) => !(name in envExisting) || envExisting[name] === "");
-    serverReports.push({ id, required, missing });
+    // D1-SA1.2-10: a var set in the live process env (e.g. exported in the
+    // operator's shell profile) counts as satisfied — the editor resolves
+    // `${env:VAR}` from its process environment, of which `.env.mcp` is only one
+    // supply channel — so it is not reported missing, but labelled "shell env".
+    const missing: string[] = [];
+    const fromShellEnv: string[] = [];
+    for (const name of required) {
+      const source = resolveEnvVarSource(name, envExisting);
+      if (source === "missing") {
+        missing.push(name);
+      } else if (source === "shell") {
+        fromShellEnv.push(name);
+        shellEnvSatisfied.add(name);
+      }
+    }
+    serverReports.push({ id, required, missing, fromShellEnv });
     if (missing.length === 0) {
       lines.push(`${chalk.green("✓")} ${id} — ${required.join(", ")}`);
     } else {
@@ -331,6 +498,11 @@ export async function mcpEnvCheckCommand(opts: McpCommandOptions = {}): Promise<
 
   lines.push("");
   lines.push(label(".env.mcp", hasEnvFile ? "present" : chalk.yellow("missing")));
+  if (shellEnvSatisfied.size > 0) {
+    lines.push(
+      label("From shell env", `${chalk.cyan([...shellEnvSatisfied].join(", "))} ${chalk.dim(SHELL_ENV_CAVEAT)}`),
+    );
+  }
   if (missingTotal > 0) {
     lines.push(label("Action", `Fill ${missingTotal} env var(s) in .env.mcp, then \`${getSourceEnvMcpCommand()}\``));
   }

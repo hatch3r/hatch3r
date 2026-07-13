@@ -1,7 +1,7 @@
 ---
 id: shared-clarification-default-block
 type: reference
-description: Canonical §0 Detect Ambiguity block referenced by every hatch3r-* agent. Lifted from per-agent duplication per D6-M3 (Cycle 9 / Wave 3) to enforce the B1 directive in one place.
+description: Canonical §0 Detect Ambiguity block referenced directly or via agents/shared/quality-specialist-frame.md by the hatch3r-* agents. Lifted from per-agent duplication per D6-M3 (Cycle 9 / Wave 3) to enforce the B1 directive in one place.
 tags: [shared, p8, floor:protocol]
 cache_friendly: true
 ---
@@ -10,11 +10,11 @@ cache_friendly: true
 
 > Last updated: 2026-06-09
 
-This is the canonical body of the §0 Detect Ambiguity block referenced by every `agents/hatch3r-*.md`. Each agent's body cites this file via a one-line pointer plus a one-line domain-specific trigger list. The shared protocol is the constant; the trigger list is the variable.
+This is the canonical body of the §0 Detect Ambiguity block referenced directly or via `agents/shared/quality-specialist-frame.md` by the hatch3r-* agents. Each agent references it with a one-line pointer (directly, or through the frame for the CQ specialists) plus a one-line domain-specific trigger list. The shared protocol is the constant; the trigger list is the variable.
 
 ### Protocol (constant across all agents)
 
-Before any action, scan the brief for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts. If any are found, surface the question per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for residual ambiguity discovered mid-execution. When an ASK goes unanswered, the gate never deadlocks: apply the declared `Default if no response:` option and log it (orchestrator path) OR, if no default line was emitted, return Status `BLOCKED_AMBIGUITY` (sub-agent path) — never silent-pick, per `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response.
+Before any action, scan the brief against the five-trigger set in `rules/hatch3r-clarification-default.md` (ambiguous scope, multiple valid interpretations, irreversible action, missing acceptance criteria, unattested product decision). If any trigger is live, surface the question per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-file, single-concern, and the brief alone is testable. The Boundaries "Ask first" rule remains in force for residual ambiguity discovered mid-execution. When an ASK goes unanswered, the gate never deadlocks: apply the declared `Default if no response:` option and log it (orchestrator path) OR, if no default line was emitted, return Status `BLOCKED_AMBIGUITY` (sub-agent path) — never silent-pick, per `agents/shared/user-question-protocol.md` → Operationalising Default-if-no-Response.
 
 How you surface the question depends on your execution context — these agents run as Task-tool sub-agents, not in the main conversation:
 
@@ -32,7 +32,7 @@ Each consuming agent enumerates its own ambiguity triggers in a single line at t
 ### Authoring rules
 
 1. Citing this file with the canonical pointer (`See agents/shared/clarification-default-block.md → §0 Detect Ambiguity (P8 B1)`) plus the agent's own one-line trigger list satisfies the B1 directive. Re-wording the protocol body inline is forbidden — duplication is the failure mode this file exists to eliminate.
-2. The 9 CQ specialists continue to incorporate the protocol via `agents/shared/quality-specialist-frame.md` (which references this file transitively); they do not need a separate direct pointer. Like this file, that frame names two example triggers and declares the per-specialist list the variable — it keeps no parallel table either.
+2. The 10 CQ specialists continue to incorporate the protocol via `agents/shared/quality-specialist-frame.md` (which references this file transitively); they do not need a separate direct pointer. Like this file, that frame names two example triggers and declares the per-specialist list the variable — it keeps no parallel table either.
 3. When a new agent is added, give it an inline trigger line at its `§0` citation site; do not register the line anywhere else. The CI gate `npm run validate` parses for the pointer phrase; a missing pointer in an agent body is a P8 B1 violation. The regression guard `src/__tests__/cli/validate.test.ts` ("no per-agent trigger table") asserts this file stays table-free so the drift cannot reappear.
 
 ### Related references

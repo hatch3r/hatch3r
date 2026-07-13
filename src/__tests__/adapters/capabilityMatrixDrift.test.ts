@@ -13,12 +13,14 @@
 // matrix claims the adapter supports that feature. Drift fails the test.
 //
 // ── Capability columns covered ────────────────────────────────────────────────
-// The matrix contains 11 columns. Eight are directly observable from
-// `doGenerate()` output given the `Features` flags: agents, skills, rules,
-// hooks, mcp, commands, prompts, githubAgents. The feature-flag loop at the
-// bottom of this file covers those eight, which is what the original finding
-// recommendation named ("instantiating each adapter with maximal features and
-// verifying matrix row matches observed output").
+// Nine matrix columns are directly observable from `doGenerate()` output given
+// the `Features` flags: agents, skills, rules, hooks, mcp, commands, prompts,
+// githubAgents, handoffs. The feature-flag loop at the bottom of this file
+// covers those nine, which is what the original finding recommendation named
+// ("instantiating each adapter with maximal features and verifying matrix row
+// matches observed output"). D2-SA2.5-02 (Cycle 12 Wave 4) added `handoffs`: it
+// toggles the `.hatch3r/handoffs/` bridge segment, so it is digest-diff
+// observable like the other eight feature flags.
 //
 // The remaining three (worktree, customization, modelOverride) are not
 // observable via a feature flag alone — they depend on manifest-level
@@ -32,7 +34,7 @@
 //
 // ── Detection heuristic ───────────────────────────────────────────────────────
 // For each (tool, feature) pair:
-//   1. Generate outputs with ALL eight features enabled (maximal) and the
+//   1. Generate outputs with ALL nine features enabled (maximal) and the
 //      MCP server list populated so MCP-capable adapters emit config.
 //   2. Generate outputs again with the target feature disabled (all others
 //      still enabled).
@@ -80,6 +82,11 @@ const FEATURE_KEYS: Array<keyof Features> = [
   "commands",
   "prompts",
   "githubAgents",
+  // D2-SA2.5-02 (Cycle 12 Wave 4): handoffs toggles the `.hatch3r/handoffs/`
+  // bridge segment (base.ts threads `ctx.features.handoffs`), so it is
+  // digest-diff observable like the other feature flags and now has a matrix
+  // column + a `getUnsupportedFeatureWarnings` row to pin.
+  "handoffs",
 ];
 
 function maximalFeatures(): Features {

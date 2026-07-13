@@ -7,8 +7,13 @@
  *
  * Finding #80 (D15, High): Add agent identity metadata to pipeline outputs (ASI03).
  *
- * @library_export_only — ASI03 provenance contract consumed by agent-runtime
- * integrators (packs, downstream orchestrators), not by the hatch3r CLI itself.
+ * @library_export_only — ASI03 provenance + ASI10 capability/goal-drift contract
+ * consumed by agent-runtime integrators (packs, downstream orchestrators). It is
+ * NOT a CLI gate, but as of D15-SA15.3-02 it is no longer uncalled: its only
+ * non-test importer is `src/pipeline/complianceVerification.ts`, whose
+ * `asi03-agent-identity` + `asi10-capability-drift` checks round-trip these
+ * exports as a `validate`-side self-test (mirroring diffHash / reviewLoop) — the
+ * contract is verified on the CLI path but does not gate a CLI flow.
  */
 
 import { createHash } from "node:crypto";

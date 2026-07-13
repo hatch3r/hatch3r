@@ -40,10 +40,14 @@ export type Tier2Trigger =
   | "azure-remote";
 
 /**
- * Cycle-tagged CVE-scan record for a CLI tool — populated by the audit cycle
- * (Cycle 9 D15-SA15.7) when an advisory feed is consulted. Schema only at
- * Wave 2; population happens in the per-cycle `check-cli-cves.ts` workflow
- * scheduled by D21 close.
+ * Cycle-tagged CVE-scan record for a CLI tool. RESERVED — not populated: the
+ * schema was authored in Cycle 9 (D15-SA15.7) as an on-entry cache for
+ * advisory-feed results, but the CVE-scanning workflow that landed
+ * (`scripts/check-cli-cves.ts`, F15.7-H1) queries OSV.dev out-of-band and
+ * surfaces results through each tool's `minVersion` / `securityNote` instead
+ * of writing scan records here — so no code path sets `cve_scan`. Retained as
+ * a typed extension point for a future per-tool cached-scan record
+ * (Cycle 12 D15-SA15.7-06).
  */
 export interface CveScan {
   /** ISO-8601 date the CVE feed was last queried for this tool. */
@@ -90,7 +94,7 @@ export interface CliToolMeta {
   /** Binary name passed to detection probes. */
   probe: string;
   description: string;
-  category: "search" | "json" | "yaml" | "git" | "view" | "edit" | "archive" | "web" | "data" | "http" | "forge" | "browser" | "container" | "ai" | "interactive";
+  category: "search" | "json" | "yaml" | "git" | "view" | "edit" | "archive" | "data" | "http" | "forge" | "browser" | "container" | "ai" | "interactive";
   tier: Tier;
   /** Per-OS install commands, ordered most-preferred first. */
   install: Record<OsKey, InstallCommand[]>;
@@ -110,6 +114,32 @@ export interface CliToolMeta {
    */
   extensionProbe?: ExtensionProbe;
   /**
+   * Fallback binary names to try when the primary `probe` misses on PATH,
+   * before reporting the tool absent (D21-SA21.2-03, Cycle 12). Covers
+   * Debian/Ubuntu package renames where the apt channel this registry
+   * recommends installs a differently-named binary than the upstream default —
+   * `bat`→`batcat` (`apt install bat`) and `fd`→`fdfind` (`apt install
+   * fd-find`). `src/cliTools/detect.ts::detectCliTool` tries each entry in
+   * order after the primary probe misses and reports the resolved binary in
+   * `path` so the installer can hint the alias. Omit when the primary probe is
+   * the only binary name the tool ever installs as.
+   */
+  probeFallbacks?: readonly string[];
+  /**
+   * Package-shape discriminant for entries whose upstream artifact is NOT a
+   * PATH-resolvable CLI binary (D21-SA21.7-04, Cycle 12 — detection-contract
+   * class C). `"library"` marks a package that ships no executable `bin`
+   * (e.g. `@browserbasehq/stagehand`, an npm library imported into a script),
+   * so a `command -v <probe>` PATH probe can never resolve and reporting the
+   * tool "absent" is a false negative rather than a real detection. The
+   * registry gate in `registry.test.ts` uses this field to exempt such entries
+   * from the "every `npm install -g` package must declare a bin" invariant;
+   * detect.ts PATH-suppression + scaffold-guidance consumption is the class-C
+   * runtime follow-on (tracked with home finding D21-SA21.6-01, the detect.ts
+   * lane). Omit for every tool that installs a real CLI binary — the common case.
+   */
+  packageType?: "library";
+  /**
    * Security advisory note — populated when the upstream tool has an active
    * CVE that ships in the recommended install version. Surfaced verbatim by
    * the picker/installer and embedded in the generated skill's Known Issues
@@ -125,16 +155,18 @@ export interface CliToolMeta {
    */
   minVersion?: string;
   /**
-   * Cycle-tagged CVE-scan record — populated by the per-cycle
-   * `check-cli-cves.ts` workflow (Cycle 9 D15-SA15.7-F01). Schema only at
-   * Wave 2; population happens in a follow-on cycle once the advisory-feed
-   * script lands. Omit when no scan has been recorded for this tool yet.
+   * Cycle-tagged CVE-scan record — RESERVED, not populated. The advisory-feed
+   * script that landed (`scripts/check-cli-cves.ts`, F15.7-H1) queries OSV.dev
+   * out-of-band and reports through `minVersion` / `securityNote` rather than
+   * writing scan records back here, so no tool entry sets this field
+   * (Cycle 12 D15-SA15.7-06). See the `CveScan` interface for the
+   * retained-extension-point rationale.
    */
   cve_scan?: CveScan;
   homepage: string;
   /**
    * Canonical source-repository URL — the upstream VCS where the tool's code
-   * lives (a GitHub / GitLab repo, never a docs site). Distinct from
+   * lives (a GitHub / GitLab / Gitea repo, never a docs site). Distinct from
    * `homepage`, which is frequently a documentation or marketing site
    * (duckdb.org, learn.microsoft.com/...) rather than the source. Required by
    * the D15.7 provenance contract ("vendor + source URL + license") so every
@@ -158,7 +190,7 @@ export interface CliToolMeta {
  * verbatim — they were vendor-verified during research.
  */
 export const AVAILABLE_CLI_TOOLS = {
-  // ── Tier 1 (10 tools) ───────────────────────────────────────────
+  // ── Tier 1 (11 tools) ───────────────────────────────────────────
   ripgrep: {
     id: "ripgrep",
     probe: "rg",
@@ -193,6 +225,19 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install fd-find" }],
       win: [{ manager: "scoop", command: "scoop install fd" }],
     },
+    // Cycle 12 D21-SA21.2-03: the recommended `apt install fd-find` channel
+    // installs the binary as `fdfind` (Debian renamed it to avoid a collision
+    // with the pre-existing `fd` package), so a bare `command -v fd` probe
+    // false-negatives on Debian/Ubuntu. detect.ts tries this fallback before
+    // reporting fd absent.
+    probeFallbacks: ["fdfind"],
+    // Cycle 12 D15-SA15.7-05: a currency doc-pin for fd (verified latest v10.4.2,
+    // github.com/sharkdp/fd/releases, accessed 2026-07-11) is DEFERRED — fd is the
+    // suite's canonical "no minVersion / no securityNote" fixture (the
+    // skill.test.ts inline snapshot + scripts/__tests__/validate-cli-skills.test.ts
+    // fd exemplar and fd.minVersion-undefined assertion), so a floor here needs
+    // those paired fixture updates plus the fd standalone-skill floor line, all
+    // outside this registry-only file lock. Land the floor with those together.
     homepage: "https://github.com/sharkdp/fd",
     sourceRepo: "https://github.com/sharkdp/fd",
     license: "MIT OR Apache-2.0",
@@ -208,18 +253,21 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install jq" }],
       win: [{ manager: "scoop", command: "scoop install jq" }],
     },
-    // Cycle 10 D21-SA21.3-F-21.3.1/F-21.3.2 (F-21.7.1): jq 1.8.1 (2025-07-01)
-    // remains the only tagged release at 2026-05-27 (330 days). The April-May
-    // 2026 disclosure cluster on https://github.com/jqlang/jq/security/advisories
-    // listed 10+ GHSA entries covering stack-overflow, integer-overflow, and
-    // NUL-truncation classes — all triggerable by attacker-controlled JSON or
-    // jq-filter inputs. Until a tagged release supersedes 1.8.1, mitigations
-    // are install-side (input validation, sandbox isolation) rather than
-    // tool-version-side. minVersion floors the install at the only tag that
-    // patches the 2024 CVE-2023-49355 + CVE-2024-53427 1.7.x cluster.
-    minVersion: ">=1.8.1",
+    // Cycle 12 D21-SA21.3-01 (SA21.7-03 hand-patch): jq 1.8.2 (2026-06-20)
+    // supersedes 1.8.1 as the security release. Its NEWS.md fixes a 16-CVE
+    // cluster (stack-overflow / integer-overflow / NUL-truncation / use-after-
+    // free, CVE-2026-32316 … CVE-2026-54679) triggerable by attacker-controlled
+    // JSON or jq-filter paths — the exact classes the prior >=1.8.1 note called
+    // "unfixed". Verified against the jqlang release tag + NEWS.md and
+    // corroborated by Red Hat RHSA-2026:18042 / Ubuntu CVE-2026-54679 / Mageia
+    // MGASA-2026-0188 (accessed 2026-07-10). Floor raised to >=1.8.2: it clears
+    // the 2026 cluster AND the 2024 CVE-2023-49355 + CVE-2024-53427 1.7.x
+    // cluster. The prior >=1.8.1 floor certified the exact 16-CVE build as
+    // acceptable, and its securityNote prescribed sandboxing a vulnerability the
+    // vendor has since patched.
+    minVersion: ">=1.8.2",
     securityNote:
-      "Multiple unfixed advisories on jq 1.8.1 (the only tagged release as of 2026-05-27). See https://github.com/jqlang/jq/security/advisories for the canonical roster — at audit time the upstream tab listed 10+ GHSA entries (April-May 2026), all stack-overflow / integer-overflow / NUL-truncation classes triggerable by attacker-controlled JSON or attacker-controlled jq filter paths. Validate JSON inputs externally (e.g. python json.tool or jaq) or sandbox jq in a network-isolated container before running on untrusted input.",
+      "jq <1.8.2 carries a 16-CVE cluster (stack/integer-overflow + NUL-truncation + use-after-free, CVE-2026-32316 … CVE-2026-54679) triggerable by attacker-controlled JSON or filter paths; all fixed in 1.8.2 (2026-06-20). Upgrade to >=1.8.2 — the install-side validation/sandbox guidance is only for builds that cannot be upgraded.",
     homepage: "https://github.com/jqlang/jq",
     sourceRepo: "https://github.com/jqlang/jq",
     license: "MIT",
@@ -276,14 +324,20 @@ export const AVAILABLE_CLI_TOOLS = {
     // Authorization-header leak is CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh
     // <=2.92.0 attaches the github.com (or GH_ENTERPRISE_TOKEN) Authorization
     // header to TUF repository-mirror requests via `gh attestation`,
-    // `gh release verify`, and `gh release verify-asset`, fixed in 2.93.0
-    // (2026-…). Floor raised to >=2.93.0 so installs clear the header leak.
-    minVersion: ">=2.93.0",
+    // `gh release verify`, and `gh release verify-asset`, fixed in 2.93.0.
+    // Cycle 12 D21-SA21.5-01 (SA21.7-03 hand-patch): GHSA-8cg3-r6g9-fpg2 /
+    // CVE-2026-59831 (CVSS 4.4, published 2026-07-02) makes `gh codespace jupyter`
+    // open an unvalidated `vscode://` URL supplied by a malicious codespace →
+    // command execution on the host; affected v2.10.0+, patched only in v2.96.0
+    // (verified against the cli/cli vendor advisory + the v2.96.0 release tag,
+    // accessed 2026-07-10). The >=2.93.0 floor recommended an affected build, so
+    // the floor is raised to >=2.96.0.
+    minVersion: ">=2.96.0",
     // Cycle 10 D21-SA21.5-F-21.5.2: gh ships at rapid cadence (~30-day mean,
     // 7 releases across 2025-06 → 2026-04), so a multi-week pause is itself a
     // currency signal worth re-checking each D21 cycle.
     securityNote:
-      "CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh CLI 2.92.0 and earlier attach the Authorization header (github.com token, or GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN) to TUF repository-mirror requests made by `gh attestation`, `gh release verify`, and `gh release verify-asset` — leaking the token to hosts such as tuf-repo.github.com / tuf-repo-cdn.sigstore.dev. Fixed in 2.93.0; upgrade before running attestation or release-verify commands. (Separately, CVE-2026-45803 / GHSA-crc3-h8v6-qh57 is a LOW terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0.)",
+      "CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9: gh CLI 2.92.0 and earlier attach the Authorization header (github.com token, or GH_ENTERPRISE_TOKEN / GITHUB_ENTERPRISE_TOKEN) to TUF repository-mirror requests made by `gh attestation`, `gh release verify`, and `gh release verify-asset` — leaking the token to hosts such as tuf-repo.github.com / tuf-repo-cdn.sigstore.dev. Fixed in 2.93.0; upgrade before running attestation or release-verify commands. CVE-2026-59831 / GHSA-8cg3-r6g9-fpg2 (CVSS 4.4): gh 2.10.0–2.95.0 `gh codespace jupyter` opens an unvalidated `vscode://` URL from a malicious codespace → command execution on the host; fixed in 2.96.0. Upgrade to >=2.96.0 before running `gh codespace jupyter`. (Separately, CVE-2026-45803 / GHSA-crc3-h8v6-qh57 is a LOW terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0.)",
     homepage: "https://cli.github.com/",
     sourceRepo: "https://github.com/cli/cli",
     license: "MIT",
@@ -324,6 +378,12 @@ export const AVAILABLE_CLI_TOOLS = {
     // syntax-aware view tool in hatch3r-cli-toolbox and remains maintained.
     // CVE-2021-36753 (GHSA-p24j-h477-76q3) uncontrolled search path — fixed in bat 0.18.2
     minVersion: ">=0.18.2",
+    // Cycle 12 D21-SA21.2-03: the recommended `apt install bat` channel installs
+    // the binary as `batcat` on Debian/Ubuntu (renamed to avoid a collision with
+    // an unrelated `bat` package), so a bare `command -v bat` probe
+    // false-negatives there. detect.ts tries this fallback before reporting bat
+    // absent.
+    probeFallbacks: ["batcat"],
     homepage: "https://github.com/sharkdp/bat",
     sourceRepo: "https://github.com/sharkdp/bat",
     license: "MIT OR Apache-2.0",
@@ -371,7 +431,12 @@ export const AVAILABLE_CLI_TOOLS = {
     tier: 1,
     install: {
       mac: [{ manager: "brew", command: "brew install ast-grep" }],
-      linux: [{ manager: "cargo", command: "cargo install ast-grep" }],
+      // Cycle 12 D21-SA21.1-05: `--locked` added so the build resolves against
+      // the crate's committed Cargo.lock instead of channel-current transitive
+      // deps — aligns with this tool's own toolbox skill row (`cargo install
+      // ast-grep --locked`) and the other cargo-installed registry tools
+      // (xh / taplo / qsv / difftastic all pin `--locked`).
+      linux: [{ manager: "cargo", command: "cargo install ast-grep --locked" }],
       win: [{ manager: "scoop", command: "scoop install ast-grep" }],
     },
     // Cycle 10 D21-SA21.1-F-21.1.2: ast-grep ships at rapid cadence — five
@@ -379,6 +444,29 @@ export const AVAILABLE_CLI_TOOLS = {
     // 0.42.2 2026-05-10, 0.42.3 2026-05-19, 0.43.0 2026-05-25; ~14-day mean),
     // so a multi-week pause is itself a currency signal worth re-checking each
     // D21 cycle rather than waiting for the default 180-day window.
+    //
+    // Cycle 12 D21-SA21.1-01: the `sg` probe false-positives on Linux — the
+    // shadow-utils `login` package ships an unrelated `/usr/bin/sg` (setgroups)
+    // in the base system, so `command -v sg` resolves for a machine that never
+    // installed ast-grep and the installer never offers it. The probe stays
+    // `sg` (the generated per-tool skill + existing installs still invoke it),
+    // and this extensionProbe disambiguates: `sg --version` prints
+    // `ast-grep <version>` for the real tool (verified 2026-07-11:
+    // `sg --version` => "ast-grep 0.42.2") and does not for setgroups, so
+    // detect.ts reports installed only when stdout carries "ast-grep" — the
+    // same shape as the az-devops extensionProbe. Upstream is deprecating the
+    // `sg` alias for exactly this collision (ast-grep issue #1659 / #706).
+    extensionProbe: {
+      args: ["--version"],
+      expectInStdout: "ast-grep",
+      name: "ast-grep",
+    },
+    // Cycle 12 D15-SA15.7-05: a currency doc-pin for ast-grep (verified latest
+    // 0.44.1, github.com/ast-grep/ast-grep/releases 2026-07-04, accessed
+    // 2026-07-11) is DEFERRED — the toolbox parity gate
+    // (src/__tests__/content/cliSkills.test.ts) requires the paired `### ast-grep`
+    // version-floor line in skills/hatch3r-cli-toolbox/SKILL.md, outside this
+    // registry-only file lock. Land minVersion + the toolbox floor line together.
     homepage: "https://ast-grep.github.io/",
     sourceRepo: "https://github.com/ast-grep/ast-grep",
     license: "MIT",
@@ -394,6 +482,22 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install zstd" }],
       win: [{ manager: "winget", command: "winget install Facebook.Zstandard" }],
     },
+    // Cycle 12 D21-SA21.2-02: zstd is Meta-maintained on a ~annual tag cadence
+    // (v1.5.6 2024-03-30, v1.5.7 2025-02-19; 500+ commits/year), so the ~506-day
+    // gap since v1.5.7 at the 2026-07 cycle reflects slow tagging, not
+    // abandonment — hold the D21 currency grade at Info; re-check next cycle if
+    // v1.5.7 ages past ~18 months with no successor. The bare `minVersion`
+    // "1.5.7" is a documentation drift-baseline pin (glab/miller/yq precedent),
+    // not a live-CVE floor.
+    // Cycle 12 D15-SA15.7-02: zstd was exempted from the OSV scan with NO
+    // compensating minVersion or securityNote. The floor + note below are that
+    // compensating record — the historical CVE-2022-4899 (HIGH, CVSS 7.5,
+    // empty-string CLI argument → buffer overrun, affects the 1.4.x era) is
+    // cleared by any current 1.5.x build, so the pinned drift-baseline (1.5.7)
+    // is well clear of it.
+    minVersion: "1.5.7",
+    securityNote:
+      "CVE-2022-4899 (HIGH, CVSS 7.5): a crafted empty-string argument to the zstd CLI triggers a buffer overrun in 1.4.x-era builds; the fix predates the current 1.5.x line, so the pinned release (1.5.7, 2025-02-19) is well clear of it. Every supported channel (brew / apt / winget) ships a build past the fix — upgrade any pre-1.5.x install.",
     homepage: "https://github.com/facebook/zstd",
     sourceRepo: "https://github.com/facebook/zstd",
     license: "BSD-3-Clause OR GPL-2.0-only",
@@ -409,20 +513,24 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "apt", command: "sudo apt install curl" }],
       win: [{ manager: "winget", command: "winget install cURL.cURL" }],
     },
-    // Cycle 11 D21-14 (SA21.4-F1): the prior note rolled seven CVEs together
-    // as "all fixed in 8.20.0" and labelled the batch "Medium-and-Low" — both
-    // wrong. Per curl.se/docs/security.html, CVE-2026-3805 was fixed in 8.18.0
-    // and CVE-2026-3783 in 8.17.0 (NOT 8.20.0), and CVE-2026-6253 is High, not
-    // Medium/Low. The three advisories actually resolved by the 8.20.0 release
-    // are CVE-2026-5773, CVE-2026-5545, and CVE-2026-4873. The floor stays at
-    // >=8.20.0 because that build is documented clean in
-    // curl.se/docs/vuln-8.20.0.html and so resolves the cumulative backlog of
-    // every earlier advisory regardless of which point release first patched
-    // it. Per-cycle verification: diff this roster against the version-tagged
-    // entries on curl.se/docs/security.html each currency check.
-    minVersion: ">=8.20.0",
+    // Cycle 11 D21-14 (SA21.4-F1): corrected the prior note's inaccurate roster
+    // — CVE-2026-3805 was fixed in 8.18.0 and CVE-2026-3783 in 8.17.0 (not
+    // 8.20.0), and CVE-2026-6253 is High, not Medium/Low; the three advisories
+    // resolved by the 8.20.0 release are CVE-2026-5773, CVE-2026-5545, and
+    // CVE-2026-4873.
+    // Cycle 12 D21-SA21.4-01: curl 8.21.0 shipped 2026-06-24, and 8.20.0 is now
+    // advisory-affected — curl.se/docs/vuln-8.20.0.html lists 18 published
+    // problems for 8.20.0 including CVE-2026-11856 (cross-origin Digest
+    // auth-state leak, affects 7.10.6…8.20.0, fixed in 8.21.0), while
+    // curl.se/docs/vuln-8.21.0.html lists 0 for 8.21.0 (both re-verified
+    // 2026-07-11). The floor is raised to >=8.21.0 (the current documented-clean
+    // build); the prior "8.20.0 documented clean" claim is retired. curl
+    // discloses on release day on a ~8-week cadence, so a floor goes stale
+    // predictably each cycle — diff this roster against curl.se/docs/security.html
+    // each currency check.
+    minVersion: ">=8.21.0",
     securityNote:
-      "Upgrade to curl 8.20.0 (released 2026-04-29) or later — that build is documented clean in curl.se/docs/vuln-8.20.0.html and clears the cumulative advisory backlog of every earlier release, not only the issues first patched in 8.20.0. The three advisories specific to the 8.20.0 release are CVE-2026-5773, CVE-2026-5545, and CVE-2026-4873; earlier builds additionally carry a High-severity advisory (CVE-2026-6253) plus credential-leak and connection-reuse issues fixed across 8.17.0-8.19.0. Upgrade before using curl against authenticated endpoints over untrusted networks; check curl.se/docs/security.html for the current per-version roster.",
+      "Upgrade to curl 8.21.0 (released 2026-06-24) or later — curl.se/docs/vuln-8.21.0.html lists 0 published security problems for that build. The prior 8.20.0 floor is now advisory-affected: curl.se/docs/vuln-8.20.0.html lists 18 published problems for 8.20.0, including CVE-2026-11856 (cross-origin Digest auth-state leak; affects 7.10.6 through 8.20.0, fixed in 8.21.0). Advisories first resolved by the 8.20.0 release are CVE-2026-5773, CVE-2026-5545, and CVE-2026-4873; earlier builds additionally carry a High-severity advisory (CVE-2026-6253) plus credential-leak and connection-reuse issues fixed across 8.17.0-8.19.0. Upgrade before using curl against authenticated endpoints over untrusted networks; check curl.se/docs/security.html for the current per-version roster.",
     homepage: "https://curl.se/",
     sourceRepo: "https://github.com/curl/curl",
     license: "curl",
@@ -445,16 +553,25 @@ export const AVAILABLE_CLI_TOOLS = {
     // with no version floor while the skill recommends its sandbox image for
     // navigating untrusted URLs. CVE-2025-59288 (CVSS 8.7) is an installer
     // man-in-the-middle in `npx playwright install` (browser binaries fetched
-    // without integrity verification) fixed in 1.55.1; the floor clears it.
-    // The bundled Chromium also carries CVE-2026-2441 (CSS use-after-free RCE);
-    // each monthly playwright release rolls a patched Chromium, so keeping the
-    // install current — not just at the floor — matters for the browser engine.
-    minVersion: ">=1.55.1",
+    // without integrity verification) fixed in 1.55.1.
+    // Cycle 12 D21-SA21.6-07: the 1.55.1 floor machine-covered only the installer
+    // CVE, leaving the bundled-Chromium RCE CVE-2026-2441 (CSS use-after-free,
+    // actively exploited) covered by prose alone. That Chromium fix shipped in
+    // Chromium 146.0.7680.31 (playwright issue #39574, closed); v1.58.2 still
+    // bundled the vulnerable 145.0.7632.6. v1.60.0 is the earliest release
+    // VERIFIED to bundle a Chromium past the fix — 148.0.7778.96, per
+    // github.com/microsoft/playwright/releases (accessed 2026-07-11); 1.59.x's
+    // bundled Chromium is unlisted there, so the floor is raised to the first
+    // provably-fixed release rather than guessing 1.59.x. The floor now
+    // machine-covers BOTH the installer and browser-engine CVEs; a future cycle
+    // may lower it to 1.59.x if that line is confirmed to ship Chromium
+    // >=146.0.7680.31.
+    minVersion: ">=1.60.0",
     // playwright ships ~monthly point releases pinned to a Chromium roll, so a
     // long gap is itself a currency signal (an un-rolled Chromium accrues
     // browser-engine CVEs) — keep the install current, not just at the floor.
     securityNote:
-      "CVE-2025-59288 (CVSS 8.7): `npx playwright install` in versions before 1.55.1 fetched browser binaries without integrity verification, allowing an installer man-in-the-middle to substitute a malicious browser build. Upgrade to >=1.55.1. The bundled Chromium also carries CVE-2026-2441 (CSS use-after-free RCE); each monthly playwright release rolls a patched Chromium, so track a current release and pin the sandbox container image to a current `*-noble` tag (not an 18-month-stale tag) when navigating untrusted URLs.",
+      "CVE-2025-59288 (CVSS 8.7): `npx playwright install` before 1.55.1 fetched browser binaries without integrity verification, allowing an installer man-in-the-middle to substitute a malicious browser build (fixed 1.55.1). CVE-2026-2441 (CSS use-after-free RCE, actively exploited): the bundled Chromium was patched in Chromium 146.0.7680.31; playwright first shipped a Chromium past that fix in the 1.60.0 line (Chromium 148.0.7778.96), so the floor is raised to >=1.60.0 to machine-cover both the installer and browser-engine CVEs. playwright rolls a fresh Chromium each release, so keep the install current (not just at the floor) and pin the sandbox container image to a current `*-noble` tag (not an 18-month-stale tag) when navigating untrusted URLs.",
     homepage: "https://playwright.dev/",
     sourceRepo: "https://github.com/microsoft/playwright",
     license: "Apache-2.0",
@@ -480,6 +597,12 @@ export const AVAILABLE_CLI_TOOLS = {
     // repo is archived, re-evaluate whether xh (the actively-maintained Rust
     // HTTPie-compatible client, already registered) should become the primary
     // web-project HTTP recommendation over httpie.
+    // Cycle 12 D21-SA21.4-02: clock advanced — httpie 3.2.4 is 616 days old
+    // (last push 2024-12-17, ~18.8 months, still under the 24-month RE-CHECK
+    // threshold) and the repo is not archived, so it stays registered; but xh
+    // (v0.26.1, 2026-06-19) now precedes httpie in TIER2_CLI_TOOLS_BY_TRIGGER
+    // ["web-project"] so the picker steers to the maintained client first.
+    // Re-arm the ">2-year dormant OR archived" trigger next cycle.
     // CVE-2023-48052 (GHSA-8r96-8889-qg2x) + CVE-2019-10751 (GHSA-xjjg-vmw6-c2p9) — both fixed by httpie 3.2.3
     minVersion: ">=3.2.3",
     homepage: "https://httpie.io/",
@@ -549,8 +672,15 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "cargo", command: "cargo install qsv --locked --features all_features" }],
       win: [{ manager: "cargo", command: "cargo install qsv --locked --features all_features" }],
     },
-    homepage: "https://github.com/jqnatividad/qsv",
-    sourceRepo: "https://github.com/jqnatividad/qsv",
+    // Cycle 12 D21-SA21.3-05: qsv transferred to the dathere org — homepage +
+    // sourceRepo now point at the canonical dathere/qsv (21.1.0, 2026-06-14,
+    // re-verified 2026-07-12) per the D15.7 provenance contract, not the
+    // jqnatividad transfer-redirect. A doc-pin for the unpinned fast-moving
+    // major (21.x) is deferred: a registry minVersion needs the paired toolbox
+    // floor line in skills/hatch3r-cli-toolbox/SKILL.md, outside this
+    // registry-only file lock.
+    homepage: "https://github.com/dathere/qsv",
+    sourceRepo: "https://github.com/dathere/qsv",
     license: "MIT OR Unlicense",
   },
   taplo: {
@@ -741,12 +871,20 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "cargo", command: "cargo install --locked difftastic" }],
       win: [{ manager: "scoop", command: "scoop install difftastic" }],
     },
+    // Cycle 12 D21-SA21.2-02: difftastic tags releases infrequently (0.69.0
+    // 2025-04-30) but its master branch is active (commits through 2026-07-08,
+    // 30+ in 2026), so the ~436-day tag gap is slow-tag cadence, not
+    // abandonment — hold the D21 currency grade at Info. Caveat: the install
+    // surface is the release tag, so master-only fixes are not shipped until a
+    // re-tag; a user hitting a difftastic bug already fixed on master must build
+    // from source. Re-check next cycle if master goes quiet OR 0.69.0 is
+    // superseded by a fresh tag.
     homepage: "https://difftastic.wilfred.me.uk/",
     sourceRepo: "https://github.com/Wilfred/difftastic",
     license: "MIT",
   },
 
-  // ── Tier 3 (10 tools, opt-in advanced) ──────────────────────────
+  // ── Tier 3 (15 tools, opt-in advanced) ──────────────────────────
   rtk: {
     id: "rtk",
     probe: "rtk",
@@ -781,6 +919,15 @@ export const AVAILABLE_CLI_TOOLS = {
       linux: [{ manager: "npm", command: "npm install -g @browserbasehq/stagehand" }],
       win: [{ manager: "npm", command: "npm install -g @browserbasehq/stagehand" }],
     },
+    // Cycle 12 D21-SA21.7-04 (detection-contract class C): @browserbasehq/stagehand
+    // is an npm LIBRARY imported into a script — it ships no executable `bin`, so
+    // the `command -v stagehand` PATH probe can never resolve and reporting the
+    // tool "absent" would be a false negative rather than a real detection. The
+    // packageType discriminant records that shape; the registry.test.ts gate uses
+    // it to exempt this entry from the "every `npm install -g` package declares a
+    // bin" invariant. detect.ts PATH-suppression + scaffold guidance is the
+    // class-C runtime follow-on (home finding D21-SA21.6-01, the detect.ts lane).
+    packageType: "library",
     // Cycle 10 D15-SA15.7-F-15.7-08: Stagehand selects one of three browser-
     // driver peer deps — `playwright-core` (Microsoft) and `puppeteer-core`
     // (Google) are vendor-maintained, but `patchright-core` is a community
@@ -811,9 +958,18 @@ export const AVAILABLE_CLI_TOOLS = {
   mods: {
     id: "mods",
     probe: "mods",
-    description: "Charm mods — Unix-friendly LLM pipeline tool",
+    description: "Charm mods — Unix-friendly LLM pipeline tool (upstream archived 2026-03-09; superseded by crush)",
     category: "ai",
     tier: 3,
+    // Cycle 12 D21-SA21.6-02 / D21-SA21.7-05: charmbracelet/mods is ARCHIVED
+    // upstream (GitHub API archived:true as of 2026-03-09; last release v1.8.1,
+    // 2025-07-10). Charm's own mods README directs users to `crush run` as the
+    // non-interactive successor, and `crush` is registered below (Cycle-12
+    // CL-2 P2). mods still functions and carries no CVE, so it is retained
+    // with this disclosure caveat; the replace-or-remove evaluation is a
+    // B1-gated owner decision staged for the next D21 cycle per
+    // rules/hatch3r-tool-currency.md:68 (vendor-archived removal trigger).
+    caveat: "upstream-archived-superseded-by-crush",
     install: {
       mac: [{ manager: "brew", command: "brew install charmbracelet/tap/mods" }],
       linux: [{ manager: "apt", command: "sudo apt install mods" }],
@@ -880,6 +1036,12 @@ export const AVAILABLE_CLI_TOOLS = {
     // documentation-pin precedent (glab 1.99.0 / az-devops 1.0.4) — NOT a
     // CVE-driven floor. Cycle 11 verified csvkit 2.2.0. The installer surfaces
     // this as advisory text; next cycle measures drift against it.
+    // Cycle 12 D21-SA21.3-04: csvkit 2.2.0 (2025-12-15) remains the latest
+    // upstream release (PyPI, re-verified 2026-07-12) — 207 days old, past the
+    // D21 180-day currency band, but wireservice/csvkit master is actively
+    // committed on a slow, mature cadence, so the gap reflects cadence, not
+    // abandonment (same annotated-peer rationale as bat/ripgrep). Re-verify at
+    // the next research date.
     minVersion: "2.2.0",
     homepage: "https://csvkit.readthedocs.io/",
     sourceRepo: "https://github.com/wireservice/csvkit",
@@ -901,7 +1063,14 @@ export const AVAILABLE_CLI_TOOLS = {
     // `podman machine init --image`. The note is platform-windows-only; mac
     // and linux builds are not affected, but registry callers surface the
     // single securityNote with the explicit `Windows only` prefix.
-    minVersion: "5.8.2",
+    // Cycle 12 D21-SA21.6-04: podman shipped a 6.x major (v6.0.1, 2026-07-08)
+    // that the unpinned brew/apt/winget channels now resolve to. The floor stays
+    // 5.8.2 — it still clears CVE-2026-33414, the only podman advisory — but is
+    // normalized from the bare "5.8.2" string to the ">=5.8.2" range form so it
+    // reads unambiguously as a floor (matching docker's ">=29.5.2"), not an
+    // exact pin. Review the 6.x rootless / netavark / machine-init changes and
+    // re-verify no 6.x-specific advisory before raising the floor to a 6.x tag.
+    minVersion: ">=5.8.2",
     securityNote:
       "CVE-2026-33414 (Windows only): Podman before 5.8.2 is vulnerable to PowerShell command injection in `podman machine init --image` on the Hyper-V backend, allowing Hyper-V VM escape. Upgrade to 5.8.2 or later on Windows; mac and linux builds are unaffected. CVE-2024-3056 (GHSA-rpcc-p8xm-rc6p, Pasta DNS resolver) and CVE-2025-4953 (GHSA-m68q-4hqr-mc6f, memory corruption in netavark) are served by OSV as Go records without a numeric severity, so the CLI CVE gate surfaces them under 'unscored advisories — manual review' rather than as scored findings — both are fixed at or below the pinned 5.8.2 floor.",
     homepage: "https://podman.io/",
@@ -916,7 +1085,11 @@ export const AVAILABLE_CLI_TOOLS = {
     tier: 3,
     install: {
       mac: [{ manager: "brew", command: "brew install dasel" }],
-      linux: [{ manager: "go", command: "go install github.com/tomwright/dasel/v3/cmd/dasel@latest" }],
+      // Cycle 12 D15-SA15.7-05: pinned from `@latest` to `@v3.11.0` so the
+      // install command honors this entry's own `minVersion: ">=3.11.0"` floor
+      // (below) — a floating `@latest` happens to satisfy the floor today but is
+      // not a pin, and the go-module `/v3` path takes `v3.x.y` tags.
+      linux: [{ manager: "go", command: "go install github.com/tomwright/dasel/v3/cmd/dasel@v3.11.0" }],
       win: [{ manager: "scoop", command: "scoop install dasel" }],
     },
     // Cycle 11 D21-11 (SA21.3-F2): the prior note said all 3 CVEs were "fixed
@@ -929,9 +1102,13 @@ export const AVAILABLE_CLI_TOOLS = {
     // 3.11.0 > 3.10.1 > 3.3.2 clears all three plus is the documented current
     // stable (2026-05-19), so pinning it covers the cluster regardless of the
     // per-CVE landing release.
+    // Cycle 12 D21-SA21.3-03: dasel's current stable advanced to 3.11.2
+    // (2026-06-27, re-verified 2026-07-12); the >=3.11.0 floor stays (3.11.2
+    // still clears the CVE cluster) — only the securityNote "current stable"
+    // annotation is refreshed to 3.11.2.
     minVersion: ">=3.11.0",
     securityNote:
-      "dasel CVEs (per-CVE fix versions): CVE-2026-33320 (Moderate, unbounded YAML alias-expansion DoS) fixed in 3.3.2; CVE-2026-46378 (High, selector-lexer DoS) and CVE-2026-46377 (High, index-out-of-range panic) fixed in 3.10.1. Pin >=3.11.0 — the current stable — which clears all three. Avoid running dasel on untrusted input on any earlier build.",
+      "dasel CVEs (per-CVE fix versions): CVE-2026-33320 (Moderate, unbounded YAML alias-expansion DoS) fixed in 3.3.2; CVE-2026-46378 (High, selector-lexer DoS) and CVE-2026-46377 (High, index-out-of-range panic) fixed in 3.10.1. Pin >=3.11.0 (current stable 3.11.2, 2026-06-27) — which clears all three. Avoid running dasel on untrusted input on any earlier build.",
     homepage: "https://github.com/TomWright/dasel",
     sourceRepo: "https://github.com/TomWright/dasel",
     license: "MIT",
@@ -967,6 +1144,164 @@ export const AVAILABLE_CLI_TOOLS = {
     sourceRepo: "https://github.com/dagger/container-use",
     license: "Apache-2.0",
   },
+  crush: {
+    id: "crush",
+    probe: "crush",
+    description: "Charm Crush — terminal agentic coding assistant (multi-model, MCP + LSP aware); successor to the archived mods",
+    category: "ai",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install charmbracelet/tap/crush" }],
+      // crush is not in stock Debian/Ubuntu repos — the recipe below is the
+      // Charm signed-apt one-liner from the vendor README (keyring + signed
+      // repo.charm.sh repo add, then `apt install crush`), following the gh
+      // keyring-recipe precedent (D21-17): a bare `sudo apt install crush`
+      // fails on a machine without the Charm repo.
+      linux: [
+        {
+          manager: "apt",
+          command:
+            'sudo mkdir -p /etc/apt/keyrings && curl -fsSL https://repo.charm.sh/apt/gpg.key | sudo gpg --dearmor -o /etc/apt/keyrings/charm.gpg && echo "deb [signed-by=/etc/apt/keyrings/charm.gpg] https://repo.charm.sh/apt/ * *" | sudo tee /etc/apt/sources.list.d/charm.list && sudo apt update && sudo apt install crush',
+        },
+      ],
+      win: [{ manager: "winget", command: "winget install charmbracelet.crush" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P2; home signals D21-SA21.6-09/-02):
+    // registered as charmbracelet's designated successor to the archived
+    // `mods` entry above — the mods README directs users to `crush run` for
+    // the non-interactive pipeline mode. Verified v0.84.1 (2026-07-11, the
+    // day before registration; ~daily release cadence) and 0 advisories for
+    // charmbracelet/crush in the GitHub Advisory DB, both accessed 2026-07-12.
+    // The bare minVersion is a tested-against documentation pin (glab/miller
+    // precedent), not a CVE floor. License is FSL-1.1-MIT (Functional Source
+    // License 1.1 with MIT future grant — a registered SPDX id).
+    minVersion: "0.84.1",
+    homepage: "https://github.com/charmbracelet/crush",
+    sourceRepo: "https://github.com/charmbracelet/crush",
+    license: "FSL-1.1-MIT",
+  },
+  jaq: {
+    id: "jaq",
+    probe: "jaq",
+    description: "Memory-safe Rust jq clone — jq-compatible filters with faster startup; security-audited",
+    category: "json",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install jaq" }],
+      linux: [{ manager: "cargo", command: "cargo install --locked jaq" }],
+      win: [{ manager: "cargo", command: "cargo install --locked jaq" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home signal D21-SA21.3-07): registered
+    // as the memory-safe peer to the tier-1 `jq` — the hedge value rose
+    // materially after jq's 16-CVE 2026 memory-safety cluster (D21-SA21.3-01;
+    // jq's floor is >=1.8.2). jaq-core is professionally security-audited
+    // (Radically Open Security, two NLnet-funded audits per the vendor README)
+    // and reports jaq-3.0 fastest on 20 of 31 wsjq benchmarks vs jq-1.8.1's 5
+    // (vendor-reported figures). Dialect caveat: jq-compatible but not
+    // byte-identical on all edge cases — surfaced in the toolbox section.
+    // Verified v3.1.0 (2026-06-11) + 0 advisories, accessed 2026-07-12. The
+    // bare minVersion is a documentation pin, not a CVE floor.
+    minVersion: "3.1.0",
+    homepage: "https://github.com/01mf02/jaq",
+    sourceRepo: "https://github.com/01mf02/jaq",
+    license: "MIT",
+  },
+  tombi: {
+    id: "tombi",
+    probe: "tombi",
+    description: "TOML formatter, linter, and language server — maintained alternative to taplo",
+    category: "yaml",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install tombi" }],
+      // pipx is the vendor-listed Python channel (csvkit/llm manager
+      // precedent); the vendor's `curl … install.sh | sh` channel is NOT
+      // registered (unsigned curl-piped-shell posture, D15-M16).
+      linux: [{ manager: "pipx", command: "pipx install tombi" }],
+      win: [{ manager: "winget", command: "winget install --id tombi-toml.tombi --exact" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home signals D21-SA21.3-02/-07):
+    // registered as the active-maintenance peer to `taplo` (413d stale,
+    // maintainer stepped down — tamasfe/taplo#715). tombi avoids taplo's
+    // incomplete-file data-loss lexer bug and adds LSP + pyproject/Cargo
+    // workspace navigation; downstream migrations underway (gfx-rs/wgpu#9600).
+    // taplo is retained — the replace-or-demote evaluation is a B1-gated owner
+    // decision staged for the next D21 cycle (docket rank 3). Verified v1.2.0
+    // (2026-07-05 — the docket's "pre-1.0" caveat is superseded) + 0
+    // advisories, accessed 2026-07-12. Bare minVersion = documentation pin.
+    minVersion: "1.2.0",
+    homepage: "https://tombi-toml.github.io/tombi/",
+    sourceRepo: "https://github.com/tombi-toml/tombi",
+    license: "MIT",
+  },
+  hurl: {
+    id: "hurl",
+    probe: "hurl",
+    description: "Declarative HTTP testing — runs plain-text .hurl request files with captures and asserts in CI",
+    category: "http",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install hurl" }],
+      linux: [{ manager: "cargo", command: "cargo install --locked hurl" }],
+      win: [{ manager: "winget", command: "winget install hurl" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home signal D21-SA21.4-06): registered
+    // for the assertion-based HTTP test-file cell none of curl/httpie/xh
+    // covers (plain-text .hurl files with captures + header/body asserts,
+    // version-controlled and run in CI). Verified 8.0.1 (2026-04-29) accessed
+    // 2026-07-12. The >=7.0.0 floor is CVE-driven (delta precedent):
+    // GHSA-v33j-v3x4-42qg (Moderate, no CVE id assigned) — `hurlfmt --out
+    // html` on builds <=6.1.1 does not escape regex literals, letting a
+    // crafted .hurl file inject script into the generated HTML; patched in
+    // 7.0.0 per the advisory.
+    minVersion: ">=7.0.0",
+    securityNote:
+      "GHSA-v33j-v3x4-42qg (Moderate): hurl 6.1.1 and earlier do not escape regex literals when `hurlfmt --out html` exports .hurl files to HTML, so a crafted regex in a .hurl file injects script into the generated documentation page; fixed in 7.0.0. Every registered channel ships 8.0.1 (2026-04-29), well past the fix — upgrade any pre-7.0.0 build before exporting third-party .hurl files to HTML.",
+    homepage: "https://hurl.dev/",
+    sourceRepo: "https://github.com/Orange-OpenSource/hurl",
+    license: "Apache-2.0",
+  },
+  tea: {
+    id: "tea",
+    probe: "tea",
+    description: "Gitea official CLI — issues, pull requests, releases on Gitea / Forgejo / Codeberg",
+    category: "forge",
+    tier: 3,
+    install: {
+      mac: [{ manager: "brew", command: "brew install tea" }],
+      // The pinned @v0.14.2 tag mirrors the dasel precedent: the go-install
+      // channel resolves the exact release this entry's documentation pin
+      // records, instead of a floating @latest.
+      linux: [{ manager: "go", command: "go install gitea.dev/tea@v0.14.2" }],
+      win: [{ manager: "go", command: "go install gitea.dev/tea@v0.14.2" }],
+    },
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home signal D21-SA21.5-05): closes the
+    // Gitea/Forgejo/Codeberg forge-family coverage gap — gh/glab/az-devops
+    // cover the other three forges; no registered tool talks to this family.
+    // Verified v0.14.2 (2026-06-26, gitea.com/api/v1/repos/gitea/tea) + 0
+    // advisories, accessed 2026-07-12. Bare minVersion = documentation pin.
+    // sourceRepo is the canonical gitea.com repo — the first-party Gitea CLI
+    // hosts on the Gitea forge itself; no GitHub mirror is documented.
+    //
+    // Probe collision (registry invariant ii): the bare `tea` name is shared
+    // by Debian's unrelated `tea` package (the TEA Qt text editor,
+    // /usr/bin/tea) and by legacy teaxyz `tea` installs (the package manager
+    // renamed to pkgx in 2023), so `command -v tea` alone false-positives.
+    // `tea --version` is unusable as the discriminator — gitea/tea's custom
+    // cli.VersionPrinter prints the bare version with NO name prefix
+    // (cmd/cmd.go, verified 2026-07-12) — so the extensionProbe keys on
+    // `tea --help`, whose usage line ("command line tool to interact with
+    // Gitea") uniquely carries "Gitea".
+    extensionProbe: {
+      args: ["--help"],
+      expectInStdout: "Gitea",
+      name: "tea",
+    },
+    minVersion: "0.14.2",
+    homepage: "https://gitea.com/gitea/tea",
+    sourceRepo: "https://gitea.com/gitea/tea",
+    license: "MIT",
+  },
 } as const satisfies Record<CliToolId, CliToolMeta>;
 
 /** Tier-1 default-on tools (the picker pre-checks these). */
@@ -990,7 +1325,17 @@ export const TIER1_CLI_TOOLS: readonly CliToolId[] = [
  * condition holds for the active `RepoInfo`/`Platform`.
  */
 export const TIER2_CLI_TOOLS_BY_TRIGGER: Readonly<Record<Tier2Trigger, readonly CliToolId[]>> = {
-  "web-project": ["playwright", "httpie", "xh"],
+  // Cycle 12 D21-SA21.4-02: xh precedes httpie so the picker lists — and, when
+  // web-project fires, pre-checks — the actively-maintained client first,
+  // reflecting the toolbox "prefer xh … for new web-project work" clause
+  // (skills/hatch3r-cli-toolbox/SKILL.md → httpie card). httpie is retained
+  // rather than dropped: the picker's tier-2 offer surface reads this same
+  // array (src/cli/shared/pickers.ts::pickCliTools), so removing httpie here
+  // orphans it from the picker (un-installable) instead of the intended
+  // "installable but not default-selected". Removing it from the DEFAULT
+  // pre-check while keeping it offered needs an offer/pre-check decouple in
+  // pickers.ts + triggers.ts (out of this finding's registry-only scope).
+  "web-project": ["playwright", "xh", "httpie"],
   "data-project": ["duckdb", "qsv"],
   "rust-project": ["taplo"],
   "python-project": ["taplo"],
@@ -1013,6 +1358,13 @@ export const TIER3_CLI_TOOLS: readonly CliToolId[] = [
   "podman",
   "dasel",
   "container-use",
+  // Cycle 12 D21-SA21.7-05 CL-2 additions (P2 crush / P3 rest) — appended so
+  // the pre-existing picker display order is unchanged.
+  "crush",
+  "jaq",
+  "tombi",
+  "hurl",
+  "tea",
 ] as const;
 
 /**
@@ -1028,9 +1380,9 @@ export const DEFAULT_CLI_TOOLS: readonly CliToolId[] = TIER1_CLI_TOOLS;
  * appear here — entries are auto-generated from `AVAILABLE_CLI_TOOLS` so
  * adding a new tool with `requiresEnv` propagates without a code change.
  */
-export const CLI_TOOL_SECRET_NOTES: Readonly<Record<CliToolId, readonly string[]>> = Object.freeze(
-  ((): Record<CliToolId, readonly string[]> => {
-    const out: Record<CliToolId, readonly string[]> = {};
+export const CLI_TOOL_SECRET_NOTES: Readonly<Partial<Record<CliToolId, readonly string[]>>> = Object.freeze(
+  ((): Partial<Record<CliToolId, readonly string[]>> => {
+    const out: Partial<Record<CliToolId, readonly string[]>> = {};
     for (const tool of Object.values(AVAILABLE_CLI_TOOLS) as readonly CliToolMeta[]) {
       const env = tool.requiresEnv;
       if (env && env.length > 0) {

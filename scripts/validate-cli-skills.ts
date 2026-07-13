@@ -20,7 +20,41 @@
  * `.audit-workspace/precheck-results.json::validate_cli_skills`. D21 SA21.7
  * reads that record to discharge its capability-matrix-verification step
  * (D21-cli-tool-currency.md line 56). Keep the summary line and exit-code
- * contract stable so the confirmation stays evidenced, not inferred.
+ * contract stable so the confirmation stays evidenced, not inferred. The
+ * fully-clean summary above is emitted byte-identically only when there are
+ * zero structural failures AND zero advisories; when advisories exist the
+ * summary switches to "..., 0 structural drift, <M> advisory(ies) ..." so the
+ * record no longer overstates coverage (see the advisory tier below), while
+ * the exit code stays 0 on any structural pass.
+ *
+ * Advisory tier (D21-SA21.7-02 + D5-SA5.6-07, Cycle 12): the three structural
+ * checks above (label/id/section existence, toolbox floor/marker surfacing)
+ * caught 0 drift while 7 body-level drifts shipped across 4 buckets, because
+ * the perimeter never compared install-command BODIES against the registry and
+ * never asserted standalone-skill security/References surfaces. This gate adds
+ * three non-fatal advisory checks that close that blind spot:
+ *   - install-command body parity (`installBodyParityAdvisories`): each
+ *     registry install command must appear (sudo-normalised substring) in its
+ *     covering artifact — the standalone skill body, or the shared toolbox
+ *     install-command matrix cell for toolbox tools.
+ *   - standalone security-surface parity (`standaloneSecuritySurfaceAdvisories`):
+ *     the `:323-334` toolbox floor/marker assertions, extended to the 5
+ *     standalone skills (bare `minVersion` + >=1 securityNote CVE/GHSA id or
+ *     marker keyword present in the body).
+ *   - References currency (`referencesCurrencyAdvisories`): every URL/file
+ *     entry in a CLI skill's `## References` carries an access date, and a
+ *     skill making the token-cost empirical claim without a `## References`
+ *     section is flagged.
+ * These are ADVISORY (exit 0) rather than fatal because their paired content
+ * remediations land across waves (Cycle-12 D21-SA21.5-02/03 in Wave 3;
+ * D21-SA21.6-08 / D21-SA21.1-05 / D21-SA21.2-04 in Wave 4) plus out-of-scope
+ * pre-existing gaps (the ripgrep floor is not surfaced in its skill body; the
+ * 4 CLI-tool standalone skills carry no `## References`). A fatal gate here
+ * would red the Wave-3 baseline on content this validator cannot fix. Once all
+ * paired content fixes land, graduate the advisory checks to `Failure`s
+ * (fold them into `failures`) so the gate hard-locks the drift out — the pure
+ * check functions are exported and fixture-tested in
+ * `scripts/__tests__/validate-cli-skills.test.ts` for exactly that flip.
  */
 import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
@@ -46,6 +80,19 @@ const STANDALONE_TOOLS = new Set(["ripgrep", "jq", "gh", "fd", "fzf"]);
 interface Failure {
   file: string;
   reason: string;
+  detail: string;
+}
+
+/**
+ * A non-fatal parity gap surfaced by the Cycle-12 advisory tier (install-body
+ * parity, standalone security-surface parity, References currency). Advisories
+ * are reported and counted in the summary line but do NOT change the exit code
+ * — the gate stays green on any structural pass. See the file docblock for the
+ * graduate-to-`Failure` plan once the paired content fixes land.
+ */
+export interface Advisory {
+  file: string;
+  kind: "install-body-parity" | "standalone-security-surface" | "references-currency";
   detail: string;
 }
 
@@ -351,42 +398,303 @@ async function checkToolbox(): Promise<Failure[]> {
   return failures;
 }
 
+/**
+ * Normalise an install command for substring parity comparison. Strips the
+ * `sudo ` privilege prefix (orthogonal to the command's identity — the toolbox
+ * matrix documents apt/snap recipes without `sudo` while the registry stores
+ * them with it, so an un-normalised compare would false-positive on every
+ * apt/snap tool) and collapses whitespace runs so a wrapped cell still matches.
+ * Backticks are left in place: a backtick-wrapped haystack still contains the
+ * un-backticked needle as a substring.
+ */
+export function normalizeInstallCmd(s: string): string {
+  return s
+    .replace(/(^|\s)sudo\s+/g, "$1")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Parse the toolbox skill's `Install commands:` matrix into
+ * `id -> { mac, linux }` raw cell text. The matrix is the shared install
+ * surface for every non-standalone (toolbox) tool — install commands live
+ * there, NOT in the per-tool `### {id}` prose sections, so body parity for a
+ * toolbox tool reads its matrix row. Rows look like
+ * `| ``id`` | mac cell | linux cell |`; a literal pipe inside a cell is
+ * markdown-escaped as `\|`, so the split honours the escape. Parsing is scoped
+ * to the region after the `Install commands:` marker up to the next `## `
+ * heading so no other backtick-first-cell table is mistaken for the matrix.
+ */
+export function parseInstallMatrix(toolboxBody: string): Map<string, { mac: string; linux: string }> {
+  const out = new Map<string, { mac: string; linux: string }>();
+  const lines = toolboxBody.split("\n");
+  let inMatrix = false;
+  for (const line of lines) {
+    if (/^Install commands:/.test(line.trim())) {
+      inMatrix = true;
+      continue;
+    }
+    if (!inMatrix) continue;
+    if (/^##\s/.test(line)) break;
+    if (!line.startsWith("|")) continue;
+    // Split on unescaped pipes, then restore any escaped `\|` inside a cell.
+    const cells = line.split(/(?<!\\)\|/).map((c) => c.replace(/\\\|/g, "|").trim());
+    // cells[0] is the empty span before the leading pipe; the id cell is cells[1].
+    if (cells.length < 4) continue;
+    const idMatch = /^`([^`]+)`$/.exec(cells[1]);
+    if (!idMatch) continue;
+    out.set(idMatch[1], { mac: cells[2], linux: cells[3] });
+  }
+  return out;
+}
+
+/**
+ * D21-SA21.7-02 sub-check 1 — install-command body parity. For a standalone
+ * tool, assert every registry install command (all three OS keys) appears
+ * verbatim (sudo-normalised substring) in the skill body. For a toolbox tool,
+ * assert the mac + linux registry commands appear in the shared install-matrix
+ * cell (the matrix carries no Windows column). A `same` linux cell is resolved
+ * to the mac cell before comparison. Returns advisories, never throws.
+ */
+export function installBodyParityAdvisories(
+  meta: CliToolMeta,
+  standaloneBody: string | null,
+  matrixRow: { mac: string; linux: string } | undefined,
+): Advisory[] {
+  const adv: Advisory[] = [];
+  if (STANDALONE_TOOLS.has(meta.id)) {
+    // A missing standalone skill is already a structural Failure — skip here.
+    if (standaloneBody === null) return adv;
+    const hay = normalizeInstallCmd(standaloneBody);
+    for (const os of ["mac", "linux", "win"] as const) {
+      for (const cmd of meta.install[os] ?? []) {
+        if (!hay.includes(normalizeInstallCmd(cmd.command))) {
+          adv.push({
+            file: `skills/${PER_TOOL_PREFIX}${meta.id}/SKILL.md`,
+            kind: "install-body-parity",
+            detail: `${meta.id} ${os} install command not surfaced verbatim in the skill body: ${JSON.stringify(cmd.command)}`,
+          });
+        }
+      }
+    }
+    return adv;
+  }
+  if (!matrixRow) {
+    adv.push({
+      file: `skills/${TOOLBOX_DIR}/SKILL.md`,
+      kind: "install-body-parity",
+      detail: `${meta.id} has no row in the toolbox install-command matrix`,
+    });
+    return adv;
+  }
+  for (const os of ["mac", "linux"] as const) {
+    const cmds = meta.install[os] ?? [];
+    if (cmds.length === 0) continue;
+    let cellRaw = matrixRow[os];
+    // "same" in a linux cell is shorthand for "same as the mac cell".
+    if (os === "linux" && cellRaw.replace(/`/g, "").trim().toLowerCase().startsWith("same")) {
+      cellRaw = matrixRow.mac;
+    }
+    const hay = normalizeInstallCmd(cellRaw);
+    const ok = cmds.some((c) => hay.includes(normalizeInstallCmd(c.command)));
+    if (!ok) {
+      adv.push({
+        file: `skills/${TOOLBOX_DIR}/SKILL.md`,
+        kind: "install-body-parity",
+        detail: `${meta.id} ${os} install-matrix cell does not contain the registry command ${JSON.stringify(cmds[0].command)} (cell: ${JSON.stringify(matrixRow[os])})`,
+      });
+    }
+  }
+  return adv;
+}
+
+/**
+ * D21-SA21.7-02 sub-check 2 — standalone security-surface parity. The same
+ * assertions `checkToolbox` runs against toolbox `### {id}` sections
+ * (:323-334), extended to the standalone skill body: when the registry pins a
+ * `minVersion` the body must surface the bare floor, and when it attaches a
+ * `securityNote` the body must surface an advisory id from the note or a
+ * marker keyword. Reuses the toolbox check's `bareVersion` /
+ * `securityNoteIdentifiers` / `SECURITY_MARKER_KEYWORDS` helpers.
+ */
+export function standaloneSecuritySurfaceAdvisories(meta: CliToolMeta, body: string): Advisory[] {
+  const adv: Advisory[] = [];
+  const file = `skills/${PER_TOOL_PREFIX}${meta.id}/SKILL.md`;
+  const lower = body.toLowerCase();
+  if (meta.minVersion) {
+    const floor = bareVersion(meta.minVersion);
+    if (floor.length > 0 && !lower.includes(floor.toLowerCase())) {
+      adv.push({
+        file,
+        kind: "standalone-security-surface",
+        detail: `${meta.id} registry minVersion=${JSON.stringify(meta.minVersion)} but the skill body does not surface the floor "${floor}"`,
+      });
+    }
+  }
+  if (meta.securityNote) {
+    const ids = securityNoteIdentifiers(meta.securityNote);
+    const hasId = ids.some((id) => lower.includes(id.toLowerCase()));
+    const hasKeyword = SECURITY_MARKER_KEYWORDS.some((kw) => lower.includes(kw));
+    if (!hasId && !hasKeyword) {
+      adv.push({
+        file,
+        kind: "standalone-security-surface",
+        detail: `${meta.id} registry securityNote present but the skill body surfaces no advisory id (${ids.join(", ") || "none in note"}) or marker keyword`,
+      });
+    }
+  }
+  return adv;
+}
+
+/**
+ * The token-cost empirical claim the CLI-tool skills carry (renderer emits it
+ * in the `## Token Cost` section). A skill making this claim with no
+ * `## References` section is flagged (D5-SA5.6-07: 4 CLI skills assert it with
+ * no dated source).
+ */
+const TOKEN_COST_CLAIM = "98.7% token reduction";
+
+/**
+ * D5-SA5.6-07 — References currency. For a CLI skill: every URL/file entry in
+ * its `## References` section must carry an access date (`accessed:` or a bare
+ * `YYYY-MM-DD`); an undated entry is unfalsifiable against the ≤12-month
+ * re-verification contract (rigor-contract §Web Research Mandate). A skill that
+ * makes the token-cost empirical claim but has no `## References` at all is
+ * flagged too. Scope is the CLI skills this gate owns (5 standalone + toolbox);
+ * the 11 CQ-verify skills are a separate probe's surface, not this one's.
+ */
+export function referencesCurrencyAdvisories(fileLabel: string, body: string): Advisory[] {
+  const adv: Advisory[] = [];
+  const lines = body.split("\n");
+  const start = lines.findIndex((l) => /^##\s+References\b/.test(l));
+  if (start === -1) {
+    if (body.includes(TOKEN_COST_CLAIM)) {
+      adv.push({
+        file: fileLabel,
+        kind: "references-currency",
+        detail: `skill makes the "${TOKEN_COST_CLAIM}" empirical claim but has no "## References" section (add a dated source)`,
+      });
+    }
+    return adv;
+  }
+  for (let i = start + 1; i < lines.length; i++) {
+    if (/^##\s/.test(lines[i])) break;
+    const line = lines[i];
+    if (!/(https?:\/\/|file:\/\/)/.test(line)) continue;
+    const dated = /accessed/i.test(line) || /\b\d{4}-\d{2}-\d{2}\b/.test(line);
+    if (!dated) {
+      adv.push({
+        file: fileLabel,
+        kind: "references-currency",
+        detail: `undated References entry (no "accessed:" / YYYY-MM-DD): ${line.trim().slice(0, 120)}`,
+      });
+    }
+  }
+  return adv;
+}
+
+/**
+ * Read the CLI-skill corpus once and run the three advisory checks. Returns the
+ * flattened advisory list; the caller decides reporting + exit semantics.
+ */
+async function collectAdvisories(): Promise<Advisory[]> {
+  const adv: Advisory[] = [];
+  const toolbox = await readSkill(TOOLBOX_DIR);
+  const matrix = toolbox ? parseInstallMatrix(toolbox.body) : new Map<string, { mac: string; linux: string }>();
+
+  const standaloneBodies = new Map<string, string | null>();
+  for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
+    if (!STANDALONE_TOOLS.has(meta.id)) continue;
+    const skill = await readSkill(`${PER_TOOL_PREFIX}${meta.id}`);
+    standaloneBodies.set(meta.id, skill ? skill.body : null);
+  }
+
+  for (const meta of Object.values(AVAILABLE_CLI_TOOLS) as CliToolMeta[]) {
+    const isStandalone = STANDALONE_TOOLS.has(meta.id);
+    const body = isStandalone ? (standaloneBodies.get(meta.id) ?? null) : null;
+    adv.push(...installBodyParityAdvisories(meta, body, matrix.get(meta.id)));
+    if (isStandalone && body !== null) {
+      adv.push(...standaloneSecuritySurfaceAdvisories(meta, body));
+      adv.push(...referencesCurrencyAdvisories(`skills/${PER_TOOL_PREFIX}${meta.id}/SKILL.md`, body));
+    }
+  }
+  if (toolbox) {
+    adv.push(...referencesCurrencyAdvisories(`skills/${TOOLBOX_DIR}/SKILL.md`, toolbox.body));
+  }
+  return adv;
+}
+
+/** Print the advisory list (non-fatal) to stderr with per-kind tagging. */
+function reportAdvisories(advisories: Advisory[]): void {
+  // eslint-disable-next-line no-console
+  console.error(`validate:cli-skills: ${advisories.length} non-fatal advisory(ies):`);
+  for (const a of advisories) {
+    // eslint-disable-next-line no-console
+    console.error(`  - [${a.kind}] ${a.file}`);
+    // eslint-disable-next-line no-console
+    console.error(`      ${a.detail}`);
+  }
+}
+
 async function main(): Promise<void> {
   const failures: Failure[] = [];
   failures.push(...(await checkStandaloneSkills()));
   failures.push(...(await checkSkillsHaveRegistry()));
   failures.push(...(await checkToolbox()));
 
-  const total = Object.keys(AVAILABLE_CLI_TOOLS).length;
-  if (failures.length === 0) {
-    // eslint-disable-next-line no-console
-    console.log(
-      `validate:cli-skills: ${total} registry entries checked (${STANDALONE_TOOLS.size} standalone, ${total - STANDALONE_TOOLS.size} toolbox sections), 0 drift`,
-    );
-    return;
-  }
+  const advisories = await collectAdvisories();
 
-  // eslint-disable-next-line no-console
-  console.error(
-    `validate:cli-skills: ${failures.length} failure(s) across ${total} registry entries`,
-  );
-  for (const f of failures) {
-    const rel = f.file.startsWith(ROOT) ? f.file.slice(ROOT.length + 1) : f.file;
-    // eslint-disable-next-line no-console
-    console.error(`  - ${rel}: ${f.reason}`);
+  const total = Object.keys(AVAILABLE_CLI_TOOLS).length;
+  const checkedSummary = `${total} registry entries checked (${STANDALONE_TOOLS.size} standalone, ${total - STANDALONE_TOOLS.size} toolbox sections)`;
+
+  // Structural failures keep the exit-1 contract unchanged. Advisories, if any,
+  // are appended to the report but do not alter the (already non-zero) exit.
+  if (failures.length > 0) {
     // eslint-disable-next-line no-console
     console.error(
-      f.detail
-        .split("\n")
-        .map((line) => `      ${line}`)
-        .join("\n"),
+      `validate:cli-skills: ${failures.length} failure(s) across ${total} registry entries`,
     );
+    for (const f of failures) {
+      const rel = f.file.startsWith(ROOT) ? f.file.slice(ROOT.length + 1) : f.file;
+      // eslint-disable-next-line no-console
+      console.error(`  - ${rel}: ${f.reason}`);
+      // eslint-disable-next-line no-console
+      console.error(
+        f.detail
+          .split("\n")
+          .map((line) => `      ${line}`)
+          .join("\n"),
+      );
+    }
+    if (advisories.length > 0) reportAdvisories(advisories);
+    process.exit(1);
   }
-  process.exit(1);
+
+  // Structural pass. When there are also zero advisories the summary is emitted
+  // byte-identically to the historical clean line (the D21-SA21.7-F-21.7.7
+  // capture contract). When advisories exist the summary reports them so the
+  // record no longer overstates coverage as "0 drift" — exit stays 0.
+  if (advisories.length === 0) {
+    // eslint-disable-next-line no-console
+    console.log(`validate:cli-skills: ${checkedSummary}, 0 drift`);
+    return;
+  }
+  // eslint-disable-next-line no-console
+  console.log(
+    `validate:cli-skills: ${checkedSummary}, 0 structural drift, ${advisories.length} advisory(ies) (install-body / security-surface / references-currency — non-fatal, see below)`,
+  );
+  reportAdvisories(advisories);
 }
 
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error("validate:cli-skills failed:", err);
-  process.exit(1);
-});
+// Only auto-run when executed as a script, never when imported by the fixture
+// tests in scripts/__tests__/validate-cli-skills.test.ts. `process.argv[1] ?? ""`
+// is always a string, so `resolve` cannot throw — no defensive catch needed.
+const isMain = resolve(process.argv[1] ?? "") === __filename;
+
+if (isMain) {
+  main().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("validate:cli-skills failed:", err);
+    process.exit(1);
+  });
+}

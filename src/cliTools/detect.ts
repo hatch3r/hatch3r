@@ -24,9 +24,14 @@ export interface CliToolDetectionResult {
 const PROBE_TIMEOUT_MS = 2000;
 
 /**
- * Whitelist characters allowed in a probe binary name. Detection feeds the
- * name into `command -v` / `where` via argv, but defence-in-depth: reject
- * any name with whitespace or shell metacharacters before spawning.
+ * Character allowlist for a probe binary name. Detection passes the name to
+ * `command -v` / `where` via argv — POSIX as the `$1` positional parameter of
+ * `/bin/sh -c`, Windows as a direct `where` argument — so the name is never
+ * spliced into shell script text and injection is structurally blocked
+ * regardless of this check (D1-SA1.7-07). The allowlist is retained as
+ * defence-in-depth: it rejects any name with whitespace or a shell
+ * metacharacter before spawn, and fails the probe closed if the argv contract
+ * is ever regressed back to an interpolated `-c` string.
  */
 function isSafeProbeName(name: string): boolean {
   return /^[A-Za-z0-9._\-+]+$/.test(name);
@@ -48,11 +53,15 @@ export async function probeBin(name: string): Promise<string> {
   if (!isSafeProbeName(name)) return "";
 
   const isWindows = process.platform === "win32";
-  // POSIX: `command -v` is a POSIX-mandated builtin; pass through `/bin/sh -c`.
-  // Windows: `where` is a stock cmd.exe builtin.
+  // POSIX: `command -v` is a POSIX-mandated builtin, run via `/bin/sh -c`. The
+  // probe name is passed as the `$1` positional parameter (argv tail after the
+  // `sh` $0), NOT interpolated into the `-c` script text, so no user-influenced
+  // byte is ever part of the shell program; `--` plus the quoted `"$1"` keep the
+  // name a single literal operand even if the allowlist is ever loosened.
+  // Windows: `where` is a stock cmd.exe builtin; the name is a direct argv element.
   const [cmd, args] = isWindows
     ? ["where", [name]]
-    : ["/bin/sh", ["-c", `command -v -- "${name}"`]];
+    : ["/bin/sh", ["-c", 'command -v -- "$1"', "sh", name]];
 
   return new Promise<string>((resolve) => {
     let settled = false;
@@ -174,14 +183,38 @@ async function runExtensionProbe(binary: string, args: readonly string[]): Promi
  * `installed: true` is returned. A missing extension surfaces as
  * `installed: false` with `extensionMissing` set so the installer prints
  * the extension-add step rather than silently treating the tool as ready.
+ *
+ * D21-SA21.2-03 (Cycle 12): when the registry entry declares `probeFallbacks`
+ * and the primary probe misses, each fallback binary name is tried before the
+ * tool is reported absent — closing the Debian/Ubuntu package-rename
+ * false-negative (`bat`→`batcat`, `fd`→`fdfind`). `path` reports the resolved
+ * binary so the caller can hint the alias.
  */
 export async function detectCliTool(id: CliToolId): Promise<CliToolDetectionResult> {
   const meta = (AVAILABLE_CLI_TOOLS as Record<string, {
     probe: string;
+    probeFallbacks?: readonly string[];
     extensionProbe?: { args: readonly string[]; expectInStdout: string; name: string };
   } | undefined>)[id];
   const probe = meta?.probe ?? id;
-  const path = await probeBin(probe);
+  let resolved = probe;
+  let path = await probeBin(probe);
+  // D21-SA21.2-03 (Cycle 12): when the primary probe misses, try the registry's
+  // fallback binary names before reporting the tool absent. Covers Debian/Ubuntu
+  // package renames (`bat`→`batcat`, `fd`→`fdfind`) where the apt channel this
+  // registry recommends installs a differently-named binary than the upstream
+  // default. `resolved`/`path` reflect the binary that actually answered so the
+  // installer can hint the alias, while the returned `probe` stays canonical.
+  if (path.length === 0 && meta?.probeFallbacks) {
+    for (const alt of meta.probeFallbacks) {
+      const altPath = await probeBin(alt);
+      if (altPath.length > 0) {
+        resolved = alt;
+        path = altPath;
+        break;
+      }
+    }
+  }
   if (path.length === 0) {
     return { id, probe, installed: false, path };
   }
@@ -189,7 +222,7 @@ export async function detectCliTool(id: CliToolId): Promise<CliToolDetectionResu
   if (!extensionProbe) {
     return { id, probe, installed: true, path };
   }
-  const stdout = await runExtensionProbe(probe, extensionProbe.args);
+  const stdout = await runExtensionProbe(resolved, extensionProbe.args);
   if (stdout.includes(extensionProbe.expectInStdout)) {
     return { id, probe, installed: true, path };
   }

@@ -252,6 +252,45 @@ describe("verify command", () => {
     expect(restored).toContain(ruleFile!);
   });
 
+  // D1-SA1.4-07 / D2-SA2.7-06 (D1/D2, P1): orphan-only drift is a file the
+  // manifest still tracks but no current adapter produces (a leftover from a
+  // removed tool / renamed output). Regeneration can NEVER clear it — only
+  // `hatch3r clean` removes it — so `verify --fix` must (a) run 0 regenerate
+  // attempts on an orphan-only report instead of spinning futile
+  // snapshot+regenerate cycles, and (b) point the operator at `hatch3r clean`,
+  // not `hatch3r sync` (the pre-fix hardcoded hint, which did nothing for this
+  // case). `tools: []` walks zero adapters so the tracked-but-unproduced file is
+  // the only drift the report carries.
+  it("runs 0 regenerate attempts and points at clean, not sync, for orphan-only --fix (D1-SA1.4-07, D2-SA2.7-06)", async () => {
+    await createTestProject(tempDir, { tools: [], managedFiles: ["stale-orphan.md"] });
+    // The tracked path must exist on disk so the orphan loop classifies it
+    // `unexpected` (present but unowned) rather than skipping it as absent.
+    await writeFile(join(tempDir, "stale-orphan.md"), "leftover from a removed tool\n");
+
+    consoleSpy.mockClear();
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    let thrown: unknown;
+    try {
+      await verifyCommand({ fix: true });
+    } catch (e) {
+      thrown = e;
+    }
+    // Orphan drift still FAILS verify (exit 73) — regeneration cannot clear it.
+    expect(thrown).toBeInstanceOf(HatchError);
+    expect((thrown as HatchError).errorCode).toBe("INTEGRITY_ERROR");
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // 0 regenerate attempts: the "--fix attempt N/" progress line never prints.
+    expect(output).not.toMatch(/--fix attempt \d+\//);
+    // Category-aware guidance names `clean` (the orphan remedy), not `sync`.
+    expect(output).toContain("hatch3r clean");
+    // The recovery hint carried on the thrown error is likewise `clean`, not the
+    // pre-fix hardcoded `sync` suggestion.
+    const hint = (thrown as HatchError).recoveryHint ?? "";
+    expect(hint).toContain("hatch3r clean");
+    expect(hint).not.toMatch(/hatch3r sync/);
+  });
+
   // D1-SA1.4-F11 (Cycle 10 Wave 4, P1): verify only printed aggregate drift
   // counts, so an operator who saw `verify: FAIL (N drift(s))` had to re-run
   // `hatch3r status` to learn WHICH files drifted. `--verbose` now prints the
@@ -470,5 +509,66 @@ describe("verify command", () => {
     const human = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
     expect(human).toContain("verify: PASS");
     expect(human).not.toContain("Managed-block structural warnings");
+  });
+
+  // D1-SA1.4-04 (D1, P1): verify (a CI drift gate) never read the manifest's
+  // recorded writer version, so a stale (older) global install followed verify's
+  // `sync`/`--fix` hint and silently DOWNGRADED the outputs. verify now surfaces
+  // the writer version + skew direction (JSON) and flips the recovery hint to
+  // `update`-first when the running CLI is older than the writer.
+  it("exposes manifestHatch3rVersion + versionSkewDirection installed-newer in --json (D1-SA1.4-04)", async () => {
+    // Fixture writer is 1.9.0; the running CLI is newer. Sync → clean PASS.
+    await createTestProject(tempDir);
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      const { verifyCommand } = await import("../../cli/commands/verify.js");
+      await expect(verifyCommand({ format: "json" })).resolves.toBeUndefined();
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    const combined = stdoutChunks.join("");
+    const parsed = JSON.parse(combined.slice(combined.indexOf("{")).trim()) as {
+      manifestHatch3rVersion: string;
+      versionSkew: boolean;
+      versionSkewDirection: string;
+    };
+    expect(parsed.manifestHatch3rVersion).toBe("1.9.0");
+    expect(parsed.versionSkew).toBe(true);
+    expect(parsed.versionSkewDirection).toBe("installed-newer");
+  });
+
+  it("flips the recovery hint + human disclosure to update-first when installed-older (D1-SA1.4-04)", async () => {
+    // Writer 99.0.0 (above any real CLI) → installed-older. No sync → the cursor
+    // outputs are missing (syncable drift), so verify FAILS: the recovery hint
+    // must direct at `update` (sync would regenerate from the older set and
+    // downgrade), not the default `sync`/`--fix`.
+    await createTestProject(tempDir, { hatch3rVersion: "99.0.0" });
+    consoleSpy.mockClear();
+
+    const { verifyCommand } = await import("../../cli/commands/verify.js");
+    let thrown: unknown;
+    try {
+      await verifyCommand();
+    } catch (e) {
+      thrown = e;
+    }
+    expect(thrown).toBeInstanceOf(HatchError);
+    const hint = (thrown as HatchError).recoveryHint ?? "";
+    expect(hint).toContain("hatch3r update");
+    expect(hint).toContain("would downgrade");
+    expect(hint).not.toMatch(/Run `hatch3r sync` to regenerate drifted\/missing files/);
+
+    // The human path also prints the one-line skew disclosure.
+    const human = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(human).toContain("is older than the version that generated these files");
   });
 });

@@ -128,6 +128,93 @@ describe("runSelfUpdate", () => {
     expect(globalInstallCalls.length).toBe(1);
   });
 
+  // D1-SA1.3-13 (D1, P6): `--pin-version` / `versionConstraint` is a
+  // supply-chain control — freeze to a known-good version pending registry
+  // revocation (pack-trust-model §2.1) — that previously had zero behavioral
+  // coverage and one prior silent regression on record (D15-5, Cycle 11). These
+  // four tests lock every branch of buildInvocation (selfUpdate.ts:73-97): the
+  // pinned spec, the pnpm `add` vs npm `install` split, the global `-g` form,
+  // and the unpinned `@latest` (pm.updateArgs) fallback.
+  it("pins a project-local npm install to hatch3r@<version> when versionConstraint is set (D1-SA1.3-13)", async () => {
+    process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+    await seedProjectLocal();
+    // Clear accumulated call history so the filters below count only THIS
+    // test's invocation (the shared execFileSync mock is not auto-cleared
+    // between tests; mockClear keeps the beforeEach mockReturnValue intact).
+    vi.mocked(execFileSync).mockClear();
+    const result = await runSelfUpdate(tempDir, { versionConstraint: "2.1.0" });
+    expect(result.updated.length).toBe(1);
+    expect(result.updated[0]?.kind).toBe("project-local");
+    const pinCalls = vi.mocked(execFileSync).mock.calls.filter((c) =>
+      JSON.stringify(c[1] ?? []).includes("hatch3r@2.1.0"),
+    );
+    expect(pinCalls.length).toBe(1);
+    // npm project-local pin => `npm install hatch3r@2.1.0`, replacing the
+    // `@latest` updateArgs path (and never `-g` for a project-local target).
+    expect(pinCalls[0]?.[0]).toBe("npm");
+    expect(pinCalls[0]?.[1]).toEqual(["install", "hatch3r@2.1.0"]);
+    const latestCalls = vi.mocked(execFileSync).mock.calls.filter((c) =>
+      JSON.stringify(c[1] ?? []).includes("hatch3r@latest"),
+    );
+    expect(latestCalls.length).toBe(0);
+  });
+
+  it("uses `pnpm add hatch3r@<version>` for a pnpm project-local pin (D1-SA1.3-13)", async () => {
+    process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+    await seedProjectLocal();
+    // A real pnpm-lock.yaml makes detectPackageManager (which uses the
+    // unmocked node:fs/promises access) resolve to pnpm, exercising the
+    // pnpm `add`-vs-npm `install` pin branch the npm test above cannot reach.
+    await writeFile(join(tempDir, "pnpm-lock.yaml"), "");
+    vi.mocked(execFileSync).mockClear();
+    const result = await runSelfUpdate(tempDir, { versionConstraint: "2.1.0" });
+    expect(result.updated.length).toBe(1);
+    const pinCalls = vi.mocked(execFileSync).mock.calls.filter((c) =>
+      JSON.stringify(c[1] ?? []).includes("hatch3r@2.1.0"),
+    );
+    expect(pinCalls.length).toBe(1);
+    expect(pinCalls[0]?.[0]).toBe("pnpm");
+    expect(pinCalls[0]?.[1]).toEqual(["add", "hatch3r@2.1.0"]);
+  });
+
+  it("pins a global install to `-g hatch3r@<version>` when versionConstraint is set (D1-SA1.3-13)", async () => {
+    await seedGlobalInstall();
+    const fakeRoot = join(tempDir, "fake-global-root");
+    process.argv[1] = join(fakeRoot, "hatch3r", "dist", "cli", "index.js");
+    // seedGlobalInstall's mockImplementation (callIndex closure) survives
+    // mockClear — only the recorded call history is reset.
+    vi.mocked(execFileSync).mockClear();
+    const result = await runSelfUpdate(tempDir, { versionConstraint: "2.1.0" });
+    expect(result.updated.length).toBe(1);
+    expect(result.updated[0]?.kind).toBe("global");
+    const pinCalls = vi.mocked(execFileSync).mock.calls.filter((c) => {
+      const args = c[1] as string[] | undefined;
+      return Array.isArray(args) && args.includes("-g") && args.includes("hatch3r@2.1.0");
+    });
+    expect(pinCalls.length).toBe(1);
+    expect(pinCalls[0]?.[1]).toEqual(["install", "-g", "hatch3r@2.1.0"]);
+  });
+
+  it("falls back to `pnpm add hatch3r@latest` (updateArgs) when no versionConstraint is set (D1-SA1.3-13)", async () => {
+    process.argv[1] = join(tempDir, "node_modules", ".bin", "hatch3r");
+    await seedProjectLocal();
+    await writeFile(join(tempDir, "pnpm-lock.yaml"), "");
+    vi.mocked(execFileSync).mockClear();
+    const result = await runSelfUpdate(tempDir);
+    expect(result.updated.length).toBe(1);
+    const latestCalls = vi.mocked(execFileSync).mock.calls.filter((c) =>
+      JSON.stringify(c[1] ?? []).includes("hatch3r@latest"),
+    );
+    expect(latestCalls.length).toBe(1);
+    // No constraint => the unpinned pm.updateArgs path: `pnpm add hatch3r@latest`.
+    expect(latestCalls[0]?.[0]).toBe("pnpm");
+    expect(latestCalls[0]?.[1]).toEqual(["add", "hatch3r@latest"]);
+    const pinCalls = vi.mocked(execFileSync).mock.calls.filter((c) =>
+      JSON.stringify(c[1] ?? []).includes("hatch3r@2.1.0"),
+    );
+    expect(pinCalls.length).toBe(0);
+  });
+
   it("skips global self-update on Windows with guided message", async () => {
     // Assert Windows-specific behaviour by STUBBING win32 deterministically
     // (configurable so afterEach can restore) — never rely on the host
@@ -201,6 +288,47 @@ describe("runSelfUpdate", () => {
     expect((err as HatchError).recoveryHint).toBe(
       "Verify the package out-of-band first, then re-run `hatch3r update --skip-audit-signatures` to override the refusal; do not override on an unverified package.",
     );
+  });
+
+  it("does not refuse a global update when the audit cwd has no dependency tree (D1-SA1.3-01)", async () => {
+    // A global install audited in a non-Node repo (or any cwd without an
+    // installed dependency tree) makes `npm audit signatures` exit non-zero
+    // with "found no installed dependencies to audit". Pre-fix this was
+    // classified as a signature FAILURE and refused the update with an
+    // INTEGRITY_ERROR blaming compromised artifacts. It must now degrade to a
+    // warning and let the update proceed.
+    await seedGlobalInstall();
+    const fakeRoot = join(tempDir, "fake-global-root");
+    process.argv[1] = join(fakeRoot, "hatch3r", "dist", "cli", "index.js");
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+
+    vi.mocked(execFileSync).mockImplementation((..._args: unknown[]) => {
+      const a = _args[1] as string[] | undefined;
+      if (Array.isArray(a) && a[0] === "root" && a[1] === "-g") {
+        return Buffer.from(`${fakeRoot}\n`);
+      }
+      if (Array.isArray(a) && a[0] === "audit" && a[1] === "signatures") {
+        throw new Error(
+          "npm error code ENOLOCK\nnpm error audit This command requires an existing lockfile.\nnpm error found no installed dependencies to audit",
+        );
+      }
+      return Buffer.from(""); // global install succeeds
+    });
+
+    // Must NOT throw an INTEGRITY refusal — the update proceeds.
+    const result = await runSelfUpdate(tempDir);
+    expect(result.updated.length).toBe(1);
+    expect(result.updated[0]?.kind).toBe("global");
+    expect(result.failed).toEqual([]);
+
+    // The warning states the package is not flagged compromised (no false
+    // "verification FAILED … compromised" message).
+    const stderr = errSpy.mock.calls.map((c: unknown[]) => c.join(" "));
+    expect(
+      stderr.some((line) => /Signature verification unavailable/.test(line)),
+    ).toBe(true);
+    expect(stderr.some((line) => /verification FAILED/.test(line))).toBe(false);
+    errSpy.mockRestore();
   });
 
   it("degrades a secondary target failure to a warning, not a throw", async () => {

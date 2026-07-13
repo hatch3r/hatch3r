@@ -470,6 +470,21 @@ export async function pruneArchives(rootDir: string): Promise<string[]> {
   }
 
   for (const toolDir of toolDirs) {
+    // D2-SA2.7-02 (Cycle 12 Wave 3, D2, P6): `customize` is NOT a tool
+    // run-dir. `archiveCustomizeOverrides` (src/content/index.ts) deposits the
+    // "never hard-delete" user-override rescue store at
+    // `.hatch3r-archive/customize/<type>/` under this same ARCHIVE_DIR root —
+    // stable per-type directories, not timestamped run dirs. The count/byte
+    // caps below would evict those type dirs (destroying the only copy of a
+    // hand-authored override) once their number exceeds the retention cap,
+    // reachable today via HATCH3R_MAX_ARCHIVE_ENTRIES set below the type-dir
+    // count. Skipping the reserved `customize` child keeps the rescue store out
+    // of the prune blast radius, honoring the D10-35 archive-never-hard-delete
+    // contract. (Relocating the store out of ARCHIVE_DIR and surfacing pruned
+    // entries at the sync/update call sites are the follow-on items in the
+    // finding's recommendation, tracked separately — content/index.ts,
+    // sync.ts, update.ts are outside this change's scope.)
+    if (toolDir === "customize") continue;
     const toolPath = join(archiveRoot, toolDir);
     let entries: string[];
     try {

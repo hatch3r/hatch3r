@@ -4,8 +4,28 @@
  * Surfaces a pre-execution estimate (expected sub-agent count, static-frame
  * input tokens, web research queries, triage tier, duration) and a
  * post-execution actuals record so the iteration-summary "Fan-out + Cost"
- * section can show the delta. Designed to be called from `commands/hatch3r-*`
- * orchestrator wrap-up code via the helpers exported here.
+ * section can show the delta.
+ *
+ * Reachability (D6-SA6.3-03). The only executable callers today are the CLI's
+ * own single-pass commands: `init` reads {@link estimateCost} +
+ * {@link formatCostBlock} to print a zero-fan-out setup preview (`init.ts:717`,
+ * `subAgentDeclared: 0`), and `explain` reads {@link estimateUsdCost} +
+ * {@link resolveModelRate}. The `commands/hatch3r-*.md` orchestrators are NOT
+ * callers: they are LLM-interpreted markdown prompts shipped verbatim to user
+ * repos (`src/adapters/canonical.ts::readCanonicalFiles`) and cannot invoke a
+ * TypeScript function, so they reproduce the cost-visibility contract by hand
+ * per `rules/hatch3r-cost-visibility.md` instead of calling these helpers.
+ * Consequently the persistence ({@link recordActuals},
+ * {@link appendTelemetrySnapshot}, {@link recordTierAccuracy}), delta
+ * ({@link computeDelta}), tier-downgrade ({@link proposeAlternativeTier}) and
+ * review-budget ({@link reviewLoopBudgetFromEstimate}) exports have no runtime
+ * caller yet; they stand as a typed reference implementation of the model the
+ * rule specifies. Closing the gap needs one of two follow-ups (owner decision,
+ * D16.3 removal-threshold review): (a) narrow this module to the init/explain
+ * surface and drop the unreached exports, or (b) build the host-runtime bridge
+ * — a Claude Code/Cursor post-turn hook or MCP shim — so an orchestrator turn
+ * can call {@link recordActuals}/{@link estimateCost} with its real sub-agent
+ * count and repo size.
  *
  * Pillar service:
  * - P7 (Speed & Token Efficiency) — exposes token + duration cost to the user
@@ -14,10 +34,6 @@
  *
  * Silent Failure Contract: telemetry I/O failures NEVER throw. They route
  * through the `failureLog` channel per CONSTITUTION §2 P5 and Decision 27.
- *
- * @library_export_only — canonical helpers consumed by hatch3r-* orchestrator
- * commands at run time (inside the host coding tool); the CLI process itself
- * does not invoke these.
  */
 
 import { execFileSync } from "node:child_process";
@@ -949,13 +965,24 @@ export interface ModelRate {
 }
 
 /**
- * Versioned named-model rate map (D6-18, shared with D6-6's cost-tracking
- * skill). Keys are the canonical model ids; tier aliases (`opus`/`sonnet`/
- * `haiku`) resolve to the current model in each tier via {@link resolveModelRate}.
+ * Versioned named-model rate map (D6-18). Code-side home of the per-model rates;
+ * the human-facing twin is the price table in
+ * `skills/hatch3r-cost-tracking/SKILL.md`. The two are separate physical copies,
+ * not one generated source (D6-SA6.3-02), so `costEstimator.test.ts` →
+ * "MODEL_RATES ↔ cost-tracking SKILL.md parity" binds them: every model id the
+ * skill table lists must carry an identical input rate, output rate, and
+ * `accessed` date here, or the test fails. Keys are the canonical model ids; tier
+ * aliases (`opus`/`sonnet`/`haiku`) resolve to the current model in each tier via
+ * {@link resolveModelRate}.
  *
  * Source: Anthropic published pricing (https://www.anthropic.com/pricing,
- * accessed 2026-06-06). Re-fetch and update `accessed` before a release when any
- * row is older than 30 days — rates drift between model releases.
+ * accessed 2026-06-06). Currency policy (single window, reconciled D6-SA6.3-01):
+ * 30 days is the author re-fetch recommendation before a release; the enforced
+ * CI backstop is `scripts/validate-pricing-currency.ts`, which scans these
+ * `accessed:` rows (a second source alongside the cost-tracking skill table) and
+ * warns — or, under `--strict`, errors — when a row crosses its 90-day window.
+ * When re-fetching, update the rates + `accessed` date in BOTH homes together —
+ * the parity test fails on any drift.
  */
 export const MODEL_RATES: Readonly<Record<string, ModelRate>> = {
   "claude-opus-4-8": { inputCostPer1M: 5.0, outputCostPer1M: 25.0, accessed: "2026-06-06" },

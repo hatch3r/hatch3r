@@ -14,7 +14,8 @@ triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:
   count: 5
-  rationale: Five parallel hatch3r-researcher modes per test-planning brief — coverage-analysis, complexity-and-risk, test-pattern, boundary-analysis, risk-prioritization — dispatched concurrently in Step 3; a docs-writer composes the test plan on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  rationale: Five parallel hatch3r-researcher modes per test-planning brief — coverage-analysis, complexity-risk, test-pattern, boundary-analysis, risk-prioritization — dispatched concurrently in Step 3; a docs-writer composes the test plan on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -428,50 +429,7 @@ Only proceed if the research phase identified significant testing infrastructure
 
 If no ADRs are needed, skip to Step 7.
 
-#### ADR Format -- `docs/adr/{NNNN}_{decision-slug}.md`
-
-Determine the next sequential number by scanning existing files in `docs/adr/`. Use slugified decision titles.
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Context
-
-{Why this testing infrastructure decision is needed -- current pain points, coverage gaps, or quality concerns that motivate the change}
-
-## Decision
-
-{What was decided and why}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-
-## Related
-
-- Test plan spec: `docs/specs/{NN}_{scope-slug}_test-plan.md`
-```
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton. Per-command slots: context-guidance replaces the full `## Context` placeholder — "{Why this testing infrastructure decision is needed -- current pain points, coverage gaps, or quality concerns that motivate the change}"; related-ref = "Test plan spec: `docs/specs/{NN}_{scope-slug}_test-plan.md`".
 
 **ASK:** "Here are {N} ADR(s) generated from testing infrastructure decisions. Review before I write the files:
 {list with titles}
@@ -568,7 +526,7 @@ test-plan is long-running — a Tier 3 plan fans out parallel researcher sub-age
 
 ## Per-Turn Pipeline-State Header (Bypass Protection)
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for test-plan: `1` = feature/diff intake + mandate-class detection, `2` = hatch3r-testability sub-agent dispatch (fuzz / mutation / contract / property / visual / AI-eval), `3` = plan synthesis + coverage analysis, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Per-Turn Pipeline-State Header. Phase mapping for test-plan: `1` = feature/diff intake + mandate-class detection, `2` = parallel `hatch3r-researcher` mode dispatch (coverage-analysis / complexity-risk / test-pattern / boundary-analysis / risk-prioritization), `3` = plan synthesis + coverage analysis, `4` = plan write + iteration-summary. Tier 1 runs are exempt per the Tier 1 exemption.
 
 ## End-of-Turn Delegation Attestation (Bypass Protection)
 
@@ -576,15 +534,15 @@ test-plan is long-running — a Tier 3 plan fans out parallel researcher sub-age
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** -- emitted in Step 0.5 before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** -- appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.

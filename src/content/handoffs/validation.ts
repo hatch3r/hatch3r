@@ -95,10 +95,33 @@ export function verifyHandoffIntegrity(handoff: Handoff): boolean {
 }
 
 /**
+ * CI-RECON-06: size of the id's 5-hex uniqueness segment (16^5 = 2^20).
+ * The per-process counter below wraps inside this space so the emitted
+ * segment always formats to exactly 5 lowercase hex chars, preserving
+ * {@link HANDOFF_ID_PATTERN}.
+ */
+const HANDOFF_ID_HEX_SPACE = 0x100000;
+
+/**
+ * Per-process 20-bit counter, seeded once from CSPRNG. Successive
+ * {@link generateHandoffId} calls consume consecutive counter values, so up
+ * to 2^20 ids minted by one process are GUARANTEED distinct in their 5-hex
+ * segment — independent draws of `randomBytes(3).toString("hex").slice(0, 5)`
+ * (the prior implementation) only had 20 bits of entropy, giving a same-minute
+ * 50-id burst a ~0.117% birthday-collision rate per run (1 - exp(-1225/2^20)),
+ * which violated the burst-uniqueness contract the id exists to provide (and
+ * flaked CI). The random seed keeps cross-process dispersion: the first id a
+ * process emits is uniform over the full 2^20 space, exactly as before.
+ */
+let handoffIdCounter = randomBytes(4).readUInt32BE(0) % HANDOFF_ID_HEX_SPACE;
+
+/**
  * Build a handoff id of the form `<YYYY-MM-DD>_T<HHmm>_<5hex>_<slug>`.
  *
  * `slug` must already be a kebab-case slug (a..z, 0..9, hyphen, length 1..60).
- * Date components are UTC.
+ * Date components are UTC. The `<5hex>` segment is a CSPRNG-seeded per-process
+ * counter (see {@link handoffIdCounter}): collision-free for up to 2^20 ids
+ * within one process even when `now` is pinned to the same minute.
  */
 export function generateHandoffId(slug: string, now: Date = new Date()): string {
   const yyyy = now.getUTCFullYear().toString().padStart(4, "0");
@@ -106,7 +129,8 @@ export function generateHandoffId(slug: string, now: Date = new Date()): string 
   const dd = now.getUTCDate().toString().padStart(2, "0");
   const hh = now.getUTCHours().toString().padStart(2, "0");
   const min = now.getUTCMinutes().toString().padStart(2, "0");
-  const rand = randomBytes(3).toString("hex").slice(0, 5);
+  handoffIdCounter = (handoffIdCounter + 1) % HANDOFF_ID_HEX_SPACE;
+  const rand = handoffIdCounter.toString(16).padStart(5, "0");
   return `${yyyy}-${mm}-${dd}_T${hh}${min}_${rand}_${slug}`;
 }
 

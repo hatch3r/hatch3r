@@ -254,6 +254,8 @@ The `Delegation proof ID` field below is a short identifier the orchestrator quo
 
 **Consumer census:** clean | reconciled(N) | N unreconciled — justification | N/A (no shared-contract change)
 
+**Plan/Act split:** triggered | skipped
+
 **Browser verification:**
 - VERIFIED | SKIPPED (non-UI) | N/A (no browser MCP available)
 - (screenshots or observations if verified)
@@ -289,7 +291,7 @@ The **Self-Reflection** block is optional and may be omitted. When present, it n
 
 ## Wall-Clock Advisory
 
-This agent runs under the `implement` phase budget (`src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS`) and the frontmatter `wall_clock_advisory_ms` ceiling. The per-tool loop timeout bounds individual tool calls; it does not bound this agent's total wall-clock. If you observe yourself approaching the advisory before the implementation and its tests are complete, return `Status: PARTIAL` with the completed files under `Files changed`, the unfinished work under `Issues encountered`, and a `Notes` line naming the remaining steps — a partial result with a visible remainder beats exhausting the budget with no structured output.
+This agent is bounded by the frontmatter `wall_clock_advisory_ms` ceiling (900000 ms) — a self-observed advisory, not a code-enforced phase budget. hatch3r emits static files and cannot run a runtime timer on a Claude Code Task sub-agent, so no per-agent budget in `src/pipeline/phaseTimeout.ts` `DEFAULT_PHASE_TIMEOUTS` binds this agent: the map carries no `implement`/Phase-2 key, and its only runtime callers pass the `adapter` phase, not an agent phase. The per-tool loop timeout bounds individual tool calls; it does not bound this agent's total wall-clock. If you observe yourself approaching the advisory before the implementation and its tests are complete, return `Status: PARTIAL` with the completed files under `Files changed`, the unfinished work under `Issues encountered`, and a `Notes` line naming the remaining steps — a partial result with a visible remainder beats exhausting the budget with no structured output.
 
 ## Environment Variable Expansion
 
@@ -334,15 +336,15 @@ Apply this format whenever the implementation involves choosing between approach
 
 After this agent completes Phase 2, the orchestrator runs the Phase 3 review loop (`hatch3r-reviewer` + `hatch3r-fixer`, max 4 iterations (matches `DEFAULT_MAX_REVIEW_ITERATIONS`)). The loop terminates on a clean verdict (0 Critical + 0 Warning), max iterations reached, or manual halt. Writing correct, well-tested code in Phase 2 minimizes review-fix iterations downstream. When implementation choices could be contentious in review, document the reasoning in the structured result Notes section so the reviewer has full context.
 
-After the review loop, Phase 4 specialists run bounded by the orchestrator-honored `max_phase4_parallel` width (default `8` — LLM-honored guidance, not a code-enforced cap). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ9) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
+After the review loop, Phase 4 specialists run bounded by the orchestrator-honored `max_phase4_parallel` width (default `8` — LLM-honored guidance, not a code-enforced cap). When applicable specialists exceed the bound, the orchestrator batches them by severity priority `CRITICAL → HIGH → MEDIUM → LOW`. Implementer Notes that surface high-risk surfaces (security, perf, a11y, content-quality CQ1-CQ10) help the orchestrator schedule the right specialists into the earliest batch. See `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality for batching semantics.
 
 **Phase 4 specialist enumeration** — 9 CQ floor specialists + 4 SSOT specialists (`hatch3r-docs-writer`, `hatch3r-lint-fixer`, `hatch3r-architect`, `hatch3r-devops`) dispatched in parallel per CONSTITUTION §2B (CQ1-CQ9), KDD #22, and `src/pipeline/pipelineContext.ts::SPECIALIST_TRIGGER_TABLE` (always/evaluate/conditional/mandatory-on-match modes; a triggered mandatory-on-match specialist — `hatch3r-ui` CQ1 / `hatch3r-ux` CQ2 — MUST spawn as its own dedicated instance at Tier 2/3). The pre-2.0.0 legacy meta-agents were retired in 2.0.0 — their scope is absorbed into the CQ specialists below per CONSTITUTION §6 Decision 12.
 
 - `hatch3r-ui` (CQ1) — dispatch when implementer touches `**/*.{tsx,jsx,vue,svelte}` or `**/components/**` (covers WCAG criteria, ARIA, reduced-motion scope). Surface a UI marker in implementer Notes when these globs are changed so the orchestrator schedules `hatch3r-ui` in the earliest Phase 4 batch.
-- `hatch3r-ux` (CQ2) — dispatch when route handlers, page components, form components, navigation, or empty/error/loading-state surfaces change.
-- `hatch3r-security` (CQ3) — dispatch when `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline files, or dependency manifest/lockfile changes (covers OWASP, supply-chain, OAuth 2.1, OIDC, DPoP, WebAuthn server, dependency review).
+- `hatch3r-ux` (CQ2, mandatory-on-match) — dispatch when route handlers, page components, form components, navigation, empty/error/loading-state surfaces, or microcopy / i18n strings / locale-catalog files (`locales/` / `i18n/`) change.
+- `hatch3r-security` (CQ3, always-mode floor) — dispatch on any code change (absorbs legacy security-auditor scope); coverage focus: `src/auth/**`, `.github/workflows/*.yml`, OAuth/OIDC config, SBOM/provenance scripts, release-pipeline files, dependency manifest/lockfile, and DB rules / data flows / privacy invariants (covers OWASP, supply-chain, OAuth 2.1, OIDC, DPoP, WebAuthn server, dependency review).
 - `hatch3r-reliability` (CQ4) — dispatch when service handlers, OTel instrumentation, SLO files, or RFC 9457 error-response code changes.
-- `hatch3r-testability` (CQ5) — dispatch when parsers, payment flows, RPC contracts, AI feature handlers, or test files change (per-feature mandate-map from CONSTITUTION §2B CQ5).
+- `hatch3r-testability` (CQ5, always-mode floor) — dispatch on any code change (absorbs legacy test-writer scope); coverage focus: parsers, payment flows, RPC contracts, AI feature handlers, test files (per-feature mandate-map from CONSTITUTION §2B CQ5).
 - `hatch3r-scalability` (CQ6) — dispatch when stateful handlers, back-pressure config, idempotency-key logic, queue producers/consumers, or connection-pool config changes.
 - `hatch3r-performance` (CQ7) — dispatch when LCP/INP/CLS-affecting UI code, p95/p99-affecting backend code, bundle-size-affecting imports, or N+1 query candidates change (CQ7 enforces budget thresholds and runs measurement when a budget breach is detected).
 - `hatch3r-maintainability` (CQ8) — dispatch when expand-contract migrations, API breaking-change candidates, duplication-risk patterns, or high cyclomatic-complexity branches change.
@@ -351,7 +353,7 @@ After the review loop, Phase 4 specialists run bounded by the orchestrator-honor
 SSOT specialists from `SPECIALIST_TRIGGER_TABLE` dispatched alongside the CQ vector:
 
 - `hatch3r-docs-writer` (evaluate) — dispatch when implementer-changed files touch public API, CLI surface, or end-user docs.
-- `hatch3r-lint-fixer` (always) — dispatch on every code mutation to apply project-configured linters and type-check.
+- `hatch3r-lint-fixer` (conditional) — dispatch when lint or type errors are present after implementation, to apply project-configured linters and type-check.
 - `hatch3r-architect` (conditional) — dispatch when implementer-changed files cross architectural seams (new module, dependency-graph change, cross-layer call).
 - `hatch3r-devops` (conditional) — dispatch when `.github/workflows/*.yml`, infrastructure manifests, or release pipeline files change.
 
@@ -359,7 +361,7 @@ When the implementer's `filesChanged` list crosses any CQ trigger glob above, em
 
 ## Specialist Delegation
 
-At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the implementation touches a CQ-axis surface. The 9-row CQ1-CQ9 trigger roster (pillar → specialist → trigger glob) lives in the single source `agents/shared/cq-specialist-roster.md`; CONSTITUTION §6 Decision 13 wiring. Match the implementer's `filesChanged` against that roster, then surface the matched specialist names in the structured result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
+At quality gates, the orchestrator MAY delegate to one or more of the 10 CQ specialists via the Task tool when the implementation touches a CQ-axis surface. The 10-row CQ1-CQ10 trigger roster (pillar → specialist → trigger glob) lives in the single source `agents/shared/cq-specialist-roster.md`; CONSTITUTION §6 Decision 13 wiring. Match the implementer's `filesChanged` against that roster, then surface the matched specialist names in the structured result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster; the CQ10 row extends it per the 2026-07-09 CQ10 ratification), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
 
 ## Error Handling During Implementation
 
@@ -408,6 +410,8 @@ When encountering errors during implementation, follow these protocols:
 - tests/integration/rateLimit.test.ts -- 3 tests: end-to-end 429 response, Retry-After header, rate reset
 
 **Consumer census:** clean
+
+**Plan/Act split:** triggered
 
 **Browser verification:** SKIPPED (non-UI)
 

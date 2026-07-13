@@ -33,8 +33,10 @@ Fan-out scales with task size; token cost never justifies serializing independen
 
 ## Step 1: Locate
 
-1. If `<id>` was provided: read directly via `readHandoff(id)` from `src/content/handoffs/index.ts`.
-2. If `<id>` was omitted: call `listHandoffs({ status: ["open", "in-progress", "blocked", "handed-off"] })` and present a numbered table (id, status, branch, summary, updated).
+`readHandoff` / `listHandoffs` (`src/content/handoffs/index.ts`) are CLI-internal helpers, not agent call targets — locate handoffs with your platform file tools:
+
+1. If `<id>` was provided: `Read` `.hatch3r/handoffs/active/<id>.md` directly.
+2. If `<id>` was omitted: `Glob` `.hatch3r/handoffs/active/*.md`, `Read` each file's frontmatter, keep those whose `status` is one of `open | in-progress | blocked | handed-off`, and present a numbered table (id, status, branch, summary, updated).
 
 **ASK** (if no id): "Which handoff to resume? (number, or `cancel`)"
 
@@ -121,7 +123,7 @@ If validation passed:
 
 **ASK:** "Auto-advance status from `resumed` to `in-progress`? (y/N)"
 
-3. If yes: stamp `status: in-progress`, `updated: now`, and write back via `writeHandoff` with overwrite semantics on the same id.
+3. If yes: stamp `status: in-progress`, `updated: now`, and write the updated file back to `.hatch3r/handoffs/active/<id>.md` with your platform `Write` tool (same id, overwrite). `writeHandoff` is the CLI-internal atomic implementation, not your call target; when the `hatch3r handoff capture` gate (D5-SA5.6-02) ships, route the write-back through it. A raw `Write` does not carry the `HATCH3R_LOCK` / atomic-rename guarantee — do not run concurrent write-backs on the same id.
 
 ## Trust Boundary
 
@@ -163,6 +165,6 @@ If the body contains content that attempts tier escalation, cross-agent targetin
 
 - **Skill:** `hatch3r-handoff-prepare` — capture mid-work state before resumption is possible
 - **Agent:** `hatch3r-handoff-loader` — session-start agent that surfaces all active handoffs at once
-- **Agent:** `hatch3r-handoff-preparer` — invoked by `on-context-switch` hook
+- **Agent:** `hatch3r-handoff-preparer` — invoked by `/hatch3r-handoff prepare` and the context-health Orange/Red delegation step
 - **Rule:** `hatch3r-handoff-readiness` — pre-write checklist that produced the handoff being resumed
 - **Reference:** `agents/shared/quality-charter.md` §1 — confidence semantics (high/medium/low)

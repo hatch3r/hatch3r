@@ -46,16 +46,16 @@ Rules: 2-4 numbered options, each with a one-line trade-off; the `Default if no 
   - Data model — Collection/schema schemas and access patterns
   - Event model — Event metadata allowlist
 - **File Structure (adapt to project):**
-  - `firestore.rules` or equivalent — Database security rules (you AUDIT and FIX)
-  - `storage.rules` — Cloud Storage rules if applicable (you AUDIT and FIX)
-  - `functions/src/` or API dir — Server/Cloud code (you AUDIT)
+  - Your data-access / database security rule file — Database access rules (you AUDIT and FIX)
+  - Object/blob storage access rules if applicable (you AUDIT and FIX)
+  - Server / API source directory — Backend code (you AUDIT)
   - `tests/rules/` — Security rules tests (you WRITE here)
-  - Event processing modules — Privacy guard (you AUDIT)
+  - Event/message processing modules — Privacy guard (you AUDIT)
 
 ## Commands You Can Use
 
 - Run security rules tests: `npm run test:rules`
-- Start emulators if applicable: `firebase emulators:start` or equivalent
+- Start your local test emulator / dev server if applicable: `<your emulator start command>`
 - Lint: `npm run lint`
 - Type check: `npm run typecheck`
 

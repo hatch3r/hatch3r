@@ -62,7 +62,7 @@ This command runs in two phases: **Planning** (collect all answers) then **Execu
 
 Run BEFORE Phase 1. Halt on the first failure with an actionable fix command. Do not prompt for board configuration choices until every prerequisite below succeeds.
 
-1. **Run the shared Prerequisite Check.** Execute the `Prerequisite Check` block in `hatch3r-board-shared` §"Prerequisite Check (run at the start of every board command)" — verifies `.hatch3r/hatch.json` exists, owner/repo configured, and platform CLI authenticated (`gh auth status` / `az account show` / `glab auth status`).
+1. **Run the shared Prerequisite Check.** Execute the `Prerequisite Check` block in `hatch3r-board-shared` §"Detect Ambiguity + Prerequisite Check" — verifies `.hatch3r/hatch.json` exists, owner/repo configured, and platform CLI authenticated (`gh auth status` / `az account show` / `glab auth status`).
 
 2. **Verify platform credentials at the env-var layer.** The shared prereq check confirms the CLI is authenticated; this step additionally verifies the underlying credential is present for non-interactive runs:
 

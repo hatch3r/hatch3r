@@ -69,7 +69,7 @@ Every change to hatch3r serves at least one pillar on one of two axes.
 | P7 | Speed & Token Efficiency |
 | P8 | Clarification & Fan-out Discipline |
 
-**Content-quality axis (CQ1-CQ9)** — what the framework produces in end-user code. Each pillar is owned by a specialist agent invoked at quality gates with measurable thresholds:
+**Content-quality axis (CQ1-CQ10)** — what the framework produces in end-user code and its upstream spec artifacts. Each pillar is owned by a specialist agent invoked at quality gates with measurable thresholds:
 
 | Pillar | Name |
 |--------|------|
@@ -82,6 +82,7 @@ Every change to hatch3r serves at least one pillar on one of two axes.
 | CQ7 | Performance |
 | CQ8 | Maintainability |
 | CQ9 | Enhancability |
+| CQ10 | Product & Spec |
 
 See [Quality-Vector Specialists](./guides/quality-vector-specialists) for the per-pillar specialist agents and their thresholds.
 

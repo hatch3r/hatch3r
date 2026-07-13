@@ -574,6 +574,14 @@ describe("compound system content validation", () => {
       // retired `tier:*` / `floor:enterprise-only` facet no longer subtracts
       // any item, so the full-preset count equals the corpus minus only the
       // greenfield-only set under brownfield+team.
+      //
+      // D5-SA5.4-09 + CI-RECON-05 (Cycle 12): "every item" includes
+      // `hatch3r-capability-matrix`, whose floor:content-quality tag was
+      // removed in wave 3 (framework-internal rule, must stay disableable) and
+      // whose remaining tags are refinement tags outside the 9 preset-positive
+      // capability tags — it reaches full's selection only via the deliberate
+      // `full.includeIds` carve-out in presets.ts. If this count goes off by
+      // exactly 1, check that carve-out before touching the arithmetic.
       const preset = getPreset("full");
       const selection = resolveSelection(preset, "brownfield", "team", contentIndex);
       const totalItems = Object.values(selection.items).reduce(
@@ -670,12 +678,17 @@ describe("compound system content validation", () => {
     // in TAG_REGISTRY. An artifact whose ONLY capability tags fall in the other
     // 35 (no floor:* tag, protected !== true) intersects no preset's
     // `capabilities` and is dropped by EVERY preset INCLUDING `full` — a silent
-    // corpus hole, since `full` is meant to ship everything. The corpus has 0
-    // such orphans today; this guard fails the build the moment one is added.
+    // corpus hole, since `full` is meant to ship everything. The sanctioned
+    // escape for a deliberate refinement-only artifact is a per-id `includeIds`
+    // entry (today: `hatch3r-capability-matrix` via `full.includeIds`,
+    // D5-SA5.4-09 + CI-RECON-05 — `fullAdmitted` below already contains
+    // includeIds admissions because it goes through `resolveSelection`). This
+    // guard fails the build the moment an UNSANCTIONED orphan is added.
     // `skipContextFilters: true` isolates the preset-admission set (floor +
-    // capability + customize + protected) from the context/language stages, so
-    // a legitimately project-scoped item (ctx:greenfield-only on brownfield)
-    // is not misreported as a capability-coverage orphan.
+    // capability + customize + includeIds + protected) from the
+    // context/language stages, so a legitimately project-scoped item
+    // (ctx:greenfield-only on brownfield) is not misreported as a
+    // capability-coverage orphan.
     it("every canonical artifact is admitted by full, floor-tagged, or protected (D2-20)", () => {
       const fullAdmitted = getAllContentIds(
         resolveSelection(getPreset("full"), "brownfield", "team", contentIndex, undefined, undefined, {
@@ -690,8 +703,38 @@ describe("compound system content validation", () => {
       );
       expect(
         orphans.map((i) => `${i.id} [${i.tags.join(", ")}]`),
-        "artifacts admitted by no preset (capability tags outside the 9 preset-positive tags, no floor tag, not protected)",
+        "artifacts admitted by no preset (capability tags outside the 9 preset-positive tags, no floor tag, not protected, not includeIds-carved)",
       ).toEqual([]);
+    });
+
+    // D5-SA5.4-09 reconciliation (CI-RECON-05, Cycle 12): wave 3 removed
+    // `floor:content-quality` from `rules/hatch3r-capability-matrix.md` — the
+    // rule is framework-internal (governs hatch3r's own per-cycle adapter
+    // audit; inert in consumer repos) and a floor tag made it un-disableable at
+    // customization layer 2. Its remaining tags (adapters/currency/capability)
+    // are refinement tags, so per the finding's intent ("until then it ships as
+    // canonical content") it ships via `full.includeIds` ONLY: present in full
+    // (the everything preset), deliberately absent from minimal/standard. This
+    // test encodes that invariant in both directions — dropping the includeIds
+    // entry breaks the `full` leg; re-adding a floor tag or a lifecycle
+    // capability tag breaks the exclusion legs.
+    it("hatch3r-capability-matrix ships via full's includeIds carve-out only (D5-SA5.4-09, CI-RECON-05)", () => {
+      const item = contentIndex.byId.get("hatch3r-capability-matrix");
+      expect(item, "rule must exist in the canonical corpus").toBeDefined();
+      expect(item!.protected ?? false).toBe(false);
+      expect(item!.tags.some(isFloorTag)).toBe(false);
+
+      const admittedBy = (id: PresetId): boolean =>
+        getAllContentIds(
+          resolveSelection(getPreset(id), "brownfield", "team", contentIndex, undefined, undefined, {
+            skipContextFilters: true,
+          }),
+        ).has("hatch3r-capability-matrix");
+
+      expect(getPreset("full").includeIds).toContain("hatch3r-capability-matrix");
+      expect(admittedBy("full"), "full must admit it via includeIds").toBe(true);
+      expect(admittedBy("minimal"), "minimal must not ship the framework-internal rule").toBe(false);
+      expect(admittedBy("standard"), "standard must not ship the framework-internal rule").toBe(false);
     });
   });
 
@@ -746,7 +789,7 @@ describe("compound system content validation", () => {
         }),
       );
       // The security floor (CQ3 specialist + supporting rules) and the
-      // content-quality floor (CQ1-CQ9 specialists) ship in every non-custom
+      // content-quality floor (CQ1-CQ10 specialists) ship in every non-custom
       // preset via floor admission; the security archetype is the one a user
       // picks expressly for hardening, so a retag dropping these from it is the
       // exact regression D3-14 targets. Assert both floors land via membership.

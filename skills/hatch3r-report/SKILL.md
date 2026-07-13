@@ -28,7 +28,12 @@ Task Progress:
 
 ## Step 0 — Detect Ambiguity (P8 B1)
 
-This skill is read-only over local transcripts and produces no file mutations outside `.hatch3r/reports/` (and only with `--save`). The platform-native question tool is invoked only when the user's `--session <value>` argument fails to resolve to a readable file or when `--save` would overwrite an existing report — see Error Handling. Otherwise the skill runs without an ASK gate.
+This skill has no up-front scope ASK — it is read-only over local transcripts and mutates nothing outside `.hatch3r/reports/` (and only with `--save`). Its two error-path ASKs use the platform-native question tool per `agents/shared/user-question-protocol.md`, each rendered as numbered options with a mandatory `Default if no response:` line:
+
+- `--session <value>` fails to resolve to a readable file → (1) re-run with `--list` and pick a session, (2) report the newest session in this project, (3) supply an absolute `.jsonl` path. Default if no response: 1 (`--list`).
+- `--save` would overwrite an existing report → (1) write a timestamp-suffixed filename, (2) overwrite in place. Default if no response: 1 (timestamp-suffixed).
+
+See Error Handling for the terminal resolution/permission failures.
 
 ## Argument Parsing
 

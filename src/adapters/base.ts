@@ -13,6 +13,7 @@ import { resolveAgentModel, resolveArtifactModel } from "../models/resolve.js";
 import { wrapManagedFor } from "../merge/managedBlocks.js";
 import { generateBridgeOrchestration } from "../cli/shared/agentsContent.js";
 import { resolveUserContentRoot } from "../content/index.js";
+import { buildAgentsMdOutput, resolveAgentsMdOwner } from "./agentsMd.js";
 import { filterUserFacing, parseFrontmatter, readCanonicalFiles, sortByPrecedence, type CanonicalType } from "./canonical.js";
 import { applyCustomization, applyCustomizationRaw } from "./customization.js";
 import {
@@ -72,7 +73,17 @@ export interface Adapter {
     generationMode?: GenerationMode,
     signal?: AbortSignal,
   ): Promise<AdapterOutput[]>;
-  getOutputPaths(canonicalRoot: string, manifest: HatchManifest): Promise<string[]>;
+  /**
+   * Enumerate the output paths this adapter would produce. `userRepoRoot`
+   * MUST be threaded with the same value passed to {@link Adapter.generate}
+   * so the enumerated set matches the real generation set including user-tier
+   * overrides (D2-SA2.1-02). Optional for backward compatibility.
+   */
+  getOutputPaths(
+    canonicalRoot: string,
+    manifest: HatchManifest,
+    userRepoRoot?: string,
+  ): Promise<string[]>;
 }
 
 /**
@@ -148,13 +159,26 @@ export type CleanMcpEntry = Omit<McpServerEntry, "_disabled" | "_description">;
  * array references these members by name — a typo (e.g. `"agents/share"`) is a
  * compile error instead of a silent zero-output emission, and the canonical
  * set lives in one place (D02-SA2.1 checklist: walks `agents/modes/`,
- * `agents/shared/`, `commands/board/`, `commands/revision/`, `checks/`).
+ * `agents/shared/`, `commands/board/`, `commands/revision/`, `commands/shared/`,
+ * `checks/`).
+ *
+ * D2-SA2.1-01 (Cycle 12 Wave 2, P5): `commands/shared/` — home of the
+ * orchestration-frame companion added Cycle 11 — was omitted from this tuple for
+ * ~2 weeks after it landed, so every emitted orchestrator command referenced
+ * `commands/shared/orchestration-frame.md` while no adapter shipped it (the
+ * TypeScript `CompanionSubdir` union catches typos but not omissions). The
+ * completeness invariant in `src/__tests__/adapters/base.test.ts`
+ * ("KNOWN_COMPANION_SUBDIRS completeness invariant") walks the on-disk
+ * `agents/`+`commands/` subdir set (mirroring the dynamic copy path in
+ * `src/content/index.ts`) and fails if this tuple omits a discovered member,
+ * so the next companion class cannot be added to the tree without wiring.
  */
 export const KNOWN_COMPANION_SUBDIRS = [
   "agents/modes",
   "agents/shared",
   "commands/board",
   "commands/revision",
+  "commands/shared",
   "checks",
 ] as const;
 
@@ -175,7 +199,7 @@ function defaultModelFormat(model: string): ModelFormat {
  * When the `description:` line fails to parse, the slash-command / skill picker
  * in Claude Code / Cursor / Copilot falls back to showing the `HATCH3R:BEGIN`
  * managed-block marker as the description. Double-quoting removes that hazard.
- * Used by {@link processCommandsWithFm}, {@link processSkillsWithFm}, and
+ * Used by {@link processCommandsWithFm} and
  * {@link processSkillsWithFmCliFiltered}.
  *
  * Transform: collapse runs of CR/LF to a single space (a frontmatter scalar is
@@ -212,10 +236,17 @@ function toYamlDoubleQuotedScalar(value: string): string {
  * value returns `undefined`; if unvalidated content ever reached this helper, a
  * YAML error would propagate loudly rather than be silently swallowed.
  */
-function extractArgumentHint(rawContent: string): string | undefined {
-  const match = rawContent.match(/^---\n([\s\S]*?)\n---/);
+export function extractArgumentHint(rawContent: string): string | undefined {
+  // D2-SA2.1-06 (D2, P1): tolerate CRLF. The canonical reader's FRONTMATTER_REGEX
+  // (canonical.ts) already admits `\r?\n`, so a CRLF user-override command (a
+  // Windows `core.autocrlf=true` working tree) is a valid CanonicalFile — but an
+  // LF-only regex here would MISS its frontmatter and silently drop the picker's
+  // argument-hint affordance (D5-33) for exactly those files. Match `\r?\n` and
+  // strip CR from the captured block before parseYaml so the scalar value never
+  // carries a trailing `\r`.
+  const match = rawContent.match(/^---\r?\n([\s\S]*?)\r?\n---/);
   if (!match) return undefined;
-  const parsed = parseYaml(match[1]) as Record<string, unknown> | null;
+  const parsed = parseYaml(match[1].replace(/\r/g, "")) as Record<string, unknown> | null;
   const hint = parsed?.["argument-hint"];
   return typeof hint === "string" && hint.trim().length > 0 ? hint : undefined;
 }
@@ -296,6 +327,20 @@ export abstract class BaseAdapter implements Adapter {
     // throwing. Surface the abort here so callers see consistent behaviour.
     BaseAdapter.throwIfSignalAborted(signal);
 
+    // D9-SA9.5-05 (Cycle 12 CL-2 U6): opt-in root AGENTS.md interop surface.
+    // Appended from this shared wrapper — never from any doGenerate — so the
+    // output class needs zero per-adapter code (Decision-12: an output
+    // surface, not an adapter) and flows through the invariant enforcement
+    // below like every doGenerate output. Owner election keeps the emission
+    // single-writer across a multi-tool sync: resolveAgentsMdOwner returns a
+    // tool name only when `manifest.agentsMd?.enabled === true` (default OFF —
+    // absence leaves every adapter's output set byte-identical), and only the
+    // elected adapter appends the file, so the sync-side cross-adapter
+    // path-collision warning never fires for AGENTS.md.
+    if (resolveAgentsMdOwner(manifest) === this.name) {
+      outputs.push(buildAgentsMdOutput(manifest));
+    }
+
     // C9-H4 (D2-SA2.1-01): Output-invariant enforcement.
     //
     // Path-traversal is a P6 (Security & Trust) violation — a sync that
@@ -311,7 +356,17 @@ export abstract class BaseAdapter implements Adapter {
     // poison the rest of the sync, but we still surface a warning so the
     // operator sees the failure.
     const traversalOutputs = outputs.filter(
-      (o) => o.path.startsWith("/") || o.path.includes(".."),
+      (o) =>
+        o.path.startsWith("/") ||
+        // D2-SA2.1-07 (D2, P6): the POSIX `startsWith("/")` check misses
+        // Windows-absolute forms (`C:\evil`, `C:/evil`). `join(rootDir, rel)` in
+        // the write path CONTAINS rather than resets a drive-letter segment, so
+        // today the gap is contract-incompleteness — the thrown error promises
+        // "no absolute paths" universally — not live traversal. Reuse the
+        // drive-letter pattern `filterUserFacing` already applies in
+        // canonical.ts so both surfaces model the Windows absolute shape.
+        /^[A-Za-z]:[\\/]/.test(o.path) ||
+        o.path.includes(".."),
     );
     if (traversalOutputs.length > 0) {
       const paths = traversalOutputs.map((o) => `"${o.path}"`).join(", ");
@@ -454,14 +509,44 @@ export abstract class BaseAdapter implements Adapter {
    * fixed output paths or paths derived only from canonical file IDs)
    * should override this with a lightweight implementation.
    *
-   * Caches the result so repeated calls do not re-generate.
+   * D2-SA2.1-02 (Cycle 12 Wave 3, D2, P2): `userRepoRoot` is threaded to
+   * `generate()` with the same value the caller uses for real generation. The
+   * path set is a function of the user-tier overrides layered in from
+   * `${userRepoRoot}/.hatch3r/overrides/`, so an enumeration that omits it
+   * returns a strict subset (canonical-only). `update.ts`'s D1-4 rollback
+   * pre-enumeration uses this method to record the tombstone set; without the
+   * parameter a newly-created user-override output escaped tombstoning and
+   * survived a rollback. Omitting the arg keeps the legacy canonical-only
+   * enumeration (test invocations that stage no user subtree).
+   *
+   * Memoises the last computed result keyed on the full argument tuple
+   * (`canonicalRoot`, `manifest` by reference, `userRepoRoot`). D3-SA3.1-03
+   * (Cycle 12 Wave 3, D3, CQ5): the prior cache was argument-insensitive, so a
+   * second call with a different `userRepoRoot`/`canonicalRoot`/`manifest`
+   * returned the first call's paths. A direct `generate()` call also
+   * invalidates the memo (the reset at the top of `generate`).
    */
-  private _cachedOutputPaths: string[] | null = null;
-  async getOutputPaths(canonicalRoot: string, manifest: HatchManifest): Promise<string[]> {
-    if (this._cachedOutputPaths) return this._cachedOutputPaths;
-    const outputs = await this.generate(canonicalRoot, manifest);
-    this._cachedOutputPaths = outputs.map((o) => o.path);
-    return this._cachedOutputPaths;
+  private _cachedOutputPaths:
+    | { canonicalRoot: string; manifest: HatchManifest; userRepoRoot: string | undefined; paths: string[] }
+    | null = null;
+  async getOutputPaths(
+    canonicalRoot: string,
+    manifest: HatchManifest,
+    userRepoRoot?: string,
+  ): Promise<string[]> {
+    const cached = this._cachedOutputPaths;
+    if (
+      cached &&
+      cached.canonicalRoot === canonicalRoot &&
+      cached.manifest === manifest &&
+      cached.userRepoRoot === userRepoRoot
+    ) {
+      return cached.paths;
+    }
+    const outputs = await this.generate(canonicalRoot, manifest, userRepoRoot);
+    const paths = outputs.map((o) => o.path);
+    this._cachedOutputPaths = { canonicalRoot, manifest, userRepoRoot, paths };
+    return paths;
   }
 
   /**
@@ -640,39 +725,6 @@ export abstract class BaseAdapter implements Adapter {
   }
 
   /**
-   * Wave 4: `agentsPath` defaults to `"this file"` because the root
-   * `AGENTS.md` is no longer emitted (W3) — the bridge file IS the
-   * orchestration doc now. Callers may still pass a custom path for the
-   * (rare) adapters that emit a sibling reference document.
-   */
-  protected async bridgeHeader(ctx: AdapterContext, agentsPath = "this file"): Promise<string[]> {
-    const orchestration = await this.bridgeOrchestration(ctx);
-    const isThisFile = agentsPath === "this file";
-    if (this.isMinimal(ctx)) {
-      return [
-        "",
-        "# Hatch3r Agent Instructions",
-        "",
-        isThisFile ? "Instructions inlined below." : `Instructions: \`${agentsPath}\``,
-        "",
-        orchestration,
-        "",
-      ];
-    }
-    return [
-      "",
-      "# Hatch3r Agent Instructions",
-      "",
-      isThisFile
-        ? "Canonical agent orchestration is inlined in this file."
-        : `Full canonical agent instructions are at \`${agentsPath}\`.`,
-      "",
-      orchestration,
-      "",
-    ];
-  }
-
-  /**
    * Read canonical rules and format them as inline markdown sections.
    *
    * D6-SA6.1-F6.1.8 (P4): no current adapter calls this helper — the 3
@@ -766,7 +818,20 @@ export abstract class BaseAdapter implements Adapter {
     return file.sourcePath ? [file.sourcePath] : undefined;
   }
 
-  /** Process skills and output each as a raw managed-block file at the path returned by `pathFn`. */
+  /**
+   * Process skills and output each as a raw managed-block file at the path
+   * returned by `pathFn`.
+   *
+   * D2-SA2.1-04 (P4): no current adapter calls this helper — claude/cursor/
+   * copilot each emit skills via the CLI-filtered {@link processSkillsWithFmCliFiltered}
+   * twin (Wave 3 swap). Retained as a BaseAdapter utility exercised by
+   * `src/__tests__/adapters/base.test.ts` (per-output emission probe); removal
+   * is deferred because it would require rewriting those tests. WARNING for a
+   * future adapter author: this raw twin does NOT apply the CLI-tooling filter,
+   * picker-safe frontmatter quoting, `allowed-tools`, or `model:` emission that
+   * {@link processSkillsWithFmCliFiltered} carries — reach for the live twin, not
+   * this one, for a real skill-emission pipeline.
+   */
   protected async processSkillsRaw(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -786,39 +851,6 @@ export abstract class BaseAdapter implements Adapter {
   }
 
   /**
-   * Process skills and output each with YAML frontmatter (`name`,
-   * `description`) at the path returned by `pathFn`.
-   *
-   * The `description:` is rendered as a YAML double-quoted scalar via
-   * {@link toYamlDoubleQuotedScalar} — the same treatment {@link processCommandsWithFm}
-   * applies to command descriptions. A skill description carrying `: ` (or a
-   * leading YAML indicator / `"` / `#`) would otherwise make the byte-0
-   * `description:` line an invalid plain scalar, and the `/` picker in Claude
-   * Code / Cursor / Copilot would fall back to showing the `HATCH3R:BEGIN`
-   * managed-block marker. `name` is the canonical id (a `hatch3r-` slug with no
-   * quoting hazard) and stays unquoted, mirroring the command helper.
-   */
-  protected async processSkillsWithFm(
-    ctx: AdapterContext,
-    pathFn: (id: string) => string,
-  ): Promise<AdapterOutput[]> {
-    if (!ctx.features.skills) return [];
-    const results: AdapterOutput[] = [];
-    const skills = await this.readTrackedCanonicalFiles(ctx.canonicalRoot, "skills", ctx.userRepoRoot);
-    for (const skill of skills) {
-      this.throwIfAborted(ctx);
-      const { content: raw, skip, overrides, warnings } = await applyCustomization(ctx.projectRoot, skill);
-      this.warnings.push(...warnings);
-      if (skip) continue;
-      const content = this.substituteCanonicalContent(raw, ctx);
-      const desc = overrides.description ?? skill.description;
-      const fm = `---\nname: ${skill.id}\ndescription: ${toYamlDoubleQuotedScalar(desc)}\n---`;
-      results.push(output(pathFn(skill.id), `${fm}\n\n${wrapManagedFor(pathFn(skill.id), content)}`, content, this.singleSource(skill)));
-    }
-    return results;
-  }
-
-  /**
    * Read canonical skills with the CLI-tooling pivot filter applied.
    *
    * Filter rules (plan §4.6):
@@ -829,8 +861,8 @@ export abstract class BaseAdapter implements Adapter {
    *  - When `cliTools.enabled` is true, keep only those whose suffix
    *    (after stripping `hatch3r-cli-`) appears in `cliTools.selected`.
    *
-   * Wave 3 swaps each adapter's `processSkillsWithFm` /
-   * `processSkillsRaw` call to the `*CliFiltered` variants below; the
+   * Wave 3 swaps each adapter's frontmatter skill emission to the
+   * CLI-filtered {@link processSkillsWithFmCliFiltered} variant below; the
    * filter helper is exposed protected so adapters with custom skill
    * pipelines can reuse it directly.
    */
@@ -847,33 +879,9 @@ export abstract class BaseAdapter implements Adapter {
   }
 
   /**
-   * CLI-filtered twin of {@link processSkillsRaw}. Adapters that emit
-   * skills as raw managed-block files (no YAML frontmatter) call this
-   * after Wave 3 instead of `processSkillsRaw` to honour
-   * `manifest.cliTools.selected`.
-   */
-  protected async processSkillsRawCliFiltered(
-    ctx: AdapterContext,
-    pathFn: (id: string) => string,
-  ): Promise<AdapterOutput[]> {
-    if (!ctx.features.skills) return [];
-    const results: AdapterOutput[] = [];
-    const skills = await this.readCliFilteredSkills(ctx);
-    for (const skill of skills) {
-      this.throwIfAborted(ctx);
-      const { content: raw, skip, warnings } = await applyCustomizationRaw(ctx.projectRoot, skill);
-      this.warnings.push(...warnings);
-      if (skip) continue;
-      const content = this.substituteCanonicalContent(raw, ctx);
-      results.push(output(pathFn(skill.id), wrapManagedFor(pathFn(skill.id), content), content, this.singleSource(skill)));
-    }
-    return results;
-  }
-
-  /**
-   * CLI-filtered twin of {@link processSkillsWithFm}. Adapters that emit
-   * skills as managed-block files prefixed with a `name: + description:`
-   * YAML stub call this after Wave 3 instead of `processSkillsWithFm`.
+   * Emit each CLI-filtered skill as a managed-block file prefixed with a
+   * `name: + description:` YAML stub, honouring `manifest.cliTools.selected`
+   * via {@link readCliFilteredSkills}.
    *
    * D9-H-6 (D9, P1): when `opts.emitAllowedTools` is true AND the canonical
    * skill declares a non-empty `allowed_tools` list, an `allowed-tools:` YAML
@@ -916,7 +924,7 @@ export abstract class BaseAdapter implements Adapter {
       const content = this.substituteCanonicalContent(raw, ctx);
       const desc = overrides.description ?? skill.description;
       // Double-quote the description for the same picker-safety reason the
-      // command helper does (see {@link processSkillsWithFm}): a `: `- or
+      // command helper does (see {@link processCommandsWithFm}): a `: `- or
       // `--`-bearing description breaks the byte-0 plain scalar otherwise.
       const fmLines = [`name: ${skill.id}`, `description: ${toYamlDoubleQuotedScalar(desc)}`];
       // release/2.2.0: per-skill `model:` emission (see the emitModel JSDoc
@@ -939,7 +947,21 @@ export abstract class BaseAdapter implements Adapter {
     return results;
   }
 
-  /** Process commands and output each as a raw managed-block file at the path returned by `pathFn`. */
+  /**
+   * Process commands and output each as a raw managed-block file at the path
+   * returned by `pathFn`.
+   *
+   * D2-SA2.1-04 (P4): no current adapter calls this helper — claude/cursor/
+   * copilot each emit commands via the frontmatter-prepending
+   * {@link processCommandsWithFm} twin (D5-33 swap). Retained as a BaseAdapter
+   * utility exercised by `src/__tests__/adapters/base.test.ts` and
+   * `commandArgumentHint.test.ts`; removal is deferred because it would require
+   * rewriting those tests. WARNING for a future adapter author: this raw twin
+   * emits NO byte-0 `name:`/`description:`/`argument-hint:`/`model:` frontmatter
+   * stub, so the slash-command picker would show the `HATCH3R:BEGIN` marker
+   * instead of the real description — reach for {@link processCommandsWithFm}, not
+   * this one, for a real command-emission pipeline.
+   */
   protected async processCommandsRaw(
     ctx: AdapterContext,
     pathFn: (id: string) => string,
@@ -968,7 +990,7 @@ export abstract class BaseAdapter implements Adapter {
    *
    * Twin of {@link processCommandsRaw} (same user-facing canonical read,
    * customization, token substitution, feature gate, and warnings handling) —
-   * and the command analogue of {@link processSkillsWithFm} — but emits a
+   * and the command analogue of {@link processSkillsWithFmCliFiltered} — but emits a
    * `---\nname:\ndescription:\n---` stub at byte 0 so the slash-command picker
    * in Claude Code / Cursor / Copilot shows the real description instead of the
    * `HATCH3R:BEGIN` managed-block marker (the picker reads `description:` at

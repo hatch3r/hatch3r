@@ -16,7 +16,7 @@ cache_friendly: true
 
 ## New Architecture (Fabric + TurboModules)
 
-- Target React Native 0.76+ with the New Architecture enabled (`newArchEnabled: true` in `app.json` for Expo, or `RCT_NEW_ARCH_ENABLED=1` for bare workflow). The New Architecture is on by default in 0.76 and is the only supported path for Expo SDK 52+.
+- Target React Native 0.85+ (Expo SDK 56/57 as of mid-2026; SDK 57 ships RN 0.86 / React 19.2) with the New Architecture enabled (`newArchEnabled: true` in `app.json` for Expo, or `RCT_NEW_ARCH_ENABLED=1` for bare workflow). The New Architecture has been the default since RN 0.76 and is the only supported path on current Expo SDKs — pin to the latest stable SDK rather than an older anchor.
 - Use Fabric renderer (synchronous, type-safe) for new native components. Legacy Paper renderer is for backward compatibility only — do not write new components against it.
 - Author native modules as TurboModules via `codegen` schemas. Stop adding `RCTBridgeModule`-style legacy modules — they bypass type-safety and force a full bridge serialization.
 - Run `react-native codegen` in CI to regenerate JSI specs from the schema files. Spec drift between TS and native side is a merge blocker.
@@ -73,7 +73,7 @@ cache_friendly: true
 ## References
 
 - React Native New Architecture overview: https://reactnative.dev/docs/the-new-architecture/landing-page (accessed 2026-05-27, official-docs)
-- Expo SDK 52 release notes: https://expo.dev/changelog/2024-11-12-sdk-52 (accessed 2026-05-27, official-docs)
+- Expo SDK 57 changelog (current stable, RN 0.86 / React 19.2): https://expo.dev/changelog/sdk-57 (accessed 2026-07-11, official-docs)
 - Expo Router 4: https://docs.expo.dev/router/introduction/ (accessed 2026-05-27, official-docs)
 
 ## Cross-References

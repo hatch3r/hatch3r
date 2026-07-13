@@ -19,9 +19,9 @@ This document is the single decision point. If a prerequisite is not GREEN, the 
 
 | Field | Value |
 |-------|-------|
-| Current readiness | NO-GO (Cycle 10 close, 2026-05-28) — see §3 status snapshot |
-| Last reviewed | 2026-05-28 |
-| Next review trigger | Resolution of any prerequisite in §2 from RED→GREEN |
+| Current readiness | NO-GO (Cycle 12 refresh, 2026-07-11) — see §3 status snapshot. The launch this gate governs is the T2 promotion wave (Show HN, r/ClaudeAI), HELD by the PRD §1 distribution HOLD; T0/T1 storefront + directory submissions clear separately in PRD §22. |
+| Last reviewed | 2026-07-11 (Cycle 12) |
+| Next review trigger | Any §2 prerequisite flips RED→GREEN, or the PRD §1 distribution HOLD's named-blocker cluster clears |
 
 ## 2. Prerequisites
 
@@ -29,25 +29,25 @@ All six must read GREEN before any external-facing launch posts. Each row cites 
 
 | # | Prerequisite | Canonical source | Verification command |
 |---|--------------|------------------|----------------------|
-| P1 | 2.0.0 publish HOLD lifted (every Cycle 10 Critical and High verified per the audit execution model's Phase 4 gates) | Audit finding registry — Cycle 10 entries with `status: "resolved"` | Every Cycle 10 Critical/High finding in the registry has `status: "resolved"` |
-| P2 | PRD §1 Posture reads "Distribution-Ready" (F18.3.1 dependency) | PRD §1 Posture line | PRD §1 Posture line contains the literal string `Distribution-Ready` |
+| P1 | PRD §1 distribution HOLD cleared for the T2 promotion wave | PRD §1 "Distribution recommendation" HOLD + its named-blocker integrity assertion; `governance/audit/finding-registry.json` | The PRD §1 HOLD's named-blocker cluster is registry-done (`execution_status: "done"`) AND no open Critical remains in the current cycle's registry — the pointer inherits every future HOLD re-anchor via the PRD §1 integrity assertion (re-checked by AUDIT-EXECUTE Phase 0 step 7), so it never hard-codes a superseded cohort |
+| P2 | PRD §1 posture pointer resolves to a GO distribution recommendation | PRD §1 Posture (dated-source pointer, D18-7) → current-cycle `governance/AUDIT-REPORT.md` header | The distribution recommendation the PRD §1 posture pointer resolves to reads GO (not HOLD / Staged GO); no bare "Distribution-Ready" literal is restated inline, per the D18-7 pointer convention |
 | P3 | AAIF stance documented in PRD §5.x (closes F18.2.2 / F17.3.1) | PRD §5 (positioning section) | PRD §5 mentions agents.md / AAIF / cross-tool fallback at least once |
-| P4 | 3-lane distribution plan documented in PRD §14 (F17.3.2 — Claude plugin marketplace + AGENTS.md/AAIF + Cursor plugin) | PRD §14 Distribution Channels | All three channels documented as live (not "stub" / "planned") |
+| P4 | 3-lane distribution plan (npm/CLI, Cursor marketplace, Claude Code marketplace) documented as live in PRD §14 | PRD §14 Distribution Channels; CONSTITUTION §6 Decision 12 (3-adapter scope) | All three ratified lanes documented as live channels (not "planned"). The retired AGENTS.md/AAIF lane is NOT a prerequisite — Decision 12 withdrew the emitter and PRD §14 records the §5.x AAIF-sunset gate satisfied; re-expansion would need a queued §8 amendment (VISION §Adapter scope), not this gate |
 | P5 | Marketplace submission package current (`docs/marketplace-submission.md`) | `docs/marketplace-submission.md` (referenced from F18.3.4) | Status field reads `READY` not `PARTIAL`; counts match `governance/inventory.json`; in-app form URLs reachable |
 | P6 | Latest release published with npm provenance + SBOM | Supply-chain floor policy (npm provenance + SBOM + SHA-pinned actions) | `npm view hatch3r@latest dist.signatures` returns provenance attestation; SBOM artifact present on the corresponding GitHub release |
 
-## 3. Status snapshot (cycle 10 close)
+## 3. Status snapshot (Cycle 12 refresh, 2026-07-11)
 
-| Prereq | Status | Blocker |
-|--------|--------|---------|
-| P1 | RED | Cycle 10 close-out in progress; Wave 1 (Critical+High) execution not yet verified |
-| P2 | RED | Cycle 10 close updates §1 Posture but currently reads "Not Ready (distribution)" |
-| P3 | RED | F18.2.2 / F17.3.1 stance not yet applied to PRD §5.x |
-| P4 | RED | PRD §14 Channel 1 documents `add <pack>` as `stub`; AGENTS.md/AAIF lane absent |
-| P5 | AMBER | Submission package `Status` field reads `PARTIAL` — pending Anthropic in-app form completion |
-| P6 | RED | First 2.0.0 release with provenance not yet cut |
+| Prereq | Status | Blocker / evidence |
+|--------|--------|--------------------|
+| P1 | RED | PRD §1 distribution HOLD active (re-anchored Cycle 12, 2026-07-11); named blockers D1-SA1.10-01 (registry `execution_status: done`) + D4-SA4.3-01 (`partial` — human branch-protection repo-settings change) not both done, so the T2 promotion wave stays HELD |
+| P2 | RED | AUDIT-REPORT Cycle-12 distribution recommendation = Staged GO (T2 promotion held), not full GO; PRD §1 posture pointer resolves to "Not Ready (distribution + release)" |
+| P3 | GREEN | PRD §5.x is standards-watch only; PRD §14 records the AAIF-stance gate satisfied |
+| P4 | GREEN | PRD §14 documents npm/CLI + Cursor + Claude Code marketplace lanes as live channels; §14 records the 3-lane-documented gate satisfied. Sub-note (not a launch blocker): `add <pack>` pack-install remains a stub (`src/cli/commands/add.ts`) — a pack-supply feature, not one of the 3 distribution lanes |
+| P5 | AMBER | `docs/marketplace-submission.md` Status = PARTIAL (agent portion done); human in-app form submissions pending (PRD §1 "submissions pending") |
+| P6 | GREEN | npm provenance live — 2.0.0 (published 2026-06-22) and 2.2.0 (2026-07-08) both carry SLSA-v1 provenance attestations; the 2.2.0 GitHub release ships an `sbom.cdx.json` SBOM asset (verified `npm view hatch3r@2.0.0 dist.attestations` + `gh release view v2.2.0`, 2026-07-11) |
 
-Overall: **NO-GO** until every row reads GREEN.
+Overall: **NO-GO** for the T2 promotion wave — P1/P2 stay RED under the PRD §1 distribution HOLD until its named-blocker cluster clears and a GO decision-log row lands.
 
 ## 4. Launch sequence (recommended)
 
@@ -82,18 +82,22 @@ Append one row per launch-go/no-go decision. Date in ISO format. Status snapshot
 | Date | Launcher | Channel | Prerequisite status (P1/P2/P3/P4/P5/P6) | Decision | Outcome / link |
 |------|----------|---------|------------------------------------------|----------|----------------|
 | 2026-05-28 | release/2.0.0 maintainers | (none — gate authored) | RED/RED/RED/RED/AMBER/RED | NO-GO | This doc authored as gate; no launch attempted |
-|  |  |  |  |  |  |
+| 2026-06-22 | release/2.0.0 maintainers | (none — no launch attempted) | not evaluated at cut (backfilled Cycle 12) | NO-GO (implicit) | 2.0.0 published to npm with SLSA-v1 provenance; §7 §3 re-check missed |
+| 2026-06-26 | release/2.1.0 maintainers | (none — no launch attempted) | not evaluated at cut (backfilled Cycle 12) | NO-GO (implicit) | 2.1.0 published; §7 §3 re-check missed |
+| 2026-07-07 | release/2.1.1 maintainers | (none — no launch attempted) | not evaluated at cut (backfilled Cycle 12) | NO-GO (implicit) | 2.1.1 published; §7 §3 re-check missed |
+| 2026-07-08 | release/2.2.0 maintainers | (none — no launch attempted) | not evaluated at cut (backfilled Cycle 12) | NO-GO (implicit) | 2.2.0 published with provenance + `sbom.cdx.json` SBOM asset; §7 §3 re-check missed |
+| 2026-07-11 | Cycle-12 audit-execute | (none — gate refresh) | RED/RED/GREEN/GREEN/AMBER/GREEN | NO-GO | §2 P1/P2/P4 criteria re-keyed to canonical-source pointers (D18-SA18.3-03); P6 backfilled GREEN with provenance + SBOM evidence (D4-SA4.4-03); T2 promotion remains HELD by the PRD §1 HOLD |
 
 ## 7. Maintenance
 
-- Re-check §3 status snapshot at every release branch cut and at every audit-cycle close.
+- Re-check §3 status snapshot at every release branch cut and at every audit-cycle close. This duty is wired into the release ceremony at `.claude/skills/h4tcher-release-prep/SKILL.md` Step 11 (Launch-Readiness Refresh) so it runs on every release cut, not only from memory (D4-SA4.4-03).
 - When all six prerequisites read GREEN, update §1 Status to GO and append the GO decision to §6 before posting.
 - After every launch, append the actual outcome (HN points + comment count + 24h npm install delta) to the §6 outcome column within 7 days.
-- Findings closed: F18.3.5 (Cycle 10).
+- Findings closed: F18.3.5 (Cycle 10); D18-SA18.3-03 + D4-SA4.4-03 (Cycle 12 — §2 criteria re-keyed to canonical-source pointers, P6 backfilled GREEN, release-prep re-check wiring).
 
 ## References
 
-- PRD §14 Distribution Channels — canonical 3-lane plan (CLI, Cursor Plugin, npm Dependency); to be extended to the Claude Plugins Marketplace + AGENTS.md/AAIF lane per F17.3.2.
+- PRD §14 Distribution Channels — ratified 3-lane plan targeting the 3 supported adapters (CONSTITUTION §6 Decision 12): npm/CLI, Cursor plugin marketplace, Claude Code plugin marketplace. The AGENTS.md/AAIF emission lane was retired in 1.9.0 (Decision 12) and is standards-watch only (PRD §5.x) — not a distribution lane.
 - Supply-chain floor policy — npm provenance + SBOM + SHA-pinned actions + CI matrix Ubuntu/macOS/Windows × Node LTS 22/24.
 - `docs/marketplace-submission.md` — agent-prepared submission package; status drives P5.
-- Audit finding registry — Cycle 10 finding closure feeds P1.
+- Audit finding registry (`governance/audit/finding-registry.json`) + the PRD §1 distribution HOLD's named-blocker integrity assertion — jointly feed P1 (current-cycle open-Critical state + named-blocker registry status, not a frozen cohort).

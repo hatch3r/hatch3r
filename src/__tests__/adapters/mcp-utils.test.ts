@@ -48,9 +48,12 @@ describe("validateMcpEntry", () => {
   });
 
   it("returns no warnings for allowed command 'uvx'", () => {
+    // Pin the package: uvx is a non-npx launcher, so the D2-SA2.4-04 supply-chain
+    // gate now runs unconditionally (no -y needed) — an unpinned package would
+    // (correctly) warn. Pinning keeps this a focused command-allowlist test.
     const entry: McpServerEntry = {
       command: "uvx",
-      args: ["mcp-server-fetch"],
+      args: ["mcp-server-fetch@1.2.3"],
     };
     expect(validateMcpEntry("fetch", entry)).toEqual([]);
   });
@@ -218,23 +221,36 @@ describe("validateMcpEntry _timeout bounds (D9-SA9.1-L / D15-SA15.5-F8)", () => 
     );
   });
 
-  it("still flags a non-positive _timeout as invalid (not as sub-minimum)", () => {
+  it("flags a non-positive _timeout as invalid and states it is not emitted (D2-SA2.4-06)", () => {
     const warnings = validateMcpEntry("zero", { ...base, _timeout: 0 });
-    expect(warnings.some((w) => w.includes("invalid timeout"))).toBe(true);
+    const hit = warnings.find((w) => w.includes("invalid timeout"));
+    expect(hit).toBeDefined();
     expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
       false,
     );
+    // D2-SA2.4-06: the warning must state the emitted reality, not an
+    // un-performed remediation — no code substitutes DEFAULT_MCP_TIMEOUT_MS, so
+    // the old "Using default 30000ms" claim is gone.
+    expect(hit).not.toContain("Using default");
+    expect(hit).toContain("not emitted");
+    expect(hit).toContain("own default");
   });
 
-  it("still caps an over-maximum _timeout", () => {
+  it("flags an over-maximum _timeout as emitted-uncapped, not capped (D2-SA2.4-06)", () => {
     const warnings = validateMcpEntry("too-big", {
       ...base,
       _timeout: MAX_MCP_TIMEOUT_MS + 1,
     });
-    expect(warnings.some((w) => w.includes("exceeds maximum"))).toBe(true);
+    const hit = warnings.find((w) => w.includes("exceeds maximum"));
+    expect(hit).toBeDefined();
     expect(warnings.some((w) => w.includes("below the minimum honored"))).toBe(
       false,
     );
+    // D2-SA2.4-06: no code caps the value (the Claude emission writes it
+    // verbatim), so the old "Capping at 300000ms" claim is replaced with the
+    // truth — the value is emitted uncapped.
+    expect(hit).not.toContain("Capping at");
+    expect(hit).toContain("uncapped");
   });
 });
 
@@ -967,14 +983,18 @@ describe("findLauncherPackageArg (C9-H53)", () => {
   });
 });
 
-describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
-  // POSITIVE cases — each launcher in ON_DEMAND_FETCH_LAUNCHERS must
-  // emit a version-pin warning when its package arg is unpinned.
+describe("validateMcpEntry multi-launcher version-pin (C9-H53 + D2-SA2.4-04)", () => {
+  // POSITIVE cases — each non-npx launcher in ON_DEMAND_FETCH_LAUNCHERS must
+  // emit a version-pin warning when its package arg is unpinned. D2-SA2.4-04:
+  // fixtures are FLAG-FREE (uvx/pipx/bunx/pnpm dlx/yarn dlx have no -y/--yes
+  // confirmation flag — they auto-fetch-and-execute), so these exercise the
+  // REACHABLE path rather than the impossible `<launcher> -y <pkg>` config the
+  // prior fixtures modeled.
 
-  it("warns on unpinned uvx package", () => {
+  it("warns on unpinned uvx package (no -y)", () => {
     const entry: McpServerEntry = {
       command: "uvx",
-      args: ["-y", "mcp-server-fetch"],
+      args: ["mcp-server-fetch"],
     };
     const warnings = validateMcpEntry("uvx-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -983,7 +1003,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on uvx package pinned to @latest", () => {
     const entry: McpServerEntry = {
       command: "uvx",
-      args: ["-y", "mcp-server-fetch@latest"],
+      args: ["mcp-server-fetch@latest"],
     };
     const warnings = validateMcpEntry("uvx-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -992,18 +1012,18 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on uvx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "uvx",
-      args: ["-y", "mcp-server-fetch@1.2.3"],
+      args: ["mcp-server-fetch@1.2.3"],
     };
     const warnings = validateMcpEntry("uvx-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
   });
 
   it("warns on unpinned pipx package", () => {
-    // pipx invocation pattern in MCP configs: `pipx -y <pkg>` —
-    // single-token launcher with the package as the first non-flag arg.
+    // pipx invocation pattern in MCP configs: `pipx <pkg>` — single-token
+    // launcher with the package as the first non-flag arg.
     const entry: McpServerEntry = {
       command: "pipx",
-      args: ["-y", "mcp-server-py"],
+      args: ["mcp-server-py"],
     };
     const warnings = validateMcpEntry("pipx-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1012,7 +1032,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on pipx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "pipx",
-      args: ["-y", "mcp-server-py@0.1.0"],
+      args: ["mcp-server-py@0.1.0"],
     };
     const warnings = validateMcpEntry("pipx-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1021,7 +1041,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on unpinned bunx package", () => {
     const entry: McpServerEntry = {
       command: "bunx",
-      args: ["-y", "@scope/mcp-server"],
+      args: ["@scope/mcp-server"],
     };
     const warnings = validateMcpEntry("bunx-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1030,7 +1050,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on bunx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "bunx",
-      args: ["-y", "@scope/mcp-server@1.0.0"],
+      args: ["@scope/mcp-server@1.0.0"],
     };
     const warnings = validateMcpEntry("bunx-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1039,7 +1059,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on unpinned pnpm dlx package", () => {
     const entry: McpServerEntry = {
       command: "pnpm",
-      args: ["-y", "dlx", "@scope/mcp-server"],
+      args: ["dlx", "@scope/mcp-server"],
     };
     const warnings = validateMcpEntry("pnpm-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1048,7 +1068,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on pnpm dlx package pinned to @latest", () => {
     const entry: McpServerEntry = {
       command: "pnpm",
-      args: ["-y", "dlx", "@scope/mcp-server@latest"],
+      args: ["dlx", "@scope/mcp-server@latest"],
     };
     const warnings = validateMcpEntry("pnpm-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1057,7 +1077,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on pnpm dlx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "pnpm",
-      args: ["-y", "dlx", "@scope/mcp-server@1.0.0"],
+      args: ["dlx", "@scope/mcp-server@1.0.0"],
     };
     const warnings = validateMcpEntry("pnpm-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1066,7 +1086,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("warns on unpinned yarn dlx package", () => {
     const entry: McpServerEntry = {
       command: "yarn",
-      args: ["-y", "dlx", "@scope/mcp-server"],
+      args: ["dlx", "@scope/mcp-server"],
     };
     const warnings = validateMcpEntry("yarn-srv", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
@@ -1075,7 +1095,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn on yarn dlx package pinned to exact version", () => {
     const entry: McpServerEntry = {
       command: "yarn",
-      args: ["-y", "dlx", "@scope/mcp-server@1.0.0"],
+      args: ["dlx", "@scope/mcp-server@1.0.0"],
     };
     const warnings = validateMcpEntry("yarn-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1087,7 +1107,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn for non-launcher 'node' regardless of args", () => {
     const entry: McpServerEntry = {
       command: "node",
-      args: ["-y", "server.js"],
+      args: ["server.js"],
     };
     const warnings = validateMcpEntry("node-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1096,7 +1116,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn for non-launcher 'docker' regardless of args", () => {
     const entry: McpServerEntry = {
       command: "docker",
-      args: ["-y", "run", "mcp-server:latest"],
+      args: ["run", "mcp-server:latest"],
     };
     const warnings = validateMcpEntry("docker-srv", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1105,7 +1125,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn for pnpm without dlx subcommand", () => {
     const entry: McpServerEntry = {
       command: "pnpm",
-      args: ["-y", "install"],
+      args: ["install"],
     };
     const warnings = validateMcpEntry("pnpm-install", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1114,7 +1134,7 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("does NOT warn for yarn without dlx subcommand", () => {
     const entry: McpServerEntry = {
       command: "yarn",
-      args: ["-y", "install"],
+      args: ["install"],
     };
     const warnings = validateMcpEntry("yarn-install", entry);
     expect(warnings.filter((w) => w.includes("unpinned"))).toHaveLength(0);
@@ -1123,21 +1143,33 @@ describe("validateMcpEntry multi-launcher version-pin (C9-H53)", () => {
   it("detects launcher via Windows .bat shim and still warns when unpinned", () => {
     const entry: McpServerEntry = {
       command: "uvx.bat",
-      args: ["-y", "mcp-server-fetch"],
+      args: ["mcp-server-fetch"],
     };
     const warnings = validateMcpEntry("win-uvx", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
   });
 
-  it("preserves contract: -y absent ⇒ no pin warning (any launcher)", () => {
-    // Mirrors the original C7-H6 contract — version-pin warnings are
-    // emitted only under -y/--yes (auto-confirm) since interactive
-    // launches surface the package name to the operator.
+  // D2-SA2.4-04: the -y precondition is scoped to npx ONLY. A non-npx launcher
+  // never carries -y in a real config, so gating on it made the guard
+  // unreachable; it must now fire without -y (this is the finding's core fix).
+  it("D2-SA2.4-04: non-npx launcher WITHOUT -y still gets the pin warning (reachable path)", () => {
     const entry: McpServerEntry = {
       command: "uvx",
       args: ["mcp-server-fetch"],
     };
     const warnings = validateMcpEntry("uvx-no-y", entry);
+    expect(warnings.some((w) => w.includes("unpinned"))).toBe(true);
+  });
+
+  // npx retains the interactive -y scoping (npx prompts before fetching an
+  // uncached package). npx-without-y ⇒ no warning is asserted at the
+  // "does not emit version-pin warning when -y flag is absent" case above.
+  it("npx WITHOUT -y ⇒ no pin warning (npx-only interactive scoping preserved)", () => {
+    const entry: McpServerEntry = {
+      command: "npx",
+      args: ["mcp-server-fetch"],
+    };
+    const warnings = validateMcpEntry("npx-no-y", entry);
     expect(warnings.some((w) => w.includes("unpinned"))).toBe(false);
   });
 });
@@ -1544,6 +1576,27 @@ describe("DANGEROUS_ARG_CHARS (F15.5-C1) — character class invariants", () => 
       expect(DANGEROUS_ARG_CHARS.test(ch)).toBe(false);
     }
   });
+
+  it("D2-SA2.4-08: pins the escaped .source and forbids raw control bytes (grep-legibility)", () => {
+    // The class is authored with \x escapes, never raw control bytes. A raw NUL
+    // made the whole file grep-blind (tooling classified it as binary) and left
+    // the class one formatter pass from silent semantic corruption. Pinning
+    // .source means a re-encoding — back to raw bytes, or a formatter that
+    // rewrites the escapes — fails HERE instead of silently weakening or
+    // over-broadening the refusal gate.
+    expect(DANGEROUS_ARG_CHARS.source).toBe("[\\x00-\\x1f\\x7f|;&`$()<>\\\\'\"]");
+    // Every byte of the SOURCE string is itself printable ASCII — no raw control
+    // byte survived the encoding. This is the property that keeps the file
+    // grep-legible; a regressed raw \x00 would fail this loop.
+    for (const ch of DANGEROUS_ARG_CHARS.source) {
+      const code = ch.charCodeAt(0);
+      expect(
+        code,
+        `raw control byte 0x${code.toString(16)} present in .source`,
+      ).toBeGreaterThanOrEqual(0x20);
+      expect(code).toBeLessThan(0x7f);
+    }
+  });
 });
 
 describe("validateMcpServerArgs (F15.5-C1)", () => {
@@ -1680,6 +1733,87 @@ describe("validateMcpServerArgs (F15.5-C1)", () => {
     expect(result.reason?.length).toBeLessThan(300);
     expect(result.reason).toContain("...");
   });
+
+  // D2-SA2.4-07 (D2 / Pillar P2): two documented-legitimate idioms carry a
+  // DANGEROUS_ARG_CHARS byte yet are not injection vectors and must NOT be
+  // refused: a whole-arg `${env:NAME}` reference (only `$` is dangerous — the
+  // exact idiom transformEnvVarSyntax emits into the whole entry) and a Windows
+  // path (only `\` is dangerous — the same shape already accepted for the
+  // `command` field of the SAME entries under C7.5-W2B2-H3). Every OTHER
+  // dangerous byte, and any ref-/path-prefixed injection, still refuses.
+  describe("D2-SA2.4-07 legitimate-idiom exemptions", () => {
+    it("accepts a whole-arg ${env:NAME} reference", () => {
+      expect(
+        validateMcpServerArgs({
+          command: "node",
+          args: ["--token", "${env:MY_TOKEN}"],
+        }),
+      ).toEqual({ ok: true });
+    });
+
+    it("accepts a ${env:NAME:-default} reference with a benign default", () => {
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["${env:HOST:-localhost}"] }),
+      ).toEqual({ ok: true });
+      expect(
+        validateMcpServerArgs({
+          command: "node",
+          args: ["${env:GITHUB_URL:-https://api.github.com}"],
+        }),
+      ).toEqual({ ok: true });
+    });
+
+    it("accepts Windows drive-letter and UNC paths (closes the command-vs-args asymmetry)", () => {
+      // The identical path accepted for `command` (C7.5-W2B2-H3) is now accepted
+      // in args too — the asymmetry the finding names is closed.
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["C:\\Users\\me\\projects"] }),
+      ).toEqual({ ok: true });
+      expect(
+        validateMcpServerArgs({
+          command: "node",
+          args: ["C:\\Program Files\\nodejs\\server.js"],
+        }),
+      ).toEqual({ ok: true });
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["\\\\host\\share\\path"] }),
+      ).toEqual({ ok: true });
+    });
+
+    it("still refuses a Windows path with a trailing shell injection", () => {
+      // `C:\x;rm` starts like a path but the `;` tail excludes it from the
+      // exemption — refusal-grade, so the entry is still rejected.
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["C:\\x;rm -rf /"] }).ok,
+      ).toBe(false);
+    });
+
+    it("still refuses an env reference whose default value smuggles a metacharacter", () => {
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["${env:V:-;rm}"] }).ok,
+      ).toBe(false);
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["${env:V:-$(id)}"] }).ok,
+      ).toBe(false);
+    });
+
+    it("still refuses a partial/glued env reference (exemption is whole-arg only)", () => {
+      // `--token=${env:X}` is not the full canonical form; the whole-arg anchors
+      // keep the exemption tight, so this stays refused (documented scope bound).
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["--token=${env:X}"] }).ok,
+      ).toBe(false);
+    });
+
+    it("still refuses a bare `$` / command-substitution that is not an env reference", () => {
+      expect(validateMcpServerArgs({ command: "node", args: ["$HOME"] }).ok).toBe(
+        false,
+      );
+      expect(
+        validateMcpServerArgs({ command: "node", args: ["$(whoami)"] }).ok,
+      ).toBe(false);
+    });
+  });
 });
 
 describe("readMcpConfig drop-path (F15.5-C1)", () => {
@@ -1783,6 +1917,80 @@ describe("readMcpConfig drop-path (F15.5-C1)", () => {
     ).toBe(true);
     await rm(tmpRoot, { recursive: true, force: true });
   });
+
+  it("does NOT drop a server whose arg is a legitimate ${env:NAME} reference (D2-SA2.4-07)", async () => {
+    // Before the exemption, the `$` in `${env:MY_TOKEN}` tripped the
+    // refusal-grade scan and dropped the whole entry — contradicting the
+    // module's own env-interpolation transform layer. It must now survive.
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "env-ref-server": {
+          command: "node",
+          args: ["server.js", "--token", "${env:MY_TOKEN}"],
+        },
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toEqual(["env-ref-server"]);
+    expect(result.warnings.some((w) => w.includes("dropped"))).toBe(false);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("drops a null entry with an auditable warning and keeps the valid servers (D2-SA2.4-13)", async () => {
+    // validateMcpConfig only guarantees `mcpServers` is a non-null object; a
+    // per-entry `null` previously reached validateMcpServerArgs, threw a
+    // TypeError on `entry.args`, and the file-level catch converted it to
+    // whole-config loss ("Could not read MCP config") — dropping EVERY server.
+    // It must now drop only the malformed entry.
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "good-server": {
+          command: "npx",
+          args: ["-y", "@scope/pkg@1.0.0"],
+        },
+        "null-entry": null,
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toEqual(["good-server"]);
+    expect(result.servers["null-entry"]).toBeUndefined();
+    expect(
+      result.warnings.some(
+        (w) =>
+          w.includes("null-entry") &&
+          w.includes("entry dropped: not an object"),
+      ),
+    ).toBe(true);
+    // The whole-config-loss failure mode must NOT fire — the file was read fine.
+    expect(
+      result.warnings.some((w) => w.includes("Could not read MCP config")),
+    ).toBe(false);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
+
+  it("drops primitive and array entries across all three shape-gate branches while keeping valid servers (D2-SA2.4-13)", async () => {
+    tmpRoot = await writeMcpConfig({
+      mcpServers: {
+        "good-server": { command: "npx", args: ["-y", "@scope/pkg@1.0.0"] },
+        "number-entry": 42,
+        "string-entry": "not-an-object",
+        "array-entry": ["a", "b"],
+      },
+    });
+    const result = await readMcpConfig(tmpRoot);
+    expect(Object.keys(result.servers)).toEqual(["good-server"]);
+    for (const bad of ["number-entry", "string-entry", "array-entry"]) {
+      expect(
+        result.warnings.some(
+          (w) => w.includes(bad) && w.includes("entry dropped: not an object"),
+        ),
+      ).toBe(true);
+    }
+    expect(
+      result.warnings.some((w) => w.includes("Could not read MCP config")),
+    ).toBe(false);
+    await rm(tmpRoot, { recursive: true, force: true });
+  });
 });
 
 /**
@@ -1838,10 +2046,18 @@ describe("MCP_ENV_VAR_FORMAT_PARITY (table-internal consistency)", () => {
     }
   });
 
-  it("copilot mcp-env is gated via envFile so the shell format never reaches a VS Code STDIO consumer", () => {
+  it("copilot mcp-env records the passthrough format the adapter requests and is gated via envFile", () => {
     const copilotEnv = MCP_ENV_VAR_FORMAT_PARITY.find(
       (r) => r.adapter === "copilot" && r.surface === "mcp-env",
     );
+    // D2-SA2.4-15 (Cycle 12): the row's `format` MUST equal the exact envVarFormat
+    // argument the copilot adapter passes to `buildStdMcpEntries` — `"passthrough"`
+    // in copilot.ts — not a hypothetical inline syntax. `viaEnvFile` then drops the
+    // env object so no substitution reaches the VS Code STDIO consumer. Pinning both
+    // here catches any regression to the stale pre-D11-C-2 `"shell"` value that made
+    // this row alone mean "hypothetical format" instead of "the format the adapter
+    // requests".
+    expect(copilotEnv?.format).toBe("passthrough");
     expect(copilotEnv?.viaEnvFile).toBe(true);
   });
 });

@@ -114,6 +114,28 @@ export interface SpecialistResult {
    * count threaded through a separate options argument that the typed
    * `SpecialistResult` record did not carry. The severity-descending Phase 4
    * batch scheduler reads the same field as its typed input.
+   *
+   * The absent → 0 default is trusted only for a specialist that passes the
+   * Phase 4 triggered-specialist status sweep (`status: "SUCCESS"`, or
+   * `"SKIPPED"` with the skip criterion documented in `summary`); a
+   * non-SUCCESS specialist blocks completion before its count is consulted
+   * (Finding D7-SA7.3-01, Cycle 12), so a specialist that crashed or timed
+   * out before setting `criticalCount` can no longer read as "reviewed clean".
+   *
+   * Recorded typed-contract limit (Finding D7-SA7.3-06, Cycle 12): the field
+   * stays optional even when `status: "SUCCESS"`, so the "a SUCCESS
+   * specialist reports its Criticals" invariant is NOT compiler-enforced — a
+   * producer that forgets to set it on SUCCESS reads as 0 unresolved
+   * Criticals. The discriminated-union narrowing (SUCCESS requires a numeric
+   * `criticalCount`) was evaluated and rejected in the D7-SA7.3-01 fix: this
+   * interface is `@library_export_only`, so a required field breaks
+   * downstream pack-integrator construction and the CI-enforced D7-19
+   * back-compat contract test. Enforcement therefore stays behavioral — the
+   * status sweep plus this absent → 0 default — with both halves (and this
+   * limit itself) pinned in `pipelineContext.test.ts`; narrowing the type
+   * later must update that pin and this record together. The sibling
+   * un-typed invariant (the Tier-1 mandatory carve-out) is recorded on
+   * {@link shouldTriggerSpecialist}.
    */
   criticalCount?: number;
 }
@@ -240,10 +262,17 @@ export interface QualityResults {
  * 3. `mandatoryFloorsSatisfied === true` (always-mode floor specialists —
  *    `hatch3r-security` and `hatch3r-testability` — returned `SUCCESS` per
  *    `rules/hatch3r-agent-orchestration.md` Specialist Success Criteria).
- * 4. `reReviewIterations <= 1` (at most one lightweight re-review after
+ * 4. Every dispatched specialist completed (Finding D7-SA7.3-01): each
+ *    `SpecialistResult` in `qualityResults.specialists` — conditional and
+ *    mandatory-on-match specialists included — has `status: "SUCCESS"`, or
+ *    `"SKIPPED"` with the skip criterion documented in a non-empty `summary`.
+ *    A specialist that returned TIMEOUT / FAILED / PARTIAL /
+ *    BLOCKED_PREMISE_CHALLENGE, or skipped without documenting why, forces
+ *    `complete: false` with the specialist named in `incompletionReason`.
+ * 5. `reReviewIterations <= 1` (at most one lightweight re-review after
  *    specialists produced code fixes, per Phase 4 Validation Pass; Critical
  *    findings trigger a single fixer pass).
- * 5. `unresolvedCriticalFindings === 0` (no Phase-4 specialist surfaced
+ * 6. `unresolvedCriticalFindings === 0` (no Phase-4 specialist surfaced
  *    Critical-severity findings that were not resolved by the fixer pass).
  *    Derived by default from `qualityResults.specialists` (sum of each
  *    `SpecialistResult.criticalCount`) per Finding D7-19; an explicit
@@ -251,8 +280,15 @@ export interface QualityResults {
  */
 export interface Phase4CompletionContract {
   complete: boolean;
-  /** Whether always-mode floor specialists (security + testability) succeeded. */
-  mandatoryFloorsSatisfied: boolean;
+  /**
+   * Whether always-mode floor specialists (security + testability) succeeded.
+   * `"n/a"` when Phase 4 was skipped for a documentation-only change
+   * (`options.phase4Skipped`, Finding D7-SA7.3-03): the floors never ran, so
+   * neither boolean is honest — per {@link isDocumentationOnly} the
+   * mandatory-minimum does not apply to a docs-only change. Consumers must
+   * compare against `true`/`false` explicitly, never truthiness.
+   */
+  mandatoryFloorsSatisfied: boolean | "n/a";
   /** Number of lightweight reviewer re-reviews after specialist code fixes. */
   reReviewIterations: number;
   /** Critical findings still unresolved after the fixer pass. */
@@ -290,6 +326,38 @@ export interface Phase4CompletionContract {
  * returns `undefined`, never an implicit pass), so a security gate that times
  * out can never be reported as complete. The detail rule cites this function by
  * name so the prose and the typed gate are one authority, not two.
+ *
+ * Finding D7-SA7.3-01 (Cycle 12): the triggered-specialist status sweep
+ * (clause 4) extends the D16-5 fail-closed posture from the two floors to the
+ * whole dispatched set. Before the sweep, every non-floor specialist
+ * contributed to the gate solely via the optional `criticalCount` sum
+ * (absent → 0), so a conditional or mandatory-on-match specialist that
+ * returned TIMEOUT/FAILED — or crashed before setting `criticalCount` — was
+ * indistinguishable from one that reviewed clean, and the dispatch-layer
+ * mandate ("skipping a triggered mandatory-on-match specialist at Tier >= 2
+ * is a gate failure", see {@link SpecialistTrigger.mode}) had no
+ * completion-layer backstop. With the sweep, a triggered `hatch3r-ui` that
+ * timed out yields `complete: false` naming the specialist and its status;
+ * `SKIPPED` is accepted only with a non-empty `summary` because
+ * `SpecialistResult` carries no `reason` field — the summary is the SKIPPED
+ * contract's citation channel (see {@link AgentStatus}), and an undocumented
+ * skip is indistinguishable from a crash.
+ *
+ * Finding D7-SA7.3-03 (Cycle 12): the documentation-only carve-out.
+ * `PHASE_SKIP_CRITERIA` phase 4 lists "Change is documentation-only with no
+ * code modifications" as a skip condition, and {@link isDocumentationOnly}
+ * documents that a `true` verdict dissolves the mandatory-minimum
+ * (testability + security) — but this completion authority previously had no
+ * docs-only signal, so a docs-only pipeline that skipped Phase 4 via
+ * {@link shouldSkipPhase} could never report `complete: true` (no specialists
+ * ⇒ the floor clause fails permanently). `options.phase4Skipped` mirrors the
+ * `phase3Skipped` carve-out in {@link validatePhaseTransition}: when set, the
+ * evaluation short-circuits to `complete: true` with
+ * `mandatoryFloorsSatisfied: "n/a"` and `qualityResults` is not read. The
+ * flag must be backed by {@link isDocumentationOnly} /
+ * {@link shouldSkipPhase}(4, ...) — asserting it for a change that touches
+ * code is a caller contract violation, exactly as an unbacked
+ * `phase3Skipped` would be.
  */
 export function evaluatePhase4Completion(
   qualityResults: QualityResults,
@@ -297,8 +365,31 @@ export function evaluatePhase4Completion(
     reReviewIterations?: number;
     unresolvedCriticalFindings?: number;
     codeMutatingSpecialists?: string[];
+    /**
+     * Phase 4 was skipped for a documentation-only change per
+     * `PHASE_SKIP_CRITERIA` phase 4, backed by {@link isDocumentationOnly} /
+     * {@link shouldSkipPhase} (Finding D7-SA7.3-03). When `true` the contract
+     * reports complete-by-skip and `qualityResults` is ignored.
+     */
+    phase4Skipped?: boolean;
   } = {},
 ): Phase4CompletionContract {
+  // Finding D7-SA7.3-03: documentation-only carve-out — the skip layer
+  // (PHASE_SKIP_CRITERIA phase 4 / isDocumentationOnly) dissolves the
+  // security+testability mandatory-minimum for docs-only changes; without
+  // this branch the completion authority contradicted that layer by
+  // requiring the floor unconditionally, so a docs-only pipeline could never
+  // report done. No Phase 4 ran ⇒ nothing in qualityResults is evaluated.
+  if (options.phase4Skipped) {
+    return {
+      complete: true,
+      mandatoryFloorsSatisfied: "n/a",
+      reReviewIterations: options.reReviewIterations ?? 0,
+      unresolvedCriticalFindings: 0,
+      codeMutatingSpecialists: options.codeMutatingSpecialists ?? [],
+    };
+  }
+
   const reReviewIterations = options.reReviewIterations ?? 0;
   // Finding D7-19: derive the unresolved-Critical count from the typed
   // SpecialistResult records by default (sum of each specialist's criticalCount,
@@ -319,6 +410,21 @@ export function evaluatePhase4Completion(
   );
   const mandatoryFloorsSatisfied =
     securitySpec?.status === "SUCCESS" && testabilitySpec?.status === "SUCCESS";
+
+  // Finding D7-SA7.3-01 (Cycle 12): triggered-specialist status sweep — every
+  // dispatched specialist must terminate in SUCCESS, or SKIPPED with the skip
+  // criterion documented in `summary` (SpecialistResult has no `reason` field,
+  // so the summary carries the AgentStatus SKIPPED citation; an empty summary
+  // is an undocumented skip, indistinguishable from a crash, and blocks).
+  // Evaluated after the floor clause so a failing floor keeps its specific
+  // incompletionReason; this sweep is the completion-layer backstop for the
+  // conditional / mandatory-on-match specialists whose status the gate
+  // previously never read.
+  const incompleteSpecialists = qualityResults.specialists.filter(
+    (s) =>
+      s.status !== "SUCCESS" &&
+      !(s.status === "SKIPPED" && s.summary.trim().length > 0),
+  );
 
   const v = qualityResults.validationPass;
 
@@ -361,6 +467,23 @@ export function evaluatePhase4Completion(
       codeMutatingSpecialists,
       incompletionReason:
         "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+    };
+  }
+  if (incompleteSpecialists.length > 0) {
+    return {
+      complete: false,
+      mandatoryFloorsSatisfied,
+      reReviewIterations,
+      unresolvedCriticalFindings,
+      codeMutatingSpecialists,
+      incompletionReason: `dispatched specialist(s) did not complete: ${incompleteSpecialists
+        .map(
+          (s) =>
+            `${s.specialist} (${
+              s.status === "SKIPPED" ? "SKIPPED without documented skip reason" : s.status
+            })`,
+        )
+        .join(", ")}`,
     };
   }
   if (reReviewIterations > 1) {
@@ -834,6 +957,31 @@ const BACKEND_PATH_GLOBS: readonly string[] = [
   "jobs/",
 ];
 
+/**
+ * Front-end source-file suffixes the CQ1 ui `components/` path glob applies to
+ * (Finding D7-SA7.3-02). Mirrors the `BACKEND_SOURCE_SUFFIXES` gating pattern
+ * (Finding D7-20): a `components/` segment match fires only for
+ * component-shaped sources — scripts (Lit/Web-Component `.ts`/`.js`,
+ * co-located `index.ts` barrels, Svelte-5 `.svelte.ts` runes files), markup,
+ * and styles — so a `components/README.md` or a fixture asset under a
+ * component directory does not spuriously mandate the CQ1 specialist.
+ */
+const UI_COMPONENT_SOURCE_SUFFIXES: readonly string[] = [
+  ".ts",
+  ".tsx",
+  ".js",
+  ".jsx",
+  ".mjs",
+  ".cjs",
+  ".vue",
+  ".svelte",
+  ".html",
+  ".css",
+  ".scss",
+  ".sass",
+  ".less",
+];
+
 export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
   {
     specialist: "hatch3r-docs-writer",
@@ -876,15 +1024,27 @@ export const SPECIALIST_TRIGGER_TABLE: readonly SpecialistTrigger[] = [
       "Design-token or theme files modified",
       "Component-library imports changed",
     ],
+    // Finding D7-SA7.3-02: this row was basename-only, so Angular
+    // `foo.component.ts`/`.component.html`, co-located `Button/index.ts`
+    // barrels, Lit/Web-Component `.ts` files, and Svelte-5 `.svelte.ts` runes
+    // files never matched — while the human-readable roster
+    // (agents/shared/cq-specialist-roster.md CQ1) documented a
+    // `**/components/**` trigger with no SSOT implementation. The Angular
+    // basenames plus the suffix-gated `components/` path glob (the same D7-20
+    // pattern the backend rows use) implement the documented coverage.
     triggerFilePatterns: [
       "*.tsx",
       "*.jsx",
       "*.vue",
       "*.svelte",
+      "*.component.ts",
+      "*.component.html",
       "tailwind.config.js",
       "tailwind.config.ts",
       "theme.ts",
     ],
+    triggerPathGlobs: ["components/"],
+    triggerPathGlobSuffixes: UI_COMPONENT_SOURCE_SUFFIXES,
   },
   {
     specialist: "hatch3r-ux",
@@ -1219,6 +1379,17 @@ export interface PhaseTransitionOptions {
    * require a reviewed context, so a skip is never granted implicitly.
    */
   phase3Skipped?: boolean;
+  /**
+   * Finding D7-SA7.3-03: Phase 4 (Final Quality) is skippable for
+   * documentation-only changes per {@link PHASE_SKIP_CRITERIA} (backed by
+   * {@link isDocumentationOnly} / {@link shouldSkipPhase}) — no specialists
+   * ran, so there is no `qualityResults`. When `true`, the `"completion"`
+   * gate accepts an absent `qualityResults`, the same carve-out
+   * `phase3Skipped` gives `reviewResult`. Without this signal the gate
+   * continues to require a quality-evaluated context, so a skip is never
+   * granted implicitly.
+   */
+  phase4Skipped?: boolean;
 }
 
 /**
@@ -1230,7 +1401,8 @@ export interface PhaseTransitionOptions {
  * - Phase 3 -> 4: implementationResult, reviewResult (unless Phase 3 was skipped
  *   per `options.phase3Skipped` — Finding D7-11). An UNRESOLVED review verdict is
  *   rejected unless `options.allowUnresolvedAdvance` is set (Finding D7-10).
- * - Phase 4 -> completion: qualityResults
+ * - Phase 4 -> completion: qualityResults (unless Phase 4 was skipped for a
+ *   documentation-only change per `options.phase4Skipped` — Finding D7-SA7.3-03)
  */
 export function validatePhaseTransition(
   context: Partial<PipelineContext>,
@@ -1327,7 +1499,17 @@ export function validatePhaseTransition(
 
   if (targetPhase === "completion") {
     if (!context.qualityResults) {
-      errors.push({ field: "qualityResults", message: "qualityResults must be populated at completion" });
+      // Finding D7-SA7.3-03: Phase 4 is skippable for documentation-only
+      // changes (no specialists ran ⇒ no qualityResults). Accept the absence
+      // only under the explicit phase4Skipped signal — mirroring the
+      // phase3Skipped carve-out above, so a skip is never granted implicitly.
+      if (!options.phase4Skipped) {
+        errors.push({
+          field: "qualityResults",
+          message:
+            "qualityResults must be populated at completion (or pass phase4Skipped when Phase 4 was skipped for a documentation-only change per PHASE_SKIP_CRITERIA)",
+        });
+      }
     } else {
       if (!Array.isArray(context.qualityResults.specialists)) {
         errors.push({ field: "qualityResults.specialists", message: "qualityResults.specialists must be an array" });
@@ -1403,6 +1585,22 @@ function pathMatchesSegmentGlob(file: string, glob: string): boolean {
  * hatch3r-ux CQ2) returns `mandatory: true` — the orchestrator treats that
  * flag as a non-skippable dedicated-instance spawn at deep-context Tier 2/3
  * (tier gate is orchestrator prose; this predicate stays tier-agnostic).
+ *
+ * Recorded typed-contract limit (Finding D7-SA7.3-06, Cycle 12): the
+ * predicate takes no `tier` parameter, so `mandatory: true` is returned on
+ * any mandatory-on-match hit at EVERY tier — including Tier 1, whose "keeps
+ * its Phase Skip Criteria skip" carve-out is therefore inexpressible through
+ * this return type. Every caller must layer the tier gate itself
+ * (`rules/hatch3r-agent-orchestration.md` → Tier-to-Phase-4 specialist depth
+ * mapping); a Tier-1 caller that obeys `mandatory: true` unconditionally
+ * over-spawns. Deliberate for a markdown-orchestrated runtime (the host LLM
+ * reads the prose gate; this process never executes the spawn), not a
+ * defect. The recorded hardening path is an optional `tier?: DeepContextTier`
+ * argument that suppresses `mandatory` at Tier 1; landing it moves the
+ * carve-out into the type and must update this record plus the arity pin in
+ * `pipelineContext.test.ts` together. The sibling un-typed invariant
+ * ("SUCCESS must carry a count") is recorded on
+ * {@link SpecialistResult.criticalCount}.
  */
 export function shouldTriggerSpecialist(
   specialist: string,

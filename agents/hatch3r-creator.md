@@ -92,7 +92,7 @@ Return to the orchestrator:
 
 ```
 {
-  status:                 "WRITTEN" | "STRICT_GATE_FAILED" | "BLOCKED",
+  status:                 "WRITTEN" | "STRICT_GATE_FAILED" | "BLOCKED" | "BLOCKED_AMBIGUITY",
   paths:                  ["<absolute path>", ...],
   strictErrors:           [{message, gate, line?}],
   gentleWarnings:         [{message, gate, line?}],
@@ -105,7 +105,7 @@ Return to the orchestrator:
 }
 ```
 
-`status: "WRITTEN"` is returned only when every strict gate passes. `STRICT_GATE_FAILED` lists every blocking error. `BLOCKED` signals a precondition failure (e.g., file collision detected before the gate funnel ran).
+`status: "WRITTEN"` is returned only when every strict gate passes. `STRICT_GATE_FAILED` lists every blocking error. `BLOCKED` signals a precondition failure (e.g., file collision detected before the gate funnel ran). `BLOCKED_AMBIGUITY` signals a §0-gate ambiguity return (input maps to ≥2 interpretations) that the orchestrator routes to a live ASK per `agents/shared/user-question-protocol.md`.
 
 The schema intentionally carries no `delegation_proof_id` field. This agent runs in end-user contexts where the framework-dev End-of-Turn Delegation Attestation rule (the repo-internal `.claude/`-loaded twin of this discipline, not shipped to user repos) is not loaded, so no proof-id is emitted or expected. Do not add one to "fix" the gap — it would be dead frontmatter on the user surface (D20-SA20.1-F20.1.B2).
 
@@ -266,7 +266,7 @@ The strict gate set blocks the save when any of the following fails:
 6. Hook event enum (hook only).
 7. File size ≤10KB.
 8. Quality-charter reference present (frontmatter `quality_charter` or a `quality-charter` body reference).
-9. Pillar declaration (≥1 of P1–P8 in tags or body, or a structured `pillars` frontmatter array; structured `pillars` entries are enum-validated against P1–P8 / CQ1–CQ9).
+9. Pillar declaration (≥1 of P1–P8 in tags or body, or a structured `pillars` frontmatter array; structured `pillars` entries are enum-validated against P1–P8 / CQ1–CQ10).
 
 Authoritative source for gates 8–9: the "Promoted strict gates (C9-H79, C9-H80)" block at `src/content/userContent.ts:886-919`. Both push to the `strict` array unconditionally at every maturity tier (the block sits above the `isTeamPlus` tier branch), so absence of either blocks the save and returns `STRICT_GATE_FAILED` — they are NOT gentle/warn-only. The `/hatch3r-create` command doc (`commands/hatch3r-create.md`) lists them as "required (strict)"; this agent matches that contract.
 
@@ -284,14 +284,14 @@ The agent's job is to assemble the artifact so every strict gate above passes on
 
 ## Tool Allowlist
 
-Minimum tools the agent needs to run end-to-end:
+Minimum tools the agent needs to run end-to-end. The runtime deny-by-default policy (`src/pipeline/agentToolAllowlist.ts`, `hatch3r-creator`) grants four coarse categories — `read`, `search`, `write`, `execute`; each bullet names the category it draws on so the documented surface matches the enforced grant (D20-SA20.1-03):
 
-- **Read** — to read `agents/shared/user-content-templates.md` and any reference content.
-- **Glob** — to detect existing `.hatch3r/overrides/{type}/{name}.md` and prevent collision before the gate funnel runs.
-- **Grep** — to scan for ID collision against canonical content during composition.
-- **Bash** — limited to `mkdir -p .hatch3r/overrides/{type}` and `mkdir -p .hatch3r/overrides/skills/{name}` for directory creation. The atomic write itself is performed by `saveUserContent` via `src/merge/safeWrite.ts` (no shell `mv`/`cp`).
+- **Read** (`read`) — read `agents/shared/user-content-templates.md` and any reference content.
+- **Glob** + **Grep** (`search`) — detect an existing `.hatch3r/overrides/{type}/{name}.md` (collision check) and scan for ID collision against canonical content before the gate funnel runs.
+- **write** (`write`) — atomic artifact creation under `.hatch3r/overrides/{type}/` via `saveUserContent` → `src/merge/safeWrite.ts` (temp-file + rename; no shell `mv`/`cp`). The category authorizes create/modify/delete on files; the creator writes only the one artifact per invocation, never canonical content (see Hard Rules).
+- **Bash** (`execute`) — the `execute` category authorizes any shell command; the creator uses it only for `mkdir -p .hatch3r/overrides/{type}` and `mkdir -p .hatch3r/overrides/skills/{name}`, not general shell.
 
-The agent does **not** need WebFetch or WebSearch. The creator focuses on user input plus framework conventions; external research is out of scope. Adapters and platform research belong to `hatch3r-researcher`.
+The agent does **not** need the `web` or `mcp` categories (no WebFetch/WebSearch) — external research is out of scope and belongs to `hatch3r-researcher`.
 
 ---
 
@@ -317,6 +317,7 @@ Per `agents/shared/quality-charter.md` §1, rate every authoring decision as **h
 
 | Failure | Status | Action |
 |---|---|---|
+| Ambiguous input mapping to ≥2 interpretations | `BLOCKED_AMBIGUITY` | Return the rendered question per `agents/shared/user-question-protocol.md` (numbered options + `Default if no response:` line); orchestrator owns the live ASK. |
 | File collision before gate funnel | `BLOCKED` | Return existing path; do not call `saveUserContent`. |
 | Strict frontmatter schema violation | `STRICT_GATE_FAILED` | Return `strictErrors[]` from `saveUserContent`. |
 | Deny-pattern match in body | `STRICT_GATE_FAILED` | Return matched pattern ID from `INJECTION_PATTERNS`. |
@@ -336,8 +337,8 @@ Per `agents/shared/quality-charter.md` §1, rate every authoring decision as **h
 2. Glob `.hatch3r/overrides/agents/pr-summarizer.md` — confirm absence.
 3. Compose frontmatter (id, description, model, tags, quality_charter).
 4. Compose body using the agent skeleton — `<task>` describes summarizing PRs, `<context>` references the parent orchestrator's PR number input, a `**Pillars:** P2` line satisfies the strict pillar gate (gate 9), Implementation Protocol numbered steps, `<rules>` lists scope limits.
-5. Call `saveUserContent({ type: "agent", path: ".hatch3r/overrides/agents/pr-summarizer.md", body: ... })`.
-6. Receive `{ written: true, strictErrors: [], gentleWarnings: [] }` — the auto-injected `quality_charter` (gate 8) and the `**Pillars:** P2` body line (gate 9) both clear the strict set, so the save proceeds with no warnings.
+5. Call `saveUserContent(rootDir, { type: "agent", name: "pr-summarizer", description, body, frontmatter })` — two positional args (`rootDir` string + a `UserContentArtifact`); the write path is derived from `name` + `type`, never passed in.
+6. Receive the `SaveResult` `{ written: ["/abs/.hatch3r/overrides/agents/pr-summarizer.md"], strictFailures: [], gentleWarnings: [] }` — a non-empty `written` array (the string[] of paths written) with an empty `strictFailures` signals the strict set cleared, because the auto-injected `quality_charter` (gate 8) and the `**Pillars:** P2` body line (gate 9) both passed, so the save proceeds with no warnings.
 7. Return `{ status: "WRITTEN", paths: ["/abs/.hatch3r/overrides/agents/pr-summarizer.md"], strictErrors: [], gentleWarnings: [] }` to the orchestrator.
 
 The orchestrator then runs `hatch3r validate` in Phase 3.

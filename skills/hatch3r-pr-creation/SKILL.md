@@ -91,7 +91,7 @@ Use `board.defaultBranch` from `.hatch3r/hatch.json` as the target branch (fallb
 
 ## Required Agent Delegation
 
-You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
+You MUST spawn these agents via the Task tool (`subagent_type: "general-purpose"`) at the appropriate points:
 
 - **`hatch3r-reviewer`** — MUST spawn before PR/MR creation for code review. Include the full diff and acceptance criteria in the prompt. Apply reviewer feedback before creating the PR/MR.
 

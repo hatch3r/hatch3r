@@ -26,7 +26,7 @@ See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 
 
 When asking, follow `agents/shared/user-question-protocol.md` — one question per turn, 2–4 numbered options with trade-offs, default-if-no-response declared. Acceptable to proceed without asking ONLY when the brief itself resolves all four dimensions and supplies a testable definition of done. The Boundaries "Ask first" rule remains in force for irreversible picks surfaced mid-spec (e.g., licensing model, data-residency commitment, public API exposure).
 
-Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively (D6-M4 — Cycle 7.5 rollout completion).
+Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<context>`, `<rules>` tags wrap the agent's role/inputs/outputs, the runtime state it grounds in, and its hard constraints respectively.
 
 <task>
 
@@ -59,7 +59,7 @@ Do NOT invoke when the repository already contains an implementation — that ca
 
 ## Deliverables
 
-Produce all eight as separate markdown files under `docs/specs/` (paths returned in the structured result):
+Produce all eight as separate markdown files at the orchestrator-provided `output_root` (default `docs/specs/`). Filenames follow the `/hatch3r-spec` **Deliverable Manifest** (`commands/hatch3r-spec.md` → Deliverable Manifest), the single source of truth — the headings below mirror it, and the manifest wins on any discrepancy. Paths are returned in the structured result:
 
 ### 1. Market Research (`docs/specs/market-research.md`)
 
@@ -99,7 +99,7 @@ Each pick cites ≥2 reputable sources ≤12 months old (vendor docs, benchmarks
 
 ### 5. PRD (`docs/specs/prd.md`)
 
-Eight sections — concrete, testable, non-placeholder:
+Nine sections — concrete, testable, non-placeholder:
 
 - **Problem statement** — what pain, for whom, today's workaround cost.
 - **Goals** — 3–5 measurable outcomes (e.g., "reduce X time from 45min to <5min for persona A").
@@ -108,6 +108,7 @@ Eight sections — concrete, testable, non-placeholder:
 - **Assumptions** — facts taken as true without further verification; each tagged confidence (H/M/L).
 - **Constraints** — budget, timeline, team size, regulatory.
 - **Open questions** — items routed back to user per `agents/shared/user-question-protocol.md` for §0 resolution.
+- **Resolved clarifications** — the single auditable record of every answered §0/clarification question, one row per question: `Q → chosen answer → default-applied? (yes/no)` (`yes` = the declared default-if-no-response was taken; `no` = the user answered explicitly). A question lives in exactly one place: answered here, unanswered under Open questions. Maturity-dial calibrated per `agents/shared/quality-charter.md` §5: mandatory at team, scaleup, and enterprise tiers; at solo, record rows only when ≥1 §0 question was asked — omit the section rather than emit it empty.
 - **Living-document clause** — PRD evolves; each change appends to a changelog inside the file.
 
 ### 6. Acceptance Criteria (`docs/specs/acceptance-criteria.md`)
@@ -120,7 +121,7 @@ Per-feature Given/When/Then blocks. Each criterion is:
 
 Avoid the anti-pattern: "Improve UX" — instead: "Persona A completes journey X in ≤3 clicks, axe-core reports 0 serious/critical violations on the journey routes."
 
-### 7. Risk Inventory (`docs/specs/risks.md`)
+### 7. Risk Inventory (`docs/specs/risk-inventory.md`)
 
 Per-risk row in a table:
 
@@ -198,7 +199,7 @@ deliverables:
   tech_stack: docs/specs/tech-stack.md
   prd: docs/specs/prd.md
   acceptance_criteria: docs/specs/acceptance-criteria.md
-  risks: docs/specs/risks.md
+  risk_inventory: docs/specs/risk-inventory.md
   test_plan: docs/specs/test-plan.md
 proof_trace:
   - claim: <state-dependent assertion>
@@ -219,8 +220,9 @@ confidence_aggregate:
   tech_stack: H | M | L
   prd: H | M | L
   acceptance_criteria: H | M | L
-  risks: H | M | L
+  risk_inventory: H | M | L
   test_plan: H | M | L
+resolved_clarifications: <row count recorded in prd.md §Resolved clarifications; 0 when no §0 question was asked>
 open_questions: <list routed back to user per user-question-protocol.md>
 ```
 

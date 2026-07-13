@@ -86,11 +86,7 @@ Perform ONE comprehensive scan and cache everything for subsequent steps.
 
 #### 2b. Categorize Issues
 
-Classify every open issue (excluding `meta:board-overview`):
-
-- **Epic** -- has sub-issues
-- **Sub-issue** -- is a child of an epic
-- **Standalone** -- neither parent nor child
+Classify every open issue (excluding `meta:board-overview`) into Epic / Sub-issue / Standalone per **Board Health Computation → Categorize Issues** in `hatch3r-board-shared`.
 
 ---
 
@@ -100,25 +96,11 @@ Analyze cached data to produce board health diagnostics.
 
 #### 3a. Status Distribution
 
-Count issues per status label:
-
-| Status | Source |
-| --- | --- |
-| Backlog / Triage | Issues with `status:triage` |
-| Ready | Issues with `status:ready` |
-| In Progress | Issues with `status:in-progress` |
-| In Review | Issues with `status:in-review` |
-| Externally Blocked | Issues with `status:blocked` |
+Count issues per status label per the **Board Health Computation → Status Distribution** table in `hatch3r-board-shared`.
 
 #### 3b. Missing Metadata Detection
 
-For each open issue, check for required labels. Flag issues missing any of:
-
-- `type:*` (at least one type label)
-- `priority:*` (at least one priority label)
-- `executor:*` (at least one executor label)
-
-Optional but noted: missing `area:*`, missing `risk:*`.
+Flag issues missing any required `type:*` / `priority:*` / `executor:*` label (optional, noted: `area:*`, `risk:*`) per **Board Health Computation → Missing Metadata Detection** in `hatch3r-board-shared`.
 
 #### 3c. Dependency Health
 
@@ -137,7 +119,7 @@ Flag open issues that are potentially stale:
 
 #### 3e. Lane Computation & Dependency-Waiting Partition
 
-Compute Implementation Lanes and the Waiting on Dependencies list for all `status:ready` issues using the **Lane Computation Algorithm** (steps 1-12) from `hatch3r-board-shared`. Use the dependency graph built in Step 3c as input. The algorithm partitions ready issues into available (all blockers satisfied) and dependency-waiting (unsatisfied blockers), computes lanes from available issues, then computes inter-lane dependency edges, lane phases, and the Lane Dependency Map (steps 10-12).
+Compute Implementation Lanes and the Waiting on Dependencies list for all `status:ready` issues using the **Lane Computation Algorithm** (steps 1-12) from `commands/board/shared-board-overview.md`. Use the dependency graph built in Step 3c as input. The algorithm partitions ready issues into available (all blockers satisfied) and dependency-waiting (unsatisfied blockers), computes lanes from available issues, then computes inter-lane dependency edges, lane phases, and the Lane Dependency Map (steps 10-12).
 
 #### 3f. PR Linkage Gaps
 
@@ -153,21 +135,21 @@ If `board.projectNumber` is configured, compare label-based status (`status:*` l
 
 #### 3i. Dependency Format Inconsistencies
 
-Scan all `## Dependencies` sections for `Depends on #N` references (legacy format). Flag these for normalization to `Blocked by #N` (canonical format per the Dependency Data Model in `hatch3r-board-shared`).
+Scan all `## Dependencies` sections for `Depends on #N` references (legacy format). Flag these for normalization to `Blocked by #N` (canonical format per the Dependency Data Model in `commands/board/shared-board-overview.md`).
 
 ---
 
 ### Step 4: Regenerate Board Overview
 
-Build the dashboard body following the **Board Overview Issue Format** and **Model Selection Heuristic** from `hatch3r-board-shared`.
+Build the dashboard body following the **Board Overview Issue Format** and **Model Selection Heuristic** from `commands/board/shared-board-overview.md`.
 
 #### 4a. Model Assignment
 
-For each open issue, assign a recommended model using the **Model Selection Heuristic (Quality-First)** from `hatch3r-board-shared`. Apply that heuristic as the single source of truth; do not duplicate it here.
+For each open issue, assign a recommended model using the **Model Selection Heuristic (Quality-First)** from `commands/board/shared-board-overview.md`. Apply that heuristic as the single source of truth; do not duplicate it here.
 
 #### 4b. Compose Dashboard Body
 
-Assemble the dashboard using the **Board Overview Issue Format** template from `hatch3r-board-shared`. Populate it with:
+Assemble the dashboard using the **Board Overview Issue Format** template from `commands/board/shared-board-overview.md`. Populate it with:
 
 1. **Status Summary** from Step 3a counts.
 2. **In Progress** and **In Review** from cached issues with the corresponding status labels. Include the `PR` column using `pr_association_map` from Step 2a — show `#{pr_number}` if an open PR references the issue, `--` if none.
@@ -273,4 +255,4 @@ Emit `sub_agents_spawned: { count, rationale }` in your output.
 - **One board overview issue at a time.** If multiple are found, update the oldest and warn about duplicates.
 - **Follow the Platform CLI-first approach** from `hatch3r-board-shared`. Use platform CLI as primary; MCP as fallback.
 - **No ASK checkpoints.** This command performs a single, non-destructive mutation (updating the dashboard). It runs to completion without user prompts.
-- **Respect the Model Selection Heuristic.** Always include the `Model` column using the quality-first heuristic from `hatch3r-board-shared`.
+- **Respect the Model Selection Heuristic.** Always include the `Model` column using the quality-first heuristic from `commands/board/shared-board-overview.md`.

@@ -16,6 +16,7 @@
  *        sub_agents_spawned:
  *          count: <positive integer>
  *          rationale: <non-empty string>
+ *          task_structure: parallelizable | sequential | mixed
  *
  *   2. SKILLS — every `SKILL.md` under `skills/hatch3r-<name>` whose
  *      body carries a Tier-2/3 Task-tool delegation contract MUST carry
@@ -26,7 +27,8 @@
  *      the skill instead instructs its runtime sub-agent to emit the
  *      field, matching the 34 skills that already carry the directive:
  *
- *        Emit `sub_agents_spawned: { count, rationale }` in your output.
+ *        Emit `sub_agents_spawned: { count, rationale, task_structure }`
+ *        in your output.
  *
  *      A skill that declares `Tier 1 reference card` (the rule's
  *      documented opt-out: "Tier 1 reference-card skills that neither
@@ -61,7 +63,15 @@
  *   > Sub-agent fan-out scales with task size; serialization is only
  *   > valid on dependency edges. Token cost is never a valid reason to
  *   > serialize independent work. Delegating artifacts emit sub-agent
- *   > count + rationale as a first-class output field.
+ *   > count + rationale as a first-class output field, with a
+ *   > task-structure classification (`parallelizable | sequential |
+ *   > mixed`) as its required companion.
+ *
+ * The `task_structure` companion (2026-07-09 CONSTITUTION §2 P8 amendment,
+ * run a2a16b59) is enforced as a WARNING during the corpus-backfill window
+ * — a missing/invalid companion flags the author without reding the gate,
+ * matching the D7-30 soft-heuristic pattern and the D7-SA7.6 "keep as
+ * warnings first" remediation; promote to ERROR once the corpus carries it.
  *
  * Failure modes (each emits one ERROR finding):
  *
@@ -105,8 +115,13 @@
  *                         decomposition basis ... so a reviewer can check
  *                         the count against the task without re-deriving
  *                         it"). Single-agent pipelines are exempt.
+ *   P8-FANOUT-TASKSTRUCT-MISS    command `sub_agents_spawned` omits the
+ *                                `task_structure` companion (P8 B2 2026-07-09
+ *                                amendment) — WARNING during corpus backfill
+ *   P8-FANOUT-TASKSTRUCT-INVALID command `task_structure` is present but not
+ *                                one of `parallelizable | sequential | mixed`
  *
- * Both heuristics are WARNINGS, not errors: they flag likely drift for
+ * The consistency heuristics are WARNINGS, not errors: they flag likely drift for
  * human review without failing the CI gate, matching the finding's "keep
  * as warnings first" remediation. The live command corpus (Cycle 11)
  * raises zero of either warning.
@@ -137,6 +152,30 @@ const SKILLS_DIR = join(ROOT, "skills");
 // dispatches parallel sub-agents and carries the same P8 B2 runtime-emission
 // obligation as the canonical skill class.
 const MAINTAINER_SKILLS_DIR = join(ROOT, ".claude", "skills");
+
+// The canonical, shipped, CI-present twin of the CONSTITUTION §2 P8 B2 directive
+// (`governance/CONSTITUTION.md` is privatized and absent in public CI, so the
+// rule twin — not the constitution — is the derivable source of truth for the
+// required-output-field set). Its "## Required output field" block is the
+// contract this validator certifies; the meta-invariant below derives the field
+// set from it at runtime.
+const CANONICAL_RULE_PATH = join(ROOT, "rules", "hatch3r-fan-out-discipline.md");
+
+// ── Derive-don't-enumerate SSoT (D16-SA16.1-01) ───────────────────
+//
+// The single place this validator NAMES the P8 B2 `sub_agents_spawned` output
+// fields it enforces. The meta-invariant (`checkContractScopeParity`) fails
+// when this hand-enumerated set diverges from the field set the canonical rule
+// declares — the "does this verifier still cover what it claims to verify?"
+// check. Enforcement SEVERITY still differs per field by rollout policy (count
+// + rationale are hard errors; task_structure is a corpus-backfill WARNING),
+// but every field the contract mandates must appear here or the gate is
+// silently narrower than the contract it certifies.
+const P8_REQUIRED_OUTPUT_FIELDS: readonly string[] = [
+  "count",
+  "rationale",
+  "task_structure",
+];
 
 // ── Audit-cycle exempt list (hard-coded) ──────────────────────────
 //
@@ -176,6 +215,13 @@ export interface RunOptions {
   skillsDir?: string;
   /** Maintainer-preset root (`.claude/skills/`); test fixtures inject a tmpdir. */
   maintainerSkillsDir?: string;
+  /**
+   * Canonical fan-out rule whose "Required output field" block is the P8 B2
+   * contract the meta-invariant derives from. Defaults to the shipped
+   * `rules/hatch3r-fan-out-discipline.md`; injectable so a test can point it at
+   * a synthetic contract to prove the drift check fires.
+   */
+  canonicalRulePath?: string;
 }
 
 export interface RunResult {
@@ -295,6 +341,9 @@ const isOrchestrator = (fm: Record<string, unknown>): boolean => fm.orchestrator
 interface FanoutShape {
   count: unknown;
   rationale: unknown;
+  /** `true` when the `task_structure` companion key is present (P8 B2, 2026-07-09 amendment). */
+  hasTaskStructure: boolean;
+  taskStructure: unknown;
 }
 
 function getFanout(fm: Record<string, unknown>): FanoutShape | "missing" | "wrong-shape" {
@@ -303,8 +352,22 @@ function getFanout(fm: Record<string, unknown>): FanoutShape | "missing" | "wron
   if (typeof v !== "object" || Array.isArray(v)) return "wrong-shape";
   const obj = v as Record<string, unknown>;
   if (!("count" in obj) || !("rationale" in obj)) return "wrong-shape";
-  return { count: obj.count, rationale: obj.rationale };
+  return {
+    count: obj.count,
+    rationale: obj.rationale,
+    hasTaskStructure: "task_structure" in obj,
+    taskStructure: (obj as { task_structure?: unknown }).task_structure,
+  };
 }
+
+// P8 B2 task-structure companion (CONSTITUTION §2 P8, 2026-07-09 amendment,
+// run a2a16b59): every delegating artifact classifies its fan-out topology so
+// a reviewer can tell parallel-safe fan-out from a true dependency chain.
+const VALID_TASK_STRUCTURES: ReadonlySet<string> = new Set([
+  "parallelizable",
+  "sequential",
+  "mixed",
+]);
 
 // `agentPipeline` is a YAML list of hatch3r-* agent ids. Non-array shapes
 // (absent, scalar) collapse to an empty list — the consistency heuristics
@@ -401,6 +464,35 @@ function checkFanoutEmission(file: ParsedFile): Finding[] {
     });
   }
 
+  // P8 B2 task-structure companion (CONSTITUTION §2 P8, 2026-07-09 amendment).
+  // WARNING (not error) during the corpus-backfill window: a missing/invalid
+  // companion flags the author without reding the gate, matching the D7-30
+  // soft-heuristic pattern and the D7-SA7.6 "keep as warnings first"
+  // remediation. Promote to error once the command corpus is fully backfilled.
+  if (!shape.hasTaskStructure) {
+    out.push({
+      level: "warning",
+      code: "P8-FANOUT-TASKSTRUCT-MISS",
+      file: file.relPath,
+      message:
+        "`sub_agents_spawned` omits the `task_structure` companion (P8 B2, 2026-07-09 amendment): " +
+        "add `task_structure: parallelizable | sequential | mixed` classifying the fan-out topology " +
+        "(`rules/hatch3r-fan-out-discipline.md` → Required output field).",
+    });
+  } else if (
+    typeof shape.taskStructure !== "string" ||
+    !VALID_TASK_STRUCTURES.has(shape.taskStructure)
+  ) {
+    out.push({
+      level: "warning",
+      code: "P8-FANOUT-TASKSTRUCT-INVALID",
+      file: file.relPath,
+      message:
+        "`sub_agents_spawned.task_structure` must be one of `parallelizable | sequential | mixed`, " +
+        `got ${JSON.stringify(shape.taskStructure)} (P8 B2 task-structure companion).`,
+    });
+  }
+
   // Soft consistency heuristics run only when the structural schema above is
   // sound (valid integer count + non-empty string rationale); a malformed
   // count/rationale already errored and would make the heuristics noise.
@@ -482,8 +574,13 @@ const SKILL_TIER1_EXEMPTION = /Tier 1 reference card/i;
 
 // Required directive when triggered and not exempt: the canonical
 // runtime-emission instruction. `count`/`rationale` may sit on one line
-// or be wrapped, so the keys are matched independently of layout.
-const SKILL_EMISSION_DIRECTIVE = /Emit\s+`sub_agents_spawned:\s*\{\s*count,\s*rationale\s*\}`/i;
+// or be wrapped, so the keys are matched independently of layout. The
+// `task_structure` companion (P8 B2, 2026-07-09 amendment) is accepted as
+// an OPTIONAL trailing key during the corpus-backfill window, so a skill
+// that adopts the constitution-current 3-key form is NOT hard-blocked —
+// the self-lock the 2-key-only regex created (D5-SA5.8-01 / D7-SA7.6-01).
+const SKILL_EMISSION_DIRECTIVE =
+  /Emit\s+`sub_agents_spawned:\s*\{\s*count,\s*rationale(?:,\s*task_structure)?\s*\}`/i;
 
 function checkSkillEmission(file: ParsedFile): Finding[] {
   if (SKILL_TIER1_EXEMPTION.test(file.body)) return [];
@@ -496,7 +593,7 @@ function checkSkillEmission(file: ParsedFile): Finding[] {
       file: file.relPath,
       message:
         "delegating skill omits the runtime-emission directive " +
-        "(P8 B2): add ``Emit `sub_agents_spawned: { count, rationale }` in your output.`` " +
+        "(P8 B2): add ``Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.`` " +
         "to the body, or mark the skill `Tier 1 reference card — no fan-out`",
     },
   ];
@@ -550,8 +647,107 @@ function checkMaintainerSkillEmission(file: ParsedFile): Finding[] {
       message:
         "delegating maintainer preset (grants Task or declares a Sub-Agent " +
         "Dispatch step) omits the runtime-emission directive (P8 B2): add " +
-        "``Emit `sub_agents_spawned: { count, rationale }` in your output.`` " +
+        "``Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output.`` " +
         "to the body, or mark the preset `Tier 1 reference card — no fan-out`",
+    },
+  ];
+}
+
+// ── Derive-don't-enumerate meta-invariant (D16-SA16.1-01) ─────────
+//
+// Root cause the meta-invariant closes: an enforcement instrument hand-scoped
+// once stays green under contract drift — it keeps fully covering its ORIGINAL
+// surface while the contract widens, so it certifies compliance it no longer
+// checks. This validator's antidote for its own field set: DERIVE the required
+// `sub_agents_spawned` fields from the canonical rule at runtime and fail when
+// the hand-enumerated `P8_REQUIRED_OUTPUT_FIELDS` no longer matches.
+
+/**
+ * Extract the `sub_agents_spawned` child-field names from the canonical rule's
+ * "## Required output field" fenced block. Returns the field list, or `null`
+ * when the section / fenced block / anchor is absent (a shape this parser does
+ * not recognize) so the caller can fail-safe rather than derive a wrong set.
+ */
+export function deriveContractFieldSet(ruleText: string): string[] | null {
+  const heading = /^#{1,6}\s+Required output field\s*$/im.exec(ruleText);
+  if (!heading) return null;
+  const after = ruleText.slice(heading.index + heading[0].length);
+  const fence = /```[^\n]*\n([\s\S]*?)```/m.exec(after);
+  if (!fence) return null;
+  const block = fence[1];
+  const anchorIdx = block.indexOf("sub_agents_spawned:");
+  if (anchorIdx === -1) return null;
+  // Child keys are the 2-space-indented `key:` lines after the anchor; the
+  // first non-indented / non-blank line ends the mapping.
+  const childLines = block.slice(anchorIdx).split("\n").slice(1);
+  const fields: string[] = [];
+  for (const line of childLines) {
+    const m = /^ {2}([A-Za-z_][A-Za-z0-9_]*):/.exec(line);
+    if (m) {
+      fields.push(m[1]);
+    } else if (line.trim().length > 0) {
+      break;
+    }
+  }
+  return fields.length > 0 ? fields : null;
+}
+
+/**
+ * Read the canonical rule and derive its field set; `null` on any read failure
+ * (fail-safe: a partial checkout without the rule skips the meta-check rather
+ * than false-failing the gate). Surfaces a diagnostic on non-ENOENT errors per
+ * the Silent Failure Contract — a skipped check is not a passed one.
+ */
+async function readContractFieldSet(rulePath: string): Promise<string[] | null> {
+  let raw: string;
+  try {
+    raw = await readFile(rulePath, "utf-8");
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code !== "ENOENT") {
+      // eslint-disable-next-line no-console
+      console.warn(
+        `validate-fanout-emission: could not read ${rulePath} for contract-scope ` +
+          `parity (${(err as Error).message}); skipping the meta-invariant check.`,
+      );
+    }
+    return null;
+  }
+  return deriveContractFieldSet(raw);
+}
+
+/**
+ * Meta-invariant: the validator's declared enforced field set
+ * (`P8_REQUIRED_OUTPUT_FIELDS`) must equal the field set the canonical contract
+ * declares. Any divergence is a `P8-FANOUT-CONTRACT-DRIFT` ERROR — the gate has
+ * fallen out of scope-parity with the contract it certifies.
+ */
+export function checkContractScopeParity(
+  validatorFields: readonly string[],
+  contractFields: readonly string[],
+): Finding[] {
+  const validatorSet = new Set(validatorFields);
+  const contractSet = new Set(contractFields);
+  const unenforced = contractFields.filter((f) => !validatorSet.has(f));
+  const orphaned = validatorFields.filter((f) => !contractSet.has(f));
+  if (unenforced.length === 0 && orphaned.length === 0) return [];
+  return [
+    {
+      level: "error",
+      code: "P8-FANOUT-CONTRACT-DRIFT",
+      file: "rules/hatch3r-fan-out-discipline.md",
+      message:
+        "fan-out validator scope has drifted from the P8 B2 contract's " +
+        "`sub_agents_spawned` field set (Required output field block). " +
+        (unenforced.length > 0
+          ? `Contract mandates field(s) this validator does not enforce: ${unenforced.join(", ")}. `
+          : "") +
+        (orphaned.length > 0
+          ? `Validator enforces field(s) the contract no longer names: ${orphaned.join(", ")}. `
+          : "") +
+        "Re-derive P8_REQUIRED_OUTPUT_FIELDS (and the per-field checks) from the " +
+        "contract so the gate certifies what it claims to " +
+        "(D16-SA16.1-01 derive-don't-enumerate meta-invariant).",
     },
   ];
 }
@@ -625,6 +821,20 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
     if (!isDelegatingMaintainerSkill(f)) continue;
     checkedMaintainerSkills += 1;
     findings.push(...checkMaintainerSkillEmission(f));
+  }
+
+  // ── Meta-invariant: gate-scope parity with the P8 B2 contract ──────
+  // Derive the required-output-field set from the canonical rule and fail when
+  // this validator's hand-enumerated `P8_REQUIRED_OUTPUT_FIELDS` no longer
+  // matches (D16-SA16.1-01). Fail-safe: an absent/unparseable rule skips the
+  // check rather than false-failing the gate.
+  const contractFields = await readContractFieldSet(
+    opts.canonicalRulePath ?? CANONICAL_RULE_PATH,
+  );
+  if (contractFields !== null) {
+    findings.push(
+      ...checkContractScopeParity(P8_REQUIRED_OUTPUT_FIELDS, contractFields),
+    );
   }
 
   let errorCount = 0;

@@ -4,6 +4,8 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-ui, hatch3r-ux, hatch3r-performance]
 description: "Pick up epics/issues from the project board: dependency-aware selection, collision detection, branching, batch execution. Multi-platform."
+argument-hint: "[--auto] [--max-batch=N] [--confidence-floor=any|medium|high]"
+disable-model-invocation: true
 tags: [board, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,6 +17,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 11
   rationale: Full delivery pipeline — researcher, implementer (one per independent issue in batch mode), reviewer ↔ fixer review loop, then a parallel final-quality batch (testability (CQ5), security (CQ3), docs-writer, lint-fixer, hatch3r-ui (CQ1), hatch3r-ux (CQ2), performance (CQ7)) bounded by max_phase4_parallel. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -40,6 +43,8 @@ Pick up an epic (with all sub-issues), a single sub-issue, a standalone issue, o
 | 3e. Final Quality — Triggered | `hatch3r-lint-fixer`, `hatch3r-performance` (conditional); `hatch3r-ui`, `hatch3r-ux` (mandatory-on-match — each triggered one MUST spawn as its own dedicated instance at Tier 2/3) | Yes | When triggered |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
+
+**Conditional-CQ scope (D7-SA7.5-02):** board-pickup delivery dispatches CQ1/CQ2/CQ3/CQ5/CQ7 (+ `hatch3r-docs-writer`, `hatch3r-lint-fixer`); the conditional backend/API specialists — CQ4 `hatch3r-reliability`, CQ6 `hatch3r-scalability`, CQ8 `hatch3r-maintainability`, CQ9 `hatch3r-enhancability` — are a stated deferral on this delivery path, not silent drift: they run when the same code passes through `hatch3r-workflow` (its Phase 4b dispatches every triggered CQ1-CQ9 specialist per `SPECIALIST_TRIGGER_TABLE`) or an audit cycle. Step 7's jscpd duplication scan covers the duplication half of CQ8 in-path.
 
 ## Browser Automation
 
@@ -327,7 +332,7 @@ Use the issue type to select the appropriate hatch3r skill: `type:bug` → the h
 
 #### 6.pre: Consult Learnings
 
-Before delegating: scan `.hatch3r/learnings/` for matching `area`/`tags`, include relevant learnings (especially `pitfall` category) in sub-agent context. Skip silently if no learnings directory exists.
+Before delegating: scan `.hatch3r/learnings/` for matches — test the issue's target file paths against each learning's `applies-to` glob and the work area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback) — and include relevant learnings (prioritise pitfall-type learnings) in sub-agent context. Skip silently if no learnings directory exists.
 
 **Cross-PR finding memory (D13-SA13.1-F08).** Also scan `.hatch3r/review-findings/` (skip silently if absent) for entries whose `applies-to` glob matches the issue's target files; carry the 5 most-recent matches (by `created` descending) forward into the Step 7a reviewer prompt as a `## Cross-PR Findings` block so the reviewer — which declares `consults_cross_pr_findings: true` — weighs prior same-file findings as organisational memory. After the Step 7a review loop terminates clean, append one `.hatch3r/review-findings/<id>.md` entry per Critical/Warning finding resolved (atomic write via `src/merge/safeWrite.ts`), mirroring the Step 10 learnings-capture pattern — derive the entry from the findings-ledger fold and cite its `finding_id` (`rules/hatch3r-findings-ledger.md` → Store Boundaries).
 
@@ -376,15 +381,15 @@ board-pickup is long-running — a Tier 3 batch picks up multiple epics/sub-issu
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 6 delegation).
 - **Post-execution `cost_actuals` + `delta`** — the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.

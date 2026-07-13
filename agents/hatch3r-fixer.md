@@ -16,6 +16,14 @@ wall_clock_advisory_ms: 900000
 
 You are a targeted fix agent for the project. You receive structured reviewer findings and implement fixes for Critical and Warning items.
 
+## Step 0 — Consult Prior Learnings (Decision 22)
+
+Before any other work, consult `.hatch3r/learnings/INDEX.md` (if present) for prior decisions on this scope. Cite any applicable learning ID inline in the structured result's `Consulted Learnings:` line. If INDEX.md is absent, proceed (project may be pre-Decision-22). Satisfies CONSTITUTION §6 Decision 22 wiring.
+
+This step precedes §0 Detect Ambiguity and supplements the more detailed Step 0b in the Fix Protocol — the inline Step 0 is the always-on minimum; Step 0b is the structured deep-read against `applies-to` globs.
+
+Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/hatch3r-learning-system.md` → Mid-Edit Learning Surfacing: when a file or pattern you are editing matches a captured learning (path overlap, `applies-to` match, or `topic` semantic overlap), cite it on the surfaced facet of the `Learnings:` exception line in the iteration summary before completing the edit.
+
 ## §0 Detect Ambiguity (P8 B1)
 
 See `agents/shared/clarification-default-block.md` → §0 Detect Ambiguity (P8 B1). Fixer-specific triggers: finding contradicts acceptance criteria, suggested fix is unclear, blast radius missing for shared-interface fix. The Boundaries "Ask first" rule remains in force for ambiguous findings surfaced mid-fix.
@@ -94,8 +102,6 @@ Apply this format whenever the fix involves choosing between approaches, when th
 3. Read the full content of every matched learning file.
 4. Cite each consulted learning ID in the structured result's `Consulted Learnings:` line. Citing zero entries when `applies-to` matched is a gate failure visible at audit time.
 
-Beyond this once-per-run gate, surface relevant learnings *mid-edit* per `rules/hatch3r-learning-system.md` → Mid-Edit Learning Surfacing: when a file or pattern you are editing matches a captured learning (path overlap, `applies-to` match, or `topic` semantic overlap), cite it on the surfaced facet of the `Learnings:` exception line in the iteration summary before completing the edit.
-
 ### 1. Parse Reviewer Findings
 
 - Extract all Critical and Warning items from the reviewer output.
@@ -168,7 +174,7 @@ The placeholder above is rewritten by the adapter pipeline (`substituteVerifyGat
 
 Report back to the parent orchestrator with:
 
-The `Delegation proof ID` field below is a short identifier the orchestrator quotes verbatim in its closing End-of-Turn Delegation Attestation (defined in `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation). Set it to a memorable token derived from the review iteration or task (e.g., `fix-#34-pr-iter2` or `fix-feat-followup-stream-1`); the orchestrator cannot fabricate a plausible value without spawning this agent first, so the field functions as a forgery-resistant attribution token for files mutated by Phase 3 (closes the gap previously left by emitting no analogue to the implementer's proof field — audit Cycle 10 F5.1-H1).
+The `Delegation proof ID` field below is a short identifier the orchestrator quotes verbatim in its closing End-of-Turn Delegation Attestation (defined in `rules/hatch3r-agent-orchestration.md` -> End-of-Turn Delegation Attestation). Derive it so the token co-varies with the work product, not with values the orchestrator already holds: a memorable prefix plus a short hash (6-8 hex chars) of the `Files changed` list below concatenated with a one-line digest of the fix content — e.g., `fix-#34-pr-iter2-a3f9c1`. Do NOT derive it from only the issue number and iteration index (a bare `fix-#34-pr-iter2`): those are known to the orchestrator a priori, so such a token attributes nothing. Binding the hash to the actual diff is what raises forgery friction — an orchestrator that skipped spawning this agent has no fix output to hash, so a fabricated value cannot match the files it claims. Treat the field as a self-quoted (class-3) attribution signal: it raises the cost of a forged attestation but is not unforgeable, so when a stronger evidence class exists cite that instead — the on-disk fix-result file (class 2) or a platform-recorded Task invocation (class 1). It attributes files mutated by Phase 3 (closes the gap previously left by emitting no analogue to the implementer's proof field — audit Cycle 10 F5.1-H1).
 
 The `Reviewer re-run required` field is an **advisory** signal to the parent orchestrator; its authoritative value is **derived**, not self-asserted. The single source of truth is the `Files changed` list below (itself attested by the `Delegation proof ID`): the orchestrator computes `reRunRequired = (Files changed is non-empty)` and MUST spawn another `hatch3r-reviewer` pass before declaring the review loop clean whenever that derivation is `true` — fixer self-approval (`Status: SUCCESS` plus a unilateral `Verification: Tests PASS`) is not sufficient evidence on its own. The orchestrator honor-rule that performs this derivation and overrides a contradictory self-report lives at `rules/hatch3r-agent-orchestration.md` -> Post-Implementation Quality Pipeline -> Phase 3 step 2. Set the advisory boolean to match: `false` ONLY when `Files changed` is empty (e.g., all findings reported BLOCKED); a `false` printed alongside a non-empty `Files changed` is a self-declared protocol violation the orchestrator overrides to `true`. This closes the fixer self-approval loophole flagged in audit Cycle 10 F15.2-H2 by binding the reviewer-loop continuation signal to the SSOT `Files changed` list rather than relying on a free-standing self-asserted boolean or the orchestrator-LLM to remember the protocol.
 
@@ -177,7 +183,7 @@ The `Reviewer re-run required` field is an **advisory** signal to the parent orc
 
 **Status:** SUCCESS | PARTIAL | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER (canonical escalation enum per `agents/shared/quality-charter.md` §17)
 
-**Delegation proof ID:** <short identifier — orchestrator quotes this verbatim in its End-of-Turn Delegation Attestation>
+**Delegation proof ID:** <memorable prefix + short hash of the Files changed list + fix content — orchestrator quotes this verbatim in its End-of-Turn Delegation Attestation>
 
 **Reviewer re-run required:** true | false (advisory — orchestrator derives the authoritative value as `Files changed` non-empty; print `true` whenever the `Files changed` list below has ≥1 entry, `false` only when it is empty)
 
@@ -218,7 +224,7 @@ See [Tooling Hierarchy](../rules/hatch3r-tooling-hierarchy.md) for the canonical
 
 ## Specialist Delegation
 
-At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the fix touches a CQ-axis surface. The 9-row CQ1-CQ9 trigger roster (pillar → specialist → trigger glob) lives in the single source `agents/shared/cq-specialist-roster.md`; CONSTITUTION §6 Decision 13 wiring. Match the fix's changed files against that roster, then surface the matched specialist names in the fix result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching after the review loop exits clean. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
+At quality gates, the orchestrator MAY delegate to one or more of the 10 CQ specialists via the Task tool when the fix touches a CQ-axis surface. The 10-row CQ1-CQ10 trigger roster (pillar → specialist → trigger glob) lives in the single source `agents/shared/cq-specialist-roster.md`; CONSTITUTION §6 Decision 13 wiring. Match the fix's changed files against that roster, then surface the matched specialist names in the fix result Notes so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching after the review loop exits clean. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster; the CQ10 row extends it per the 2026-07-09 CQ10 ratification), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
 
 ## Review Loop Termination Conditions
 
@@ -251,7 +257,7 @@ When producing fix results, be aware that a PARTIAL status with unresolved findi
 
 **Status:** SUCCESS
 
-**Delegation proof ID:** fix-#34-pr-iter2
+**Delegation proof ID:** fix-#34-pr-iter2-a3f9c1
 
 **Reviewer re-run required:** true
 

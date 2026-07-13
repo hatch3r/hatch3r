@@ -1,6 +1,6 @@
 {
   "name": "hatch3r",
-  "version": "2.2.0",
+  "version": "2.5.0",
   "description": "Agentic coding setup framework audited each release across 24 governance domains. One command to hatch your agent stack -- agents, skills, rules, commands, and MCP for Claude Code, Cursor, and GitHub Copilot.",
   "type": "module",
   "bin": {
@@ -11,7 +11,7 @@
     "postbuild": "tsx scripts/copy-content.ts",
     "dev": "tsup --watch",
     "lint": "eslint src/",
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.scripts.json",
     "prepublishOnly": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\" && npm run build",
     "test": "vitest run",
     "test:ci": "vitest run --no-update",
@@ -19,10 +19,11 @@
     "inventory": "tsx scripts/inventory.ts",
     "inventory:check-docs": "tsx scripts/inventory.ts --check-docs",
     "validate:rule-parity": "tsx scripts/validate-rule-parity.ts && tsx scripts/validate-rule-pillar-currency.ts",
-    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts && tsx scripts/validate-tag-order.ts && tsx scripts/validate-modes-parity.ts && tsx scripts/validate-governance-currency.ts && tsx scripts/validate-traceability-matrix.ts && tsx scripts/validate-decision-id-consistency.ts && tsx scripts/validate-repo-token-adoption.ts && tsx scripts/validate-verify-gate-literals.ts && tsx scripts/validate-customize-doc-examples.ts && tsx scripts/validate-archive-path-currency.ts && tsx scripts/validate-references-currency.ts && tsx scripts/validate-pricing-currency.ts && tsx scripts/validate-subagent-casing.ts && tsx scripts/validate-governance-total.ts && tsx scripts/validate-lean-threshold-currency.ts",
+    "validate:efficiency": "tsx scripts/validate-efficiency-invariants.ts && tsx scripts/validate-bridge-budget.ts && tsx scripts/validate-fanout-emission.ts && tsx scripts/validate-tag-order.ts && tsx scripts/validate-pillar-coverage.ts --check && tsx scripts/validate-modes-parity.ts && tsx scripts/validate-governance-currency.ts && tsx scripts/validate-traceability-matrix.ts && tsx scripts/validate-decision-id-consistency.ts && tsx scripts/validate-repo-token-adoption.ts && tsx scripts/validate-verify-gate-literals.ts && tsx scripts/validate-customize-doc-examples.ts && tsx scripts/validate-archive-path-currency.ts && tsx scripts/validate-references-currency.ts && tsx scripts/validate-pricing-currency.ts && tsx scripts/validate-subagent-casing.ts && tsx scripts/validate-governance-total.ts && tsx scripts/validate-lean-threshold-currency.ts && tsx scripts/validate-learnings-consultation-keys.ts",
     "validate:subagent-casing": "tsx scripts/validate-subagent-casing.ts",
     "validate:references-currency": "tsx scripts/validate-references-currency.ts",
     "validate:pricing-currency": "tsx scripts/validate-pricing-currency.ts",
+    "validate:learnings-keys": "tsx scripts/validate-learnings-consultation-keys.ts",
     "validate:cli-skills": "tsx scripts/validate-cli-skills.ts",
     "validate:wiring": "tsx scripts/validate-wiring.ts",
     "validate:control-reachability": "tsx scripts/validate-control-reachability.ts",
@@ -36,9 +37,12 @@
     "validate:adapter-parity": "tsx scripts/validate-adapter-output.ts",
     "validate:trust-crosswalk": "tsx scripts/validate-trust-crosswalk-citations.ts",
     "validate:id-uniqueness": "tsx scripts/validate-id-uniqueness.ts",
+    "validate:skill-refs": "tsx scripts/validate-skill-refs.ts",
+    "validate:skill-contracts": "tsx scripts/validate-skill-contracts.ts",
+    "eval:skills": "tsx scripts/run-skill-golden-set.ts",
     "generate:cli-skills": "tsx scripts/generate-cli-skills.ts",
     "calibrate:tier-weights": "tsx scripts/calibrate-tier-weights.ts",
-    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring && npm run validate:control-reachability && npm run validate:anti-slop && npm run validate:specialist-roster && npm run validate:severity-vocabulary && npm run validate:retired-agent-refs && npm run validate:fanout-path && npm run validate:canonical && npm run validate:adapter-parity && npm run validate:trust-crosswalk && npm run validate:id-uniqueness && npm run validate:codeowners && npm run validate:content-duplication",
+    "validate": "npm run validate:rule-parity && npm run validate:efficiency && npm run validate:cli-skills && npm run validate:wiring && npm run validate:control-reachability && npm run validate:anti-slop && npm run validate:specialist-roster && npm run validate:severity-vocabulary && npm run validate:retired-agent-refs && npm run validate:fanout-path && npm run validate:canonical && npm run validate:adapter-parity && npm run validate:trust-crosswalk && npm run validate:id-uniqueness && npm run validate:codeowners && npm run validate:content-duplication && npm run validate:skill-refs && npm run validate:skill-contracts",
     "audit:validate-registry": "tsx scripts/validate-finding-registry.ts",
     "audit:migrate": "tsx scripts/migrate-finding-registry.ts",
     "audit:archive": "tsx scripts/audit-archive.ts",
@@ -46,8 +50,9 @@
     "audit:closed-loop": "tsx scripts/audit-closed-loop-report.ts",
     "audit:stalled": "tsx scripts/audit-stalled-strategic.ts",
     "audit:reset": "tsx scripts/clean-audit-workspace.ts",
-    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity --validate-package-names",
+    "lockfile:check": "lockfile-lint --path package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity --validate-package-names && lockfile-lint --path website/package-lock.json --type npm --allowed-hosts npm --validate-https --validate-integrity",
     "mcp:cve-check": "tsx scripts/check-mcp-cves.ts",
+    "mcp:deprecation-check": "tsx scripts/check-mcp-deprecation.ts",
     "cli-tools:cve-check": "tsx scripts/check-cli-cves.ts",
     "validate:action-pins": "tsx scripts/validate-action-pins.ts",
     "validate:codeowners": "tsx scripts/validate-codeowners.ts",
@@ -123,6 +128,9 @@
   "comments": {
     "overrides/flatted": "Pinned to >=3.4.2 to resolve security advisory in transitive eslint > flat-cache > flatted dependency",
     "overrides/brace-expansion": "Pinned to >=5.0.6 to resolve GHSA-jxxr-4gwj-5jf2 (CWE-400, CVSS 6.5, patched 5.0.6) in transitive dev dependency minimatch@10.2.4 > brace-expansion (was 5.0.5). Surgical override preferred over `npm audit fix`, which pulls 78 new platform-binary packages.",
-    "dependencies/p-limit": "Cycle 10 L D4-SA4.2-F4.2.5 (D4): p-limit held at 3.1.0 is 4 majors behind 7.3.0 (no CVE — pure P3 currency hygiene). The bump is API-compatible: the only behavioral delta across majors 4-7 is the CommonJS drop, non-applicable here (hatch3r is pure ESM, engines node >=22), and all three call sites use the stable default-export `pLimit(concurrency)` signature — src/workspace/sync.ts, src/workspace/manifest.ts, src/pipeline/complianceVerification.ts. BLOCKED for a no-network audit SA, not deferrable by hand: bumping the spec alone desyncs package-lock.json (currently pins p-limit 3.1.0 + yocto-queue ^0.1.0 at lines ~4705-4727, AND a second transitive `p-limit ^3.0.2` requirer), and `release.yml` 'Verify lockfile sync' (git diff --exit-code package-lock.json) plus every `npm ci` integrity check fail closed on a spec-only or hand-edited lockfile. p-limit 7.x drops yocto-queue for a different internal queue, so the new resolved tree + SHA-512 integrity hashes can only come from the npm resolver. Follow-up (one commit): run `npm install` to land package.json (^7.3.0) + the regenerated lockfile together, then `npm test` to confirm the three pLimit call sites still pass."
+    "overrides/@yarnpkg/parsers": "Cycle 12 M D4-SA4.2-03 (D4): dev-only transitive js-yaml 3.14.2 (via lockfile-lint@5 > lockfile-lint-api@5.9.2 > @yarnpkg/parsers@3.0.3, which pins js-yaml ^3.x) carries GHSA-h67p-54hq-rp68 / CVE-2026-53550 (moderate 5.3, quadratic-complexity DoS in YAML merge-key handling; fixed 3.15.0 and 4.2.0). The sibling lockfile-lint > cosmiconfig path already resolves js-yaml 4.2.0, so a scoped nested override is preferred over a global js-yaml pin: `\"@yarnpkg/parsers\": { \"js-yaml\": \"^3.15.0\" }` (3.15.0 satisfies @yarnpkg/parsers' existing ^3.x range). BLOCKED for a no-network audit SA exactly like dependencies/p-limit below: adding the override to `overrides` without regenerating package-lock.json desyncs the manifest and every `npm ci` (build + supply-chain jobs) fails closed on the sync check. Follow-up (one networked commit): add the nested override above, run `npm install` to land package.json + the regenerated lockfile together, then re-run `npm run mcp:cve-check`-adjacent gates. Companion low: esbuild GHSA-g7r4-m6w7-qqqr (resolves 0.27.3; Windows-only dev-server arbitrary file read, CVSS 2.5) takes >=0.28.1 via the next tsup/tsx/vitest dependabot group merge — 0.28.1 is out-of-range for tsup's esbuild ^0.27.0 (needs a tsup release) but in-range for vite ^0.27.0 || ^0.28.0, and tsx already carries its own fixed nested esbuild 0.28.1; not force-overridden here to avoid breaking the tsup build API.",
+    "dependencies/p-limit": "Prod-dependency pinning policy (D4-SA4.2-06, Cycle 12): exact-pin every prod dependency — the house supply-chain posture (pin what executes; lockfile + surgical overrides + SHA-pinned Actions encode the same philosophy). 10 of 11 prod deps are exact-pinned; p-limit is the lone caret (^7.3.0) and the sole known exception to the policy. The Cycle-10 currency bump (D4-SA4.2-F4.2.5, commit 088d9fc) has LANDED — p-limit now resolves to 7.3.0 (package-lock.json node_modules/p-limit); the residual p-limit 3.1.0 in the lockfile is the dev-only p-locate > p-limit@^3.0.2 transitive, unrelated to the root spec. Aligning the root spec ^7.3.0 -> 7.3.0 to close the exception is BLOCKED for a no-network audit SA exactly like the override entries above: editing the spec alone desyncs package-lock.json (its root-dependency mirror, packages[''].dependencies, still reads ^7.3.0), and `release.yml` 'Verify lockfile sync' (git diff --exit-code package-lock.json) plus every `npm ci` integrity check fail closed on a spec-only or hand-edited lockfile. Follow-up (one networked commit): set p-limit to 7.3.0 and run `npm install` to land package.json + the regenerated lockfile together; the three pLimit call sites (src/workspace/sync.ts, src/workspace/manifest.ts, src/pipeline/complianceVerification.ts) use the stable default-export pLimit(concurrency) signature and are unaffected by the range-style change.",
+    "devDependencies/@types/update-notifier": "Held at ^6.0.8 (D4-SA4.2-09, Cycle 12): 6.0.8 is the latest real DefinitelyTyped release — no 7.x @types exists (`npm view @types/update-notifier versions` tops out at 6.0.8; the 1000.0.x-alpha entries are DefinitelyTyped non-matching stubs, not v7 types; re-verified 2026-07-12), while the runtime update-notifier is 7.3.1 and ships no bundled declarations (no *.d.ts, no types/typings field). The used API surface (src/cli/program.ts, src/cli/shared/updateNotifier.ts) type-checks clean against the v6 declarations, so this is awareness only — no bump target exists. Re-check when @types/update-notifier publishes 7.x or update-notifier bundles its own types; durable fix is upstream bundled types or a local module declaration if a v7 API-shape delta ever mis-describes a call site.",
+    "scripts/lockfile:check": "Cycle 12 H D4-SA4.2-02 (D4): the second lockfile-lint invocation guards website/package-lock.json (the Docusaurus site's lockfile, previously outside every dependency gate). It omits --validate-package-names because Docusaurus legitimately aliases transitive packages (react-helmet-async -> @slorber/react-helmet-async, react-loadable -> @docusaurus/react-loadable), which that flag flags as a name mismatch; --validate-https + --validate-integrity + --allowed-hosts npm still apply."
   }
 }

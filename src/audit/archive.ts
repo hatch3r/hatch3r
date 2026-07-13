@@ -25,6 +25,7 @@ import {
   readFile,
   readdir,
   open,
+  stat,
   unlink,
   writeFile,
   rename,
@@ -80,6 +81,18 @@ export interface ArchiveCycleOptions {
   baselineCommit?: string;
   /** Optional commit metadata stamped into the index entry. */
   headCommit?: string;
+  /**
+   * When true, a real (non-dry-run) close that has both insights paths wired
+   * but whose `currentInsightsFile` accumulator is ABSENT on disk fails with a
+   * loud `ArchiveError` BEFORE any file mutation — instead of a silent
+   * `insightsPromoted: false` skip (D16-SA16.2-01). A missing accumulator at
+   * close is the exact mechanism that lost a cycle's telemetry: promotion
+   * silently no-ops, the ring goes stale, and the loss is discovered a cycle
+   * late. Off by default so unit tests and out-of-band callers that
+   * legitimately omit the accumulator keep the lenient behavior; the
+   * `scripts/audit-archive.ts` CLI sets it on the `--in-place` close path.
+   */
+  strictAccumulator?: boolean;
 }
 
 export interface ArchiveIndexEntry {
@@ -128,6 +141,22 @@ export class ArchiveError extends Error {
 
 function sha256(buf: string): string {
   return createHash("sha256").update(buf).digest("hex");
+}
+
+/**
+ * True when `path` exists (any stat succeeds), false on ENOENT. Other stat
+ * errors (permission, I/O) rethrow — a strict close gate must not treat an
+ * unreadable accumulator as "present". Used by the strict-accumulator gate.
+ */
+async function fileExists(path: string): Promise<boolean> {
+  try {
+    await stat(path);
+    return true;
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return false;
+    throw err;
+  }
 }
 
 /**
@@ -380,6 +409,30 @@ export async function archiveCycle(
   };
 
   if (dryRun) return result;
+
+  // 4b. Strict-accumulator close gate (D16-SA16.2-01). When the caller wired
+  // both insights paths for a real close and asked for strict mode, a missing
+  // accumulator is a LOUD failure BEFORE any file mutation — not a silent
+  // promotion no-op. This is the mechanism that lost Cycle-11's telemetry: the
+  // accumulator was absent at close, `promoteToHistory` silently returned
+  // `promoted: false`, and the ring went stale (discovered a cycle late).
+  // Aborting here (pre-write) lets the operator recover the accumulator and
+  // re-run cleanly rather than closing on a half-written telemetry lane.
+  if (
+    opts.strictAccumulator &&
+    paths.insightsFile &&
+    paths.currentInsightsFile &&
+    !(await fileExists(paths.currentInsightsFile))
+  ) {
+    throw new ArchiveError(
+      `insights accumulator absent at cycle ${cycle} close: ` +
+        `${paths.currentInsightsFile} does not exist, so the ring cannot be ` +
+        `promoted and this cycle's telemetry would be silently lost. Recover or ` +
+        `regenerate the current-cycle accumulator before archiving ` +
+        `(D16-SA16.2-01), or pass --allow-missing-accumulator to archive without ` +
+        `promotion.`,
+    );
+  }
 
   // 5. Apply: write archive file → verify → write live → update index.
   await mkdir(paths.archiveDir, { recursive: true });

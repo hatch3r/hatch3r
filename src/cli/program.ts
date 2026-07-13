@@ -31,6 +31,7 @@ import {
 } from "./commands/cliTools.js";
 import { HATCH3R_VERSION } from "../version.js";
 import { TOOL_CHOICES } from "../types.js";
+import { parseFormatOption } from "./shared/output.js";
 
 // D1-5 (Cycle 11 Wave 2, P1): single source of truth for the `verify`
 // one-liner. The legacy text described a removed SHA-256 crypto-integrity
@@ -42,23 +43,50 @@ import { TOOL_CHOICES } from "../types.js";
 const VERIFY_SUMMARY =
   "Detect drift in hatch3r-managed files by regenerating from canonical content and diffing";
 
+// D1-SA1.8-07 / D3-SA3.2-09 (Cycle 12 Wave 4, D1/D3, P5): single source of
+// truth for the program's `--help` description. The former copy opened with
+// "Battle-tested" — an unverifiable marketing claim the audit charter
+// (AUDIT.md directive 5) names as the canonical example of framing-not-evidence
+// — so the opener is dropped for a neutral descriptor. Exported so the
+// entrypoint subprocess test (src/__tests__/cli/entrypoint.test.ts) asserts
+// against this constant instead of hard-coding the copy, decoupling the suite
+// from the wording (a copy edit now touches one site).
+export const PROGRAM_DESCRIPTION =
+  "Agentic coding setup framework. Crack the egg. Hatch better agents.";
+
 // Agent command names that users might try to run directly in the terminal.
-// These are slash commands meant to be invoked inside an AI-powered editor, not from the CLI.
-const AGENT_COMMAND_NAMES = new Set([
-  "workflow", "project-spec", "codebase-map", "debug", "release",
-  "refactor-plan", "test-plan", "bug-plan", "feature-plan", "migration-plan",
-  "roadmap", "onboard", "recipe",
-  "board-init", "board-pickup", "board-groom", "board-refresh", "board-fill",
-  "board-shared",
-  "security-audit", "dep-audit", "benchmark", "healthcheck", "context-health",
-  // D13-5 (Cycle 11 Wave 2): `learn` is NO LONGER an editor-only redirect.
-  // `hatch3r learn capture --file <path>` is a registered terminal subcommand
-  // (the shell entry point the `/learn` LLM skill shells out to so writes run
-  // through the `persistLearning` security pipeline). The bare `/learn` slash
-  // command still lives in the editor — the registered `learn` group's bare
-  // action points the user there — so `learn` is dropped from this redirect set.
-  "revision", "cost-tracking", "api-spec", "hooks", "quick-change",
-  "command-customize", "agent-customize", "rule-customize", "skill-customize",
+// These are slash commands meant to be invoked inside an AI-powered editor, not
+// from the CLI. The `command:*` handler below uses this set to redirect such a
+// mistype to the editor rather than printing the generic "unknown command".
+//
+// D1-SA1.8-01 (Cycle 12 Wave 3, D1, P1): exported so the drift-guard test in
+// `src/__tests__/cli/index.test.ts` keeps this hand-maintained set in sync with
+// the on-disk corpus — it had silently drifted (4 artifacts deleted in v1.9.0
+// were still listed; 11 on-disk commands, incl. 2.2.0 headline features, were
+// missing) with no test/CI gate to catch it, and `.claude/rules/
+// capability-lifecycle.md` reuses the set as a reachability signal, so stale
+// entries fed wrong removal decisions. The guard's contract: every
+// `commands/hatch3r-*.md` basename (an editor-only orchestrator by
+// construction) MUST appear here (minus a documented terminal-command
+// allowlist), and every entry here MUST resolve to an on-disk command or skill.
+// `learn` is intentionally absent — D13-5 promoted it to a real terminal
+// subcommand (`hatch3r learn capture --file <path>`, the shell entry point the
+// `/learn` LLM skill shells out to so writes run through the `persistLearning`
+// security pipeline); the bare `/learn` slash command still lives in the editor.
+export const AGENT_COMMAND_NAMES = new Set([
+  // commands/hatch3r-*.md — editor-only orchestrators (all must be listed)
+  "api-spec", "auth-scaffold", "benchmark", "board-fill", "board-pickup",
+  "bug-pipeline", "bug-plan", "codebase-map", "create", "debug",
+  "design-system-create", "diagnose", "feature-plan", "handoff", "healthcheck",
+  "incident-response", "migration-plan", "onboard", "pack-install", "pr-resolve",
+  "project-spec", "quick-change", "refactor-plan", "release", "revision",
+  "roadmap", "security-audit", "slo-scaffold", "spec", "test-plan", "workflow",
+  // skills/hatch3r-* commonly mistyped at the terminal (curated subset — the
+  // drift guard requires each listed name to exist on disk, not that every
+  // skill is listed). `customize` is the merged entry point that replaced the
+  // four `*-customize` command stubs deleted in v1.9.0.
+  "board-groom", "board-init", "board-refresh", "board-shared",
+  "context-health", "cost-tracking", "customize", "dep-audit", "hooks", "recipe",
 ]);
 
 /**
@@ -72,9 +100,7 @@ export function createProgram(): Command {
 
   program
     .name("hatch3r")
-    .description(
-      "Battle-tested agentic coding setup framework. Crack the egg. Hatch better agents.",
-    )
+    .description(PROGRAM_DESCRIPTION)
     .version(HATCH3R_VERSION)
     // D1-SA1.8-F-1.8-4 / D10-SA10.2-F9 (Cycle 10 Wave 4, P1): declare the
     // global `--no-update-check` flag so `hatch3r --help` enumerates it.
@@ -167,7 +193,7 @@ export function createProgram(): Command {
     // Decision 16). Both the help string and this provenance cite now say
     // Decision 16.
     .option("--maturity <tier>", "Project maturity tier: solo, team, scaleup, enterprise (default: solo) — calibrates investment depth; does not change which content is installed")
-    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to items tagged for the named role")
+    .option("--role <role>", "Role bundle: reviewer, security-lead, senior-eng — filters content to role-tagged items (no effect until the canonical corpus carries role:* tags; currently a no-op)")
     .option("--facets <list>", "Comma-separated graduated-customization facets to add on top of the preset: a11y, performance, observability")
     .option("--per-package", "On a monorepo, also copy adapter output under each package (default: root-only). Capped at 25 packages, batched, and .gitignore'd")
     .action(initCommand);
@@ -300,6 +326,14 @@ export function createProgram(): Command {
     .option(
       "--format <format>",
       "Output format for CI consumers: human (default) or json",
+      // D1-SA1.4-02 (Cycle 12 Wave 3, D1, P1): route validate's --format through
+      // the shared parseFormatOption resolver at parse time so a mixed-case value
+      // (JSON) normalizes to "json" and an unrecognized value (jsom) fails with
+      // the exit-2 usage error — matching verify/status, which inherit it via
+      // beginCommand. Before this, validateCommand hand-rolled
+      // `opts?.format === "json" ? "json" : "human"`, silently degrading both to
+      // human mode (the D10-22 defect class, still live on this flagship command).
+      parseFormatOption,
       "human",
     )
     .option(
@@ -404,27 +438,44 @@ export function createProgram(): Command {
 
   program
     .command("add [pack]")
-    .description("Install a community pack (coming soon)")
-    // D1-SA1.3-F2 (Medium, P1): `--force` advertised a "preflight integrity
-    // check" override and an exit-1 "integrity drift blocked" contract. The
-    // integrity-manifest subsystem was removed in Wave 7 (1.9.0) and the body
-    // (add.ts) is a stub that always exits 0, never reading any option — so
-    // both were stale help-text claims. They are dropped here until the pack
-    // installer body lands; re-add the option + exit-1 row alongside the
-    // pack-trust-model §3/§4/§5 gates flagged in add.ts when it does.
+    .description("Install a community pack from a local path or an installed npm package")
+    // CL-2 U12 (D5-SA5.3-09, Cycle 12): pack installer wired — see
+    // src/install/packInstall.ts for the gate pipeline. D1-SA1.3-F2 lineage:
+    // `--force` stays retired (the integrity-manifest subsystem it overrode
+    // was removed in Wave 7 / 1.9.0); collisions with files the pack does not
+    // own refuse install outright, and the unsigned-pack override is the
+    // separate, explicit `--allow-untrusted` below. A bare `hatch3r add`
+    // probe invocation keeps the repaired C8-D1-M8 contract: informational
+    // notice, exit 0 — never a usage error.
+    .option("--dry-run", "Run every trust gate and preview the write set without writing files")
+    .option(
+      "--allow-untrusted",
+      "Install a pack that declares no signing method (refused by default); the override is recorded in the install ledger",
+    )
+    .option("--format <format>", "Output format for CI consumers: human (default) or json", "human")
+    .option("--quiet", "Suppress stdout chrome (banner, summary box); stderr diagnostics still emit")
     .addHelpText(
       "after",
       [
         "",
-        "Roadmap:",
-        "  Community pack installation is not yet shipped. The command exits 0 today and",
-        "  prints a pointer to the repo's releases + discussions. Scripts that probe for the",
-        "  subcommand (e.g. feature-flagged CI) will not see a usage error (exit 2) anymore.",
-        "  - Releases:    https://github.com/hatch3r/hatch3r/releases",
-        "  - Discussions: https://github.com/hatch3r/hatch3r/discussions",
+        "Pack sources:",
+        "  ./path/to/pack   local directory containing pack-manifest.json",
+        "  <package-name>   npm package already installed under node_modules/",
+        "                   (hatch3r never runs npm install itself)",
+        "",
+        "Trust gates (all run before any write):",
+        "  pack-manifest.json field validation; signing declaration (or --allow-untrusted);",
+        "  SHA-256 integrity map; lifecycle-script ban; deny-pattern body scan;",
+        "  capability, footprint, and declared-tools checks; path-traversal guards.",
         "",
         "Exit codes:",
-        "  0  Informational (feature pending; no action required)",
+        "  0   Success (also: bare `hatch3r add` info notice, --dry-run preview)",
+        "  2   Usage error (invalid flag value)",
+        "  64  Pack validation refused (manifest field, footprint, undeclared tool,",
+        "      traversal guard, collision)",
+        "  65  Banned lifecycle script in the pack's package.json",
+        "  73  Signing/integrity refused (unsigned without --allow-untrusted,",
+        "      SHA-256 mismatch)",
         "",
       ].join("\n"),
     )
@@ -604,6 +655,22 @@ export function createProgram(): Command {
       "human",
     )
     .option("--quiet", "Suppress stdout chrome (banner, box, hints); stderr diagnostics still emit")
+    // D12-SA12.3-02 (Cycle 12 Wave 4, D12, CQ2): signpost that `show` prints the
+    // CANONICAL source, not the adapter-delivered bytes, and point to the
+    // rendered-output preview. Without this a first-time user inspecting "what
+    // my editor receives" mistakes the pre-transformation body for the shipped
+    // instructions — the render preview was reachable only from the
+    // undiscoverable `sync --dry-run --preview-tool` flag. A help-text
+    // cross-reference from `show`/`explain` is exactly the discoverability
+    // signpost the finding's falsifiability names.
+    .addHelpText(
+      "after",
+      "\nNote: `show` prints the CANONICAL source (frontmatter + body), not what an\n" +
+        "adapter delivers. On sync, the adapter wraps the body in HATCH3R:BEGIN/END\n" +
+        "markers, adds an NN- filename prefix, applies customization, and (Cursor)\n" +
+        "rewrites frontmatter to .mdc shape. To preview the rendered per-adapter\n" +
+        "output, run:  hatch3r sync --dry-run --preview-tool <adapter>\n",
+    )
     .action((id: string, opts: { format?: string; quiet?: boolean }) => showCommand(id, opts));
 
   program
@@ -716,6 +783,17 @@ export function createProgram(): Command {
     .option("--format <format>", "Output format: human (default) or json", "human")
     .option("--quiet", "Suppress stdout chrome (banner, boxes, hints); stderr diagnostics still emit")
     .option("--verbose", "Show detailed output")
+    // D12-SA12.3-02 (Cycle 12 Wave 4, D12, CQ2): cross-reference the rendered
+    // per-adapter output preview. `explain --source` shows which canonical files
+    // feed a generated output; the preview below shows the exact bytes an adapter
+    // writes — previously reachable only from the undiscoverable
+    // `sync --dry-run --preview-tool` flag.
+    .addHelpText(
+      "after",
+      "\nTip: `explain --source <output>` lists the canonical files behind a generated\n" +
+        "file. To preview the exact rendered bytes an adapter would write for a tool,\n" +
+        "run:  hatch3r sync --dry-run --preview-tool <adapter>\n",
+    )
     .action(explainCommand);
 
   // Catch-all for unknown commands -- redirect agent commands to the editor.

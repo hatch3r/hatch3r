@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Two parallel hatch3r-researcher modes (changelog-analysis + breaking-change-inventory) in Step 3 followed by a hatch3r-architect for codebase impact mapping and a hatch3r-docs-writer for the plan; serialization only on the research → impact-mapping dependency edge. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -390,15 +391,15 @@ migration-plan is long-running — a Tier 3 multi-major-version or framework mig
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
@@ -438,4 +439,5 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Command:** `hatch3r-refactor-plan` — structural refactoring that accompanies a migration
 - **Command:** `hatch3r-board-fill` — create GitHub issues from generated todo.md entries
 - **Command:** `hatch3r-feature-plan` — plan features that depend on the migration target's new capabilities
+- **Skill:** `hatch3r-migration` — the execute-side counterpart to this plan-only command; it runs the phased migration inline (breaking-change analysis, phased rollout, rollback). Use this command to produce the researcher-backed plan; use the `hatch3r-migration` skill to execute an approved plan or run a single-dependency migration.
 - **Skill:** `hatch3r-refactor` — execution workflow for migration phases involving code restructuring

@@ -39,14 +39,17 @@ export function classifyCliError(
 
   // D8-2 (Cycle 11 Wave 2, P1): primary signal is commander's stable error
   // contract, not its human-readable message text. Every parse/usage failure
-  // commander 14.x raises is a CommanderError whose `code` is prefixed
+  // commander 15.x raises is a CommanderError whose `code` is prefixed
   // `commander.` (e.g. commander.unknownOption / .unknownCommand /
   // .invalidArgument / .missingMandatoryOptionValue). Matching on `name`/`code`
   // is stable across commander's message-string wording, whereas the prior
   // capitalized-substring heuristic missed commander's lowercase messages
   // ("unknown option '--x'", "... argument 'z' is invalid") and so misreported
   // a user mistake as a hatch3r bug (exit 1 + bug-report URL) instead of a
-  // usage error (exit 2).
+  // usage error (exit 2). D1-SA1.8-06 (Cycle 12 Wave 4, P3): re-verified against
+  // commander 15.0.0 on 2026-07-12 — the 15.0.0 major left the CommanderError
+  // name + `commander.*` code contract intact; its breaking change was the
+  // paired --no-* default (see commander-contract.test.ts), not error routing.
   if (err instanceof Error) {
     const code = (err as { code?: unknown }).code;
     if (

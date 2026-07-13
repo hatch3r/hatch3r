@@ -31,6 +31,8 @@ Pick one tool by task class:
 - **TruLens** — observability-coupled, runs evals against live traces
 - **Arize Phoenix** — open-source observability with eval modules
 
+**Grader-owner neutrality.** When the eval tool is owned by a model vendor — promptfoo has been OpenAI-owned since 2026-03-09 — prefer an independently-owned grader or a second-tool cross-check for cross-vendor model comparison; promptfoo remains OSS MIT, so this is a grading-independence input, not a reason to drop the tool.
+
 Document the chosen tool in `evals/README.md` so the agent picks the same tool on every future change.
 
 ## Golden Dataset Versioning
@@ -46,10 +48,12 @@ Document the chosen tool in `evals/README.md` so the agent picks the same tool o
 Match the metric to the task class:
 
 - Classification → exact-match accuracy + per-class precision/recall.
-- Open-ended generation → rubric-scored LLM-as-judge with a 50-example calibration set sanity-checking judge agreement against human labels; recompute calibration every model change.
+- Open-ended generation → rubric-scored LLM-as-judge calibrated against human labels with a **named inter-rater metric** — Cohen's kappa >=0.6 (single judge) or Krippendorff's alpha (multi-annotator gold-set), not a bare "agreement" check. Calibration set is 200-500 examples (50 is the `solo`-tier floor); recompute every model change. For high-stakes scoring, run a multi-judge jury (>=3 independent judges, majority or mean verdict) to cut single-judge variance.
 - Retrieval/RAG → RAGAS metrics: context_precision, context_recall, faithfulness, answer_relevance.
-- Pairwise comparison → win-rate against the prior prompt version (>=55% required to adopt).
+- Pairwise comparison → win-rate against the prior prompt version (>=55% required to adopt). Score **both orders** (A-vs-B and B-vs-A) and average, or grade each output independently against the rubric — never single-order: LLM judges carry a first-position preference — a documented ~10-15 percentage-point first-slot win-rate inflation (Zheng et al. 2023, MT-Bench) — that can flip a pairwise verdict when the two candidates are swapped, so a single-order gate can adopt the worse prompt on position bias alone.
 - Refusal calibration → refusal-rate as an explicit SLI (refusals on prohibited inputs vs false-positive refusals on benign inputs).
+
+Both LLM-as-judge surfaces hatch3r ships share one judge-bias vocabulary. Route the eval judge to a different model class (or provider) than the one that generated the outputs under test — a same-family judge shares the generator's blind spot and inflates self-preference. The code-review judge applies the same different-model-class countermeasure at review-loop exit; its contract is `rules/hatch3r-reviewer-calibration.md`.
 
 ## Regression Gating
 
@@ -126,9 +130,15 @@ When the AI feature uses tools (per the companion UX rule), the eval suite cover
 
 Methodology aligned with **BFCL v4** (Berkeley Function Calling Leaderboard) and **tau-bench** (multi-turn tool-use benchmark).
 
+## Trajectory Scoring (Watch)
+
+Step-level trajectory scoring — an LLM or agent judge grading whether each step of an agentic run was justified, not only whether the plan reached the goal ("Agent-as-a-Judge", `arxiv.org/abs/2508.02994`) — is an emerging 2026 eval primitive. The tool-use evals above cover the deterministic half only (chain correctness: minimum step count plus 20% tolerance); a judged trajectory rubric additionally catches the right-answer-wrong-reasoning class, where a plan reaches the goal through steps that are schema-valid yet unjustified. Watch status (recorded 2026-07-12), not a mandate: adopt a trajectory-rubric bullet under Tool-Use Evals when a second default-shipping eval framework ships a first-class trajectory judge — Inspect's outcome-vs-step-level scorers are the first.
+
 ## OpenTelemetry GenAI Semantic Conventions
 
-Every LLM call emits an OpenTelemetry span named `{gen_ai.operation.name} {gen_ai.request.model}` with the attributes named by the OpenTelemetry GenAI semantic conventions (v1.41.1): `gen_ai.operation.name`, `gen_ai.provider.name` (renamed from the deprecated `gen_ai.system`), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cached_tokens`, `gen_ai.request.temperature`, `gen_ai.tool.name` (when tools used). These `gen_ai.*` keys are Development-status as of v1.41.1 — names may change; pin the SemConv version you emit and re-verify each P3 currency cycle. Cross-reference Slice 2 observability rules for the broader span taxonomy.
+Every LLM call emits an OpenTelemetry span named `{gen_ai.operation.name} {gen_ai.request.model}` with the attributes named by the OpenTelemetry GenAI semantic conventions: `gen_ai.operation.name`, `gen_ai.provider.name` (renamed from the deprecated `gen_ai.system`), `gen_ai.request.model`, `gen_ai.response.model`, `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens`, `gen_ai.usage.cache_read.input_tokens` (tokens read from provider cache) and `gen_ai.usage.cache_creation.input_tokens` (tokens written to cache), `gen_ai.request.temperature`, `gen_ai.tool.name` (when tools used). These `gen_ai.*` keys are Development-status — names may change; re-verify against the version pin below on each P3 currency cycle. Cross-reference Slice 2 observability rules for the broader span taxonomy.
+
+> **SemConv version pin (single anchor — bump here each cycle).** GenAI conventions last verified 2026-07-11 against the dedicated `github.com/open-telemetry/semantic-conventions-genai` repository. The `gen_ai.*` attributes were deprecated in the main `semantic-conventions` repo and moved to that dedicated repo in v1.42.0 (main repo release v1.43.0); the legacy `opentelemetry.io/docs/specs/semconv/gen-ai/` path now serves a moved-notice. Provider-cache spend is `gen_ai.usage.cache_read.input_tokens` — there is no `gen_ai.usage.cached_tokens` attribute in any status.
 
 ## User-Feedback Loop
 
@@ -148,13 +158,16 @@ Write eval before prompt, measure baseline, write prompt, measure delta, iterate
 
 ## References
 
-- promptfoo — `promptfoo.dev` (acquired by OpenAI 2026-03-09; remains OSS MIT)
+- promptfoo — `promptfoo.dev` (acquired by OpenAI 2026-03-09; remains OSS MIT with cross-provider support committed — `promptfoo.dev/blog/promptfoo-joining-openai`, accessed 2026-07-12)
 - DeepEval — `github.com/confident-ai/deepeval`
 - RAGAS — `docs.ragas.io`
 - Inspect (UK AISI) — `github.com/UKGovernmentBEIS/inspect_ai`
 - Anthropic prompt caching guide — `docs.anthropic.com/en/docs/build-with-claude/prompt-caching`
 - OpenAI prompt caching guide — `platform.openai.com/docs/guides/prompt-caching`
-- OpenTelemetry GenAI semantic conventions — `opentelemetry.io/docs/specs/semconv/gen-ai/`
+- OpenTelemetry GenAI semantic conventions — `github.com/open-telemetry/semantic-conventions-genai` (moved from the main `semantic-conventions` repo in v1.42.0); `gen_ai.usage.cache_read.input_tokens` re-verified against the attribute registry `opentelemetry.io/docs/specs/semconv/registry/attributes/gen-ai/` (accessed 2026-07-12)
 - Berkeley Function Calling Leaderboard (BFCL v4) — `gorilla.cs.berkeley.edu/leaderboard.html`
 - tau-bench — `github.com/sierra-research/tau-bench`
 - OWASP Top 10 for LLM Applications (Agentic 2026) — `genai.owasp.org`
+- LLM-as-judge position & self-preference bias — Zheng et al. 2023, "Judging LLM-as-a-Judge with MT-Bench and Chatbot Arena" `arxiv.org/abs/2306.05685` (accessed 2026-07-11); bias-mitigation survey "Judging the Judges" `arxiv.org/abs/2604.23178` (accessed 2026-07-11)
+- Inter-rater agreement thresholds (Cohen's kappa >=0.6 = "substantial") — Landis & Koch 1977, Biometrics 33(1)
+- Agent-as-a-Judge / trajectory evaluation — "When AIs Judge AIs: The Rise of Agent-as-a-Judge Evaluation for LLMs" `arxiv.org/abs/2508.02994` (accessed 2026-07-12)

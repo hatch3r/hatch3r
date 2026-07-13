@@ -101,7 +101,7 @@ If no browser automation MCP server is configured, defer interactive verificatio
 - For accessibility, run an in-process axe-core check (`@axe-core/playwright`, `jest-axe`, or `axe-core` in a jsdom test) in the test suite to catch violations without a live browser.
 - Note in your output that visual/UI confirmation was skipped and recommend manual review before merge — do NOT silently skip it.
 
-**Available tools:** IDE-native browser MCP (e.g., `cursor-ide-browser` in Cursor); Playwright MCP (`@anthropic/mcp-playwright`) for cross-editor browser automation.
+**Available tools:** IDE-native browser MCP (e.g., `cursor-ide-browser` in Cursor); Playwright MCP (`@playwright/mcp`, Microsoft — `github.com/microsoft/playwright-mcp`) for cross-editor browser automation.
 
 ## E. Knowledge Augmentation Priority
 

@@ -13,6 +13,7 @@ import {
   measureDuplication,
   normalizeLine,
   runValidator,
+  stripFrontmatter,
 } from "../validate-content-duplication.js";
 
 // ── Fixture helpers ────────────────────────────────────────────────
@@ -77,15 +78,16 @@ describe("validate-content-duplication", () => {
       expect(CORPUS_CEILINGS.commands).toBeGreaterThan(DEFAULT_MAX);
     });
 
-    it("ratcheted the commands/ ceiling DOWN to the D22-4 measurement (12%)", () => {
+    it("ratcheted the commands/ ceiling DOWN to the ex-frontmatter measurement (7%)", () => {
       // D22-4 extracted the seven recurring orchestration scaffold blocks to
-      // commands/shared/orchestration-frame.md and replaced the inline copies
-      // with one-line pointers, dropping the corpus from 14.43% (Cycle 12) to
-      // 11.78% (this gate's metric). The ceiling is the ratchet that locks the
-      // gain: it must be at or below the prior 18% baseline (a downward ratchet,
-      // never a relaxation) and above the live 11.78% so the gate stays green
-      // while failing on any regression.
-      expect(CORPUS_CEILINGS.commands).toBe(12);
+      // commands/shared/orchestration-frame.md (14.43% -> 11.78%, frontmatter
+      // included). Cycle 12 D22-SA22.2-05 then excluded YAML frontmatter from the
+      // metric (stripFrontmatter), re-basing commands to 6.41% body-only; the
+      // ceiling ratcheted 12 -> 7 (ceil of 6.41%) to re-lock the gain under the
+      // new metric — never a relaxation (still at/below the prior 18% baseline),
+      // and above the live 6.41% so the gate stays green while failing on any
+      // regression past 7%.
+      expect(CORPUS_CEILINGS.commands).toBe(7);
       expect(CORPUS_CEILINGS.commands).toBeLessThan(18);
     });
 
@@ -108,6 +110,32 @@ describe("validate-content-duplication", () => {
 
     it("makes whitespace-only indentation differences compare equal", () => {
       expect(normalizeLine("    - item")).toBe(normalizeLine("\t- item"));
+    });
+  });
+
+  // ── stripFrontmatter (D22-SA22.2-05) ────────────────────────────
+
+  describe("stripFrontmatter", () => {
+    it("removes the leading `---`…`---` block and returns the body that follows", () => {
+      const raw = ["---", "id: x", "type: agent", "tags: [a, b]", "---", "", "# Body", "prose"].join("\n");
+      expect(stripFrontmatter(raw)).toBe(["", "# Body", "prose"].join("\n"));
+    });
+
+    it("returns content unchanged when the first line is not a frontmatter delimiter", () => {
+      // Models the 4 skills/**/references/*.md reference files that carry no
+      // frontmatter — their body (including any later `---`) must survive intact.
+      const raw = ["# Reference doc", "no frontmatter here", "---", "a body thematic break"].join("\n");
+      expect(stripFrontmatter(raw)).toBe(raw);
+    });
+
+    it("returns content unchanged when an opening `---` has no closing delimiter", () => {
+      const raw = ["---", "id: x", "type: agent", "(never closed)"].join("\n");
+      expect(stripFrontmatter(raw)).toBe(raw);
+    });
+
+    it("closes the block at the FIRST `---` after line 0 and preserves a body-level HR", () => {
+      const raw = ["---", "id: x", "---", "intro", "---", "after HR"].join("\n");
+      expect(stripFrontmatter(raw)).toBe(["intro", "---", "after HR"].join("\n"));
     });
   });
 
@@ -297,6 +325,40 @@ describe("validate-content-duplication", () => {
     expect(cmd?.percent).toBe(0);
   });
 
+  // ── runValidator: identical frontmatter BODY excluded (D22-SA22.2-05) ──
+
+  it("does NOT count an identical multi-line frontmatter BODY block as duplication", async () => {
+    // Two agents sharing the SAME 6-line frontmatter config block (>= WINDOW_LINES,
+    // so it WOULD register as a cross-file clone if counted) but with disjoint prose
+    // bodies. This models the CQ-specialist phase_4_trigger/efficiency_tier config
+    // the adapter reads per-artifact and cannot pointerize — it must not inflate the
+    // metric. Without stripFrontmatter the six identical non-trivial YAML lines clone
+    // (percent > 0); with it, only the unique bodies remain (percent 0).
+    const sharedFrontmatter = [
+      "---",
+      "type: agent",
+      "efficiency_tier: high",
+      "cache_friendly: true",
+      "parallel_tool_default: true",
+      "wall_clock_advisory_ms: 90000",
+      "phase_4_trigger: on-specialist-scope",
+      "---",
+    ];
+    const body = (label: string): string =>
+      [
+        ...sharedFrontmatter,
+        "",
+        ...Array.from({ length: 12 }, (_, i) => `${label} unique body prose line ${i}`),
+      ].join("\n");
+    await mkdir(join(fx.rootDir, "agents"), { recursive: true });
+    await seedFile(fx.rootDir, "agents/x.md", body("x"));
+    await seedFile(fx.rootDir, "agents/y.md", body("y"));
+
+    const r = await runValidator({ rootDir: fx.rootDir, corpora: ["agents"] });
+    const agents = r.results.find((x) => x.corpus === "agents");
+    expect(agents?.percent).toBe(0);
+  });
+
   // ── Output formatter ────────────────────────────────────────────
 
   it("formatResult renders FAIL verdict, percent, counts, and ceiling", () => {
@@ -331,12 +393,12 @@ describe("validate-content-duplication", () => {
   });
 
   // ── Integration: live commands/ corpus under the D22-4 ratchet ──
-  // This is the value-asserting regression guard for D22-4: the real
-  // commands/ corpus, after the orchestration-frame.md scaffold extraction,
-  // must sit at or under the ratcheted 12% ceiling. If a future inline copy of
-  // a scaffold block (or an un-pointered new command) pushes it back over 12%,
-  // this test fails, forcing the author to pointer the block per
-  // commands/shared/orchestration-frame.md.
+  // This is the value-asserting regression guard for D22-4 + D22-SA22.2-05: the
+  // real commands/ corpus, after the orchestration-frame.md scaffold extraction
+  // AND the frontmatter exclusion (stripFrontmatter), must sit at or under the
+  // ratcheted 7% ceiling. If a future inline copy of a scaffold block (or an
+  // un-pointered new command) pushes it back over 7%, this test fails, forcing
+  // the author to pointer the block per commands/shared/orchestration-frame.md.
   it("holds the live commands/ corpus at or under the ratcheted ceiling", async () => {
     const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..");
     const r = await runValidator({ rootDir: repoRoot, corpora: ["commands"] });
@@ -345,9 +407,10 @@ describe("validate-content-duplication", () => {
     // Must not regress past the ratchet captured in CORPUS_CEILINGS.commands.
     expect(cmd!.percent).toBeLessThanOrEqual(CORPUS_CEILINGS.commands);
     expect(cmd!.exceeded).toBe(false);
-    // And the extraction actually happened: well under the pre-D22-4 18%
-    // baseline (a guard that someone cannot relax the ceiling back to 18 and
-    // re-inline the blocks without this test catching the duplication jump).
-    expect(cmd!.percent).toBeLessThan(13);
+    // And the corpus stays within a point of its locked ceiling: an independent
+    // hardcoded guard (7 + 1) so that even if someone relaxes
+    // CORPUS_CEILINGS.commands upward and re-inlines the extracted blocks, this
+    // assertion still catches the duplication jump.
+    expect(cmd!.percent).toBeLessThan(8);
   });
 });

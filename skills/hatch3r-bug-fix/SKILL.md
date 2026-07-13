@@ -132,7 +132,7 @@ Emit `sub_agents_spawned: { count, rationale }` in your output.
 
 > **Note:** When this skill is invoked via the orchestration pipeline (board-pickup or workflow commands), skip this section — the orchestrator handles agent delegation in Phases 3 and 4.
 
-You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
+You MUST spawn these agents via the Task tool (`subagent_type: "general-purpose"`) at the appropriate points:
 
 - **`hatch3r-researcher`** — MUST spawn before implementation with modes `symptom-trace`, `root-cause`, `codebase-impact`. For Tier 2+ tasks (per `hatch3r-deep-context`), also include `requirements-elicitation` (bugs often have underspecified reproduction steps and ambiguous expected behavior). Skip only for trivially simple bugs (`risk:low` AND `priority:p3`).
 - **`hatch3r-testability`** (CQ5) — MUST spawn after fix implementation to author regression tests covering the fixed behavior and related edge cases and verify they meet the mandate map / coverage floor.

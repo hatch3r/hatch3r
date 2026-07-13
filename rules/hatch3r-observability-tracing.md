@@ -2,8 +2,7 @@
 id: hatch3r-observability-tracing
 type: rule
 description: Distributed tracing, OpenTelemetry conventions, and AI agent instrumentation for the project
-scope: conditional
-globs: "**/*trac*,**/*span*,**/*telemetry*,**/*otel*,**/*agent*,**/observability/**,**/routes/**,**/handlers/**,**/services/**,**/api/**,**/middleware/**,**/controllers/**,**/lib/**"
+scope: agent-requested
 tags: [devops, observability]
 precedence: high
 quality_charter: agents/shared/quality-charter.md
@@ -96,6 +95,7 @@ Use these attributes on all spans representing interactions with generative AI m
 | `gen_ai.operation.name` | string | Required | Operation kind: `chat`, `generate_content`, `embeddings`, `create_agent`, `invoke_agent`, `execute_tool` | `chat`, `invoke_agent` |
 | `gen_ai.provider.name` | string | Required | GenAI provider name | `openai`, `anthropic`, `azure.ai.openai` |
 | `gen_ai.request.model` | string | Required | Model name as specified in the request | `gpt-4o`, `claude-sonnet-4-20250514` |
+| `gen_ai.conversation.id` | string | Cond. Required | Session/thread id correlating multi-turn interactions; set when available | `conv-7f3a2b`, `thread_abc123` |
 | `gen_ai.response.model` | string | Recommended | Model name as returned in the response | `gpt-4o-2024-08-06` |
 | `gen_ai.request.max_tokens` | int | Recommended | Maximum tokens requested for generation | `4096` |
 | `gen_ai.request.temperature` | float | Recommended | Temperature parameter | `0.7` |
@@ -106,6 +106,7 @@ Use these attributes on all spans representing interactions with generative AI m
 - Always set `gen_ai.operation.name`, `gen_ai.provider.name`, and `gen_ai.request.model` on every GenAI span.
 - Record `gen_ai.usage.input_tokens` and `gen_ai.usage.output_tokens` from the API response for cost dashboards. `gen_ai.operation.name` + `gen_ai.provider.name` are the required label pair on GenAI metrics (`gen_ai.client.token.usage`, `gen_ai.client.operation.duration`).
 - Use `gen_ai.response.finish_reasons` to detect truncated outputs (`length`) and trigger re-prompting.
+- Set `gen_ai.conversation.id` on multi-turn or session-scoped spans (chat threads, agent runs) so OTel-GenAI backends correlate the turns of one conversation; it is the session key Langfuse and Arize Phoenix group agent runs on.
 - **Migration (SemConv v1.37.0, 2025-07-05):** `gen_ai.system` is renamed to `gen_ai.provider.name`; emit the new key. Instrumentations bridging older collectors may dual-emit the legacy `gen_ai.system` alias only under `OTEL_SEMCONV_STABILITY_OPT_IN=gen_ai_latest_experimental`.
 
 ### Agent Invocation Spans
@@ -114,6 +115,7 @@ Instrument the full lifecycle of an agent invocation with a dedicated span. This
 
 - **Span name pattern:** `invoke_agent {gen_ai.agent.name}` (OTel GenAI agent span naming).
 - **Required attributes:** `gen_ai.operation.name` = `invoke_agent`, `gen_ai.agent.id`, `gen_ai.agent.name`. Use `create_agent` for the agent-construction span.
+- **Conditionally-required agent attributes (set when available):** `gen_ai.agent.description` (free-form agent description), `gen_ai.agent.version` (version string, e.g. `1.0.0` or a date), and `gen_ai.conversation.id` on the invoke-agent span to correlate multi-turn runs into one session.
 - **Project-namespaced extras:** `app.agent.parent_id`, `app.agent.task` carry hatch3r-specific context the GenAI namespace does not define (prefix custom attributes per the Attribute Naming Guidelines above).
 - **Span events for state transitions:** `agent.planning`, `agent.tool_selection`, `agent.awaiting_human`, `agent.delegating`, `agent.completed`, `agent.error`
 

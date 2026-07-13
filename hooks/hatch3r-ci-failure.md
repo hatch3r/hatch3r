@@ -37,6 +37,8 @@ A structured diagnostic report containing:
 
 ## Configuration
 
-- **CI provider**: Auto-detected from repository config. Override with `ciProvider` in hook config if needed.
-- **Log depth**: Default fetches the last 200 lines of the failing step. Adjust via `logLines` for more verbose failures.
-- **Auto-retry**: Set `autoRetryFlaky: true` to automatically re-run the workflow when the failure is classified as infrastructure/flaky (max 1 retry).
+These are agent-runtime defaults, not settings in a separate config file. To use a different value, state it in your prompt when the hook fires.
+
+- **CI provider**: Auto-detected from repository config. Name a specific provider in your prompt to pin it.
+- **Log depth**: The agent fetches the last 200 lines of the failing step by default. Ask for more lines when a failure needs deeper context.
+- **Auto-retry**: The agent does not re-run the workflow by default. Ask it to re-run once when the failure is classified as infrastructure/flaky.

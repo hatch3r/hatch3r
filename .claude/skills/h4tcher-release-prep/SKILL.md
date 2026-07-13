@@ -5,7 +5,7 @@ effort: high
 allowed-tools: Read Grep Glob Bash(*) Write Edit
 ---
 
-> Last updated: 2026-07-08
+> Last updated: 2026-07-11
 
 # Release Prep
 
@@ -85,7 +85,10 @@ Run all gates — ALL must pass:
 
 24. **Adapter capability matrix** (`docs/adapter-capability-matrix.md`) MUST reflect current `ADAPTER_CAPABILITIES` in `src/adapters/index.ts`. Spot-check that every column key from the source object appears as a row/column in the matrix; new capabilities added this cycle that are missing from the matrix are a blocker.
 25. **Feature-surface grep**: any command/adapter/skill renamed or removed in this release MUST NOT appear by old name in `README.md`, `docs/mcp-setup.md`, `docs/troubleshooting.md`, `docs/marketplace-submission.md`. Grep each for the removed names; zero hits required.
+- **SECURITY.md supported-versions table** (`SECURITY.md` §Supported Versions) MUST list the current major as supported on any major/minor bump. A `2.x` release leaves a `1.x`-only row stale — replace the table with the shipped policy (e.g. `2.x | Yes`, `< 2.0 | No`). This table carries no inventory-count literal, so `inventory --check-docs` does not probe it; refresh it here as a manual currency row on every major/minor bump (D4-SA4.5-02).
 26. Re-run `npm run inventory:check-docs` after CHANGELOG and docs edits — must still report 0 drift.
+- **Scale reference currency** (`governance/SCALE.md`, D14-SA14.2-02). If `src/workspace/sync.ts` changed the per-repo write path or `defaultSyncConcurrency()` since the last tag (`git log $(git describe --tags --abbrev=0)..HEAD --oneline -- src/workspace/sync.ts`), re-run the scale harness (`HATCH3R_SCALE=1 npm test -- src/__tests__/workspace/scale.test.ts`), copy the logged per-N wall-clock into the `governance/SCALE.md` grid, and bump its `> Last updated:` header. If that grep is empty, log "sync.ts unchanged this release" — no grid refresh needed. Keeps the operator-populated capacity grid from going stale across releases (`governance/SCALE.md` is overlay-tracked — edit via `scripts/gov`).
+- **Bundle baseline re-anchor** (`.github/bundle-size-baseline.json`, D4-SA4.1-06). After the Step 3 build, compare `dist/cli/index.js` size against the committed `cliBundleBytes`. If it grew within the +10% tolerance (sub-red drift the PR-checks gate absorbed silently), re-anchor in this release PR — set `cliBundleBytes` to the fresh size, `updatedAt` to today, `commit` to the release commit, and `reason` to the release version — so the next cycle measures genuine size regressions from a current anchor with the full +10% window restored. If unchanged, log "bundle unchanged this release" — no re-anchor. If it already exceeds the +10% limit, STOP and route the increase through the Step 0 B1 gate (size regression to investigate vs maintainer-attested intentional growth) before re-anchoring — a re-anchor is an attested threshold change, not a rubber stamp. Use the regen note in the baseline JSON, then hand-set `commit`/`reason`.
 
 ## Step 8: Website Build & Sync (`website/`)
 
@@ -118,3 +121,11 @@ The canonical Docusaurus site lives in `website/` and deploys to `docs.hatch3r.c
     - npm package is published at the expected version: `npm view hatch3r@{version} version`
     - GitHub release exists and body matches the CHANGELOG section: `gh release view v{version}`
     - Docs site rebuilt with the new version (deploy-docs workflow ran on the merge commit): https://docs.hatch3r.com
+34. **Supply-chain floor verification (D4-SA4.4-03).** The release pipeline generates provenance + SBOM evidence; re-read it here instead of treating a green pipeline as the sign-off:
+    - npm provenance attestation is present: `npm view hatch3r@{version} dist.attestations --json` returns a non-null object whose `provenance.predicateType` is `https://slsa.dev/provenance/v1`.
+    - Registry signatures + provenance verify on a fresh install: `npm audit signatures` inside a scratch `npm install hatch3r@{version}` directory reports 0 unverified.
+    - The CycloneDX SBOM asset shipped on the GitHub release: `gh release view v{version} --json assets --jq '.assets[].name'` lists `sbom.cdx.json`.
+
+## Step 11: Launch-Readiness Refresh
+
+35. Satisfy the `docs/launch-readiness.md` §7 maintenance contract at the one artifact that runs on every release cut. Refresh §1 (Last reviewed date) and the §3 status snapshot to the post-release state — at minimum re-verify P6 against the Step 10 item 34 provenance + SBOM evidence just gathered — or explicitly log "no change" with the date. If a launch go/no-go decision was taken this cycle, append the row to §6 (decision log). This closes the D4-SA4.4-03 gap where the per-release re-check ran only from memory.

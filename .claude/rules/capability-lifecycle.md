@@ -2,7 +2,7 @@
 id: capability-lifecycle
 type: rule
 description: Maintainer guidance for selecting the right capability preset and respecting the lifecycle contract during add / refactor / remove.
-tags: [maintainer, governance, presets]
+tags: [maintainer, governance, presets, p4, p5]
 scope: always
 precedence: normal
 ---
@@ -48,7 +48,7 @@ Source of truth: `governance/audit/domains/D16-compound-system.md` §16.3 "Remov
 
 1. Zero unique value beyond an existing artifact
 2. Class-aware reachability fails — a flat cross-reference count mis-fires on entry-point and by-construction classes, so the test is per class:
-   - **agents** — zero `agentPipeline:` id-occurrences across `commands/hatch3r-*.md`.
+   - **agents** — reachability fails only when the id appears in NONE of (1) a `commands/hatch3r-*.md` `agentPipeline:`, (2) `SPECIALIST_TRIGGER_TABLE`, (3) adapter emission (`src/adapters/*.ts`), or (4) a skill `SKILL.md` Task-spawn; a zero-`agentPipeline` count alone never implies removability for context-loader / specialist-table / skill-spawned agents.
    - **skills + commands** — NOT an entry point: absent from `src/cli/program.ts::AGENT_COMMAND_NAMES` AND not emitted by any adapter AND not on the CLAUDE.md user surface. Skills/commands are user-typed leaf nodes; zero functional consumers is their correct state and never alone implies removability.
    - **rules** — neither `scope: always` nor a glob matching a repo path; glob/always rules are reachable by construction.
 3. No orchestrator dependency in any `commands/hatch3r-*.md` `agentPipeline:`
@@ -83,4 +83,4 @@ Before declaring lifecycle work complete, run every gate below — orchestrator 
 - `npm run validate:efficiency`
 - B1 gate present (clarification-default rule applied; user-question-protocol referenced)
 - B2 rationale present (sub-agent count + rationale emitted by orchestrator)
-- `/h4tcher-evolve` sessions are the authorized governance-edit path — in-session per-file owner consent constitutes CONSTITUTION §8 approval for all governance layers (pillars, §3 matrix, §6 decisions, §8 itself carry an explicit §8-amendment label in the consent ASK); out-of-session changes keep CL-3 / §8-queue routes.
+- `/h4tcher-evolve` sessions are the authorized governance-edit path — in-session per-file owner consent constitutes CONSTITUTION §8 approval for all governance layers (pillars, §3 matrix, §6 decisions, §8 itself carry an explicit §8-amendment label in the consent ASK); §8-labeled consents follow the CONSTITUTION §8 cooling-off clause — recorded in-session, landed only after re-confirmation in a second session or a ≥48-hour interval; out-of-session changes keep CL-3 / §8-queue routes.

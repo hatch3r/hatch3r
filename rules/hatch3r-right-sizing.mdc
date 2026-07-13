@@ -50,7 +50,7 @@ The right question is never "what would a mature system have here?" It is: **wha
 
 Resolve the tier in this order:
 
-1. **Adapter header** — generated artifacts carry the tier on their first line. Cursor: `<!-- hatch3r: right-size to maturity=<tier>… -->`. Copilot / inlined surfaces: `> hatch3r: right-size to maturity=<tier>…`. This is the fastest and most authoritative signal at agent runtime.
+1. **Adapter header** — generated artifacts carry the tier near their top. Claude (`CLAUDE.md`) and Copilot: a visible blockquote `> hatch3r: right-size to maturity=<tier>…` (Claude Code strips block-level HTML comments from `CLAUDE.md` before reading it, so the directive ships visible, not commented). Cursor: `<!-- hatch3r: right-size to maturity=<tier>… -->` in each rule body. This is the fastest and most authoritative signal at agent runtime.
 2. **Manifest** — `.hatch3r/hatch.json` → `maturity`. Absent → treat as `solo`.
 3. **Ask** — if the tier is undiscoverable from both AND the decision is consequential (it changes the artifact's shape or cost), ask via `agents/shared/user-question-protocol.md`. Default to `solo` when no answer arrives.
 

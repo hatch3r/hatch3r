@@ -25,11 +25,17 @@
  * tooling exercised only by this gate.
  *
  * Scanned types: the published content classes shipped in the npm package
- * (`rules`, `agents`, `skills`, `commands`, `hooks`, `checks`). Reserved/
- * empty classes (`prompts`) and user-state/derived classes (`policy`,
- * `learnings`, `github-agents`) are out of the bundled-content contract and
- * are not scanned. Missing/empty directories are benign — strict mode only
- * trips on an actual warning, never on an absent type.
+ * (`rules`, `agents`, `skills`, `commands`, `hooks`, `checks`,
+ * `github-agents`). `github-agents` ships in the tarball (`copy-content.ts`
+ * SOURCE_DIRS) and is read at generation time by the copilot adapter
+ * (`readTrackedCanonicalFiles(root, "github-agents", …)` in
+ * `src/adapters/copilot.ts`), so a YAML/injection/encoding defect there is a
+ * release defect the strict gate must catch — it was excluded on a factually
+ * wrong "user-state/derived" rationale until D2-SA2.2-01 (Cycle 12) added it.
+ * Reserved/empty classes (`prompts`) and the genuine user-state classes
+ * (`policy`, `learnings`) stay out of the bundled-content contract and are not
+ * scanned. Missing/empty directories are benign — strict mode only trips on an
+ * actual warning, never on an absent type.
  *
  * Usage: `npm run validate:canonical`
  *        `tsx scripts/validate-canonical.ts`
@@ -75,6 +81,7 @@ export const SCANNED_TYPES: readonly CanonicalType[] = [
   "agents",
   "checks",
   "commands",
+  "github-agents",
   "hooks",
   "rules",
   "skills",

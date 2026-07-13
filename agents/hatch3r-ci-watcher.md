@@ -95,7 +95,7 @@ Include confidence in the output: the **Diagnosis** section already has a Confid
 
 ## Output Format
 
-```
+````
 ## CI Diagnosis: {workflow-name} / {run-id}
 
 **Status:** PASSING | FAILING | FLAKY
@@ -125,7 +125,7 @@ Include confidence in the output: the **Diagnosis** section already has a Confid
 
 **Notes:**
 - (flaky test patterns, infrastructure concerns)
-```
+````
 
 ## Root-Cause Diagnosis Depth
 

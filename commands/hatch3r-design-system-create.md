@@ -5,6 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-ui, hatch3r-ux]
 description: "Create a project design system from brand assets or an elicitation dialog — DTCG 2025.10 token emission, 3-tier taxonomy (primitive → semantic → component), OKLCH ramps, dual output design.md + design-tokens.json, gated on WCAG 2.2 AA contrast, 100% theme parity, and 0 dangling aliases."
 argument-hint: "[brand-asset-path]"
+disable-model-invocation: true
 tags: [implementation, ui, design-system, floor:ui-ux]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,6 +16,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 4
   rationale: One hatch3r-researcher extracts palette + convention seeds from brand assets (Tier 2/3 only); one hatch3r-implementer writes design-tokens.json + docs/design.md + emission targets (all file mutation flows through the implementer per the Mandatory Delegation Directive); hatch3r-ui and hatch3r-ux run in parallel as the two mandatory validation gates — read-only over the same generated files with disjoint checklist rows. Research → implement → gate are the only serialization edges; every alias resolves into one token graph, so generation stays single-implementer by shared-state dependency, never by token cost. Cost-dominance per CONSTITUTION §2 P8.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)

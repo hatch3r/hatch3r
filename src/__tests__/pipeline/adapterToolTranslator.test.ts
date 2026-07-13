@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, it, expect } from "vitest";
 import {
   ADAPTER_ALLOWLIST_COVERAGE,
@@ -8,6 +10,7 @@ import {
   substituteCanonicalPlatformMarker,
   toAskUserPlatformNote,
   toClaudeToolsFrontmatter,
+  toClaudeToolsFrontmatterFromCategories,
   toCopilotToolsFrontmatter,
   toCopilotToolsFrontmatterFromCategories,
   toCursorReadonlyFrontmatter,
@@ -65,6 +68,27 @@ describe("adapterToolTranslator", () => {
     // in this file.
   });
 
+  describe("D2-SA2.4-03 platform-tool currency (tools-reference accessed 2026-07-10)", () => {
+    it("emits the current read/search/execute platform tools for an execute-granted agent", () => {
+      // A specified Claude `tools:` list EXCLUDES anything not enumerated, so the
+      // current tool set must be present or those tools are unreachable at runtime.
+      const fm = toClaudeToolsFrontmatter("hatch3r-implementer") ?? "";
+      expect(fm).toContain("LSP"); // read
+      expect(fm).toContain("ToolSearch"); // search
+      expect(fm).toContain("PowerShell"); // execute (Windows shell parity with Bash)
+      expect(fm).toContain("EnterWorktree"); // execute
+      expect(fm).toContain("ExitWorktree"); // execute
+    });
+
+    it("grants read/search currency tools to a read+search agent but no execute-class tool (monotonic privilege)", () => {
+      const fm = toClaudeToolsFrontmatter("hatch3r-reviewer") ?? "";
+      expect(fm).toContain("LSP");
+      expect(fm).toContain("ToolSearch");
+      expect(fm).not.toContain("PowerShell");
+      expect(fm).not.toContain("EnterWorktree");
+    });
+  });
+
   describe("toCopilotToolsFrontmatter", () => {
     it("returns null for unknown agents", () => {
       expect(toCopilotToolsFrontmatter("unknown-agent")).toBeNull();
@@ -105,6 +129,64 @@ describe("adapterToolTranslator", () => {
       expect(tools).toEqual(["execute"]);
       // No finer-grained git/commit/push token exists on the Copilot surface.
       expect(tools).not.toContain("git");
+    });
+  });
+
+  // D2-SA2.4-01 (Cycle 12 Wave 2, D2, P3): the `mcp` category maps to no fixed
+  // tool name, so an enumerated `tools:` list EXCLUDES every MCP tool unless the
+  // per-server grant tokens (`mcp__<server>` on Claude, `<server>/*` on Copilot)
+  // are appended. Servers are threaded from the adapter's
+  // ctx.manifest.mcp.servers selection.
+  describe("D2-SA2.4-01 MCP server grants (per-server tools token)", () => {
+    it("appends mcp__<server> to an mcp-granted agent's Claude tools (registry path)", () => {
+      // hatch3r-researcher policy = read+search+web+mcp.
+      const fm = toClaudeToolsFrontmatter("hatch3r-researcher", ["context7", "github"]) ?? "";
+      expect(fm).toContain("mcp__context7");
+      expect(fm).toContain("mcp__github");
+      // Additive — the non-MCP grants survive alongside the MCP tokens.
+      expect(fm).toContain("Read");
+      expect(fm).toContain("WebSearch");
+    });
+
+    it("appends <server>/* to an mcp-granted agent's Copilot tools (registry path)", () => {
+      const tools = toCopilotToolsFrontmatter("hatch3r-researcher", ["context7", "github"]) ?? [];
+      expect(tools).toContain("context7/*");
+      expect(tools).toContain("github/*");
+      expect(tools).toContain("read");
+    });
+
+    it("adds no MCP token when no servers are selected (mcp-off case unchanged)", () => {
+      const claudeUndef = toClaudeToolsFrontmatter("hatch3r-researcher") ?? "";
+      const claudeEmpty = toClaudeToolsFrontmatter("hatch3r-researcher", []) ?? "";
+      const copilotEmpty = toCopilotToolsFrontmatter("hatch3r-researcher", []) ?? [];
+      expect(claudeUndef).not.toContain("mcp__");
+      expect(claudeEmpty).not.toContain("mcp__");
+      expect(copilotEmpty.some((t) => t.endsWith("/*"))).toBe(false);
+    });
+
+    it("adds no MCP token to an agent whose policy lacks the mcp category even when servers are selected", () => {
+      // hatch3r-reviewer is read+search only — no mcp grant.
+      const claude = toClaudeToolsFrontmatter("hatch3r-reviewer", ["context7"]) ?? "";
+      const copilot = toCopilotToolsFrontmatter("hatch3r-reviewer", ["context7"]) ?? [];
+      expect(claude).not.toContain("mcp__");
+      expect(copilot).not.toContain("context7/*");
+    });
+
+    it("threads servers through the explicit-category (user-agent) path, gated on the mcp category", () => {
+      const claude = toClaudeToolsFrontmatterFromCategories(["read", "mcp"], ["context7"]) ?? "";
+      const copilot = toCopilotToolsFrontmatterFromCategories(["read", "mcp"], ["context7"]) ?? [];
+      expect(claude).toContain("mcp__context7");
+      expect(copilot).toEqual(expect.arrayContaining(["read", "context7/*"]));
+      // Categories without `mcp` get no server token even when servers are passed.
+      const noMcp = toClaudeToolsFrontmatterFromCategories(["read"], ["context7"]) ?? "";
+      expect(noMcp).not.toContain("mcp__");
+    });
+
+    it("dedupes duplicate server names and preserves selection order", () => {
+      const claude = toClaudeToolsFrontmatterFromCategories(["mcp"], ["b", "a", "b"]) ?? "";
+      expect(claude).toBe("mcp__b, mcp__a");
+      const copilot = toCopilotToolsFrontmatterFromCategories(["mcp"], ["b", "a", "b"]) ?? [];
+      expect(copilot).toEqual(["b/*", "a/*"]);
     });
   });
 
@@ -290,5 +372,65 @@ describe("buildAskUserPlatformTable + substituteCanonicalPlatformMarker", () => 
 
   it("PLATFORM_TOOL_MARKER is the documented HTML comment token", () => {
     expect(PLATFORM_TOOL_MARKER).toBe("<!-- HATCH3R:PLATFORM-TOOL -->");
+  });
+});
+
+// D2-SA2.4-14 (Cycle 12 Wave 4, D2, P4): the module-doc header enumerates the
+// tool-allowlist TARGET platforms. It is prose, so no compiler/parity gate
+// caught the stale "Windsurf Cascade" row that survived the 1.9.0 three-adapter
+// hard-cut and contradicted the removal notes 70 lines below. This gate reads
+// the header block and binds its platform-bullet count to AdapterName's three
+// members (via ADAPTER_ALLOWLIST_COVERAGE, itself bound to AdapterName's exact
+// members by the coverage tests above), holding the D2 stale-surface metric at
+// 0 for this header so a removed adapter cannot silently reappear.
+describe("D2-SA2.4-14 module-header target-platform enumeration (stale-surface gate)", () => {
+  const source = readFileSync(
+    join(process.cwd(), "src/pipeline/adapterToolTranslator.ts"),
+    "utf-8",
+  );
+  // The "What this module does:" enumeration ends where "Design constraints:"
+  // begins; the removal-note comments (which correctly name windsurf as a
+  // REMOVED adapter) live far below this slice and are not gated here.
+  const headerStart = source.indexOf("What this module does:");
+  const headerEnd = source.indexOf("Design constraints:");
+  const headerBlock = source.slice(headerStart, headerEnd);
+
+  it("locates the header enumeration block", () => {
+    expect(headerStart).toBeGreaterThanOrEqual(0);
+    expect(headerEnd).toBeGreaterThan(headerStart);
+  });
+
+  it("lists exactly one platform bullet per AdapterName member (== ADAPTER_ALLOWLIST_COVERAGE length)", () => {
+    const bullets = headerBlock.match(/\n\s*\*\s+-\s/g) ?? [];
+    expect(bullets.length).toBe(ADAPTER_ALLOWLIST_COVERAGE.length);
+  });
+
+  it("names each of the three supported target platforms", () => {
+    expect(headerBlock).toContain("Claude Code");
+    expect(headerBlock).toContain("GitHub Copilot");
+    expect(headerBlock).toContain("Cursor");
+  });
+
+  it("names none of the 1.9.0-removed adapters (windsurf + the other 11)", () => {
+    const REMOVED_ADAPTERS = [
+      "windsurf",
+      "cline",
+      "opencode",
+      "amazonq",
+      "kiro",
+      "gemini",
+      "aider",
+      "amp",
+      "antigravity",
+      "codex",
+      "goose",
+      "zed",
+    ];
+    for (const name of REMOVED_ADAPTERS) {
+      expect(
+        new RegExp(`\\b${name}\\b`, "i").test(headerBlock),
+        `header enumeration must not name removed adapter "${name}"`,
+      ).toBe(false);
+    }
   });
 });

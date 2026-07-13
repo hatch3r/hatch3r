@@ -18,6 +18,10 @@ Each flow is a numbered list with three columns: user action, system response, d
 
 Flow decomposition is also the contract between the feature designer and the reviewer: the reviewer walks every flow during code review and asserts each numbered step maps to a code path. A code path with no flow step is dead code or undocumented surface; a flow step with no code path is a missing implementation.
 
+### Persisted flow-doc convention
+
+Each decomposed flow persists to `docs/flows/<flow-name>.flow.md` — one file per user story, kebab-case slug (e.g. `docs/flows/sign-up.flow.md`). Every decision point (a branch offering 2 or more user-selectable options) is recorded on its own line beginning `- decision: <one-line label>`; this line is the machine-countable serialization of the `### Decision Points` rows in the `agents/modes/user-flows.md` template. The decisions-per-flow budget of at most 3 is verified with `rg -c "^- decision:" docs/flows/<flow-name>.flow.md`; a count above 3 fails the budget and triggers a reduction proposal (smart default plus override flag), not a tooltip patch.
+
 ## Four-State Surface Contract
 
 Every async view renders all four states. Missing any state on an async view is a blocker: the empty, error, and partial states are each a distinct cause-and-recovery path, and dropping one strands the user with no diagnosis or next action when that path fires (an empty result reads as a broken load, a failed request reads as a hang, a partial result silently hides the failed subset). The blocker is justified by recovery-path completeness, not by an omission-frequency statistic. NN/g empty-state and error-message guidance ([empty states](https://www.nngroup.com/articles/empty-state-interface-design/), [error messages](https://www.nngroup.com/articles/error-message-guidelines/), both accessed 2026-06-05, NN/g, official-docs) anchors the per-state rendering rules below.

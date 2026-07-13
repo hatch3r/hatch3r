@@ -7,9 +7,7 @@
       "Write",
       "Grep",
       "Glob",
-      "LS",
-      "TodoRead",
-      "TodoWrite"
+      "LS"
     ],
     "deny": []
   },
@@ -28,7 +26,7 @@
     ],
     "ConfigChange": [
       {
-        "matcher": "user_settings",
+        "matcher": "project_settings",
         "hooks": [
           {
             "type": "command",

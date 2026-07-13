@@ -53,7 +53,7 @@ Load the project's performance budgets from project rules and quality documentat
 
 - Use Chrome DevTools Performance tab: record startup, record key interactions.
 - Measure: Time to Interactive (TTI), First Contentful Paint (FCP), Largest Contentful Paint (LCP).
-- Use **cursor-ide-browser MCP** `browser_profile_start`/`browser_profile_stop` for CPU profiling with call stacks.
+- For CPU profiling with call stacks, use the Cursor browser MCP (`cursor-ide-browser` — `browser_profile_start`/`browser_profile_stop`) when it is available; otherwise use the Chrome DevTools Performance panel or `node --cpu-prof` (Node processes).
 - Check frame rate during animations (target: 60fps, 16ms/frame).
 
 **Memory:**
@@ -80,9 +80,9 @@ Load the project's performance budgets from project rules and quality documentat
 Common strategies:
 
 - **Code splitting:** Route-based or component-based. Lazy-load panels, modals, non-critical features.
-- **Lazy loading:** `defineAsyncComponent`, dynamic `import()` for heavy components.
-- **Memoization:** `computed`, `memo` for expensive derivations. Avoid unnecessary re-renders.
-- **Reduce re-renders:** `v-show` over `v-if` for frequently toggled. `shallowRef` where appropriate.
+- **Lazy loading:** Dynamic `import()` for heavy components; use your framework's async-loading mechanism (React `lazy`, Vue `defineAsyncComponent`, Angular deferrable views).
+- **Memoization:** Cache expensive derivations and avoid unnecessary re-renders (React `useMemo`/`memo`, Vue `computed`, Svelte `$derived`).
+- **Reduce re-renders:** Prefer conditional visibility over conditional mount for frequently toggled elements (Vue `v-show` over `v-if`, Angular `[hidden]` over `*ngIf`); keep reactive state shallow where deep reactivity is unneeded (Vue `shallowRef`).
 - **Bundle:** Remove unused deps, replace heavy libs with lighter alternatives, tree-shake.
 - **Images/assets:** Optimize, lazy-load, use appropriate formats.
 - **Database:** Reduce reads (batch, cache, denormalize).
@@ -114,7 +114,7 @@ The gate line is resolved to the project's language-aware command set at sync ti
 
 ## Required Agent Delegation
 
-You MUST spawn these agents via the Task tool (`subagent_type: "generalPurpose"`) at the appropriate points:
+You MUST spawn these agents via the Task tool (`subagent_type: "general-purpose"`) at the appropriate points:
 
 - **`hatch3r-performance`** (CQ7) — MUST spawn to perform autonomous performance profiling and optimization (CWV, p95/p99, bundle-size, N+1, hot-path analysis). Provide the target areas, budget thresholds, and baseline measurements.
 

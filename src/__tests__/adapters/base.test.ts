@@ -1,8 +1,9 @@
 import { describe, it, expect } from "vitest";
-import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
-import { join } from "node:path";
+import { mkdtemp, mkdir, writeFile, rm, readdir, chmod } from "node:fs/promises";
+import { readFileSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
-import { BaseAdapter, output } from "../../adapters/base.js";
+import { BaseAdapter, output, KNOWN_COMPANION_SUBDIRS } from "../../adapters/base.js";
 import type { AdapterContext } from "../../adapters/base.js";
 import type { AdapterOutput, HatchManifest } from "../../types.js";
 import { createManifest } from "../../manifest/hatchJson.js";
@@ -620,6 +621,21 @@ describe("BaseAdapter", () => {
       );
     });
 
+    // D2-SA2.1-07 (D2, P6): the "no absolute paths" contract must reject
+    // Windows-absolute forms too, not only POSIX `/`-rooted paths — otherwise a
+    // `C:\evil` / `C:/evil` output passes the guard despite the documented
+    // invariant, and `join(rootDir, rel)` contains rather than resets it.
+    it.each(["C:\\evil.md", "C:/evil.md", "d:/nested/evil.md"])(
+      "throws HatchError with ADAPTER_ERROR when an output path is Windows-absolute (%s)",
+      async (badPath) => {
+        const adapter = new TraversalAdapter([badPath]);
+        await expect(adapter.generate(FIXTURES_DIR, makeManifest())).rejects.toMatchObject({
+          name: "HatchError",
+          errorCode: "ADAPTER_ERROR",
+        });
+      },
+    );
+
     it("drops outputs with empty content and emits a 'dropped' warning", async () => {
       const adapter = new InvariantAdapter([
         output("good.md", "ok"),
@@ -995,6 +1011,160 @@ describe("processCompanionSubdir documentation-type exclusion (D2-8)", () => {
 });
 
 /**
+ * D3-SA3.1-05 (Cycle 12 Wave 4, D3, CQ5): the two designed FS-error branches in
+ * `processCompanionSubdir` had zero test executions — (1) the per-file readFile
+ * catch that warns + `continue`s (the Silent Failure Contract surface for a
+ * single unreadable companion file, base.ts:1068-1075), and (2) the readdir
+ * catch's non-ENOENT rethrow (base.ts:1051-1056). POSIX-only: `chmod 000` does
+ * not deny reads under Windows ACLs, so each is
+ * `it.skipIf(process.platform === "win32")`-guarded and runs on the Ubuntu/macOS
+ * CI legs — mirroring the established pattern in canonical.test.ts. The sibling
+ * claudeAgentsMdImport stat-rethrow branch (claude.ts) is covered in
+ * claude.test.ts's "AGENTS.md interop" suite.
+ */
+describe("processCompanionSubdir FS error branches (D3-SA3.1-05)", () => {
+  async function writeChecksPair(): Promise<{ root: string; badPath: string }> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-companion-fserr-"));
+    const checksDir = join(root, "checks");
+    await mkdir(checksDir, { recursive: true });
+    await writeFile(
+      join(checksDir, "good-check.md"),
+      `---\nid: good-check\ntype: check\ndescription: A readable review-criteria check.\n---\n# Good\n\nBody.\n`,
+      "utf-8",
+    );
+    const badPath = join(checksDir, "bad-check.md");
+    await writeFile(
+      badPath,
+      `---\nid: bad-check\ntype: check\ndescription: A check the test makes unreadable.\n---\n# Bad\n\nBody.\n`,
+      "utf-8",
+    );
+    return { root, badPath };
+  }
+
+  it.skipIf(process.platform === "win32")(
+    "warns and continues when one companion file is unreadable (readFile catch)",
+    async () => {
+      const { root, badPath } = await writeChecksPair();
+      try {
+        await chmod(badPath, 0o000);
+        const adapter = new ClaudeAdapter();
+        const manifest = createManifest({ tools: ["claude"] });
+        const outputs = await adapter.generate(root, manifest);
+        const paths = new Set(outputs.map((o) => o.path));
+        // The readable check still emits; the unreadable one is skipped, not fatal.
+        expect(paths.has(".claude/checks/good-check.md")).toBe(true);
+        expect(paths.has(".claude/checks/bad-check.md")).toBe(false);
+        // The skip is surfaced (Silent Failure Contract) — the warning names the file.
+        expect(
+          adapter.warnings.some(
+            (w) =>
+              w.includes("failed to read companion file") && w.includes("bad-check.md"),
+          ),
+        ).toBe(true);
+      } finally {
+        await chmod(badPath, 0o644).catch(() => {});
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+
+  it.skipIf(process.platform === "win32")(
+    "rejects when a companion directory is unreadable (readdir non-ENOENT rethrow)",
+    async () => {
+      const { root } = await writeChecksPair();
+      const checksDir = join(root, "checks");
+      try {
+        await chmod(checksDir, 0o000);
+        const adapter = new ClaudeAdapter();
+        const manifest = createManifest({ tools: ["claude"] });
+        // readdir(checksDir) throws EACCES (non-ENOENT) → processCompanionSubdir
+        // rethrows rather than swallowing → generate rejects (does not silently
+        // ship an incomplete companion subtree).
+        await expect(adapter.generate(root, manifest)).rejects.toThrow();
+      } finally {
+        await chmod(checksDir, 0o755).catch(() => {});
+        await rm(root, { recursive: true, force: true });
+      }
+    },
+  );
+});
+
+/**
+ * D2-SA2.1-01 (Cycle 12 Wave 2, D2, P5): KNOWN_COMPANION_SUBDIRS is a static
+ * hand-enumerated tuple with no completeness invariant against the on-disk
+ * canonical tree, so `commands/shared/` (added Cycle 11, home of the
+ * orchestration-frame every emitted orchestrator command references) was omitted
+ * for ~2 weeks while no adapter shipped it. This invariant walks the actual
+ * canonical `agents/`+`commands/` subdirectories (mirroring the dynamic copy path
+ * in src/content/index.ts) and fails if the tuple omits a discovered member — so
+ * the next companion class cannot land in the tree without being wired here.
+ */
+describe("KNOWN_COMPANION_SUBDIRS completeness invariant (D2-SA2.1-01)", () => {
+  const repoRoot = resolveTestPath(import.meta.url, "../../../");
+
+  it("names every non-hatch3r-prefixed subdirectory of agents/ and commands/", async () => {
+    const discovered = new Set<string>();
+    for (const parent of ["agents", "commands"] as const) {
+      const entries = await readdir(join(repoRoot, parent), { withFileTypes: true });
+      for (const e of entries) {
+        if (e.isDirectory() && !e.name.startsWith("hatch3r-")) {
+          discovered.add(`${parent}/${e.name}`);
+        }
+      }
+    }
+    // `checks/` is a top-level content dir (not under agents/ or commands/), so
+    // it is excluded from this discovered comparison set.
+    const expected = new Set(KNOWN_COMPANION_SUBDIRS.filter((s) => s !== "checks"));
+    expect(discovered).toEqual(expected);
+  });
+});
+
+/**
+ * D2-SA2.1-01 (Cycle 12 Wave 2, D2, P5): the fix that closes the omission — each
+ * adapter's `companionMappings` array must now ship `commands/shared/` under its
+ * native command-companion path, so the references all 31 emitted orchestrator
+ * commands carry to `commands/shared/orchestration-frame.md` resolve on disk.
+ */
+describe("commands/shared companion emission (D2-SA2.1-01)", () => {
+  const adapterCases: ReadonlyArray<{
+    name: string;
+    make: () => BaseAdapter;
+    emittedPath: string;
+  }> = [
+    { name: "claude", make: () => new ClaudeAdapter(), emittedPath: ".claude/commands/shared/orchestration-frame.md" },
+    { name: "cursor", make: () => new CursorAdapter(), emittedPath: ".cursor/commands/shared/orchestration-frame.md" },
+    // Copilot routes command companions under `.github/prompts/` (board/revision).
+    { name: "copilot", make: () => new CopilotAdapter(), emittedPath: ".github/prompts/shared/orchestration-frame.md" },
+  ];
+
+  async function writeSharedFixture(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-cmd-shared-"));
+    const dir = join(root, "commands", "shared");
+    await mkdir(dir, { recursive: true });
+    await writeFile(
+      join(dir, "orchestration-frame.md"),
+      "---\nid: orchestration-frame\ntype: shared-context\ndescription: Shared orchestration frame consumed by every orchestrator command.\n---\n# Orchestration Frame\n\nFrame body.\n",
+      "utf-8",
+    );
+    return root;
+  }
+
+  for (const tc of adapterCases) {
+    it(`${tc.name}: ships commands/shared/orchestration-frame.md under the native command-companion path`, async () => {
+      const root = await writeSharedFixture();
+      try {
+        const manifest = createManifest({ tools: [tc.name as never], features: { commands: true } });
+        const outputs = await tc.make().generate(root, manifest);
+        const paths = new Set(outputs.map((o) => o.path));
+        expect(paths.has(tc.emittedPath), `expected ${tc.emittedPath}`).toBe(true);
+      } finally {
+        await rm(root, { recursive: true, force: true });
+      }
+    });
+  }
+});
+
+/**
  * D11-16 (Cycle 11 Wave 3, D11, P5/SA11.3-F4): MCP validation warnings are
  * scoped to the SELECTED + enabled servers, not the whole bundle. A 2-server
  * selection must not surface validation warnings about the other servers
@@ -1161,4 +1331,201 @@ describe("PLATFORM-TOOL marker substitution through adapter output (D3-8)", () =
       }
     });
   }
+});
+
+// D9-SA9.4-01 (Cycle 12, D9, P3): the adapter-capability-matrix's File Path
+// Mapping rows are hand-maintained and had drifted from adapter ground truth for
+// cycles — the rule-path rows omitted the NN- precedence prefix that shipped in
+// 1.6.0 (~196 mis-documented filenames). Close that drift class mechanically:
+// run each adapter against the canonical corpus and reconcile the emitted
+// rule-file shape against what the matrix documents. A future prefix change (in
+// the adapter OR the doc) fails here instead of silently misleading readers.
+describe("adapter-capability-matrix rule-path rows <-> adapter ground truth (D9-SA9.4-01)", () => {
+  // Repo root from src/__tests__/adapters/ is three levels up; the top-level
+  // canonical dirs (rules/, agents/, ...) live there, so this needs no build
+  // (matches the resolution convention in capability-matrix-doc.test.ts).
+  const ROOT = resolve(import.meta.dirname, "..", "..", "..");
+  const doc = readFileSync(resolve(ROOT, "docs", "adapter-capability-matrix.md"), "utf-8");
+
+  const cases = [
+    {
+      name: "cursor" as const,
+      make: () => new CursorAdapter(),
+      rulePat: /^\.cursor\/rules\/(10|30|50|70)-hatch3r-.+\.mdc$/,
+      docForm: ".cursor/rules/{NN}-hatch3r-{id}.mdc",
+      staleRow: "| rules | `.cursor/rules/hatch3r-{id}.mdc`",
+    },
+    {
+      name: "claude" as const,
+      make: () => new ClaudeAdapter(),
+      rulePat: /^\.claude\/rules\/(10|30|50|70)-hatch3r-.+\.md$/,
+      docForm: ".claude/rules/{NN}-hatch3r-{id}.md",
+      staleRow: "| rules | `.claude/rules/hatch3r-{id}.md`",
+    },
+    {
+      name: "copilot" as const,
+      make: () => new CopilotAdapter(),
+      rulePat: /^\.github\/instructions\/(10|30|50|70)-hatch3r-.+\.instructions\.md$/,
+      docForm: ".github/instructions/{NN}-hatch3r-{id}.instructions.md",
+      staleRow: "| rules (scoped) | `.github/instructions/hatch3r-{id}.instructions.md`",
+    },
+  ];
+
+  for (const c of cases) {
+    it(`${c.name}: emits NN-prefixed rule files and the matrix documents that form`, async () => {
+      const paths = await c.make().getOutputPaths(ROOT, createManifest({ tools: [c.name] }));
+      // Ground truth: canonical rules emit under the NN- precedence prefix.
+      expect(paths.some((p) => c.rulePat.test(p))).toBe(true);
+      // Doc reconciliation: the matrix documents the NN-prefixed form ...
+      expect(doc).toContain(c.docForm);
+      // ... and no longer carries the stale unprefixed rule row.
+      expect(doc).not.toContain(c.staleRow);
+    });
+  }
+});
+
+// D2-SA2.1-02 (Cycle 12 Wave 3, D2, P2): `getOutputPaths` was 2-arg
+// (canonical-only) while real generation threads `userRepoRoot`, so `update.ts`'s
+// D1-4 rollback pre-enumeration recorded a strict subset of the real output set —
+// a newly-created user-override output escaped tombstoning and survived a
+// rollback. The fix widens `getOutputPaths(canonicalRoot, manifest, userRepoRoot?)`
+// and forwards the arg to `generate`. D3-SA3.1-03: the memo is now keyed on the
+// full argument tuple (the prior cache was argument-insensitive).
+
+// Minimal adapter that enumerates one output per user-facing agent, so a
+// user-tier override at `${userRoot}/.hatch3r/overrides/agents/<id>.md`
+// produces a distinct output path. `doGenerateCalls` pins the cache hit/miss
+// pattern for the D3-SA3.1-03 memo test.
+class AgentEnumAdapter extends BaseAdapter {
+  readonly name = "agent-enum";
+  doGenerateCalls = 0;
+  protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+    this.doGenerateCalls += 1;
+    const agents = await this.readUserFacingCanonicalFiles(
+      ctx.canonicalRoot,
+      "agents",
+      ctx.userRepoRoot,
+    );
+    return agents.map((a) => output(`agents/${a.id}.md`, `# ${a.id}\n`));
+  }
+}
+
+// Stage a valid user-tier agent override (mirrors userContentParity.test.ts's
+// seedUserAgent: id/type/description/tags/pillars, description long enough to
+// clear the adapter description gate) at `${userRoot}/.hatch3r/overrides/agents/`.
+async function seedUserAgentFile(userRoot: string, id: string): Promise<void> {
+  const dir = join(userRoot, ".hatch3r", "overrides", "agents");
+  await mkdir(dir, { recursive: true });
+  const desc =
+    "User-tier agent fixture with a description long enough to clear the adapter description gate.";
+  await writeFile(
+    join(dir, `${id}.md`),
+    `---\nid: ${id}\ntype: agent\ndescription: ${desc}\ntags: [customize]\nquality_charter: agents/shared/quality-charter.md\npillars: [P4]\n---\nUser body for ${id}.\n`,
+  );
+}
+
+describe("getOutputPaths threads userRepoRoot for user-tier parity (D2-SA2.1-02)", () => {
+  it("enumerates user-override outputs only when userRepoRoot is threaded, matching generate()", async () => {
+    const userRoot = await mkdtemp(join(tmpdir(), "hatch3r-getoutputpaths-uc-"));
+    try {
+      await seedUserAgentFile(userRoot, "user-extra");
+      const manifest = makeManifest();
+
+      // getOutputPaths WITH userRepoRoot must equal the real generate() path set
+      // AND include the user-override-derived output (the D1-4 tombstone gap).
+      const enumWithUser = await new AgentEnumAdapter().getOutputPaths(FIXTURES_DIR, manifest, userRoot);
+      const genWithUser = (await new AgentEnumAdapter().generate(FIXTURES_DIR, manifest, userRoot)).map(
+        (o) => o.path,
+      );
+      expect(new Set(enumWithUser)).toEqual(new Set(genWithUser));
+      expect(enumWithUser).toContain("agents/user-extra.md");
+
+      // Omitting userRepoRoot enumerates the canonical-only subset (no user path).
+      const enumNoUser = await new AgentEnumAdapter().getOutputPaths(FIXTURES_DIR, manifest);
+      expect(enumNoUser).not.toContain("agents/user-extra.md");
+      // The user path is exactly what threading the arg adds — nothing else moves.
+      expect(new Set(enumWithUser)).toEqual(new Set([...enumNoUser, "agents/user-extra.md"]));
+    } finally {
+      await rm(userRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("getOutputPaths cache is keyed on its arguments (D3-SA3.1-03)", () => {
+  it("memoises identical calls but recomputes when userRepoRoot differs", async () => {
+    const userRoot = await mkdtemp(join(tmpdir(), "hatch3r-getoutputpaths-cache-"));
+    try {
+      await seedUserAgentFile(userRoot, "cache-user");
+      const adapter = new AgentEnumAdapter();
+      const manifest = makeManifest();
+
+      // Two identical calls → a single generation (the second is a cache hit).
+      const first = await adapter.getOutputPaths(FIXTURES_DIR, manifest, userRoot);
+      const second = await adapter.getOutputPaths(FIXTURES_DIR, manifest, userRoot);
+      expect(adapter.doGenerateCalls).toBe(1);
+      expect(second).toEqual(first);
+      expect(first).toContain("agents/cache-user.md");
+
+      // A call with a DIFFERENT userRepoRoot (omitted) must recompute — the
+      // pre-fix argument-insensitive cache returned the memoised user-tier set.
+      const canonicalOnly = await adapter.getOutputPaths(FIXTURES_DIR, manifest);
+      expect(adapter.doGenerateCalls).toBe(2);
+      expect(canonicalOnly).not.toContain("agents/cache-user.md");
+    } finally {
+      await rm(userRoot, { recursive: true, force: true });
+    }
+  });
+});
+
+// D3-SA3.1-01 (Cycle 12 Wave 3, D3, CQ5): `generate()` falls back to
+// `process.cwd()` for projectRoot when userRepoRoot is omitted, and
+// applyCustomization probes `.hatch3r/{type}/{id}.customize.*` against it — so a
+// call that omits the arg reads customization from the developer's live repo
+// `.hatch3r/`. This guards the base-level isolation contract: when userRepoRoot
+// IS passed, the customization outcome is a function of that directory alone, so
+// a `.hatch3r/agents/*.customize.yaml` sitting in any OTHER directory (including
+// cwd) has zero effect. (The 127-call test-site sweep that omits the arg lives in
+// the claude/cursor/copilot/snapshots adapter test files, out of this file's scope.)
+describe("customization probes resolve against the passed userRepoRoot, not cwd (D3-SA3.1-01)", () => {
+  class InlineAgentsProbe extends BaseAdapter {
+    readonly name = "inline-agents-probe";
+    protected async doGenerate(ctx: AdapterContext): Promise<AdapterOutput[]> {
+      const lines = await this.inlineAgents(ctx);
+      return [output("agents-out.md", lines.join("\n") || "empty")];
+    }
+  }
+
+  it("a .hatch3r/agents customize file only affects generate() when userRepoRoot points at its directory", async () => {
+    const dirWithCustomize = await mkdtemp(join(tmpdir(), "hatch3r-cwd-probe-with-"));
+    const dirWithoutCustomize = await mkdtemp(join(tmpdir(), "hatch3r-cwd-probe-none-"));
+    try {
+      // A customize file that disables the canonical test-agent (non-protected,
+      // non-floor → `enabled: false` is honored as a skip).
+      const customizeDir = join(dirWithCustomize, ".hatch3r", "agents");
+      await mkdir(customizeDir, { recursive: true });
+      await writeFile(join(customizeDir, "test-agent.customize.yaml"), "enabled: false\n");
+
+      const manifest = makeManifest();
+      const marker = "## Agent: test-agent";
+
+      // userRepoRoot = the dir WITH the customize file → projectRoot resolves
+      // there → test-agent is disabled (skip) → marker absent. Proves the file
+      // is genuinely effective (so the isolation assertion below is non-vacuous).
+      const disabled = (
+        await new InlineAgentsProbe().generate(FIXTURES_DIR, manifest, dirWithCustomize)
+      )[0]!.content;
+      expect(disabled).not.toContain(marker);
+
+      // userRepoRoot = a DIFFERENT dir with no customization → the customize file
+      // in dirWithCustomize (analogue of a cwd `.hatch3r/`) has zero effect →
+      // output is unchanged from the un-customized baseline (marker present).
+      const unaffected = (
+        await new InlineAgentsProbe().generate(FIXTURES_DIR, manifest, dirWithoutCustomize)
+      )[0]!.content;
+      expect(unaffected).toContain(marker);
+    } finally {
+      await rm(dirWithCustomize, { recursive: true, force: true });
+      await rm(dirWithoutCustomize, { recursive: true, force: true });
+    }
+  });
 });

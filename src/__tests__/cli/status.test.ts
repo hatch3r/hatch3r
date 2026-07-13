@@ -3,6 +3,7 @@ import { mkdtemp, mkdir, writeFile, readdir, rm } from "node:fs/promises";
 import { join, posix } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError, HATCH3R_DIR } from "../../types.js";
+import { HATCH3R_VERSION } from "../../version.js";
 
 // Wave 6 + Wave 7 rewrite (1.9.0):
 //   - manifest moved from `.agents/hatch.json` to `.hatch3r/hatch.json`.
@@ -144,6 +145,40 @@ describe("status command", () => {
     expect(output).toContain("3 runs");
   });
 
+  // D10-SA10.8-04 (D10, P1): when the explicit "First-run success" line renders,
+  // the per-axis loop must NOT also print a redundant `performance` row for the
+  // same datum. Every OTHER fed axis (here: efficiency) still shows, proving the
+  // loop is not disabled — only the duplicate performance row is dropped.
+  it("does not duplicate the performance row when the first-run line already shows it (D10-SA10.8-04)", async () => {
+    await createTestProject(tempDir);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryDir = join(tempDir, HATCH3R_DIR, "telemetry");
+    await mkdir(telemetryDir, { recursive: true });
+    const ts = `${today}T12:00:00.000Z`;
+    const lines = [
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts, source: "hatch3r-init" },
+      { metricId: "firstRunSuccessRate", axis: "performance", value: 1, timestamp: ts, source: "hatch3r-init" },
+      { metricId: "timeToFirstValueMs", axis: "efficiency", value: 1200, timestamp: ts, source: "hatch3r-init" },
+    ]
+      .map((r) => JSON.stringify(r))
+      .join("\n");
+    await writeFile(join(telemetryDir, `space-${today}.jsonl`), lines + "\n");
+
+    consoleSpy.mockClear();
+    const { statusCommand } = await import("../../cli/commands/status.js");
+    await statusCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Developer productivity (SPACE)");
+    // The explicit first-run line renders (it summarizes the performance axis).
+    expect(output).toContain("First-run success");
+    // The per-axis loop must NOT repeat performance as its own `N metric(s)` row.
+    expect(output).not.toMatch(/performance\s+\d+ metric\(s\)/);
+    // The other fed axis (efficiency) still appears via the loop.
+    expect(output).toMatch(/efficiency\s+\d+ metric\(s\)/);
+  });
+
   it("omits the SPACE box when no telemetry exists", async () => {
     await createTestProject(tempDir);
 
@@ -194,6 +229,206 @@ describe("status command", () => {
     };
     expect(payload.spaceTelemetry.recordCount).toBe(1);
     expect(payload.spaceTelemetry.firstRunSuccessRate).toBe(1);
+  });
+
+  // D12-SA12.2-01 (D12, CQ2): status now reports the manifest's CONFIGURED
+  // hatch3r version alongside the RUNNING CLI version, so an operator can tell
+  // "these files drifted because I upgraded" from managed-block corruption.
+  it("emits an installation block with configured-vs-running versions and a skew flag in --json (D12-SA12.2-01)", async () => {
+    // createTestProject pins hatch3rVersion "1.9.0"; the running CLI differs, so
+    // versionSkew must be true.
+    await createTestProject(tempDir);
+
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand({ format: "json" });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const combined = stdoutChunks.join("");
+    const payload = JSON.parse(combined.slice(combined.indexOf("{")).trim()) as {
+      installation: {
+        configuredVersion: string;
+        runningVersion: string;
+        manifestVersion: string;
+        tools: string[];
+        versionSkew: boolean;
+      };
+    };
+    expect(payload.installation.configuredVersion).toBe("1.9.0");
+    expect(payload.installation.runningVersion).toBe(HATCH3R_VERSION);
+    expect(payload.installation.manifestVersion).toBe("3.0.0");
+    expect(payload.installation.tools).toEqual(["cursor"]);
+    expect(payload.installation.versionSkew).toBe(true);
+  });
+
+  it("renders the Installation box with a version-skew note in human mode (D12-SA12.2-01)", async () => {
+    await createTestProject(tempDir);
+    consoleSpy.mockClear();
+
+    const { statusCommand } = await import("../../cli/commands/status.js");
+    await statusCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    expect(output).toContain("Installation");
+    expect(output).toContain("Configured");
+    expect(output).toContain("hatch3r v1.9.0");
+    // The skew note names the upgrade as the expected cause of the drift.
+    expect(output).toContain("configured; CLI is");
+  });
+
+  // D1-SA1.4-04 (D1, P1): the boolean `versionSkew` above says only WHETHER the
+  // versions differ, not WHICH WAY. Status now also exposes the DIRECTION so a CI
+  // consumer can tell a normal upgrade (installed-newer) from an installed-older
+  // DOWNGRADE hazard where `sync` would regress the on-disk output.
+  it("exposes versionSkewDirection installed-newer in --json when the CLI is newer than the writer (D1-SA1.4-04)", async () => {
+    // The fixture pins writer 1.9.0; the running CLI is newer.
+    await createTestProject(tempDir);
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand({ format: "json" });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    const combined = stdoutChunks.join("");
+    const payload = JSON.parse(combined.slice(combined.indexOf("{")).trim()) as {
+      installation: { versionSkew: boolean; versionSkewDirection: string };
+    };
+    expect(payload.installation.versionSkew).toBe(true);
+    expect(payload.installation.versionSkewDirection).toBe("installed-newer");
+  });
+
+  it("exposes versionSkewDirection installed-older in --json when the CLI is older than the writer (D1-SA1.4-04)", async () => {
+    // Force the writer version ABOVE any real CLI version → installed-older.
+    await createTestProject(tempDir, { hatch3rVersion: "99.0.0" });
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand({ format: "json" });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+    const combined = stdoutChunks.join("");
+    const payload = JSON.parse(combined.slice(combined.indexOf("{")).trim()) as {
+      installation: { versionSkewDirection: string };
+    };
+    expect(payload.installation.versionSkewDirection).toBe("installed-older");
+  });
+
+  it("flips the human Installation note to an update-first downgrade warning when installed-older (D1-SA1.4-04)", async () => {
+    await createTestProject(tempDir, { hatch3rVersion: "99.0.0" });
+    consoleSpy.mockClear();
+
+    const { statusCommand } = await import("../../cli/commands/status.js");
+    await statusCommand();
+
+    const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+    // installed-older names the downgrade risk and points at `update`, NOT the
+    // upgrade-framed "Run hatch3r sync to regenerate". The hint renders inside the
+    // Installation printBox (ui.ts → boxen, borderStyle "round", no explicit
+    // width), so on a non-TTY stdout boxen wraps the ~165-char sentence at its
+    // ~80-col default — splitting "generated" | "these files" across box lines.
+    // Strip the round-border box characters and collapse the wrap whitespace so
+    // the assertion tests the SENTENCE, not the terminal-width-dependent wrap
+    // (D1-SA1.4-04).
+    const flat = output.replace(/[│╭╮╰╯─]/g, " ").replace(/\s+/g, " ");
+    expect(flat).toContain("is older than the version that generated these files");
+    expect(flat).toContain("hatch3r update");
+    expect(output).not.toContain("canonical drift is expected from the upgrade");
+  });
+
+  // D10-SA10.2-02 (D10, P1): every status JSON document is now self-identifying
+  // (carries `command`) and exposes a normalized `outcome` for a CI branch check
+  // alongside the domain-specific `status`.
+  it("emits command:status and a normalized outcome in the --json payload (D10-SA10.2-02)", async () => {
+    await createTestProject(tempDir);
+    const { syncCommand } = await import("../../cli/commands/sync.js");
+    await syncCommand();
+
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand({ format: "json" });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const combined = stdoutChunks.join("");
+    const payload = JSON.parse(combined.slice(combined.indexOf("{")).trim()) as {
+      command: string;
+      status: string;
+      outcome: string;
+    };
+    expect(payload.command).toBe("status");
+    // Domain status is preserved (not renamed); a clean sync is in-sync → passed.
+    expect(payload.status).toBe("in-sync");
+    expect(payload.outcome).toBe("passed");
+  });
+
+  // D10-SA10.8-01 (D10, P5): the SPACE surface now feeds >1 axis. Seeding an
+  // efficiency record proves status surfaces the newly-fed non-performance axis
+  // via its per-axis rollup (not only firstRunSuccessRate).
+  it("surfaces a non-performance SPACE axis (efficiency) in the --json rollup (D10-SA10.8-01)", async () => {
+    await createTestProject(tempDir);
+
+    const today = new Date().toISOString().slice(0, 10);
+    const telemetryDir = join(tempDir, HATCH3R_DIR, "telemetry");
+    await mkdir(telemetryDir, { recursive: true });
+    const ts = `${today}T12:00:00.000Z`;
+    await writeFile(
+      join(telemetryDir, `space-${today}.jsonl`),
+      JSON.stringify({ metricId: "timeToFirstValueMs", axis: "efficiency", value: 1234, timestamp: ts, source: "hatch3r-init" }) + "\n",
+    );
+
+    const stdoutChunks: string[] = [];
+    const stdoutSpy = vi
+      .spyOn(process.stdout, "write")
+      .mockImplementation(((chunk: string | Uint8Array): boolean => {
+        stdoutChunks.push(typeof chunk === "string" ? chunk : Buffer.from(chunk).toString("utf-8"));
+        return true;
+      }) as never);
+    try {
+      const { statusCommand } = await import("../../cli/commands/status.js");
+      await statusCommand({ format: "json" });
+    } finally {
+      stdoutSpy.mockRestore();
+    }
+
+    const combined = stdoutChunks.join("");
+    const payload = JSON.parse(combined.slice(combined.indexOf("{")).trim()) as {
+      spaceTelemetry: { axes: { axis: string; count: number; mean: number }[] };
+    };
+    const efficiency = payload.spaceTelemetry.axes.find((a) => a.axis === "efficiency");
+    expect(efficiency).toBeDefined();
+    expect(efficiency?.count).toBe(1);
+    expect(efficiency?.mean).toBe(1234);
   });
 
   it("should report drifted when a generated file differs", async () => {
@@ -405,6 +640,67 @@ describe("status command", () => {
         expect(orphan).toBeUndefined();
       }
     });
+
+    // D2-SA2.7-04 (D2, P2): per-package copies were seen-only — never
+    // content-compared — so a hand-edited or deleted `<pkg>/.cursor/...` copy
+    // drifted INVISIBLY (`verify` exited 0 while managed output had changed).
+    // computeAdapterDrift now runs the identical per-file comparison on
+    // per-package outputs, so `modified` and `missing` are reported for them.
+    it("reports modified and missing for monorepo per-package cursor copies (D2-SA2.7-04)", async () => {
+      await createTestProject(tempDir, {
+        tools: ["cursor", "claude"],
+        packages: [
+          { name: "@scope/alpha", path: "packages/alpha" },
+          { name: "@scope/beta", path: "packages/beta" },
+        ],
+      });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      expect(manifest).not.toBeNull();
+
+      // Guard: per-package copies were emitted + tracked (else a vacuous pass).
+      const perPackageTracked = (manifest!.managedFiles ?? []).filter((p) =>
+        p.startsWith("packages/alpha/"),
+      );
+      expect(perPackageTracked.length).toBeGreaterThan(0);
+
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+
+      // Fresh sync → per-package copies are verbatim mirrors → no drift.
+      const clean = await computeAdapterDrift(tempDir, manifest!);
+      expect(clean.counts.modified).toBe(0);
+      expect(clean.counts.missing).toBe(0);
+
+      // Modify one alpha per-package copy and delete one beta per-package copy.
+      const alphaRulesDir = join(tempDir, "packages", "alpha", ".cursor", "rules");
+      const alphaRule = (await readdir(alphaRulesDir)).find((f) => f.endsWith(".mdc"));
+      expect(alphaRule).toBeDefined();
+      const alphaModifiedPath = posix.join("packages", "alpha", ".cursor", "rules", alphaRule!);
+      await writeFile(join(alphaRulesDir, alphaRule!), "hand-edited per-package drift");
+
+      const betaRulesDir = join(tempDir, "packages", "beta", ".cursor", "rules");
+      const betaRule = (await readdir(betaRulesDir)).find((f) => f.endsWith(".mdc"));
+      expect(betaRule).toBeDefined();
+      const betaMissingPath = posix.join("packages", "beta", ".cursor", "rules", betaRule!);
+      await rm(join(betaRulesDir, betaRule!));
+
+      const report = await computeAdapterDrift(tempDir, manifest!);
+      const modifiedEntry = report.entries.find((e) => e.path === alphaModifiedPath);
+      const missingEntry = report.entries.find((e) => e.path === betaMissingPath);
+      expect(modifiedEntry?.status).toBe("modified");
+      expect(missingEntry?.status).toBe("missing");
+      // The edited/deleted copies stay "seen", so neither is mis-flagged as an
+      // unexpected orphan (the F14.2-H1 suppression still holds).
+      expect(
+        report.entries.some(
+          (e) => (e.path === alphaModifiedPath || e.path === betaMissingPath) && e.status === "unexpected",
+        ),
+      ).toBe(false);
+    });
   });
 
   // D3-M13 (Cycle 10 Wave-3 Medium rollover): status.ts branches were 53.5%.
@@ -506,6 +802,47 @@ describe("status command", () => {
 
       const drifted = report.entries.find((e) => e.status === "modified");
       expect(drifted).toBeDefined();
+      expect(drifted!.driftKind).toBe("unknown");
+      expect(report.driftKindCounts.unknown).toBeGreaterThanOrEqual(1);
+    });
+
+    // D12-SA12.2-06 (Cycle 12 Wave 4, Info): `loadProvenanceBaseline` must assert
+    // the `schemaVersion` it understands before consuming `outputs`. A future
+    // manifest (v2+) could reshape `outputs[]`; parsing it as v1 would build a
+    // wrong baseline and SILENTLY mis-attribute drift. The reader skips an
+    // unrecognized schema and falls back to `unknown`, exactly like a missing
+    // baseline — symmetric with the writer's `prev.schemaVersion === 1` gate.
+    it("degrades drift to `unknown` when the provenance baseline schemaVersion is unrecognized (D12-SA12.2-06)", async () => {
+      await createTestProject(tempDir);
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      await syncCommand();
+
+      // Bump the recorded schema to a version this reader does not understand.
+      const provenancePath = join(tempDir, HATCH3R_DIR, "provenance.json");
+      const { readFile: read, writeFile: write } = await import("node:fs/promises");
+      const manifestDoc = JSON.parse(await read(provenancePath, "utf-8")) as {
+        schemaVersion: number;
+      };
+      manifestDoc.schemaVersion = 2;
+      await write(provenancePath, JSON.stringify(manifestDoc, null, 2) + "\n");
+
+      // Drift one output so there is a `modified` entry to attribute.
+      const cursorRulesDir = join(tempDir, ".cursor", "rules");
+      const entries = await readdir(cursorRulesDir);
+      const ruleFile = entries.find((f) => f.endsWith(".mdc"));
+      expect(ruleFile).toBeDefined();
+      await writeFile(join(cursorRulesDir, ruleFile!), "drift under unrecognized schema");
+
+      const { readManifest } = await import("../../manifest/hatchJson.js");
+      const manifest = await readManifest(tempDir);
+      const { computeAdapterDrift } = await import("../../cli/commands/status.js");
+      const report = await computeAdapterDrift(tempDir, manifest!);
+
+      const drifted = report.entries.find((e) => e.status === "modified");
+      expect(drifted).toBeDefined();
+      // Baseline skipped (schema 2 not understood) → drift falls back to unknown,
+      // not silently mis-parsed against a v1-shaped read of a v2 manifest.
       expect(drifted!.driftKind).toBe("unknown");
       expect(report.driftKindCounts.unknown).toBeGreaterThanOrEqual(1);
     });

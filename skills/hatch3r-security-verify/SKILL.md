@@ -4,9 +4,6 @@ name: hatch3r-security-verify
 type: skill
 description: Security verification gate before commit/release — OAuth 2.1 + OIDC + DPoP + WebAuthn server-side, supply-chain floor (SBOM + provenance + SHA-pin + cosign), OWASP ASI01-10 control coverage, CVE acknowledgement
 tags: [review, security, supply-chain, floor:security, floor:content-quality]
-scope: conditional
-globs: "src/auth/**,**/.github/workflows/*.yml,**/Dockerfile,**/package.json,**/package-lock.json,**/pnpm-lock.yaml,**/yarn.lock"
-precedence: normal
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
 cache_friendly: true

@@ -5,9 +5,12 @@ import { tmpdir } from "node:os";
 import {
   CHECKPOINT_FILE,
   CHECKPOINT_SCHEMA_VERSION,
+  CHECKPOINT_WORKSPACE_COMMANDS,
+  WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES,
   checkpointPath,
   readCheckpoint,
   verifyResumability,
+  workspaceDir,
   writeCheckpoint,
   type CheckpointMeta,
 } from "../../pipeline/checkpoint.js";
@@ -43,6 +46,45 @@ describe("pipeline/checkpoint", () => {
       // platform separator (`\` on Windows vs `/` on POSIX).
       const workspace = join("/tmp", "foo");
       expect(checkpointPath(workspace)).toBe(join(workspace, CHECKPOINT_FILE));
+    });
+  });
+
+  // D1-SA1.2-06 (D1, P1): the shared checkpoint-workspace registry. The gitignore
+  // registry (REQUIRED_GITIGNORE_ENTRIES, src/env/mcpEnv.ts) and every checkpoint
+  // writer derive from CHECKPOINT_WORKSPACE_COMMANDS, so a new writer cannot leak
+  // an un-gitignored `.{command}-workspace/` dir the way `.update-`/`.config-`/
+  // `.verify-fix-workspace/` did after D1-14.
+  describe("workspace-dir registry (D1-SA1.2-06)", () => {
+    it("enumerates the five checkpoint-writing commands", () => {
+      expect([...CHECKPOINT_WORKSPACE_COMMANDS]).toEqual([
+        "init",
+        "sync",
+        "update",
+        "config",
+        "verify-fix",
+      ]);
+    });
+
+    it("workspaceDir composes rootDir + `.{command}-workspace` for each command", () => {
+      const root = join("/tmp", "repo");
+      for (const command of CHECKPOINT_WORKSPACE_COMMANDS) {
+        expect(workspaceDir(root, command)).toBe(join(root, `.${command}-workspace`));
+      }
+    });
+
+    it("derives one trailing-slash gitignore entry per command, in list order", () => {
+      expect(WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES).toEqual([
+        ".init-workspace/",
+        ".sync-workspace/",
+        ".update-workspace/",
+        ".config-workspace/",
+        ".verify-fix-workspace/",
+      ]);
+      // Each entry is exactly its workspace dir basename + "/", so the gitignore
+      // registry and the writer paths cannot drift apart.
+      expect(WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES).toEqual(
+        CHECKPOINT_WORKSPACE_COMMANDS.map((c) => `.${c}-workspace/`),
+      );
     });
   });
 

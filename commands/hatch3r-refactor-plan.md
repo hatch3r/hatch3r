@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 4
   rationale: Four parallel hatch3r-researcher modes per refactoring brief — current-state, refactoring-strategy, impact-and-risk, migration-path — dispatched concurrently in Step 3; a docs-writer composes the refactoring spec on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -146,7 +147,7 @@ Refactoring Brief:
    - `.hatch3r/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the refactoring area. Note in-progress work, dependencies, or prior refactoring attempts.
-3. If `.hatch3r/learnings/` exists, scan for learnings relevant to the target area. Match by area and tags against the refactoring brief.
+3. If `.hatch3r/learnings/` exists, scan for relevant learnings — test the target file paths against each learning's `applies-to` glob and the target area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback).
 4. Scan test coverage in the target area — identify which parts have strong test coverage (safe to refactor) vs. weak coverage (need tests first).
 5. Present a context summary:
 
@@ -156,7 +157,7 @@ Context Loaded:
   ADRs:             {N} files in docs/adr/ ({relevant ones listed})
   Existing todo.md: {found with N items / not found}
   Related issues:   {N} open issues with overlap ({list issue numbers})
-  Learnings:        {N} relevant learnings ({areas})
+  Learnings:        {N} relevant learnings ({topics})
   Test coverage:    {strong / partial / weak in target area — details}
   Gaps:             {list any missing context}
 ```
@@ -344,50 +345,7 @@ Only proceed if the refactoring involves significant architectural decisions —
 
 From the strategy designer's output and any conflicts resolved in Step 4, create one ADR per decision.
 
-#### ADR Format — `docs/adr/{NNNN}_{decision-slug}.md`
-
-Determine the next sequential number by scanning existing files in `docs/adr/`. Use slugified decision titles.
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Context
-
-{Why this decision is needed — the refactoring goal, the current state problem, and why a design choice must be made}
-
-## Decision
-
-{What was decided and why — which approach, pattern, or technology was chosen}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-
-## Related
-
-- Refactoring spec: `docs/specs/{NN}_{refactor-slug}.md`
-```
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton. Per-command slots: context-guidance = "the refactoring goal, the current state problem, and why a design choice must be made"; decision-guidance = " — which approach, pattern, or technology was chosen"; related-ref = "Refactoring spec: `docs/specs/{NN}_{refactor-slug}.md`".
 
 **ASK:** "Here are {N} ADR(s) generated from refactoring decisions. Review before I write the files:
 {list with titles}
@@ -487,15 +445,15 @@ refactor-plan is long-running — a Tier 3 refactor brief fans out 5 parallel re
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.

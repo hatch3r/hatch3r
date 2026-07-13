@@ -1,5 +1,5 @@
 {
-  "$comment": "D15-30 (Cycle 11, Medium): version source-of-truth for the External-Framework Crosswalk in governance/audit/domains/D15-trust-reference.md. The trust-model-audit.yml 'Trust reference doc currency' step asserts, per entry, that `expectedRegex` matches the doc AND no `staleRegex` predecessor string appears. Regex (not exact substring) so a wording refresh of the citation does not red the gate, while a version bump does. Bump an entry here when a cited framework publishes a new version and the crosswalk is updated to match; the gate then fails until the doc and this file agree. Sources + access dates live in the doc's footnote ([a]-[d]).",
+  "$comment": "D15-30 (Cycle 11, Medium): version source-of-truth for the External-Framework Crosswalk in governance/audit/domains/D15-trust-reference.md. The trust-model-audit.yml 'Trust reference doc currency' step asserts, per entry, that `expectedRegex` matches the doc AND no `staleRegex` predecessor string appears. Regex (not exact substring) so a wording refresh of the citation does not red the gate, while a version bump does. Bump an entry here when a cited framework publishes a new version and the crosswalk is updated to match; the gate then fails until the doc and this file agree. Sources + access dates live in the doc's footnote ([a]-[d]). Optional per-entry `probeUrl` + `liveCurrentRegex` power the separate warning-only `framework-version-live-probe` job in trust-model-audit.yml: it fetches `probeUrl` and warns when `liveCurrentRegex` (the cited version's live-page form) no longer matches — i.e. the published framework versioned past the citation — turning this doc<->manifest self-check into a live-source oracle. Populated for fast-cadence frameworks (anthropic-rsp: 5 minor versions in ~5 months); entries lacking both fields are notice-skipped (D15-SA15.6-02).",
   "doc": "governance/audit/domains/D15-trust-reference.md",
   "frameworks": [
     {
@@ -17,8 +17,10 @@
     {
       "id": "anthropic-rsp",
       "label": "Anthropic Responsible Scaling Policy",
-      "expectedRegex": "(RSP|Responsible Scaling Policy) v3\\.3\\b",
-      "staleRegex": "(RSP|Responsible Scaling Policy) v([0-2]\\.[0-9]+|3\\.[0-2])\\b"
+      "expectedRegex": "(RSP|Responsible Scaling Policy) v3\\.4\\b",
+      "staleRegex": "(RSP|Responsible Scaling Policy) v([0-2]\\.[0-9]+|3\\.[0-3])\\b",
+      "probeUrl": "https://www.anthropic.com/responsible-scaling-policy",
+      "liveCurrentRegex": "(Version|v)\\s*3\\.4\\b"
     },
     {
       "id": "microsoft-agt",

@@ -1,0 +1,32 @@
+{
+  "skill": "hatch3r-cli-fzf",
+  "skillPath": "skills/hatch3r-cli-fzf/SKILL.md",
+  "cohort": "cli",
+  "cases": [
+    {
+      "id": "cli-fzf-001",
+      "input": "Let me interactively pick one of the failing test files to debug.",
+      "context": "A TTY session; a command producing the failing-file list exists.",
+      "expected": [
+        "Pipes the candidate list into fzf as an interactive picker (fzf reads the piped stdin stream)",
+        "Uses the selected line as the follow-up command's argument"
+      ],
+      "forbidden": [
+        "Prints the list and asks the user to type a filename manually when fzf is available and a TTY is present"
+      ],
+      "rubric": "PASS iff the flow is `<producer> | fzf` with the selection consumed downstream."
+    },
+    {
+      "id": "cli-fzf-002",
+      "input": "Add that file-picking step to the CI script.",
+      "context": "CI has no TTY.",
+      "expected": [
+        "Recognizes fzf requires a TTY and degrades to a non-interactive batch selection (e.g. `--filter` mode or a deterministic head/match) in CI, per the skill's degrade-gracefully clause"
+      ],
+      "forbidden": [
+        "Emits an interactive fzf invocation into a CI script where it would hang or fail"
+      ],
+      "rubric": "PASS iff the CI variant is non-interactive and deterministic, with the TTY constraint stated."
+    }
+  ]
+}

@@ -55,17 +55,36 @@ const __dirname = dirname(__filename);
 const ROOT = resolve(__dirname, "..");
 
 /**
- * Governance prompts that carry a currency header. Paths are POSIX-relative to
- * the repo root. A listed file that is absent on disk is skipped (the overlay
- * layout may not ship every prompt in every checkout).
+ * The full §2 P5 lean-capped governance artifact set — every file that carries
+ * a CONSTITUTION §2 P5 cap row, each of which must carry a `> Last updated:`
+ * currency header per Anti-Bloat Principle 6. Two groups: the 6 lean-tracked
+ * governance prompts, then the 7 other capped files (amendment-procedure, the
+ * D15 governed appendix, SCALE.md, and the four `agents/shared/*` contracts —
+ * §2 P5-capped artifacts that live outside `governance/`). Scoping the scan to
+ * only the 6 prompts left the 2026-07-09 cap-table expansion unenforced
+ * (D24-SA24.1-05); the set is ordered to mirror CONSTITUTION §2 P5 rows.
+ *
+ * Paths are POSIX-relative to the repo root. A listed file that is absent on
+ * disk is skipped (the overlay layout may not ship every file in every
+ * checkout — public clones lack the private governance prompts, so the scan
+ * degrades to whatever is present without failing).
  */
 const GOVERNANCE_FILES: readonly string[] = [
+  // The 6 lean-tracked governance prompts.
   "governance/CONSTITUTION.md",
   "governance/VISION.md",
   "governance/AUDIT.md",
   "governance/AUDIT-EXECUTE.md",
   "governance/EVOLVE.md",
   "governance/pack-trust-model.md",
+  // The 7 other §2 P5-capped files (CONSTITUTION §2 P5 rows, in row order).
+  "governance/amendment-procedure.md",
+  "governance/audit/domains/D15-trust-reference.md",
+  "agents/shared/quality-charter.md",
+  "agents/shared/rigor-contract.md",
+  "agents/shared/senior-expert-charter.md",
+  "agents/shared/user-question-protocol.md",
+  "governance/SCALE.md",
 ];
 
 // Match a leading ISO date (YYYY-MM-DD) wherever it appears on the line.
@@ -173,6 +192,81 @@ export function scanCachedCliCount(body: string, rel: string): CurrencyDrift[] {
   return drifts;
 }
 
+/**
+ * D3-SA3.5-06 (Cycle 12): a deferred coverage-floor raise recorded as a
+ * structured registry row instead of bare config-comment prose. A
+ * `raising to N is queued as a Cycle X follow-up` comment in vitest.config.ts
+ * has no machine carrier — nothing re-reads it, the finding registry holds no
+ * row for it, and no gate fires when the target cycle closes, so the deferral
+ * silently expires (both Cycle-11-queued raises went unexecuted through the end
+ * of Cycle 11). Each row here is the carrier the prose lacked.
+ *
+ * Rule this installs: a deferred threshold raise gets a row here (or a
+ * finding-registry entry) at the moment of deferral — never a bare comment.
+ */
+export interface DeferredRaise {
+  /** Stable id for the raise. */
+  id: string;
+  /** File that owns the threshold pin. */
+  file: string;
+  /** Human-readable metric the pin gates. */
+  metric: string;
+  /** Current (deferred) floor. */
+  from: number;
+  /** Target floor the raise should reach. */
+  to: number;
+  /** Audit cycle in which the raise was queued. */
+  queuedInCycle: number;
+  /** What must be covered before the raise can execute. */
+  blockedOn: string;
+}
+
+/**
+ * Registered-but-unexecuted coverage-floor raises. Removing a row is the signal
+ * that the raise landed (its pin lifted to `to`). Empty is the healthy steady
+ * state. Executing a raise edits the pin in `file`; this registry only tracks
+ * the promise so it cannot silently expire.
+ */
+export const DEFERRED_RAISES: readonly DeferredRaise[] = [
+  {
+    id: "snapshot-ts-branch-77-to-80",
+    file: "vitest.config.ts",
+    metric: "src/pipeline/snapshot.ts branch coverage",
+    from: 77,
+    to: 80,
+    queuedInCycle: 11,
+    blockedOn: "cover the residual snapshot branch below the 80 floor",
+  },
+  {
+    id: "pipeline-context-ts-critical-tier-to-85",
+    file: "vitest.config.ts",
+    metric: "src/pipeline/pipelineContext.ts critical-tier coverage floor",
+    from: 76,
+    to: 85,
+    queuedInCycle: 11,
+    blockedOn: "cover the residual library exports, then lift the pins to the 85 critical tier",
+  },
+];
+
+/**
+ * Emit one warning per still-pending deferred coverage-floor raise. This is the
+ * always-on carrier a bare config comment was not: the raise stays surfaced on
+ * every `validate:efficiency` run until its `DEFERRED_RAISES` row is removed
+ * (raise executed). Warning-level by design — the raise is a progress target,
+ * not a regression, and executing it edits the file that owns the pin, so this
+ * gate surfaces rather than blocks.
+ */
+export function scanDeferredRaises(
+  raises: readonly DeferredRaise[] = DEFERRED_RAISES,
+): CurrencyDrift[] {
+  return raises.map((r): CurrencyDrift => ({
+    file: r.file,
+    level: "warning",
+    code: "GOV-DEFERRED-RAISE-PENDING",
+    message: `deferred coverage-floor raise "${r.id}" (${r.metric}, ${r.from}→${r.to}, queued Cycle ${r.queuedInCycle}) is still pending — execute it (${r.blockedOn}) and drop the DEFERRED_RAISES row, or re-defer explicitly with an updated cycle (D3-SA3.5-06)`,
+  }));
+}
+
 export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
   const rootDir = opts.rootDir ?? ROOT;
   const files = opts.files ?? GOVERNANCE_FILES;
@@ -222,6 +316,11 @@ export async function runValidator(opts: RunOptions = {}): Promise<RunResult> {
       });
     }
   }
+
+  // D3-SA3.5-06: surface pending deferred coverage-floor raises. Independent of
+  // the scanned governance files — the structured carrier a bare config comment
+  // could not be, so a deferral stays visible on every CI run until executed.
+  drifts.push(...scanDeferredRaises());
 
   let errorCount = 0;
   let warningCount = 0;

@@ -43,7 +43,7 @@ async function writeArtifact(absPath: string, frontmatter: string, body: string)
   await writeFile(absPath, content, "utf-8");
 }
 
-const ALL_FLAGS = { triageFirst: true, staticFirst: true, parallelTool: true } as const;
+const ALL_FLAGS = { triageFirst: true, staticFirst: true, parallelTool: true, proofId: false } as const;
 
 describe("validate-efficiency-invariants", () => {
   let fx: Fixture;
@@ -78,7 +78,7 @@ Do the planning work.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: true, staticFirst: false, parallelTool: false },
+      flags: { triageFirst: true, staticFirst: false, parallelTool: false, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -114,7 +114,7 @@ Continue.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: true, staticFirst: false, parallelTool: false },
+      flags: { triageFirst: true, staticFirst: false, parallelTool: false, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -143,7 +143,7 @@ Build features.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: true, parallelTool: false },
+      flags: { triageFirst: false, staticFirst: true, parallelTool: false, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -175,7 +175,7 @@ Design systems with measurable trade-offs.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: true, parallelTool: false },
+      flags: { triageFirst: false, staticFirst: true, parallelTool: false, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -208,7 +208,7 @@ Stamp each artifact with {{timestamp}} so the run is traceable.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: true, parallelTool: false },
+      flags: { triageFirst: false, staticFirst: true, parallelTool: false, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -247,7 +247,7 @@ Run \`gh run view <run-id>\` and record every action now.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: true, parallelTool: false },
+      flags: { triageFirst: false, staticFirst: true, parallelTool: false, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -275,7 +275,7 @@ You can issue tool calls one at a time.
     );
 
     const { findings, errorCount, warningCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: true, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -317,7 +317,7 @@ Parallel-safety conditions: read-only or disjoint writes, deterministic aggregat
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: true, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -346,7 +346,7 @@ Parallel-safety conditions apply.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: true, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -370,7 +370,7 @@ Use the Task tool to delegate. Then issue tool calls and spawn each sub-agent.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: true, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -400,7 +400,7 @@ Capture state.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: true, staticFirst: false, parallelTool: false },
+      flags: { triageFirst: true, staticFirst: false, parallelTool: false, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
       extraOrchestratorFiles: [auditExec],
@@ -436,7 +436,7 @@ Sort findings by execution tier.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: true, staticFirst: true, parallelTool: false },
+      flags: { triageFirst: true, staticFirst: true, parallelTool: false, proofId: false },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
       extraOrchestratorFiles: [auditExec],
@@ -517,7 +517,7 @@ We cap parallelism for per-orchestrator context cost reasons.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: false, ruleNarrative: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, ruleNarrative: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
       rulesDir: fx.rulesDir,
@@ -546,7 +546,7 @@ work.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: false, ruleNarrative: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, ruleNarrative: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
       rulesDir: fx.rulesDir,
@@ -580,7 +580,7 @@ Pick a tier.
     );
 
     const { findings, errorCount, warningCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, orchContract: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -628,7 +628,7 @@ resume work later from their notes.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, orchContract: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -671,7 +671,7 @@ Emit the standard iteration-summary block at turn end.
     );
 
     const { findings, errorCount, warningCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, orchContract: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -715,7 +715,7 @@ Re-enter an in-flight handoff from its last recorded state.
     );
 
     const { findings, errorCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, orchContract: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -755,7 +755,7 @@ Emit the standard iteration-summary block at turn end.
     );
 
     const { findings, errorCount, warningCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, orchContract: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -780,7 +780,7 @@ Single-pass report. No sub-agent delegation.
     );
 
     const { findings, errorCount, warningCount } = await runValidator({
-      flags: { triageFirst: false, staticFirst: false, parallelTool: false, orchContract: true },
+      flags: { triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, orchContract: true },
       commandsDir: fx.commandsDir,
       agentsDir: fx.agentsDir,
     });
@@ -793,7 +793,7 @@ Single-pass report. No sub-agent delegation.
   // ── Mode G: efficiency-tier (D6-SA6.6-Finding4) ─────────────────
 
   const TIER_FLAGS = {
-    triageFirst: false, staticFirst: false, parallelTool: false, efficiencyTier: true,
+    triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, efficiencyTier: true,
   } as const;
 
   it("Mode G: ERRORs on orchestrator command missing efficiency_tier", async () => {
@@ -914,7 +914,7 @@ tags: [implementation]`,
   // ── Mode H: rule line-cap (D5-7) ────────────────────────────────
 
   const LINECAP_FLAGS = {
-    triageFirst: false, staticFirst: false, parallelTool: false, ruleLineCap: true,
+    triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, ruleLineCap: true,
   } as const;
 
   // Body with `n` content lines after the heading (each "Line k." is one line).
@@ -994,7 +994,7 @@ scope: always`,
   // ── Mode I: runtime-efficiency SA6.5 gates (D6-11) ──────────────
 
   const RUNTIME_FLAGS = {
-    triageFirst: false, staticFirst: false, parallelTool: false, runtimeEfficiency: true,
+    triageFirst: false, staticFirst: false, parallelTool: false, proofId: false, runtimeEfficiency: true,
   } as const;
 
   it("Mode I gate 1: ERRORs when a planning command bundles an execution agent", async () => {

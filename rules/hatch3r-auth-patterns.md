@@ -162,12 +162,14 @@ Required event set: login success, login failure, MFA challenge issued, MFA veri
 
 ## References
 
-- RFC 9700 — OAuth 2.0 Security Best Current Practice (Jan 2025).
-- RFC 9449 — OAuth 2.0 Demonstrating Proof of Possession (DPoP).
-- RFC 8725 — JSON Web Token Best Current Practice.
-- `draft-ietf-oauth-v2-1` — The OAuth 2.1 Authorization Framework.
-- OpenID Connect Core 1.0 + RP-Initiated Logout 1.0 + Back-Channel Logout 1.0.
-- NIST SP 800-63B-4 — Digital Identity Guidelines: Authentication and Authenticator Management.
-- FAPI 2.0 Final (Feb 2025) — Financial-grade API profiles.
-- AuthZEN Authorization API 1.0 Final (OpenID Foundation, Jan 2026).
-- Google Zanzibar — Consistent, Global Authorization (USENIX ATC 2019).
+- RFC 9700 — OAuth 2.0 Security Best Current Practice (BCP 240). `rfc-editor.org/info/rfc9700` (accessed 2026-07-12; T1, IETF BCP, published 2025).
+- RFC 9449 — OAuth 2.0 Demonstrating Proof of Possession (DPoP). `rfc-editor.org/info/rfc9449` (accessed 2026-07-12; T1, IETF Proposed Standard).
+- RFC 8725 — JSON Web Token Best Current Practices (BCP 225). `rfc-editor.org/info/rfc8725` (accessed 2026-07-12; T1, IETF BCP).
+- `draft-ietf-oauth-v2-1` — The OAuth 2.1 Authorization Framework. `datatracker.ietf.org/doc/draft-ietf-oauth-v2-1/` (accessed 2026-07-12; T1, IETF WG draft-15, 2026-03-02).
+- OpenID Connect Core 1.0. `openid.net/specs/openid-connect-core-1_0.html` (accessed 2026-07-12; T1, OpenID Foundation, errata set 2, 2023-12-15).
+- OpenID Connect RP-Initiated Logout 1.0. `openid.net/specs/openid-connect-rpinitiated-1_0.html` (accessed 2026-07-12; T1, OpenID Foundation, Final, 2022-09-12).
+- OpenID Connect Back-Channel Logout 1.0. `openid.net/specs/openid-connect-backchannel-1_0.html` (accessed 2026-07-12; T1, OpenID Foundation, errata set 1, 2023-12-15).
+- NIST SP 800-63B-4 — Digital Identity Guidelines: Authentication and Authenticator Management. `pages.nist.gov/800-63-4/sp800-63b.html` (accessed 2026-07-12; T1, NIST Rev 4, 2025-08-26).
+- FAPI 2.0 Security Profile — Financial-grade API profiles (Final, 2025-02-22). `openid.net/specs/fapi-security-profile-2_0.html` (accessed 2026-07-12; T1, OpenID Foundation).
+- AuthZEN Authorization API 1.0 Final (OpenID Foundation, 2026-01-11). `openid.net/specs/authorization-api-1_0.html` (accessed 2026-07-12; T1).
+- Google Zanzibar — Consistent, Global Authorization (USENIX ATC 2019). `research.google/pubs/zanzibar-googles-consistent-global-authorization-system/` (accessed 2026-07-12; T1, peer-reviewed).

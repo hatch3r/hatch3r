@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 2
   rationale: Module-taxonomy discovery and audit-sub-issue authoring delegate to `hatch3r-implementer`; the cross-cutting security axis fans out in parallel to `hatch3r-security` (CQ3 OWASP ASI01-10 coverage + supply-chain + dependency-CVE posture). Fan-out is disjoint across module and cross-cutting axes; serialization would violate P8 B2 task decomposition. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -73,11 +74,7 @@ Auto-tiering derives from discovered module count, which can misclassify — a m
 
 ## Confidence Propagation Contract
 
-Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
-
-> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
-
-Downstream propagation: every authored module-audit sub-issue body and each cross-cutting axis finding MUST carry a high/medium/low confidence rating sourced from the authoring sub-agent. Severity classifications (critical/high/medium/low) are distinct from and additional to this confidence signal. Dropping the confidence signal between stages is a gate failure.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Confidence Propagation Contract. Per-command slot: `<readiness-kind>` = module-security-audit + cross-cutting-axis finding readiness — every authored module-audit sub-issue body and each cross-cutting axis finding MUST carry the high/medium/low confidence rating sourced from the authoring sub-agent; severity classifications (critical/high/medium/low) are distinct from and additional to this confidence signal; dropping the confidence signal between stages is a gate failure.
 
 # Security Audit — Full Product Security Audit
 
@@ -97,19 +94,7 @@ Follow any **Token-Saving Directives** in the shared context file.
 
 ## Module Discovery
 
-The product is divided into logical modules. Discover modules from the project structure:
-
-1. **Scan for modules:** Inspect top-level directories (e.g., `src/`, `functions/`, `packages/`) and identify logical units.
-2. **Map to security specs:** If `docs/specs/` exists, map each module to relevant security-related spec files (threat model, permissions, data model, privacy docs). If no security-specific specs exist, note the gap.
-3. **Build taxonomy:** Produce a table of modules with their directories and security-relevant specs.
-
-Example structure (adapt to project):
-
-| # | Module | Directories | Security Specs |
-|---|--------|-------------|----------------|
-| 1 | Auth | `src/auth/` | `05_permissions.md`, `09_threat-model.md` |
-| 2 | API | `functions/api/` | `04_api-design.md` |
-| ... | ... | ... | ... |
+> Epic-audit scaffold: see `commands/shared/epic-audit-frame.md` → Module Discovery. Per-command slot: spec-kind = security-relevant — map each module to security-related spec files (threat model, permissions, data model, privacy docs), noting the gap when no security-specific specs exist.
 
 Plus two cross-cutting audits:
 
@@ -418,11 +403,7 @@ Link to parent epic via `sub_issue_write`.
 
 ### Step 7: Board Integration
 
-All issue and epic operations in this command MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
-
-1. **Projects v2 Sync:** Follow the **Projects v2 Sync Procedure** from `hatch3r-board-shared` (gh CLI primary) for the security audit epic and ALL sub-issues. Set status to Ready using the project's status field option ID.
-
-2. **Board Overview Regeneration:** Regenerate the Board Overview using the **Board Overview Template** from the shared context. Use cached board data from Step 1, updated with the newly created security audit epic. Skip silently if no board overview issue exists.
+> Epic-audit scaffold: see `commands/shared/epic-audit-frame.md` → Board Integration. Per-command slot: epic-kind = "security audit".
 
 ---
 
@@ -444,15 +425,15 @@ security-audit is long-running — a Tier 2/3 audit fans out across N module sub
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first module audit-authoring dispatch (Step 4).
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
@@ -463,21 +444,12 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ## Error Handling
 
-- `search_issues` failure: retry once, then warn and proceed (assume no existing security audit).
-- `issue_write` failure: report the error, retry once. If still failing, present the drafted body for manual creation.
-- `sub_issue_write` failure: report but do not delete the created sub-issue. Note the unlinking for manual fix.
-- Projects v2 sync failure (gh CLI or MCP): warn and continue. Board sync can be fixed later via board-refresh.
+> Epic-audit scaffold: see `commands/shared/epic-audit-frame.md` → Error Handling. Per-command slot: epic-kind = "security audit".
 
 ## Guardrails
 
-- **Never skip ASK checkpoints.**
-- **Use GitHub MCP tools for issue operations** (create, update, link). For Projects v2 board integration, follow the sync procedure from hatch3r-board-shared (gh CLI primary).
-- **The command ONLY creates issues.** It does NOT execute any audits, run tests, or modify code.
-- **Always include the `meta:security-audit` label** on the security audit epic.
-- **Always include `meta:security-audit-findings`** in the output instructions for audit sub-issues.
-- **Preserve dependency ordering.** Level 2 sub-issues must reference all Level 1 sub-issues in their Dependencies section.
+> Epic-audit scaffold: see `commands/shared/epic-audit-frame.md` → Guardrails. Per-command slot: epic-label = `security-audit`. Command-specific extra guardrails (in addition to the invariant set):
+
 - **Never downgrade finding severity without explicit user approval.**
 - **Critical/high severity findings must always generate sub-issues.** Never suppress or skip a critical or high severity finding.
 - **All findings must reference the security domain (1–8)** they belong to for traceability.
-- **Board Overview is auto-maintained.** Exclude it from all analysis. One board overview issue at a time.
-- **Do not expand scope.** The command creates exactly the discovered modules plus the two cross-cutting audits. No additional issue types.

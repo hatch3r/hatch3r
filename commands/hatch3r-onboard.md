@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Three parallel hatch3r-researcher modes (codebase-overview, architecture-mapping, conventions-extraction) in Step 3 followed by one hatch3r-docs-writer to assemble the tailored onboarding guide; researchers fan out in a single Task batch. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -43,6 +44,10 @@ Acceptable to proceed without asking ONLY when scope is single-target, single-co
 # Onboarding Guide Generator — Tailored Developer Onboarding from Codebase Analysis to Ready-to-Work Guide
 
 Take a new developer's role, experience level, and focus areas and produce a comprehensive onboarding guide covering project setup, architecture, coding conventions, key workflows, tribal knowledge, and a quick-reference cheat sheet. Spawns parallel researcher sub-agents (codebase overview, architecture mapping, conventions extraction) to analyze the project from multiple angles before generating a tailored guide document. AI proposes all outputs; user confirms before any files are written. Adapts depth and focus to the developer's experience level and role.
+
+## Scope boundary — one-shot guide, not an interactive mentor
+
+onboard analyzes a codebase and writes one onboarding document, then exits — it is a one-shot document generator, not an interactive teaching loop. Walking a user through the *why* of a change or a pattern in a review-and-adapt exchange (an explain-as-you-work / mentor interaction) is a different information flow — teaching the user during the work rather than emitting a document to read later — and hatch3r ships no first-class artifact for it today (the existing `hatch3r explain` CLI command inspects cost and customization state; it is not this teaching interaction). When a run needs that skill-transfer interaction, treat it as outside onboard's scope: the shape that would serve it is a lightweight, request-driven mentor skill rather than another orchestrator, and adding it is a roadmap decision, not an onboard responsibility.
 
 ---
 
@@ -159,7 +164,7 @@ Answer these now, or say 'skip' for any where you'd rather I omit that section f
    - `.hatch3r/learnings/` — team learnings and institutional knowledge
    - CI config (`.github/workflows/`, `.gitlab-ci.yml`, etc.) — CI/CD pipeline
 2. Scan the top-level directory structure to understand project organization.
-3. If `.hatch3r/learnings/` exists, scan for learnings relevant to onboarding, common mistakes, and gotchas. Match by area and tags.
+3. If `.hatch3r/learnings/` exists, scan for learnings relevant to onboarding, common mistakes, and gotchas — test the developer's focus-area file paths against each learning's `applies-to` glob and the focus areas against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback).
 4. Present a context summary:
 
 ```
@@ -336,15 +341,15 @@ onboard is long-running — a Tier 3 staff-level guide for a large monorepo fans
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.

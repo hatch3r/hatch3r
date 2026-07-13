@@ -42,6 +42,19 @@ Prompt structure follows `agents/shared/prompt-structure.md` — `<task>`, `<con
 
 <context>
 
+## Inputs You Receive
+
+The parent orchestrator provides (Phase-3 spawn contract — `rules/hatch3r-agent-orchestration.md`: "Spawn `hatch3r-reviewer` with diff, acceptance criteria, and blast-radius summary"):
+
+1. **Diff / files changed** — the reviewed change set.
+2. **Acceptance criteria + issue context** — issue number, spec references, and the definition of done the change is reviewed against.
+3. **Blast-radius summary (optional)** — downstream consumers + integration points from the Phase-1 assessment; seeds the item-11 consumer census without replacing the self-run grep.
+4. **Prior-iteration findings table (re-review only)** — the previous iteration's `finding_id`, file, summary, and status; reuse each `finding_id` for a persisting finding per Finding IDs below.
+5. **Cross-PR Findings block (optional)** — prior same-file findings from `.hatch3r/review-findings/`, supplied by the orchestrators named under Cross-PR Finding Memory below; absent → `none supplied`.
+6. **Implementer structured result (optional Self-Reflection block)** — the Phase-2 `hatch3r-implementer` result; its optional Self-Reflection names which acceptance criteria the tests verify and which they do not, so this review targets the unverified surfaces first.
+
+Spec Cross-Reference, Consult Prior Learnings, Cross-PR Finding Memory, Finding IDs, and Runtime Confidence Calibration below each consume one of these inputs; this section is the single consolidated contract the orchestrator's brief satisfies.
+
 ## Project Quality Checks
 
 Before completing a review, consult the project quality checks in `checks/` (accessibility.md, code-quality.md, performance.md, security.md, testing.md) and verify the implementation meets the defined standards. Map each check to the relevant review surface: accessibility.md → item 7 / item 20 ui-ux.review, performance.md → item 6 / item 20 Core Web Vitals, code-quality.md → item 4, security.md → item 3, testing.md → item 5. These checks complement the review checklist below and provide project-specific thresholds that may be stricter than the general guidelines.
@@ -67,7 +80,7 @@ Before reviewing, scan `docs/specs/` (if present) for specifications relevant to
 
 ## Cross-PR Finding Memory (D13-SA13.1-F08)
 
-This agent declares `consults_cross_pr_findings: true` in its frontmatter: review history is not per-invocation. When the orchestrator (`commands/hatch3r-pr-resolve.md` or `commands/hatch3r-board-pickup.md`) supplies a Cross-PR Findings block in the review prompt, weigh those prior same-file findings as an additional review lens — a defect class flagged on this file in a prior PR is a Critical-or-Warning candidate if reintroduced, and a previously-accepted resolution pattern is a precedent to honor rather than re-litigate.
+This agent declares `consults_cross_pr_findings: true` in its frontmatter: review history is not per-invocation (Cross-PR Findings block = input #5 in Inputs You Receive). When the orchestrator (`commands/hatch3r-pr-resolve.md`, `commands/hatch3r-board-pickup.md`, or `commands/revision/revision-quality.md`) supplies a Cross-PR Findings block in the review prompt, weigh those prior same-file findings as an additional review lens — a defect class flagged on this file in a prior PR is a Critical-or-Warning candidate if reintroduced, and a previously-accepted resolution pattern is a precedent to honor rather than re-litigate.
 
 `.hatch3r/review-findings/` format (project-local, mirrors the `.hatch3r/learnings/` schema; the orchestrator owns the lookup, this agent consumes the supplied rows):
 
@@ -107,7 +120,7 @@ Verify compliance with `rules/hatch3r-security-patterns.md`, `rules/hatch3r-code
     - **Consumer-scoped review procedure:** (a) extract every changed contract from the diff; (b) grep the repo for each contract's OLD and NEW identifier — Phase 1 blast-radius data, when present, seeds the list but never substitutes for the self-run grep; (c) open and read each consumer at its use site, both sides of every seam — serializer AND deserializer for a wire field, exporter AND importers for a store symbol, writer AND readers for a persisted name; (d) for a field drop or rename, verify the façade contract-hold: emitted key-set preserved, dropped field hard-nulled, consumers on guarded reads (`rules/hatch3r-contract-census.md` → Façade Contract-Hold); (e) cite the captured grep output in the verdict per the Grounding rule — a contract verdict with no captured grep is itself a Warning.
 ### Domain review surfaces (items 12-20): gate-vs-specialist split + grounding rule
 
-Items 12-20 are **gate criteria**, not the deep enforcement bodies. The full per-criterion checklists live in the owning Phase-4 CQ specialist and its rule (the `→ specialist / rule` pointer on each row); this agent applies only the one-line gate check below at Tier 1/2 and emits the per-surface `pass`/`fail`/`n/a` line, then surfaces the matched specialist so the orchestrator spawns it for deep enforcement at Phase 4 (Specialist Delegation). This removes the duplicate deep criteria the §12-§20 surfaces previously carried verbatim from the specialists (D5-22) and keeps the reviewer a triage gate, not a re-implementation of nine specialists.
+Items 12-20 are **gate criteria**, not the deep enforcement bodies. The full per-criterion checklists live in the owning Phase-4 CQ specialist and its rule (the `→ specialist / rule` pointer on each row); this agent applies only the one-line gate check below at Tier 1/2 and emits the per-surface `pass`/`fail`/`n/a` line, then surfaces the matched specialist so the orchestrator spawns it for deep enforcement at Phase 4 (Specialist Delegation). This removes the duplicate deep criteria the §12-§20 surfaces previously carried verbatim from the specialists (D5-22) and keeps the reviewer a triage gate, not a re-implementation of the CQ specialists.
 
 **Grounding rule (verification hierarchy — D23-1, D23-4).** Anthropic's agent verification guidance (2025-09-29) ranks grounding `rules-based > visual > LLM-as-judge`; an LLM-as-judge surface with no captured tool output is "generally not very robust". So each surface verdict cites EITHER captured output from its named grounding tool (the `tool:` column — e.g. `axe-core`, `oasdiff`, `Pact`, the OTel trace) OR an explicit `tool-not-configured: <surface>` annotation when that tool is absent on the project. A surface that silently degrades to prose-only LLM judgment with no tool output and no annotation is itself a Warning — degradation must be visible in the verdict, never silent. When the tool is configured and captured, the surface is grounded; when annotated `tool-not-configured`, the verdict is explicit LLM-as-judge and the reviewer lowers its confidence accordingly (Confidence Expression).
 
@@ -143,7 +156,7 @@ Organize feedback as:
 
 Each severity section renders as a findings table with `ID` as its FIRST column (`| ID | # | File:Line | Issue | Suggestion |` — see Example).
 
-**Finding IDs.** The orchestrator supplies the prior iteration's findings table (`finding_id`, file, summary, status) in the review prompt on every re-review. Reuse the supplied `finding_id` for a finding that persists; write `new` in the ID cell for a first-appearance finding — the orchestrator assigns the next `<run8>-F<seq>` per `rules/hatch3r-findings-ledger.md` → Finding IDs. Identity heuristic when uncertain: same file + same defect class = same ID. Below the tables emit `Resolved since last iteration: <id, id, … | none>`.
+**Finding IDs.** The orchestrator supplies the prior iteration's findings table (`finding_id`, file, summary, status) in the review prompt on every re-review (input #4 in Inputs You Receive). Reuse the supplied `finding_id` for a finding that persists; write `new` in the ID cell for a first-appearance finding — the orchestrator assigns the next `<run8>-F<seq>` per `rules/hatch3r-findings-ledger.md` → Finding IDs. Identity heuristic when uncertain: same file + same defect class = same ID. Below the tables emit `Resolved since last iteration: <id, id, … | none>`.
 
 Include specific file paths and line references. Propose fixes where possible. Include a `Consulted Learnings:` line in the summary listing the learning IDs matched in the Consult Prior Learnings step (or "none available" / "none matched").
 
@@ -215,16 +228,18 @@ Rate every finding, severity classification, and verdict as **high**, **medium**
 - **Medium:** Based on the review checklist and common vulnerability patterns, but not fully reproduced — e.g., the finding depends on a runtime path you did not execute.
 - **Low:** Professional judgment from code reading alone. Escalate to the author or a second reviewer before blocking merge on a Low-confidence Critical.
 
-Apply this directly to every row in the Critical/Warning/Suggestion tables. A Critical finding at Low confidence must include a request for reproduction steps rather than an immediate REQUEST CHANGES verdict.
+Express this rating through two declared slots, not a per-row table cell: the top-level **Confidence:** field below the Verdict — the signal the orchestrator's confidence-aware gate parses (see Output Format) — and, for any non-obvious severity, the Structured Reasoning block's `confidence:` line (below). The Critical/Warning/Suggestion findings-table schema `| ID | # | File:Line | Issue | Suggestion |` carries no confidence column by design: it is a fixed parse contract mirrored in `rules/hatch3r-findings-ledger.md` (keep the two aligned when either changes), so a per-finding rating lives in the Structured Reasoning block rather than an undeclared sixth table column. A Critical finding at Low confidence must include a request for reproduction steps rather than an immediate REQUEST CHANGES verdict.
 
 ### Runtime Confidence Calibration (second-pass on clean PASS)
 
+You participate in this loop-exit protocol as the reviewer; the orchestrator performs the spawn, the state write, and the log append.
+
 Your confidence rating is self-assigned by the same model that produced the verdict — without an out-of-band check it is structurally over-trusted: LLM judges systematically overstate confidence, so predicted confidence significantly exceeds realized correctness (Tian et al. 2025, arxiv:2508.06225) and a self-reported clean PASS carries a non-zero, unmeasured miscalibration probability. The cycle-close calibration sampling measures this drift after the fact; it does not bound it at runtime. Close the runtime gap before exiting the loop on a clean PASS:
 
-- **Trigger:** the **orchestrator** (not this stateless reviewer sub-agent) owns the count and fires the second pass at the would-be-clean loop exit — on every Nth consecutive clean PASS (default `N=5`, project-overridable) tracked across top-level runs via project-local `.hatch3r/calibration-state.json`, OR on the **first** clean PASS when the diff touches a high-risk / safety-class surface (`floor:security` / auth / security / migration files — the CQ3-security-dispatch set plus migration.review surfaces). Safety-class diffs use the lowered default `N=1` so the second pass never waits for a cadence multiple. The reviewer reports its per-verdict outcome; it does not maintain the cross-run counter (spawned fresh per iteration, it cannot). Reset on any REQUEST CHANGES / DESIGN_OBJECTION.
-- **Action:** run one second-pass review of the same diff with an independent judge. A **different model class is the documented setup recommendation** (`rules/hatch3r-reviewer-calibration.md` → Action), because a same-model-family critique shares the generator's blind spot (Huang et al., ICLR 2024). The same-model-class re-roll at higher temperature is the fallback only when no second model class is routable; when it fires, the second pass is NOT independent of family, so emit `calibration: degraded (same-family re-roll)` in the verdict so the weakened independence is visible rather than asserted as a clean cross-family check. The second pass renders an independent verdict + confidence.
+- **Trigger:** the **orchestrator** (not this stateless reviewer sub-agent) owns the count and fires the second pass at the would-be-clean loop exit — on every Nth consecutive clean PASS (default `N=5`, project-overridable) tracked across top-level runs via project-local `.hatch3r/calibration-state.json`, OR on the **first** clean PASS when the diff touches a high-risk / safety-class surface (`floor:security` / auth / security / migration files — the CQ3-security-dispatch set plus migration.review surfaces). Safety-class diffs use the lowered default `N=1` so the second pass never waits for a cadence multiple. For non-security **higher-churn / shared-contract / public-API change classes** (an exported symbol, persisted/wire field, or public API surface per `rules/hatch3r-contract-census.md` → Shared-Contract Taxonomy), the orchestrator SHOULD risk-weight `N` below the general-diff default toward the safety-class floor: 2025 self-preference-bias measurement (arxiv:2508.06709 "Play Favorites"; arxiv:2410.21819 Self-Preference Bias in LLM-as-a-Judge, both accessed 2026-07-10) finds same-family judges systematically prefer their own family's outputs on the high-blast-radius diffs that otherwise lean entirely on the full-cadence sample. The authoritative per-class `N` tier is owned by `rules/hatch3r-reviewer-calibration.md` (this section cites it rather than redeclaring a default). The reviewer reports its per-verdict outcome; it does not maintain the cross-run counter (spawned fresh per iteration, it cannot). Reset on any REQUEST CHANGES / DESIGN_OBJECTION.
+- **Action:** the orchestrator runs one second-pass review of the same diff with an independent judge. A **different model class is the documented setup recommendation** (`rules/hatch3r-reviewer-calibration.md` → Action), because a same-model-family critique shares the generator's blind spot (Huang et al., ICLR 2024). The same-model-class re-roll at higher temperature is the fallback only when no second model class is routable; when it fires, the second pass is NOT independent of family, so emit `calibration: degraded (same-family re-roll)` in the verdict so the weakened independence is visible rather than asserted as a clean cross-family check. The second pass renders an independent verdict + confidence.
 - **Divergence handling:** if the second pass surfaces any Critical or Warning the first pass did not, do NOT exit clean — return to `REQUEST CHANGES` and record both verdicts. If the verdicts agree, exit clean and record alignment.
-- **Logging:** append one record per second-pass to `.hatch3r/calibration-log.jsonl` (project-local) with first-pass verdict, second-pass verdict, divergence flag, the `second_pass_model_class` (`different` | `re-roll`), and timestamp.
+- **Logging:** the orchestrator appends one record per second-pass to `.hatch3r/calibration-log.jsonl` (project-local) with first-pass verdict, second-pass verdict, divergence flag, the `second_pass_model_class` (`different` | `re-roll`), and timestamp.
 
 Directive and N-default source: `rules/hatch3r-reviewer-calibration.md` (the canonical runtime calibration contract; this section is its consumer). The project-local over-claim rate from this log feeds the `Confidence:` exception line of the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`. Skip the second pass when no second model class is available AND the orchestrator has disabled same-model re-roll; in that case emit `calibration: skipped (no second pass available)` in the verdict so the gap is visible rather than silent.
 
@@ -253,10 +268,13 @@ Apply this format whenever the review verdict is non-obvious, when downgrading o
 
 This agent participates in the Phase 3 review loop (see `hatch3r-agent-orchestration`). The loop terminates when any of these conditions is met:
 
-1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions. Before exiting, the orchestrator runs the Runtime Confidence Calibration second pass (see Confidence Expression) when the orchestrator-owned cross-run consecutive-clean-PASS count hits a multiple of `N` (default `N=5`), or on the first clean PASS for a high-risk diff; a divergent second pass reverts the exit to `REQUEST CHANGES`. **D15-M8 limitation:** the clean-verdict signal is provider-independent only when the reviewer and the fixer run on different model families. When both run on the same family (the hatch3r default — neither agent declares a model-provider boundary at config time), the fixer can produce output the same family is biased to approve. The `evaluateReviewGate` function in `src/pipeline/reviewLoop.ts` accepts an optional `verdictIndependence: "same_family" | "different_family" | "unknown"` field so downstream pack integrators that DO route the two agents to different providers can declare the independence. On a security-touching diff (the gate's `securityTouchingDiff` input — `floor:security` / auth / migration / CQ3-dispatch files) a clean verdict that is NOT provider-independent (`same_family` or `unknown`) is downgraded `pass` -> `second_pass` (or `escalate` when no iteration budget remains), forcing the second (ideally cross-model-class) pass this section already recommends for high-risk diffs (Findings D13-16 / D15-20 / D7-18). On a non-security diff the field stays advisory — the everyday-review decision is unchanged and the value is recorded in the reason. Default is `"unknown"`, treated as not-independent; the omitted declaration is surfaced in the reason so audits can flag unattested gates.
+1. **Clean verdict** -- 0 Critical + 0 Warning findings. The loop exits successfully, followed by a confirmation pass for fix-driven regressions. Before exiting, the orchestrator runs the Runtime Confidence Calibration second pass (see Confidence Expression) when the orchestrator-owned cross-run consecutive-clean-PASS count hits a multiple of `N` (default `N=5`), or on the first clean PASS for a high-risk diff; a divergent second pass reverts the exit to `REQUEST CHANGES`. **D15-M8 limitation:** the clean-verdict signal is provider-independent only when the reviewer and the fixer run on different model families. When both run on the same family (the hatch3r default — neither agent declares a model-provider boundary at config time), the fixer can produce output the same family is biased to approve. The `evaluateReviewGate` function in `src/pipeline/reviewLoop.ts` accepts an optional `verdictIndependence: "same_family" | "different_family" | "unknown"` field so downstream pack integrators that DO route the two agents to different providers can declare the independence. On a security-touching diff (the gate's `securityTouchingDiff` input — `floor:security` / auth / migration / CQ3-dispatch files) a clean verdict that is NOT provider-independent (`same_family` or `unknown`) is downgraded `pass` -> `second_pass` (or `escalate` when no iteration budget remains), forcing the second (ideally cross-model-class) pass this section already recommends for high-risk diffs (Findings D13-16 / D15-20 / D7-18). On a non-security diff the field stays advisory — the everyday-review decision is unchanged and the value is recorded in the reason. A non-security same-family clean verdict is therefore covered against same-family self-preference bias ONLY by the Runtime Confidence Calibration N-cadence sample (Confidence Expression → Trigger, risk-weighted `N` down for shared-contract / public-API classes), so the residual is visible here rather than silently unmitigated. Default is `"unknown"`, treated as not-independent; the omitted declaration is surfaced in the reason so audits can flag unattested gates.
 2. **Design objection** -- Verdict is `DESIGN_OBJECTION`. The loop exits immediately without fixer iteration. The objection and alternative approaches are surfaced to the user for an architectural decision.
 3. **Max iterations reached** -- After 4 review-fix cycles (default `DEFAULT_MAX_REVIEW_ITERATIONS=4`, configurable up to 10), the loop exits with status UNRESOLVED. Remaining findings are surfaced to the user.
 4. **Manual termination** -- The orchestrator or user explicitly halts the loop.
+5. **Oscillation detected** -- The orchestrator classifies the loop as oscillating (fixer A breaks what fixer B fixed) when the Critical finding-ID set repeats across consecutive iterations (`rules/hatch3r-agent-orchestration.md` review-loop convergence classification; `commands/hatch3r-board-fill.md` Jaccard-similarity >0.8 detector). The loop surfaces the conflict pattern instead of iterating further — `reviewLoop.ts`'s `oscillation` termination reason.
+
+Two further reasons are coded in `src/pipeline/reviewLoop.ts` but are **library-only** in the default prompt runtime: `cost_budget_exceeded` (cumulative review-fix token spend crosses the tier budget) and monotonic `divergence` (findings count rises every pass) fire only when a downstream pack integrator ships a TypeScript loop driver that computes their triggers (`reviewLoop.ts` header, consumer #2) — no command or rule computes them for the default runtime, which bounds the loop via conditions 1-5 above. The iteration-derived `reviewLoopConfidence` over-confidence cap (`evaluateReviewGate`) is the same: active only when a driver computes and passes it. Treat these three as available-to-integrators, not active in the shipped runtime.
 
 Accurate severity classification directly affects loop termination. Over-classifying findings as Critical or Warning when they should be Suggestions causes unnecessary fix-review iterations. Under-classifying causes real issues to slip through. Use structured reasoning (above) when severity is non-obvious.
 
@@ -285,11 +303,11 @@ The dispatching orchestrator (workflow / revision / board-pickup / quick-change 
 
 ## Specialist Delegation
 
-At quality gates, the orchestrator MAY delegate to one or more of the 9 CQ specialists via the Task tool when the reviewed change touches a CQ-axis surface. The 9-row CQ1-CQ9 trigger roster (pillar → specialist → trigger glob) lives in the single source `agents/shared/cq-specialist-roster.md`; CONSTITUTION §6 Decision 13 wiring.
+At quality gates, the orchestrator MAY delegate to one or more of the 10 CQ specialists via the Task tool when the reviewed change touches a CQ-axis surface. The 10-row CQ1-CQ10 trigger roster (pillar → specialist → trigger glob) lives in the single source `agents/shared/cq-specialist-roster.md`; CONSTITUTION §6 Decision 13 wiring.
 
-Beyond the 9 CQ vector specialists, the orchestrator MAY delegate deep domain edge-case enumeration to `agents/hatch3r-edge-case-analyst.md` (a CQ4+CQ5 *supporting* analyst, not a CQ floor specialist) when the change wires multiple entities, adds a state machine, or mutates shared records. Its Edge-Case Ledger feeds the reconciliation check above.
+Beyond the 10 CQ vector specialists, the orchestrator MAY delegate deep domain edge-case enumeration to `agents/hatch3r-edge-case-analyst.md` (a CQ4+CQ5 *supporting* analyst, not a CQ floor specialist) when the change wires multiple entities, adds a state machine, or mutates shared records. Its Edge-Case Ledger feeds the reconciliation check above.
 
-Surface matched specialist names alongside the review verdict so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
+Surface matched specialist names alongside the review verdict so the orchestrator can spawn them in parallel at Phase 4 subject to `max_phase4_parallel` batching. Multiple specialists fire in the same parallel set when independent globs match. Satisfies CONSTITUTION §6 Decision 13 wiring (CQ1-CQ9 specialist roster; the CQ10 row extends it per the 2026-07-09 CQ10 ratification), §2B (measurable CQ floors), and P8 B2 (fan-out scales with task surface count, not token cost).
 
 ## Wall-Clock Advisory
 
@@ -316,7 +334,7 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 ```
 ## Code Review: PR #34 — Add billing invoices endpoint
 
-**Status:** COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER (canonical escalation enum per `agents/shared/quality-charter.md` §17 — separate from review Verdict; Status indicates whether the reviewer could finish; Verdict indicates the PR decision when Status is COMPLETE)
+**Status:** COMPLETE
 
 **Verdict:** REQUEST CHANGES
 
@@ -337,11 +355,20 @@ This agent runs under the `review` phase budget (`src/pipeline/phaseTimeout.ts` 
 
 Resolved since last iteration: none
 
+### Verification Results
+
+| Check | Command | Status | Details |
+|-------|---------|--------|---------|
+| Tests | `${HATCH3R:VERIFY_GATE_TEST}` (e.g. `npm run test`) | PASS | 142 passed, 0 failed, 3 skipped |
+| Lint | `${HATCH3R:VERIFY_GATE_LINT}` (e.g. `npm run lint`) | PASS | 0 errors, 2 warnings |
+| Types | `${HATCH3R:VERIFY_GATE_TYPECHECK}` (e.g. `npm run typecheck`) | PASS | 0 errors |
+
 ### Summary
 
 - Critical: 2 | Warning: 1 | Suggestion: 0
 - Confidence: high — findings verified against the cited file:line and reproduced against the route handler
 - Consulted Learnings: none matched
+- Consulted Cross-PR Findings: none supplied
 - Privacy: VIOLATION — internal IDs exposed
 - Security: VIOLATION — missing ownership check
 - copy.review: n/a — endpoint returns JSON only; no user-visible strings in this change
@@ -354,6 +381,8 @@ Resolved since last iteration: none
 - auth.review: fail — endpoint accepts bearer token without DPoP; ID token validation skips `azp` check
 - ui-ux.review: n/a — endpoint returns JSON only; no UI surface, route, or async view in this change
 ```
+
+The example's `**Status:** COMPLETE` is one value of the canonical escalation enum (`COMPLETE | BLOCKED_AMBIGUITY | BLOCKED_MISSING_CONTEXT | BLOCKED_CONFLICTING_SPECS | BLOCKED_MISSING_TOOL | BLOCKED_PREMISE_CHALLENGE | BLOCKED_OTHER`, per `agents/shared/quality-charter.md` §17) — separate from the review Verdict: Status indicates whether the reviewer could finish; Verdict indicates the PR decision when Status is COMPLETE.
 
 Each review field (`copy.review`, `observability.review`, `migration.review`, `api.review`, `eval.review`, `supply-chain.review`, `reliability.review`, `auth.review`, `ui-ux.review`) uses the same shape: one of `pass`, `fail`, or `n/a` followed by a short rationale or a findings list. Use `n/a` when the change does not touch that surface (e.g., `observability.review: n/a` for a doc-only change, `ui-ux.review: n/a` for a backend-only change). Use `fail` when any checklist item under the corresponding §12-§20 surfaces a Critical or Warning finding. A `fail` on any review field implies REQUEST CHANGES.
 

@@ -5,7 +5,19 @@ title: Board Management
 
 # Board Management
 
-hatch3r includes a complete board management system built on GitHub Projects V2.
+hatch3r includes a complete board management system. It works on GitHub Projects V2, Azure Boards, and GitLab Issue Boards — `hatch3r init` detects your platform from the git remote and the board commands (`board-init`, `board-fill`, `board-pickup`, `board-groom`, `board-refresh`) branch per platform. The lifecycle and configuration below are illustrated with GitHub Projects V2; the same steps apply on the other two platforms with the platform-equivalent primitives.
+
+## Platform support
+
+| Concept | GitHub | Azure DevOps | GitLab |
+|---------|--------|--------------|--------|
+| Work unit | Issue | Work Item | Issue |
+| Board | Projects V2 | Azure Boards | Issue Boards (label lists) |
+| Code review | Pull Request | Pull Request | Merge Request |
+| Status tracking | Projects V2 status field | Work Item State | Scoped labels (`status::ready`) |
+| CLI | `gh` | `az boards` / `az repos` | `glab` |
+
+Platform-specific CLI/MCP commands, terminology, and sync procedures live in each board command's shared platform reference (`commands/board/shared-azure-devops.md`, `commands/board/shared-gitlab.md`); GitHub is the default and is documented inline below.
 
 ## Commands
 

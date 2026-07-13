@@ -83,21 +83,29 @@ function cursorConfidenceFloorHeader(ctx: AdapterContext): string {
  * hatch3r hooks declare an `agent:` to activate, which has no native
  * command equivalent, so the emitted `command` surfaces the activation
  * directive on stdout and the `.cursor/rules/hook-*.mdc` rule (still
- * emitted below) carries the actual agent-spawn instruction. Events with
- * no Cursor lifecycle equivalent (`post-merge`, `ci-failure`,
- * `worktree-create`, `worktree-remove`, `review-loop-cap`) are absent from
- * this map and fall through to the `.mdc` fallback only.
+ * emitted below) carries the actual agent-spawn instruction. The canonical
+ * hook events with no Cursor lifecycle equivalent (`post-merge`, `ci-failure`,
+ * `review-loop-cap`) are absent from this map and fall through to the `.mdc`
+ * fallback only. (`worktree-create`/`worktree-remove` are reserved `HookEvent`
+ * type values with no canonical hook file, so they never reach this map —
+ * D11-SA11.4-03/-04.)
  *
- * D9-15 (Cycle 11 Wave 3, D9, P6): `review-loop-cap` is advisory-only on
- * Cursor by decision, not omission. The fixer-spawn iteration gate needs the
- * orchestrator's per-issue `.review-loop.json` counter context, which no
- * Cursor hook payload carries; the closest pre-tool event is `preToolUse`
- * (its payload exposes no agent-identity field — cursor.com/docs/agent/hooks
- * accessed 2026-06-09 — so it cannot bind to a fixer-spawn), and `subagentStart`
- * is already the ASI02 NO_POLICY hard-deny boundary that fires at every spawn
- * without the loop counter. Cursor therefore matches the Copilot downgrade:
- * the `.mdc` advisory rule, not a `hooks.json` runtime gate. The canonical
- * `hooks/hatch3r-review-loop-cap.md` Event Mapping records the same decision.
+ * D9-15 (Cycle 11 Wave 3, D9, P6; re-graded D9-SA9.2-02, Cycle 12):
+ * `review-loop-cap` is advisory-only on Cursor because no Cursor hook payload
+ * carries the orchestrator's per-issue `.review-loop.json` counter context; the
+ * closest pre-tool event is `preToolUse` (its payload exposes no agent-identity
+ * field — cursor.com/docs/agent/hooks accessed 2026-06-09 — so it cannot bind
+ * to a fixer-spawn), and `subagentStart` is already the ASI02 NO_POLICY
+ * hard-deny boundary that fires at every spawn without the loop counter. The
+ * earlier absolute "no native runtime gate" framing is re-graded: Cursor's
+ * current hooks doc (cursor.com/docs/hooks accessed 2026-07-10) documents a
+ * per-script `loop_limit` field (default 5) on the `stop`/`subagentStop` events
+ * that bounds hook-forced continuations — a coarse spawn-count backstop, NOT a
+ * counter-aware gate that reads `.review-loop.json`. Accurate posture: no
+ * counter-aware runtime gate; a coarse `subagentStop` `loop_limit` backstop
+ * exists. Cursor still ships the `.mdc` advisory rule, not a counter-aware
+ * `hooks.json` gate. The canonical `hooks/hatch3r-review-loop-cap.md` Event
+ * Mapping records the same re-grade.
  */
 interface CursorHookMapping {
   /** Cursor lifecycle event name. */
@@ -136,6 +144,217 @@ function buildCursorHookEntry(
   };
   if (mapping.matcher) entry.matcher = mapping.matcher;
   return entry;
+}
+
+/**
+ * D9-SA9.2-01 (Cycle 12, D9, P3/P6): shared body for the two project-global
+ * Cursor hook guards below (`mcp-guard.mjs`, `workdir-guard.mjs`). Defines the
+ * stdin-payload read plus `allow()` (exit 0 / no decision — Cursor's
+ * default-allow) and `deny(userMessage, agentMessage?)` (writes the Cursor deny
+ * response `{permission:"deny", …}` to stdout and exits 0; Cursor signals the
+ * decision via stdout JSON, not the exit code — cursor.com/docs/agent/hooks
+ * accessed 2026-07-10). A malformed payload falls through to `allow()` so a
+ * parser bug here cannot brick the host session. Each guard prepends its own
+ * `import` line (this prelude assumes `readFileSync`, `dirname`, `join`,
+ * `fileURLToPath` are already imported), so the emitted scripts carry no unused
+ * imports.
+ */
+const CURSOR_GUARD_PRELUDE = `const __dirname = dirname(fileURLToPath(import.meta.url));
+
+function allow() {
+  // Cursor's default is allow; exit 0 with no stdout emits no decision.
+  process.exit(0);
+}
+
+function deny(userMessage, agentMessage) {
+  const out = { permission: "deny", user_message: userMessage };
+  if (agentMessage) out.agent_message = agentMessage;
+  process.stdout.write(JSON.stringify(out));
+  process.exit(0);
+}
+
+let payload = {};
+try {
+  const raw = readFileSync(0, "utf-8");
+  if (raw) payload = JSON.parse(raw);
+} catch {
+  // Unreadable / malformed payload — fail open so a parser bug cannot brick
+  // the host session.
+  allow();
+}`;
+
+/**
+ * D9-SA9.2-01 (Cycle 12, D9, P3/P6): `.cursor/hooks/mcp-guard.mjs` body — a
+ * project-global `beforeMCPExecution` allowlist that needs no agent identity.
+ * It hard-denies an MCP tool call whose server identity — the payload's `url`
+ * (remote servers, matched exactly) or `command` (stdio servers, matched on the
+ * whitespace-normalized full command line) — is absent from the resolved
+ * `.cursor/mcp.json` set (project root + `~/.cursor/mcp.json` global), upgrading
+ * the mcp category from soft (agent-must-refuse) to a hard gate. It fails OPEN
+ * (allows) whenever it cannot build a definitive allowlist (no readable
+ * manifest) or cannot identify the server, so a legitimately configured server
+ * is never denied.
+ */
+function buildCursorMcpAllowlistGuardScript(): string {
+  return `#!/usr/bin/env node
+// hatch3r — Cursor beforeMCPExecution allowlist guard (D9-SA9.2-01, D9 P3/P6).
+//
+// Regenerated by \`npx hatch3r sync\`. Do not edit by hand.
+//
+// Hard-denies an MCP tool call whose server identity — payload \`url\` (remote,
+// matched exactly) or \`command\` (stdio, matched on the whitespace-normalized
+// full command line) — is absent from the resolved \`.cursor/mcp.json\` set
+// (project + \`~/.cursor/mcp.json\` global), upgrading the mcp category from soft
+// (agent-must-refuse) to a hard allowlist. Fails OPEN when no manifest is
+// readable or the server cannot be identified, so a configured server is never
+// blocked. Contract: cursor.com/docs/agent/hooks + cursor.com/docs/hooks,
+// accessed 2026-07-10 (beforeMCPExecution -> {tool_name, tool_input, url|command};
+// deny = {permission:"deny"} on stdout).
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { homedir } from "node:os";
+
+${CURSOR_GUARD_PRELUDE}
+
+function normalize(value) {
+  return String(value).replace(/\\s+/g, " ").trim();
+}
+
+const manifests = [
+  join(__dirname, "..", "mcp.json"),
+  join(homedir(), ".cursor", "mcp.json"),
+];
+const allowed = new Set();
+let manifestSeen = false;
+for (const file of manifests) {
+  let doc;
+  try {
+    doc = JSON.parse(readFileSync(file, "utf-8"));
+  } catch {
+    continue;
+  }
+  const servers = doc && doc.mcpServers;
+  if (!servers || typeof servers !== "object") continue;
+  manifestSeen = true;
+  for (const srv of Object.values(servers)) {
+    if (!srv || typeof srv !== "object") continue;
+    if (typeof srv.url === "string" && srv.url) allowed.add(normalize(srv.url));
+    if (typeof srv.command === "string" && srv.command) {
+      const args = Array.isArray(srv.args) ? srv.args : [];
+      allowed.add(normalize([srv.command, ...args].join(" ")));
+    }
+  }
+}
+
+// No manifest to enforce against — cannot build an allowlist, so allow.
+if (!manifestSeen) allow();
+
+const identity =
+  typeof payload.url === "string" && payload.url
+    ? normalize(payload.url)
+    : typeof payload.command === "string" && payload.command
+      ? normalize(payload.command)
+      : "";
+
+// Server not identifiable from the payload — do not false-deny.
+if (!identity) allow();
+if (allowed.has(identity)) allow();
+
+process.stderr.write(
+  JSON.stringify({
+    hook: "hatch3r-cursor-mcp-guard",
+    reasonCode: "MCP_SERVER_NOT_IN_MANIFEST",
+    server: identity,
+    tool: typeof payload.tool_name === "string" ? payload.tool_name : "",
+    timestamp: new Date().toISOString(),
+  }) + "\\n",
+);
+deny(
+  \`hatch3r ASI02 MCP guard: server "\${identity}" is not in the resolved .cursor/mcp.json set; deny-by-default. Add it to your MCP config and re-run \\\`npx hatch3r sync\\\`, or remove this guard from .cursor/hooks.json.\`,
+  \`Blocked: MCP server "\${identity}" is not configured in this project's .cursor/mcp.json.\`,
+);
+`;
+}
+
+/**
+ * D9-SA9.2-01 (Cycle 12, D9, P3/P6): `.cursor/hooks/workdir-guard.mjs` body — a
+ * project-global working-directory boundary wired to `beforeReadFile` and
+ * `beforeShellExecution`. It denies a read (`file_path`) or a shell execution
+ * (`cwd`) whose real path (symlinks resolved) escapes the project root,
+ * blunting the working-dir/symlink-escape class (DuneSlide) for users on
+ * Cursor <3.0. The project root derives from the script's own location
+ * (`.cursor/hooks/` -> root two levels up), so no config is required. It fails
+ * OPEN on any ambiguity (no path field, unresolvable path, undetectable root)
+ * so a legitimate in-project operation is never blocked.
+ */
+function buildCursorWorkingDirGuardScript(): string {
+  return `#!/usr/bin/env node
+// hatch3r — Cursor working-directory guard (D9-SA9.2-01, D9 P3/P6).
+//
+// Regenerated by \`npx hatch3r sync\`. Do not edit by hand.
+//
+// Wired to beforeReadFile + beforeShellExecution. Denies a read (\`file_path\`)
+// or shell execution (\`cwd\`) whose real path (symlinks resolved) escapes the
+// project root, blunting the working-dir/symlink-escape class (DuneSlide) for
+// users on Cursor <3.0. Project root derives from this script's own location
+// (.cursor/hooks/ -> root two levels up), so no config is required. Fails OPEN
+// on any ambiguity (no path field, unresolvable path, undetectable root) so an
+// in-project operation is never blocked. Contract: cursor.com/docs/agent/hooks
+// + cursor.com/docs/hooks, accessed 2026-07-10 (beforeReadFile -> {file_path};
+// beforeShellExecution -> {command, cwd}; deny = {permission:"deny"} on stdout).
+import { readFileSync, realpathSync } from "node:fs";
+import { dirname, join, sep } from "node:path";
+import { fileURLToPath } from "node:url";
+
+${CURSOR_GUARD_PRELUDE}
+
+// Project root = two levels up from .cursor/hooks/, symlinks resolved so the
+// boundary comparison is realpath-consistent.
+let projectRoot;
+try {
+  projectRoot = realpathSync(join(__dirname, "..", ".."));
+} catch {
+  allow();
+}
+
+// beforeReadFile carries file_path; beforeShellExecution carries cwd.
+const target =
+  typeof payload.file_path === "string" && payload.file_path
+    ? payload.file_path
+    : typeof payload.cwd === "string" && payload.cwd
+      ? payload.cwd
+      : "";
+
+// No path to check (e.g. a shell command with no cwd field) — allow.
+if (!target) allow();
+
+let resolved;
+try {
+  resolved = realpathSync(target);
+} catch {
+  // Path does not resolve (nonexistent target) — nothing to escape into; allow.
+  allow();
+}
+
+const withinRoot =
+  resolved === projectRoot || resolved.startsWith(projectRoot + sep);
+if (withinRoot) allow();
+
+process.stderr.write(
+  JSON.stringify({
+    hook: "hatch3r-cursor-workdir-guard",
+    reasonCode: "PATH_ESCAPES_PROJECT_ROOT",
+    target,
+    resolved,
+    projectRoot,
+    timestamp: new Date().toISOString(),
+  }) + "\\n",
+);
+deny(
+  \`hatch3r working-directory guard: "\${target}" resolves to "\${resolved}", outside the project root "\${projectRoot}"; deny-by-default. Operate within the project, or remove this guard from .cursor/hooks.json.\`,
+);
+`;
 }
 
 function cursorRuleFrontmatter(rule: CanonicalFile, scopeOverride?: string): string {
@@ -287,6 +506,10 @@ export class CursorAdapter extends BaseAdapter {
       ["agents/shared", ctx.features.agents, (f) => `.cursor/agents/shared/${f}`],
       ["commands/board", ctx.features.commands, (f) => `.cursor/commands/board/${f}`],
       ["commands/revision", ctx.features.commands, (f) => `.cursor/commands/revision/${f}`],
+      // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion referenced by
+      // every emitted orchestrator command; ship it under the native command
+      // companion path so those references resolve on the user's disk.
+      ["commands/shared", ctx.features.commands, (f) => `.cursor/commands/shared/${f}`],
       ["checks", ctx.features.agents || ctx.features.commands, (f) => `.cursor/checks/${f}`],
     ];
     for (const [subdir, enabled, pathFn] of companionMappings) {
@@ -336,9 +559,11 @@ export class CursorAdapter extends BaseAdapter {
     //      (pre-commit/pre-push/file-save/session-start) into Cursor's
     //      lifecycle via a `command` that prints the activation directive.
     //   2. `.cursor/rules/hook-*.mdc` — the instructional rule that carries
-    //      the actual agent-spawn protocol (also the only surface for
-    //      events with no Cursor equivalent: post-merge, ci-failure,
-    //      worktree-create, worktree-remove).
+    //      the actual agent-spawn protocol (also the only surface for the
+    //      canonical hook events with no Cursor lifecycle equivalent:
+    //      post-merge, ci-failure, review-loop-cap — each ships as the advisory
+    //      `.mdc` only; worktree-create/-remove are reserved HookEvent values
+    //      with no canonical hook file — D11-SA11.4-03).
     const hookResults = await this.readHooks(ctx);
     const hooksJsonEvents: Record<string, Array<Record<string, unknown>>> = {};
     for (const hook of hookResults) {
@@ -415,6 +640,47 @@ export class CursorAdapter extends BaseAdapter {
       command: "node ./.cursor/hooks/subagent-guard.mjs",
       failClosed: true,
     });
+
+    // D9-SA9.2-01 (Cycle 12, D9, P3/P6): two additive project-global hook
+    // guards that need no agent-identity field, closing the capability gap
+    // where Cursor documents `beforeMCPExecution` + `beforeReadFile` events the
+    // adapter left unwired (cursor.com/docs/agent/hooks + cursor.com/docs/hooks,
+    // accessed 2026-07-10). Both fail OPEN on any ambiguity so a guard cannot
+    // brick a legitimate operation, and both use `failClosed: false` so a script
+    // crash/timeout on these high-frequency events cannot block every
+    // read/shell/MCP call; a CONFIRMED violation is a hard `{permission:"deny"}`.
+    //   (1) beforeMCPExecution -> mcp-guard.mjs: hard-deny an MCP call whose
+    //       server is absent from the resolved `.cursor/mcp.json` set, upgrading
+    //       the mcp category from soft (agent-must-refuse) to a hard allowlist.
+    //   (2) beforeReadFile + beforeShellExecution -> workdir-guard.mjs: deny a
+    //       read/exec whose path realpath-resolves outside the project root,
+    //       blunting the working-dir/symlink-escape class for Cursor <3.0.
+    // The workdir guard is APPENDED to beforeShellExecution after any mapped
+    // lifecycle entries, so the D9-14 `[0]`-index lifecycle assertions hold.
+    results.push(output(
+      ".cursor/hooks/mcp-guard.mjs",
+      buildCursorMcpAllowlistGuardScript(),
+    ));
+    (hooksJsonEvents.beforeMCPExecution ??= []).push({
+      type: "command",
+      command: "node ./.cursor/hooks/mcp-guard.mjs",
+      failClosed: false,
+    });
+    results.push(output(
+      ".cursor/hooks/workdir-guard.mjs",
+      buildCursorWorkingDirGuardScript(),
+    ));
+    (hooksJsonEvents.beforeReadFile ??= []).push({
+      type: "command",
+      command: "node ./.cursor/hooks/workdir-guard.mjs",
+      failClosed: false,
+    });
+    (hooksJsonEvents.beforeShellExecution ??= []).push({
+      type: "command",
+      command: "node ./.cursor/hooks/workdir-guard.mjs",
+      failClosed: false,
+    });
+
     const hooksJson = { version: 1, hooks: hooksJsonEvents };
     results.push(output(".cursor/hooks.json", JSON.stringify(hooksJson, null, 2) + "\n"));
 
@@ -432,12 +698,12 @@ ${bridgeOrchestration}
 
 ## Cursor Subagent Configuration (v2.5+)
 
-Cursor supports up to 4 subagents running in parallel. Custom subagents in \`.cursor/agents/\` support these frontmatter fields:
+Cursor runs many subagents in parallel (across git worktrees, cloud, and remote environments — Cursor 3.0), with no fixed cap. Custom subagents in \`.cursor/agents/\` support these frontmatter fields:
 - \`model\`: \`fast\`, \`inherit\`, or a specific model ID
 - \`readonly\`: \`true\` to restrict write permissions (verification/audit agents)
-- \`background\`: \`true\` to run without blocking the parent agent
+- \`is_background\`: \`true\` to run without blocking the parent agent
 
-When delegating to hatch3r agents, explicitly request "up to 4 in parallel" for maximum throughput.
+When delegating to hatch3r agents, fan out one subagent per independent unit of work — Cursor 3.0 documents no fixed parallelism cap, so match your fan-out to the task's decomposition rather than an arbitrary number.
 Background subagents write output to \`~/.cursor/subagents/\` for later inspection.
 
 ## Cursor v2.6 Capabilities
@@ -458,7 +724,7 @@ New to this project's agent setup? Progress through these stages:
 
 **Start here:** Rules in \`.cursor/rules/\` are loaded automatically. The orchestration bridge above guides your workflow.
 **Next:** Use \`/hatch3r-feature\` or \`/hatch3r-bug-fix\` commands in Cursor chat for guided workflows.
-**Then:** Delegate to agents in \`.cursor/agents/\` — Cursor supports up to 4 subagents in parallel.
+**Then:** Delegate to agents in \`.cursor/agents/\` — Cursor runs many subagents in parallel (worktrees, cloud, remote).
 **Later:** Customize agent behavior via \`.hatch3r/{type}/{id}.customize.yaml\` without editing managed files.`;
     results.push(mdcOutput(".cursor/rules/hatch3r-bridge.mdc", bridgeFm, bridgeBody));
 

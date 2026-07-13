@@ -29,6 +29,17 @@ import { cursorCompanionFrontmatter, resolveUserContentRoot } from "../content/i
 
 const FRONTMATTER_REGEX = /^---\r?\n([\s\S]*?)\r?\n---(?:\r?\n([\s\S]*))?$/;
 
+/**
+ * Minimum description length `hatch3r validate` accepts for a user override —
+ * mirror of `src/cli/commands/validate.ts` USER_CONTENT_MIN_DESCRIPTION and
+ * `src/content/userContent.ts` MIN_DESCRIPTION_LENGTH. A clean
+ * `init --import cursor` writes overrides the init success box then tells the
+ * user to check with `hatch3r validate`; source-tool descriptions are usually a
+ * single short phrase, so a converted rule under this floor gets a synthesized
+ * description instead of tripping the CTA (D1-SA1.1-03). Keep the three in sync.
+ */
+const USER_CONTENT_MIN_DESCRIPTION = 60;
+
 /** Parsed Cursor `.mdc` rule frontmatter. */
 export interface CursorRuleFrontmatter {
   description?: string;
@@ -44,6 +55,13 @@ export interface ImportedCursorRule {
   canonicalFilename: string;
   /** Canonical rule ready for write. `sourcePath` retains the Cursor origin. */
   canonical: CanonicalFile;
+  /**
+   * First line of the YAML parser message when the source frontmatter failed to
+   * parse. The parser no longer throws on malformed YAML (D1-SA1.1-01); it sets
+   * this so the runner routes the file to `manualReview` with a specific reason
+   * and keeps importing sibling files. Absent for well-formed sources.
+   */
+  parseError?: string;
 }
 
 /**
@@ -76,6 +94,77 @@ function normaliseGlobs(globs: CursorRuleFrontmatter["globs"]): string | undefin
   return undefined;
 }
 
+/** First line of a (possibly multi-line) parser message, trimmed. */
+function firstLine(message: string): string {
+  return (message.split(/\r?\n/, 1)[0] ?? message).trim();
+}
+
+/**
+ * First non-empty body line, stripped of a leading markdown heading (`#`), list
+ * marker (`-`/`*`/`+`), or blockquote (`>`) prefix. Empty string when the body
+ * has no usable line. Seeds a synthesized description.
+ */
+function firstBodyLine(body: string): string {
+  for (const rawLine of body.split(/\r?\n/)) {
+    const cleaned = rawLine
+      .trim()
+      .replace(/^#{1,6}\s+/, "")
+      .replace(/^[-*+]\s+/, "")
+      .replace(/^>\s+/, "")
+      .trim();
+    if (cleaned !== "") return cleaned;
+  }
+  return "";
+}
+
+/**
+ * Reduce arbitrary text to a YAML-plain-scalar-safe single line: collapse
+ * whitespace, neutralize the `:`+space mapping indicator and the space+`#`
+ * comment indicator, drop stray `#`/`"`, and strip leading punctuation (YAML
+ * block indicators like `*`, `[`, `&`). The canonical `.md` is emitted via
+ * `yamlStringify` (self-quoting), but the `.mdc` companion interpolates the
+ * description raw (`cursorCompanionFrontmatter`), so a synthesized description
+ * that pulled in body text must not carry a sequence that corrupts the `.mdc`.
+ */
+function sanitizeForYamlScalar(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .replace(/:\s/g, " - ")
+    .replace(/\s#/g, " ")
+    .replace(/[#"]/g, "")
+    .replace(/^[^\w\s]+/, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Build a description of at least {@link USER_CONTENT_MIN_DESCRIPTION} chars for
+ * an imported rule whose source description is short or empty. Leads with the
+ * most specific text available (source description, else the body's first line,
+ * else the filename slug as words) and appends the import provenance (source
+ * filename and scope). A trailing fixed clause guarantees the floor for
+ * pathologically short inputs and flags the description as auto-generated so the
+ * user refines it.
+ */
+function synthesizeImportDescription(
+  sourceDescription: string,
+  body: string,
+  filename: string,
+  scope: string | undefined,
+): string {
+  let lead = sourceDescription !== "" ? sourceDescription : firstBodyLine(body);
+  if (lead === "") lead = slugifyCursorRuleId(filename).replace(/-/g, " ");
+  if (lead.length > 140) lead = `${lead.slice(0, 137).trimEnd()}...`;
+  const scopeClause = scope !== undefined ? `, scope ${scope}` : "";
+  let description = sanitizeForYamlScalar(
+    `${lead} — imported from Cursor rule file ${filename}${scopeClause}`,
+  );
+  if (description.length < USER_CONTENT_MIN_DESCRIPTION) {
+    description = `${description} — auto-generated on import; edit to describe the rule's intent`;
+  }
+  return description;
+}
+
 /**
  * Parse a single Cursor `.mdc` file into a canonical hatch3r rule.
  *
@@ -88,28 +177,46 @@ function normaliseGlobs(globs: CursorRuleFrontmatter["globs"]): string | undefin
  * The canonical `id` uses the source filename (sans `.mdc`, slugified) prefixed
  * with `hatch3r-cursor-import-`. This namespacing makes imported rules easy to
  * identify and avoids collisions with first-party hatch3r content during the
- * Cycle 8 merge work.
+ * Cycle 8 merge work. (Residual D1-SA1.1-03: `hatch3r validate` reserves the
+ * `hatch3r-` prefix for canonical artifacts, so this id still trips its
+ * reserved-prefix rule for user overrides — the reconciliation is a cross-file
+ * follow-up on `src/cli/commands/validate.ts`, the finding's preferred fix.)
  *
- * Throws when YAML parsing fails. Missing frontmatter yields a rule with empty
- * description and no scope — callers can surface that via manualReview in the
- * Cycle 8 summary layer.
+ * Never throws on malformed YAML frontmatter (D1-SA1.1-01): a parse failure is
+ * caught, the frontmatter is treated as empty, and the first line of the parser
+ * message is recorded on `parseError` so the runner routes the file to
+ * `manualReview` and keeps importing siblings. Missing frontmatter likewise
+ * yields an empty description and no scope. A converted rule whose source
+ * description is under {@link USER_CONTENT_MIN_DESCRIPTION} chars gets a
+ * synthesized description so the override clears `hatch3r validate`'s floor
+ * (D1-SA1.1-03).
  */
 export function parseCursorRule(filename: string, rawContent: string): ImportedCursorRule {
   const match = rawContent.match(FRONTMATTER_REGEX);
   let frontmatter: CursorRuleFrontmatter = {};
   let body: string;
+  let parseError: string | undefined;
 
   if (match) {
     const [, fmStr, bodyStr = ""] = match;
-    const parsed = parseYaml(fmStr ?? "") as Record<string, unknown> | null;
-    if (parsed && typeof parsed === "object") {
-      const fm: CursorRuleFrontmatter = {};
-      if (typeof parsed.description === "string") fm.description = parsed.description;
-      if (typeof parsed.alwaysApply === "boolean") fm.alwaysApply = parsed.alwaysApply;
-      if (typeof parsed.globs === "string" || Array.isArray(parsed.globs) || parsed.globs === null) {
-        fm.globs = parsed.globs as CursorRuleFrontmatter["globs"];
+    // D1-SA1.1-01: contain a malformed-YAML throw here. Left unguarded it
+    // propagates through `parseCursorRulesDir`'s per-file loop and aborts the
+    // whole import — the CLI then surfaces a filename-less generic error and
+    // skips sibling valid files. Catch, leave the frontmatter empty, and record
+    // `parseError` so the runner routes just this file to `manualReview`.
+    try {
+      const parsed = parseYaml(fmStr ?? "") as Record<string, unknown> | null;
+      if (parsed && typeof parsed === "object") {
+        const fm: CursorRuleFrontmatter = {};
+        if (typeof parsed.description === "string") fm.description = parsed.description;
+        if (typeof parsed.alwaysApply === "boolean") fm.alwaysApply = parsed.alwaysApply;
+        if (typeof parsed.globs === "string" || Array.isArray(parsed.globs) || parsed.globs === null) {
+          fm.globs = parsed.globs as CursorRuleFrontmatter["globs"];
+        }
+        frontmatter = fm;
       }
-      frontmatter = fm;
+    } catch (err) {
+      parseError = firstLine(err instanceof Error ? err.message : String(err));
     }
     body = bodyStr;
   } else {
@@ -127,10 +234,26 @@ export function parseCursorRule(filename: string, rawContent: string): ImportedC
     scope = normaliseGlobs(frontmatter.globs);
   }
 
+  // D1-SA1.1-03: keep converted rules above validate's ≥60-char description
+  // floor. A rule with no intent (empty description AND no scope) keeps an empty
+  // description so `hasEmptyFrontmatter` still routes it to manualReview; only
+  // rules that will convert (a description or a scope) and fall under the floor
+  // get a synthesized description.
+  const sourceDescription = (frontmatter.description ?? "").trim();
+  const hasIntent = sourceDescription !== "" || scope !== undefined;
+  let description: string;
+  if (!hasIntent) {
+    description = "";
+  } else if (sourceDescription.length >= USER_CONTENT_MIN_DESCRIPTION) {
+    description = frontmatter.description ?? "";
+  } else {
+    description = synthesizeImportDescription(sourceDescription, body, filename, scope);
+  }
+
   const canonical: CanonicalFile = {
     id,
     type: "rule",
-    description: frontmatter.description ?? "",
+    description,
     scope,
     tags: ["cursor-import"],
     content: body,
@@ -142,6 +265,7 @@ export function parseCursorRule(filename: string, rawContent: string): ImportedC
     sourcePath: filename,
     canonicalFilename,
     canonical,
+    ...(parseError !== undefined ? { parseError } : {}),
   };
 }
 
@@ -271,6 +395,15 @@ export async function importCursorRules(opts: {
   const seenIds = new Set<string>();
 
   for (const rule of parsed) {
+    if (rule.parseError !== undefined) {
+      // D1-SA1.1-01: malformed YAML frontmatter — name the file and the reason
+      // instead of throwing a filename-less error and aborting the whole import.
+      summary.manualReview.push({
+        sourcePath: rule.sourcePath,
+        reason: `invalid YAML frontmatter: ${rule.parseError}`,
+      });
+      continue;
+    }
     if (hasEmptyFrontmatter(rule)) {
       summary.manualReview.push({
         sourcePath: rule.sourcePath,

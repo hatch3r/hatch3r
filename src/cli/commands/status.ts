@@ -4,8 +4,9 @@ import chalk from "chalk";
 import { readManifest } from "../../manifest/hatchJson.js";
 import { hashEmittedContent } from "../../manifest/provenance.js";
 import { getAdapter } from "../../adapters/index.js";
-import { HATCH3R_DIR, type HatchManifest } from "../../types.js";
+import { HATCH3R_DIR, type AdapterOutput, type HatchManifest } from "../../types.js";
 import { extractManagedBlock } from "../../merge/managedBlocks.js";
+import { compareVersions } from "../../version/compare.js";
 import { resolveBundledContentRoot } from "../../content/contentRoot.js";
 import { planPerPackageOutputs } from "../../content/monorepoEmission.js";
 import { discoverUserContent } from "../../content/userContent.js";
@@ -15,7 +16,7 @@ import {
 } from "../../pipeline/spaceTelemetry.js";
 import { buildCustomizationSummary, selectionSetFromManifest } from "../../adapters/customizationSummary.js";
 import { emitJson } from "../shared/output.js";
-import { beginCommand } from "../shared/commandOutput.js";
+import { beginCommand, buildJsonEnvelope } from "../shared/commandOutput.js";
 import {
   assertManifest,
   MISSING_MANIFEST_MESSAGE,
@@ -29,7 +30,6 @@ import {
   info,
   isQuiet,
   label,
-  setVerbose,
   verbose,
 } from "../shared/ui.js";
 import { readWorkspaceManifest } from "../../workspace/manifest.js";
@@ -85,6 +85,52 @@ export interface DriftReport {
 export { hashEmittedContent };
 
 /**
+ * D1-SA1.4-04 (D1, P1): direction of the version skew between the running CLI
+ * and the manifest's recorded writer version.
+ *   - `installed-newer` — running CLI > manifest writer (the common upgrade
+ *     direction; canonical drift is expected and `sync` regenerates safely).
+ *   - `installed-older` — running CLI < manifest writer (a stale global install
+ *     or a teammate on a newer CLI). `sync` here regenerates from the OLDER
+ *     canonical set and DOWNGRADES the on-disk output — `update` first.
+ *   - `none` — versions match.
+ */
+export type VersionSkewDirection = "installed-newer" | "installed-older" | "none";
+
+/**
+ * D1-SA1.4-04 (D1, P1): classify the running CLI against the manifest's recorded
+ * writer version. Reuses the same semver comparison `update` relies on
+ * ({@link compareVersions}) so status, verify, and update agree on skew
+ * direction. Shared by `status` and `verify` (verify imports it from here).
+ */
+export function classifyVersionSkew(
+  configuredVersion: string,
+  runningVersion: string,
+): VersionSkewDirection {
+  if (configuredVersion === runningVersion) return "none";
+  return compareVersions(runningVersion, configuredVersion) < 0
+    ? "installed-older"
+    : "installed-newer";
+}
+
+/**
+ * D1-SA1.4-04 (D1, P1): the installed-older remediation sentence, shared by
+ * `status` and `verify` so both name the downgrade risk identically. Following
+ * the "regenerating is safe" / `sync` hint when the installed CLI is OLDER than
+ * the writer silently downgrades the outputs; this directs the operator to
+ * `update` first.
+ */
+export function installedOlderSkewHint(
+  configuredVersion: string,
+  runningVersion: string,
+): string {
+  return (
+    `Your installed hatch3r (v${runningVersion}) is older than the version that generated ` +
+    `these files (v${configuredVersion}) — run \`hatch3r update\` first; ` +
+    `\`hatch3r sync\` now would downgrade them.`
+  );
+}
+
+/**
  * F2.7-F5 (D2): one entry of the emit-time provenance baseline read from
  * `.hatch3r/provenance.json`. Only `path` + `contentHash` are needed for
  * drift attribution; the writer also stores `adapter` + `sourceFiles`.
@@ -96,15 +142,36 @@ interface ProvenanceBaselineEntry {
 
 /**
  * F2.7-F5 (D2): load the emit-time content-hash baseline keyed by output path.
- * Returns an empty map when the manifest is absent or unreadable so drift
- * attribution degrades to `unknown` rather than throwing — status must still
- * render its drift summary without a baseline.
+ * Returns an empty map when the manifest is absent, unreadable, OR written by a
+ * `schemaVersion` this hatch3r does not understand (D12-SA12.2-06) so drift
+ * attribution degrades to `unknown` rather than throwing or silently mis-parsing
+ * a reshaped future schema — status must still render its drift summary without
+ * a baseline.
  */
 async function loadProvenanceBaseline(rootDir: string): Promise<Map<string, string>> {
   const baseline = new Map<string, string>();
   try {
     const raw = await readFile(join(rootDir, HATCH3R_DIR, "provenance.json"), "utf-8");
-    const parsed = JSON.parse(raw) as { outputs?: ProvenanceBaselineEntry[] };
+    const parsed = JSON.parse(raw) as {
+      schemaVersion?: number;
+      outputs?: ProvenanceBaselineEntry[];
+    };
+    // D12-SA12.2-06 (D12, P5/P2): assert the schema this reader understands
+    // before consuming `outputs`. The writer pins `schemaVersion: 1`
+    // (provenance.ts `ProvenanceManifest`) and its OWN idempotency read already
+    // gates on `prev.schemaVersion === 1` (provenance.ts) — the drift-baseline
+    // reader must hold up its half of that contract. A future `schemaVersion`
+    // (v2+) that reshapes `outputs[]` would otherwise be parsed as v1 here,
+    // building a wrong (or empty) hash map and SILENTLY mis-attributing drift.
+    // Degrade to the same no-baseline path a missing manifest takes (drift →
+    // `unknown`) instead of mis-parsing an unrecognized shape.
+    if (parsed.schemaVersion !== 1) {
+      verbose(
+        `status: provenance schemaVersion ${String(parsed.schemaVersion)} not understood by this ` +
+          `hatch3r (expected 1); drift attribution = unknown — re-run \`hatch3r sync\` to refresh the baseline`,
+      );
+      return baseline;
+    }
     for (const entry of parsed.outputs ?? []) {
       if (typeof entry.path === "string" && typeof entry.contentHash === "string") {
         baseline.set(entry.path, entry.contentHash);
@@ -187,6 +254,111 @@ function readSpaceTelemetrySummary(rootDir: string): SpaceTelemetrySummary {
 }
 
 /**
+ * D2-SA2.7-04 (D2, P2): mutable accumulators threaded through
+ * {@link compareAdapterOutput} so the identical per-file comparison runs for
+ * both root outputs and monorepo per-package copies. Objects/arrays/Sets are
+ * passed by reference, so the helper mutates the same instances
+ * {@link computeAdapterDrift} returns.
+ */
+interface DriftAccumulator {
+  entries: DriftEntry[];
+  counts: DriftReport["counts"];
+  driftKindCounts: DriftReport["driftKindCounts"];
+  seenPaths: Set<string>;
+}
+
+/**
+ * D2-SA2.7-04 (D2, P2): compare ONE adapter output (root or per-package copy)
+ * against its on-disk file and record the result into {@link DriftAccumulator}.
+ * Extracted verbatim from the former inline root-output loop so per-package
+ * monorepo copies get the SAME `modified`/`missing`/`in-sync` classification —
+ * previously they were only registered in `seenPaths` (orphan-suppression) and
+ * never content-compared, so a hand-edited or deleted `<package>/.cursor/...`
+ * copy drifted invisibly (`verify` exited 0 while managed output had changed).
+ *
+ * `seenPaths.add` runs FIRST (before the read) so a per-package path is marked
+ * seen even when it is missing on disk — the orphan loop then skips it (it is a
+ * known managed file that is `missing`, not `unexpected`).
+ *
+ * driftKind attribution reads the emit-time baseline in `.hatch3r/provenance.json`.
+ * The provenance writer currently records only ROOT outputs, so per-package
+ * `modified` entries attribute to `unknown` (no baseline) until the writer also
+ * records per-package paths — a documented interim per the finding, and the
+ * same graceful degradation the baseline-absent root path already uses.
+ */
+async function compareAdapterOutput(
+  out: AdapterOutput,
+  tool: string,
+  rootDir: string,
+  baseline: Map<string, string>,
+  acc: DriftAccumulator,
+): Promise<void> {
+  acc.seenPaths.add(out.path);
+  const destPath = join(rootDir, out.path);
+  try {
+    const existing = await readFile(destPath, "utf-8");
+    const existingBlock = extractManagedBlock(existing, out.path);
+    // Prefer extracting from the regenerated content rather than the raw
+    // managedContent hint: `wrapInManagedBlock` / `extractManagedBlock`
+    // trim their payload, and several adapters pass an un-trimmed body
+    // in `out.managedContent` for convenience. Comparing trimmed-on-disk
+    // against raw-from-managedContent produced spurious "modified"
+    // entries on every status call.
+    const expectedBlock = extractManagedBlock(out.content, out.path) ?? out.managedContent ?? null;
+    const matches = existingBlock !== null && expectedBlock !== null
+      ? existingBlock === expectedBlock.trim()
+      : existing === out.content;
+    if (matches) {
+      acc.entries.push({ path: out.path, tool, status: "in-sync" });
+      acc.counts.synced++;
+    } else {
+      // F2.7-F5 (D2): attribute drift direction against the emit-time
+      // baseline. `onDiskHash` and `regeneratedHash` are both reduced via
+      // the same normalization the baseline used, so a clean comparison is
+      // possible without retaining full file bodies.
+      const baselineHash = baseline.get(out.path);
+      const onDiskHash = hashEmittedContent(existing, undefined, out.path);
+      const regeneratedHash = hashEmittedContent(
+        out.content,
+        out.managedContent ?? undefined,
+        out.path,
+      );
+      let driftKind: NonNullable<DriftEntry["driftKind"]>;
+      if (!baselineHash) {
+        driftKind = "unknown";
+        acc.driftKindCounts.unknown++;
+      } else {
+        const userTouched = onDiskHash !== baselineHash;
+        const canonicalMoved = regeneratedHash !== baselineHash;
+        if (userTouched && canonicalMoved) {
+          driftKind = "both";
+          acc.driftKindCounts.both++;
+        } else if (userTouched) {
+          driftKind = "user-modified";
+          acc.driftKindCounts.userModified++;
+        } else if (canonicalMoved) {
+          driftKind = "canonical-outdated";
+          acc.driftKindCounts.canonicalOutdated++;
+        } else {
+          // On-disk and regeneration both match the baseline yet the
+          // block comparison above flagged a difference — a normalization
+          // edge (e.g. trailing-whitespace-only). Treat as unknown rather
+          // than asserting a false attribution.
+          driftKind = "unknown";
+          acc.driftKindCounts.unknown++;
+        }
+      }
+      acc.entries.push({ path: out.path, tool, status: "modified", driftKind });
+      acc.counts.modified++;
+    }
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+    acc.entries.push({ path: out.path, tool, status: "missing" });
+    acc.counts.missing++;
+  }
+}
+
+/**
  * Wave 7: regenerate every adapter's output in memory (from the bundled
  * content root, no `.agents/` involvement) and compare against on-disk
  * output. The integrity-manifest fast path was removed with the integrity
@@ -234,6 +406,9 @@ export async function computeAdapterDrift(
   // attribute the direction of every `modified` entry below.
   const baseline = await loadProvenanceBaseline(rootDir);
   const seenPaths = new Set<string>();
+  // D2-SA2.7-04 (D2, P2): single accumulator so root outputs AND monorepo
+  // per-package copies flow through the identical `compareAdapterOutput` path.
+  const acc: DriftAccumulator = { entries, counts, driftKindCounts, seenPaths };
 
   for (const tool of manifest.tools) {
     const adapter = getAdapter(tool);
@@ -245,83 +420,23 @@ export async function computeAdapterDrift(
     verbose(`${tool}: ${outputs.length} output file(s) to check`);
 
     for (const out of outputs) {
-      seenPaths.add(out.path);
-      const destPath = join(rootDir, out.path);
-      try {
-        const existing = await readFile(destPath, "utf-8");
-        const existingBlock = extractManagedBlock(existing, out.path);
-        // Prefer extracting from the regenerated content rather than the raw
-        // managedContent hint: `wrapInManagedBlock` / `extractManagedBlock`
-        // trim their payload, and several adapters pass an un-trimmed body
-        // in `out.managedContent` for convenience. Comparing trimmed-on-disk
-        // against raw-from-managedContent produced spurious "modified"
-        // entries on every status call.
-        const expectedBlock = extractManagedBlock(out.content, out.path) ?? out.managedContent ?? null;
-        const matches = existingBlock !== null && expectedBlock !== null
-          ? existingBlock === expectedBlock.trim()
-          : existing === out.content;
-        if (matches) {
-          entries.push({ path: out.path, tool, status: "in-sync" });
-          counts.synced++;
-        } else {
-          // F2.7-F5 (D2): attribute drift direction against the emit-time
-          // baseline. `onDiskHash` and `regeneratedHash` are both reduced via
-          // the same normalization the baseline used, so a clean comparison is
-          // possible without retaining full file bodies.
-          const baselineHash = baseline.get(out.path);
-          const onDiskHash = hashEmittedContent(existing, undefined, out.path);
-          const regeneratedHash = hashEmittedContent(
-            out.content,
-            out.managedContent ?? undefined,
-            out.path,
-          );
-          let driftKind: NonNullable<DriftEntry["driftKind"]>;
-          if (!baselineHash) {
-            driftKind = "unknown";
-            driftKindCounts.unknown++;
-          } else {
-            const userTouched = onDiskHash !== baselineHash;
-            const canonicalMoved = regeneratedHash !== baselineHash;
-            if (userTouched && canonicalMoved) {
-              driftKind = "both";
-              driftKindCounts.both++;
-            } else if (userTouched) {
-              driftKind = "user-modified";
-              driftKindCounts.userModified++;
-            } else if (canonicalMoved) {
-              driftKind = "canonical-outdated";
-              driftKindCounts.canonicalOutdated++;
-            } else {
-              // On-disk and regeneration both match the baseline yet the
-              // block comparison above flagged a difference — a normalization
-              // edge (e.g. trailing-whitespace-only). Treat as unknown rather
-              // than asserting a false attribution.
-              driftKind = "unknown";
-              driftKindCounts.unknown++;
-            }
-          }
-          entries.push({ path: out.path, tool, status: "modified", driftKind });
-          counts.modified++;
-        }
-      } catch (err) {
-        if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
-        entries.push({ path: out.path, tool, status: "missing" });
-        counts.missing++;
-      }
+      await compareAdapterOutput(out, tool, rootDir, baseline, acc);
     }
 
-    // F14.2-H1 (D14): monorepo per-package emission parity. When the manifest
-    // records workspace packages AND --per-package was opted in, init/sync ALSO
-    // write per-directory copies for tools whose load model reads them — cursor
-    // only, per D14-6 — into every `<package>/<rel>` and stamp those paths into
-    // `manifest.managedFiles`. Re-target this tool's root outputs through the
-    // SAME helper init/sync use (which returns [] for claude/copilot) and
-    // register every per-package path as seen, so the orphan loop below does not
-    // classify a legitimately-emitted per-package file as `unexpected`. Without
-    // this, an N-package cursor repo reports ~(root-output-count x N) false
-    // orphans on every status/verify call.
+    // F14.2-H1 (D14) + D2-SA2.7-04 (D2): monorepo per-package emission parity.
+    // When the manifest records workspace packages AND --per-package was opted
+    // in, init/sync ALSO write per-directory copies for tools whose load model
+    // reads them — cursor only, per D14-6 — into every `<package>/<rel>` and
+    // stamp those paths into `manifest.managedFiles`. Re-target this tool's root
+    // outputs through the SAME helper init/sync use (returns [] for
+    // claude/copilot) and run the IDENTICAL per-file comparison used for root
+    // outputs: this both (a) registers every per-package path as seen so the
+    // orphan loop below does not flag a legitimately-emitted copy as
+    // `unexpected`, and (b) reports `modified`/`missing` when a copy is
+    // hand-edited or deleted — the D2-SA2.7-04 fix (previously the copies were
+    // seen-only and never content-compared, so they drifted invisibly).
     for (const perPkg of planPerPackageOutputs(tool, manifest.packages, outputs)) {
-      seenPaths.add(perPkg.output.path);
+      await compareAdapterOutput(perPkg.output, tool, rootDir, baseline, acc);
     }
   }
 
@@ -451,10 +566,13 @@ export async function statusCommand(opts?: {
   // the shared beginCommand chokepoint.
   const format = beginCommand(opts ?? {}, { banner: "compact" });
   const jsonMode = format === "json";
-  // W5 parity with sync.ts: verbose diagnostics stay OFF in JSON mode even
-  // when `--verbose` is passed, so stderr verbose lines can never interleave
-  // with the single stdout JSON document.
-  if (jsonMode) setVerbose(false);
+  // D1-SA1.4-10 (P5): reconciled with the sibling `verify` command — verbose
+  // stderr diagnostics stay AVAILABLE under `--verbose` even in JSON mode.
+  // `verbose()` writes to stderr (ui.ts), never to the stdout JSON document,
+  // so the two channels cannot interleave unless the consumer merges streams
+  // with `2>&1`. Both drift commands now share this one policy (previously
+  // status force-disabled verbose in JSON while verify enabled it — an
+  // unreconciled split across the two sibling drift commands).
 
   const rootDir = process.cwd();
   const manifest = await readManifest(rootDir);
@@ -465,14 +583,22 @@ export async function statusCommand(opts?: {
     // `assertManifest` helper so every manifest-required command prints the
     // identical missing-manifest message and CONFIG_ERROR exit code.
     if (jsonMode) {
-      emitJson({
-        status: "failed",
-        error: MISSING_MANIFEST_MESSAGE,
-        errorCode: "CONFIG_ERROR",
-        recoveryHint: MISSING_MANIFEST_HINT,
-        timestamp: new Date().toISOString(),
-        hatch3rVersion: HATCH3R_VERSION,
-      });
+      // D10-SA10.2-02 (D10, P1): route the legacy direct-emitJson envelope
+      // through the shared builder so even the error document is
+      // self-identifying (`command: "status"`) and carries the normalized
+      // `outcome` alongside its domain-specific `status`.
+      emitJson(
+        buildJsonEnvelope(
+          "status",
+          {
+            status: "failed",
+            error: MISSING_MANIFEST_MESSAGE,
+            errorCode: "CONFIG_ERROR",
+            recoveryHint: MISSING_MANIFEST_HINT,
+          },
+          { outcome: "failed" },
+        ),
+      );
     }
     assertManifest(manifest, { jsonMode });
   }
@@ -496,18 +622,46 @@ export async function statusCommand(opts?: {
   if (jsonMode) {
     const hasDrift =
       report.counts.modified > 0 || report.counts.missing > 0 || report.counts.unexpected > 0;
-    emitJson({
-      status: hasDrift ? "drift" : "in-sync",
-      counts: report.counts,
-      driftKindCounts: report.driftKindCounts,
-      entries: report.entries,
+    // D12-SA12.2-01 (D12, CQ2): installation-health block. Surfaces the manifest's
+    // CONFIGURED hatch3r version (`manifest.hatch3rVersion`) next to the RUNNING
+    // CLI version (`HATCH3R_VERSION`), the manifest schema, the tool set, and a
+    // `versionSkew` flag — the single datum that explains status's most common
+    // output ("canonical changed: N" is expected after a CLI upgrade). Before
+    // this, the envelope carried only the RUNNING version under `hatch3rVersion`,
+    // so a CI consumer could not read the configured version at all.
+    const installation = {
+      configuredVersion: manifest.hatch3rVersion,
+      runningVersion: HATCH3R_VERSION,
+      manifestVersion: manifest.version,
       tools: manifest.tools,
-      // D10-17: SPACE developer-productivity telemetry rollup. `recordCount: 0`
-      // + `firstRunSuccessRate: null` when no telemetry has been written yet.
-      spaceTelemetry,
-      hatch3rVersion: HATCH3R_VERSION,
-      timestamp: new Date().toISOString(),
-    });
+      versionSkew: manifest.hatch3rVersion !== HATCH3R_VERSION,
+      // D1-SA1.4-04 (D1, P1): the DIRECTION of the skew (boolean `versionSkew`
+      // above says only whether, not which way). A CI consumer needs the
+      // direction to know that `installed-older` means `sync` would DOWNGRADE
+      // the on-disk output — `update` is the correct remediation, not `sync`.
+      versionSkewDirection: classifyVersionSkew(manifest.hatch3rVersion, HATCH3R_VERSION),
+    };
+    // D10-SA10.2-02 (D10, P1): emit through the shared envelope builder so this
+    // legacy direct-emitJson document carries the self-identifying `command`
+    // field and a normalized `outcome` alongside the domain-specific `status`
+    // (`in-sync`/`drift`), which is preserved verbatim (no breaking rename).
+    emitJson(
+      buildJsonEnvelope(
+        "status",
+        {
+          status: hasDrift ? "drift" : "in-sync",
+          counts: report.counts,
+          driftKindCounts: report.driftKindCounts,
+          entries: report.entries,
+          tools: manifest.tools,
+          installation,
+          // D10-17: SPACE developer-productivity telemetry rollup. `recordCount: 0`
+          // + `firstRunSuccessRate: null` when no telemetry has been written yet.
+          spaceTelemetry,
+        },
+        { outcome: hasDrift ? "partial" : "passed" },
+      ),
+    );
     return;
   }
 
@@ -545,6 +699,40 @@ export async function statusCommand(opts?: {
   const style = hasDrift ? "info" as const : "success" as const;
   printBox("Status", summaryLines, style);
 
+  // D12-SA12.2-01 (D12, CQ2): installation-health box. Renders the manifest's
+  // CONFIGURED hatch3r version, the RUNNING CLI version, the manifest schema, and
+  // the tool set; when the two versions differ it names the upgrade as the
+  // expected CAUSE of the canonical drift reported above — the datum status
+  // otherwise withheld. The manifest is already loaded (no extra disk read);
+  // the skew phrasing mirrors `hatch3r update` so both commands describe skew
+  // identically.
+  const versionSkew = manifest.hatch3rVersion !== HATCH3R_VERSION;
+  // D1-SA1.4-04 (D1, P1): classify the skew DIRECTION so the human box (and the
+  // canonical-outdated hint below) distinguish a normal upgrade (installed-newer
+  // → `sync` regenerates safely) from a downgrade hazard (installed-older →
+  // `sync` regresses the outputs; `update` first). The predecessor's D12 box
+  // only ever framed skew as an upgrade, which is wrong when the running CLI is
+  // older than the manifest's writer.
+  const skewDirection = classifyVersionSkew(manifest.hatch3rVersion, HATCH3R_VERSION);
+  const installLines = [
+    label("Configured", `hatch3r v${manifest.hatch3rVersion}`),
+    label("Running CLI", `hatch3r v${HATCH3R_VERSION}`),
+    label("Manifest", `schema v${manifest.version}`),
+    label("Tools", manifest.tools.join(", ")),
+  ];
+  if (versionSkew) {
+    installLines.push("");
+    installLines.push(
+      chalk.yellow(
+        skewDirection === "installed-older"
+          ? installedOlderSkewHint(manifest.hatch3rVersion, HATCH3R_VERSION)
+          : `hatch3r v${manifest.hatch3rVersion} configured; CLI is v${HATCH3R_VERSION} — ` +
+            `canonical drift is expected from the upgrade. Run \`hatch3r sync\` to regenerate.`,
+      ),
+    );
+  }
+  printBox("Installation", installLines, versionSkew ? "warning" : "info");
+
   // W5: clean-path follow-up. The drift-tailored hints below cover every
   // drifted state; this is the only guidance emitted when everything is in
   // sync. Self-gated under --quiet/json via printNextSteps.
@@ -571,11 +759,19 @@ export async function statusCommand(opts?: {
     // sub-state instead of the prior blanket overwrite warning.
     const dk = report.driftKindCounts;
     if (dk.canonicalOutdated > 0 && dk.userModified === 0 && dk.both === 0 && dk.unknown === 0) {
-      // Pure canonical drift — regenerating is safe; nothing of the user's to lose.
-      info(
-        `Run ${chalk.bold("hatch3r sync")} to update ${dk.canonicalOutdated} file(s) whose ` +
-        `${chalk.cyan("canonical content changed")}. No local edits were detected, so regenerating is safe.`,
-      );
+      // Pure canonical drift — nothing of the user's to lose. D1-SA1.4-04: but
+      // "regenerating is safe" holds ONLY when the running CLI is newer-or-equal
+      // to the manifest's writer. When installed-older, `sync` regenerates from
+      // the OLDER canonical set and DOWNGRADES these files — direct the operator
+      // to `update` first instead of asserting sync is safe.
+      if (skewDirection === "installed-older") {
+        info(installedOlderSkewHint(manifest.hatch3rVersion, HATCH3R_VERSION));
+      } else {
+        info(
+          `Run ${chalk.bold("hatch3r sync")} to update ${dk.canonicalOutdated} file(s) whose ` +
+          `${chalk.cyan("canonical content changed")}. No local edits were detected, so regenerating is safe.`,
+        );
+      }
     } else if ((dk.userModified > 0 || dk.both > 0) && dk.canonicalOutdated === 0 && dk.unknown === 0) {
       // Only user edits — sync would overwrite them.
       info(
@@ -695,6 +891,11 @@ export async function statusCommand(opts?: {
   // rather than a tested-but-uncalled library (the F10.8-1 integration gap).
   if (spaceTelemetry.recordCount > 0) {
     const spaceLines: string[] = [];
+    // D10-SA10.8-04 (D10, P1): the explicit first-run line below summarizes the
+    // `performance` axis, so that axis is dropped from the per-axis loop to avoid
+    // rendering the same datum twice. Every OTHER fed axis (efficiency, activity)
+    // still shows in the loop.
+    const firstRunRendered = spaceTelemetry.firstRunSuccessRate !== null;
     if (spaceTelemetry.firstRunSuccessRate !== null) {
       const pct = Math.round(spaceTelemetry.firstRunSuccessRate * 100);
       const perfRow = spaceTelemetry.axes.find((a) => a.axis === "performance");
@@ -703,7 +904,9 @@ export async function statusCommand(opts?: {
         label("First-run success", `${pct}% (${runs} run${runs === 1 ? "" : "s"})`),
       );
     }
-    const populatedAxes = spaceTelemetry.axes.filter((a) => a.count > 0);
+    const populatedAxes = spaceTelemetry.axes.filter(
+      (a) => a.count > 0 && !(firstRunRendered && a.axis === "performance"),
+    );
     for (const a of populatedAxes) {
       spaceLines.push(`  ${a.axis.padEnd(14)}${a.count} metric(s), mean ${a.mean.toFixed(2)}`);
     }

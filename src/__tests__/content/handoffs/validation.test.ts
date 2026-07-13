@@ -66,6 +66,26 @@ describe("generateHandoffId", () => {
     }
     expect(ids.size).toBe(50);
   });
+
+  // CI-RECON-06 (Cycle 12 FIX-AND-SHIP): the 5-hex segment is a CSPRNG-seeded
+  // per-process counter, not an independent 20-bit random draw. Independent
+  // draws made the 50-id burst above fail with p ≈ 0.117% per run (birthday
+  // bound in a 2^20 space) — observed as "expected 49 to be 50" on a CI leg.
+  // A 5000-id burst discriminates the two implementations hard: independent
+  // draws collide with p ≈ 1 - exp(-5000²/2/2^20) ≈ 99.9993%, while the
+  // counter is collision-free by construction for up to 2^20 ids. Every id
+  // must also keep the exact 5-lowercase-hex shape (zero-padded) so counter
+  // wrap-around cannot leak a short or uppercase segment past the pattern.
+  it("produces 5000 collision-free, pattern-conformant ids in a same-minute burst (counter guarantee)", () => {
+    const ids = new Set<string>();
+    const fixed = new Date("2026-05-17T14:30:00Z");
+    for (let i = 0; i < 5000; i++) {
+      const id = generateHandoffId("slug", fixed);
+      expect(id).toMatch(HANDOFF_ID_PATTERN);
+      ids.add(id);
+    }
+    expect(ids.size).toBe(5000);
+  });
 });
 
 // ── computeHandoffIntegrity ──────────────────────────────────────

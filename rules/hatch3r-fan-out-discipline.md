@@ -16,7 +16,7 @@ Canonical reference for the *mechanics* of parallel dispatch: `rules/hatch3r-age
 
 ## B2 directive (verbatim)
 
-> Sub-agent fan-out scales with task size; serialization is only valid on dependency edges. Token cost is never a valid reason to serialize independent work. Delegating artifacts emit sub-agent count + rationale as a first-class output field.
+> Sub-agent fan-out scales with task size; serialization is only valid on dependency edges. Token cost is never a valid reason to serialize independent work. Delegating artifacts emit sub-agent count + rationale as a first-class output field, with a task-structure classification (`parallelizable | sequential | mixed`) as its required companion.
 
 ## Scaling heuristic
 
@@ -34,13 +34,21 @@ The count derived above sets WHETHER to spawn each sub-agent. Past roughly 8 con
 
 The flat model — one orchestrator fans out to N workers and integrates all N results itself — is the default and is correct up to roughly 8 concurrent sub-agents (the empirical lead-agent ceiling cited in References, and the `max_phase4_parallel` default in `rules/hatch3r-agent-orchestration.md`). Beyond that width, prefer a two-level tree over a flat 11–15-wide fan-out:
 
-- The root orchestrator decomposes the task into ≤8 disjoint groups and spawns one sub-orchestrator per group.
+- The root orchestrator decomposes the task into ≤8 disjoint groups and spawns one sub-orchestrator per group (a supervisor layer — see Topology for the named, measured justification it requires).
 - Each sub-orchestrator fans out to its group's workers, integrates that group's results, and returns a single group-level summary.
 - The root integrates ≤8 group summaries — not 11–15 raw worker results — so per-context integration load stays inside the reviewability ceiling at every level.
 
 This preserves the task-derived total fan-out (no work is serialized): the same N workers still run concurrently, redistributed across sub-orchestrators. The grouping boundary MUST honor the three parallel-safety conditions both within a group and across groups, so a two-level tree carries no extra merge risk over the equivalent flat fan-out. High-fan-out commands are the trigger case — `commands/hatch3r-workflow.md` (`count: 15`) and the batch-mode `commands/hatch3r-board-fill.md` / `commands/hatch3r-board-pickup.md` (`count: 11` × issue count) otherwise concentrate every result on one orchestrator context.
 
 Cost-dominance and reviewability govern different axes and never trade against each other: cost-dominance governs WHETHER to spawn a sub-agent (always spawn when work is independent; token cost never serializes it), reviewability governs the SHAPE of the resulting tree (flat ≤8, two-level beyond). Neither axis ever justifies dropping the task-derived count.
+
+## Topology
+
+One accountable orchestrator per flow; supervisor layers above it require a named, measured justification; peer-to-peer coordination is reserved for dynamic-environment work whose decomposition shifts mid-flight.
+
+The Hierarchical-delegation sub-orchestrator layer above IS such a supervisor layer: adding it past ~8 width is admissible only with the named, measured justification this rule requires — the reviewability-ceiling breach (11–15 concurrent results converging on one context) is that justification, recorded in the orchestrator's fan-out rationale. Below the ~8 ceiling, one accountable orchestrator per flow is the default; do not add a supervisor layer to a flow that fits the flat model.
+
+**Single-writer synthesis:** fan out reads; exactly one writer merges results into a given artifact — parallel writers on one file are a P8 violation. This is the disjoint-writes safety condition (below) applied at synthesis time: N sub-agents may READ in parallel, but the merge into any one artifact stays single-writer (`agents/shared/quality-charter.md` → Parallel-Safety Contract).
 
 ## Three parallel-safety conditions
 
@@ -64,9 +72,10 @@ Delegating artifacts (orchestrator commands, fan-out skills, delegating agents) 
 sub_agents_spawned:
   count: <integer>
   rationale: <one-sentence task-decomposition justification>
+  task_structure: parallelizable | sequential | mixed
 ```
 
-Omitting the field on a delegating artifact is a P8 B2 violation (D07 fan-out-discipline audit). The `rationale` states the decomposition basis (module count, specialist-gate count, research-question count) so a reviewer can check the count against the task without re-deriving it.
+Omitting the field — or its required `task_structure` companion — on a delegating artifact is a P8 B2 violation (D07 fan-out-discipline audit). The `rationale` states the decomposition basis (module count, specialist-gate count, research-question count) so a reviewer can check the count against the task without re-deriving it; `task_structure` classifies the fan-out topology — `parallelizable` (independent work under the three safety conditions), `sequential` (a true dependency chain), or `mixed` (parallel fan-out with a dependency tail such as a reviewer↔fixer review loop). The `count` lower bound is context-dependent: a command declares a config-time `count ≥ 1` — an `orchestrator: true` command spawns at least one sub-agent by definition — whereas a runtime agent or skill emission may report `count: 0` to record that a run fanned out to nobody (as `agents/hatch3r-dependency-drafter.md` does for a single-dependency draft).
 
 ## Static intent vs runtime attestation
 
@@ -79,7 +88,7 @@ Binds every hatch3r-invoked workflow that delegates via the Task tool in the end
 How each class emits the field differs because the count is known at a different time:
 
 - **Commands** declare it as a static frontmatter key — a command's fan-out is fixed by its `agentPipeline`, so `sub_agents_spawned: {count, rationale}` is a config-time value. `scripts/validate-fanout-emission.ts` enforces the key on every `orchestrator: true` command (CI gate `npm run validate:efficiency`).
-- **Skills** carry the runtime-emission directive in the body — a skill's count is task-derived (Tier 1 inline / Tier 2 per-concern / Tier 3 per-module), so a static integer would misstate it. A skill whose body holds a Tier-2/3 Task-tool delegation contract MUST state `` Emit `sub_agents_spawned: { count, rationale }` in your output. ``; the same validator flags `P8-FANOUT-SKILL-MISS` on a delegating, non-exempt skill that omits it.
+- **Skills** carry the runtime-emission directive in the body — a skill's count is task-derived (Tier 1 inline / Tier 2 per-concern / Tier 3 per-module), so a static integer would misstate it. A skill whose body holds a Tier-2/3 Task-tool delegation contract MUST state `` Emit `sub_agents_spawned: { count, rationale, task_structure }` in your output. ``; the same validator flags `P8-FANOUT-SKILL-MISS` on a delegating, non-exempt skill that omits it.
 - **Agents** are prose-bound: their delegation is inherited from `rules/hatch3r-agent-orchestration.md` and they carry no `orchestrator` frontmatter marker, so no separate validator trigger applies; the worker agents that mention the Task tool delegate on behalf of a parent orchestrator, not as a fan-out root.
 
 ## References

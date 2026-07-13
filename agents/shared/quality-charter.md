@@ -195,7 +195,7 @@ Fan-out (P8) is safe only when all three conditions hold — verify them before 
 - **Deterministic aggregation** — merged results are order-independent, or synthesis imposes one defined order.
 - **No shared mutable state** — no file, registry, or checkpoint is mutated by more than one concurrent agent.
 
-**Implicit-decision clause:** actions carry implicit decisions. Cross-cutting design decisions are pinned verbatim in every parallel writer's brief before dispatch; a decision made mid-flight by one writer invalidates sibling assumptions and MUST route back through the orchestrator — never land it silently in one writer's files. Synthesis/merge is single-writer: fan out reads; exactly one writer merges. The three conditions originate in `rules/hatch3r-agent-orchestration.md`; this contract adds the implicit-decision and single-writer clauses.
+**Implicit-decision clause:** actions carry implicit decisions. Cross-cutting design decisions are pinned verbatim in every parallel writer's brief before dispatch; a decision made mid-flight by one writer invalidates sibling assumptions and MUST route back through the orchestrator — never land it silently in one writer's files. Synthesis/merge is single-writer: fan out reads; exactly one writer merges. The three conditions originate in `rules/hatch3r-agent-orchestration.md`; this contract adds the implicit-decision and single-writer clauses. Single-writer pairs with the one-accountable-orchestrator Topology rule and the `task_structure` fan-out classification (`parallelizable | sequential | mixed`) in `rules/hatch3r-fan-out-discipline.md` → Topology / Required output field.
 
 ### Context-Handling Contract
 

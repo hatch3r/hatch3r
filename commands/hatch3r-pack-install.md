@@ -5,6 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-security, hatch3r-pack-installer]
 description: "Walk the user through the pack trust-model gate (tier + signature + body-scan + capability declaration), confirm the trust posture, then delegate the verified install to hatch3r-pack-installer."
 argument-hint: "<pack-source>"
+disable-model-invocation: true
 tags: [devops, supply-chain, ctx:brownfield-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,6 +16,7 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One trust-verification pass (hatch3r-security, CQ3 supply-chain gate) then one install pass (hatch3r-pack-installer); the install depends on a clean verification verdict, so the two run on a dependency edge, not in parallel — per CONSTITUTION §2 P8 token cost never serializes independent work, but a true dependency does.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -97,7 +99,7 @@ Read the pack's `pack-manifest.json` (§5.1): `pack_id`, `version`, `hatch3r_min
 
 #### 1c. Halt on missing source
 
-If no `<pack-source>` was supplied, halt verbatim (P1 actionable-error contract, `.claude/rules/cli-ux-standards.md`):
+If no `<pack-source>` was supplied, halt verbatim (P1 actionable-error contract):
 
 ```
 No pack source supplied.
@@ -171,7 +173,7 @@ Spawn `hatch3r-pack-installer` via the Task tool with `subagent_type: "generalPu
 
 ## Step 5: Iteration Summary
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md` as the final user-facing output: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
 Worked example for this domain:
 

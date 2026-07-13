@@ -1,7 +1,7 @@
 ---
 id: shared-principles
 type: reference
-description: Public reference for the 8 governance pillars (P1-P8), the 9 content-quality pillars (CQ1-CQ9), and the content-quality thresholds that public content cites.
+description: Public reference for the 8 governance pillars (P1-P8), the 10 content-quality pillars (CQ1-CQ10), and the content-quality thresholds that public content cites.
 tags: [reference]
 ---
 
@@ -15,7 +15,7 @@ How the framework operates.
 
 | Pillar | Name |
 |--------|------|
-| P1 | CLI UI/UX Excellence |
+| P1 | Adoption Experience |
 | P2 | Scientific & Practical Quality |
 | P3 | Adapter & External Tool Currency |
 | P4 | Comprehensive Lean Coverage |
@@ -24,21 +24,22 @@ How the framework operates.
 | P7 | Speed & Token Efficiency |
 | P8 | Clarification & Fan-out Discipline |
 
-## Content-Quality Pillars (CQ1-CQ9)
+## Content-Quality Pillars (CQ1-CQ10)
 
-What the framework produces in end-user code. Each pillar has a specialist agent under `agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md`.
+What the framework produces in end-user code. Each CQ pillar has a specialist agent: CQ1-CQ9 under `agents/hatch3r-{ui,ux,security,reliability,testability,scalability,performance,maintainability,enhancability}.md`, CQ10 (Product & Spec) under `agents/hatch3r-product-spec.md`.
 
 | Pillar | Name |
 |--------|------|
 | CQ1 | UI |
 | CQ2 | UX |
-| CQ3 | Security |
+| CQ3 | Security & Compliance |
 | CQ4 | Reliability |
 | CQ5 | Testability |
 | CQ6 | Scalability |
 | CQ7 | Performance |
 | CQ8 | Maintainability |
 | CQ9 | Enhancability |
+| CQ10 | Product & Spec |
 
 ## Content-Quality Thresholds
 
@@ -57,4 +58,7 @@ Measurable targets the content-quality specialists enforce on generated end-user
 | Supply-chain floor coverage | 100% |
 | User-facing service SLO defined | 100% |
 | Auth depth coverage | 100% |
+| Acceptance-criteria testability on specs | 100% |
+| Discovery claims evidence-cited | 100% |
+| Spec-to-outcome traceability | 100% |
 | Anti-slop phrases | 0 per file |

@@ -153,5 +153,66 @@ describe("windsurf importer", () => {
       const results = await parseWindsurfRulesDir(root);
       expect(results).toEqual([]);
     });
+
+    it("discovers .devin/rules/ (the preferred Devin Desktop path)", async () => {
+      const root = await makeRepo();
+      const devinDir = join(root, ".devin", "rules");
+      await mkdir(devinDir, { recursive: true });
+      await writeFile(join(devinDir, "style.md"), "---\ntrigger: always_on\n---\nDevin style");
+
+      const results = await parseWindsurfRulesDir(root);
+      expect(results.map((r) => r.canonical.id)).toEqual([
+        "hatch3r-windsurf-import-style",
+      ]);
+      expect(results[0]!.canonical.content).toContain("Devin style");
+    });
+
+    it("orders .devin/rules/ before .windsurf/rules/ so the preferred copy wins downstream", async () => {
+      const root = await makeRepo();
+      const devinDir = join(root, ".devin", "rules");
+      const windsurfDir = join(root, ".windsurf", "rules");
+      await mkdir(devinDir, { recursive: true });
+      await mkdir(windsurfDir, { recursive: true });
+      // Same rule name in both dirs → same canonical id; .devin/ must come first
+      // so the runner's first-id-wins pass adopts it and shadows the fallback.
+      await writeFile(
+        join(devinDir, "style.md"),
+        "---\ntrigger: always_on\ndescription: from devin\n---\nDevin body",
+      );
+      await writeFile(
+        join(windsurfDir, "style.md"),
+        "---\ntrigger: always_on\ndescription: from windsurf\n---\nWindsurf body",
+      );
+
+      const results = await parseWindsurfRulesDir(root);
+      // Both sources are returned (dedup is the downstream runner's job); the
+      // .devin/ copy is emitted first.
+      expect(results).toHaveLength(2);
+      expect(results.map((r) => r.canonical.id)).toEqual([
+        "hatch3r-windsurf-import-style",
+        "hatch3r-windsurf-import-style",
+      ]);
+      expect(results[0]!.canonical.description).toBe("from devin");
+      expect(results[0]!.canonical.content).toContain("Devin body");
+      expect(results[1]!.canonical.description).toBe("from windsurf");
+    });
+
+    it("discovers .devin/rules/, .windsurf/rules/, and the legacy file in precedence order", async () => {
+      const root = await makeRepo();
+      const devinDir = join(root, ".devin", "rules");
+      const windsurfDir = join(root, ".windsurf", "rules");
+      await mkdir(devinDir, { recursive: true });
+      await mkdir(windsurfDir, { recursive: true });
+      await writeFile(join(devinDir, "new.md"), "---\ntrigger: always_on\n---\nNew");
+      await writeFile(join(windsurfDir, "old.md"), "---\ntrigger: always_on\n---\nOld");
+      await writeFile(join(root, ".windsurfrules"), "Legacy body");
+
+      const results = await parseWindsurfRulesDir(root);
+      expect(results.map((r) => r.canonical.id)).toEqual([
+        "hatch3r-windsurf-import-new",
+        "hatch3r-windsurf-import-old",
+        "hatch3r-windsurf-import-windsurfrules",
+      ]);
+    });
   });
 });

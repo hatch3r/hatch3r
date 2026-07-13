@@ -1,6 +1,5 @@
 ---
 description: REST, GraphQL, and gRPC contract patterns covering versioning, auth, CORS, pagination, webhooks, rate limiting, and security headers
-globs: ["**/api/**", "**/routes/**", "**/controllers/**", "**/endpoints/**", "**/*route*", "**/*controller*", "**/*endpoint*", "**/*handler*", "**/graphql/**", "**/trpc/**"]
 alwaysApply: false
 precedence: high
 ---

@@ -1,15 +1,24 @@
-import type { HatchManifest } from "../types.js";
 import { compareVersions } from "./compare.js";
 
 export interface VersionCheckpoint {
   /** Semver at which this checkpoint applies (e.g., "2.0.0"). */
   version: string;
-  /** "migration" = auto-execute during update. "reinit-advisory" = suggest hatch3r clean. */
-  action: "migration" | "reinit-advisory";
+  /**
+   * Advisory action. The registry is advisory-only: `update` reads it solely to
+   * surface a "run `hatch3r clean` to reinitialize" suggestion
+   * (`src/cli/commands/update.ts` filters on `action === "reinit-advisory"`).
+   *
+   * D1-SA1.3-08: a prior `"migration"` action + `migrate?` executor field
+   * advertised an auto-migration contract that was never wired — `update` never
+   * invoked it, so the first migration checkpoint registered would have silently
+   * no-op'd during upgrade. Auto-executed data migrations run through the
+   * separate `MIGRATION_CHECKPOINTS` array in `update.ts` (condition/execute
+   * closures, actually invoked by `runMigrationCheckpoints`), not this registry.
+   * Add migrations there, not here.
+   */
+  action: "reinit-advisory";
   /** Human-readable explanation for why this checkpoint exists. */
   reason: string;
-  /** Auto-migration function (only for action: "migration"). */
-  migrate?: (manifest: HatchManifest, rootDir: string) => Promise<HatchManifest>;
   /** Specific changes listed in the reinit advisory. */
   changes?: string[];
 }

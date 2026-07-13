@@ -29,10 +29,10 @@ export type PresetId =
  * structural invariant of `resolveSelection` and bypasses preset config.
  *
  * Deliberate narrowing (D2-20, Cycle 11 Wave 3): `tags.ts::TAG_REGISTRY` marks
- * 44 distinct tag values as facet `"capability"`, but this union — and every
+ * 41 distinct tag values as facet `"capability"`, but this union — and every
  * `preset.capabilities` array below — lists only 9 of them (the lifecycle
  * clusters: planning, implementation, review, devops, maintenance,
- * orchestration, board, performance, ai). The other 35 capability-facet tags
+ * orchestration, board, performance, ai). The other 32 capability-facet tags
  * (e.g. `security`, `reliability`, `testing`, `accessibility`, `spec`,
  * `migration`, `telemetry`, `proof`, `playwright`, …) are sub-facet refinements
  * that describe WHAT a content-quality or work-type artifact does within a
@@ -40,19 +40,22 @@ export type PresetId =
  * (the CQ specialists are `floor:content-quality`; security artifacts are
  * `floor:security`) or one of the 9 primary capability tags, so they are
  * admitted via floor admission (stage 2) or the 9-tag capability gate (stage 3)
- * regardless of the 35 refinement tags. Adding a refinement tag to this union
+ * regardless of the 32 refinement tags. Adding a refinement tag to this union
  * is therefore unnecessary AND would over-admit: a refinement-only preset would
  * shape a non-lifecycle slice the picker has no concept of.
  *
  * The unguarded risk this narrowing creates: an artifact whose ONLY capability
- * tags fall in the 35-tag refinement set, with no `floor:*` tag and
+ * tags fall in the 32-tag refinement set, with no `floor:*` tag and
  * `protected !== true`, intersects no preset's `capabilities` and is dropped by
  * EVERY preset including `full` (a silent corpus hole — `full` is meant to ship
- * everything). The corpus currently has 0 such orphans. The
+ * everything). The sanctioned escape for a deliberate refinement-only artifact
+ * is a per-id `includeIds` entry on the preset(s) that should ship it — the
+ * corpus has exactly one such artifact: `hatch3r-capability-matrix`, admitted
+ * via `full.includeIds` only (D5-SA5.4-09 + CI-RECON-05, Cycle 12). The
  * "every canonical artifact is admitted by `full` OR floor-tagged OR protected"
  * guard in `src/__tests__/content/compound.test.ts` fails the build the moment
- * one is introduced, converting the silent drop into a CI failure that names the
- * offending file.
+ * an UNSANCTIONED orphan is introduced, converting the silent drop into a CI
+ * failure that names the offending file.
  */
 export type CapabilityTag =
   | typeof TAG_PLANNING
@@ -95,8 +98,9 @@ export interface ContentPreset {
   /**
    * Optional per-id additive override — admits a specific artifact whose
    * capability tags do not intersect the preset's capabilities. Used sparingly;
-   * the capability gate should cover the common case. Empty for all presets at
-   * launch.
+   * the capability gate should cover the common case. Sole registry use:
+   * `full.includeIds` carries `hatch3r-capability-matrix` (D5-SA5.4-09 +
+   * CI-RECON-05); every other registry preset leaves this unset.
    */
   includeIds?: ReadonlyArray<string>;
   /**
@@ -184,6 +188,20 @@ export const PRESETS: ContentPreset[] = [
       TAG_AI,
     ],
     includeCustomize: true,
+    // D5-SA5.4-09 reconciliation (CI-RECON-05, Cycle 12): the wave-3 fix
+    // removed `floor:content-quality` from `rules/hatch3r-capability-matrix.md`
+    // because the rule is framework-internal (it governs hatch3r's own
+    // per-cycle adapter audit, inert in consumer repos) and must stay
+    // user-disableable — a floor tag rejects `enabled: false` at customization
+    // layer 2. Its remaining tags (adapters/currency/capability) are refinement
+    // tags outside the 9-tag preset-positive union, so without this carve-out
+    // NO preset would ship it. Per the finding's own intent ("until then it
+    // ships as canonical content"), `full` — the everything preset — admits it
+    // explicitly here; minimal/standard/archetypes deliberately exclude it.
+    // Retagging with a lifecycle capability tag was rejected: capability tags
+    // express a semantic work-type match (see CapabilityTag JSDoc), which a
+    // framework-internal audit procedure does not have for end-user work.
+    includeIds: ["hatch3r-capability-matrix"],
     // Full is the capability superset, so it omits nothing.
     omits: [],
     // v1.9.0 toolbox consolidation: tier-3 CLI tools are now sections inside

@@ -110,7 +110,7 @@ All three integrate with PR comments and fail the build on a breaking exit code.
 
 ## References
 
-- RFC 9457 — Problem Details for HTTP APIs (March 2025, obsoletes RFC 7807).
+- RFC 9457 — Problem Details for HTTP APIs (July 2023, obsoletes RFC 7807).
 - RFC 9745 — The Deprecation HTTP Response Header Field (March 2025, Standards Track).
 - RFC 8594 — The Sunset HTTP Response Header Field.
 - RFC 8707 — Resource Indicators for OAuth 2.0.

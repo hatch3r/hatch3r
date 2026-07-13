@@ -62,7 +62,7 @@ PipelineContext {
 
   // Phase 3 outputs (Review)
   reviewResult: {
-    iterations: number           // 1 to code-class cap (DEFAULT_MAX_REVIEW_ITERATIONS - 1 = 3)
+    iterations: number           // 1 to maxIterations (default DEFAULT_MAX_REVIEW_ITERATIONS = 4)
     finalVerdict: "CLEAN" | "UNRESOLVED"
     findings: ReviewFinding[]
     confirmationPassResult: "PASS" | "FAIL"
@@ -98,7 +98,7 @@ The TypeScript implementation of this schema with runtime validation is in `src/
 | Phase 1 (Research) | No relevant findings | Surface to user; ask whether to proceed with implementation. |
 | Phase 2 (Implementation) | Build/test failure | Attempt self-fix (max 2 iterations). Escalate to user if unresolved. |
 | Phase 2 (Implementation) | Scope creep detected | Halt. Surface deviation to user. Resume only with approval. |
-| Phase 3 (Review) | Max iterations (3) (code-class cap = `DEFAULT_MAX_REVIEW_ITERATIONS` - 1) | Surface unresolved findings to user. Do not merge. |
+| Phase 3 (Review) | Max iterations (4) (default `DEFAULT_MAX_REVIEW_ITERATIONS`) | Surface unresolved findings to user. Do not merge. |
 | Phase 3 (Review) | DESIGN_OBJECTION verdict | Terminate review loop immediately. Surface the objection and alternative approaches to the user for an architectural decision. Do not spawn fixer. |
 | Phase 3 (Review) | Fixer introduces regressions | Revert fixer changes. Surface original findings + regression to user. |
 | Phase 4 (Quality) | Conditional or mandatory-on-match specialist timeout | Log timeout. Continue with available results. Flag in output (the mandatory-on-match Tier 2/3 mandate binds at dispatch — the instance was spawned; a post-dispatch timeout is a flagged result, not a skipped gate). |
@@ -115,7 +115,7 @@ The TypeScript implementation of this schema with runtime validation is in `src/
 ### Retry Policies
 
 - Subagent retries: 0 — never retry the same failed operation identically; spawn a new agent with an adjusted prompt/approach instead.
-- Phase retries: Phase 3 review loop retries up to 3 iterations (code-class cap = `DEFAULT_MAX_REVIEW_ITERATIONS` - 1). All other phases: 0 retries (escalate to user).
+- Phase retries: Phase 3 review loop retries up to 4 iterations (default `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts` — the bound the reviewer/fixer agents state). Loop classes (typed source: `REVIEW_LOOP_CLASS_CAPS`, same module): command bodies running code-diff loops opt down to 3 because code reviews diverge faster (a fix can spawn a regression the next pass must catch); spec/issue-text loops keep 4 (text refinement, no runtime feedback). All other phases: 0 retries (escalate to user).
 
 ## Observability Integration
 
@@ -192,7 +192,7 @@ The pipeline should adapt its behavior based on observed task complexity, not ju
 |------------------------|------------|
 | Phase 1 research finds >10 affected files (initial estimate was <5) | Upgrade tier to 3 if currently 2. Record the upgrade in `PipelineContext.tierUpgrade` (`src/pipeline/pipelineContext.ts::TierUpgrade`: `{from, to, reason, atPhase}`) and re-run `codebase-impact` at `deep` depth before Phase 2. |
 | Phase 2 implementer reports >3 research gaps | Pause Phase 2. Run targeted researcher with gap-specific modes before continuing. |
-| Phase 3 review loop reaches iteration 2 with increasing Critical count | Classify as complexity underestimate. Surface to user with recommendation to break the task into smaller sub-tasks. |
+| Phase 3 review loop shows two consecutive worsening passes (findings count rose every pass over the last 3 iterations) | Classify as complexity underestimate. Surface to user with recommendation to break the task into smaller sub-tasks. |
 | Phase 4 validation pass fails on first attempt | Check whether failure is in hatch3r-testability's new tests (expected -- fix test) or in pre-existing tests (regression -- fix implementation). Route to appropriate fixer. |
 
 **Tier-upgrade propagation (Finding D7-14).** A mid-run upgrade is not just a log line — it MUST change downstream behavior. After populating `PipelineContext.tierUpgrade`, the orchestrator reads the tier for every subsequent depth decision via `resolveEffectiveTier(context)` (returns `tierUpgrade.to` when an upgrade is recorded, else `deepContextTier`), so the Tier→Phase-4-specialist-depth mapping in `hatch3r-agent-orchestration.md` (Deep Context Integration) scales to the upgraded tier instead of staying pinned to the stale baseline. The carrier only ever raises the tier (a recorded `to <= from` is ignored). Surface the upgrade once in the iteration summary via `formatTierUpgradeNote(context)` (one line, returns `null` when no upgrade occurred) so the adaptation is visible, not silent.
@@ -231,7 +231,7 @@ Finding D7-M12 / D7-SA7.5-2: implementation-flavored orchestrators (`workflow`, 
 | Phase 4 Final Quality | CQ + SSOT specialists, batched by severity, bounded by `max_phase4_parallel` | T2/T3 | T1 — only always-mode floor (`security` + `testability`) |
 | Phase 4 Validation Pass | re-run tests/typecheck vs Phase-3 baseline; re-review on specialist code mutations | T2/T3 | — |
 
-Cross-command error-handling defaults: sub-agent failure → retry once then fall back to direct/inline implementation per command's carve-out; quality-check failure → max 2 retry loops then ASK; context degradation → the single Context-Degradation Policy below (window-fraction primary: compress `>50%`, restart `>75%`; turn counts a coarse fallback). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work.
+Cross-command error-handling defaults: sub-agent failure → the 3-step ladder in `hatch3r-agent-orchestration` → Sub-agent-failure handling (retry once → re-spawn `hatch3r-fixer` → `BLOCKED_OTHER` + ASK; never inline — the `hatch3r-quick-change` Tier-1 carve-out is the sole exception); quality-check failure → max 2 retry loops then ASK; context degradation → the single Context-Degradation Policy below (window-fraction primary: compress `>50%`, restart `>75%`; turn counts a coarse fallback). Concurrent-invocation handling and lockfile semantics are deferred to a future cycle pending the Decision 27 resumability work. `PipelineContext` partial-result preservation is intra-session only — completed-phase results are typed and forwarded within a live session, but the context is an in-context handoff token with no on-disk per-phase checkpoint, so a mid-pipeline session death (crash, context overflow, closed terminal) loses completed Phase-1/2 results and restarts the pipeline; cross-crash resumability is part of that deferred Decision 27 work.
 
 ## Context-Degradation Policy
 
@@ -245,6 +245,6 @@ Single canonical policy for every pipeline command (reconciles the per-command t
 1. **Summarize Phase 1 output.** Replace full research findings with a structured summary: affected files (list), blast radius (count + top 3), key conventions (bullet points). Keep raw data only for the fields the current phase needs.
 2. **Prune resolved findings.** After Phase 3 review loop, remove findings that were fixed and confirmed. Only carry forward unresolved findings.
 3. **Collapse specialist results.** In the final output, summarize specialist results as a single status table rather than including full specialist reports. Full reports are available on request.
-4. **Never truncate security findings.** Security auditor output is always included in full regardless of context pressure.
+4. **Never truncate security findings.** `hatch3r-security` (CQ3) output is always included in full regardless of context pressure.
 
 **Handoff loss measurement.** Compression is lossy, so measure it. At each phase transition the orchestrator records a `PhaseHandoffMetrics` record (`src/pipeline/observability.ts::createPhaseHandoffMetrics`) capturing input bytes, output bytes, whether summarisation was applied, and an `informationLossEstimate` (0-1 fraction of input bytes dropped). When `informationLossEstimate` exceeds `0.3`, surface the `formatPhaseHandoffWarning` line in the iteration summary so downstream phases validate that critical context survived — closing the gap where a phase silently receives a summary when it needed the full upstream output.

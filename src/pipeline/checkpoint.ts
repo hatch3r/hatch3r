@@ -89,6 +89,45 @@ export const CHECKPOINT_FILE = "checkpoint.json";
 /** Current schema version — bump on breaking field changes. */
 export const CHECKPOINT_SCHEMA_VERSION = 1 as const;
 
+/**
+ * Command names whose checkpoint writers create a `.{command}-workspace/`
+ * directory in the user's repo via {@link workspaceDir}. Single source of
+ * truth for two surfaces that must enumerate the same set: the writers
+ * (`init`/`sync`/`update`/`config`/`verify-fix`, each resolving its workspace
+ * path through {@link workspaceDir}) and the gitignore registry
+ * (`REQUIRED_GITIGNORE_ENTRIES` in `src/env/mcpEnv.ts`, which spreads
+ * {@link WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES}).
+ *
+ * D1-SA1.2-06 (D1, P1): the reopened D1-14 leak class. `.update-workspace/`,
+ * `.config-workspace/`, and `.verify-fix-workspace/` were written on every
+ * `update` / `config` / `verify --fix` run yet never registered in
+ * `REQUIRED_GITIGNORE_ENTRIES`, so a default `git add .` staged per-run
+ * checkpoint state (Silent Failure Contract breach, CONSTITUTION §2 P5).
+ * Deriving both surfaces from this one list — and typing {@link workspaceDir}'s
+ * `command` parameter to its members — makes a new checkpoint-writing command
+ * fail `tsc` until it is registered here, at which point its gitignore entry
+ * follows with no second edit.
+ */
+export const CHECKPOINT_WORKSPACE_COMMANDS = [
+  "init",
+  "sync",
+  "update",
+  "config",
+  "verify-fix",
+] as const;
+
+/** A checkpoint-writing command registered in {@link CHECKPOINT_WORKSPACE_COMMANDS}. */
+export type CheckpointWorkspaceCommand = (typeof CHECKPOINT_WORKSPACE_COMMANDS)[number];
+
+/**
+ * Directory-scoped (trailing-slash) gitignore entries — one per
+ * {@link CHECKPOINT_WORKSPACE_COMMANDS} member, in list order.
+ * `REQUIRED_GITIGNORE_ENTRIES` (`src/env/mcpEnv.ts`) spreads this array so
+ * registering a command above gitignores its workspace with no edit there.
+ */
+export const WORKSPACE_CHECKPOINT_GITIGNORE_ENTRIES: readonly string[] =
+  CHECKPOINT_WORKSPACE_COMMANDS.map((command) => `.${command}-workspace/`);
+
 // ── Validation ───────────────────────────────────────────────────
 
 /**
@@ -140,6 +179,20 @@ function validateCheckpoint(raw: unknown): string | null {
  */
 export function checkpointPath(workspace: string): string {
   return join(workspace, CHECKPOINT_FILE);
+}
+
+/**
+ * Resolve the absolute `.{command}-workspace/` directory a checkpoint writer
+ * uses. `command` is typed to {@link CheckpointWorkspaceCommand} so every
+ * writer's workspace name is a registered {@link CHECKPOINT_WORKSPACE_COMMANDS}
+ * member — the gitignore registry that derives from the same list therefore
+ * cannot miss one (D1-SA1.2-06).
+ */
+export function workspaceDir(
+  rootDir: string,
+  command: CheckpointWorkspaceCommand,
+): string {
+  return join(rootDir, `.${command}-workspace`);
 }
 
 /**

@@ -15,17 +15,9 @@ parallel_tool_default: true
 Before any action, scan the user's request and provided context for unresolved questions in scope, acceptance criteria, irreversibility, or constraint conflicts (contradictory inputs, missing target, unknown convention). If any are found, ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not proceed under silent assumption. This is the default path, not an exception. Acceptable to proceed without asking ONLY when scope is single-target, single-concern, and the brief alone is testable. Any residual ambiguity discovered mid-workflow invokes the same protocol.
 
 
-## Integration with GitHub Agentic Workflows
+## Integration with Platform Agentic Workflows
 
-hatch3r's board commands operate as the **implementation orchestration layer** above GitHub Agentic Workflows. While GitHub's agentic workflows handle continuous automation (triage, testing, documentation), hatch3r's board commands orchestrate the full delivery pipeline:
-
-- **board-init** sets up the project management structure that agentic workflows operate within
-- **board-fill** creates the work items that agentic workflows can triage and label
-- **board-groom** refines existing work items as priorities, scope, and dependencies evolve over time
-- **board-pickup** orchestrates the implementation -> review -> merge pipeline that goes beyond what generic agentic workflows provide
-- **board-refresh** regenerates the living dashboard on demand without running a full board command
-
-GitHub Agentic Workflows and hatch3r are complementary: use agentic workflows for continuous background automation, use hatch3r board commands for structured delivery orchestration.
+hatch3r's board commands are the **implementation orchestration layer** above platform agentic workflows (GitHub Agentic Workflows, Azure DevOps automations, GitLab Auto DevOps): the platform workflows run continuous background automation (triage, testing, docs) while the board commands orchestrate the delivery pipeline. `board-groom` is the refinement stage — it re-prioritizes, reclassifies, re-scopes, archives, decomposes, merges, and remediates dependency/health issues on existing work items as priorities and scope evolve. Complementary, not overlapping: platform workflows for background automation, board commands for structured delivery.
 
 ---
 

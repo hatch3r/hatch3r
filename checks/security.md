@@ -1,12 +1,12 @@
 ---
 id: security
 type: check
-description: Security review criteria covering vulnerability patterns, input validation, authentication, secrets handling, and dependency safety
+description: Security review criteria covering vulnerability patterns, input validation, authentication and authorization, secrets handling, dependency safety, data exposure, cryptography, error handling, and environment gating
 cache_friendly: true
 ---
 # Security Check
 
-> **Severity vocabulary:** see [agents/shared/severity-mapping.md](../agents/shared/severity-mapping.md) for canonical 5-column mapping.
+> **Severity vocabulary:** see [agents/shared/severity-mapping.md](../agents/shared/severity-mapping.md) for canonical 6-column mapping.
 
 Review criteria for evaluating security posture in pull requests.
 

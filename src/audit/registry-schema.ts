@@ -71,6 +71,35 @@ export interface FeatureStatus {
   tested: boolean;
 }
 
+/**
+ * Closed-loop re-opening record (D16-SA16.2-07). Attached to a finding that a
+ * later cycle re-opened after auditing and falsifying a prior closure. The
+ * pattern was first written ad-hoc on F16.2-C1 (Cycle-11 D16-6 re-open) and is
+ * codified here so a machine-readable record that a prior closure was audited,
+ * falsified, and re-dispositioned with a named artifact is a typed, validatable
+ * field rather than an example.
+ *
+ * - `cycle`       — the cycle that re-opened the finding.
+ * - `finding_id`  — the re-opening finding's id (the one that falsified the
+ *                   prior closure).
+ * - `prior_close` — narrates the falsified earlier closure (which commit
+ *                   claimed `done`, why its diff did not deliver).
+ * - `true_fix`    — set when the finding was re-closed; names the shipped
+ *                   artifact (F16.2-C1 form).
+ * - `outstanding` — set when the finding remains open; names what still must
+ *                   land (D12-SA12.3-F07 form).
+ *
+ * Both re-disposition narratives live in the corpus, so at least one is
+ * required by `validateEntry`, but the two are not mutually exclusive.
+ */
+export interface Reopened {
+  cycle: number;
+  finding_id: string;
+  prior_close: string;
+  true_fix?: string;
+  outstanding?: string;
+}
+
 export interface Finding {
   finding_id: string;
   domain: string;
@@ -82,6 +111,12 @@ export interface Finding {
   // legacy entries are grandfathered via disposition_note=pre-rigor-contract).
   confidence?: Confidence;
   causal_chain_depth?: number;
+  // Named cohort waiver for causal_chain_depth (exact-match tokens only,
+  // registered in DEPTH_WAIVER_TOKENS). A registered token exempts the entry
+  // from the >=3 shallow-depth drift in tolerant mode ONLY; strict mode still
+  // reports the drift (waiver visible, not erasing). An unregistered value is
+  // its own drift in both modes — the field is never a free bypass.
+  depth_waiver?: string;
   sources?: ReadonlyArray<unknown>;
   central_path?: boolean;
   execution_tier?: ExecutionTier;
@@ -128,6 +163,11 @@ export interface Finding {
   cl1_status?: string | null;
   sdr_status?: string | null;
   cl3_status?: string | null;
+
+  // Closed-loop re-opening record (D16-SA16.2-07): set when a later cycle
+  // re-opens this finding after falsifying a prior closure. Shape + rationale
+  // in the `Reopened` interface; structural check in `validateEntry`.
+  reopened?: Reopened;
 
   // Misc / cross-cutting.
   pillar?: ReadonlyArray<string>;
@@ -183,6 +223,14 @@ const TIER1_PATTERN_ENUM: ReadonlySet<string> = new Set([
   "typo_fix",
   "version_bump",
   "lint_disable_removal",
+]);
+
+const DEPTH_WAIVER_TOKENS: ReadonlySet<string> = new Set([
+  // Named cohort: 76 cycle-12 entries (4 High / 22 Medium / 34 Low / 16 Info)
+  // registered at causal_chain_depth 2, accepted at cycle-12 close
+  // (maintainer waiver 2026-07-12, granted at Phase-7 archive);
+  // re-verification queued as cycle-13 audit input.
+  "c12-depth2-close-accepted",
 ]);
 
 const VALID_DISPOSITIONS: ReadonlySet<string> = new Set([
@@ -247,6 +295,19 @@ const AGGREGATE_SEVERITY_RE = /^[A-Z][a-z]+(\+[A-Z][a-z]+)+$/;
  */
 const WIRING_VERB_RE =
   /\b(wir(?:e|ed|es|ing)|import(?:ed|s|ing)?|call(?:ed|s|ing)?|register(?:ed|s|ing)?|emit(?:ted|s|ting)?)\b|add[^.]{0,40}?\bgate\b|\bno (?:production|runtime) callers\b/i;
+
+/**
+ * Value-hygiene pattern for `commit_sha` (Invariant 8, D16-SA16.2-07). A
+ * well-formed value is a git object name — a 7-to-64-char hex abbreviation or
+ * full SHA-1/SHA-256 — optionally namespaced by a `<repo>:` prefix for a
+ * cross-repository pointer. The corpus carries `overlay:c0ca1c0` (a real SHA in
+ * the private governance overlay), which this pattern accepts; placeholder
+ * tokens such as `phase7` (D16-9, the motivating fixture) are not git object
+ * names and fail it. Enforced strict-only in `validateEntry`, paired with the
+ * invariant-11 / D16-7 forward contracts, so the pre-Cycle-12 corpus is
+ * grandfathered in tolerant mode.
+ */
+const COMMIT_SHA_RE = /^(?:[a-z][a-z0-9_-]*:)?[0-9a-f]{7,64}$/i;
 
 /**
  * Parse a raw JSON value into either v2 envelope or v1 legacy array.
@@ -322,9 +383,12 @@ export interface ValidateOptions {
  * Validate a parsed registry against AUDIT-EXECUTE.md §Finding Registry
  * Invariants 1-7 (excluding 6 — Registry Anchor — which is checked by a
  * separate anchor-log validator) plus the terminal-evidence contract
- * (D16-6: strict-mode `done`-needs-evidence) and the effectiveness leg
+ * (D16-6: strict-mode `done`-needs-evidence), the effectiveness leg
  * (D16-7: strict-mode wiring-verb `done` needs a `reviewer_notes` line citing
- * the new caller/importer). Returns drift reports; empty array means no drift.
+ * the new caller/importer), the invariant-8 commit_sha value-hygiene check
+ * (D16-SA16.2-07: strict-mode `commit_sha` must be a git object name, not a
+ * placeholder token), and the always-on `reopened` structural check
+ * (D16-SA16.2-07). Returns drift reports; empty array means no drift.
  */
 export function validateRegistry(
   parsed: ParsedRegistry,
@@ -528,12 +592,99 @@ function validateEntry(
     }
   }
 
+  // Invariant 8 (value hygiene, D16-SA16.2-07): a `commit_sha`, when present,
+  // must be a git object name — a hex abbreviation/full SHA, optionally a
+  // `<repo>:`-namespaced cross-repo pointer — not a phase/placeholder token.
+  // Applies to any entry carrying a commit_sha (format hygiene is independent
+  // of disposition). Strict-only forward contract, paired with invariants 11
+  // and D16-7: the pre-Cycle-12 corpus carries placeholder tokens (D16-9
+  // `commit_sha: "phase7"`) grandfathered in tolerant mode; Cycle-12+ writes
+  // must satisfy it.
+  if (
+    opts.strict &&
+    typeof f.commit_sha === "string" &&
+    f.commit_sha.length > 0 &&
+    !COMMIT_SHA_RE.test(f.commit_sha)
+  ) {
+    reports.push({
+      finding_id: id,
+      reason: "commit_sha not a git object name",
+      detail: `Finding ${id}: commit_sha ${JSON.stringify(f.commit_sha)} is not a hex SHA or <repo>:<sha> pointer (Invariant 8 value hygiene — AUDIT-EXECUTE.md / D16-9 fixture)`,
+    });
+  }
+
+  // Closed-loop re-opening record (D16-SA16.2-07): when the `reopened` object is
+  // present it must carry its irreducible core — the re-opening `cycle`
+  // (number), the re-opened `finding_id` (string), and the `prior_close`
+  // narrative of the falsified earlier closure — plus at least one
+  // re-disposition narrative: `true_fix` (re-closed) or `outstanding` (still
+  // open). Codifies the F16.2-C1 pattern so it is validatable, not example-only.
+  // Always-on: both live corpus instances satisfy it, so no legacy grandfather
+  // is needed.
+  if (f.reopened !== undefined) {
+    const r = f.reopened;
+    if (r === null || typeof r !== "object" || Array.isArray(r)) {
+      reports.push({
+        finding_id: id,
+        reason: "reopened not an object",
+        detail: `Finding ${id}: reopened must be an object; got ${JSON.stringify(r)}`,
+      });
+    } else {
+      if (typeof r.cycle !== "number") {
+        reports.push({
+          finding_id: id,
+          reason: "reopened missing cycle",
+          detail: `Finding ${id}: reopened.cycle must be a number (the re-opening cycle)`,
+        });
+      }
+      if (typeof r.finding_id !== "string" || r.finding_id.length === 0) {
+        reports.push({
+          finding_id: id,
+          reason: "reopened missing finding_id",
+          detail: `Finding ${id}: reopened.finding_id must be a non-empty string`,
+        });
+      }
+      if (typeof r.prior_close !== "string" || r.prior_close.length === 0) {
+        reports.push({
+          finding_id: id,
+          reason: "reopened missing prior_close",
+          detail: `Finding ${id}: reopened.prior_close must narrate the falsified earlier closure`,
+        });
+      }
+      const hasTrueFix =
+        typeof r.true_fix === "string" && r.true_fix.length > 0;
+      const hasOutstanding =
+        typeof r.outstanding === "string" && r.outstanding.length > 0;
+      if (!hasTrueFix && !hasOutstanding) {
+        reports.push({
+          finding_id: id,
+          reason: "reopened missing re-disposition narrative",
+          detail: `Finding ${id}: reopened requires a non-empty true_fix (re-closed) or outstanding (still open)`,
+        });
+      }
+    }
+  }
+
   // Rigor contract: confidence/causal_chain_depth/sources.
   // Legacy-tolerant: allowed missing if disposition_note === "pre-rigor-contract".
   const isPreRigor =
     typeof f.disposition_note === "string" &&
     f.disposition_note === "pre-rigor-contract";
   const requiresRigor = !isPreRigor || opts.strict === true;
+  // Named cohort depth waiver: only exact-match registered tokens count.
+  // An unregistered value is its own drift in BOTH modes (checked below) so
+  // the field cannot become a free bypass; a registered token on an entry
+  // whose depth is already >=3 is harmless (no drift, no special report).
+  const hasRegisteredDepthWaiver =
+    typeof f.depth_waiver === "string" &&
+    DEPTH_WAIVER_TOKENS.has(f.depth_waiver);
+  if (f.depth_waiver !== undefined && !hasRegisteredDepthWaiver) {
+    reports.push({
+      finding_id: id,
+      reason: "unregistered depth_waiver token",
+      detail: `got ${JSON.stringify(f.depth_waiver)}; registered tokens: ${[...DEPTH_WAIVER_TOKENS].join(", ")}`,
+    });
+  }
   if (requiresRigor && isTargeted) {
     if (typeof f.confidence !== "string") {
       reports.push({
@@ -551,11 +702,17 @@ function validateEntry(
         detail: "",
       });
     } else if (f.causal_chain_depth < 3 && !isPreRigor) {
-      reports.push({
-        finding_id: id,
-        reason: "shallow causal_chain_depth",
-        detail: `got ${f.causal_chain_depth}; rigor contract requires >=3`,
-      });
+      // Registered depth waiver exempts the entry in tolerant mode only;
+      // strict mode still reports the drift with the waiver visible.
+      if (!hasRegisteredDepthWaiver || opts.strict === true) {
+        reports.push({
+          finding_id: id,
+          reason: "shallow causal_chain_depth",
+          detail: hasRegisteredDepthWaiver
+            ? `got ${f.causal_chain_depth}; rigor contract requires >=3 (depth_waiver "${f.depth_waiver}" registered — tolerant-mode exemption; strict mode reports for census visibility)`
+            : `got ${f.causal_chain_depth}; rigor contract requires >=3`,
+        });
+      }
     }
     if (!Array.isArray(f.sources)) {
       reports.push({
@@ -708,12 +865,132 @@ export function migrate(
   };
 }
 
+// ── CL-row balance invariant (Cycle-12 CL-3 Proposal 6c / D16-SA16.2-02) ──
+//
+// The stalled-strategic detector's data producers (Phase 5/7 CL writes) and
+// the detector itself form a circular dependency: a phase stall guarantees
+// detector silence. The balance invariant breaks the circle at the data layer:
+// when BOTH the registry AND a cycle's AUDIT-REPORT.md CL tables are readable,
+// every Phase CL-1 / CL-3 table row must be materialized as a registry entry
+// (`C<cycle>-CL1-<n>` / `C<cycle>-CL3-<n>` — the Phase-1 drops-log pattern).
+// AUDIT-REPORT.md is private (absent in public clones), so the wrapper script
+// (scripts/validate-finding-registry.ts) only runs the check when both files
+// exist and skips with a notice otherwise.
+
+/** The two report phases whose rows must balance against registry entries. */
+export type ClPhase = "CL-1" | "CL-3";
+
+/** Report-side row counts; `null` = the phase's section/table was not found. */
+export interface ClBalanceCounts {
+  cl1ReportRows: number | null;
+  cl3ReportRows: number | null;
+}
+
+/**
+ * Count the body rows of the FIRST markdown table inside the report's
+ * `## Phase CL-1:` / `## Phase CL-3:` section. Returns `null` when the section
+ * heading or its table is absent. Scanning stops at the next `##`/`###`
+ * heading so subsection tables (CL-3's "### Routed to EVOLVE") are never
+ * counted — only the phase's own candidate/proposal table balances against
+ * registry entries.
+ */
+export function countClReportRows(
+  reportMarkdown: string,
+  phase: ClPhase,
+): number | null {
+  const lines = reportMarkdown.split(/\r?\n/);
+  const headingRe = new RegExp(`^##\\s+Phase ${phase}\\b`);
+  let i = lines.findIndex((line) => headingRe.test(line));
+  if (i === -1) return null;
+  i += 1;
+  while (i < lines.length && !lines[i].startsWith("|")) {
+    if (/^#{2,}\s/.test(lines[i])) return null;
+    i += 1;
+  }
+  if (i >= lines.length) return null;
+  let tableLines = 0;
+  while (i < lines.length && lines[i].startsWith("|")) {
+    tableLines += 1;
+    i += 1;
+  }
+  // Header row + separator row precede the body; fewer than 2 lines is not a
+  // markdown table.
+  if (tableLines < 2) return null;
+  return tableLines - 2;
+}
+
+/**
+ * Count registry entries materialized from a cycle's CL rows: `finding_id`
+ * matching `^C<cycle>-CL1-<n>$` / `^C<cycle>-CL3-<n>$` (anchored — other
+ * cycles' entries and suffixed ids do not count).
+ */
+export function countClRegistryEntries(
+  entries: ReadonlyArray<Finding>,
+  cycle: number,
+  phase: ClPhase,
+): number {
+  const idRe = new RegExp(`^C${cycle}-${phase.replace("-", "")}-\\d+$`);
+  let count = 0;
+  for (const f of entries) {
+    if (typeof f.finding_id === "string" && idRe.test(f.finding_id)) {
+      count += 1;
+    }
+  }
+  return count;
+}
+
+/**
+ * The balance assertion: per phase, report-CL-row count === materialized
+ * registry-entry count. Empty array = balanced. A `null` report-row count is
+ * itself a failure (the report exists but its phase table could not be
+ * located — the invariant must not silently pass on a shape drift).
+ */
+export function checkClBalance(
+  entries: ReadonlyArray<Finding>,
+  cycle: number,
+  counts: ClBalanceCounts,
+): DriftReport[] {
+  const reports: DriftReport[] = [];
+  const phases: ReadonlyArray<[ClPhase, number | null]> = [
+    ["CL-1", counts.cl1ReportRows],
+    ["CL-3", counts.cl3ReportRows],
+  ];
+  for (const [phase, reportRows] of phases) {
+    const idStem = `C${cycle}-${phase.replace("-", "")}`;
+    if (reportRows === null) {
+      reports.push({
+        finding_id: `${idStem}-*`,
+        reason: `cl-balance table missing (${phase})`,
+        detail:
+          `cycle ${cycle}: no "## Phase ${phase}" table found in AUDIT-REPORT.md — ` +
+          `the balance invariant reads the section's first markdown table; ` +
+          `restore the heading/table or fix the section shape`,
+      });
+      continue;
+    }
+    const registryCount = countClRegistryEntries(entries, cycle, phase);
+    if (reportRows !== registryCount) {
+      reports.push({
+        finding_id: `${idStem}-*`,
+        reason: `cl-row balance broken (${phase})`,
+        detail:
+          `cycle ${cycle}: AUDIT-REPORT.md §Phase ${phase} has ${reportRows} table row(s) ` +
+          `but the registry holds ${registryCount} ${idStem}-<n> entr${registryCount === 1 ? "y" : "ies"}; ` +
+          `materialize one registry entry per report CL row at report assembly ` +
+          `(or prune orphan entries) — CL-3 Proposal 6c balance invariant`,
+      });
+    }
+  }
+  return reports;
+}
+
 /**
  * Internal export for the validator script — knows the closed Tier-1 enum
  * and surfaces it for human inspection on demand.
  */
 export const __internal = {
   TIER1_PATTERN_ENUM,
+  DEPTH_WAIVER_TOKENS,
   VALID_DISPOSITIONS,
   VALID_SEVERITIES,
   VALID_EXECUTION_STATUSES,

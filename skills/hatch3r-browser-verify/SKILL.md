@@ -98,7 +98,9 @@ const routes = ['/', '/dashboard', '/settings', '/onboarding'];
 for (const route of routes) {
   test(`capture ${route}`, async ({ page }) => {
     await page.goto(`http://localhost:4173${route}`);
-    await page.waitForLoadState('networkidle');
+    // web-first readiness — networkidle is discouraged by Playwright; wait on the
+    // `main` landmark the a11y gate already requires (swap for a route-specific locator)
+    await expect(page.getByRole('main')).toBeVisible();
     await page.screenshot({
       path: `.audit-workspace/visual/${Date.now()}/${route.replace(/\//g, '_') || 'root'}.png`,
       fullPage: true,
@@ -123,7 +125,9 @@ const routes = ['/', '/dashboard', '/settings', '/onboarding'];
 for (const route of routes) {
   test(`a11y ${route}`, async ({ page }) => {
     await page.goto(`http://localhost:4173${route}`);
-    await page.waitForLoadState('networkidle');
+    // web-first readiness — networkidle is discouraged by Playwright; wait on the
+    // `main` landmark the a11y gate already requires (swap for a route-specific locator)
+    await expect(page.getByRole('main')).toBeVisible();
 
     const results = await new AxeBuilder({ page })
       .withTags(['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa', 'wcag22aa'])
@@ -151,7 +155,8 @@ import { test, expect } from '@playwright/test';
 
 test('dashboard regression', async ({ page }) => {
   await page.goto('http://localhost:4173/dashboard');
-  await page.waitForLoadState('networkidle');
+  // web-first readiness — networkidle is discouraged by Playwright
+  await expect(page.getByRole('main')).toBeVisible();
 
   await expect(page).toHaveScreenshot('dashboard.png', {
     fullPage: true,
@@ -299,7 +304,7 @@ What this means for verification runs:
 - [Playwright Accessibility Testing](https://playwright.dev/docs/accessibility-testing) — official `@axe-core/playwright` integration guide. Accessed 2026-05-26. Trust tier: vendor-official.
 - [Playwright Visual Comparisons](https://playwright.dev/docs/test-snapshots) — `toHaveScreenshot()` API, masks, threshold, `--update-snapshots`. Accessed 2026-05-26. Trust tier: vendor-official.
 - [Playwright SnapshotAssertions API](https://playwright.dev/docs/api/class-snapshotassertions) — full option surface (`maxDiffPixels`, `maxDiffPixelRatio`, `threshold`, `animations`). Accessed 2026-05-26. Trust tier: vendor-official.
-- [@axe-core/playwright on npm](https://www.npmjs.com/package/axe-playwright) — package metadata, current version, weekly downloads. Accessed 2026-05-26. Trust tier: registry-official.
+- [@axe-core/playwright on npm](https://www.npmjs.com/package/@axe-core/playwright) — package metadata, current version, weekly downloads. Accessed 2026-05-26. Trust tier: registry-official.
 - [Deque DevTools for Web — Playwright integration](https://docs.deque.com/devtools-for-web/4/en/node-pl-write-tests/) — `withTags`, WCAG 2.2 tag mapping, violation severity model. Accessed 2026-05-26. Trust tier: vendor-maintainer (Deque is axe-core author).
 - [microsoft/playwright issue #39574](https://github.com/microsoft/playwright/issues/39574) — upstream maintainer stance on bundled Chromium as non-security-boundary; recommends `channel: "chrome"` for untrusted-content verification. Closed 2026-04-03 (state COMPLETED). Accessed 2026-05-27. Trust tier: vendor-official.
 - [CVE-2026-2441 (NVD)](https://nvd.nist.gov/vuln/detail/CVE-2026-2441) — Chromium CSS use-after-free, Chromium fix in 145.0.7632.75; CISA KEV addition 2026-02-17. Accessed 2026-05-27. Trust tier: official-feed.

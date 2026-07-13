@@ -3,10 +3,13 @@ import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdtempSync, rmSync } from "node:fs";
 import { resolve, join } from "node:path";
 import { tmpdir } from "node:os";
+import { PROGRAM_DESCRIPTION } from "../../cli/program.js";
 
 const CLI_PATH = resolve(import.meta.dirname, "../../../dist/cli/index.js");
 
-// D3-2: this suite is the only assertion of the "Battle-tested" help banner
+// D3-2 / D3-SA3.2-09: this suite asserts the program's `--help` banner (against
+// the exported PROGRAM_DESCRIPTION constant — no longer the hard-coded
+// "Battle-tested" marketing phrase, which coupled the suite to unevidenced copy)
 // and the unknown-command / agent-command redirects, but it can only run
 // against the built `dist/cli/index.js`. `scripts.test` is a bare `vitest run`
 // with no `pretest` build, so on a fresh clone the artifact is absent and the
@@ -51,7 +54,10 @@ describe.skipIf(!HAS_DIST)("CLI entry point (src/cli/index.ts)", () => {
       const { stdout, exitCode } = runCli(["--help"]);
       expect(exitCode).toBe(0);
       expect(stdout).toContain("hatch3r");
-      expect(stdout).toContain("Battle-tested");
+      // D3-SA3.2-09: assert the description via the exported constant (single
+      // source of truth) rather than a hard-coded marketing phrase. Whitespace
+      // is normalized because commander wraps the description to the help width.
+      expect(stdout.replace(/\s+/g, " ")).toContain(PROGRAM_DESCRIPTION);
     });
 
     it("lists core registered commands", () => {
@@ -128,26 +134,36 @@ describe.skipIf(!HAS_DIST)("CLI entry point (src/cli/index.ts)", () => {
   // was covered (errors.test.ts asserts 130 through formatActionableError, which
   // never produces 143/129), so the SIGTERM=143 and SIGHUP=129 branches — the
   // container/CI/SSH-disconnect shutdown signals cli-ux-standards.md mandates —
-  // had zero coverage. These subprocess cases launch a long-parking command
-  // (interactive `init` in an empty temp dir, blocking on piped stdin), send the
-  // signal, and assert the child exits with 128 + signal number.
+  // had zero coverage. These subprocess cases launch a long-lived command in an
+  // empty temp dir, send the signal after its first output, and assert the child
+  // exits with 128 + signal number.
+  //
+  // CI-RECON-04: the parking command was interactive `init` (blocking on piped
+  // stdin), but the D3-SA3.2-11 non-TTY preflight (src/cli/commands/init.ts) now
+  // makes interactive init exit 2 under a pipe BEFORE any prompt renders — the
+  // signal never landed. Park on headless `init --yes` instead: it short-circuits
+  // the TTY gate (the sanctioned non-TTY path), emits banner/spinner output
+  // ~200ms in, and keeps generating for seconds afterwards, so the signal sent
+  // 50ms after first output lands mid-run (measured locally: first output 213ms,
+  // exit 3223ms).
   //
   // SIGTERM/SIGHUP delivery to a child and the 128+n convention are POSIX, so
   // these run on the unix CI legs; on win32 (which lacks real POSIX signals and
   // synthesizes termination) they are skipped.
   describe.skipIf(process.platform === "win32")("signal exit codes (D3-12)", () => {
     /**
-     * Spawn the CLI on a parking command, wait until it has emitted output
-     * (prompt rendered → signal handler installed and event loop live), send
-     * the signal, and resolve with the observed exit code. Falls back to a
-     * timer if no output appears so the test cannot hang.
+     * Spawn the CLI on a long-lived headless command (`init --yes`), wait until
+     * it has emitted output (banner/spinner rendered → signal handler installed
+     * at module top and event loop live), send the signal, and resolve with the
+     * observed exit code. Falls back to a timer if no output appears so the
+     * test cannot hang.
      */
     function runUntilSignal(
       signal: NodeJS.Signals,
     ): Promise<{ code: number | null; signal: NodeJS.Signals | null }> {
       const cwd = mkdtempSync(join(tmpdir(), "hatch3r-signal-test-"));
       return new Promise((resolvePromise) => {
-        const child = spawn("node", [CLI_PATH, "init"], {
+        const child = spawn("node", [CLI_PATH, "init", "--yes"], {
           cwd,
           stdio: ["pipe", "pipe", "pipe"],
           env: { ...process.env, NODE_NO_WARNINGS: "1", HATCH3R_NO_UPDATE_CHECK: "1" },
@@ -159,7 +175,7 @@ describe.skipIf(!HAS_DIST)("CLI entry point (src/cli/index.ts)", () => {
           signalled = true;
           child.kill(signal);
         };
-        // Fire on first output (the prompt) — handler is registered
+        // Fire on first output (banner/spinner) — handler is registered
         // synchronously at module top, so it is always present by the time any
         // byte is written. Fallback timer guards the no-output case.
         child.stdout.on("data", () => setTimeout(sendSignal, 50));

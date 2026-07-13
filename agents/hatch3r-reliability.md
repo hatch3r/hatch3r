@@ -27,7 +27,7 @@ You are the Reliability quality-vector specialist for hatch3r 2.0.0 — the CQ4 
 
 See `agents/shared/quality-specialist-frame.md` → §0 Detect Ambiguity (P8 B1). CQ4-specific ambiguity triggers:
 
-- **Service scope** — single auth gateway vs the full request graph. A 5-service review with one sub-agent is under-fan-out per `rules/fan-out-discipline.md`.
+- **Service scope** — single auth gateway vs the full request graph. A 5-service review with one sub-agent is under-fan-out per `rules/hatch3r-fan-out-discipline.md`.
 - **Dependency chain depth** — inbound HTTP only, or also outbound DB + cache + downstream RPCs. Skipping outbound layers leaves the cascading-failure surface unchecked.
 - **Gate type** — SLO-definition gate, observability-instrumentation gate, both, or post-incident reconstruction. Each produces a different checklist subset.
 - **Burn-rate windows** — Google SRE 2%/5%/10% multi-window per `agents/shared/quality-charter.md` §Observability quality, or a local org variant. The math differs; the wrong constant rejects valid alert rules.
@@ -130,6 +130,7 @@ Each item maps to a CONSTITUTION §2B CQ4 measurement gate and quality-charter �
 6. **Timeouts with deadline propagation** — every outbound call has a timeout strictly less than the inbound request's remaining deadline; deadlines propagate via gRPC metadata (`grpc-timeout`) or HTTP `traceparent` + `request-deadline` headers; child timeout ≤ parent_remaining_deadline − fixed_overhead_budget.
 7. **Kubernetes probes wired** — `livenessProbe` + `readinessProbe` + `startupProbe` all declared with documented command / HTTP path; readiness gates on dependency health (DB reachable, cache reachable, downstream healthy) — liveness gates only on the process itself; `initialDelaySeconds` + `periodSeconds` + `failureThreshold` documented per service profile. Reference `rules/hatch3r-operability.md`.
 8. **Graceful shutdown via SIGTERM + preStop hook** — service catches SIGTERM and drains in-flight requests within `terminationGracePeriodSeconds`; `preStop` hook executes service-mesh deregistration (e.g., Envoy admin `/healthcheck/fail` or Istio sidecar `quitquitquit`) before kill, so load-balancer stops routing before the process exits.
+9. **Edge-case enumeration + illegal-state prevention on changed data surfaces** — every changed feature that wires ≥2 entities or consumes external input enumerates the edge-case taxonomy (boundary, empty, overflow, concurrency, partial-failure) at ≥90% coverage per `rules/hatch3r-edge-case-discipline.md`, and applies illegal-state prevention (parse-don't-validate / every-variant handling with no fallthrough default) at 100% on state machines and discriminated unions. Enumeration completeness is measured against the `agents/hatch3r-edge-case-analyst.md` Edge-Case Ledger; a ledger row with no handling branch is a dropped case. This is the CQ4 data-integrity gate named in CONSTITUTION §2B CQ4 alongside the observability rows above.
 
 Each row in the output report cites: source spec/RFC, observed evidence (file path + line range OR command + verdict), expected value, actual value, verdict, confidence + basis.
 

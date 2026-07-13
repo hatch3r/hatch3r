@@ -71,9 +71,10 @@ describe("validate-canonical", () => {
   });
 
   it("scans the published content classes by default", () => {
-    // Locks the scanned-type contract: agents/checks/commands/hooks/rules/skills.
+    // Locks the scanned-type contract: agents/checks/commands/github-agents/hooks/rules/skills.
+    // github-agents added in D2-SA2.2-01 (Cycle 12) — a shipped, copilot-consumed class.
     expect([...SCANNED_TYPES].sort()).toEqual(
-      ["agents", "checks", "commands", "hooks", "rules", "skills"],
+      ["agents", "checks", "commands", "github-agents", "hooks", "rules", "skills"],
     );
   });
 

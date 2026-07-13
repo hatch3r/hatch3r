@@ -327,6 +327,45 @@ describe("validatePhaseTransition", () => {
       const errors = validatePhaseTransition(ctx, "completion");
       expect(errors.some((e) => e.field === "qualityResults.validationPass")).toBe(true);
     });
+
+    it("accepts an absent qualityResults at completion when phase4Skipped is set (docs-only carve-out, D7-SA7.3-03)", () => {
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: validReviewResult(),
+      };
+      const errors = validatePhaseTransition(ctx, "completion", { phase4Skipped: true });
+      expect(errors).toHaveLength(0);
+    });
+
+    it("validates a full docs-only pipeline at completion (phase3Skipped + phase4Skipped, D7-SA7.3-03)", () => {
+      // Documentation-only run: Phases 3 and 4 both skipped per
+      // PHASE_SKIP_CRITERIA — no reviewResult and no qualityResults exist.
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+      };
+      const errors = validatePhaseTransition(ctx, "completion", {
+        phase3Skipped: true,
+        phase4Skipped: true,
+      });
+      expect(errors).toHaveLength(0);
+    });
+
+    it("keeps requiring qualityResults at completion when options are passed without phase4Skipped (D7-SA7.3-03)", () => {
+      // The carve-out is explicit-signal-only — an options object without the
+      // flag must not relax the completion gate.
+      const ctx = {
+        ...validBaseContext(),
+        researchFindings: validResearchFindings(),
+        implementationResult: validImplementationResult(),
+        reviewResult: validReviewResult(),
+      };
+      const errors = validatePhaseTransition(ctx, "completion", { phase3Skipped: false });
+      expect(errors.some((e) => e.field === "qualityResults")).toBe(true);
+    });
   });
 });
 
@@ -605,6 +644,19 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     }
   });
 
+  it("hatch3r-ui row implements the roster's components/ path-glob claim (D7-SA7.3-02)", () => {
+    // agents/shared/cq-specialist-roster.md CQ1 documents a `**/components/**`
+    // trigger; this invariant keeps the SSOT row implementing that documented
+    // coverage (suffix-gated components/ glob + Angular basenames) so the
+    // roster claim can never silently regress to prose-only again.
+    const ui = SPECIALIST_TRIGGER_TABLE.find((t) => t.specialist === "hatch3r-ui");
+    expect(ui).toBeDefined();
+    expect(ui!.triggerPathGlobs).toContain("components/");
+    expect(ui!.triggerPathGlobSuffixes).toBeDefined();
+    expect(ui!.triggerFilePatterns).toContain("*.component.ts");
+    expect(ui!.triggerFilePatterns).toContain("*.component.html");
+  });
+
   it("returns mandatory: true when a mandatory-on-match specialist triggers", () => {
     const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
     expect(result.triggered).toBe(true);
@@ -632,6 +684,21 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
     expect(always.mandatory).toBeUndefined();
   });
 
+  it("stays tier-agnostic — no tier parameter exists to suppress mandatory (recorded limit, D7-SA7.3-06)", () => {
+    // Recorded typed-contract limit: the predicate cannot express the Tier-1
+    // carve-out ("Tier 1 keeps its Phase Skip Criteria skip") — a Tier-1
+    // orchestrator issues the identical call and receives the identical
+    // mandatory: true; the tier gate is layered by the caller from prose
+    // (rules/hatch3r-agent-orchestration.md → Tier-to-Phase-4 depth mapping).
+    // Arity pin: 3 declared parameters (specialist, changedFiles,
+    // projectType), no tier input. Landing the recorded hardening path (an
+    // optional tier argument that suppresses mandatory at Tier 1) must
+    // update this pin and the shouldTriggerSpecialist JSDoc record together.
+    expect(shouldTriggerSpecialist.length).toBe(3);
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
+    expect(result.mandatory).toBe(true);
+  });
+
   it("should trigger hatch3r-ui on UI component file changes", () => {
     const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button.tsx"]);
     expect(result.triggered).toBe(true);
@@ -655,6 +722,60 @@ describe("SPECIALIST_TRIGGER_TABLE", () => {
 
   it("should NOT trigger hatch3r-ui on non-UI file changes", () => {
     const result = shouldTriggerSpecialist("hatch3r-ui", ["src/server/route.ts"]);
+    expect(result.triggered).toBe(false);
+  });
+
+  // ── CQ1 ui component-surface triggers (Finding D7-SA7.3-02) ─────
+  // The ui row was basename-only (*.tsx/jsx/vue/svelte + tailwind/theme), so
+  // Angular, co-located-.ts, Lit/Web-Component, and Svelte-5 runes surfaces
+  // never matched — and the roster's documented `**/components/**` trigger
+  // (agents/shared/cq-specialist-roster.md CQ1) had no SSOT implementation.
+  it("triggers hatch3r-ui with mandatory: true on an Angular component class (D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/app/orders/orders.component.ts"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("triggers hatch3r-ui on an Angular component template (D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/app/orders/orders.component.html"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("triggers hatch3r-ui on a co-located .ts barrel under components/ (D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button/index.ts"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+    expect(result.reasons.some((r) => r.includes("src/components/Button/index.ts"))).toBe(true);
+  });
+
+  it("triggers hatch3r-ui on Lit/Web-Component and Svelte-5 runes files under components/ (D7-SA7.3-02)", () => {
+    for (const file of ["src/components/my-element.ts", "src/components/counter.svelte.ts"]) {
+      const result = shouldTriggerSpecialist("hatch3r-ui", [file]);
+      expect(result.triggered, `${file} should trigger hatch3r-ui`).toBe(true);
+      expect(result.mandatory, `${file} should be a Tier 2/3 hard mandate`).toBe(true);
+    }
+  });
+
+  it("triggers hatch3r-ui on a style file under components/ (design-token surface, D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/components/Button/styles.scss"]);
+    expect(result.triggered).toBe(true);
+    expect(result.mandatory).toBe(true);
+  });
+
+  it("does NOT trigger hatch3r-ui on non-source files under components/ (D7-SA7.3-02)", () => {
+    // The suffix gate mirrors the D7-20 backend source-suffix guard: a README
+    // or a fixture asset under components/ is not a component change.
+    const result = shouldTriggerSpecialist("hatch3r-ui", [
+      "src/components/README.md",
+      "src/components/fixtures/data.json",
+    ]);
+    expect(result.triggered).toBe(false);
+    expect(result.mandatory).toBeUndefined();
+  });
+
+  it("does NOT trigger hatch3r-ui on a plain .ts outside a components/ segment (D7-SA7.3-02)", () => {
+    const result = shouldTriggerSpecialist("hatch3r-ui", ["src/lib/formatDate.ts"]);
     expect(result.triggered).toBe(false);
   });
 
@@ -1088,6 +1209,156 @@ describe("evaluatePhase4Completion (Finding D7-M8 / D16-5)", () => {
     const result = evaluatePhase4Completion(q, { unresolvedCriticalFindings: 0 });
     expect(result.unresolvedCriticalFindings).toBe(0);
     expect(result.complete).toBe(true);
+  });
+
+  it("accepts SUCCESS without criticalCount as reviewed-clean — the count-on-SUCCESS invariant is un-typed (recorded limit, D7-SA7.3-06)", () => {
+    // Recorded typed-contract limit: SpecialistResult stays a single
+    // interface (the SUCCESS-requires-count discriminated union was rejected
+    // in the D7-SA7.3-01 fix for @library_export_only back-compat), so this
+    // literal compiles WITHOUT the field and the gate trusts absent → 0 once
+    // the status sweep passes — a SUCCESS producer that forgets the count
+    // reads as reviewed-clean. Narrowing the type later turns this literal
+    // into a compile error — update the criticalCount JSDoc record with it.
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-ui",
+      status: "SUCCESS",
+      findingsCount: 0,
+      summary: "CQ1 review clean",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(true);
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.incompletionReason).toBeUndefined();
+  });
+
+  it("fails closed when a triggered mandatory-on-match specialist TIMEOUTs with no criticalCount (D7-SA7.3-01)", () => {
+    // The central regression for D7-SA7.3-01: floors SUCCESS + validation pass
+    // green, but the triggered hatch3r-ui (CQ1, mandatory-on-match) timed out
+    // before setting criticalCount. Pre-sweep this returned complete:true —
+    // only the two floors' statuses were read and `criticalCount ?? 0`
+    // contributed 0 — so the dispatch-layer "non-skippable at Tier 2/3"
+    // mandate had no completion-layer backstop.
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-ui",
+      status: "TIMEOUT",
+      findingsCount: 0,
+      summary: "timed out before completing the CQ1 review",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(true);
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-ui (TIMEOUT)",
+    );
+  });
+
+  it("fails closed when a conditional specialist returns FAILED — the sweep covers the whole dispatched set (D7-SA7.3-01)", () => {
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-reliability",
+      status: "FAILED",
+      findingsCount: 0,
+      summary: "crashed before producing output",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-reliability (FAILED)",
+    );
+  });
+
+  it("accepts SKIPPED with a documented reason — a documented skip is not a crash (D7-SA7.3-01)", () => {
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-performance",
+      status: "SKIPPED",
+      findingsCount: 0,
+      summary: "Phase Skip Criteria: Tier 1 run — conditional specialist skipped per tier depth mapping",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(true);
+    expect(result.incompletionReason).toBeUndefined();
+  });
+
+  it("fails closed on SKIPPED without a documented reason — empty summary is an undocumented skip (D7-SA7.3-01)", () => {
+    // SpecialistResult has no `reason` field; the summary is the SKIPPED
+    // contract's citation channel. Whitespace-only counts as undocumented.
+    const q = passingQualityResults();
+    q.specialists.push({
+      specialist: "hatch3r-ux",
+      status: "SKIPPED",
+      findingsCount: 0,
+      summary: "   ",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-ux (SKIPPED without documented skip reason)",
+    );
+  });
+
+  it("reports the floor clause before the status sweep when both fail (clause priority preserved)", () => {
+    // Guards the D16-5 floor message: a TIMEOUT floor is reported via the
+    // floor clause, not folded into the generic sweep message.
+    const q = passingQualityResults();
+    q.specialists.find((s) => s.specialist === "hatch3r-security")!.status = "TIMEOUT";
+    q.specialists.push({
+      specialist: "hatch3r-ui",
+      status: "TIMEOUT",
+      findingsCount: 0,
+      summary: "timed out",
+    });
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "mandatory floor specialist (hatch3r-security or hatch3r-testability) did not return SUCCESS",
+    );
+  });
+
+  it("names every incomplete specialist when multiple fail the sweep (D7-SA7.3-01)", () => {
+    const q = passingQualityResults();
+    q.specialists.push(
+      { specialist: "hatch3r-ui", status: "TIMEOUT", findingsCount: 0, summary: "timed out" },
+      { specialist: "hatch3r-scalability", status: "PARTIAL", findingsCount: 1, summary: "half done" },
+    );
+    const result = evaluatePhase4Completion(q);
+    expect(result.complete).toBe(false);
+    expect(result.incompletionReason).toBe(
+      "dispatched specialist(s) did not complete: hatch3r-ui (TIMEOUT), hatch3r-scalability (PARTIAL)",
+    );
+  });
+
+  // ── Documentation-only carve-out (Finding D7-SA7.3-03) ──────────
+  it("reports complete-by-skip for a documentation-only change (phase4Skipped, D7-SA7.3-03)", () => {
+    // No Phase 4 ran: no specialists exist, and the validationPass values are
+    // whatever the caller fabricated — the carve-out must not read them.
+    const result = evaluatePhase4Completion(
+      {
+        specialists: [],
+        validationPass: { testsPass: false, typecheckPass: false, fixAttempts: 0, regressionsPersist: true },
+      },
+      { phase4Skipped: true },
+    );
+    expect(result.complete).toBe(true);
+    expect(result.mandatoryFloorsSatisfied).toBe("n/a");
+    expect(result.unresolvedCriticalFindings).toBe(0);
+    expect(result.incompletionReason).toBeUndefined();
+  });
+
+  it("still fails closed for an empty specialist set WITHOUT the phase4Skipped signal (D7-SA7.3-03)", () => {
+    // The carve-out is explicit-signal-only: absent the flag, a context with
+    // no specialists keeps the mandatory-floor rejection — a docs-only skip is
+    // never granted implicitly.
+    const result = evaluatePhase4Completion({
+      specialists: [],
+      validationPass: { testsPass: true, typecheckPass: true, fixAttempts: 0, regressionsPersist: false },
+    });
+    expect(result.complete).toBe(false);
+    expect(result.mandatoryFloorsSatisfied).toBe(false);
+    expect(result.incompletionReason).toContain("mandatory floor specialist");
   });
 });
 

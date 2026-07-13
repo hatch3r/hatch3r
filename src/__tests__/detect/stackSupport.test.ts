@@ -1,3 +1,6 @@
+import { readdirSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { describe, it, expect } from "vitest";
 import {
   FRAMEWORK_SUPPORT,
@@ -34,8 +37,16 @@ describe("stackSupport classification", () => {
     expect(classifyLanguage("kotlin")).toEqual({ tier: "full", rule: "hatch3r-android-patterns" });
   });
 
+  it("typescript, javascript, and swift are full via their dedicated stack rules (D1-SA1.6-04)", () => {
+    // hatch3r-typescript-patterns globs both **/*.ts* and **/*.js*, so both
+    // languages resolve to it; hatch3r-swiftui-patterns globs **/*.swift.
+    expect(classifyLanguage("typescript")).toEqual({ tier: "full", rule: "hatch3r-typescript-patterns" });
+    expect(classifyLanguage("javascript")).toEqual({ tier: "full", rule: "hatch3r-typescript-patterns" });
+    expect(classifyLanguage("swift")).toEqual({ tier: "full", rule: "hatch3r-swiftui-patterns" });
+  });
+
   it("unmapped languages fall through to partial", () => {
-    expect(classifyLanguage("typescript")).toEqual({ tier: "partial" });
+    expect(classifyLanguage("java")).toEqual({ tier: "partial" });
     expect(classifyLanguage("elixir")).toEqual({ tier: "partial" });
     expect(classifyLanguage("scala")).toEqual({ tier: "partial" });
   });
@@ -58,6 +69,21 @@ describe("stackSupport classification", () => {
       expect(support.rule).toMatch(/^hatch3r-.*-patterns$/);
     }
   });
+
+  it("java classifies as partial and is never routed to the Android mobile rule (D14-SA14.1-01)", () => {
+    // Server-side Java (Spring Boot / Jakarta EE / Quarkus) is the dominant use
+    // of Java; the Android Kotlin patterns rule (Compose / Room / Hilt) covers
+    // none of it. java must stay partial so a bare-Java repo gets the honest
+    // "no dedicated rule" pointer instead of a false "full → Android" claim.
+    const java = classifyLanguage("java");
+    expect(java.tier).toBe("partial");
+    expect(java.rule).toBeUndefined();
+    // Belt-and-suspenders: if java is ever re-added to LANGUAGE_SUPPORT, it must
+    // never point at a mobile rule. `?? ""` keeps the guard green while java is
+    // absent (its intended state) and red the moment it names an Android/mobile
+    // rule again.
+    expect(LANGUAGE_SUPPORT.java?.rule ?? "").not.toMatch(/android|flutter|swiftui/);
+  });
 });
 
 describe("classifyDetectedStacks", () => {
@@ -70,10 +96,14 @@ describe("classifyDetectedStacks", () => {
     expect(out).toContainEqual({ name: "angular", axis: "framework", tier: "partial" });
   });
 
-  it("surfaces spring on a Java repo (no dedicated rule)", () => {
+  it("surfaces both spring and java on a Java/Spring repo (neither has a dedicated rule)", () => {
     const out = classifyDetectedStacks(["spring"], ["java"]);
-    // java is full (android rule), so only spring (framework) is reported.
-    expect(out.map((s) => s.name)).toEqual(["spring"]);
+    // spring is partial on the framework axis and java is partial on the
+    // language axis (server-side Java is not covered by the Android rule), so
+    // both surface and the init pointer gives the honest "no dedicated rule"
+    // signal for each (D14-SA14.1-01).
+    expect(out.map((s) => s.name)).toEqual(["spring", "java"]);
+    expect(out).toContainEqual({ name: "java", axis: "language", tier: "partial" });
   });
 
   it("drops the unknown language sentinel", () => {
@@ -81,16 +111,80 @@ describe("classifyDetectedStacks", () => {
   });
 
   it("de-duplicates and lists frameworks before languages", () => {
-    const out = classifyDetectedStacks(["vue", "express"], ["typescript", "elixir"]);
+    // java + elixir are both still partial languages (typescript is now full via
+    // hatch3r-typescript-patterns, so it no longer surfaces here — D1-SA1.6-04).
+    const out = classifyDetectedStacks(["vue", "express"], ["java", "elixir"]);
     const names = out.map((s) => s.name);
     // frameworks first, then partial languages; no duplicates.
-    expect(names).toEqual(["vue", "express", "typescript", "elixir"]);
+    expect(names).toEqual(["vue", "express", "java", "elixir"]);
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  it("does not re-report a language now covered by a full-tier language rule (typescript)", () => {
+    // typescript promoted to full (hatch3r-typescript-patterns) means a TS repo
+    // on a partial framework surfaces only the framework, not the language.
+    const out = classifyDetectedStacks(["react"], ["typescript"]);
+    expect(out).toEqual([{ name: "react", axis: "framework", tier: "partial" }]);
   });
 
   it("does not re-report a language already covered by a full-tier framework", () => {
     // fastapi -> hatch3r-python-patterns (full); python must not appear as partial.
     const out = classifyDetectedStacks(["fastapi"], ["python"]);
     expect(out).toEqual([]);
+  });
+});
+
+// D1-SA1.6-04 item 4: bind the hand-maintained tier maps to the on-disk
+// rules/hatch3r-*-patterns.md set so a rule addition and its tier mapping can no
+// longer drift apart within one commit (the exact regression that left
+// typescript/swift/react-native rules unmapped after Cycle-11 commit edb5216).
+describe("stackSupport <-> rules/ drift guard (D1-SA1.6-04)", () => {
+  // Cross-cutting *-patterns rules apply by capability, not by detected stack,
+  // so they are never tier-mapped and are excluded from the "must be mapped" set.
+  const CROSS_CUTTING = new Set([
+    "hatch3r-ai-ux-patterns",
+    "hatch3r-auth-patterns",
+    "hatch3r-resilience-patterns",
+    "hatch3r-security-patterns",
+  ]);
+  // Stack-idiom rules that ship but reach repos only by file glob (no dedicated
+  // Framework member / language key yet). Membership here is the explicit,
+  // reviewed acknowledgement of glob-only reach — promoting one to a first-class
+  // detected stack means removing it from this set and adding a support map row.
+  const GLOB_ONLY = new Set([
+    // react-native detects as `react` (partial); no `Framework` member exists yet
+    // (src/types.ts). Promotion is tracked (D1-SA1.6-04 item 2a).
+    "hatch3r-react-native-patterns",
+  ]);
+
+  const rulesDir = resolve(dirname(fileURLToPath(import.meta.url)), "..", "..", "..", "rules");
+  const onDiskPatternRules = readdirSync(rulesDir)
+    .filter((f) => /^hatch3r-.+-patterns\.md$/.test(f))
+    .map((f) => f.replace(/\.md$/, ""));
+
+  const mappedRuleIds = new Set<string>();
+  for (const s of Object.values(FRAMEWORK_SUPPORT)) if (s.rule) mappedRuleIds.add(s.rule);
+  for (const s of Object.values(LANGUAGE_SUPPORT)) if (s.rule) mappedRuleIds.add(s.rule);
+
+  it("every stack-idiom *-patterns rule is tier-mapped or documented glob-only (no orphan rule)", () => {
+    for (const id of onDiskPatternRules) {
+      if (CROSS_CUTTING.has(id)) continue;
+      expect(
+        mappedRuleIds.has(id) || GLOB_ONLY.has(id),
+        `${id} is a stack-idiom rule not referenced by FRAMEWORK_SUPPORT/LANGUAGE_SUPPORT ` +
+          `and not in the documented glob-only set — map it in src/detect/stackSupport.ts ` +
+          `or add it to the GLOB_ONLY exception in this test`,
+      ).toBe(true);
+    }
+  });
+
+  it("every support-map rule id resolves to an on-disk rules file (no dangling reference)", () => {
+    const onDisk = new Set(onDiskPatternRules);
+    for (const id of mappedRuleIds) {
+      expect(
+        onDisk.has(id),
+        `${id} is referenced by a support map but has no rules/${id}.md file`,
+      ).toBe(true);
+    }
   });
 });

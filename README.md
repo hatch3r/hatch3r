@@ -19,13 +19,13 @@ npx hatch3r init            # interactive: customize profile, tools, and CLI too
 
 `--default` generates a working standard-profile setup with no questions — the fastest path to a configured repo. The interactive `init` detects your repo, infers your project context (greenfield/brownfield, solo/team), then walks platform → repo identity → content profile (minimal/standard/full/custom) → tools → CLI-tools picker, and generates everything. MCP is not prompted — opt in with `--mcp` or `npx hatch3r mcp setup` later. The platform (GitHub, Azure DevOps, or GitLab) is auto-detected from your git remote either way. Run into issues? See [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting).
 
-**Already using Cursor?** Carry your existing rules across with `npx hatch3r init --import cursor` — they land under `.hatch3r/overrides/rules/` (`.md` + `.mdc`) with per-file conflict reporting. See [Migrating from another tool](https://docs.hatch3r.com/docs/getting-started/quick-start#migrating-from-another-tool).
+**Migrating from Cursor, Copilot, Windsurf, legacy `.cursorrules`, or a root `AGENTS.md`?** Carry your existing rules across with `npx hatch3r init --import <cursor|copilot|windsurf|cursorrules|agents|auto>` (`--import auto` imports every format in one pass) — they land under `.hatch3r/overrides/rules/` (`.md` + `.mdc`) with per-file conflict reporting. See [Migrating from another tool](https://docs.hatch3r.com/docs/getting-started/quick-start#migrating-from-another-tool).
 
 ## What You Get
 
 | Category | Count | Highlights |
 |----------|-------|-----------|
-| **Agents** | 29 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 9 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability), and more |
+| **Agents** | 30 | Code reviewer, lint-fixer, dependency auditor, implementer (sub-agentic), fixer, researcher, architect, DevOps, handoff loader / preparer, 10 content-quality specialists (UI/UX/security/reliability/testability/scalability/performance/maintainability/enhancability/product-spec), and more |
 | **Skills** | 53 | Bug fix, feature implementation, issue workflow, release, incident response, context health, cost tracking, handoff prepare / resume, recipes, API spec, CI pipeline, migration, customization, board lifecycle, ad-hoc orchestration scaffold, 5 standalone CLI-tool skills (ripgrep, jq, gh, fd, fzf) + a 24-tool `cli-toolbox`, and more |
 | **Rules** | 70 | Code standards, testing, API design, observability, theming, i18n, security patterns, agent orchestration, fan-out discipline, right-sizing, deep context analysis, handoff readiness, mobile + backend stack rules, and more |
 | **Commands** | 31 | Board management, planning (feature, bug, refactor, test), workflow, quick-change, bug-pipeline, revision, debug, healthcheck, security-audit, onboard, benchmark, handoff (prepare/resume/list/complete/prune), and more |
@@ -96,7 +96,7 @@ npx hatch3r worktree-setup <path>   # Set up gitignored files in a worktree
 npx hatch3r worktree-cleanup <path> # Clean up worktree-specific files
 npx hatch3r cli-tools     # Manage CLI tools (picker / list / install / detect)
 npx hatch3r mcp           # Manage MCP servers (setup / list / remove / env-check)
-npx hatch3r add <pack>    # Install a community pack (coming soon)
+npx hatch3r add <pack>    # Install a content pack (local path or installed npm package)
 ```
 
 `hatch3r cli-tools` and `hatch3r mcp` are side-door entry points for users who skipped a section during init. `cli-tools` defaults to the picker (`list`, `install`, `detect` are the other subcommands); `mcp` requires a subcommand (`setup`, `list`, `remove <id>`, `env-check`).
@@ -150,7 +150,7 @@ A four-phase pipeline (Research, Implement, Review Loop with reviewer + fixer at
 AGENTS.md (Linux Foundation AAIF spec, 60K+ repos as of January 2026) is the greatest-common-denominator markdown standard for agent instructions; it is consumed by 20+ tools including Cursor, Copilot, Codex, and Gemini CLI. hatch3r is complementary: AGENTS.md describes one file's content; hatch3r owns the entire generation pipeline that emits tool-native configurations across 5 artifact classes (rules, skills, commands, hooks, MCP servers) for 3 supported platforms (Claude Code, Cursor, GitHub Copilot). Three measurable differences:
 
 - **Scope:** AGENTS.md is one flat instruction file per repo; hatch3r generates platform-specific structured output (`.mdc` rules with frontmatter scoping for Cursor, `CLAUDE.md` with managed blocks for Claude Code, `.github/instructions/` + `.github/prompts/` for Copilot) plus board commands, MCP server configs, and event-driven hooks.
-- **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (29 agents + 66 rules + 53 skills + 31 commands + 7 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited weekly across 24 governance domains.
+- **Currency:** AGENTS.md content is hand-edited per project; hatch3r ships canonical content (30 agents + 66 rules + 53 skills + 31 commands + 7 hooks + 10 MCP servers — see [`governance/inventory.json`](governance/inventory.json)) audited each release across 24 governance domains.
 - **Adoption path:** AGENTS.md remains the spec hatch3r-emitted Cursor / Claude / Copilot configurations align with — the 1.9.0 hard-cut withdrew direct AGENTS.md emission per CONSTITUTION §6 Decision #12, but AAIF spec evolution feeds per-adapter feature work for the 3 supported adapters. Use AGENTS.md alone when one flat file suffices for your project; use hatch3r when you need the full content + tooling stack.
 
 ## Customization
@@ -176,6 +176,10 @@ Full documentation is at [docs.hatch3r.com](https://docs.hatch3r.com).
 - [Agentic Process](https://docs.hatch3r.com/docs/guides/agentic-process) -- Visual diagrams of init flow, board workflow, and agent orchestration
 - [Troubleshooting](https://docs.hatch3r.com/docs/troubleshooting) -- Common issues and solutions
 - [Changelog](CHANGELOG.md) -- Release history
+
+## Contributing
+
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for the development workflow and DCO sign-off requirement, [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) for community standards, and [GOVERNANCE.md](GOVERNANCE.md) for how decisions are made. Report security issues privately via [SECURITY.md](SECURITY.md).
 
 ## License
 

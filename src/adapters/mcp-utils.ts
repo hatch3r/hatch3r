@@ -185,6 +185,18 @@ export const DEFAULT_TRANSFORM_MAX_DEPTH = 32;
  * otherwise exhaust the call stack. Legitimate MCP config depth is <=5 levels,
  * so the default has wide headroom and will not trip on real inputs.
  *
+ * D2-SA2.1-08 (Cycle 12, D2, Pillar P4) — extensibility seam, recorded not acted
+ * on: the env-var format vocabulary (`"claude" | "shell" | "passthrough"`) is
+ * declared as a closed inline union in TWO places — this function's `format`
+ * parameter and `BaseAdapter.buildStdMcpEntries` (base.ts). Admitting a 4th adapter
+ * whose platform needs a novel env syntax would require widening BOTH unions plus
+ * this switch. At the committed 3-adapter scope (CONSTITUTION §6 Decision 12) the
+ * closed union is the leaner design (P4), so no abstraction is added ahead of need.
+ * If a 4th adapter is ever admitted, consolidate the format vocabulary here
+ * (alongside this function) so the base layer stops owning adapter-format literals —
+ * the translator modules (this file / adapterToolTranslator) already own the other
+ * per-platform vocabularies.
+ *
  * @throws {RangeError} When the input nesting exceeds `maxDepth`.
  */
 export function transformEnvVarSyntax(
@@ -307,7 +319,15 @@ export const MCP_ENV_VAR_FORMAT_PARITY: ReadonlyArray<McpEnvVarFormatRow> = [
   { adapter: "claude", surface: "mcp-headers", format: "claude" },
   { adapter: "cursor", surface: "mcp-env", format: "passthrough" },
   { adapter: "cursor", surface: "mcp-headers", format: "passthrough" },
-  { adapter: "copilot", surface: "mcp-env", format: "shell", viaEnvFile: true },
+  // D2-SA2.4-15 (Cycle 12, D2, P2): `format` records the exact envVarFormat the
+  // copilot adapter passes to `buildStdMcpEntries` — `"passthrough"` (copilot.ts,
+  // `buildStdMcpEntries(mcp, "passthrough", "${workspaceFolder}/.env.mcp")`), NOT a
+  // hypothetical inline syntax. `viaEnvFile` drops the `env` object entirely
+  // (base.ts), so no substitution is applied to env; the passthrough argument serves
+  // the header path. Was `"shell"` pre-D11-C-2 — a stale value that made this one row
+  // mean "hypothetical format" while every other row means "the format the adapter
+  // requests", the ambiguity a parity contract exists to remove.
+  { adapter: "copilot", surface: "mcp-env", format: "passthrough", viaEnvFile: true },
   { adapter: "copilot", surface: "mcp-headers", format: "passthrough", viaInputs: true },
 ] as const;
 
@@ -347,9 +367,11 @@ const ALLOWED_URL_SCHEMES = new Set(["http:", "https:"]);
 
 /**
  * Package-managers whose CLIs fetch a package from the network at launch
- * time, then execute it. Without an immutable version pin, every launch
- * resolves the latest published version and inherits any upstream
- * compromise (e.g., 2025 npm maintainer-account incidents).
+ * time, then execute it. With no version specifier — or the floating `latest`
+ * tag — every launch resolves the newest published version and inherits any
+ * upstream compromise (e.g., 2025 npm maintainer-account incidents). The gate
+ * this set drives is a no-floating-`latest` gate, NOT an immutability gate: see
+ * {@link checkVersionPin} for the exact flagged/accepted specifier classes.
  *
  * Two shapes are supported:
  * 1. **Single-command launchers** (`npx`, `uvx`, `pipx`, `bunx`) — the
@@ -378,6 +400,22 @@ export const ON_DEMAND_FETCH_LAUNCHERS = [
 const ON_DEMAND_FETCH_LAUNCHER_SET: ReadonlySet<string> = new Set(
   ON_DEMAND_FETCH_LAUNCHERS,
 );
+
+/**
+ * D2-SA2.4-04: launchers that resolve against the npm registry, where the
+ * `@scope/pkg` convention exists and the unscoped-name typosquat heuristic
+ * (with its "use a scoped package (@org/pkg)" advice) is valid. uvx and pipx
+ * resolve PyPI packages — `@scope/` is not a PyPI convention there, so applying
+ * the npm advice would be misleading. Their supply-chain signal is the
+ * version-pin + dependency-confusion escalation in checkVersionPin (which is
+ * already launcher-aware, D11-8), applied to every launcher below.
+ */
+const NPM_REGISTRY_LAUNCHERS: ReadonlySet<string> = new Set([
+  "npx",
+  "bunx",
+  "pnpm dlx",
+  "yarn dlx",
+]);
 
 /**
  * Detect whether an MCP server entry uses an on-demand fetch launcher and
@@ -535,37 +573,46 @@ export function validateMcpEntry(
       }
     }
 
-    const hasAutoYes = entry.args.some((a) => a === "-y" || a === "--yes");
-    if (hasAutoYes) {
-      const pkgArg = entry.args.find(
-        (a) => !a.startsWith("-") && a !== entry.command,
-      );
-      if (pkgArg && !pkgArg.startsWith("@")) {
-        warnings.push(
-          `MCP server "${name}" uses npx -y with unscoped package "${pkgArg}". ` +
-            `Unscoped packages are susceptible to typosquatting. Consider using a scoped package (@org/pkg).`,
-        );
-      }
-      // C7-H6 + C9-H53 (D15-SA15.5-F01, Pillar P6): Warn when an on-demand
-      // fetch launcher invokes a package without an immutable version
-      // pin. The 2025 npm supply-chain incident (qix maintainer compromise
-      // affecting 18 packages, 2.6B weekly downloads) and OWASP Top 10
-      // for Agentic Apps 2026 documented that unpinned launches resolve
-      // `latest` on every invocation and inherit any upstream compromise.
-      // `@latest` is treated as unpinned because it is a mutable tag,
-      // not an immutable version. The original gate covered npx only;
-      // C9-H53 extends coverage to uvx, pipx, bunx, pnpm dlx, and
-      // yarn dlx — every launcher in {@link ON_DEMAND_FETCH_LAUNCHERS}.
-      // Stays scoped to `-y`/`--yes` to preserve the prior contract that
-      // interactive (non-auto-confirm) invocations do not warn.
-      const launcher = detectFetchLauncher(entry.command, entry.args);
-      if (launcher !== null) {
+    // D2-SA2.4-04 (D15, P6): on-demand-fetch supply-chain gate (version pin +
+    // typosquat + dependency-confusion escalation). Detect the launcher FIRST,
+    // then scope the -y/--yes precondition to npx ONLY. Rationale: npx genuinely
+    // prompts before fetching an uncached package, so the historical C7-H6
+    // contract warns only for auto-confirmed npx. Every OTHER launcher
+    // (uvx/pipx/bunx/pnpm dlx/yarn dlx) auto-fetches-and-executes with no
+    // confirmation flag — uvx has no -y at all (astral-sh/uv#16600, accessed
+    // 2026-07-10) — so the prior `if (hasAutoYes)` guard made this gate (and the
+    // D15-25 unknown-name escalation) UNREACHABLE for 5 of its 6 launchers. Run
+    // it unconditionally for them. The package arg comes from
+    // findLauncherPackageArg (launcher-aware — the earlier ad-hoc first-non-flag
+    // find mis-identified `dlx` as the package for pnpm/yarn dlx).
+    // The 2025 npm supply-chain incident (qix maintainer compromise, 18 packages,
+    // 2.6B weekly downloads) and OWASP Top 10 for Agentic Apps 2026 motivate the
+    // gate; `@latest` is treated as unpinned (mutable tag, not an immutable pin).
+    const launcher = detectFetchLauncher(entry.command, entry.args);
+    if (launcher !== null) {
+      const hasAutoYes = entry.args.some((a) => a === "-y" || a === "--yes");
+      // npx is the only launcher that surfaces the package to the operator
+      // before fetching; the rest are non-interactive auto-fetch-and-execute.
+      const gateApplies = launcher !== "npx" || hasAutoYes;
+      if (gateApplies) {
         const launcherPkg = findLauncherPackageArg(
           entry.command,
           entry.args,
           launcher,
         );
         if (launcherPkg) {
+          // npm-registry launchers only: the "@scope/pkg" typosquat heuristic is
+          // npm-specific (uvx/pipx resolve PyPI, where checkVersionPin's
+          // escalation is the signal — see NPM_REGISTRY_LAUNCHERS).
+          if (
+            NPM_REGISTRY_LAUNCHERS.has(launcher) &&
+            !launcherPkg.startsWith("@")
+          ) {
+            warnings.push(
+              `MCP server "${name}" uses ${launcher} with unscoped package "${launcherPkg}". ` +
+                `Unscoped packages are susceptible to typosquatting. Consider using a scoped package (@org/pkg).`,
+            );
+          }
           const pinWarning = checkVersionPin(name, launcherPkg, launcher);
           if (pinWarning) warnings.push(pinWarning);
         }
@@ -615,9 +662,18 @@ export function validateMcpEntry(
   // D15 Medium (#15.44): Validate timeout if specified
   if (entry._timeout !== undefined) {
     if (typeof entry._timeout !== "number" || entry._timeout <= 0) {
+      // D2-SA2.4-06 (D2 / Pillar P5): state what the emission path actually does,
+      // not an un-performed remediation. An invalid _timeout is NOT substituted
+      // with a default here or downstream — the Claude emission (claude.ts) writes
+      // a `timeout` field only for a positive value, so an invalid one yields NO
+      // timeout field and the client applies its own default (Claude Code:
+      // MCP_TOOL_TIMEOUT, ~28h — not DEFAULT_MCP_TIMEOUT_MS). Clamping/substituting
+      // would require the adapter emission path, outside this validator's scope.
       warnings.push(
         `MCP server "${name}" has invalid timeout: ${entry._timeout}. ` +
-        `Timeout must be a positive number (milliseconds). Using default ${DEFAULT_MCP_TIMEOUT_MS}ms.`,
+        `Timeout must be a positive number (milliseconds). The invalid value is ` +
+        `not emitted — no timeout field is written, so the client applies its own ` +
+        `default (Claude Code falls through to MCP_TOOL_TIMEOUT, ~28h).`,
       );
     } else if (entry._timeout < MIN_HONORED_MCP_TIMEOUT_MS) {
       // D9-SA9.1-L / D15-SA15.5-F8 (Cycle 11 Wave 4, D9/D15, P3/P6): a
@@ -633,9 +689,14 @@ export function validateMcpEntry(
         `to apply a per-server bound.`,
       );
     } else if (entry._timeout > MAX_MCP_TIMEOUT_MS) {
+      // D2-SA2.4-06 (D2 / Pillar P5): the value is NOT capped — the Claude
+      // emission (claude.ts) writes `entry._timeout` verbatim for any positive
+      // value. MAX_MCP_TIMEOUT_MS is the advisory threshold that triggers this
+      // warning, not an enforced ceiling; the warning states the emitted reality.
       warnings.push(
         `MCP server "${name}" timeout (${entry._timeout}ms) exceeds maximum (${MAX_MCP_TIMEOUT_MS}ms). ` +
-        `Capping at ${MAX_MCP_TIMEOUT_MS}ms.`,
+        `The value is emitted uncapped — hatch3r does not clamp it, so the client ` +
+        `receives ${entry._timeout}ms as-is.`,
       );
     }
   }
@@ -679,13 +740,20 @@ export const CANONICAL_MCP_PACKAGES: ReadonlySet<string> = new Set([
 ]);
 
 /**
- * Check whether an on-demand-fetch-launched package argument carries an
- * immutable version pin.
+ * Check whether an on-demand-fetch-launched package argument is anchored to a
+ * version specifier rather than floating on `latest`/no version.
  *
- * Returns a warning string when the package is unpinned (no `@version` suffix) or
- * pinned to a mutable tag (`@latest`); returns `null` for any other case (a
- * pinned semver like `@1.2.3`, a range like `@^1.0.0`, a dist-tag like `@beta`,
- * or a tarball/git URL).
+ * D2-SA2.4-11 (D2 / Pillar P6): this is a no-floating-`latest` gate, NOT an
+ * immutability gate. It flags only the floating class — an unpinned package (no
+ * `@version` suffix) or the mutable `@latest` tag — and returns `null` for every
+ * other specifier: a pinned semver (`@1.2.3`), a semver range (`@^1.0.0`), a
+ * non-`latest` dist-tag (`@beta`), or a tarball/git URL. Ranges and dist-tags do
+ * re-resolve per launch and so are not strictly immutable, but they are accepted
+ * as deliberate author choices — flagging them is out of scope for this gate,
+ * which would otherwise warn on the common, intentional `@^1.0.0` pin. The
+ * contract language says "no floating `latest`", not "immutable", so the docs and
+ * the gate agree (this reword resolves the prior contract-vs-implementation
+ * contradiction rather than tightening the check, per D2-SA2.4-11).
  *
  * Handles both unscoped (`pkg-name`) and scoped (`@scope/pkg`) package arguments
  * by detecting the package version separator after the optional scope prefix.
@@ -919,12 +987,17 @@ const VALID_SERVER_NAME = /^[a-zA-Z0-9_-]+$/;
  *     character classes for spawn-based command construction.
  */
 export const DANGEROUS_ARG_CHARS =
-  // Explicit set: NUL through unit-separator (control chars including \n, \r, \t),
-  // DEL (0x7f), then shell metacharacters `| ; & ` $ ( )`, redirection/quoting
-  // `< > \ ' "`. Implemented as a single regex character class — no ranges over
-  // printable bytes, so the pattern cannot inadvertently subsume legitimate
-  // argument characters.
-  /[ -|;&`$()<>\\'"]/;
+  // Encoded with \x escapes, NOT raw control bytes (D2-SA2.4-08): a raw NUL byte
+  // made the whole file grep-blind (tooling classified it as binary) and left the
+  // class one editor/formatter pass from silent semantic corruption. The class is
+  // the C0 control block `\x00-\x1f` — its ONE range, and it spans control bytes
+  // only (\n \r \t included) — plus DEL `\x7f`, then the shell metacharacters
+  // `| ; & ` $ ( )` and redirection/quoting `< > \ ' "` enumerated individually.
+  // No range spans printable bytes, so the class cannot subsume a legitimate
+  // argument character. `DANGEROUS_ARG_CHARS.source` is pinned in the test suite,
+  // so any re-encoding (raw bytes, or a formatter that rewrites the escapes)
+  // trips a test rather than silently weakening or over-broadening the gate.
+  /[\x00-\x1f\x7f|;&`$()<>\\'"]/;
 
 /**
  * Result of {@link validateMcpServerArgs} — `ok: true` when every arg in the
@@ -945,6 +1018,45 @@ export interface McpServerArgsResult {
 }
 
 /**
+ * Documented-legitimate `args[]` idioms that carry a {@link DANGEROUS_ARG_CHARS}
+ * byte yet are not injection vectors (D2-SA2.4-07, D2 / Pillar P2). Both patterns
+ * full-match the WHOLE arg and exclude every OTHER dangerous byte, so a ref- or
+ * path-prefixed injection (`${env:V:-;rm}`, `C:\x;rm`) is NOT exempt and still
+ * refuses.
+ *
+ * (a) {@link CANONICAL_ENV_REF_ARG} — a canonical MCP env-var reference,
+ *     `${env:NAME}` or `${env:NAME:-default}`. Its only dangerous byte is `$`
+ *     (`{`/`}` are not in the class). This is the exact idiom the module's own
+ *     transformation layer emits into the whole entry ({@link transformEnvVarSyntax};
+ *     the whole-entry transform at cursor.ts / claude.ts) and that the MCP/Cursor
+ *     interpolation surface documents (cursor.com/docs/context/model-context-protocol),
+ *     so refusing it here contradicts the module's own design. NAME is a POSIX env
+ *     key ({@link VALID_ENV_KEY} body); the optional `:-default` excludes dangerous
+ *     bytes so a metacharacter smuggled into a default value still refuses.
+ * (b) {@link WINDOWS_PATH_ARG} — a Windows path, drive-letter (`C:\...`) or UNC
+ *     (`\\host\share`). Its only dangerous byte is `\`. Mirrors the C7.5-W2B2-H3
+ *     Windows posture already accepted for the `command` field of the SAME entries
+ *     — the asymmetry (command `C:\Program Files\nodejs\node.exe` accepted, the
+ *     identical path in args refused) is the finding. The tail excludes control
+ *     bytes and every dangerous byte except the `\` path separator.
+ */
+const CANONICAL_ENV_REF_ARG =
+  /^\$\{env:[A-Za-z_][A-Za-z0-9_]*(?::-[^}|;&`$()<>\\'"\x00-\x1f\x7f]*)?\}$/;
+const WINDOWS_PATH_ARG =
+  /^(?:[A-Za-z]:\\|\\\\)[^\x00-\x1f\x7f|;&`$()<>'"]*$/;
+
+/**
+ * Whether `arg` is one of the two documented-legitimate idioms
+ * ({@link CANONICAL_ENV_REF_ARG} / {@link WINDOWS_PATH_ARG}) exempt from the
+ * {@link DANGEROUS_ARG_CHARS} refusal despite carrying a dangerous byte. Consulted
+ * only AFTER a dangerous byte is found, so clean args never pay for the two extra
+ * regex tests.
+ */
+function isExemptArgIdiom(arg: string): boolean {
+  return CANONICAL_ENV_REF_ARG.test(arg) || WINDOWS_PATH_ARG.test(arg);
+}
+
+/**
  * Scan an MCP server entry's `args[]` for characters that no legitimate MCP
  * argument needs but every adversarial argv-injection payload requires.
  *
@@ -957,8 +1069,10 @@ export interface McpServerArgsResult {
  *
  * Returns `{ ok: true }` when:
  * - `entry.args` is absent or empty (nothing to scan), OR
- * - every arg is a string AND contains no character matched by
- *   {@link DANGEROUS_ARG_CHARS}.
+ * - every arg is a string AND either contains no character matched by
+ *   {@link DANGEROUS_ARG_CHARS}, OR is a documented-legitimate idiom exempted by
+ *   {@link isExemptArgIdiom} — a whole-arg `${env:NAME}` reference or a Windows
+ *   path — even though it carries a dangerous byte (D2-SA2.4-07).
  *
  * Returns `{ ok: false, reason, offendingArg, offendingIndex }` when:
  * - any arg is not a string (type-coercion guard), OR
@@ -1001,6 +1115,14 @@ export function validateMcpServerArgs(
     }
 
     if (DANGEROUS_ARG_CHARS.test(arg)) {
+      // D2-SA2.4-07 (D2 / Pillar P2): before refusing, exempt the two
+      // documented-legitimate idioms whose only dangerous byte is `$` (a whole-arg
+      // `${env:NAME}` / `${env:NAME:-default}` reference) or `\` (a Windows path).
+      // Both full-match the arg and exclude every other dangerous byte, so a
+      // ref-/path-prefixed injection still falls through to the refusal below.
+      if (isExemptArgIdiom(arg)) {
+        continue;
+      }
       // Truncate the offender so a binary blob does not flood the warning
       // stream — operators only need enough context to locate the entry.
       const display = arg.length > 64 ? arg.slice(0, 61) + "..." : arg;
@@ -1095,6 +1217,25 @@ export async function readMcpConfig(
     if (validateMcpConfig(parsed)) {
       const validServers: Record<string, McpServerEntry> = {};
       for (const [name, entry] of Object.entries(parsed.mcpServers)) {
+        // D2-SA2.4-13 (D2 / Pillar P5 Silent Failure Contract): validateMcpConfig
+        // only guarantees `mcpServers` is a non-null object — it does NOT
+        // shape-check individual entries, so an entry can be null, a primitive,
+        // or an array. Drop such an entry with an auditable per-entry warning
+        // instead of letting validateMcpServerArgs dereference `entry.args` and
+        // throw a TypeError that escapes to the file-level catch, converting a
+        // single malformed entry into whole-config loss ("Could not read MCP
+        // config" → zero servers). `rawEntry` is typed `unknown` so the shape
+        // checks narrow a genuinely untrusted value — the loop's declared
+        // `McpServerEntry` type is the unsound half of validateMcpConfig's guard.
+        const rawEntry: unknown = entry;
+        if (
+          typeof rawEntry !== "object" ||
+          rawEntry === null ||
+          Array.isArray(rawEntry)
+        ) {
+          warnings.push(`MCP server "${name}" entry dropped: not an object`);
+          continue;
+        }
         const nameWarning = validateServerName(name);
         if (nameWarning) {
           warnings.push(nameWarning);

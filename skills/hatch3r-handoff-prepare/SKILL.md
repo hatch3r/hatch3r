@@ -19,7 +19,7 @@ Task Progress:
 - [ ] Step 1: Gather session state (git_ref, files, tests, work_item)
 - [ ] Step 2: Compose body (8 required sections + user-tier markers)
 - [ ] Step 3: Validate against readiness rule
-- [ ] Step 4: Write atomically to .hatch3r/handoffs/active/<id>.md
+- [ ] Step 4: Write to .hatch3r/handoffs/active/<id>.md (through the capture gate when available)
 - [ ] Step 5: Confirm with path, summary, and Iteration Summary
 ```
 
@@ -104,7 +104,7 @@ A failed Required criterion is `errors[]` — refuse the write. A failed Recomme
 ## Step 4: Write
 
 1. Generate the id: `<YYYY-MM-DD>_T<HHmm>_<5hex>_<kebab-slug>` (e.g., `2026-05-17_T1430_a3f2c_issue-42-cache-refactor`). The 5-char hex segment is a random suffix that prevents accidental same-id overwrites within the same minute.
-2. Call `writeHandoff(agentsDir, handoff)` from `src/content/handoffs/index.ts`. The function performs an atomic temp+rename per the `safeWrite.ts` pattern under `HATCH3R_LOCK=1`.
+2. You are an LLM skill — you cannot call the `writeHandoff` TypeScript function (`src/content/handoffs/index.ts`) directly; it is the CLI-internal writer, not an agent call target. The durable route is the guarded shell entry point `hatch3r handoff capture --file <staged> --as <id>.md` (queued for authoring — D5-SA5.6-02), which re-verifies the `integrity:` digest, re-runs this readiness rule, and routes bytes through `writeHandoff` (atomic temp+rename per `src/merge/safeWrite.ts` under `HATCH3R_LOCK=1`). Until that command ships, execute the write with your platform tools: compose the file, `Write` it to `.hatch3r/handoffs/.staging/<id>.md`, re-check the readiness rule (criteria 1-7), then `Write` it to `.hatch3r/handoffs/active/<id>.md`. A raw `Write` does NOT carry the lock / atomic-rename guarantee — do not run concurrent handoff writes, and never assert atomicity you did not obtain.
 3. The handoff lands at `.hatch3r/handoffs/active/<id>.md`.
 
 **Status default:** `in-progress`. Use `open` if the work has not been started, or `handed-off` if explicitly transferring to another developer or agent.
@@ -136,7 +136,7 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 | Body exceeds 50 KB | List section byte counts; refuse write; suggest compressing `Work Done` history |
 | Required frontmatter field missing | Name the missing field; refuse write |
 | Duplicate active handoff for same `work_item` | If existing < 24h: surface path, refuse with hint; if ≥ 24h: **ASK** whether to supersede (writes `superseded_by` link in old) |
-| Injection pattern detected (P-LEARN-01..05) | List the matching pattern id; refuse write; instruct user to rephrase |
+| Injection or deny-pattern detected (P-LEARN-01..05, deny set per `scanForDeniedPatterns`) | List the matching pattern id or deny-set hit; refuse write; instruct user to rephrase |
 | `git_ref` does not match HEAD | Refuse write; advise running `git status` to confirm the working tree is in the expected state |
 | Schema validation failure | Surface the schema path and value; refuse write |
 
@@ -152,6 +152,6 @@ Then emit the canonical Iteration Summary block per `rules/hatch3r-iteration-sum
 
 - **Skill:** `hatch3r-handoff-resume` — load and resume a previously written handoff
 - **Agent:** `hatch3r-handoff-loader` — session-start agent that surfaces active handoffs
-- **Agent:** `hatch3r-handoff-preparer` — orchestrates this skill; invoked by `on-context-switch` hook and `/hatch3r-handoff prepare`
+- **Agent:** `hatch3r-handoff-preparer` — orchestrates this skill; invoked by `/hatch3r-handoff prepare` and by the context-health skill's Orange/Red delegation step
 - **Rule:** `hatch3r-handoff-readiness` — the pre-write checklist applied in Step 3
 - **Rule:** `hatch3r-iteration-summary` — source of the `Work Done` / `Work Remaining` / `Blockers` content

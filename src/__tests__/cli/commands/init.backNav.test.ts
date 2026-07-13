@@ -20,6 +20,13 @@ import { __testing as backableTesting } from "../../../cli/shared/backablePrompt
 // inquirer.prompt boundary, so they queue the BACK sentinel directly to
 // simulate a Shift+Tab keypress; Symbol.for("hatch3r.BACK") guarantees
 // identity holds across the mocked/production module boundary.
+//
+// This file covers the command-logic seam (step-machine + BACK routing) at the
+// inquirer.prompt boundary. The complementary in-process seam that renders the
+// forked prompt bodies themselves (keypress ordering, pagination, validation,
+// Y/N toggle, default-fill) lives in
+// `src/__tests__/cli/shared/backablePrompts.test.ts` (D3-SA3.2-02) — the two
+// seams are complementary, not redundant.
 vi.mock("inquirer", () => {
   class Separator {
     constructor(public readonly line: string) {}

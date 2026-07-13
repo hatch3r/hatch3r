@@ -5,6 +5,7 @@ description: Pre-implementation discovery gate (codebase pattern search) + post-
 tags: [anti-duplication, code-quality, floor:content-quality]
 precedence: high
 scope: always
+cache_friendly: true
 ---
 # hatch3r Anti-Duplication
 

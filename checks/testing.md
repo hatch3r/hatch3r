@@ -6,7 +6,7 @@ cache_friendly: true
 ---
 # Testing Check
 
-> **Severity vocabulary:** see [agents/shared/severity-mapping.md](../agents/shared/severity-mapping.md) for canonical 5-column mapping.
+> **Severity vocabulary:** see [agents/shared/severity-mapping.md](../agents/shared/severity-mapping.md) for canonical 6-column mapping.
 
 Review criteria for evaluating test coverage and quality in pull requests.
 

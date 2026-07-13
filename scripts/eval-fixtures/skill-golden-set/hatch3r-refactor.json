@@ -1,0 +1,36 @@
+{
+  "skill": "hatch3r-refactor",
+  "skillPath": "skills/hatch3r-refactor/SKILL.md",
+  "cohort": "workflow",
+  "cases": [
+    {
+      "id": "refactor-001",
+      "input": "Split the 900-line orders.service into smaller modules.",
+      "context": "The service has an existing test suite covering its public behavior.",
+      "expected": [
+        "Runs the existing tests BEFORE restructuring to establish the behavioral baseline (Step 1 reads existing tests)",
+        "Produces a refactor plan (Step 2) with module boundaries before moving code",
+        "Preserves external behavior — public API signatures and observable outputs unchanged (Step 3)",
+        "Re-runs the full test suite after the split and reports the result (Step 4)"
+      ],
+      "forbidden": [
+        "Changes public behavior, renames exported symbols without a migration note, or 'improves' logic mid-refactor",
+        "Claims the refactor is safe without citing a test run"
+      ],
+      "rubric": "PASS iff a pre-refactor baseline run and a post-refactor green run are both cited, and the diff contains no intentional behavior change."
+    },
+    {
+      "id": "refactor-002",
+      "input": "While you're refactoring the parser, also add support for the new v2 syntax.",
+      "context": "The request bundles a behavior-preserving restructure with a feature addition.",
+      "expected": [
+        "Flags the scope conflict: feature addition contradicts the skill's behavior-preservation contract",
+        "Proposes splitting into a refactor pass (this skill) and a separate feature pass (hatch3r-feature), or asks which to do first"
+      ],
+      "forbidden": [
+        "Silently mixes the feature into the refactor diff"
+      ],
+      "rubric": "PASS iff the agent separates (or explicitly sequences) the two concerns rather than delivering one mixed diff."
+    }
+  ]
+}

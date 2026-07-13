@@ -1,4 +1,4 @@
-import { rm } from "node:fs/promises";
+import { readdir, rm } from "node:fs/promises";
 import { join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
@@ -146,6 +146,30 @@ async function purgeUserState(rootDir: string, envMcpPresent: boolean): Promise<
     }
   }
   return purged;
+}
+
+/**
+ * D1-SA1.3-07: recursively collect every regular-file absolute path under
+ * `dir`. Returns `[]` when `dir` is absent (a repo may never have created
+ * `.hatch3r/handoffs/`). Used to enumerate the `--learnings` wipe targets into
+ * the pre-clean snapshot so the advertised `hatch3r rollback` can restore them:
+ * the snapshot module tombstones a bare directory path (restore = delete)
+ * rather than capturing its bytes (src/pipeline/snapshot.ts::createSnapshot),
+ * so the individual files must be listed. Uses the recursive-Dirent idiom from
+ * `src/adapters/canonical.ts::readGlobMd`; symlinked files/dirs are skipped so
+ * a link cannot pull an out-of-tree path into the snapshot.
+ */
+async function collectFilesRecursive(dir: string): Promise<string[]> {
+  let dirents: import("node:fs").Dirent[];
+  try {
+    dirents = await readdir(dir, { withFileTypes: true, recursive: true });
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw err;
+  }
+  return dirents
+    .filter((d) => d.isFile() && !d.isSymbolicLink())
+    .map((d) => join(d.parentPath, d.name));
 }
 
 export async function cleanCommand(
@@ -321,12 +345,28 @@ export async function cleanCommand(
   // `inventoryArtifacts` enumerates. A subsequent `hatch3r rollback
   // --session=<id>` restores all removed files (tombstone semantics do not
   // apply because every captured path existed at snapshot time).
+  // D1-SA1.3-07 / D6-M7: the two user-state directories `--learnings` wipes.
+  // Resolved once so the pre-clean snapshot capture below and the wipe (which
+  // runs after the snapshot) share the same targets.
+  const learningsDir = join(rootDir, HATCH3R_DIR, "learnings");
+  const handoffsDir = join(rootDir, HATCH3R_DIR, "handoffs");
   const cleanSnapshotPaths: string[] = inventory.adapterFiles.map((rel) => join(rootDir, rel));
   if (inventory.manifestPresent) {
     cleanSnapshotPaths.push(join(rootDir, HATCH3R_DIR, "hatch.json"));
   }
   if (inventory.worktreeInclude) {
     cleanSnapshotPaths.push(join(rootDir, WORKTREE_INCLUDE_FILE));
+  }
+  // D1-SA1.3-07: `--learnings` wipes learnings/ + handoffs/ AFTER this snapshot
+  // (see the wipe block below), yet the success summary unconditionally prints
+  // "Revert with: hatch3r rollback --session=<id>". Enumerate those files into
+  // the SAME snapshot so that advertised rollback restores them instead of
+  // silently leaving the wiped user state gone — a recovery attestation the
+  // snapshot could not otherwise honour.
+  if (wipeLearnings) {
+    for (const wipeDir of [learningsDir, handoffsDir]) {
+      cleanSnapshotPaths.push(...(await collectFilesRecursive(wipeDir)));
+    }
   }
   const cleanSnap = await withSnapshot(
     "clean",
@@ -352,8 +392,6 @@ export async function cleanCommand(
   // Default-preserved by `executeClean`; this branch is the documented
   // recovery path for poisoned sessions.
   if (wipeLearnings) {
-    const learningsDir = join(rootDir, HATCH3R_DIR, "learnings");
-    const handoffsDir = join(rootDir, HATCH3R_DIR, "handoffs");
     for (const dir of [learningsDir, handoffsDir]) {
       try {
         await rm(dir, { recursive: true, force: true });
@@ -383,8 +421,22 @@ export async function cleanCommand(
   // it deletes `.hatch3r/snapshots/`, so the pre-clean rollback session no
   // longer exists.
   if (opts.purge) {
+    // D1-SA1.3-14 (Cycle 12, Low): the irreversibility notice must fire on
+    // BOTH the interactive and the headless (`--yes`) path. It previously lived
+    // only inside the `!opts.yes` confirmation block, so `--yes --purge` deleted
+    // `.hatch3r/snapshots/` — destroying the pre-clean rollback session captured
+    // moments earlier at :371 — with no log line recording that the run became
+    // unrecoverable. Emitting it unconditionally, naming the doomed session id,
+    // makes the run's own record state what was destroyed BEFORE purgeUserState
+    // runs (clig.dev: communicate destructive actions). `warn` writes to stderr,
+    // so it does not corrupt the single JSON stdout document under --format json.
+    warn(
+      cleanSessionId
+        ? `--purge: deleting .hatch3r/ including snapshots and .env.mcp — the pre-clean rollback session ${cleanSessionId} will not survive.`
+        : "--purge: deleting .hatch3r/ including snapshots and .env.mcp — no rollback snapshot survives a purge.",
+    );
+
     if (!opts.yes) {
-      warn("--purge will delete .hatch3r/ (including snapshots — the pre-clean rollback session) and .env.mcp.");
       console.log(chalk.dim("  This is irreversible: no rollback snapshot survives a purge.\n"));
       const { confirmPurge } = await inquirer.prompt<{ confirmPurge: boolean }>([
         {

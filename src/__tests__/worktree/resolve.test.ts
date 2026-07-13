@@ -29,6 +29,7 @@ import {
 } from "../../worktree/index.js";
 import { readFileSync, existsSync } from "node:fs";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
+import { setVerbose } from "../../cli/shared/ui.js";
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
@@ -68,9 +69,10 @@ describe("resolvePatterns", () => {
     rmSync(repoDir, { recursive: true, force: true });
   });
 
-  it("returns empty array when patterns list is empty", async () => {
+  it("returns empty paths when patterns list is empty", async () => {
     const result = await resolvePatterns(repoDir, []);
-    expect(result).toEqual([]);
+    expect(result.paths).toEqual([]);
+    expect(result.error).toBeUndefined();
   });
 
   it("resolves gitignored files matching a pattern", async () => {
@@ -89,7 +91,7 @@ describe("resolvePatterns", () => {
     });
 
     const result = await resolvePatterns(repoDir, [".env"]);
-    expect(result).toContain(".env");
+    expect(result.paths).toContain(".env");
   });
 
   it("resolves directory patterns with trailing slash", async () => {
@@ -107,7 +109,7 @@ describe("resolvePatterns", () => {
     });
 
     const result = await resolvePatterns(repoDir, ["build/"]);
-    expect(result).toContain("build/out.js");
+    expect(result.paths).toContain("build/out.js");
   });
 
   it("returns empty array when no files match", async () => {
@@ -121,7 +123,8 @@ describe("resolvePatterns", () => {
     });
 
     const result = await resolvePatterns(repoDir, ["*.log"]);
-    expect(result).toEqual([]);
+    expect(result.paths).toEqual([]);
+    expect(result.error).toBeUndefined();
   });
 
   it("resolves multiple patterns at once", async () => {
@@ -139,14 +142,20 @@ describe("resolvePatterns", () => {
     });
 
     const result = await resolvePatterns(repoDir, [".env", "*.log"]);
-    expect(result).toContain(".env");
-    expect(result).toContain("app.log");
+    expect(result.paths).toContain(".env");
+    expect(result.paths).toContain("app.log");
   });
 
-  it("returns empty array on git error (invalid directory)", async () => {
+  // D1-SA1.10-03 (D1, P2): a hard git failure must be RETURNED to the caller
+  // (as `error`), not just logged and returned as an empty array — that is how
+  // `setupWorktree` surfaces the failure in `result.errors` instead of printing
+  // a success box on an empty include set.
+  it("returns paths:[] AND a structured error on git failure (invalid directory)", async () => {
     const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
     const result = await resolvePatterns("/nonexistent-dir-xyz", ["*.txt"]);
-    expect(result).toEqual([]);
+    expect(result.paths).toEqual([]);
+    expect(result.error).toBeTruthy();
+    expect(result.error).toMatch(/worktree pattern resolution/);
     consoleSpy.mockRestore();
   });
 });
@@ -435,6 +444,34 @@ describe("listWorktrees", () => {
   it("throws on git failure (non-repo)", () => {
     expect(() => listWorktrees("/nonexistent-dir-xyz")).toThrow();
   });
+
+  // D1-SA1.10-07 (D1, P5 — Silent Failure Contract): when a worktree is prunable
+  // (its directory deleted from disk but still tracked in .git/worktrees),
+  // realpathSync.native throws ENOENT. The best-effort separator-normalise
+  // fallback stays, but the swallowed failure now emits a --verbose diagnostic
+  // via recordWorktreeProbeFailure instead of vanishing.
+  it("emits a verbose diagnostic when a prunable worktree fails realpath canonicalization", () => {
+    const wtPath = join(mainRoot, WORKTREES_DIR, "feat-prunable");
+    addGitWorktree(mainRoot, "feat-prunable", wtPath);
+    // Delete the worktree dir WITHOUT `git worktree prune`, so git still lists
+    // it (flagged prunable) but realpathSync.native(wtPath) throws ENOENT.
+    rmSync(wtPath, { recursive: true, force: true });
+
+    setVerbose(true);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const entries = listWorktrees(mainRoot);
+      // The prunable entry is still enumerated (best-effort normalise kept).
+      expect(entries.some((e) => e.prunable)).toBe(true);
+      // Silent Failure Contract: the realpath failure emitted a diagnostic.
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("listWorktrees"),
+      );
+    } finally {
+      consoleSpy.mockRestore();
+      setVerbose(false);
+    }
+  });
 });
 
 describe("getWorktreeStatus", () => {
@@ -478,6 +515,40 @@ describe("getWorktreeStatus", () => {
   it("returns zeros (no throw) on missing path", () => {
     const s = getWorktreeStatus("/nonexistent-dir-xyz");
     expect(s).toEqual({ modified: 0, untracked: 0 });
+  });
+
+  // D1-SA1.10-07 (D1, P5 — Silent Failure Contract): the soft-probe catch must
+  // still emit a --verbose diagnostic when git fails, so a systemic failure
+  // (git missing from PATH, permission wall) is observable rather than silently
+  // badging every worktree "clean". Return value stays zeros (soft-probe
+  // semantics unchanged).
+  it("emits a verbose diagnostic when the git status probe fails", () => {
+    setVerbose(true);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const s = getWorktreeStatus("/nonexistent-dir-xyz");
+      expect(s).toEqual({ modified: 0, untracked: 0 });
+      expect(consoleSpy).toHaveBeenCalledWith(
+        expect.stringContaining("getWorktreeStatus(/nonexistent-dir-xyz)"),
+      );
+    } finally {
+      consoleSpy.mockRestore();
+      setVerbose(false);
+    }
+  });
+
+  // The diagnostic is gated on --verbose so a normal (non-verbose) run of the
+  // soft probe stays silent on stderr — no per-invocation noise.
+  it("stays silent on stderr when the probe fails and verbose is off", () => {
+    setVerbose(false);
+    const consoleSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const s = getWorktreeStatus("/nonexistent-dir-xyz");
+      expect(s).toEqual({ modified: 0, untracked: 0 });
+      expect(consoleSpy).not.toHaveBeenCalled();
+    } finally {
+      consoleSpy.mockRestore();
+    }
   });
 });
 

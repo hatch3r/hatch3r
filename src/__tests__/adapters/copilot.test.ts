@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { CopilotAdapter } from "../../adapters/copilot.js";
 import { createManifest } from "../../manifest/hatchJson.js";
-import type { HatchManifest } from "../../types.js";
+import type { CopilotMcpSandboxConfig, HatchManifest } from "../../types.js";
 import {
   MANAGED_BLOCK_START,
   MANAGED_BLOCK_END,
@@ -94,7 +94,7 @@ describe("CopilotAdapter", () => {
   // the X4/CD4 GLOBS-DROP regression broke, which emitted `applyTo: "conditional"`
   // and silently never auto-attached the rule. VS Code `applyTo` is a single
   // comma-separated glob string per
-  // https://code.visualstudio.com/docs/copilot/copilot-customization — pins the
+  // https://code.visualstudio.com/docs/agent-customization/custom-instructions — pins the
   // exact rendered value and asserts the scope keyword never leaks. Isolated
   // temp dir keeps the shared `FIXTURES_DIR` scoped-count assertion untouched.
   it("emits the real conditional glob set in applyTo, never the scope keyword", async () => {
@@ -423,7 +423,7 @@ Applies to API code and protobufs.`,
 
   // D9-C-2 (Cycle 10, Pillar P3): VS Code's MCP schema requires per-server
   // `type` discriminator. Verified against
-  // https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+  // https://code.visualstudio.com/docs/agents/reference/mcp-configuration
   // (accessed 2026-05-27). Every emitted server entry must carry
   // `type: "stdio"` or `type: "http"`.
   it("emits per-server `type` discriminator on every entry (D9-C-2)", async () => {
@@ -454,7 +454,7 @@ Applies to API code and protobufs.`,
   // NOT perform shell expansion — the prior `${env:VAR}` → `$VAR`
   // (shell) transform silently shipped each placeholder as a literal
   // string, breaking every secret-bearing STDIO MCP server. Verified
-  // against https://code.visualstudio.com/docs/copilot/reference/mcp-configuration
+  // against https://code.visualstudio.com/docs/agents/reference/mcp-configuration
   // (accessed 2026-05-27). `${workspaceFolder}/.env.mcp` matches the
   // existing `TOOL_SECRET_NOTES.copilot` UX promise that `.env.mcp` is
   // auto-loaded.
@@ -676,6 +676,63 @@ You are a test agent.`,
     }
   });
 
+  // D9-SA9.3-01 (Cycle 12, D9, P3): GitHub caps a custom-agent prompt (the
+  // Markdown below the YAML frontmatter) at 30,000 characters. An over-cap
+  // prompt is truncated or rejected with no signal, so the adapter emits an
+  // audit-visible warning naming the agent, its measured size, and the cap
+  // (Silent Failure Contract). The canonical-body trim that brings the four
+  // over-cap production agents back under the cap routes through the content
+  // lifecycle; this suite pins the adapter-side guard behavior.
+  describe("agent prompt-size cap (D9-SA9.3-01)", () => {
+    it("warns when an emitted .agent.md prompt exceeds the 30,000-char cap", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-cap-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        // ~34k chars of body → the below-frontmatter (managed-wrapped) prompt
+        // clears the 30,000-char cap.
+        const oversizedBody = "Oversized agent instruction body. ".repeat(1000);
+        await writeFile(
+          join(agentsDir, "agents", "big-agent.md"),
+          `---\nid: big-agent\ntype: agent\ndescription: A deliberately oversized agent for the cap guard\n---\n# Big Agent\n\n${oversizedBody}`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+
+        const emitted = outputs.find((o) => o.path === ".github/agents/hatch3r-big-agent.agent.md");
+        expect(emitted).toBeDefined();
+        const capWarning = adapter.warnings.find(
+          (w) => w.includes("hatch3r-big-agent.agent.md") && w.includes("30000"),
+        );
+        expect(capWarning).toBeDefined();
+        expect(capWarning).toContain("custom-agent limit");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not warn for an under-cap agent", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-cap-ok-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "agents", "small-agent.md"),
+          `---\nid: small-agent\ntype: agent\ndescription: A small agent\n---\n# Small Agent\n\nYou are a small agent.`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+
+        expect(
+          outputs.find((o) => o.path === ".github/agents/hatch3r-small-agent.agent.md"),
+        ).toBeDefined();
+        expect(adapter.warnings.some((w) => w.includes("custom-agent limit"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+  });
+
   // D9-16 (Cycle 11 Wave 3, D9, P3/P5): the hatch3r-internal capacity tiers
   // `standard`/`fast` are not Copilot picker names — Copilot silently falls back
   // to its default and the emitted `model:` is a dead field. The adapter omits
@@ -729,6 +786,71 @@ You are a test agent.`,
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  // D9-SA9.3-06 (Cycle 12, D9, P1/P5): the D9-16 recognizable-value gate omits any
+  // model outside the four provider prefixes — including valid non-prefix Copilot
+  // picker models (Microsoft MAI-Code-1-Flash, Moonshot Kimi-K2.7-Code, etc., per
+  // docs.github.com/en/copilot/reference/ai-models/supported-models, accessed
+  // 2026-07-12). A user-configured such model was dropped with no signal; the
+  // adapter now emits an audit-visible warning (Silent Failure Contract) while still
+  // omitting the field (safe fallback preserved) and staying quiet on the intended
+  // hatch3r tier-word omissions.
+  describe("unrecognized configured-model warning (D9-SA9.3-06)", () => {
+    it("warns and omits model: when a configured model is not Copilot-recognizable", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-drop-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "agents", "drop-agent.md"),
+          `---\nid: drop-agent\ntype: agent\ndescription: An agent pinned to a non-prefix Copilot model\n---\n# drop-agent\n\nYou are a test agent.`,
+          "utf-8",
+        );
+        // A real current Copilot picker model (Microsoft) matching none of the four
+        // provider prefixes, so the D9-16 gate drops it.
+        const manifest = makeManifest({ models: { agents: { "drop-agent": "MAI-Code-1-Flash" } } });
+        const outputs = await adapter.generate(agentsDir, manifest);
+
+        const agentFile = outputs.find((o) => o.path === ".github/agents/hatch3r-drop-agent.agent.md");
+        expect(agentFile).toBeDefined();
+        // Safe fallback preserved: no dead model: field is shipped.
+        const fm = agentFile!.content.slice(0, agentFile!.content.indexOf(MANAGED_BLOCK_START));
+        expect(fm).not.toContain("model:");
+        // But the drop is now audit-visible, naming the agent and the dropped value.
+        const dropWarning = adapter.warnings.find(
+          (w) => w.includes("hatch3r-drop-agent.agent.md") && w.includes("MAI-Code-1-Flash"),
+        );
+        expect(dropWarning).toBeDefined();
+        expect(dropWarning).toContain("picker default");
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
+
+    it("does not warn for the intended hatch3r tier-word omissions (standard/fast)", async () => {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-model-tierquiet-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        for (const [slug, tier] of [["std-agent", "standard"], ["fast-agent", "fast"]]) {
+          await writeFile(
+            join(agentsDir, "agents", `${slug}.md`),
+            `---\nid: ${slug}\ntype: agent\ndescription: A ${tier}-tier agent\nmodel: ${tier}\n---\n# ${slug}\n\nYou are a ${tier}-tier agent.`,
+            "utf-8",
+          );
+        }
+        const outputs = await adapter.generate(agentsDir, makeManifest());
+        expect(
+          outputs.filter((o) => /^\.github\/agents\/[^/]+\.agent\.md$/.test(o.path)).length,
+        ).toBeGreaterThanOrEqual(2);
+        // The tier words are hatch3r-internal placeholders, not user model choices —
+        // no drop warning, or the shipped agent corpus would warn on every sync.
+        expect(adapter.warnings.some((w) => w.includes("not a Copilot-recognizable"))).toBe(false);
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    });
   });
 
   // release/2.2.0: commands→prompts model emission. Copilot documents a
@@ -966,6 +1088,90 @@ You are a test agent.`,
     });
   });
 
+  // D9-SA9.3-02 (Cycle 12, D9, P6): the copilot adapter's two P6 enforcement
+  // controls carried zero assertions before this suite — (a) the D9-H-7
+  // orchestrator-only invocation gate (`disable-model-invocation: true` +
+  // `user-invocable: true` on the 5 orchestrator-driven agents, which stops
+  // Copilot auto-spawning implementer/fixer/reviewer/testability/security and
+  // bypassing the delegation protocol — the CHANGELOG #73 failure mode) and
+  // (b) the `## Copilot Enforcement Model` addendum inlined into
+  // copilot-instructions.md. A refactor that reordered the frontmatter builder,
+  // renamed COPILOT_ORCHESTRATOR_ONLY_AGENTS, or dropped the addendum from
+  // innerContent would remove a security control with a green suite; the
+  // snapshot tests are byte-diff (routinely regenerated with -u), so only a
+  // named assertion states the invariant. Field names verified against
+  // https://docs.github.com/en/copilot/reference/custom-agents-configuration
+  // (accessed 2026-07-10).
+  describe("P6 enforcement controls (D9-SA9.3-02)", () => {
+    async function runWithAgentId(
+      agentId: string,
+    ): Promise<Awaited<ReturnType<typeof adapter.generate>>> {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-p6gate-"));
+      const agentsDir = join(tempDir, "agents");
+      await mkdir(join(agentsDir, "agents"), { recursive: true });
+      await writeFile(
+        join(agentsDir, "agents", `${agentId}.md`),
+        `---\nid: ${agentId}\ntype: agent\ndescription: ${agentId} description\n---\n# ${agentId}\n\nBody.`,
+        "utf-8",
+      );
+      try {
+        return await adapter.generate(agentsDir, makeManifest());
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    // (a) invocation gate — present on every orchestrator-only agent so Copilot
+    // cannot auto-select it (both fields required: disable removes it from the
+    // model pool, user-invocable keeps deliberate human selection).
+    for (const agentId of ["reviewer", "implementer"] as const) {
+      it(`gates auto-invocation on orchestrator-only agent ${agentId} (D9-H-7)`, async () => {
+        const outputs = await runWithAgentId(agentId);
+        const file = outputs.find(
+          (o) => o.path === `.github/agents/hatch3r-${agentId}.agent.md`,
+        );
+        expect(file).toBeDefined();
+        const fm = file!.content.slice(0, file!.content.indexOf(MANAGED_BLOCK_START));
+        expect(fm).toContain("disable-model-invocation: true");
+        expect(fm).toContain("user-invocable: true");
+      });
+    }
+
+    // (a) negative — a non-orchestrator agent keeps neither gate field, so it
+    // stays model-auto-invocable (the gate is scoped to the 5 roles, not blanket).
+    it("does NOT gate a non-orchestrator agent (test-agent gets neither field)", async () => {
+      const outputs = await runWithAgentId("test-agent");
+      const file = outputs.find(
+        (o) => o.path === ".github/agents/hatch3r-test-agent.agent.md",
+      );
+      expect(file).toBeDefined();
+      const fm = file!.content.slice(0, file!.content.indexOf(MANAGED_BLOCK_START));
+      expect(fm).not.toContain("disable-model-invocation");
+      expect(fm).not.toContain("user-invocable");
+    });
+
+    // (b) enforcement addendum — the section header, its normative declaration,
+    // and all three self-detectable drift indicators reach copilot-instructions.md.
+    it("inlines the Copilot Enforcement Model addendum + all three drift indicators", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const instructions = outputs.find(
+        (o) => o.path === ".github/copilot-instructions.md",
+      );
+      expect(instructions).toBeDefined();
+      const body = instructions!.content;
+      expect(body).toContain("## Copilot Enforcement Model");
+      expect(body).toContain("are normative, not advisory");
+      expect(body).toContain("Self-detectable drift indicators");
+      // Indicator 1: missing pipeline-state header on a tracked Tier 2+ task.
+      expect(body).toContain("Missing pipeline-state header on a tracked Tier 2+ task");
+      // Indicator 2: a code-writing tool call before the Tier 3 Pre-Impl Summary.
+      expect(body).toContain("replace_string_in_file");
+      expect(body).toContain("Pre-Implementation Summary on a Tier 3 task");
+      // Indicator 3: an orchestrator Edit/Write not following an implementer SUCCESS.
+      expect(body).toContain("did not immediately follow a SUCCESS report from");
+    });
+  });
+
   // ── Wave 5 (CLI-tooling pivot, plan §4.6) ───────────────────────
   //
   // Copilot's skills surface is filtered by `manifest.cliTools.selected` via
@@ -1098,7 +1304,7 @@ You are a test agent.`,
   // D3-M1 (Cycle 10 Wave-3 Medium rollover): adapters had no documented
   // error-path coverage. Pipeline timeouts surface as a pre-aborted
   // AbortSignal; `BaseAdapter.throwIfSignalAborted` is the documented
-  // contract (see src/adapters/base.ts:321). Pin the contract here so any
+  // contract (see src/adapters/base.ts::throwIfSignalAborted). Pin the contract here so any
   // future change that silently swallows the signal cannot regress.
   describe("error paths", () => {
     it("rejects with the abort reason when the signal is pre-aborted", async () => {
@@ -1166,5 +1372,235 @@ You are a test agent.`,
       expect(instructions!.content).toContain("confidence floor=any");
       expect(instructions!.content).not.toContain("confidence floor=high");
     });
+  });
+});
+
+/**
+ * D2-SA2.4-01 (Cycle 12 Wave 2, D2, P3): an mcp-granted agent's emitted Copilot
+ * `tools:` allowlist must carry a per-server `<server>/*` grant when MCP servers
+ * are selected. Copilot has no `mcp-servers` frontmatter primitive in VS Code/IDE
+ * custom agents, so the `tools:` list is the only MCP grant mechanism — an
+ * enumerated list without `<server>/*` tokens excludes every MCP tool.
+ */
+describe("mcp-granted agent tools frontmatter carries per-server grants (D2-SA2.4-01)", () => {
+  async function writeMcpAgentRoot(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-copilot-mcp-tools-"));
+    const agentsDir = join(root, "agents");
+    await mkdir(agentsDir, { recursive: true });
+    // id `researcher` → emitted id `hatch3r-researcher`, whose AGENT_TOOL_POLICIES
+    // grant includes the `mcp` category (read+search+web+mcp).
+    await writeFile(
+      join(agentsDir, "researcher.md"),
+      "---\nid: researcher\ntype: agent\ndescription: Read-only research agent.\n---\n# Researcher\n\nResearch body.\n",
+      "utf-8",
+    );
+    const mcpDir = join(root, "mcp");
+    await mkdir(mcpDir, { recursive: true });
+    await writeFile(
+      join(mcpDir, "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          context7: { _description: "Test Context7 MCP", _trust_bypass: true, url: "https://mcp.context7.com/" },
+          github: { _description: "Test GitHub MCP", _trust_bypass: true, url: "https://api.githubcopilot.com/mcp/" },
+        },
+      }),
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("emits <server>/* in the tools: array for each selected server", async () => {
+    const root = await writeMcpAgentRoot();
+    try {
+      const manifest = createManifest({
+        tools: ["copilot"],
+        mcpServers: ["context7", "github"],
+        features: { mcp: true },
+      });
+      const outputs = await new CopilotAdapter().generate(root, manifest);
+      const agentOut = outputs.find((o) => o.path === ".github/agents/hatch3r-researcher.agent.md");
+      expect(agentOut, "expected the researcher agent output").toBeDefined();
+      const toolsLine = agentOut!.content.split("\n").find((l) => l.startsWith("tools:")) ?? "";
+      expect(toolsLine).toContain("\"context7/*\"");
+      expect(toolsLine).toContain("\"github/*\"");
+      // Additive — the read-only base grant survives alongside the MCP tokens.
+      expect(toolsLine).toContain("\"read\"");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("emits no <server>/* token when the MCP feature is off, even with servers listed (gate)", async () => {
+    const root = await writeMcpAgentRoot();
+    try {
+      const manifest = createManifest({
+        tools: ["copilot"],
+        mcpServers: ["context7"],
+        features: { mcp: false },
+      });
+      const outputs = await new CopilotAdapter().generate(root, manifest);
+      const agentOut = outputs.find((o) => o.path === ".github/agents/hatch3r-researcher.agent.md");
+      expect(agentOut).toBeDefined();
+      const toolsLine = agentOut!.content.split("\n").find((l) => l.startsWith("tools:")) ?? "";
+      expect(toolsLine).not.toContain("/*");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// D9-SA9.3-08 / CL-2 U11 (Cycle 12, D9, P6): opt-in VS Code MCP sandbox
+// hardening — per-server `sandboxEnabled: true` (stdio-only) + the top-level
+// `sandbox` rules object, per
+// code.visualstudio.com/docs/agents/reference/mcp-configuration (accessed
+// 2026-07-12). Default OFF: the sandbox is default-deny on fs/network, so
+// blanket enablement would break network-reaching stdio servers.
+describe("CopilotAdapter MCP sandbox (D9-SA9.3-08 / CL-2 U11)", () => {
+  /**
+   * Canonical root with one stdio server and one (pin-bypassed) HTTP server so
+   * both transport branches of the sandbox gate are exercised.
+   */
+  async function writeSandboxRoot(): Promise<string> {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-copilot-u11-sandbox-"));
+    const root = join(tempDir, "agents");
+    await mkdir(join(root, "mcp"), { recursive: true });
+    await writeFile(
+      join(root, "mcp", "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          "local-tools": {
+            _description: "STDIO test server",
+            command: "npx",
+            args: ["-y", "local-tools-mcp"],
+          },
+          github: {
+            _description: "HTTP test server",
+            _trust_bypass: true,
+            url: "https://api.githubcopilot.com/mcp/",
+          },
+        },
+      }),
+      "utf-8",
+    );
+    return root;
+  }
+
+  function sandboxManifest(mcpSandbox?: CopilotMcpSandboxConfig): HatchManifest {
+    const manifest = createManifest({
+      tools: ["copilot"],
+      mcpServers: ["local-tools", "github"],
+      features: { mcp: true },
+    });
+    if (mcpSandbox !== undefined) manifest.copilot = { mcpSandbox };
+    return manifest;
+  }
+
+  async function emittedMcp(root: string, manifest: HatchManifest, adapter = new CopilotAdapter()) {
+    const outputs = await adapter.generate(root, manifest);
+    const mcpOut = outputs.find((o) => o.path === ".vscode/mcp.json");
+    expect(mcpOut, "expected .vscode/mcp.json output").toBeDefined();
+    return JSON.parse(mcpOut!.content) as {
+      inputs?: Array<Record<string, unknown>>;
+      servers: Record<string, Record<string, unknown>>;
+      sandbox?: Record<string, unknown>;
+    };
+  }
+
+  it("emits neither sandboxEnabled nor a top-level sandbox object by default (opt-in posture)", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const parsed = await emittedMcp(root, sandboxManifest());
+      expect(parsed.sandbox).toBeUndefined();
+      for (const server of Object.values(parsed.servers as Record<string, Record<string, unknown>>)) {
+        expect(server.sandboxEnabled).toBeUndefined();
+      }
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it('servers: "all" flags every stdio entry and never an HTTP entry', async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const parsed = await emittedMcp(root, sandboxManifest({ servers: "all" }));
+      expect(parsed.servers["local-tools"].sandboxEnabled).toBe(true);
+      // HTTP entries are outside the sandboxEnabled surface (stdio-only).
+      expect(parsed.servers.github.sandboxEnabled).toBeUndefined();
+      // No rules configured — no top-level sandbox object.
+      expect(parsed.sandbox).toBeUndefined();
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("emits the top-level sandbox rules object when a named stdio server is sandboxed", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const rules = {
+        filesystem: { allowWrite: ["${workspaceFolder}"] },
+        network: { allowedDomains: ["api.github.com"] },
+      };
+      const parsed = await emittedMcp(
+        root,
+        sandboxManifest({ servers: ["local-tools"], rules }),
+      );
+      expect(parsed.servers["local-tools"].sandboxEnabled).toBe(true);
+      expect(parsed.sandbox).toEqual(rules);
+      // Top-level key set stays schema-exact: inputs?/servers/sandbox only.
+      for (const key of Object.keys(parsed)) {
+        expect(["inputs", "servers", "sandbox"]).toContain(key);
+      }
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("warns and skips a named HTTP server (sandboxEnabled is stdio-only)", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const adapter = new CopilotAdapter();
+      const parsed = await emittedMcp(root, sandboxManifest({ servers: ["github"] }), adapter);
+      expect(parsed.servers.github.sandboxEnabled).toBeUndefined();
+      expect(
+        adapter.warnings.some((w) => w.includes("mcpSandbox") && w.includes("stdio servers only")),
+      ).toBe(true);
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("warns on a named server that is not emitted at all", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const adapter = new CopilotAdapter();
+      const parsed = await emittedMcp(root, sandboxManifest({ servers: ["ghost-server"] }), adapter);
+      expect(parsed.sandbox).toBeUndefined();
+      expect(
+        adapter.warnings.some((w) => w.includes('mcpSandbox names server "ghost-server"')),
+      ).toBe(true);
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("omits the rules object with a warning when no server ended up sandboxed (no dead config)", async () => {
+    const root = await writeSandboxRoot();
+    try {
+      const adapter = new CopilotAdapter();
+      const parsed = await emittedMcp(
+        root,
+        sandboxManifest({
+          servers: ["github"],
+          rules: { network: { allowedDomains: ["api.github.com"] } },
+        }),
+        adapter,
+      );
+      expect(parsed.sandbox).toBeUndefined();
+      expect(
+        adapter.warnings.some((w) => w.includes("no emitted server was sandboxed")),
+      ).toBe(true);
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
   });
 });

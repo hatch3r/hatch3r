@@ -11,6 +11,12 @@ export type HookEvent =
   | "file-save"
   | "session-start"
   | "pre-push"
+  // worktree-create / worktree-remove are feature-emitted, not hook-file-declared:
+  // the claude adapter hardcodes them from the worktree feature (src/adapters/
+  // claude.ts), and no canonical hooks/*.md file declares either event (the 7 hook
+  // files cover the other 7 events). They stay in the union to satisfy the
+  // Record<NativeHookEvent, string> completeness check in the adapter event-maps;
+  // no hook-file emission path is expected to use them (D11-SA11.4-04, Cycle 12).
   | "worktree-create"
   | "worktree-remove"
   | "review-loop-cap";

@@ -152,3 +152,52 @@ export function finishCommand(format: CliOutputFormat, outcome: CommandOutcome):
     printTimingSummary(outcome.startMs);
   }
 }
+
+/** Normalized cross-command outcome — the single field a CI author can branch on. */
+export type NormalizedOutcome = "passed" | "partial" | "failed";
+
+/**
+ * D10-SA10.2-02 (D10, P1): build a self-identifying JSON envelope for the
+ * LEGACY direct-`emitJson` sites (status/verify/validate/explain/update/init).
+ *
+ * Those commands predate {@link finishCommand} and keep their own
+ * domain-specific `{Command}JsonOutput` schemas built around a raw `emitJson`
+ * call, so their envelopes historically omitted the `command` field the
+ * standardized {@link finishCommand} envelope guarantees and encoded the
+ * pass/fail concept in mutually-incompatible `status` vocabularies
+ * (`in-sync`/`drift`, `pass`/`fail`, `passed`/`failed`). A CI consumer could
+ * not key documents by `.command` nor write one uniform outcome check across
+ * the pass/fail commands it chains together.
+ *
+ * This builder closes both gaps WITHOUT a breaking rename of any existing
+ * `status` value:
+ *   - it appends `command`, `hatch3rVersion`, and `timestamp` AFTER the spread
+ *     of `fields` — matching {@link finishCommand}'s spread order — so a legacy
+ *     envelope becomes self-identifying and those identity/provenance fields
+ *     can never be clobbered by a `fields` key of the same name;
+ *   - when an `outcome` is supplied it adds the normalized
+ *     {@link NormalizedOutcome} tri-state alongside the domain-specific
+ *     `status` the command already emits, giving CI one stable branch signal.
+ *
+ * Adding keys is a pure additive change (breaks no consumer that reads the
+ * existing fields). The domain-specific `status` in `fields` is preserved
+ * verbatim — this builder never renames it.
+ *
+ * @param command  Command identity for the envelope (e.g. "status", "verify").
+ * @param fields   The command's existing JSON payload (its domain `status` +
+ *                 data fields), spread first so it survives the append.
+ * @param opts.outcome Optional normalized tri-state to add as `outcome`.
+ */
+export function buildJsonEnvelope(
+  command: string,
+  fields: Record<string, unknown>,
+  opts: { outcome?: NormalizedOutcome } = {},
+): Record<string, unknown> {
+  return {
+    ...fields,
+    ...(opts.outcome !== undefined ? { outcome: opts.outcome } : {}),
+    command,
+    hatch3rVersion: HATCH3R_VERSION,
+    timestamp: new Date().toISOString(),
+  };
+}

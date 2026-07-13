@@ -38,6 +38,50 @@ vi.mock("../../../cliTools/detect.js", () => ({
   probeBin: vi.fn().mockResolvedValue(""),
 }));
 
+// D3-SA3.2-15 (D3, P5/CQ5): silence ONLY the ora spinner. createSpinner writes
+// progress chrome ("[1/4] Resolving canonical content… ✔") to raw process.stderr
+// (src/cli/shared/ui.ts pins the ora stream to stderr), so it bypasses the
+// console spies below and interleaves with the vitest reporter stream. Partial-
+// mock so createSpinner is a no-op while info()/isQuiet()/every other ui export
+// stays real — the tip assertion here (info → console.log) depends on that.
+vi.mock("../../../cli/shared/ui.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("../../../cli/shared/ui.js")>();
+  return {
+    ...actual,
+    createSpinner: vi.fn(() => ({
+      start: vi.fn(),
+      succeed: vi.fn(),
+      fail: vi.fn(),
+      warn: vi.fn(),
+      stop: vi.fn(),
+      info: vi.fn(),
+      stopAndPersist: vi.fn(),
+      clear: vi.fn(),
+      text: "",
+    })),
+  };
+});
+
+// D3-SA3.2-11 (D3, CQ5 / P1) / CI-RECON-04: init's interactive flow now refuses
+// to run when stdin is not a TTY (non-TTY preflight, src/cli/commands/init.ts).
+// Under vitest stdin is not a TTY, so the interactive tip test below would trip
+// that guard before reaching its mocked prompts. Force `process.stdin.isTTY =
+// true` per test and restore it afterwards — the established pattern from
+// src/__tests__/cli/init.test.ts's file-level hook. `--yes` short-circuits the
+// gate, so the headless test is unaffected either way.
+let savedStdinIsTTY: boolean | undefined;
+beforeEach(() => {
+  savedStdinIsTTY = process.stdin.isTTY;
+  (process.stdin as { isTTY?: boolean }).isTTY = true;
+});
+afterEach(() => {
+  if (savedStdinIsTTY === undefined) {
+    delete (process.stdin as { isTTY?: boolean }).isTTY;
+  } else {
+    (process.stdin as { isTTY?: boolean }).isTTY = savedStdinIsTTY;
+  }
+});
+
 describe("init post-init tip", () => {
   let initCommand: (opts?: { tools?: string; yes?: boolean }) => Promise<void>;
   let tempDir: string;

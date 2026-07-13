@@ -200,3 +200,53 @@ describe("renderCliToolSkillBody — common contract", () => {
     expect(body).toContain("command -v sg");
   });
 });
+
+describe("renderCliToolSkillBody — authored-section channel (D21-SA21.7-03 generate-as-source-of-truth)", () => {
+  // The renderer could previously ONLY emit `<placeholder — replaced in Wave 4>`
+  // for Recipes / Wrong Choice / Alternatives, so regenerating any of the five
+  // hand-authored standalone skills reverted their authored prose to
+  // placeholders (D21-SA21.7-03 / D21-SA21.5-02 generator-marker footgun). The
+  // optional `authored` argument closes that: the generator can pass the
+  // on-disk authored sections and regeneration preserves them.
+  it("emits authored Recipes/Wrong-Choice/Alternatives verbatim instead of placeholders", () => {
+    const jq = AVAILABLE_CLI_TOOLS.jq as CliToolMeta;
+    const body = renderCliToolSkillBody(jq, "mac", {
+      recipes: "```bash\njq -r '.[].name' inventory.json\n```\nAuthored recipe body.",
+      wrongChoice: "- Authored wrong-choice guidance.",
+      alternatives: "| Tool | When |\n|------|------|\n| yq | YAML |",
+    });
+    expect(body).toContain("Authored recipe body.");
+    expect(body).toContain("Authored wrong-choice guidance.");
+    expect(body).toContain("| yq | YAML |");
+    // No scaffold sentinel survives once every authored section is supplied.
+    expect(body).not.toContain("<placeholder — replaced in Wave 4>");
+  });
+
+  it("falls back to the scaffold placeholder for any section left unauthored", () => {
+    const jq = AVAILABLE_CLI_TOOLS.jq as CliToolMeta;
+    // Only Recipes authored; Wrong Choice + Alternatives fall back.
+    const body = renderCliToolSkillBody(jq, "mac", { recipes: "Authored recipe only." });
+    expect(body).toContain("Authored recipe only.");
+    const placeholderCount = (body.match(/<placeholder — replaced in Wave 4>/g) ?? []).length;
+    expect(placeholderCount).toBe(2);
+  });
+
+  it("treats a whitespace-only authored override as unauthored (scaffold fallback)", () => {
+    const jq = AVAILABLE_CLI_TOOLS.jq as CliToolMeta;
+    const body = renderCliToolSkillBody(jq, "mac", {
+      recipes: "   \n  ",
+      wrongChoice: "",
+    });
+    const placeholderCount = (body.match(/<placeholder — replaced in Wave 4>/g) ?? []).length;
+    expect(placeholderCount).toBe(3);
+  });
+
+  it("is backward-compatible: omitting `authored` emits all three placeholders (unchanged generator contract)", () => {
+    const jq = AVAILABLE_CLI_TOOLS.jq as CliToolMeta;
+    const withoutArg = renderCliToolSkillBody(jq, "mac");
+    const withUndefined = renderCliToolSkillBody(jq, "mac", undefined);
+    expect(withoutArg).toBe(withUndefined);
+    const placeholderCount = (withoutArg.match(/<placeholder — replaced in Wave 4>/g) ?? []).length;
+    expect(placeholderCount).toBe(3);
+  });
+});

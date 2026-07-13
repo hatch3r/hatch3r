@@ -63,7 +63,7 @@ describe("classifyCliError (D1-SA1.8.1)", () => {
   });
 
   // ────────────────────────────────────────────────────────────────────────
-  // D8-2 (Cycle 11 Wave 2, P1): commander 14.x raises a CommanderError whose
+  // D8-2 (Cycle 11 Wave 2, P1): commander 15.x raises a CommanderError whose
   // stable `name`/`code` identify the failure class, and whose *message* is
   // lowercase ("unknown option '--x'", "... argument 'z' is invalid"). The
   // prior capitalized-substring heuristic ("Invalid"/"Unknown") missed every

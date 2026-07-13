@@ -22,7 +22,7 @@
  *   - `readManifest`, `writeManifest`, `readMaturityTier` (src/manifest/hatchJson.ts)
  *   - `MATURITY_TIER_RANK`, `DEFAULT_MATURITY_TIER` (src/types.ts)
  *
- * The gate funnel is tier-aware (F20.2.A1, Decision 4 / #16): `solo` (default)
+ * The gate funnel is tier-aware (F20.2.A1, Decision 16): `solo` (default)
  * is the Cycle-9 baseline; `team` | `scaleup` | `enterprise` progressively
  * promote References, impact-horizon, and agent tool-grant baseline checks from
  * gentle warnings to strict failures.
@@ -113,7 +113,7 @@ export interface UserContentArtifact {
    */
   tools?: { allowed?: string[]; denied?: string[] };
   /**
-   * Project maturity tier (Decision 4 / #16) the artifact is authored against.
+   * Project maturity tier (Decision 16) the artifact is authored against.
    * Drives the tier-aware floor in {@link runUserContentGates}: `solo` (default)
    * keeps the Cycle-9 baseline gate set; `team` | `scaleup` | `enterprise`
    * progressively promote gentle nudges to strict failures. When omitted,
@@ -159,8 +159,8 @@ const MIN_DESCRIPTION_LENGTH = 60;
  * the map (defensive — every value of {@link UserArtifactType} is keyed).
  *
  * Exported (F20.1.E1) as the single source of truth so the D20.2 audit-doc
- * lean-threshold row (`governance/audit/domains/D20-user-content-authoring.md`
- * line 46) can be round-tripped against the runtime values by a CI unit test —
+ * lean-threshold row (`governance/audit/domains/D20-user-content-authoring.md`)
+ * can be round-tripped against the runtime values by a CI unit test —
  * doc-vs-runtime drift becomes a test failure rather than a silent inconsistency.
  */
 export const LEAN_LINE_THRESHOLDS: Record<UserArtifactType, number> = {
@@ -261,8 +261,10 @@ function agentToolGrantBaselineMessage(allowedWidth: number): string {
  * Valid pillar identifiers for a user artifact's `pillars` frontmatter array
  * (F20.1.A2, F20.2.A2). The two-axis framework (CONSTITUTION §2A/§2B, Key
  * Design Decision 15 / 2.0.0) accepts either a governance-axis pillar (P1–P8)
- * OR a content-quality-axis pillar (CQ1–CQ9). The orchestrator
- * (`commands/hatch3r-create.md`) collects P1–P8; the prior gate text said
+ * OR a content-quality-axis pillar (CQ1–CQ10 — CQ10 Product & Spec Quality was
+ * ratified in CONSTITUTION §2B by EVOLVE run 21ec6aa3, 2026-07-09). The
+ * orchestrator (`commands/hatch3r-create.md`) collects the P1–P8 ∪ CQ1–CQ10
+ * union at Step 1.4a; the prior gate text said
  * "[P1...P6]" — drift the audit flagged. `validateStructuredPillars` rejects
  * any value outside this union so the advertised enum and the enforced enum
  * match. The error string lists the union and offers a Levenshtein
@@ -286,16 +288,17 @@ const VALID_PILLAR_IDS: readonly string[] = [
   "CQ7",
   "CQ8",
   "CQ9",
+  "CQ10",
 ];
 
 /**
  * Strict validator for a structured `pillars` frontmatter array (F20.1.A2 /
  * F20.2.A2). Rejects any entry outside the two-axis union (P1–P8 governance,
- * CQ1–CQ9 content-quality) so the advertised enum and the enforced enum match.
+ * CQ1–CQ10 content-quality) so the advertised enum and the enforced enum match.
  * Mirrors `validateStructuredTools`: returns one violation string per offending
  * entry, each listing the valid union.
  */
-function validateStructuredPillars(pillars: unknown): string[] {
+export function validateStructuredPillars(pillars: unknown): string[] {
   if (!Array.isArray(pillars)) {
     return [
       `Invalid \`pillars\` field — expected an array of pillar ids (got ${typeof pillars})`,
@@ -317,6 +320,85 @@ function validateStructuredPillars(pillars: unknown): string[] {
     }
   }
   return violations;
+}
+
+// ── Shared single-source gate decisions (D20-SA20.2-02) ────────────
+//
+// These pure helpers each return a violation message (or `undefined` when the
+// input satisfies the gate) and leave the strict-vs-gentle severity choice to
+// the caller — the same single-source pattern already applied to the agent
+// tool-grant baseline ({@link agentToolGrantOverBaseline}). The in-memory funnel
+// ({@link runUserContentGates}) consumes them so the decision logic and message
+// text live in exactly one place. The CI-facing `validateUserContent`
+// (`src/cli/commands/validate.ts`) is the intended second consumer: it currently
+// hand-rolls divergent copies of these gates (a flat 120-line lean cap,
+// warning-only charter/pillar dispositions, the stale `[P1...P6]` enum, and a
+// missing tags surface), which return contradictory verdicts on identical input.
+// Routing that surface through these exports closes divergence points a/b/c/d/e/f
+// from the finding table (the tier-aware floor and injection scan wiring on the
+// CI surface remain follow-up work — they depend on threading the maturity tier
+// into validateUserContent, whose file is edited under a separate work unit).
+
+/**
+ * quality_charter reference gate (D20-SA20.2-02 point b). A user artifact must
+ * either carry a `quality_charter` frontmatter key or reference the charter in
+ * its body. Returns the strict-gate message when neither is present, `undefined`
+ * otherwise.
+ */
+export function qualityCharterViolation(
+  frontmatter: Record<string, unknown>,
+  body: string,
+): string | undefined {
+  if (!("quality_charter" in frontmatter) && !/quality[_-]charter/i.test(body)) {
+    return "Missing quality_charter reference — add `quality_charter: agents/shared/quality-charter.md` to frontmatter or reference it in the body";
+  }
+  return undefined;
+}
+
+/**
+ * Pillar-declaration gate (D20-SA20.2-02 points c/d/e). Honors all THREE
+ * satisfaction surfaces the D20.2 checklist names — a non-empty `pillars`
+ * frontmatter array, a `**Pillars:**`/`## Pillar` body line, OR a
+ * `P1`…`P8`/`CQ1`…`CQ10` token carried directly in the `tags` array (F20.2.B3).
+ * Returns the two-axis-union message — NOT the pre-fix `[P1...P6]` enum
+ * (F20.2.A2) — when none of the three is present, `undefined` otherwise.
+ */
+export function pillarDeclarationViolation(
+  frontmatter: Record<string, unknown>,
+  body: string,
+): string | undefined {
+  const hasPillarFm =
+    Array.isArray(frontmatter.pillars) && frontmatter.pillars.length > 0;
+  const hasPillarBody =
+    /(^|\n)\s*##\s*Pillar/i.test(body) || /\*\*Pillars?:\*\*/i.test(body);
+  const hasPillarTags =
+    Array.isArray(frontmatter.tags) &&
+    frontmatter.tags.some((t) => /^(?:P[1-8]|CQ(?:[1-9]|10))$/.test(String(t)));
+  if (!hasPillarFm && !hasPillarBody && !hasPillarTags) {
+    return "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ10]` to frontmatter, a `P1...P8`/`CQ1...CQ10` tag in `tags`, or a `**Pillars:**` line in the body";
+  }
+  return undefined;
+}
+
+/**
+ * Per-type lean line-count gate (D20-SA20.2-02 point a). Uses the exported
+ * {@link LEAN_LINE_THRESHOLDS} SSOT map (agent 350, skill/command 200,
+ * rule/hook 100) — falling back to {@link LEAN_LINE_THRESHOLD_DEFAULT} for an
+ * unknown type — rather than a flat cap, so the save funnel and the CI surface
+ * share one per-type threshold. Returns the gentle-gate message when `body`
+ * exceeds its type's threshold, `undefined` otherwise.
+ */
+export function leanLineViolation(
+  type: UserArtifactType,
+  body: string,
+): string | undefined {
+  const lineCount = body.split(/\r?\n/).length;
+  const typedThreshold =
+    LEAN_LINE_THRESHOLDS[type] ?? LEAN_LINE_THRESHOLD_DEFAULT;
+  if (lineCount > typedThreshold) {
+    return `Body has ${lineCount} lines (lean threshold for ${type}: ${typedThreshold}) — consider compressing`;
+  }
+  return undefined;
 }
 
 /**
@@ -400,7 +482,7 @@ export async function saveUserContent(
     userRoot: resolveUserContentRoot(rootDir),
   });
 
-  // Resolve the project maturity tier (Decision 4 / #16). An explicit
+  // Resolve the project maturity tier (Decision 16). An explicit
   // artifact.tier wins (caller override); otherwise read it from the manifest.
   // A missing or unreadable manifest collapses to the "solo" baseline via
   // readMaturityTier(null) — the gate stays permissive, never harder, when the
@@ -491,7 +573,7 @@ export async function discoverUserContent(
  * Run only the strict + gentle gates against an artifact (no write).
  * Useful for "preview" UX before committing the save.
  *
- * `maturityTier` drives the tier-aware floor (Decision 4 / #16). When omitted
+ * `maturityTier` drives the tier-aware floor (Decision 16). When omitted
  * it defaults to `artifact.tier`, then to the `solo` baseline — matching the
  * permissive default used everywhere the project tier is unknown.
  */
@@ -533,21 +615,42 @@ export interface ContentBodyViolation {
  *   - Reads the file body (post-frontmatter) and surfaces every match.
  *   - D20-2: for `type: agent` files, parses the structured `tools.allowed`
  *     grant and flags a wide allowlist (> {@link AGENT_TOOL_BASELINE_THRESHOLD}
- *     categories) that cites no security baseline as `severity: "error"`. This
- *     is the deterministic CLI floor for the unbounded-grant scenario: the same
- *     check ran only inside {@link runUserContentGates}, reachable solely via the
- *     LLM-mediated `/hatch3r-create` path, so a hand-authored grant rode in
- *     unflagged at every tier (SA20.2-F5). Mirrors the in-memory funnel via the
- *     shared {@link agentToolGrantOverBaseline} helper.
+ *     categories) that cites no security baseline. This is the deterministic CLI
+ *     floor for the unbounded-grant scenario: the same check ran only inside
+ *     {@link runUserContentGates}, reachable solely via the LLM-mediated
+ *     `/hatch3r-create` path, so a hand-authored grant rode in unflagged
+ *     (SA20.2-F5). Mirrors the in-memory funnel via the shared
+ *     {@link agentToolGrantOverBaseline} helper.
+ *   - D20-SA20.2-04: the tool-grant baseline severity is TIER-AWARE, matching
+ *     the funnel and the `user-content-templates.md` §1 contract — `warning`
+ *     below `team`, `error` at `team`+. The pre-flight previously emitted an
+ *     unconditional `error`, contradicting the funnel's documented `solo`-gentle
+ *     disposition and making `sync` hard-block a solo project that the funnel
+ *     had let save with only a gentle nudge. Deny-pattern and injection
+ *     violations stay `error` at every tier (security-critical, tier-blind).
  *   - Tolerates I/O errors on individual files (logs a warning entry, continues
  *     scanning siblings) — a malformed user file never halts the pre-flight.
+ *
+ * @param rootDir Project root whose `.hatch3r/overrides/` subtree is scanned.
+ * @param tier    Optional resolved maturity tier for the tool-grant baseline
+ *   severity. When omitted it is read from the project manifest (absent/
+ *   unreadable collapses to the `solo` baseline, never stricter).
  */
 export async function validateContentBody(
   rootDir: string,
+  tier?: MaturityTier,
 ): Promise<ContentBodyViolation[]> {
   const violations: ContentBodyViolation[] = [];
   const userArtifacts = await discoverUserContent(rootDir);
   if (userArtifacts.length === 0) return violations;
+
+  // Tier-aware tool-grant baseline (D20-SA20.2-04). An explicit `tier` wins
+  // (testability); otherwise resolve it from the manifest via the same helper
+  // the funnel uses so the two surfaces agree. Only the tool-grant baseline
+  // consults this — deny-pattern and injection stay strict at every tier.
+  const resolvedTier = tier ?? (await resolveProjectMaturityTier(rootDir));
+  const toolGrantIsStrict =
+    MATURITY_TIER_RANK[resolvedTier] >= MATURITY_TIER_RANK.team;
 
   for (const artifact of userArtifacts) {
     const relativePath = relativizeUnderRoot(rootDir, artifact.path);
@@ -614,7 +717,7 @@ export async function validateContentBody(
       if (overWidth !== undefined) {
         violations.push({
           relativePath,
-          severity: "error",
+          severity: toolGrantIsStrict ? "error" : "warning",
           message: agentToolGrantBaselineMessage(overWidth),
         });
       }
@@ -654,7 +757,7 @@ async function runUserContentGates(
   // The original `const gentle: string[] = []` at the gentle-gate header
   // is now an alias re-bind below, kept for blame stability.
   const gentle: string[] = [];
-  // Tier rank gates the progressive floor (Decision 4 / #16): `solo` (rank 0)
+  // Tier rank gates the progressive floor (Decision 16): `solo` (rank 0)
   // is the Cycle-9 baseline; `team`+ (rank >= 1) promote selected gentle
   // nudges to strict failures.
   const tierRank = MATURITY_TIER_RANK[maturityTier];
@@ -794,7 +897,7 @@ async function runUserContentGates(
   // B1). The orchestrator-command branch above covered only ~1 of the three
   // classes the invariant names; agents and skills drive agentic workflows too,
   // so they must open with the same clarification-first §0 block. Tier-aware
-  // per F20.2.A1 / Decision 4: a gentle nudge at `solo` (the Cycle-9 baseline
+  // per F20.2.A1 / Decision 16: a gentle nudge at `solo` (the Cycle-9 baseline
   // stays permissive), promoted to a strict failure at `team`+ where the
   // closed-loop floor mandates are enforced.
   if (artifact.type === "agent" || artifact.type === "skill") {
@@ -871,16 +974,13 @@ async function runUserContentGates(
     );
   }
 
-  // Lean line threshold (per-type, C9-M45). Falls back to the default cap
-  // when the artifact type is missing from the registry — defensive only;
-  // every value of UserArtifactType is keyed.
-  const lineCount = artifact.body.split(/\r?\n/).length;
-  const typedThreshold =
-    LEAN_LINE_THRESHOLDS[artifact.type] ?? LEAN_LINE_THRESHOLD_DEFAULT;
-  if (lineCount > typedThreshold) {
-    gentle.push(
-      `Body has ${lineCount} lines (lean threshold for ${artifact.type}: ${typedThreshold}) — consider compressing`,
-    );
+  // Lean line threshold (per-type, C9-M45). Routed through the shared
+  // {@link leanLineViolation} decision (D20-SA20.2-02 point a) so the CI-facing
+  // validateUserContent can consume the identical per-type SSOT map instead of
+  // the flat 120-line cap it hand-rolls today.
+  const leanViolation = leanLineViolation(artifact.type, artifact.body);
+  if (leanViolation) {
+    gentle.push(leanViolation);
   }
 
   const fm = artifact.frontmatter ?? {};
@@ -892,41 +992,36 @@ async function runUserContentGates(
   // artifact serves and inherit the charter discipline; missing either is a
   // governance regression at the user-content tier.
 
-  // quality_charter reference (strict).
-  if (!("quality_charter" in fm) && !/quality[_-]charter/i.test(artifact.body)) {
-    strict.push(
-      "Missing quality_charter reference — add `quality_charter: agents/shared/quality-charter.md` to frontmatter or reference it in the body",
-    );
+  // quality_charter reference (strict). Routed through the shared
+  // {@link qualityCharterViolation} decision (D20-SA20.2-02 point b) so the
+  // CI-facing validateUserContent enforces it at the same strict severity
+  // instead of the gentle warning it emits today.
+  const charterViolation = qualityCharterViolation(fm, artifact.body);
+  if (charterViolation) {
+    strict.push(charterViolation);
   }
 
-  // Pillar declaration (strict). F20.2.A2: the two-axis framework accepts a
-  // governance-axis pillar (P1–P8) AND/OR a content-quality-axis pillar
-  // (CQ1–CQ9) per CONSTITUTION §2A/§2B. F20.2.B3: the D20.2 checklist row 5
-  // ("declares ≥1 of P1–P8 … in tags or body") names THREE satisfaction
-  // surfaces, but the gate previously honored only `pillars` frontmatter and a
-  // `**Pillars:**` body line. The `tags` path is the third: a pillar token
-  // (`P1`…`P8` / `CQ1`…`CQ9`) carried directly in the `tags` array satisfies
-  // the declaration, matching the checklist wording so a tags-only author is
-  // not rejected on a surface the audit doc advertises.
-  const hasPillarFm = Array.isArray(fm.pillars) && fm.pillars.length > 0;
-  const hasPillarBody = /(^|\n)\s*##\s*Pillar/i.test(artifact.body) ||
-    /\*\*Pillars?:\*\*/i.test(artifact.body);
-  const hasPillarTags =
-    Array.isArray(fm.tags) &&
-    fm.tags.some((t) => /^(?:P[1-8]|CQ[1-9])$/.test(String(t)));
-  if (!hasPillarFm && !hasPillarBody && !hasPillarTags) {
-    strict.push(
-      "Missing pillar declaration — add `pillars: [P1...P8]` or `[CQ1...CQ9]` to frontmatter, a `P1...P8`/`CQ1...CQ9` tag in `tags`, or a `**Pillars:**` line in the body",
-    );
+  // Pillar declaration (strict). Routed through the shared
+  // {@link pillarDeclarationViolation} decision (D20-SA20.2-02 points c/d/e):
+  // it honors all THREE satisfaction surfaces (a `pillars` frontmatter array,
+  // a `**Pillars:**`/`## Pillar` body line, or a `P1`…`P8`/`CQ1`…`CQ10` token in
+  // the `tags` array per F20.2.B3) and emits the two-axis-union message rather
+  // than the pre-fix `[P1...P6]` enum (F20.2.A2). Single-sourcing it here lets
+  // the CI-facing validateUserContent consume the identical decision instead of
+  // the 2-surface, warning-only, `[P1...P6]`-message copy it hand-rolls today.
+  const pillarViolation = pillarDeclarationViolation(fm, artifact.body);
+  if (pillarViolation) {
+    strict.push(pillarViolation);
   }
 
   // Pillar enum validation (strict). F20.1.A2 / F20.2.A2: when the author
   // declares a structured `pillars` frontmatter array, every entry must be a
-  // known pillar id (governance P1–P8 or content-quality CQ1–CQ9). This closes
+  // known pillar id (governance P1–P8 or content-quality CQ1–CQ10). This closes
   // the drift where the orchestrator advertised P1–P8 but the gate text said
   // P1–P6 and never enforced an enum, so a typo'd pillar id (e.g. `P9`, `Pq`)
   // rode silently into adapter output.
-  if (hasPillarFm) {
+  const hasStructuredPillars = Array.isArray(fm.pillars) && fm.pillars.length > 0;
+  if (hasStructuredPillars) {
     for (const v of validateStructuredPillars(fm.pillars)) strict.push(v);
   }
 
@@ -941,7 +1036,7 @@ async function runUserContentGates(
     for (const v of toolsViolations) strict.push(v);
   }
 
-  // ── Tier-aware floor (F20.2.A1, Decision 4 / #16) ──────────────
+  // ── Tier-aware floor (F20.2.A1, Decision 16) ──────────────
   // The `solo` baseline (rank 0) stops at the gates above. `team`+ (rank >= 1)
   // promote the closed-loop floor mandates that the Cycle-9 gate set left
   // unenforced. Each requirement here is checkable from the artifact body /
@@ -964,14 +1059,14 @@ async function runUserContentGates(
       );
     }
 
-    // Impact horizon (Decision 17): scaleup+ (rank >= 2) must declare the
+    // Impact horizon (Decision 24): scaleup+ (rank >= 2) must declare the
     // change's impact horizon so reviewers can weigh long-lived artifacts.
     if (tierRank >= MATURITY_TIER_RANK.scaleup) {
       const hasHorizonFm = "impact_horizon" in fm || "impactHorizon" in fm;
       const hasHorizonBody = /impact[_-]horizon/i.test(artifact.body);
       if (!hasHorizonFm && !hasHorizonBody) {
         strict.push(
-          `Maturity tier '${maturityTier}' requires an impact_horizon declaration (short|medium|long, Decision 17) — add 'impact_horizon: <horizon>' to frontmatter or reference it in the body`,
+          `Maturity tier '${maturityTier}' requires an impact_horizon declaration (short|medium|long, Decision 24) — add 'impact_horizon: <horizon>' to frontmatter or reference it in the body`,
         );
       }
     }

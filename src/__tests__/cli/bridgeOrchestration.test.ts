@@ -196,3 +196,59 @@ describe("generateBridgeOrchestration — handoffs control surface (D1-30)", () 
     expect(output).toContain("Overrides: `.hatch3r/overrides/`");
   });
 });
+
+// D2-SA2.5-03 (Cycle 12 Wave 4): the private adapter→paths resolver now derives
+// its `BridgeAdapter` union from `Tool` and fails loud on a named-but-unknown
+// adapter instead of silently returning claude paths (the prior
+// `?? BRIDGE_ADAPTER_PATHS.claude` swallow that emitted `.claude/*` paths into a
+// non-claude adapter's bridge doc with no compile error, no warning, no failing
+// test). These cases pin: (1) a named non-claude adapter routes to its own
+// native paths, (2) an unknown named adapter throws a registry-derived error,
+// (3) an omitted adapter still defaults to claude.
+describe("generateBridgeOrchestration — adapter id derivation & fail-loud (D2-SA2.5-03)", () => {
+  let tempDir: string;
+
+  beforeEach(async () => {
+    tempDir = await mkdtemp(join(tmpdir(), "hatch3r-bridge-adapterid-"));
+  });
+
+  afterEach(async () => {
+    await rm(tempDir, { recursive: true, force: true });
+  });
+
+  it("routes a named cursor adapter to its own native paths (no silent claude fallback)", async () => {
+    const output = await generateBridgeOrchestration(tempDir, undefined, "cursor");
+    expect(output).toContain(".cursor/rules/");
+    expect(output).toContain(".cursor/agents/");
+    // The claude subtree never leaks into a cursor bridge.
+    expect(output).not.toContain(".claude/rules/");
+  });
+
+  it("routes copilot to the .github/* native paths (no silent claude fallback)", async () => {
+    const output = await generateBridgeOrchestration(tempDir, undefined, "copilot");
+    expect(output).toContain(".github/instructions/");
+    expect(output).not.toContain(".claude/rules/");
+  });
+
+  it("throws a fail-loud error for a named-but-unknown adapter", async () => {
+    let caught: Error | undefined;
+    try {
+      await generateBridgeOrchestration(tempDir, undefined, "aider");
+    } catch (err) {
+      caught = err as Error;
+    }
+    expect(caught).toBeDefined();
+    expect(caught!.message).toMatch(/unknown adapter "aider"/);
+    // The expected-tools list is derived from the `Tool` registry (VALID_TOOLS),
+    // not a hand-listed literal — all three retained adapter ids appear.
+    expect(caught!.message).toContain("claude");
+    expect(caught!.message).toContain("cursor");
+    expect(caught!.message).toContain("copilot");
+  });
+
+  it("still defaults to claude paths when no adapter is named", async () => {
+    const output = await generateBridgeOrchestration(tempDir);
+    expect(output).toContain(".claude/rules/");
+    expect(output).not.toContain(".cursor/rules/");
+  });
+});

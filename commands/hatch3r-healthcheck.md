@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Module-taxonomy discovery and audit-sub-issue authoring delegate to `hatch3r-implementer`; the two cross-cutting QA axes fan out in parallel to `hatch3r-ui` (CQ1 — accessibility / axe-core / design-token / four-state coverage gaps) and `hatch3r-security` (CQ3 — dependency-CVE + supply-chain regression risks). Fan-out is disjoint across the two audit axes; serialization would not preserve P8 B2 task decomposition. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -73,11 +74,7 @@ Auto-tiering derives from discovered module count, which can misclassify — a m
 
 ## Confidence Propagation Contract
 
-Every sub-agent delegation prompt in this command MUST include the confidence expression requirement below (verbatim). Sub-agents are invoked with the `quality_charter: agents/shared/quality-charter.md` reference in their frontmatter, but the orchestrator repeats the directive to override runtime prompt defaults per the charter §1 rule.
-
-> Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
-
-Downstream propagation: every authored module-audit sub-issue body and each cross-cutting axis finding MUST carry a high/medium/low confidence rating sourced from the authoring sub-agent. Dropping the signal between stages is a gate failure.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Confidence Propagation Contract. Per-command slot: `<readiness-kind>` = module-audit + cross-cutting-axis finding readiness — every authored module-audit sub-issue body and each cross-cutting axis finding MUST carry the high/medium/low confidence rating sourced from the authoring sub-agent; dropping the signal between stages is a gate failure.
 
 # Healthcheck — Full Product QA & Testing Audit
 
@@ -97,19 +94,7 @@ Follow any **Token-Saving Directives** in the shared context file.
 
 ## Module Discovery
 
-The product is divided into logical modules. Discover modules from the project structure:
-
-1. **Scan for modules:** Inspect top-level directories (e.g., `src/`, `functions/`, `packages/`) and identify logical units.
-2. **Map to specs:** If `docs/specs/` exists, map each module to relevant spec files.
-3. **Build taxonomy:** Produce a table of modules with their directories and primary specs.
-
-Example structure (adapt to project):
-
-| # | Module | Directories | Primary Specs |
-|---|--------|-------------|----------------|
-| 1 | Core Engine | `src/engine/` | `02_core-engine.md` |
-| 2 | Events | `src/events/` | `03_event-model.md` |
-| ... | ... | ... | ... |
+> Epic-audit scaffold: see `commands/shared/epic-audit-frame.md` → Module Discovery. Per-command slot: spec-kind = primary specs (the general form — map each module to its relevant spec files).
 
 Plus two cross-cutting audits:
 
@@ -358,11 +343,7 @@ Link to parent epic via `sub_issue_write`.
 
 ### Step 7: Board Integration
 
-All issue and epic operations in this command MUST follow the Projects v2 Enforcement rules defined in `hatch3r-board-shared`.
-
-1. **Projects v2 Sync:** Follow the **Projects v2 Sync Procedure** from `hatch3r-board-shared` (gh CLI primary) for the healthcheck epic and ALL sub-issues. Set status to Ready using the project's status field option ID.
-
-2. **Board Overview Regeneration:** Regenerate the Board Overview using the **Board Overview Template** from the shared context. Use cached board data from Step 1, updated with the newly created healthcheck epic. Skip silently if no board overview issue exists.
+> Epic-audit scaffold: see `commands/shared/epic-audit-frame.md` → Board Integration. Per-command slot: epic-kind = "healthcheck".
 
 ---
 
@@ -384,15 +365,15 @@ healthcheck is long-running — module discovery (Step 2) seeds a per-module hat
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first module audit-authoring dispatch (Step 4).
 - **Post-execution `cost_actuals` + `delta`** — the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
@@ -403,18 +384,8 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 
 ## Error Handling
 
-- `search_issues` failure: retry once, then warn and proceed (assume no existing healthcheck).
-- `issue_write` failure: report the error, retry once. If still failing, present the drafted body for manual creation.
-- `sub_issue_write` failure: report but do not delete the created sub-issue. Note the unlinking for manual fix.
-- Projects v2 sync failure (gh CLI or MCP): warn and continue. Board sync can be fixed later via board-refresh.
+> Epic-audit scaffold: see `commands/shared/epic-audit-frame.md` → Error Handling. Per-command slot: epic-kind = "healthcheck".
 
 ## Guardrails
 
-- **Never skip ASK checkpoints.**
-- **Use GitHub MCP tools for issue operations** (create, update, link). For Projects v2 board integration, follow the sync procedure from hatch3r-board-shared (gh CLI primary).
-- **The command ONLY creates issues.** It does NOT execute any audits, run tests, or modify code.
-- **Always include the `meta:healthcheck` label** on the healthcheck epic.
-- **Always include `meta:healthcheck-findings`** in the output instructions for audit sub-issues.
-- **Preserve dependency ordering.** Level 2 sub-issues must reference all Level 1 sub-issues in their Dependencies section.
-- **Board Overview is auto-maintained.** Exclude it from all analysis. One board overview issue at a time.
-- **Do not expand scope.** The command creates exactly the discovered modules plus the two cross-cutting audits. No additional issue types.
+> Epic-audit scaffold: see `commands/shared/epic-audit-frame.md` → Guardrails. Per-command slot: epic-label = `healthcheck`; no command-specific extra guardrails.

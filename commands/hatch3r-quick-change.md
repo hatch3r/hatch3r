@@ -2,8 +2,10 @@
 id: hatch3r-quick-change
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
+agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-lint-fixer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security]
 description: "Lightweight workflow for small changes not tracked on the board: adaptive ceremony, inline or sub-agent implementation, batch support."
+argument-hint: "[--effort=light|standard] [--confidence-floor=any|medium|high]"
+disable-model-invocation: true
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -12,8 +14,9 @@ parallel_tool_default: true
 efficiency_tier: standard
 triage_tiers: [1, 2, 3]
 sub_agents_spawned:
-  count: 13
-  rationale: Four-stage core pipeline (implementer + lint-fixer + reviewer ↔ fixer) plus 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) dispatched conditionally per their trigger conditions; the always-on testing + security gates collapse onto `hatch3r-testability` (CQ5) and `hatch3r-security` (CQ3) respectively. Tier 1 trivial edits skip CQ specialists per Phase Skip Criteria. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 7
+  rationale: Nontrivial-path fan-out, every agent conditional per Phase Skip Criteria — `hatch3r-researcher` (`similar-implementation` quick depth, Step 4b), `hatch3r-implementer` (Step 4b), `hatch3r-lint-fixer` (Step 5 on lint/type errors), the `hatch3r-reviewer` ↔ `hatch3r-fixer` review loop (Step 6a), and the two final-quality gates `hatch3r-testability` (CQ5) + `hatch3r-security` (CQ3) (Step 6b). quick-change's lightweight scope dispatches no other CQ vector specialist (ui/ux/reliability/scalability/performance/maintainability/enhancability); Tier 1 trivial edits skip all sub-agents. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -89,6 +92,8 @@ Every sub-agent delegation prompt in this command MUST include the confidence ex
 
 Downstream propagation: every ASK checkpoint that reports verification quality, every gate that evaluates a sub-agent verdict, and every output block that surfaces merge-readiness MUST carry a high/medium/low confidence rating sourced from the upstream sub-agent. Dropping the signal between stages is a gate failure.
 
+Absent-confidence clause (D13-SA13.2-F3): a clean verdict (0 Critical + 0 Warning) whose reviewer `confidence` field is absent or unparseable is treated as `confidence: low` at every gate — trigger the second pass, never proceed. This matches the code gate in `src/pipeline/reviewLoop.ts` (`evaluateReviewGate`), where an `unknown`/absent confidence ranks below `low` (`CONFIDENCE_RANK.unknown = 0`) and so does not pass. A prose gate that reads `confidence != low` would otherwise let absence pass silently — inverting the code gate. Resolve absence to `low` before applying the Step 6a floor.
+
 ---
 
 ## Triage
@@ -107,7 +112,7 @@ Before any sub-agent dispatch (Step 4b implementer), surface the cost preview so
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <Tier 1 inline ~0, Tier 2 ~3 (researcher + implementer + reviewer), up to 13 when CQ specialists trigger>
+  expected_sa_count: <Tier 1 inline ~0, Tier 2 ~3 (researcher + implementer + reviewer), up to 7 on the full nontrivial path (adds lint-fixer, fixer, testability, security)>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
@@ -202,12 +207,12 @@ Quick Change Scope:
 If `.hatch3r/learnings/` exists:
 
 1. Collect the file paths from the affected areas identified in Step 1.
-2. Scan learning file frontmatter for `area` or `tags` that match the affected file paths or directories.
+2. Match each learning by testing those file paths against its `applies-to` glob and the work area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`); accept legacy `area`/`tags` frontmatter only as a transitional fallback.
 3. If matches found (max 3 learnings, highest confidence first), surface them as a brief heads-up:
 
    ```
    Heads up — relevant learnings:
-     - [{category}] {one-line learning summary} (from: {learning filename})
+     - [{topic}] {one-line learning summary} (from: {learning filename})
      - ...
    ```
 
@@ -334,7 +339,7 @@ The reviewer prompt MUST include:
 - Confidence expression requirement: rate every recommendation and finding as high/medium/low confidence per the quality charter (`agents/shared/quality-charter.md`). High = verified against current code. Medium = pattern-based, not fully verified. Low = best judgment, recommend human review.
 - Requirement that the reviewer output include a top-level `confidence: high | medium | low` field (not just per-finding) so the gate in step 2 can evaluate it deterministically.
 
-2. Process reviewer output (confidence-aware gate — the second-pass trigger tightens with the `--confidence-floor` set in the Effort Override section above; `any` = default below, `medium`/`high` raise the bar):
+2. Process reviewer output (confidence-aware gate — the second-pass trigger tightens with the `--confidence-floor` set in the Effort Override section above; `any` = default below, `medium`/`high` raise the bar). First resolve the reviewer `confidence` field per the Confidence Propagation Contract absent-confidence clause: an absent or unparseable value is treated as `low` (it does NOT satisfy `!= low`), matching the code gate where `unknown` ranks below `low`. Then apply the gate below:
    - If **0 Critical + 0 Warning AND reviewer confidence != low**: review loop is clean. Proceed to Step 6b. (Floor `medium`: also force a second pass if any individual finding is `confidence == low`. Floor `high`: force a second pass if reviewer confidence `!= high` OR any finding is `!= high`, AND ASK on every low-confidence finding.)
    - If **0 Critical + 0 Warning AND reviewer confidence == low**: trigger a second reviewer pass before exiting. Do not proceed to 6b until the second pass returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    - If Critical or Warning findings remain: spawn `hatch3r-fixer` sub-agent to address them, then re-run the reviewer (next iteration).
@@ -444,27 +449,27 @@ quick-change runs adaptive ceremony — trivial items execute inline with no che
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06). (The Step 8 block above is the domain rendering; the recap closes the run.)
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06). (The Step 8 block above is the domain rendering; the recap closes the run.)
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first sub-agent dispatch.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 13` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 trivial inline ≈ 0 (no sub-agent); Tier 2 ≈ 3 (researcher + implementer + reviewer, plus lint-fixer/fixer/testability/security when triggered); up to 13 when the conditional CQ vector specialists fire per their trigger conditions. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 7` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 trivial inline ≈ 0 (no sub-agent); Tier 2 ≈ 3 (researcher + implementer + reviewer, plus lint-fixer/fixer/testability/security when triggered); up to 7 when the full nontrivial path fires — the two mandatory final-quality gates (testability, security) plus lint-fixer and fixer. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 
 ## Error Handling
 
-- **Quality check failure after 2 retries**: Present the specific failures and ASK the user whether to commit partial progress, keep trying, or abort.
-- **Implementer sub-agent failure**: Retry once. If the retry fails, fall back to inline implementation for that item. If inline implementation also fails, report the item as unresolved and ASK.
+- **Quality check failure after 2 retries**: Present the specific failures and ASK the user whether to commit partial progress, keep trying, or abort — per the shared Quality-gate-failure escalation clause in `rules/hatch3r-agent-orchestration.md` → Cross-Phase Error Propagation.
+- **Implementer sub-agent failure** (nontrivial Step-4b items): route through the shared sub-agent-failure clause (`rules/hatch3r-agent-orchestration.md` → Sub-agent-failure handling) — retry once; if the retry fails, re-spawn `hatch3r-fixer` with the failure reason + partial output as failure context; if the re-spawn also fails, emit `BLOCKED_OTHER` with a one-sentence reason and ASK. Never fall back to inline implementation for a nontrivial item — that is the issue #73 bypass mode. Inline implementation stays sanctioned only for Step-4a trivial (Tier-1) items per this command's declared scope.
 - **Reviewer flags critical issues**: Present them and ASK whether to fix or proceed without fixing.
 - **Scope creep during implementation**: If actual changes exceed the soft guard thresholds (5 files / 200 lines), warn the user and suggest deferring remaining items to a `hatch3r-workflow` session.
 - **Push failure**: Present the error. Use `git push -u origin {branch}` for new branches. For diverged branches, suggest `git pull --rebase` and ASK before proceeding.

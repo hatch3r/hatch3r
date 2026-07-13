@@ -37,6 +37,8 @@
  *   against — superseded by the library-only disposition above (D7-M6).
  */
 
+import { appendFile, mkdir } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { HatchError, DEFAULT_CONFIDENCE_FLOOR, type ConfidenceFloor } from "../types.js";
 import type { ReviewVerdict } from "./pipelineContext.js";
 
@@ -75,6 +77,69 @@ export const HARD_MAX_REVIEW_ITERATIONS = 10;
  * run at least once).
  */
 export const MIN_MAX_REVIEW_ITERATIONS = 1;
+
+// ── Loop-Class Taxonomy (Findings D5-SA5.4-03 / D8-SA8.3-02, Cycle 12) ──
+
+/**
+ * Review-loop class — fixes which iteration cap a loop runs under.
+ *
+ * Before Cycle 12 the class semantics lived only in test comments
+ * (`reviewLoop.test.ts` CAP_SURFACE_REGISTRY), so prose surfaces stated two
+ * caps — "max 4 iterations" in the always-on orchestration rule vs "max 3
+ * iterations (code-class cap)" in command bodies — with no shipped artifact
+ * defining the classes or the selection rule (Finding D5-SA5.4-03). This
+ * export is the shipped definition; the CAP_SURFACE_REGISTRY parity test
+ * derives every prose cap surface from it.
+ *
+ * Selection rule (which class a loop is):
+ * - `code` — the reviewer↔fixer loop runs over a CODE diff (implementation,
+ *   bug fix, refactor). Command bodies opt down to
+ *   `DEFAULT_MAX_REVIEW_ITERATIONS - 1` (3) because code reviews diverge
+ *   faster — a fix can spawn a regression the next iteration must catch
+ *   (rationale blocks: `commands/hatch3r-workflow.md` Phase 4a,
+ *   `commands/hatch3r-board-fill.md` §7.9d). The opt-down is the documented
+ *   `createReviewLoop(maxIterationsForClass("code"))` path.
+ * - `spec` — the loop refines TEXT (issue specs, plans) against a checklist
+ *   with no runtime regressions feeding back; converges slowly, so it keeps
+ *   the full default (4). Example: `commands/hatch3r-board-fill.md` §7.9d.
+ * - `default` — the generic Phase-3 pipeline bound the orchestration rule,
+ *   the reviewer/fixer agents ("After 4 review-fix cycles"), and this state
+ *   model enforce (4).
+ *
+ * Finding D8-SA8.3-02: the detail rule asserted "code-class cap =
+ * `DEFAULT_MAX_REVIEW_ITERATIONS` - 1" while no code implemented that
+ * arithmetic — the −1 was prose-only, and the detail rule's schema comment
+ * claimed the `iterations` field maxes at 3 while `canContinueReview` (which
+ * has no class branch) lets it reach 4. Resolution: the detail rule now
+ * states the single pipeline bound (4), and this record IS the code backing
+ * for the command-level code-class opt-down — the −1 is derived here, not
+ * asserted in prose.
+ */
+export type ReviewLoopClass = "code" | "spec" | "default";
+
+/**
+ * Per-class iteration caps — the single derivation point for every prose cap
+ * surface (Findings D5-SA5.4-03 / D8-SA8.3-02). A command body passes
+ * `maxIterationsForClass(<class>)` to `createReviewLoop` instead of
+ * hardcoding an integer; the parity test in `reviewLoop.test.ts` holds every
+ * cap-stating `.md` surface in lockstep with this record.
+ */
+export const REVIEW_LOOP_CLASS_CAPS: Readonly<Record<ReviewLoopClass, number>> =
+  Object.freeze({
+    code: DEFAULT_MAX_REVIEW_ITERATIONS - 1,
+    spec: DEFAULT_MAX_REVIEW_ITERATIONS,
+    default: DEFAULT_MAX_REVIEW_ITERATIONS,
+  });
+
+/**
+ * Iteration cap for a loop class — the value a command body passes to
+ * `createReviewLoop` when it opts down (code class) or keeps the default
+ * (spec / generic pipeline loops). See {@link ReviewLoopClass} for the
+ * selection rule.
+ */
+export function maxIterationsForClass(loopClass: ReviewLoopClass): number {
+  return REVIEW_LOOP_CLASS_CAPS[loopClass];
+}
 
 /**
  * Minimum recorded iterations before the `monotonic_divergence` escape can
@@ -205,17 +270,34 @@ export const CALIBRATION: Readonly<ReviewLoopCalibration> = Object.freeze({
     iteration1CleanRateBelow: 0.6,
     oscillationRateAbove: 0.1,
   }),
-  // CL-2 spec for iteration-count telemetry (Finding D7-M4 / D7-SA7.2-1):
-  // (1) Add `iteration_count: number` + `reviewVerdictByIteration: ReviewIterationVerdict[]`
-  //     columns to per-finding records in `governance/audit/finding-registry.json`.
-  // (2) Add `scripts/calibrate-review-loop.ts` that reads the registry, emits
-  //     the measured iteration split, and writes a candidate CALIBRATION
-  //     update PR when the sample size crosses 30 findings.
-  // (3) Promote `basis` to `"measured"` and set `measuredAt` once the script
-  //     runs against a 30+ finding sample.
-  // (4) Document the recalibration cadence (every Cycle 12 release).
+  // CL-2 iteration-count telemetry status (spec: Finding D7-M4 / D7-SA7.2-1,
+  // Cycle 10; ledger + script built Cycle 12, Finding D7-SA7.2-01; runtime
+  // sink built Cycle-12 CL-2 unit U10, Finding D7-SA7.2-04):
+  // BUILT — (1) typed runtime iteration ledger: `ReviewLoopLedgerEntry`
+  //     (JSONL; `reviewLoopLedgerEntry` + `serializeReviewLoopLedgerEntry`
+  //     produce lines, `parseReviewLoopLedger` reads them,
+  //     `deriveIterationSplit` computes the measured split). Ledger entries
+  //     supersede the originally specced per-finding registry columns as the
+  //     data source: the Cycle-10 spec named the audit finding registry,
+  //     which would have measured AUDIT loops, not product loops
+  //     (D7-SA7.2-04) — the loop is the calibration unit.
+  //     (2) `scripts/calibrate-review-loop.ts` — reads the ledger
+  //     (default `.hatch3r/review-loop-metrics.jsonl`), emits the
+  //     measured split vs this estimate, and prints the candidate
+  //     CALIBRATION update once sampleSize >= CALIBRATION_SAMPLE_THRESHOLD.
+  //     (3) runtime loop-exit sink: `appendReviewLoopTelemetry` appends one
+  //     record per terminated loop to `.hatch3r/review-loop-metrics.jsonl`
+  //     (REVIEW_LOOP_METRICS_RELPATH), never throwing — see the function's
+  //     JSDoc for the append-vs-atomic-rename rationale + failure isolation.
+  // REMAINING — (4) prompt-side emission wiring on the orchestrator surfaces
+  //     (the @library_export_only boundary means the prompt-driven runtime
+  //     must be instructed to emit the line; cross-ref D7-SA7.2-03), then
+  //     accumulate to the 30-sample threshold and promote `basis` to
+  //     `"measured"` + set `measuredAt` from the script's candidate block.
+  //     (5) Recalibration cadence: re-run the script at every cycle close and
+  //     release prep, and whenever a recalibrationTrigger is observed.
   measurementMethodRef:
-    "CL-2 spec: per-finding iteration_count column in governance/audit/finding-registry.json + scripts/calibrate-review-loop.ts (D7-M4 / D7-SA7.2-1)",
+    "runtime review-loop telemetry ledger (ReviewLoopLedgerEntry JSONL at .hatch3r/review-loop-metrics.jsonl, appended at loop exit via appendReviewLoopTelemetry) + scripts/calibrate-review-loop.ts; promote basis at CALIBRATION_SAMPLE_THRESHOLD (30) samples (D7-M4 / D7-SA7.2-1 / D7-SA7.2-01 / D7-SA7.2-04)",
 });
 
 // ── Types ────────────────────────────────────────────────────────
@@ -273,6 +355,25 @@ export interface ReviewIterationEntry {
   timestamp: string;
 }
 
+/**
+ * Terminal reasons a review loop can stop with — the runtime source of truth
+ * for `ReviewLoopState.terminationReason` and for the iteration-ledger
+ * parser's field validation (Finding D7-SA7.2-01). Per-value semantics are
+ * documented on {@link ReviewLoopState.terminationReason}.
+ */
+export const REVIEW_LOOP_TERMINATION_REASONS = Object.freeze([
+  "clean",
+  "max_iterations",
+  "manual",
+  "oscillation",
+  "design_objection",
+  "cost_budget_exceeded",
+  "divergence",
+] as const);
+
+export type ReviewLoopTerminationReason =
+  (typeof REVIEW_LOOP_TERMINATION_REASONS)[number];
+
 export interface ReviewLoopState {
   /** Current iteration number (1-based). */
   currentIteration: number;
@@ -313,14 +414,7 @@ export interface ReviewLoopState {
    *   -> complexity underestimate" row in
    *   `rules/hatch3r-agent-orchestration-detail.md`.
    */
-  terminationReason?:
-    | "clean"
-    | "max_iterations"
-    | "manual"
-    | "oscillation"
-    | "design_objection"
-    | "cost_budget_exceeded"
-    | "divergence";
+  terminationReason?: ReviewLoopTerminationReason;
   /** History of review iterations. */
   history: ReviewIterationEntry[];
   /** Unresolved findings after loop termination. */
@@ -1096,6 +1190,404 @@ export function reviewLoopSummary(state: ReviewLoopState): string {
   }
 
   return parts.join(" | ");
+}
+
+// ── Iteration Ledger (Finding D7-SA7.2-01 — CL-2 telemetry, Cycle 12) ──
+
+/**
+ * Sample size at which the measured iteration split may replace the shipped
+ * informed estimate (CL-2 spec point 3, Finding D7-M4 / D7-SA7.2-1): once
+ * `deriveIterationSplit` reports `sampleSize >= CALIBRATION_SAMPLE_THRESHOLD`,
+ * `scripts/calibrate-review-loop.ts` prints the candidate CALIBRATION update
+ * (basis `"measured"`, `measuredAt` populated) for a maintainer PR.
+ */
+export const CALIBRATION_SAMPLE_THRESHOLD = 30;
+
+/**
+ * One terminated review loop, recorded for cap calibration
+ * (Finding D7-SA7.2-01). The ledger is a JSONL file — one entry per line via
+ * {@link serializeReviewLoopLedgerEntry} — so any loop runner (audit wave
+ * sub-agent, prompt-driven orchestrator, downstream pack driver) can append
+ * without read-modify-write coordination. `deriveIterationSplit` aggregates
+ * entries into the measured `IterationSplitClaim` that replaces the
+ * `CALIBRATION.split` informed estimate at the 30-sample threshold.
+ */
+export interface ReviewLoopLedgerEntry {
+  /** ISO-8601 timestamp the entry was recorded. */
+  recordedAt: string;
+  /** Loop class the run declared — fixes which cap applied ({@link ReviewLoopClass}). */
+  loopClass: ReviewLoopClass;
+  /** The cap the loop ran under (post-clamp `state.maxIterations`). */
+  maxIterations: number;
+  /** Iterations actually consumed (`state.currentIteration` at termination). */
+  iterationCount: number;
+  /** Terminal reason the loop stopped with. */
+  terminationReason: ReviewLoopTerminationReason;
+  /** Per-iteration reviewer verdicts, oldest first. */
+  verdictByIteration: ReviewIterationVerdict[];
+  /** Run identifier: finding id, command name, or correlation id. */
+  source: string;
+  /**
+   * Whether the loop converged — `true` iff `terminationReason === "clean"`
+   * (Finding D7-SA7.2-04, CL-2 unit U10). Denormalized for downstream
+   * analytics; `parseReviewLoopLedger` derives it when absent (pre-U10
+   * ledger-line back-compat) and rejects a present-but-inconsistent value so
+   * a hand-edited line fails loudly rather than skewing consumers.
+   */
+  converged: boolean;
+  /**
+   * Wall-clock span (ms, integer >= 0) from the first to the last recorded
+   * iteration timestamp in `state.history` (Finding D7-SA7.2-04, CL-2 unit
+   * U10). Omitted when the history is empty (e.g. a `manual` termination
+   * before iteration 1) or a timestamp fails to parse. Derived from
+   * already-recorded timestamps — building an entry reads no clock beyond
+   * the existing `recordedAt` default.
+   */
+  durationMs?: number;
+}
+
+/** Runtime verdict values for ledger-line validation (mirrors {@link ReviewIterationVerdict}). */
+const ITERATION_VERDICT_VALUES: readonly ReviewIterationVerdict[] = Object.freeze([
+  "clean",
+  "warning",
+  "critical",
+]);
+
+/**
+ * Build a ledger entry from a terminated review loop.
+ *
+ * Throws a `HatchError` when the loop has not terminated — an in-progress
+ * loop has no final iteration count, so recording it would bias the split
+ * toward low counts.
+ */
+export function reviewLoopLedgerEntry(
+  state: ReviewLoopState,
+  meta: { loopClass: ReviewLoopClass; source: string; recordedAt?: string },
+): ReviewLoopLedgerEntry {
+  if (!state.terminated || state.terminationReason === undefined) {
+    throw new HatchError(
+      "Cannot record a review-loop ledger entry for a non-terminated loop. " +
+        "Record entries only after the loop reaches a terminal state " +
+        "(clean, max_iterations, manual, oscillation, design_objection, " +
+        "cost_budget_exceeded, or divergence).",
+      1,
+      "VALIDATION_ERROR",
+    );
+  }
+  const entry: ReviewLoopLedgerEntry = {
+    recordedAt: meta.recordedAt ?? new Date().toISOString(),
+    loopClass: meta.loopClass,
+    maxIterations: state.maxIterations,
+    iterationCount: state.currentIteration,
+    terminationReason: state.terminationReason,
+    verdictByIteration: state.history.map((h) => h.verdict),
+    source: meta.source,
+    converged: state.terminationReason === "clean",
+  };
+  // Loop-internal duration from the already-recorded iteration timestamps
+  // (D7-SA7.2-04, U10): first-to-last history span, integer ms. Omitted when
+  // there is no history or a timestamp does not parse — never a fabricated 0.
+  if (state.history.length > 0) {
+    const first = Date.parse(state.history[0].timestamp);
+    const last = Date.parse(state.history[state.history.length - 1].timestamp);
+    if (Number.isFinite(first) && Number.isFinite(last) && last >= first) {
+      entry.durationMs = Math.round(last - first);
+    }
+  }
+  return entry;
+}
+
+/** Serialize one ledger entry to its single-line JSONL form. */
+export function serializeReviewLoopLedgerEntry(entry: ReviewLoopLedgerEntry): string {
+  return JSON.stringify(entry);
+}
+
+/**
+ * Parse a JSONL review-loop ledger into validated entries.
+ *
+ * Blank lines are skipped (trailing newline friendly). A malformed line —
+ * invalid JSON or a missing/out-of-domain field — throws a `HatchError`
+ * naming the 1-based line number and the offending field, so a corrupted
+ * ledger fails the calibration run loudly instead of silently skewing the
+ * measured split.
+ */
+export function parseReviewLoopLedger(content: string): ReviewLoopLedgerEntry[] {
+  const entries: ReviewLoopLedgerEntry[] = [];
+  const lines = content.split("\n");
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (line.length === 0) continue;
+    const lineNo = i + 1;
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(line);
+    } catch {
+      throw new HatchError(
+        `Malformed review-loop ledger line ${lineNo}: not valid JSON. ` +
+          `Fix or remove the line, then re-run the calibration.`,
+        1,
+        "VALIDATION_ERROR",
+      );
+    }
+    const fail = (field: string, requirement: string): never => {
+      throw new HatchError(
+        `Malformed review-loop ledger line ${lineNo}: field "${field}" ${requirement}.`,
+        1,
+        "VALIDATION_ERROR",
+      );
+    };
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
+      fail("(root)", "must be a JSON object");
+    }
+    const record = parsed as Record<string, unknown>;
+    if (typeof record.recordedAt !== "string" || record.recordedAt.length === 0) {
+      fail("recordedAt", "must be a non-empty ISO-8601 string");
+    }
+    if (
+      typeof record.loopClass !== "string" ||
+      !(record.loopClass in REVIEW_LOOP_CLASS_CAPS)
+    ) {
+      fail("loopClass", 'must be one of "code" | "spec" | "default"');
+    }
+    if (
+      typeof record.maxIterations !== "number" ||
+      !Number.isInteger(record.maxIterations) ||
+      record.maxIterations < MIN_MAX_REVIEW_ITERATIONS
+    ) {
+      fail("maxIterations", `must be an integer >= ${MIN_MAX_REVIEW_ITERATIONS}`);
+    }
+    if (
+      typeof record.iterationCount !== "number" ||
+      !Number.isInteger(record.iterationCount) ||
+      record.iterationCount < 0
+    ) {
+      fail("iterationCount", "must be a non-negative integer");
+    }
+    if (
+      typeof record.terminationReason !== "string" ||
+      !(REVIEW_LOOP_TERMINATION_REASONS as readonly string[]).includes(
+        record.terminationReason,
+      )
+    ) {
+      fail(
+        "terminationReason",
+        `must be one of ${REVIEW_LOOP_TERMINATION_REASONS.join(" | ")}`,
+      );
+    }
+    if (
+      !Array.isArray(record.verdictByIteration) ||
+      record.verdictByIteration.some(
+        (v) => !(ITERATION_VERDICT_VALUES as readonly unknown[]).includes(v),
+      )
+    ) {
+      fail("verdictByIteration", 'must be an array of "clean" | "warning" | "critical"');
+    }
+    if (typeof record.source !== "string" || record.source.length === 0) {
+      fail("source", "must be a non-empty string");
+    }
+    // `converged` (U10): derived when absent (pre-U10 ledger lines carry no
+    // such field); when present it must be a boolean AND consistent with
+    // terminationReason — an inconsistent value marks a hand-edited or
+    // corrupted line, which fails loudly per this parser's posture.
+    const derivedConverged = record.terminationReason === "clean";
+    if (record.converged !== undefined) {
+      if (typeof record.converged !== "boolean") {
+        fail("converged", "must be a boolean when present");
+      }
+      if (record.converged !== derivedConverged) {
+        fail(
+          "converged",
+          `contradicts terminationReason "${String(record.terminationReason)}" ` +
+            `(converged must be ${String(derivedConverged)})`,
+        );
+      }
+    }
+    // `durationMs` (U10): optional; a finite integer >= 0 when present.
+    if (record.durationMs !== undefined) {
+      if (
+        typeof record.durationMs !== "number" ||
+        !Number.isInteger(record.durationMs) ||
+        record.durationMs < 0
+      ) {
+        fail("durationMs", "must be a non-negative integer when present");
+      }
+    }
+    const entry: ReviewLoopLedgerEntry = {
+      recordedAt: record.recordedAt as string,
+      loopClass: record.loopClass as ReviewLoopClass,
+      maxIterations: record.maxIterations as number,
+      iterationCount: record.iterationCount as number,
+      terminationReason: record.terminationReason as ReviewLoopTerminationReason,
+      verdictByIteration: record.verdictByIteration as ReviewIterationVerdict[],
+      source: record.source as string,
+      converged: derivedConverged,
+    };
+    if (record.durationMs !== undefined) {
+      entry.durationMs = record.durationMs as number;
+    }
+    entries.push(entry);
+  }
+  return entries;
+}
+
+/** Result of aggregating ledger entries into a measured iteration split. */
+export interface DerivedIterationSplit {
+  /** Measured split over the sample (rates sum to 1 for a non-empty sample). */
+  split: IterationSplitClaim;
+  /** Number of ledger entries aggregated. */
+  sampleSize: number;
+  /** True once `sampleSize >= CALIBRATION_SAMPLE_THRESHOLD` (CL-2 promotion gate). */
+  promotable: boolean;
+}
+
+/**
+ * Aggregate ledger entries into the measured iteration split.
+ *
+ * Bucket semantics mirror {@link IterationSplitClaim}: `iteration{1,2,3}CleanRate`
+ * count loops that terminated `clean` at exactly that iteration;
+ * `iteration4PlusRate` is everything else — clean at iteration >= 4 AND every
+ * non-clean termination (max_iterations, oscillation, divergence, manual,
+ * design_objection, cost_budget_exceeded). A loop that never converged within
+ * 3 iterations belongs to the oscillation-prone tail regardless of why it
+ * stopped, matching the field's "fraction exceeding 3 iterations" definition.
+ * Each entry lands in exactly one bucket, so the four rates sum to 1.
+ */
+export function deriveIterationSplit(
+  entries: ReviewLoopLedgerEntry[],
+): DerivedIterationSplit {
+  const n = entries.length;
+  if (n === 0) {
+    return {
+      split: {
+        iteration1CleanRate: 0,
+        iteration2CleanRate: 0,
+        iteration3CleanRate: 0,
+        iteration4PlusRate: 0,
+      },
+      sampleSize: 0,
+      promotable: false,
+    };
+  }
+  let clean1 = 0;
+  let clean2 = 0;
+  let clean3 = 0;
+  let tail = 0;
+  for (const entry of entries) {
+    if (entry.terminationReason === "clean" && entry.iterationCount <= 1) clean1++;
+    else if (entry.terminationReason === "clean" && entry.iterationCount === 2) clean2++;
+    else if (entry.terminationReason === "clean" && entry.iterationCount === 3) clean3++;
+    else tail++;
+  }
+  return {
+    split: {
+      iteration1CleanRate: clean1 / n,
+      iteration2CleanRate: clean2 / n,
+      iteration3CleanRate: clean3 / n,
+      iteration4PlusRate: tail / n,
+    },
+    sampleSize: n,
+    promotable: n >= CALIBRATION_SAMPLE_THRESHOLD,
+  };
+}
+
+// ── Runtime Telemetry Sink (Finding D7-SA7.2-04 — CL-2 unit U10, Cycle 12) ──
+
+/**
+ * Repo-root-relative path of the runtime review-loop telemetry ledger.
+ *
+ * Finding D7-SA7.2-04: the Cycle-10 CL-2 spec named the audit finding
+ * registry as the calibration data source, but that registry is populated by
+ * AUDIT-EXECUTE waves — reading it would measure the audit's own loops, not
+ * product review loops. This `.hatch3r/` ledger is the product-runtime
+ * source: `scripts/calibrate-review-loop.ts` reads it by default, so
+ * `basis: "measured"` means "measured on real hatch3r review loops".
+ */
+export const REVIEW_LOOP_METRICS_RELPATH = join(
+  ".hatch3r",
+  "review-loop-metrics.jsonl",
+);
+
+/**
+ * Result of an {@link appendReviewLoopTelemetry} call. `written` is `true`
+ * when the record reached disk; when `false`, `warning` carries an
+ * operator-facing message naming the path and cause so the caller can
+ * surface it (Silent Failure Contract: reported, never thrown — telemetry
+ * write failures must never fail the loop they instrument).
+ */
+export interface ReviewLoopTelemetryResult {
+  written: boolean;
+  /** Absolute path of the target ledger file. */
+  path: string;
+  /** Populated when `written === false`. */
+  warning?: string;
+}
+
+/**
+ * Append one telemetry record for a terminated review loop to
+ * `<projectRoot>/.hatch3r/review-loop-metrics.jsonl` (CL-2 unit U10,
+ * Findings D7-SA7.2-01 / D7-SA7.2-04).
+ *
+ * **Write approach — `appendFile`, not the tmp+rename atomic writer.** The
+ * `src/merge/safeWrite.ts` tmp+rename pattern gives atomic REPLACE semantics;
+ * a JSONL ledger needs APPEND semantics, and rename-replace fits it badly on
+ * two axes: (1) cost — replacing an append means read-whole-ledger +
+ * rewrite-whole-ledger per record, O(ledger size) for a file that only
+ * grows; (2) lost updates — two concurrent loop runners doing
+ * read-modify-rename both read N lines and both rename back N+1, so the last
+ * rename wins and one record is silently dropped (the concurrent-write
+ * ordering caveat documented on `atomicWriteFile`). `fs.appendFile` opens
+ * with `O_APPEND`, so the kernel positions every write at the current end of
+ * file — concurrent appenders can interleave record ORDER but cannot
+ * overwrite one another. Precedent: `failureLog.ts::writeFailureLog`, the
+ * `.hatch3r` failure-log JSONL appender.
+ *
+ * **Partial-line corruption guard.** Each record is serialized to exactly one
+ * line with its trailing `\n` and handed to ONE `appendFile` call — never
+ * assembled across calls — so a concurrent append cannot split a record
+ * mid-line on a local POSIX filesystem. A crash mid-write can still leave a
+ * torn tail line; `parseReviewLoopLedger` throws naming the 1-based line
+ * number on any malformed line and the calibration script exits 1 on it, so
+ * a torn line halts calibration pointing at the exact line to delete rather
+ * than silently skewing the measured split (detect-and-discard: losing one
+ * sample is acceptable, mis-measuring the distribution is not).
+ *
+ * **Failure isolation.** NEVER throws. Every failure — a non-terminated
+ * state (the {@link reviewLoopLedgerEntry} guard), a `mkdir` failure (the
+ * `.hatch3r` path occupied by a file), an `appendFile` errno
+ * (EACCES/ENOSPC/EROFS) — returns `{ written: false, warning }`. The loop
+ * state is read-only input; no telemetry disposition alters the loop
+ * outcome. A missing `.hatch3r/` parent is created (`mkdir -p` semantics).
+ *
+ * **Execution boundary.** Same `@library_export_only` posture as the rest of
+ * this module: the JSONL line format is the cross-boundary interface (a
+ * prompt-driven loop runner appends a schema-conformant line directly); this
+ * function is the canonical TypeScript writer for in-process drivers and
+ * pack integrators. Prompt-side emission wiring is tracked separately
+ * (cross-ref D7-SA7.2-03).
+ */
+export async function appendReviewLoopTelemetry(
+  projectRoot: string,
+  state: ReviewLoopState,
+  meta: { loopClass: ReviewLoopClass; source: string; recordedAt?: string },
+): Promise<ReviewLoopTelemetryResult> {
+  const metricsPath = join(projectRoot, REVIEW_LOOP_METRICS_RELPATH);
+  try {
+    const entry = reviewLoopLedgerEntry(state, meta);
+    const line = serializeReviewLoopLedgerEntry(entry) + "\n";
+    await mkdir(dirname(metricsPath), { recursive: true });
+    await appendFile(metricsPath, line, "utf-8");
+    return { written: true, path: metricsPath };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      written: false,
+      path: metricsPath,
+      warning:
+        `Review-loop telemetry record was NOT persisted to ${metricsPath} — ${message}. ` +
+        `The calibration sample is one loop short (check write permission / disk space ` +
+        `on the .hatch3r/ directory); the review-loop result itself is unaffected.`,
+    };
+  }
 }
 
 // ── D13 Medium: Trust-building and feedback loop helpers (#331-#343) ──

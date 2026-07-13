@@ -32,14 +32,16 @@ export const TAG_IMPLEMENTATION = "implementation"; // code writing, fixing, ref
 export const TAG_REVIEW         = "review";         // code review, QA, audits
 export const TAG_DEVOPS         = "devops";         // CI/CD, releases, deploy, observability
 export const TAG_MAINTENANCE    = "maintenance";    // dep audits, health checks, learnings, handoffs
-export const TAG_ORCHESTRATION  = "orchestration";  // the sub-agent pipeline itself (formerly "core")
-export const TAG_ORCHESTRATOR   = "orchestrator";   // orchestrator command marker (alias of orchestration for command frontmatter)
+export const TAG_ORCHESTRATION  = "orchestration";  // the sub-agent pipeline itself + orchestrator-command frontmatter marker (formerly "core"; the `orchestrator` alias was retired as a redundant second encoding — D22-SA22.3-05, one concept one tag)
 export const TAG_BOARD          = "board";          // project board management
 export const TAG_PERFORMANCE    = "performance";    // perf budgets, profiling
 export const TAG_AI             = "ai";             // AI feature engineering (evals, prompt mgmt)
 
-// ── 2.0.0 content-quality vector capability tags (CQ1-CQ9 per CONSTITUTION §2B) ──
-// Each tag identifies an agent or rule operating on one of the 9 content-quality vectors.
+// ── 2.0.0 content-quality vector capability tags (CQ1-CQ10 per CONSTITUTION §2B) ──
+// Each tag identifies an agent or rule operating on one of the 10 content-quality
+// vectors. CQ10 (Product & Spec) has no dedicated vector constant here — its
+// capability tags are TAG_SPEC/TAG_PLANNING in the work-type section below
+// (see TAG_PILLAR_MAP, which maps both to CQ10 as primary).
 export const TAG_SECURITY        = "security";        // CQ3 — supply-chain + auth + OWASP ASI
 export const TAG_RELIABILITY     = "reliability";     // CQ4 — SLO, OTel, circuit breaker
 export const TAG_TESTING         = "testing";         // CQ5 — test-class mandate, eval coverage
@@ -83,7 +85,7 @@ export const TAG_VISUAL_REGRESSION = "visual-regression"; // screenshot diff (De
 export const TAG_FLOOR_SECURITY        = "floor:security";        // P6 — security & trust
 export const TAG_FLOOR_UI_UX           = "floor:ui-ux";           // P1 — UI/UX excellence (includes a11y)
 export const TAG_FLOOR_PROTOCOL        = "floor:protocol";        // pipeline-critical (researcher, implementer, reviewer, fixer, test-writer)
-export const TAG_FLOOR_CONTENT_QUALITY = "floor:content-quality"; // 2.0.0 — content-quality axis (CQ1-CQ9 specialist agents + supporting rules/skills)
+export const TAG_FLOOR_CONTENT_QUALITY = "floor:content-quality"; // 2.0.0 — content-quality axis (CQ1-CQ10 specialist agents + supporting rules/skills)
 
 // ── Context tags (technical compatibility) ───────────────────────
 // Drive deterministic project-type / team-size filtering. These are NOT
@@ -144,6 +146,7 @@ export const TAG_LANG_PYTHON     = "lang:python";
 export const TAG_LANG_GO         = "lang:go";
 export const TAG_LANG_RUST       = "lang:rust";
 export const TAG_LANG_JAVA       = "lang:java";
+export const TAG_LANG_KOTLIN     = "lang:kotlin";
 export const TAG_LANG_RUBY       = "lang:ruby";
 
 // ── Role tags (D14-M6, Cycle 10 rollover) ────────────────────────
@@ -196,7 +199,6 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_DEVOPS]:         "capability",
   [TAG_MAINTENANCE]:    "capability",
   [TAG_ORCHESTRATION]:  "capability",
-  [TAG_ORCHESTRATOR]:   "capability",
   [TAG_BOARD]:          "capability",
   [TAG_PERFORMANCE]:    "capability",
   [TAG_AI]:             "capability",
@@ -277,6 +279,7 @@ export const TAG_REGISTRY: Record<string, TagFacet> = {
   [TAG_LANG_GO]:         "language",
   [TAG_LANG_RUST]:       "language",
   [TAG_LANG_JAVA]:       "language",
+  [TAG_LANG_KOTLIN]:     "language",
   [TAG_LANG_RUBY]:       "language",
 
   // D14-M6 (Cycle 10 rollover) — role admission tags.
@@ -382,7 +385,11 @@ export const LANGUAGE_TO_TAG: Record<string, string> = {
   go:         TAG_LANG_GO,
   rust:       TAG_LANG_RUST,
   java:       TAG_LANG_JAVA,
-  kotlin:     TAG_LANG_JAVA,       // Kotlin shares Java ecosystem
+  // D14-SA14.1-03: Kotlin is a distinct language with its own `lang:kotlin`
+  // tag — not a Java alias. `java` keeps its own tag so a detected Java repo
+  // filters to lang:java (currently carrier-less) + language-agnostic content,
+  // correctly EXCLUDING the Kotlin/Android rule rather than pulling it in.
+  kotlin:     TAG_LANG_KOTLIN,
   ruby:       TAG_LANG_RUBY,
 };
 
@@ -443,4 +450,175 @@ export function filterByLanguages<T extends { tags: string[]; protected?: boolea
     if (itemLangTags.length === 0) return true;
     return itemLangTags.some((t) => relevant.has(t));
   });
+}
+
+// ── Pillar coverage map (D22-SA22.3-01) ──────────────────────────
+//
+// The machine-readable substrate for D22 §22.3's weighted pillar-coverage
+// tally. Before this map, §22.3 prescribed "reading `pillars:` frontmatter +
+// body tag scan" with no canonical tag→pillar edge anywhere in the repo, so
+// only 16/190 artifacts (the ones carrying `pillars:` frontmatter) had a
+// deterministic pillar assignment and the other 174 fell back on an
+// auditor-interpreted map — two auditors computed divergent tallies from an
+// unchanged corpus (P5: 0 vs 46; CQ3: 1 vs 19). PILLAR_MAP fixes ONE canonical
+// edge set per capability/floor tag so every future SA22.3 starts from an
+// identical number; `scripts/validate-pillar-coverage.ts` consumes it.
+//
+// Axes (CONSTITUTION §2A/§2B): governance P1-P8, content-quality CQ1-CQ10.
+// Grounding rule: each tag maps to the pillar whose definition its documented
+// purpose (the tag's own comment above) most directly advances; a second edge
+// is added only where the purpose materially serves another pillar. Hard
+// groundings honoured verbatim: the CQ-vector comments above (security→CQ3,
+// reliability→CQ4, observability→CQ4 supporting, supply-chain→CQ3 supporting,
+// accessibility→CQ1 supporting), the D22 §22.3 checklist example (orchestration
+// → P5 primary, P7+P8 supporting), and the floor-tag comments (floor:security
+// → P6, floor:protocol → the pipeline). floor:ui-ux maps to the content-quality
+// vectors it floors — CQ1 (UI) + CQ2 (UX) — under the current §2B definitions.
+
+export type PillarRole = "primary" | "supporting";
+
+export interface PillarWeight {
+  /** A governance (P1-P8) or content-quality (CQ1-CQ10) pillar id. */
+  pillar: string;
+  role: PillarRole;
+}
+
+/**
+ * D22 §22.3-L1 weighted-tally weights: a tag→pillar edge that is the artifact's
+ * PRIMARY pillar counts 1.0; a SUPPORTING edge counts 0.4. Consumed by
+ * {@link weightedPillarTally} and `scripts/validate-pillar-coverage.ts`.
+ */
+export const PILLAR_ROLE_WEIGHT: Record<PillarRole, number> = {
+  primary: 1.0,
+  supporting: 0.4,
+};
+
+/** Governance-axis pillar ids (CONSTITUTION §2A). */
+export const GOVERNANCE_PILLARS = ["P1", "P2", "P3", "P4", "P5", "P6", "P7", "P8"] as const;
+
+/** Content-quality-axis pillar ids (CONSTITUTION §2B; CQ10 added 2026-07-09). */
+export const CONTENT_QUALITY_PILLARS = [
+  "CQ1", "CQ2", "CQ3", "CQ4", "CQ5", "CQ6", "CQ7", "CQ8", "CQ9", "CQ10",
+] as const;
+
+/** Every valid pillar id across both axes — the id union a PILLAR_MAP edge may cite. */
+export const ALL_PILLARS: readonly string[] = [
+  ...GOVERNANCE_PILLARS,
+  ...CONTENT_QUALITY_PILLARS,
+];
+
+/**
+ * Canonical tag→pillar map. Covers every capability + floor tag (the two facets
+ * the D22 §22.3 tally reads). Non-capability/floor facets (context, language,
+ * cli-tool, cli-tool-category, ui-ux-specialisation, customize, role) are
+ * intentionally absent — they are technical-compatibility or classification
+ * markers, not pillar-service signals. {@link pillarsForTag} returns [] for any
+ * tag not listed here. Completeness + edge validity are gated by
+ * `scripts/validate-pillar-coverage.ts --check` (a capability/floor tag with no
+ * entry, or an edge citing a pillar outside {@link ALL_PILLARS}, fails the gate).
+ */
+export const PILLAR_MAP: Record<string, PillarWeight[]> = {
+  // ── Base capability (1.x) ──
+  [TAG_PLANNING]:       [{ pillar: "CQ10", role: "primary" }],
+  [TAG_IMPLEMENTATION]: [{ pillar: "P2", role: "primary" }, { pillar: "CQ8", role: "supporting" }],
+  [TAG_REVIEW]:         [{ pillar: "P2", role: "primary" }, { pillar: "CQ5", role: "supporting" }],
+  [TAG_DEVOPS]:         [{ pillar: "CQ4", role: "primary" }],
+  [TAG_MAINTENANCE]:    [{ pillar: "CQ8", role: "primary" }, { pillar: "P4", role: "supporting" }],
+  // Checklist 22.3-L1 authoritative example — kept verbatim.
+  [TAG_ORCHESTRATION]:  [{ pillar: "P5", role: "primary" }, { pillar: "P7", role: "supporting" }, { pillar: "P8", role: "supporting" }],
+  [TAG_BOARD]:          [{ pillar: "P1", role: "primary" }],
+  [TAG_PERFORMANCE]:    [{ pillar: "CQ7", role: "primary" }],
+  [TAG_AI]:             [{ pillar: "CQ9", role: "primary" }, { pillar: "CQ5", role: "supporting" }],
+
+  // ── CQ-vector + supporting capability (2.0.0) — CQ edges honour the tag comments above ──
+  [TAG_SECURITY]:        [{ pillar: "CQ3", role: "primary" }, { pillar: "P6", role: "supporting" }],
+  [TAG_RELIABILITY]:     [{ pillar: "CQ4", role: "primary" }],
+  [TAG_TESTING]:         [{ pillar: "CQ5", role: "primary" }],
+  [TAG_SCALABILITY]:     [{ pillar: "CQ6", role: "primary" }],
+  [TAG_MAINTAINABILITY]: [{ pillar: "CQ8", role: "primary" }],
+  [TAG_ENHANCABILITY]:   [{ pillar: "CQ9", role: "primary" }],
+  [TAG_OBSERVABILITY]:   [{ pillar: "CQ4", role: "supporting" }],
+  [TAG_SUPPLY_CHAIN]:    [{ pillar: "CQ3", role: "supporting" }, { pillar: "P6", role: "supporting" }],
+  [TAG_ACCESSIBILITY]:   [{ pillar: "CQ1", role: "supporting" }],
+
+  // ── Work-type capability (2.0.0) ──
+  [TAG_SPEC]:             [{ pillar: "CQ10", role: "primary" }],
+  [TAG_GREENFIELD]:       [{ pillar: "CQ10", role: "supporting" }],
+  [TAG_BROWNFIELD]:       [{ pillar: "CQ10", role: "supporting" }],
+  [TAG_MIGRATION]:        [{ pillar: "CQ9", role: "primary" }, { pillar: "CQ4", role: "supporting" }],
+  [TAG_TELEMETRY]:        [{ pillar: "CQ4", role: "supporting" }, { pillar: "P7", role: "supporting" }],
+  [TAG_COST]:             [{ pillar: "P7", role: "primary" }],
+  [TAG_ANTI_DUPLICATION]: [{ pillar: "P4", role: "primary" }, { pillar: "CQ8", role: "supporting" }],
+  [TAG_CODE_QUALITY]:     [{ pillar: "CQ8", role: "primary" }],
+  [TAG_CODE_STANDARDS]:   [{ pillar: "CQ8", role: "primary" }],
+  [TAG_RIGHT_SIZING]:     [{ pillar: "P4", role: "primary" }],
+  [TAG_ADAPTERS]:         [{ pillar: "P3", role: "primary" }],
+  [TAG_CAPABILITY]:       [{ pillar: "P3", role: "supporting" }],
+  [TAG_CURRENCY]:         [{ pillar: "P3", role: "primary" }],
+  [TAG_ITERATION]:        [{ pillar: "P1", role: "supporting" }],
+  [TAG_SUMMARY]:          [{ pillar: "P1", role: "supporting" }],
+  [TAG_LEARNING]:         [{ pillar: "P2", role: "supporting" }, { pillar: "P5", role: "supporting" }],
+  [TAG_KNOWLEDGE_CAPTURE]: [{ pillar: "P2", role: "supporting" }],
+  [TAG_PROOF]:            [{ pillar: "P2", role: "primary" }],
+  [TAG_VERIFICATION]:     [{ pillar: "P2", role: "primary" }, { pillar: "CQ5", role: "supporting" }],
+  [TAG_CITATION]:         [{ pillar: "P2", role: "supporting" }],
+  [TAG_PLAYWRIGHT]:       [{ pillar: "CQ5", role: "primary" }, { pillar: "CQ1", role: "supporting" }],
+  [TAG_VISUAL_REGRESSION]: [{ pillar: "CQ1", role: "primary" }, { pillar: "CQ5", role: "supporting" }],
+
+  // ── Floor tags — map to the pillar(s) their coverage-floor protects ──
+  [TAG_FLOOR_SECURITY]:        [{ pillar: "P6", role: "primary" }, { pillar: "CQ3", role: "supporting" }],
+  [TAG_FLOOR_UI_UX]:           [{ pillar: "CQ1", role: "primary" }, { pillar: "CQ2", role: "primary" }],
+  [TAG_FLOOR_PROTOCOL]:        [{ pillar: "P5", role: "primary" }, { pillar: "P8", role: "supporting" }],
+  // Meta content-quality coverage floor — guarantees the CQ specialists ship in
+  // every preset; maps to P4 (Lean Coverage's coverage-guarantee) rather than a
+  // single CQ vector, since each CQ specialist already carries its own CQ tag.
+  [TAG_FLOOR_CONTENT_QUALITY]: [{ pillar: "P4", role: "supporting" }],
+};
+
+/**
+ * Pillar edges served by a tag. Returns [] for any tag absent from
+ * {@link PILLAR_MAP} — unknown tags, and every context / language / cli-tool /
+ * cli-tool-category / ui-ux-specialisation / customize / role tag (those are
+ * compatibility or classification markers, not pillar-service signals).
+ */
+export function pillarsForTag(tag: string): PillarWeight[] {
+  return PILLAR_MAP[tag] ?? [];
+}
+
+/**
+ * D22 §22.3 weighted pillar-coverage tally. For each artifact, every pillar it
+ * touches contributes the MAX edge weight among that artifact's tags mapping to
+ * that pillar (so a cross-cutting tag "does not triple-count and suppress the
+ * coverage signal" per 22.3-L1); the per-artifact contributions are summed
+ * across the corpus. Deterministic: identical `items` always yield an identical
+ * tally — the reproducibility property D22-SA22.3-01 restores. Consumed by
+ * `scripts/validate-pillar-coverage.ts` and pinned by the tags unit tests.
+ *
+ * @param items - Artifacts, each exposing `tags: string[]` (its frontmatter tags).
+ * @returns A record from pillar id to its 3dp-rounded weighted artifact count.
+ */
+export function weightedPillarTally(
+  items: ReadonlyArray<{ tags: readonly string[] }>,
+): Record<string, number> {
+  const totals: Record<string, number> = {};
+  for (const item of items) {
+    // Per-artifact, per-pillar MAX edge weight (dedupes cross-cutting tags so a
+    // pillar an artifact reaches through several tags counts once, at its
+    // highest role).
+    const perPillarMax: Record<string, number> = {};
+    for (const tag of item.tags) {
+      for (const edge of pillarsForTag(tag)) {
+        const w = PILLAR_ROLE_WEIGHT[edge.role];
+        const prev = perPillarMax[edge.pillar];
+        if (prev === undefined || w > prev) perPillarMax[edge.pillar] = w;
+      }
+    }
+    for (const pillar of Object.keys(perPillarMax)) {
+      totals[pillar] = (totals[pillar] ?? 0) + perPillarMax[pillar];
+    }
+  }
+  for (const pillar of Object.keys(totals)) {
+    totals[pillar] = Math.round(totals[pillar] * 1000) / 1000;
+  }
+  return totals;
 }

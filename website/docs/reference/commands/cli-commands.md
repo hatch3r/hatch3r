@@ -310,13 +310,14 @@ npx hatch3r worktree-cleanup --dry-run   # preview without changes
 
 ## hatch3r add
 
-Install community content packs (coming soon).
+Install content packs from a local path or an installed npm package (v1 trust tiers; git/marketplace sources remain roadmap).
 
 ```bash
-npx hatch3r add <pack>
+npx hatch3r add <pack>                 # resolve + trust-gate + install into .hatch3r/overrides/
+npx hatch3r add <pack> --dry-run       # preview the install plan without writing
 ```
 
-This command will allow installing community-contributed agent packs, rule sets, and workflow recipes. Follow [hatch3r on GitHub](https://github.com/hatch3r) for updates.
+Packs are validated before any write: manifest check, signing gate, SHA-256 integrity map, lifecycle-script ban, and path-traversal guards; unsigned packs are refused unless `--allow-untrusted` is passed explicitly (recorded in the install ledger at `.hatch3r/packs/<pack_id>.json`).
 
 ## hatch3r cli-tools
 

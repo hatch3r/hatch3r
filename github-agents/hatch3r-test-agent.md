@@ -65,21 +65,23 @@ Rules: 2-4 numbered options, each with a one-line trade-off; the `Default if no 
 - **Deterministic:** Use fake timers — no wall clock dependency
 - **Isolated:** Each test creates and tears down its own state
 - **Fast:** Unit < 50ms, integration < 2s
-- **Named clearly:** `"should award 15 XP for 25-min focus block"`
+- **Named clearly:** `"should deny a request once the daily quota is exhausted"`
 - **Regression:** Every bug fix gets a test that fails before the fix and passes after
 - **No network:** Unit tests never make network calls (use mocks)
 
 ## Code Style Example
 
 ```typescript
-describe('awardXp', () => {
-  it('should cap daily XP for focus blocks at 8 per day', () => {
-    const pet = createTestPet({ xpAwardedToday: { focusBlock: 7 } })
-    const result = awardXp(pet, 'focusBlock', 15)
-    expect(result.xp).toBe(pet.xp + 15) // 8th block awarded
+// Illustrative — adapt the domain to your project. Shape to copy:
+// deterministic setup, one behavior asserted, boundary + over-boundary covered.
+describe('consumeQuota', () => {
+  it('should grant requests up to the daily cap, then deny the next one', () => {
+    const quota = createQuota({ used: 7, dailyCap: 8 })
+    const granted = consumeQuota(quota, 1)
+    expect(granted.used).toBe(8) // 8th request granted
 
-    const capped = awardXp(result, 'focusBlock', 15)
-    expect(capped.xp).toBe(result.xp) // 9th block denied
+    const denied = consumeQuota(granted, 1)
+    expect(denied.used).toBe(granted.used) // 9th request denied, count unchanged
   })
 })
 ```

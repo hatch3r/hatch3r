@@ -111,6 +111,16 @@ const AUDIT_EXEMPT_PATHS: readonly string[] = [
   "governance/EVOLVE.md",
 ];
 
+// `AUDIT_EXEMPT_GLOBS` is a forward-compatible reservation, not a live match:
+// it exempts any future audit-cycle COMMAND. None exists today — the audit-cycle
+// launcher is the `.claude/skills/h4tcher-audit-cycle/` skill, which lives outside
+// the four dirs this sweep scans (commands/, agents/, rules/, skills/), so it needs
+// no entry here. A glob matching nothing on disk is the expected steady state, not
+// drift; the reservation keeps forward-compat coverage in
+// `validate-efficiency-invariants.test.ts` ("Audit exempt: commands/hatch3r-audit-cycle.md
+// does NOT trigger any check"). These two constants are the single home for the
+// exempt set: `governance/AUDIT.md` directive 14 and the `governance/AUDIT-EXECUTE.md`
+// gate-17/18 note both derive their membership from here (D24-SA24.3-05).
 const AUDIT_EXEMPT_GLOBS: readonly string[] = [
   "commands/hatch3r-audit-cycle*.md",
 ];

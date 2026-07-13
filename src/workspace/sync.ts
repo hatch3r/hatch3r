@@ -18,12 +18,10 @@ import {
   addManagedFile,
 } from "../manifest/hatchJson.js";
 import { safeWriteFile, acquireWriteLock } from "../merge/safeWrite.js";
+import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../merge/orphanCleanup.js";
 import { HATCH3R_DIR } from "../types.js";
 import { migrateAgentsToHatch3r } from "../migration/agentsToHatch3r.js";
 import { HATCH3R_VERSION } from "../version.js";
-import { findPackageRoot } from "../cli/shared/paths.js";
-import { fileURLToPath } from "node:url";
-import { dirname } from "node:path";
 import { analyzeRepo } from "../detect/repoAnalyzer.js";
 import { ensureEnvMcp, ensureGitignoreEntry } from "../env/mcpEnv.js";
 import { readWorkspaceManifest, writeWorkspaceManifest } from "./manifest.js";
@@ -33,9 +31,6 @@ import { CHARS_PER_TOKEN } from "../pipeline/observability.js";
 import { verbose } from "../cli/shared/ui.js";
 import type { WorkspaceManifest, WorkspaceRepoEntry, WorkspaceSyncResult, WorkspaceRepoSyncResult, WorkspaceGroupDelta } from "./types.js";
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const CONTENT_ROOT = findPackageRoot(__dirname);
-
 /**
  * Estimate total tokens for a set of content IDs by summing the character
  * length of their source files and dividing by the chars-per-token ratio.
@@ -44,6 +39,10 @@ async function estimateTokensForContent(
   contentIds: Set<string>,
   index: Awaited<ReturnType<typeof buildContentIndex>>,
 ): Promise<number> {
+  // D1-SA1.10-01 (Cycle 12): item.relativePath values are relative to the
+  // bundled content root the index was built from (see syncWorkspaceRepos),
+  // so resolve the same root here. Process-cached — cheap per call.
+  const contentRoot = resolveBundledContentRoot();
   let totalChars = 0;
   for (const id of contentIds) {
     // Use getAllItemsById to handle cross-type collisions (e.g., command + skill with same ID)
@@ -52,11 +51,11 @@ async function estimateTokensForContent(
       try {
         if (item.type === "skill") {
           // For skills, read the SKILL.md file
-          const skillPath = join(CONTENT_ROOT, item.relativePath, "SKILL.md");
+          const skillPath = join(contentRoot, item.relativePath, "SKILL.md");
           const content = await readFile(skillPath, "utf-8");
           totalChars += content.length;
         } else {
-          const filePath = join(CONTENT_ROOT, item.relativePath);
+          const filePath = join(contentRoot, item.relativePath);
           const content = await readFile(filePath, "utf-8");
           totalChars += content.length;
         }
@@ -73,7 +72,17 @@ async function estimateTokensForContent(
 }
 
 export interface WorkspaceSyncOptions {
-  /** Only sync these repo paths (sync all opted-in repos if empty/undefined). */
+  /**
+   * Only sync these repo paths (sync all opted-in repos if empty/undefined).
+   *
+   * D1-SA1.10-12 (Cycle 12, Info): an explicit path list selects by path
+   * membership ALONE — a repo whose entry has `sync: false` IS synced when its
+   * path is named here, overriding the opt-out. This differs from the
+   * no-argument default, which syncs only `sync: true` repos. Requested paths
+   * that match no registered repo are skipped with an `onWarn` line naming them
+   * (see {@link syncWorkspaceRepos}), so an operator typo is audible instead of
+   * reading as a green "0 repo(s) synced" no-op.
+   */
   repos?: string[];
   /** Show what would change without modifying files. */
   dryRun?: boolean;
@@ -233,10 +242,16 @@ export async function syncWorkspaceRepos(
     .update(JSON.stringify(wsManifest))
     .digest("hex");
 
-  // Build the content index from the bundled package content root (CONTENT_ROOT
-  // = findPackageRoot). Wave 3 removed the workspace `.agents/` canonical tree;
-  // canonical content now ships read-only inside the npm package.
-  const index = await buildContentIndex(CONTENT_ROOT);
+  // Build the content index from the bundled content root. Wave 3 removed the
+  // workspace `.agents/` canonical tree; canonical content now ships read-only
+  // inside the npm package. D1-SA1.10-01 (Cycle 12, Critical): this must be
+  // resolveBundledContentRoot() — the installed layout keeps content under
+  // `<pkgRoot>/dist/content` (package.json `files: ["dist/", ...]` since
+  // 1.9.0), so the previous `findPackageRoot(__dirname)` scanned the bare
+  // package root and built an EMPTY index in every installed execution
+  // (empty member selections, universal-floor invariant off, 0-token
+  // dry-run estimates). Only the dev checkout masked it.
+  const index = await buildContentIndex(resolveBundledContentRoot());
   // D16-2 (Cycle 11): the workspace exclude path must honour the full
   // universal-floor invariant, not just `protected`. Build the
   // not-excludable set from `admitsUnconditionally` (protected OR any
@@ -255,6 +270,27 @@ export async function syncWorkspaceRepos(
   const targetRepos = options.repos?.length
     ? wsManifest.repos.filter((r) => options.repos!.includes(r.path))
     : wsManifest.repos.filter((r) => r.sync);
+
+  // D1-SA1.10-12 (Cycle 12, Info, P1): when explicit `--repos` paths are given,
+  // warn per requested path that matches no registered repo. targetRepos above
+  // filters by path membership only, so an unknown/typo'd path drops out and the
+  // CLI reports a green "0 repo(s) synced" — the typo reads as a clean no-op.
+  // Name each unmatched path (with the registered repo set) via onWarn so the
+  // operator can fix the typo instead of trusting a misleading success (Silent
+  // Failure Contract, CONSTITUTION §2 P5; unmatched-argument feedback per
+  // clig.dev). No-op on the no-argument default (every opted-in repo is a match).
+  if (options.repos?.length) {
+    const knownPaths = new Set(wsManifest.repos.map((r) => r.path));
+    const unmatched = [...new Set(options.repos)].filter((p) => !knownPaths.has(p));
+    if (unmatched.length > 0) {
+      const known = wsManifest.repos.map((r) => r.path).join(", ") || "(none registered)";
+      options.onWarn?.(
+        `--repos: ${unmatched.length} requested path(s) matched no registered repo ` +
+          `and were skipped: ${unmatched.join(", ")}. ` +
+          `Registered repos: ${known}. Check for a typo in the --repos value.`,
+      );
+    }
+  }
 
   // D14-SA14.2-H01 (High): Sub-repo syncs are independent at the canonical-
   // content level — each writes to a distinct `<workspace>/<repo>/.agents/`
@@ -541,6 +577,18 @@ async function syncSingleRepo(
     existingManifest?.workspace?.excludedCliTools,
   );
 
+  // D1-SA1.10-05 (Cycle 12, D1): snapshot the member's prior per-adapter
+  // output paths BEFORE createManifest rebuilds a fresh manifest (whose
+  // managedFilesByAdapter starts empty). The adapter loop below diffs the
+  // current emission against this baseline and sweeps files a shrunk selection
+  // (excluded rule, removed tool/group) no longer emits — otherwise the member
+  // repo keeps loading a "ghost" adapter output the workspace lead believes is
+  // gone, and the fresh per-run manifest drops it from tracking so
+  // `hatch3r clean` can never reclaim it. Mirrors src/cli/commands/sync.ts.
+  const previousManagedByAdapter: Record<string, string[]> = existingManifest?.managedFilesByAdapter
+    ? { ...existingManifest.managedFilesByAdapter }
+    : {};
+
   const manifest = createManifest({
     platform: gitPlatform ?? resolved.platform,
     owner: gitOwner,
@@ -586,6 +634,11 @@ async function syncSingleRepo(
   // Run adapter generation
   const canonicalContentRoot = resolveBundledContentRoot();
   const toolsSynced: string[] = [];
+  // D1-SA1.10-05 (Cycle 12, D1): assemble the new per-adapter path map as
+  // adapters succeed, and collect orphan-sweep entries to surface after the
+  // loop. Mirrors the single-repo collectors in src/cli/commands/sync.ts.
+  const newManagedByAdapter: Record<string, string[]> = {};
+  const orphanEntries: OrphanCleanupEntry[] = [];
   for (const tool of resolved.tools) {
     try {
       const adapter = getAdapter(tool);
@@ -612,6 +665,19 @@ async function syncSingleRepo(
         });
         addManagedFile(manifest, out.path);
       }
+      // D1-SA1.10-05 (Cycle 12, D1): record this adapter's emitted paths and
+      // sweep the member's stale outputs. `previousManagedByAdapter[tool]` is
+      // the prior-run baseline; a path in it this run no longer emits is
+      // unlinked (subject to the user-wrapped / adapter-root safety checks in
+      // sweepOrphansForAdapter). Root-only containment (no packageRoots
+      // argument): workspace members do not emit monorepo per-package copies.
+      const currentPaths = outputs.map((o) => o.path);
+      newManagedByAdapter[tool] = currentPaths;
+      const priorPaths = previousManagedByAdapter[tool];
+      if (priorPaths && priorPaths.length > 0) {
+        const entries = await sweepOrphansForAdapter(tool, repoDir, priorPaths, currentPaths);
+        orphanEntries.push(...entries);
+      }
       toolsSynced.push(tool);
     } catch (err) {
       options.onWarn?.(
@@ -620,8 +686,26 @@ async function syncSingleRepo(
     }
   }
 
-  // Write manifest again with managedFiles populated
+  // D1-SA1.10-05 (Cycle 12, D1): persist managedFilesByAdapter so the NEXT
+  // sync has a per-adapter history to diff against — createManifest above built
+  // a fresh manifest with none. Merge: a failed adapter keeps its prior paths
+  // (its outputs were not re-verified this run); a successful adapter
+  // overwrites with the fresh list. Mirrors the end-of-run merge in
+  // src/cli/commands/sync.ts.
+  const mergedByAdapter: Record<string, string[]> = { ...previousManagedByAdapter };
+  for (const [tool, paths] of Object.entries(newManagedByAdapter)) {
+    mergedByAdapter[tool] = [...paths];
+  }
+  manifest.managedFilesByAdapter = mergedByAdapter;
+
+  // Write manifest again with managedFiles + managedFilesByAdapter populated
   await writeManifest(repoDir, manifest);
+
+  // D1-SA1.10-05 (Cycle 12, D1): surface swept/skipped orphan outputs so the
+  // workspace operator sees which stale member files were reclaimed (or refused
+  // for safety) this run.
+  const orphanDiag = formatOrphanCleanupDiagnostic(orphanEntries);
+  if (orphanDiag) options.onWarn?.(orphanDiag);
 
   // Wave 3: integrity manifest writes removed; Wave 7 will reintroduce a
   // bundled-content integrity model. Surface partial-adapter outcomes via

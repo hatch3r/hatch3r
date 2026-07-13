@@ -12,6 +12,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { HatchError } from "../../../types.js";
+import { scanBodyReferences, type McpServerRef } from "../../../cli/commands/deps.js";
 
 describe("depsCommand", () => {
   let tempDir: string;
@@ -109,6 +110,9 @@ describe("depsCommand", () => {
     expect(out).toContain("hatch3r-tooling-hierarchy");
     // pattern-matched MCP server name ("Context7 MCP" shorthand)
     expect(out).toContain("Context7");
+    // D12-SA12.4-03: context7 is an active server in mcp/mcp.json, so it renders
+    // in the registry-confirmed tier — not the pattern-only advisory tier.
+    expect(out).toContain("registry-confirmed");
     // the References block is populated, so its empty state must be absent
     expect(out).not.toContain("no skill / rule / MCP references found");
   });
@@ -172,5 +176,93 @@ describe("depsCommand", () => {
     } finally {
       stdoutSpy.mockRestore();
     }
+  });
+});
+
+// D12-SA12.4-03: focused unit tests for the exported reference-confirmation
+// logic. A synthetic body + synthetic registry keep the confirmed / advisory /
+// disabled tiering deterministic (independent of which MCP names canonical prose
+// happens to cite) and isolate the two extraction forms + the underscore→hyphen
+// normalization that the end-to-end depsCommand tests cannot pin down.
+describe("scanBodyReferences MCP registry confirmation (D12-SA12.4-03)", () => {
+  const registry: ReadonlyMap<string, { disabled: boolean }> = new Map([
+    ["context7", { disabled: false }],
+    ["github", { disabled: false }],
+    ["brave-search", { disabled: false }],
+    ["azure-devops", { disabled: false }],
+    ["gitlab", { disabled: true }],
+    ["sentry", { disabled: true }],
+  ]);
+  const noIds: ReadonlySet<string> = new Set<string>();
+
+  function byName(refs: McpServerRef[], name: string): McpServerRef | undefined {
+    return refs.find((r) => r.name === name);
+  }
+
+  it("confirms display-form names ('<Name> MCP') that match an active registry key", () => {
+    const { mcpServers } = scanBodyReferences(
+      "Use Context7 MCP and GitHub MCP for research.",
+      "self",
+      noIds,
+      registry,
+    );
+    expect(byName(mcpServers, "Context7")).toEqual({ name: "Context7", confirmed: true, disabled: false });
+    expect(byName(mcpServers, "GitHub")).toEqual({ name: "GitHub", confirmed: true, disabled: false });
+  });
+
+  it("confirms tool-id-form names, folding underscores onto the registry hyphen key", () => {
+    // `mcp__brave_search__` / `mcp__azure_devops__` must resolve to the registry
+    // keys `brave-search` / `azure-devops` via normalization.
+    const { mcpServers } = scanBodyReferences(
+      "call mcp__brave_search__web_search then mcp__azure_devops__list_items",
+      "self",
+      noIds,
+      registry,
+    );
+    expect(byName(mcpServers, "brave_search")?.confirmed).toBe(true);
+    expect(byName(mcpServers, "azure_devops")?.confirmed).toBe(true);
+  });
+
+  it("flags a confirmed server whose registry entry is _disabled", () => {
+    const { mcpServers } = scanBodyReferences("See GitLab MCP setup.", "self", noIds, registry);
+    expect(byName(mcpServers, "GitLab")).toEqual({ name: "GitLab", confirmed: true, disabled: true });
+  });
+
+  it("leaves an unmatched name ('Context8 MCP') in the advisory tier", () => {
+    const { mcpServers } = scanBodyReferences("Try Context8 MCP maybe.", "self", noIds, registry);
+    expect(byName(mcpServers, "Context8")).toEqual({ name: "Context8", confirmed: false, disabled: false });
+  });
+
+  it("keeps the lossy multi-word capture ('Brave Search MCP' → 'Search') advisory, not falsely confirmed", () => {
+    // The display regex captures only the last capitalized token before "MCP",
+    // so "Brave Search MCP" yields "Search" — which is NOT the registry key
+    // `brave-search`; it must stay advisory rather than be mis-confirmed.
+    const { mcpServers } = scanBodyReferences("Run Brave Search MCP now.", "self", noIds, registry);
+    expect(byName(mcpServers, "Search")?.confirmed).toBe(false);
+    expect(byName(mcpServers, "brave-search")).toBeUndefined();
+  });
+
+  it("degrades to advisory for every name when the registry map is empty (load-failure path)", () => {
+    const { mcpServers } = scanBodyReferences(
+      "Use Context7 MCP.",
+      "self",
+      noIds,
+      new Map<string, { disabled: boolean }>(),
+    );
+    expect(byName(mcpServers, "Context7")?.confirmed).toBe(false);
+  });
+
+  it("still index-confirms skill/rule ids alongside MCP confirmation", () => {
+    const ids: ReadonlySet<string> = new Set(["hatch3r-real-skill", "hatch3r-real-rule"]);
+    const { skills, rules, mcpServers } = scanBodyReferences(
+      "see skills/hatch3r-real-skill and rules/hatch3r-real-rule and skills/hatch3r-ghost plus Context7 MCP",
+      "self",
+      ids,
+      registry,
+    );
+    // The `hatch3r-ghost` mention is not in the id set, so it is dropped.
+    expect(skills).toEqual(["hatch3r-real-skill"]);
+    expect(rules).toEqual(["hatch3r-real-rule"]);
+    expect(byName(mcpServers, "Context7")?.confirmed).toBe(true);
   });
 });

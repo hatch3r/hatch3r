@@ -250,6 +250,34 @@ describe("managedBlocks", () => {
     });
   });
 
+  // D11-SA11.2-04 (Cycle 12 Wave 4, D11, CQ4): out-of-block user content is
+  // preserved byte-for-byte with ONE documented exception — the G6 final-newline
+  // guarantee. A user file whose content outside the block lacks a POSIX-final
+  // newline gains exactly one "\n" on the first merge, then is byte-stable. These
+  // tests pin that exception per the finding's falsifiability clause: dropping
+  // the conditional append, or trimming the raw before/after slices, would change
+  // the audited "user content preserved byte-for-byte" verdict.
+  describe("documented final-newline exception (D11-SA11.2-04)", () => {
+    it("appends exactly one final newline when out-of-block user content lacks one", () => {
+      const existing = `Header\n${START}\nold\n${END}\nUser footer no newline`;
+      expect(existing.endsWith("\n")).toBe(false); // precondition: no final newline
+      const result = insertManagedBlock(existing, "managed body");
+      // Out-of-block user bytes survive verbatim; the sole added byte is a single
+      // trailing "\n" — never a second one, since the append is conditional.
+      expect(result).toBe(`Header\n${START}\nmanaged body\n${END}\nUser footer no newline\n`);
+      expect(result.endsWith("\n\n")).toBe(false);
+    });
+
+    it("is a one-time +1 byte — the second merge adds nothing (idempotent exception)", () => {
+      const existing = `${START}\nold\n${END}\nfooter with no newline`;
+      expect(existing.endsWith("\n")).toBe(false);
+      const once = insertManagedBlock(existing, "body");
+      const twice = insertManagedBlock(once, "body");
+      expect(once.endsWith("\n")).toBe(true);
+      expect(twice).toBe(once);
+    });
+  });
+
   describe("extractCustomContent", () => {
     it("returns full content when no block present", () => {
       const content = "All custom content here";
@@ -578,6 +606,158 @@ describe("managedBlocks", () => {
       expect(hasManagedBlock(oneLine)).toBe(false);
       expect(extractManagedBlock(oneLine)).toBeNull();
       expect(extractCustomContent(oneLine)).toBe(oneLine);
+    });
+  });
+
+  // D1-SA1.5-02 (Cycle 12 Wave 3, D1, P6): whole-line marker tokens QUOTED
+  // inside markdown code fences must be invisible to detection and to the
+  // duplicate-marker count. Line-anchoring (D1-7/D11-4) handled mid-line
+  // quoting; a fenced example documenting the marker format puts the token on
+  // its own line — before this fix the fence interior detected as a real block
+  // and insertManagedBlock spliced canonical content into the user's example
+  // (or the duplicate count tripped the `.bak` auto-repair path).
+  describe("fenced code blocks shield quoted marker tokens (D1-SA1.5-02)", () => {
+    const YAML_START = "# HATCH3R:BEGIN";
+    const YAML_END = "# HATCH3R:END";
+
+    it("does not detect a block when the only marker-shaped lines sit inside a ```yaml fence (.md host)", () => {
+      const content = [
+        "# My notes",
+        "hatch3r wraps its output like this:",
+        "```yaml",
+        YAML_START,
+        "managed: true",
+        YAML_END,
+        "```",
+        "That is the whole format.",
+      ].join("\n");
+      expect(hasManagedBlock(content, "CLAUDE.md")).toBe(false);
+      expect(extractManagedBlock(content, "CLAUDE.md")).toBeNull();
+      // No block → the user's fence content is returned untouched, never merged into.
+      expect(extractCustomContent(content, "CLAUDE.md")).toBe(content);
+      expect(() => insertManagedBlock(content, "NEW BODY", "CLAUDE.md")).toThrow(
+        "Content must contain managed block markers",
+      );
+    });
+
+    it("does not detect HTML-variant tokens quoted whole-line inside a fence (.md host)", () => {
+      const content = ["```", START, "example body", END, "```"].join("\n");
+      expect(hasManagedBlock(content, "notes.md")).toBe(false);
+      expect(extractCustomContent(content, "notes.md")).toBe(content);
+    });
+
+    it("merges the REAL block and preserves a fenced example of the same variant byte-for-byte", () => {
+      // Real HTML block + a fenced example quoting the same HTML tokens: the
+      // duplicate count must ignore the fenced pair (no false "duplicate
+      // marker" throw → no .bak auto-repair), and the merge must only touch
+      // the real block.
+      const fence = ["```", START, "example only", END, "```"].join("\n");
+      const content = [START, "old body", END, "", "## Docs", fence, ""].join("\n");
+      const result = insertManagedBlock(content, "new body", "CLAUDE.md");
+      expect(result).toContain("new body");
+      expect(result).not.toContain("old body");
+      expect(result).toContain(fence); // fence interior byte-identical
+      expect(extractManagedBlock(result, "CLAUDE.md")).toBe("new body");
+    });
+
+    it("does not flip the variant when the OTHER variant is quoted in a fence next to a real block", () => {
+      // Real HTML block in a .md file + fenced YAML-token example: detection
+      // must lock onto the real HTML pair, so no variant flip is reported.
+      const content = [
+        START,
+        "body",
+        END,
+        "",
+        "```yaml",
+        YAML_START,
+        "quoted: example",
+        YAML_END,
+        "```",
+      ].join("\n");
+      expect(hasManagedBlock(content, "CLAUDE.md")).toBe(true);
+      expect(wouldChangeMarkerVariant(content, "CLAUDE.md")).toBe(false);
+      expect(extractManagedBlock(content, "CLAUDE.md")).toBe("body");
+    });
+
+    it("handles tilde (~~~) fences the same as backtick fences", () => {
+      const content = ["~~~", START, "example", END, "~~~"].join("\n");
+      expect(hasManagedBlock(content, "notes.md")).toBe(false);
+    });
+
+    it("an unterminated fence voids the shield — real markers are still detected (CI-RECON-03)", () => {
+      // Supersedes the initial D1-SA1.5-02 contract ("unterminated fence
+      // shields the remainder"): that shape shielded REAL end markers, and the
+      // no-block outcome is NOT a non-destructive skip on the standard sync
+      // path — safeWriteFile's appendIfNoBlock branch splices a fresh copy of
+      // the block on every sync (unbounded growth, non-idempotent sync,
+      // non-convergent `verify --fix`). A malformed fence structure now voids
+      // the shield entirely, restoring plain line-anchored detection.
+      const content = ["intro", "```", START, "body", END].join("\n");
+      expect(hasManagedBlock(content, "notes.md")).toBe(true);
+      expect(extractManagedBlock(content, "notes.md")).toBe("body");
+    });
+
+    it("mis-nested interior fences cannot shield the real END marker (CI-RECON-03: ci-watcher shape)", () => {
+      // Regression model of agents/hatch3r-ci-watcher.md: the managed body
+      // nests a ```bash example inside a ``` fence (author intent), which
+      // CommonMark pairs as (open, inner-close) instead — stranding the last
+      // fence line open. With the trailing range shielding to end-of-content,
+      // the real END marker went undetected and every sync appended another
+      // full copy of the block. The malformed structure must void the shield
+      // so detection, extraction, and re-insertion stay convergent.
+      const body = [
+        "## Output Format",
+        "```",
+        "**Verification Commands:**",
+        "```bash", // author intent: nested opener; CommonMark: inert inside fence
+        "{commands}",
+        "```", // CommonMark: closes the fence opened at line 2
+        "**Notes:**",
+        "```", // author intent: closes outer; CommonMark: OPENS a new fence
+        "## Example",
+        "```", // CommonMark: closes
+        "example output",
+        "```", // author intent: closes example; CommonMark: OPENS — stranded to EOF
+      ].join("\n");
+      const content = [START, body, END, ""].join("\n");
+
+      expect(hasManagedBlock(content, ".cursor/agents/hatch3r-ci-watcher.md")).toBe(true);
+      expect(extractManagedBlock(content, ".cursor/agents/hatch3r-ci-watcher.md")).toBe(body);
+
+      // Re-inserting the same body is byte-stable (the sync-idempotency
+      // invariant lifecycle.test.ts protects end-to-end), and a second pass
+      // over the merged result converges instead of growing.
+      const once = insertManagedBlock(content, body, ".cursor/agents/hatch3r-ci-watcher.md");
+      const twice = insertManagedBlock(once, body, ".cursor/agents/hatch3r-ci-watcher.md");
+      expect(twice).toBe(once);
+      expect(once).toBe(content);
+    });
+
+    it("keeps the shield for quoted markers when every fence terminates, even alongside a real block", () => {
+      // Guard the surviving half of D1-SA1.5-02 next to the void-on-malformed
+      // carve-out: with a WELL-FORMED fence structure, a whole-line quoted
+      // token inside a fence stays invisible — the real block is still the
+      // one merged, and the fenced example is preserved byte-for-byte.
+      const fence = ["```", START, "quoted example", END, "```"].join("\n");
+      const content = [START, "real body", END, "", fence, ""].join("\n");
+      const result = insertManagedBlock(content, "updated body", "CLAUDE.md");
+      expect(result).toContain("updated body");
+      expect(result).not.toContain("real body");
+      expect(result).toContain(fence);
+      expect(extractManagedBlock(result, "CLAUDE.md")).toBe("updated body");
+    });
+
+    it("keeps fence-skipping OFF for non-markdown hosts (backtick lines in YAML are plain content)", () => {
+      // A .yml file whose body happens to contain ``` lines: fences are a
+      // markdown concept, so the real YAML markers must still be detected.
+      const content = ["```", YAML_START, "managed: true", YAML_END, "```"].join("\n");
+      expect(hasManagedBlock(content, "workflow.yml")).toBe(true);
+      expect(extractManagedBlock(content, "workflow.yml")).toBe("managed: true");
+    });
+
+    it("omitted filePath keeps the historical markdown assumption (fence-aware)", () => {
+      const content = ["```", START, "example", END, "```"].join("\n");
+      expect(hasManagedBlock(content)).toBe(false);
     });
   });
 });

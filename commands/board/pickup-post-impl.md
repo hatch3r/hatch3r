@@ -18,7 +18,7 @@ Run the project's quality checks (linting, type checking, tests). Refer to the p
 
 Verify: all AC met, tests passing, no lint errors, dead code removed, project-specific invariants respected.
 
-Rate confidence in quality verification: high (all checks pass with comprehensive coverage), medium (checks pass but coverage gaps exist), low (checks pass minimally, recommend additional human review).
+Rate confidence in quality verification per the quality charter §1 verification-method framing (`agents/shared/quality-charter.md`): high (verified against code, tests, or browser), medium (based on established patterns, not independently verified), low (best judgment, recommend additional human review).
 
 ---
 
@@ -80,6 +80,23 @@ Follow the project's PR/MR creation skill or conventions:
 
 1. **Transition labels to `status:in-review`:** For each `Closes #N` issue (including all batch issues), update status labels using the platform CLI (see platform sub-file). If ALL sub-issues addressed, also transition the parent epic.
 2. **Sync Board:** Run the full **Board Sync Procedure** from `hatch3r-board-shared` for each item (see platform sub-file for specific targets).
+
+---
+
+## Step 8b: Merge Readiness (Consolidated Confidence)
+
+**This step is mandatory. Do not skip.** It realizes the Confidence Propagation Contract's merge-readiness requirement (`commands/hatch3r-board-pickup.md` → Confidence Propagation Contract): the PR is the output block the user acts on, so it MUST carry a consolidated confidence verdict — dropping the signal before this surface is a gate failure.
+
+Emit a final `Merge Readiness` block sourced from the LOWEST upstream confidence across the reviewer verdict, `hatch3r-testability`, `hatch3r-security`, and the Step 7 acceptance-criteria checks — parity with `commands/hatch3r-workflow.md` Review Results / Quick Mode Overall Confidence, so board-pickup's terminal surface carries the same signal as the other core orchestrators:
+
+```
+Merge Readiness:
+  Overall Confidence: {high/medium/low}
+  Lowest-confidence area: {description or "none"}
+  Review independence: {different-family = provider-independent | same-family or not-declared = self-preference bias possible, clean PASS is not provider-independent}
+```
+
+Surface the `Overall Confidence` line into the PR body (append to the Testing or Rollout section from Step 8) so the merge-decision surface itself carries the signal, not only the run transcript.
 
 ---
 

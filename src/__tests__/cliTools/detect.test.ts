@@ -101,7 +101,7 @@ afterEach(() => {
 });
 
 describe("probeBin POSIX command construction", () => {
-  it("invokes /bin/sh -c 'command -v -- <name>' on darwin", async () => {
+  it('invokes /bin/sh -c \'command -v -- "$1"\' with the name as a positional arg on darwin', async () => {
     setPlatform("darwin");
     spawnHandler = () => ({ stdout: "/opt/homebrew/bin/rg\n", code: 0 });
 
@@ -112,7 +112,11 @@ describe("probeBin POSIX command construction", () => {
     expect(spawnCalls.length).toBe(1);
     expect(spawnCalls[0].cmd).toBe("/bin/sh");
     expect(spawnCalls[0].args[0]).toBe("-c");
-    expect(spawnCalls[0].args[1]).toBe('command -v -- "rg"');
+    // The probe name is passed positionally ($1), never interpolated into the
+    // -c script text (D1-SA1.7-07 shell-injection hardening).
+    expect(spawnCalls[0].args[1]).toBe('command -v -- "$1"');
+    expect(spawnCalls[0].args[2]).toBe("sh");
+    expect(spawnCalls[0].args[3]).toBe("rg");
     expect(path).toBe("/opt/homebrew/bin/rg");
   });
 
@@ -125,7 +129,28 @@ describe("probeBin POSIX command construction", () => {
     await promise;
 
     expect(spawnCalls[0].cmd).toBe("/bin/sh");
-    expect(spawnCalls[0].args[1]).toBe('command -v -- "jq"');
+    expect(spawnCalls[0].args[1]).toBe('command -v -- "$1"');
+    expect(spawnCalls[0].args[3]).toBe("jq");
+  });
+
+  it("keeps the -c script text constant across probe names (name never enters the script)", async () => {
+    setPlatform("darwin");
+    spawnHandler = () => ({ stdout: "/x\n", code: 0 });
+
+    const p1 = detectMod.probeBin("rg");
+    await vi.advanceTimersByTimeAsync(10);
+    await p1;
+    const p2 = detectMod.probeBin("difft");
+    await vi.advanceTimersByTimeAsync(10);
+    await p2;
+
+    // Both invocations share the identical constant script; only the trailing
+    // positional argument differs — proof no probe name is spliced into the
+    // shell program text (D1-SA1.7-07).
+    expect(spawnCalls[0].args[1]).toBe('command -v -- "$1"');
+    expect(spawnCalls[1].args[1]).toBe('command -v -- "$1"');
+    expect(spawnCalls[0].args[3]).toBe("rg");
+    expect(spawnCalls[1].args[3]).toBe("difft");
   });
 });
 
@@ -397,5 +422,112 @@ describe("detectCliTool extensionProbe (D21-M6, Cycle 10)", () => {
     expect(result.extensionMissing).toBeUndefined();
     // Only the base /bin/sh probe should have been invoked.
     expect(spawnCalls.every((c) => c.cmd === "/bin/sh")).toBe(true);
+  });
+
+  it("ast-grep: sg resolves to shadow-utils setgroups -> installed:false + extensionMissing (D21-SA21.1-01)", async () => {
+    setPlatform("linux");
+    // Base probe resolves /usr/bin/sg (shadow-utils setgroups, shipped in the
+    // Debian/Ubuntu base system); the extension probe `sg --version` does not
+    // print "ast-grep" (setgroups rejects the flag), so ast-grep is correctly
+    // reported absent even though `command -v sg` succeeded.
+    spawnHandler = (cmd, args) => {
+      if (cmd === "/bin/sh") {
+        return { stdout: "/usr/bin/sg\n", code: 0 };
+      }
+      if (cmd === "sg" && args[0] === "--version") {
+        return { stdout: "sg: unrecognized option '--version'\n", code: 1 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("ast-grep");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(false);
+    expect(result.extensionMissing).toBe("ast-grep");
+    expect(result.path).toBe("/usr/bin/sg");
+  });
+
+  it("ast-grep: sg resolves to the real ast-grep binary -> installed:true (D21-SA21.1-01)", async () => {
+    setPlatform("darwin");
+    spawnHandler = (cmd, args) => {
+      if (cmd === "/bin/sh") {
+        return { stdout: "/opt/homebrew/bin/sg\n", code: 0 };
+      }
+      if (cmd === "sg" && args[0] === "--version") {
+        return { stdout: "ast-grep 0.42.2\n", code: 0 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("ast-grep");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(true);
+    expect(result.extensionMissing).toBeUndefined();
+    expect(result.path).toBe("/opt/homebrew/bin/sg");
+  });
+});
+
+describe("detectCliTool probeFallbacks (D21-SA21.2-03, Cycle 12)", () => {
+  it("resolves bat via the batcat fallback when the primary `bat` probe misses (Debian rename)", async () => {
+    setPlatform("linux");
+    // `command -v -- "bat"` misses (Debian ships the binary as batcat), but
+    // `command -v -- "batcat"` resolves — detect.ts reports bat installed with
+    // the resolved batcat path while the returned `probe` stays canonical.
+    spawnHandler = (cmd, args) => {
+      // Positional-parameter probe form (D1-SA1.7-07): the trailing argv entry
+      // is the bare probe name, not the interpolated `command -v` script.
+      const probed = String(args[args.length - 1] ?? "");
+      if (probed === "batcat") {
+        return { stdout: "/usr/bin/batcat\n", code: 0 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("bat");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(true);
+    expect(result.path).toBe("/usr/bin/batcat");
+    expect(result.probe).toBe("bat");
+  });
+
+  it("resolves fd via the fdfind fallback when the primary `fd` probe misses", async () => {
+    setPlatform("linux");
+    spawnHandler = (cmd, args) => {
+      const probed = String(args[args.length - 1] ?? "");
+      if (probed === "fdfind") {
+        return { stdout: "/usr/bin/fdfind\n", code: 0 };
+      }
+      return { stdout: "", code: 1 };
+    };
+
+    const promise = detectMod.detectCliTool("fd");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(true);
+    expect(result.path).toBe("/usr/bin/fdfind");
+    expect(result.probe).toBe("fd");
+  });
+
+  it("reports bat absent when neither `bat` nor `batcat` resolves (both probed)", async () => {
+    setPlatform("linux");
+    spawnHandler = () => ({ stdout: "", code: 1 });
+
+    const promise = detectMod.detectCliTool("bat");
+    await vi.advanceTimersByTimeAsync(50);
+    const result = await promise;
+
+    expect(result.installed).toBe(false);
+    expect(result.path).toBe("");
+    const probed = spawnCalls.map((c) => String(c.args[c.args.length - 1] ?? ""));
+    // Positional-parameter form: the trailing argv entry is the bare probe name.
+    expect(probed).toContain("bat");
+    expect(probed).toContain("batcat");
   });
 });

@@ -48,6 +48,21 @@ Init reads owner/repo from `git remote get-url origin`. Without a git remote, th
 
 Run `npx hatch3r init` first. If you had a working setup before, check your git history (`git log --all -- .hatch3r/hatch.json`).
 
+## Slash Commands (`/hatch3r-*`)
+
+### `/hatch3r-spec` (or any `/hatch3r-*`) reports "command not found"
+
+**Symptoms:** A `/hatch3r-*` command returns `command not found`, `no such command`, or `zsh: no such file or directory: /hatch3r-spec` when you run it in the terminal — commonly the same terminal you just used for `npx hatch3r init`.
+
+**Cause:** `/hatch3r-*` slash commands run inside your editor's AI chat (Claude Code, Cursor, or GitHub Copilot Chat), not in the shell — so they never resolve in a terminal. The same not-found result also appears inside the editor when the command name is mistyped or a renamed command is invoked by an old name.
+
+**Solution:**
+1. Switch from the terminal to your editor's AI chat — `/hatch3r-*` slash commands are not shell commands.
+2. Open the slash-command picker and type `/hatch3r` to list every installed command (for example `/hatch3r-spec`, `/hatch3r-roadmap`, `/hatch3r-feature-plan`).
+3. Select the command from that list and run it there. The picker is the source of truth for command names, so you do not need to recall the exact spelling.
+
+The reverse holds for `npx hatch3r <command>` (for example `npx hatch3r init`): those run in the shell, not the editor's AI chat.
+
 ## Drift and Validation
 
 Run `npx hatch3r verify` (or `npx hatch3r status`) to detect drift: hatch3r regenerates each adapter output from the bundled canonical content and diffs it against the on-disk copy. There is no `.integrity.json` checksum file — drift is detected by regeneration, not stored hashes. To fix drift, run `npx hatch3r sync`.

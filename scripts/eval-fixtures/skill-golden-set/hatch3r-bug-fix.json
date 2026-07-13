@@ -1,0 +1,36 @@
+{
+  "skill": "hatch3r-bug-fix",
+  "skillPath": "skills/hatch3r-bug-fix/SKILL.md",
+  "cohort": "workflow",
+  "cases": [
+    {
+      "id": "bug-fix-001",
+      "input": "Users report the invoice total is sometimes off by one cent. Fix it.",
+      "context": "No reproduction steps supplied; the rounding code has three call sites.",
+      "expected": [
+        "Produces a diagnosis plan (Step 2) that identifies the root cause before proposing a change",
+        "Implements the MINIMAL fix at the root cause (Step 3), not a broad rewrite",
+        "Writes a regression test that fails on the pre-fix code and passes post-fix (Step 4)"
+      ],
+      "forbidden": [
+        "Patches a symptom (e.g. re-rounding at display time) without tracing the arithmetic root cause",
+        "Ships the fix with no regression test"
+      ],
+      "rubric": "PASS iff the answer contains an explicit root-cause statement, a minimal targeted diff, and a regression test that encodes the reported failure."
+    },
+    {
+      "id": "bug-fix-002",
+      "input": "The dropdown flickers when opening on mobile Safari. Here's the bug ticket #482.",
+      "context": "UI bug with a ticket; browser tooling is available.",
+      "expected": [
+        "Reads the ticket and relevant specs first (Step 1)",
+        "Attempts browser reproduction of the flicker before changing code (Step 2b — UI bug)",
+        "Verifies the fix in the browser after implementation (Step 5b), not only via unit tests"
+      ],
+      "forbidden": [
+        "Declares the flicker fixed based on code reading alone, with neither reproduction nor browser verification"
+      ],
+      "rubric": "PASS iff reproduction (or a documented reproduction attempt with its outcome) precedes the fix and browser-level verification evidence backs the completion claim."
+    }
+  ]
+}

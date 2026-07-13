@@ -316,6 +316,11 @@ export const AGENT_TOOL_POLICIES: readonly AgentToolPolicy[] = [
     allowedTools: ["read", "search"],
     description: "CQ9 enhancability quality-vector specialist (review-only): read feature-flag configs, consumer-driven contract reports, and spec-diff gates and search for premature flag retirement. No write/execute — fix authorship delegates to producer agents per agents/hatch3r-enhancability.md §Boundaries.",
   },
+  {
+    agentId: "hatch3r-product-spec",
+    allowedTools: ["read", "search"],
+    description: "CQ10 product & spec quality-vector specialist (review-only): read PRD/spec artifacts, acceptance criteria, and traceability records and search for untestable criteria, uncited discovery claims, and spec-to-outcome gaps. No write/execute — spec authorship delegates to the spec agents and producer agents per agents/hatch3r-product-spec.md §Boundaries.",
+  },
   // ── 2.0.0 spec agents (Finding F2.4-F1, Cycle 10 Wave 1) ──
   //
   // The 2 spec agents below author one-pager / PRD / brownfield-spec
@@ -502,6 +507,65 @@ export const ALL_TOOL_CATEGORIES = [
   ...FUNCTIONAL_TOOL_CATEGORIES,
   ...RESERVED_TOOL_CATEGORIES,
 ] as const;
+
+/**
+ * Per-adapter ASI02 per-category enforcement strength (D15-SA15.3-04).
+ *
+ * `AGENT_TOOL_POLICIES` is one canonical registry, but the three adapters
+ * block an out-of-policy tool CATEGORY at different strengths — hard
+ * per-category blocking at the tool-call boundary is Claude-only. This record
+ * makes that asymmetry explicit so the ASI02 self-assessment
+ * (`complianceVerification.ts` `asi02-tool-allowlists`) and SECURITY.md
+ * §Allowlist Hybrid Contract do not read as uniform hard enforcement across
+ * all three adapters.
+ *
+ * `perCategory` = per-category tool-call blocking strength:
+ *  - claude: hard — `buildClaudePreToolUseHookScript` denies an out-of-policy
+ *    category at the tool-call boundary (per-category `denyToolCall` on
+ *    `!policy.allowedTools.includes(category)`, this file).
+ *  - cursor: soft — Cursor's `preToolUse` payload carries no agent-identity
+ *    field (cursor.com/docs/agent/hooks, accessed 2026-07-10), so per-category
+ *    granularity is rule-delegated; the `subagentStart` NO_POLICY deny and the
+ *    `readonly: true` frontmatter still bind hard (see `hardControls`).
+ *  - copilot: none — no PreToolUse gate (`hooks: false`); the emitted `tools:`
+ *    array is an allowlist only, so per-category enforcement is
+ *    instruction-delegated (SECURITY.md §Allowlist Hybrid Contract, Copilot row).
+ *
+ * Re-verify each cycle: if Cursor adds an agent-identity field to `preToolUse`,
+ * promote cursor `perCategory` to `hard`.
+ */
+export type Asi02PerCategoryStrength = "hard" | "soft" | "none";
+
+export interface Asi02AdapterEnforcement {
+  /** Per-category tool-call blocking strength at the tool-call boundary. */
+  perCategory: Asi02PerCategoryStrength;
+  /** Runtime controls that bind hard regardless of `perCategory` strength. */
+  hardControls: readonly string[];
+  /** One-line summary rendered into the ASI02 self-assessment output. */
+  summary: string;
+}
+
+export const ASI02_ADAPTER_ENFORCEMENT_STRENGTH: Readonly<
+  Record<"claude" | "cursor" | "copilot", Asi02AdapterEnforcement>
+> = {
+  claude: {
+    perCategory: "hard",
+    hardControls: ["PreToolUse per-category deny", "PreToolUse NO_POLICY deny"],
+    summary: "Claude=hard per-category PreToolUse deny",
+  },
+  cursor: {
+    perCategory: "soft",
+    hardControls: ["subagentStart NO_POLICY deny", "readonly frontmatter"],
+    summary:
+      "Cursor=hard NO_POLICY-at-spawn + hard readonly + soft per-category (rule-delegated)",
+  },
+  copilot: {
+    perCategory: "none",
+    hardControls: [],
+    summary:
+      "Copilot=allowlist-only tools array, instruction-delegated (no runtime deny)",
+  },
+} as const;
 
 /**
  * Compute Levenshtein distance between two strings for "Did you mean?"
@@ -844,16 +908,26 @@ const POLICY_FILE = join(__dirname, "agent-tool-policies.json");
 
 // Claude Code tool → hatch3r category. Mirrors CLAUDE_CATEGORY_MAP
 // in src/pipeline/adapterToolTranslator.ts (reverse direction).
+// D2-SA2.4-03 currency: keep in lockstep with CLAUDE_CATEGORY_MAP; verified
+// against code.claude.com/docs/en/tools-reference (accessed 2026-07-10). The
+// task/session tools (TaskCreate/TaskGet/TaskList/TaskUpdate/TaskOutput/TaskStop)
+// and Skill are DEFERRED to a B1 maintainer decision (see the finding results
+// file) and remain UNKNOWN_TOOL deny-by-default.
 const TOOL_TO_CATEGORY = {
   Read: "read",
   NotebookRead: "read",
+  LSP: "read",
   Grep: "search",
   Glob: "search",
+  ToolSearch: "search",
   Edit: "write",
   MultiEdit: "write",
   Write: "write",
   NotebookEdit: "write",
   Bash: "execute",
+  PowerShell: "execute",
+  EnterWorktree: "execute",
+  ExitWorktree: "execute",
   WebSearch: "web",
   WebFetch: "web",
 };
@@ -935,54 +1009,97 @@ if (!category) {
   );
 }
 
-let policiesDoc;
+// Wrap policy evaluation in a top-level try/catch (D2-SA2.4-09) so a
+// malformed policy row or a future schema-shape drift fails CLOSED. On
+// Claude a non-zero crash exit is NON-BLOCKING ("Execution continues"),
+// so any throw here would silently let the tool call proceed — every path
+// below must instead deny explicitly with exit 0.
 try {
-  policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+  let policiesDoc;
+  try {
+    policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+  } catch (err) {
+    denyToolCall(
+      {
+        reasonCode: "POLICY_FILE_MISSING",
+        agentId: agentType,
+        agentInstanceId,
+        tool: toolName,
+        message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+      },
+      \`hatch3r ASI02 allowlist: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+    );
+  }
+
+  // Shape + schema validation (D2-SA2.4-09): the unreadable-file branch
+  // above and this wrong-shape branch give the two adjacent corruption
+  // modes the SAME fail-closed outcome. \`schema\` is the discriminator
+  // emitted by buildAgentToolPoliciesJson, so a future v2 layout is denied
+  // here rather than crashing the unguarded \`.policies.find\` below.
+  if (
+    policiesDoc.schema !== "hatch3r/agent-tool-policies/v1" ||
+    !Array.isArray(policiesDoc.policies)
+  ) {
+    denyToolCall(
+      {
+        reasonCode: "POLICY_FILE_INVALID",
+        agentId: agentType,
+        agentInstanceId,
+        tool: toolName,
+        message: \`Policy file \${POLICY_FILE} failed schema/shape validation; deny-by-default.\`,
+      },
+      \`hatch3r ASI02 allowlist: policy file \${POLICY_FILE} failed schema/shape validation; deny-by-default.\`,
+    );
+  }
+
+  const policy = policiesDoc.policies.find((p) => p.agentId === agentType);
+  if (!policy) {
+    denyToolCall(
+      {
+        reasonCode: "NO_POLICY",
+        agentId: agentType,
+        agentInstanceId,
+        tool: toolName,
+        message: \`No policy registered for agent "\${agentType}"; deny-by-default.\`,
+      },
+      \`hatch3r ASI02 allowlist: no policy registered for agent "\${agentType}"; deny-by-default.\`,
+    );
+  }
+
+  if (!policy.allowedTools.includes(category)) {
+    denyToolCall(
+      {
+        reasonCode: "TOOL_NOT_ALLOWED",
+        agentId: agentType,
+        agentInstanceId,
+        tool: toolName,
+        category,
+        allowedTools: policy.allowedTools,
+        message: \`Agent "\${agentType}" not allowed to use category "\${category}" (tool "\${toolName}"). Allowed: \${policy.allowedTools.join(", ")}.\`,
+      },
+      \`hatch3r ASI02 allowlist: agent "\${agentType}" not allowed to use category "\${category}" (tool "\${toolName}"). Allowed: \${policy.allowedTools.join(", ")}.\`,
+    );
+  }
+
+  // Allowed — exit 0 with empty stdout lets Claude Code's normal
+  // permission flow apply.
+  process.exit(0);
 } catch (err) {
+  // Fail-closed catch-all (D2-SA2.4-09): any unexpected throw while
+  // evaluating the policy (malformed row, unforeseen shape) must deny on
+  // Claude, where a crash exit would otherwise be non-blocking and let the
+  // tool call proceed.
   denyToolCall(
     {
-      reasonCode: "POLICY_FILE_MISSING",
+      reasonCode: "POLICY_FILE_INVALID",
       agentId: agentType,
       agentInstanceId,
       tool: toolName,
-      message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+      message: \`Unexpected error evaluating policy for agent "\${agentType}": \${err && err.message ? err.message : String(err)}; deny-by-default.\`,
     },
-    \`hatch3r ASI02 allowlist: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+    \`hatch3r ASI02 allowlist: policy evaluation failed for agent "\${agentType}"; deny-by-default.\`,
   );
 }
-
-const policy = policiesDoc.policies.find((p) => p.agentId === agentType);
-if (!policy) {
-  denyToolCall(
-    {
-      reasonCode: "NO_POLICY",
-      agentId: agentType,
-      agentInstanceId,
-      tool: toolName,
-      message: \`No policy registered for agent "\${agentType}"; deny-by-default.\`,
-    },
-    \`hatch3r ASI02 allowlist: no policy registered for agent "\${agentType}"; deny-by-default.\`,
-  );
-}
-
-if (!policy.allowedTools.includes(category)) {
-  denyToolCall(
-    {
-      reasonCode: "TOOL_NOT_ALLOWED",
-      agentId: agentType,
-      agentInstanceId,
-      tool: toolName,
-      category,
-      allowedTools: policy.allowedTools,
-      message: \`Agent "\${agentType}" not allowed to use category "\${category}" (tool "\${toolName}"). Allowed: \${policy.allowedTools.join(", ")}.\`,
-    },
-    \`hatch3r ASI02 allowlist: agent "\${agentType}" not allowed to use category "\${category}" (tool "\${toolName}"). Allowed: \${policy.allowedTools.join(", ")}.\`,
-  );
-}
-
-// Allowed — exit 0 with empty stdout lets Claude Code's normal
-// permission flow apply.
-process.exit(0);
 `;
 }
 
@@ -1097,39 +1214,76 @@ if (!subagentType.startsWith("hatch3r-")) {
   process.exit(0);
 }
 
-let policiesDoc;
+// Wrap policy evaluation in a top-level try/catch (D2-SA2.4-09) so a
+// malformed policy row or a future schema-shape drift fails CLOSED, at
+// parity with the Claude hook. The hook entry is registered failClosed:true,
+// but the in-script deny keeps the two adjacent corruption modes (unreadable
+// vs wrong-shape) on one explicit deny path rather than a bare crash.
 try {
-  policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+  let policiesDoc;
+  try {
+    policiesDoc = JSON.parse(readFileSync(POLICY_FILE, "utf-8"));
+  } catch (err) {
+    denySubagent(
+      {
+        reasonCode: "POLICY_FILE_MISSING",
+        agentId: subagentType,
+        subagentInstanceId,
+        message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+      },
+      \`hatch3r ASI02 guard: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+    );
+  }
+
+  // Shape + schema validation (D2-SA2.4-09): deny on a wrong-shape policy
+  // doc with the same fail-closed outcome as the unreadable branch, before
+  // the unguarded \`.policies.find\` below can throw.
+  if (
+    policiesDoc.schema !== "hatch3r/agent-tool-policies/v1" ||
+    !Array.isArray(policiesDoc.policies)
+  ) {
+    denySubagent(
+      {
+        reasonCode: "POLICY_FILE_INVALID",
+        agentId: subagentType,
+        subagentInstanceId,
+        message: \`Policy file \${POLICY_FILE} failed schema/shape validation; deny-by-default.\`,
+      },
+      \`hatch3r ASI02 guard: policy file \${POLICY_FILE} failed schema/shape validation; deny-by-default.\`,
+    );
+  }
+
+  const policy = policiesDoc.policies.find((p) => p.agentId === subagentType);
+  if (!policy) {
+    denySubagent(
+      {
+        reasonCode: "NO_POLICY",
+        agentId: subagentType,
+        subagentInstanceId,
+        message: \`No policy registered for agent "\${subagentType}"; deny-by-default.\`,
+      },
+      \`hatch3r ASI02 guard: no policy registered for agent "\${subagentType}"; deny-by-default. Add it to src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES and re-run \\\`npx hatch3r sync\\\`.\`,
+    );
+  }
+
+  // A registered hatch3r agent with a policy row is allowed to start; its
+  // per-tool-category envelope is enforced by the allowlist rule + the
+  // \`readonly: true\` frontmatter guard (preToolUse cannot see agent identity,
+  // so category granularity cannot bind at the tool-call boundary on Cursor).
+  process.exit(0);
 } catch (err) {
+  // Fail-closed catch-all (D2-SA2.4-09): deny on any unexpected throw so a
+  // malformed policy row cannot crash the guard into an unintended spawn.
   denySubagent(
     {
-      reasonCode: "POLICY_FILE_MISSING",
+      reasonCode: "POLICY_FILE_INVALID",
       agentId: subagentType,
       subagentInstanceId,
-      message: \`Failed to read \${POLICY_FILE}: \${err.message}\`,
+      message: \`Unexpected error evaluating policy for agent "\${subagentType}": \${err && err.message ? err.message : String(err)}; deny-by-default.\`,
     },
-    \`hatch3r ASI02 guard: policy file \${POLICY_FILE} unreadable; deny-by-default.\`,
+    \`hatch3r ASI02 guard: policy evaluation failed for agent "\${subagentType}"; deny-by-default.\`,
   );
 }
-
-const policy = policiesDoc.policies.find((p) => p.agentId === subagentType);
-if (!policy) {
-  denySubagent(
-    {
-      reasonCode: "NO_POLICY",
-      agentId: subagentType,
-      subagentInstanceId,
-      message: \`No policy registered for agent "\${subagentType}"; deny-by-default.\`,
-    },
-    \`hatch3r ASI02 guard: no policy registered for agent "\${subagentType}"; deny-by-default. Add it to src/pipeline/agentToolAllowlist.ts::AGENT_TOOL_POLICIES and re-run \\\`npx hatch3r sync\\\`.\`,
-  );
-}
-
-// A registered hatch3r agent with a policy row is allowed to start; its
-// per-tool-category envelope is enforced by the allowlist rule + the
-// \`readonly: true\` frontmatter guard (preToolUse cannot see agent identity,
-// so category granularity cannot bind at the tool-call boundary on Cursor).
-process.exit(0);
 `;
 }
 

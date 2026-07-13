@@ -262,6 +262,100 @@ export function parseWorktreeInclude(content: string): WorktreeEntry[] {
   return entries;
 }
 
+// ─── Setup receipt (D1-SA1.10-02) ────────────────────────────────────────────
+
+/**
+ * D1-SA1.10-02 (D1, P6): the setup receipt — ground truth of exactly what
+ * `setupWorktree` materialized, written into the worktree so `cleanupWorktree`
+ * can INVERT setup precisely.
+ *
+ * The pre-receipt cleanup re-derived targets by `lstat`-ing each raw
+ * `.worktreeinclude` pattern string. That could not invert two shapes setup
+ * routinely produces: (1) a glob copy pattern (`.env.*`) lstats to ENOENT, so
+ * the concrete files it copied (a plaintext `.env.mcp` secret) were unreachable
+ * and survived cleanup; (2) a symlink-strategy DIRECTORY whose contents setup
+ * materialized as per-file symlinks lstats to a real directory, matching none
+ * of cleanup's symlink/copy-file/copy-dir branches, so the per-file symlink tree
+ * survived. A receipt of concrete created paths removes both leaks (CWE-459).
+ */
+const WORKTREE_RECEIPT_PATH = join(HATCH3R_DIR, "worktree-receipt.json");
+
+interface WorktreeReceiptEntry {
+  /** Path relative to the worktree root. */
+  relPath: string;
+  /** What setup materialized (or intended) at `relPath`. */
+  strategy: "copy" | "symlink";
+}
+
+interface WorktreeReceipt {
+  version: 1;
+  createdAt: string;
+  entries: WorktreeReceiptEntry[];
+}
+
+/**
+ * Persist the setup receipt inside the worktree. Non-fatal on failure: a missing
+ * receipt only degrades `cleanupWorktree` to the legacy pattern-based inversion.
+ */
+async function writeWorktreeReceipt(
+  worktreeRoot: string,
+  entries: WorktreeReceiptEntry[],
+): Promise<void> {
+  if (entries.length === 0) return;
+  const receipt: WorktreeReceipt = {
+    version: 1,
+    createdAt: new Date().toISOString(),
+    entries,
+  };
+  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_PATH);
+  try {
+    await mkdir(dirname(receiptPath), { recursive: true });
+    await atomicWriteFile(receiptPath, `${JSON.stringify(receipt, null, 2)}\n`);
+  } catch (err) {
+    recordWorktreeProbeFailure(
+      `writeWorktreeReceipt(${receiptPath}) — cleanup will fall back to pattern inversion`,
+      err,
+    );
+  }
+}
+
+/** Read + validate the setup receipt; null when absent or malformed. */
+async function readWorktreeReceipt(
+  worktreeRoot: string,
+): Promise<WorktreeReceipt | null> {
+  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_PATH);
+  let raw: string;
+  try {
+    raw = await readFile(receiptPath, "utf-8");
+  } catch (err) {
+    recordWorktreeProbeFailure(
+      `readWorktreeReceipt(${receiptPath}) — none found, using pattern fallback`,
+      err,
+    );
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<WorktreeReceipt>;
+    if (!parsed || parsed.version !== 1 || !Array.isArray(parsed.entries)) {
+      return null;
+    }
+    const entries = parsed.entries.filter(
+      (e): e is WorktreeReceiptEntry =>
+        !!e &&
+        typeof (e as WorktreeReceiptEntry).relPath === "string" &&
+        ((e as WorktreeReceiptEntry).strategy === "copy" ||
+          (e as WorktreeReceiptEntry).strategy === "symlink"),
+    );
+    return { version: 1, createdAt: parsed.createdAt ?? "", entries };
+  } catch (err) {
+    recordWorktreeProbeFailure(
+      `readWorktreeReceipt(${receiptPath}) — malformed JSON, using pattern fallback`,
+      err,
+    );
+    return null;
+  }
+}
+
 // ─── Setup ───────────────────────────────────────────────────────────────────
 
 /**
@@ -281,6 +375,11 @@ export async function setupWorktree(
     skippedDetails: [],
     errors: [],
   };
+
+  // D1-SA1.10-02: the concrete paths setup is responsible for (created OR
+  // already-present matching the plan), recorded into the receipt so cleanup
+  // inverts setup exactly.
+  const receiptEntries: WorktreeReceiptEntry[] = [];
 
   // F-1.10.12 (D1 cycle 10 wave 4): record a skip in both the flat `skipped`
   // list (back-compat) and the annotated `skippedDetails` list so consumers
@@ -320,19 +419,35 @@ export async function setupWorktree(
     }
   }
 
-  const patterns: string[] = [];
+  // D1-SA1.10-03 (D1, P2): resolve each include pattern in its OWN
+  // `git ls-files` call and union the matches, instead of one call for all
+  // patterns. A single over-broad pattern (e.g. a large node_modules/) can
+  // overrun the 10 MiB stdout buffer; per-pattern resolution isolates that
+  // failure to the offending pattern instead of returning [] for EVERY pattern
+  // (which silently zeroed the whole worktree population — .env / adapter
+  // configs included). Each hard failure is pushed into result.errors so the
+  // command's warn loop + non-zero exit see it. The union feeds the SAME
+  // most-specific-match strategy loop below, so the resolved set and the
+  // copy/symlink override semantics (D1-12) are unchanged.
+  const resolvedSet = new Set<string>();
   for (const entry of entries) {
-    patterns.push(entry.pattern);
+    const resolution = await resolvePatterns(mainRoot, [entry.pattern]);
+    if (resolution.error) {
+      result.errors.push(`${entry.pattern}: ${resolution.error}`);
+    }
+    for (const p of resolution.paths) resolvedSet.add(p);
   }
-
-  // Resolve patterns to actual files
-  const resolvedPaths = await resolvePatterns(mainRoot, patterns);
+  const resolvedPaths = [...resolvedSet];
 
   for (const relPath of resolvedPaths) {
     const srcPath = join(mainRoot, relPath);
     const destPath = join(worktreeRoot, relPath);
 
-    // Determine strategy: find the most specific matching pattern.
+    // Determine strategy: the LAST matching entry wins (not most-specific).
+    // generateWorktreeInclude emits the specific copy overrides AFTER the broad
+    // symlink patterns, so entry order in `.worktreeinclude` is the resolution
+    // signal — the D1-12 override block (`.hatch3r/hatch.json` copy after the
+    // `.hatch3r/` symlink) depends on that ordering, not on pattern specificity.
     // Symlink-glob offenders (F1.10-H2) are skipped — the literal-prefix
     // matcher cannot reliably correlate `relPath` against a glob pattern, so
     // any match against an offender entry falls back to the default `copy`
@@ -345,7 +460,9 @@ export async function setupWorktree(
           continue;
         }
         strategy = entry.strategy;
-        // Don't break — later entries can override (e.g., .agents/learnings/ overrides .agents/)
+        // Don't break — a later entry overrides an earlier one (e.g., the
+        // `.hatch3r/hatch.json` copy override, emitted after the `.hatch3r/`
+        // symlink, wins for that path).
       }
     }
 
@@ -400,6 +517,10 @@ export async function setupWorktree(
       const recordCreated = (actualStrategy: "symlink" | "copy"): void => {
         if (actualStrategy === "symlink") result.symlinked.push(relPath);
         else result.copied.push(relPath);
+        // D1-SA1.10-02: record the ACTUAL on-disk strategy so cleanup inverts
+        // it with the right guard (byte-equal for copy, isSymbolicLink for
+        // symlink).
+        receiptEntries.push({ relPath, strategy: actualStrategy });
       };
 
       const first = await writeOnce();
@@ -412,6 +533,10 @@ export async function setupWorktree(
       // --force by unlinking and retrying; otherwise treat as skipped.
       if (!options.force) {
         recordSkipped(relPath, "exists");
+        // D1-SA1.10-02: the target already matches the plan — record it (with
+        // the intended strategy) so cleanup considers it. The byte-equal /
+        // isSymbolicLink guards in cleanup protect user-modified content.
+        receiptEntries.push({ relPath, strategy });
         continue;
       }
       try {
@@ -430,11 +555,16 @@ export async function setupWorktree(
         // This is the TOCTOU race outcome (F-1.10.3 / F-1.10.12), distinct
         // from the idempotent "exists" skip above.
         recordSkipped(relPath, "eexist-race");
+        receiptEntries.push({ relPath, strategy });
       }
     } catch (err) {
       result.errors.push(`${relPath}: ${(err as Error).message}`);
     }
   }
+
+  // D1-SA1.10-02: persist the receipt so `cleanupWorktree` can invert setup
+  // exactly. No-op when nothing was materialized (receiptEntries empty).
+  await writeWorktreeReceipt(worktreeRoot, receiptEntries);
 
   return result;
 }
@@ -534,16 +664,157 @@ async function cleanupCopyDirectory(
 }
 
 /**
- * Removes symlinks and copied files that were created by `setupWorktree`.
- * Reads the `.worktreeinclude` from the worktree root (it may have been
- * symlinked or copied in), falling back to the main worktree if not found.
+ * Removes what `setupWorktree` created, returning the worktree toward its
+ * pre-setup state (the inverse property the D01 checklist names).
+ *
+ * D1-SA1.10-02 (D1, P6): prefer the setup RECEIPT (ground truth of the concrete
+ * paths setup materialized) so cleanup inverts setup exactly — including glob
+ * copies (`.env.*` → `.env.mcp`, a plaintext secret) and per-file symlink trees
+ * that the raw-pattern fallback could not reach (CWE-459). When no receipt
+ * exists (worktree set up by an older hatch3r, or an unreadable/legacy
+ * receipt), fall back to the pattern-based inversion.
+ */
+export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
+  const receipt = await readWorktreeReceipt(worktreeRoot);
+  if (receipt) {
+    await cleanupFromReceipt(worktreeRoot, receipt);
+    return;
+  }
+  await cleanupFromPatterns(worktreeRoot);
+}
+
+/**
+ * D1-SA1.10-02: invert setup from the receipt. Symlinks are removed when still
+ * symlinks; copies are removed only when byte-equal to their main-repo source
+ * (user-modified copies preserved); emptied ancestor directories are pruned
+ * bottom-up. Requires the main repo for the copy byte-equal check — when it is
+ * unreachable, copies are preserved (never blind-deleted).
+ */
+async function cleanupFromReceipt(
+  worktreeRoot: string,
+  receipt: WorktreeReceipt,
+): Promise<void> {
+  let mainRoot: string | null = null;
+  try {
+    mainRoot = findMainWorktree(worktreeRoot);
+  } catch (err) {
+    recordWorktreeProbeFailure(
+      "cleanupFromReceipt: findMainWorktree failed — copy entries preserved (no byte-equal check)",
+      err,
+    );
+  }
+
+  // Deepest paths first so a directory's children are gone before we prune it.
+  const sorted = [...receipt.entries].sort(
+    (a, b) => b.relPath.length - a.relPath.length,
+  );
+  const touchedDirs = new Set<string>();
+  const addAncestors = (childPath: string): void => {
+    let d = dirname(childPath);
+    while (d.startsWith(worktreeRoot) && d !== worktreeRoot) {
+      touchedDirs.add(d);
+      d = dirname(d);
+    }
+  };
+
+  for (const entry of sorted) {
+    const targetPath = join(worktreeRoot, entry.relPath);
+    addAncestors(targetPath);
+    let stat: import("node:fs").Stats;
+    try {
+      stat = await lstat(targetPath);
+    } catch (err) {
+      recordWorktreeProbeFailure(
+        `cleanupFromReceipt: lstat(${targetPath}) — already removed`,
+        err,
+      );
+      continue;
+    }
+
+    if (entry.strategy === "symlink") {
+      if (stat.isSymbolicLink()) {
+        try {
+          await unlink(targetPath);
+        } catch (err) {
+          recordWorktreeProbeFailure(`cleanupFromReceipt: unlink(${targetPath})`, err);
+        }
+      } else {
+        // User replaced the symlink with real content — preserve.
+        recordWorktreeProbeFailure(
+          `cleanupFromReceipt: preserved ${targetPath} (no longer a symlink)`,
+          new Error("not a symlink"),
+        );
+      }
+      continue;
+    }
+
+    // copy: remove only a byte-equal, non-user-modified file.
+    if (stat.isFile() && mainRoot) {
+      const sourcePath = join(mainRoot, entry.relPath);
+      try {
+        const [src, tgt] = await Promise.all([
+          readFile(sourcePath, "utf-8"),
+          readFile(targetPath, "utf-8"),
+        ]);
+        if (src === tgt) {
+          await unlink(targetPath);
+        } else {
+          recordWorktreeProbeFailure(
+            `cleanupFromReceipt: preserved ${targetPath} (user-modified — diverged from source)`,
+            new Error("diverged"),
+          );
+        }
+      } catch (err) {
+        recordWorktreeProbeFailure(
+          `cleanupFromReceipt: preserved ${targetPath} (source/target unreadable or user-added)`,
+          err,
+        );
+      }
+    }
+  }
+
+  // Prune now-empty directories bottom-up (deepest first). rmdir throws on a
+  // non-empty dir (preserved user/edited files) — leave those in place.
+  const dirsDeepestFirst = [...touchedDirs].sort((a, b) => b.length - a.length);
+  for (const dir of dirsDeepestFirst) {
+    try {
+      await rmdir(dir);
+    } catch (err) {
+      recordWorktreeProbeFailure(
+        `cleanupFromReceipt: rmdir(${dir}) — not empty or already gone`,
+        err,
+      );
+    }
+  }
+
+  // Remove the receipt itself, then prune its (now possibly empty) directory.
+  const receiptPath = join(worktreeRoot, WORKTREE_RECEIPT_PATH);
+  try {
+    await unlink(receiptPath);
+  } catch (err) {
+    recordWorktreeProbeFailure(`cleanupFromReceipt: receipt already removed`, err);
+  }
+  try {
+    await rmdir(dirname(receiptPath));
+  } catch (err) {
+    recordWorktreeProbeFailure(
+      `cleanupFromReceipt: rmdir(${dirname(receiptPath)}) — not empty or gone`,
+      err,
+    );
+  }
+}
+
+/**
+ * Legacy pattern-based inversion — the D1-SA1.10-02 fallback for receiptless
+ * worktrees. Reads the `.worktreeinclude` from the worktree root (it may have
+ * been symlinked or copied in), falling back to the main worktree if not found.
  *
  * #110: Handles both symlink and copy strategy entries. Symlinks are always
  * removed; copied files are only removed if they are exact matches of the
  * source (not user-modified). D1-33: copy-strategy directory entries are
  * recursed into via `cleanupCopyDirectory` so they no longer leak.
  */
-export async function cleanupWorktree(worktreeRoot: string): Promise<void> {
+async function cleanupFromPatterns(worktreeRoot: string): Promise<void> {
   let content: string | null = null;
   let mainRoot: string | null = null;
 

@@ -13,6 +13,7 @@ import {
   validateToolPolicies,
   buildClaudePreToolUseHookScript,
   buildCursorSubagentGuardHookScript,
+  ASI02_ADAPTER_ENFORCEMENT_STRENGTH,
   type AgentToolPolicy,
   type AllowlistDenialEvent,
 } from "../../pipeline/agentToolAllowlist.js";
@@ -717,6 +718,26 @@ describe("agentToolAllowlist", () => {
     });
   });
 
+  // D2-SA2.4-03 (High, P3): the emitted PreToolUse hook's TOOL_TO_CATEGORY must
+  // stay current with the platform tool set (code.claude.com/docs/en/tools-reference,
+  // accessed 2026-07-10) so current tools are categorized rather than
+  // UNKNOWN_TOOL-denied. Lock the resolved-now subset; drift fails here.
+  describe("D2-SA2.4-03 hook TOOL_TO_CATEGORY platform currency", () => {
+    it("categorizes the current read/search/execute platform tools", () => {
+      const script = buildClaudePreToolUseHookScript();
+      const expected: ReadonlyArray<readonly [string, string]> = [
+        ["LSP", "read"],
+        ["ToolSearch", "search"],
+        ["PowerShell", "execute"],
+        ["EnterWorktree", "execute"],
+        ["ExitWorktree", "execute"],
+      ];
+      for (const [tool, category] of expected) {
+        expect(script, `${tool} -> ${category}`).toContain(`${tool}: "${category}"`);
+      }
+    });
+  });
+
   // D9-4 (Cycle 11 D9, P6): the Cursor `subagentStart` deny hook is the hard
   // runtime ASI02 block for Cursor, at parity with the Claude PreToolUse
   // NO_POLICY deny. cursor.com/docs/agent/hooks (accessed 2026-06-06) confirms
@@ -759,6 +780,92 @@ describe("agentToolAllowlist", () => {
       // Claude hook uses on agent_type, so the two adapters enforce one registry.
       expect(script).toContain("policiesDoc.policies.find((p) => p.agentId === subagentType)");
       expect(script).toContain("payload.subagent_type");
+    });
+  });
+
+  // D2-SA2.4-09 (Medium, P6): the generated PreToolUse / subagentStart scripts
+  // must fail CLOSED on a wrong-shape policy doc, not only on an unreadable one.
+  // A crash exit on Claude is NON-BLOCKING (code.claude.com/docs/en/hooks,
+  // accessed 2026-07-10), so an unguarded `.policies.find` on `{"policies":null}`
+  // or a future schema-v2 layout would silently disable the ASI02 gate. The fix
+  // validates the emitted `schema` discriminator + `Array.isArray(policies)` and
+  // wraps the body in a top-level deny-on-throw catch. Both are asserted here.
+  describe("D2-SA2.4-09 policy-file shape/schema fail-closed", () => {
+    it("Claude hook validates the schema discriminator + policies array shape before the lookup", () => {
+      const script = buildClaudePreToolUseHookScript();
+      expect(script).toContain('policiesDoc.schema !== "hatch3r/agent-tool-policies/v1"');
+      expect(script).toContain("Array.isArray(policiesDoc.policies)");
+      // The shape check must GUARD the previously-unguarded `.policies.find`:
+      // it has to appear before the lookup in the emitted source.
+      const shapeIdx = script.indexOf('policiesDoc.schema !== "hatch3r/agent-tool-policies/v1"');
+      const findIdx = script.indexOf("policiesDoc.policies.find");
+      expect(shapeIdx).toBeGreaterThan(-1);
+      expect(findIdx).toBeGreaterThan(shapeIdx);
+    });
+
+    it("Claude hook denies wrong-shape and unexpected-throw via POLICY_FILE_INVALID (explicit check + top-level catch-all)", () => {
+      const script = buildClaudePreToolUseHookScript();
+      // Two emitters: the explicit schema/shape branch and the fail-closed
+      // catch-all that converts any throw into an exit-0 deny.
+      const invalidDenies = script.split('reasonCode: "POLICY_FILE_INVALID"').length - 1;
+      expect(invalidDenies).toBe(2);
+      // The catch-all deny is uniquely identified by its reason string.
+      expect(script).toContain("policy evaluation failed");
+    });
+
+    it("Cursor guard validates schema + policies array shape before the lookup", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      expect(script).toContain('policiesDoc.schema !== "hatch3r/agent-tool-policies/v1"');
+      expect(script).toContain("Array.isArray(policiesDoc.policies)");
+      const shapeIdx = script.indexOf('policiesDoc.schema !== "hatch3r/agent-tool-policies/v1"');
+      const findIdx = script.indexOf("policiesDoc.policies.find");
+      expect(shapeIdx).toBeGreaterThan(-1);
+      expect(findIdx).toBeGreaterThan(shapeIdx);
+    });
+
+    it("Cursor guard denies wrong-shape and unexpected-throw via POLICY_FILE_INVALID (explicit check + top-level catch-all)", () => {
+      const script = buildCursorSubagentGuardHookScript();
+      const invalidDenies = script.split('reasonCode: "POLICY_FILE_INVALID"').length - 1;
+      expect(invalidDenies).toBe(2);
+      expect(script).toContain("policy evaluation failed");
+    });
+  });
+
+  // D15-SA15.3-04: the emitted per-adapter hooks block an out-of-policy tool
+  // category at different strengths — hard per-category enforcement is
+  // Claude-only. ASI02_ADAPTER_ENFORCEMENT_STRENGTH records that asymmetry so
+  // the ASI02 self-assessment does not imply uniform hard enforcement.
+  describe("ASI02_ADAPTER_ENFORCEMENT_STRENGTH (D15-SA15.3-04)", () => {
+    it("covers exactly the three supported adapters", () => {
+      expect(Object.keys(ASI02_ADAPTER_ENFORCEMENT_STRENGTH).sort()).toEqual([
+        "claude",
+        "copilot",
+        "cursor",
+      ]);
+    });
+
+    it("records hard per-category enforcement only for Claude", () => {
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.claude.perCategory).toBe("hard");
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.perCategory).toBe("soft");
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.copilot.perCategory).toBe("none");
+    });
+
+    it("records Cursor's hard NO_POLICY + readonly controls despite soft per-category", () => {
+      // The finding's substance: Cursor per-category is soft, but the
+      // subagentStart NO_POLICY deny and the readonly frontmatter bind hard.
+      const cursorHard = ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.hardControls;
+      expect(cursorHard.length).toBeGreaterThan(0);
+      expect(cursorHard.join(" ")).toMatch(/NO_POLICY/);
+      expect(cursorHard.join(" ")).toMatch(/readonly/);
+    });
+
+    it("gives each adapter a self-describing summary line", () => {
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.claude.summary).toMatch(/^Claude=/);
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.summary).toMatch(/^Cursor=/);
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.copilot.summary).toMatch(/^Copilot=/);
+      expect(ASI02_ADAPTER_ENFORCEMENT_STRENGTH.cursor.summary).toMatch(
+        /soft per-category/,
+      );
     });
   });
 });

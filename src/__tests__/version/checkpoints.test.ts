@@ -30,7 +30,7 @@ describe("getApplicableCheckpoints", () => {
     beforeEach(() => {
       VERSION_CHECKPOINTS.length = 0;
       VERSION_CHECKPOINTS.push(
-        { version: "1.3.0", action: "migration", reason: "Schema migration" },
+        { version: "1.3.0", action: "reinit-advisory", reason: "Schema change" },
         { version: "1.5.0", action: "reinit-advisory", reason: "Structural change", changes: ["New adapter paths"] },
         { version: "2.0.0", action: "reinit-advisory", reason: "Major rewrite", changes: ["Everything changed"] },
       );
@@ -73,15 +73,20 @@ describe("getApplicableCheckpoints", () => {
 });
 
 describe("VersionCheckpoint type", () => {
-  it("accepts a valid migration checkpoint shape", () => {
-    const cp: VersionCheckpoint = {
+  // D1-SA1.3-08: the registry is advisory-only. The prior `"migration"` action
+  // + `migrate?` executor field were removed because `update` never invoked
+  // them (it consumes only `reinit-advisory`), which would have made the first
+  // migration checkpoint silently no-op. This guard fails to compile if the
+  // unwired migration variant is ever re-introduced — auto-executed migrations
+  // belong in `update.ts::MIGRATION_CHECKPOINTS`, not this registry.
+  it("admits only the reinit-advisory action (no unwired migration variant)", () => {
+    const reintroduced: VersionCheckpoint = {
       version: "2.0.0",
+      // @ts-expect-error — "migration" is not a valid action; re-adding it flags here.
       action: "migration",
       reason: "Schema overhaul",
-      migrate: async (manifest, _rootDir) => manifest,
     };
-    expect(cp.action).toBe("migration");
-    expect(cp.migrate).toBeTypeOf("function");
+    expect(reintroduced.action).toBe("migration");
   });
 
   it("accepts a valid reinit-advisory checkpoint shape", () => {

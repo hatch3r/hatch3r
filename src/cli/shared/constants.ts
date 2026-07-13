@@ -65,9 +65,11 @@ export const TOOL_COMMAND_SYNTAX: Record<Tool, string> = {
 
 /**
  * Renders the invocation string for a single tool's command-invocation syntax.
- * - "/" prefix tools (Claude Code, Cursor, etc.) render as `/command-name`.
- * - " " (space-suffix) prefix tools render as `<prefix>command-name`
- *   (e.g., Windsurf -> `run workflow command-name`, Aider -> `prompt with command-name`).
+ * All 3 supported tools (Claude Code, Cursor, GitHub Copilot) share the "/"
+ * prefix in {@link TOOL_COMMAND_SYNTAX}, so this renders `/command-name` for
+ * every current tool. The concatenation is generic: a future adapter whose
+ * syntax entry is a non-"/" prefix (e.g. a `<prefix> command-name` form)
+ * renders through the same path with no code change.
  */
 function renderInvocation(tool: Tool, commandName: string): string {
   const prefix = TOOL_COMMAND_SYNTAX[tool];
@@ -97,11 +99,14 @@ export function formatCommandHintByTool(
  * Returns a user-facing string showing how to invoke a command for the given tool(s).
  *
  * - When all selected tools share the same invocation syntax, returns the
- *   single invocation form (e.g., `/command-name` or `run workflow command-name`).
+ *   single invocation form (e.g., `/command-name`). This is the only branch the
+ *   current 3-adapter set exercises — claude/cursor/copilot all map to "/".
  * - When tools have mixed syntax, returns a per-tool hint string with one
  *   `Display Name: invocation` segment per tool joined by ` | `, so users see
  *   the exact phrasing for every selected tool instead of an ambiguous
- *   `the X command` placeholder.
+ *   `the X command` placeholder. Unreachable today (all supported tools share
+ *   "/"); retained as future-adapter provision for a tool whose invocation
+ *   prefix is not "/".
  *
  * The function always returns a single string (no embedded newlines) so it
  * remains drop-in safe for box/log renderers that treat each argument as one
@@ -118,8 +123,11 @@ export function formatCommandHint(tools: Tool[], commandName: string): string {
   }
 
   // Mixed syntax: emit one segment per tool so no user is left guessing.
-  // Deduplicate by display name to keep the row readable when two tool ids
-  // share a label (e.g., Cline / Roo Code).
+  // Unreachable with the current 3-adapter set (claude/cursor/copilot all map
+  // to "/" in TOOL_COMMAND_SYNTAX, so distinctSyntax.size === 1 above short-
+  // circuits to the single-form return); retained as future-adapter provision
+  // for a tool whose invocation prefix is not "/". Deduplicate by display name
+  // to keep the row readable if two future tool ids share a label.
   const seen = new Set<string>();
   const segments: string[] = [];
   for (const tool of tools) {
@@ -151,10 +159,20 @@ export function formatCommandHint(tools: Tool[], commandName: string): string {
  * the `.env.mcp` envFile loader, and HTTP/header secrets via VS Code's
  * `${input:NAME}` prompt (top-level `inputs[]`), which VS Code prompts for
  * on first use rather than reading from `.env.mcp`.
+ *
+ * D10-SA10.5-02 (Cycle 12 D10, P1): the cursor note previously claimed
+ * ".env.mcp auto-loads from project root", contradicting the cursor adapter's
+ * `${env:NAME}` passthrough (`src/adapters/cursor.ts`) — Cursor resolves
+ * `${env:...}` from the launching process environment, not from any file it
+ * reads — and both doc surfaces (`docs/adapter-capability-matrix.md`,
+ * `website/docs/guides/customization.md`, which say "user must source"). The
+ * note now states the source-before-launch requirement, matching the claude
+ * sibling. The copilot note's "auto-loads" is accurate (real envFile loader)
+ * and is intentionally left unchanged.
  */
 export const TOOL_SECRET_NOTES: Partial<Record<Tool, string>> = {
   claude: "Claude Code: reads .env.mcp via shell sourcing (run `set -a && source .env.mcp && set +a` before starting; macOS GUI launchers do not inherit shell env)",
-  cursor: "Cursor: auto-loads .env.mcp from project root (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var)",
+  cursor: "Cursor: reads MCP secrets from its process environment via ${env:VAR}; it does NOT read .env.mcp from disk. Source .env.mcp before launch (set -a && source .env.mcp && set +a && cursor .). macOS Dock/Finder launches need `launchctl setenv` per var.",
   copilot: "VS Code / Copilot: STDIO server env auto-loads from .env.mcp (terminal-launch only on macOS; Dock/Finder launches need `launchctl setenv` per var); MCP header secrets are prompted via VS Code ${input:NAME} variables on first use",
 };
 

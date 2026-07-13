@@ -46,6 +46,44 @@ import {
 } from "@inquirer/core";
 import { styleText } from "node:util";
 import figures from "@inquirer/figures";
+import { glyph } from "./ui.js";
+
+/**
+ * D10-SA10.2-03 (Cycle 12): the fork inherits ui.ts's two shipped a11y fixes.
+ *
+ * 1. Key-cap glyphs (`↑↓`, `⏎`) route through `glyph()` from ui.ts (ASCII
+ *    fallback `up/down` / `enter`, cf. D10-SA10.2-F10) instead of hardcoded
+ *    Unicode literals that render as `?` on legacy Windows cmd.exe / non-UTF
+ *    locales. The `figures.*` glyphs (pointer, circle) already auto-fallback
+ *    via the figures library and need no routing.
+ * 2. Help/default chrome follows the D10-23 WCAG 1.4.3 pattern (see
+ *    `emphasizeNextStep` in ui.ts): SGR-2 dim drops below the 4.5:1 AA
+ *    contrast floor on light themes, so key tokens render bold, action words
+ *    render at the terminal's default weight, and ONLY tertiary decoration
+ *    (the `·` separators, disabled choices) stays dim. The input/confirm
+ *    default value — the element the user accepts by pressing Enter — renders
+ *    in normal-weight cyan (the upstream `answer` colour) instead of dim.
+ */
+
+/**
+ * Render a keys-help tip per the D10-23 contrast pattern: bold key token,
+ * default-weight action word, dim `·` separator. Shared by the select and
+ * checkbox themes and the input help line so the four forks cannot drift.
+ */
+function renderKeysHelpTip(keys: ReadonlyArray<readonly [string, string]>): string {
+  return keys
+    .map(([key, action]) => `${styleText("bold", key)} ${action}`)
+    .join(styleText("dim", " · "));
+}
+
+/**
+ * D10-23 port: normal-weight cyan default value (upstream renders it in
+ * SGR-2 dim, the least-legible element on light themes). Parens kept as the
+ * inquirer visual convention.
+ */
+function styleDefaultAnswer(text: string): string {
+  return styleText("cyan", `(${text})`);
+}
 
 /** Sentinel returned when the user presses Shift+Tab in a backable prompt. */
 export const BACK: symbol = Symbol.for("hatch3r.BACK");
@@ -103,10 +141,7 @@ const selectTheme = {
   style: {
     disabled: (text: string) => styleText("dim", text),
     description: (text: string) => styleText("cyan", text),
-    keysHelpTip: (keys: ReadonlyArray<readonly [string, string]>) =>
-      keys
-        .map(([key, action]) => `${styleText("bold", key)} ${styleText("dim", action)}`)
-        .join(styleText("dim", " · ")),
+    keysHelpTip: renderKeysHelpTip,
   },
   i18n: { disabledError: "This option is disabled and cannot be selected." },
   indexMode: "hidden",
@@ -235,8 +270,8 @@ export const backableSelect = createPrompt(
 
     const message = theme.style.message(config.message, status);
     const helpLine = theme.style.keysHelpTip([
-      ["↑↓", "navigate"],
-      ["⏎", "select"],
+      [glyph("upDown"), "navigate"],
+      [glyph("enter"), "select"],
       ["Shift+Tab", "back"],
     ]);
     let separatorCount = 0;
@@ -337,10 +372,7 @@ const checkboxTheme = {
     renderSelectedChoices: <V,>(
       selected: ReadonlyArray<BackableCheckboxChoice<V>>,
     ): string => selected.map((c) => c.short ?? c.name ?? String(c.value)).join(", "),
-    keysHelpTip: (keys: ReadonlyArray<readonly [string, string]>) =>
-      keys
-        .map(([k, a]) => `${styleText("bold", k)} ${styleText("dim", a)}`)
-        .join(styleText("dim", " · ")),
+    keysHelpTip: renderKeysHelpTip,
   },
   i18n: { disabledError: "This option is disabled and cannot be toggled." },
   keybindings: [] as ReadonlyArray<"emacs" | "vim">,
@@ -484,9 +516,9 @@ export const backableCheckbox = createPrompt(
       return [prefix, message, answer].filter(Boolean).join(" ");
     }
     const helpLine = theme.style.keysHelpTip([
-      ["↑↓", "navigate"],
+      [glyph("upDown"), "navigate"],
       ["space", "toggle"],
-      ["⏎", "confirm"],
+      [glyph("enter"), "confirm"],
       ["Shift+Tab", "back"],
     ]);
     const lines = [
@@ -517,7 +549,10 @@ interface BackableInputConfig {
   transformer?: (value: string, opts: { isFinal: boolean }) => string;
 }
 
-const inputTheme = { validationFailureMode: "keep" };
+const inputTheme = {
+  validationFailureMode: "keep",
+  style: { defaultAnswer: styleDefaultAnswer },
+};
 
 export const backableInput = createPrompt(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -606,7 +641,10 @@ export const backableInput = createPrompt(
     const help =
       status === "done"
         ? ""
-        : styleText("dim", "⏎ submit · Shift+Tab back");
+        : renderKeysHelpTip([
+            [glyph("enter"), "submit"],
+            ["Shift+Tab", "back"],
+          ]);
     return [
       [prefix, message, defaultStr, formattedValue].filter((v) => v !== undefined).join(" "),
       [error, help].filter(Boolean).join("\n"),
@@ -635,6 +673,8 @@ function boolToString(value: boolean): string {
   return value ? "Yes" : "No";
 }
 
+const confirmTheme = { style: { defaultAnswer: styleDefaultAnswer } };
+
 export const backableConfirm = createPrompt(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (config: BackableConfirmConfig, done: (value: boolean | Back) => void): any => {
@@ -642,7 +682,7 @@ export const backableConfirm = createPrompt(
     const [status, setStatus] = useState<"idle" | "done">("idle");
     const [value, setValue] = useState("");
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const theme: any = makeTheme(config.theme as any);
+    const theme: any = makeTheme(confirmTheme as any, config.theme as any);
     const prefix = usePrefix({ status, theme });
 
     useKeypress((key, rl) => {
@@ -680,7 +720,7 @@ export const backableConfirm = createPrompt(
     const help =
       status === "done"
         ? ""
-        : ` ${styleText("dim", "· Shift+Tab back")}`;
+        : ` ${styleText("dim", "·")} ${renderKeysHelpTip([["Shift+Tab", "back"]])}`;
     return `${prefix} ${message}${defaultValue}${help} ${formattedValue}`;
   },
 );

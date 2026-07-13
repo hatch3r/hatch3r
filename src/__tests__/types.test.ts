@@ -1,4 +1,7 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   HatchError,
   ERROR_CODE_TO_EXIT_CODE,
@@ -8,8 +11,10 @@ import {
   TOOLS,
   TOOL_WORKTREE_SUPPORT,
   WORKTREE_CAPABLE_TOOLS,
+  AVAILABLE_MCP_SERVERS,
   type HatchErrorCode,
 } from "../types.js";
+import { findPackageRoot } from "../cli/shared/paths.js";
 
 describe("ERROR_CODE_TO_EXIT_CODE (C8-D1-M5)", () => {
   it("has an entry for every HatchErrorCode literal", () => {
@@ -217,5 +222,100 @@ describe("WORKTREE_CAPABLE_TOOLS / TOOL_WORKTREE_SUPPORT (D2-17)", () => {
     expect(WORKTREE_CAPABLE_TOOLS.has("cursor")).toBe(true);
     expect(WORKTREE_CAPABLE_TOOLS.has("claude")).toBe(true);
     expect(WORKTREE_CAPABLE_TOOLS.has("copilot")).toBe(true);
+  });
+});
+
+describe("AVAILABLE_MCP_SERVERS.requiresEnv — lockstep with bundled mcp.json (D3-SA3.4-03)", () => {
+  // D3-SA3.4-03 (Cycle 12 Wave 3, Medium, content-quality CQ5): env-var
+  // requirements are declared on two surfaces — the hand-maintained
+  // AVAILABLE_MCP_SERVERS[*].requiresEnv map (src/types.ts) and the ${env:*}
+  // placeholders in the bundled mcp/mcp.json. Nothing pinned them together, so a
+  // server add/rename or an env-var change in one surface could silently diverge
+  // the other, scaffolding a .env.mcp that omits a variable the generated adapter
+  // MCP config references — the exact missing-credential failure the env-
+  // generation feature exists to prevent. This loads the REAL bundle (no
+  // fixtures, CONSTITUTION §2 P2 Decision 20) and asserts set-equality in both
+  // directions, mirroring the package-axis lockstep in
+  // mcp-package-resolution.test.ts (D15-25).
+  const PKG_ROOT = findPackageRoot(dirname(fileURLToPath(import.meta.url)));
+  const MCP_JSON_PATH = join(PKG_ROOT, "mcp", "mcp.json");
+
+  // Every ${env:VAR} placeholder anywhere in a server entry (env block, headers,
+  // args, url). The bundled `github` server declares GITHUB_PAT inside
+  // headers.Authorization rather than an `env` block, so a whole-entry scan is
+  // required — an env-block-only extractor would miss it.
+  function bundleEnvVars(entry: unknown): Set<string> {
+    const vars = new Set<string>();
+    for (const match of JSON.stringify(entry).matchAll(/\$\{env:([A-Z0-9_]+)\}/g)) {
+      if (match[1]) vars.add(match[1]);
+    }
+    return vars;
+  }
+
+  function loadBundleEnv(): Map<string, Set<string>> {
+    const parsed = JSON.parse(readFileSync(MCP_JSON_PATH, "utf-8")) as {
+      mcpServers?: Record<string, unknown>;
+    };
+    expect(parsed.mcpServers, `mcpServers missing in ${MCP_JSON_PATH}`).toBeTruthy();
+    const servers = (parsed.mcpServers ?? {}) as Record<string, unknown>;
+    const out = new Map<string, Set<string>>();
+    for (const [name, entry] of Object.entries(servers)) {
+      out.set(name, bundleEnvVars(entry));
+    }
+    return out;
+  }
+
+  function mapEnv(): Map<string, Set<string>> {
+    const out = new Map<string, Set<string>>();
+    for (const [name, meta] of Object.entries(AVAILABLE_MCP_SERVERS)) {
+      out.set(name, new Set(meta.requiresEnv ?? []));
+    }
+    return out;
+  }
+
+  it("declares the same server-name set on both surfaces", () => {
+    const bundle = [...loadBundleEnv().keys()].sort();
+    const map = [...mapEnv().keys()].sort();
+    expect(
+      bundle,
+      "server names in mcp/mcp.json and AVAILABLE_MCP_SERVERS (src/types.ts) diverged — " +
+        "add or remove the server on whichever surface is missing it",
+    ).toEqual(map);
+  });
+
+  it("declares every bundled env placeholder in requiresEnv (bundle -> map)", () => {
+    const bundle = loadBundleEnv();
+    const map = mapEnv();
+    const missing: string[] = [];
+    for (const [server, vars] of bundle) {
+      const declared = map.get(server) ?? new Set<string>();
+      for (const v of vars) {
+        if (!declared.has(v)) missing.push(`${server}:${v}`);
+      }
+    }
+    expect(
+      missing.sort(),
+      "mcp/mcp.json references env placeholder(s) absent from the matching " +
+        "AVAILABLE_MCP_SERVERS[server].requiresEnv (src/types.ts) — add them to the map " +
+        `so env scaffolding prompts for the credential: ${missing.join(", ")}`,
+    ).toEqual([]);
+  });
+
+  it("backs every requiresEnv var with a bundled env placeholder (map -> bundle)", () => {
+    const bundle = loadBundleEnv();
+    const map = mapEnv();
+    const missing: string[] = [];
+    for (const [server, vars] of map) {
+      const placeholders = bundle.get(server) ?? new Set<string>();
+      for (const v of vars) {
+        if (!placeholders.has(v)) missing.push(`${server}:${v}`);
+      }
+    }
+    expect(
+      missing.sort(),
+      "AVAILABLE_MCP_SERVERS[server].requiresEnv (src/types.ts) names env var(s) that no " +
+        "placeholder in the mcp/mcp.json server entry references — update the bundle " +
+        `or the map so the two agree: ${missing.join(", ")}`,
+    ).toEqual([]);
   });
 });

@@ -847,6 +847,57 @@ describe("content/index — selection & index", () => {
       expect(allIds.has("gf-cmd")).toBe(false);
     });
 
+    // ── Custom selection × Stage-4 context filter (D3-SA3.3-05) ──
+    // The custom picker offers the FULL index with no team-size pre-filter, so a
+    // solo user can explicitly select a non-floor `ctx:team-only` item. Stage 1
+    // (custom admission) admits the explicit pick, but Stage 4 (context filter)
+    // still runs on the custom path (only `skipContextFilters` bypasses it, which
+    // `init` never sets) and strips non-floor `ctx:team-only` items for solo — so
+    // the explicit pick is DROPPED with no signal. These tests PIN that current
+    // interaction at both team sizes (the silent-drop-at-solo behavior is
+    // documented here, not changed — honoring vs dropping an explicit pick is a
+    // cross-domain D1/D10 product decision, not a test-layer change). The
+    // `skipContextFilters` arm proves Stage 1 admitted the pick, isolating Stage 4
+    // as the discriminator so the drop assertion is not vacuous.
+    describe("custom selection × context filter interaction (D3-SA3.3-05)", () => {
+      it("solo: an explicit custom pick of a non-floor ctx:team-only item is dropped by the Stage-4 context filter", () => {
+        const preset = getPreset("custom");
+        // board-cmd carries [board, ctx:team-only] (non-floor). Explicitly picked.
+        const selection = resolveSelection(
+          preset, "brownfield", "solo", index,
+          ["board-cmd"],
+        );
+        const allIds = getAllContentIds(selection);
+        // Documented CURRENT behavior: the explicit pick is silently dropped for
+        // solo because Stage 4 removes non-floor ctx:team-only items.
+        expect(allIds.has("board-cmd")).toBe(false);
+      });
+
+      it("team: the same explicit custom pick of a ctx:team-only item is kept", () => {
+        const preset = getPreset("custom");
+        const selection = resolveSelection(
+          preset, "brownfield", "team", index,
+          ["board-cmd", "team-only"],
+        );
+        const allIds = getAllContentIds(selection);
+        expect(allIds.has("board-cmd")).toBe(true);
+        expect(allIds.has("team-only")).toBe(true);
+      });
+
+      it("solo + skipContextFilters: the explicit pick survives — proving Stage 1 admitted it and Stage 4 is the discriminator", () => {
+        const preset = getPreset("custom");
+        const selection = resolveSelection(
+          preset, "brownfield", "solo", index,
+          ["board-cmd"], undefined, { skipContextFilters: true },
+        );
+        const allIds = getAllContentIds(selection);
+        // With Stage 4 bypassed, the custom-admitted pick is retained at solo,
+        // so the drop in the first test is attributable to the context filter,
+        // not to Stage-1 non-admission.
+        expect(allIds.has("board-cmd")).toBe(true);
+      });
+    });
+
     // ── Selection grouping + metadata ────────────────────────
 
     it("groups items correctly by type in selection.items", () => {

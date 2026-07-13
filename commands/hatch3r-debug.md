@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-testability, hatch3r-security]
 description: Standalone debug-and-fix workflow — add strategic debug logging, collect runtime logs from the user, perform root cause analysis, implement the fix, and clean up all debug artifacts.
+disable-model-invocation: true
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,6 +16,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 6
   rationale: Six-stage pipeline per agentPipeline — researcher → implementer → reviewer ↔ fixer review loop (max 3 iterations) → parallel final-quality pass (testability (CQ5) + security (CQ3)); serialization only across true dependency edges (logs → root cause → fix → verify). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 ## §0 Detect Ambiguity (P8 B1)
 
@@ -24,11 +26,18 @@ Before any action, scan the user's bug description and provided context for unre
 
 Standalone debug-and-fix command that instruments the codebase with strategic debug logging, pauses for the user to reproduce the issue and provide runtime logs, performs root cause analysis from the collected evidence, implements the fix, and removes all debug artifacts. Five-stage workflow: Gather Context → Add Debug Logging → Collect Logs (user checkpoint) → Root Cause Analysis → Implement Fix. Works independently — no board integration, no GitHub issue required.
 
-**When to use this command vs. other bug-related commands:**
+## Which bug command?
 
-- Use `hatch3r-debug` when: the bug is reproducible but the root cause is unclear, you need runtime evidence (log output) to diagnose, or static analysis alone is insufficient.
-- Use `hatch3r-bug-plan` when: the bug is complex/ambiguous and needs a structured investigation plan with multiple researchers, phased fix items, and board integration.
-- Use `hatch3r-bug-fix` skill directly when: the root cause is already known and the fix is localized.
+Four bug surfaces route on two signals — **is the root cause known?** and **how wide is the fix?** Pick the matching row; each names its siblings so the selection boundary never requires opening a second command body.
+
+| Use | Root cause | Scope / fix shape |
+|-----|-----------|-------------------|
+| **`hatch3r-debug`** (this command) | unknown — needs runtime log evidence to locate | reproducible bug, 1–4 files; instrument → collect logs → root-cause → fix |
+| **`hatch3r-bug-fix`** skill | known and localized | Tier-1 minimal fix + regression test, single obvious change |
+| **`hatch3r-bug-pipeline`** | known or strongly hypothesized, fix in hand | nontrivial (multi-file, behavior change, security-adjacent); delegated test-first 3-phase pipeline |
+| **`hatch3r-bug-plan`** | unknown across multiple modules | needs an investigation plan (report, not a fix) with phased items and board integration |
+
+Framework fault, not application code? If the problem is the hatch3r install itself — setup, config, adapter wiring, or `hatch3r status`/`verify` drift — use `hatch3r-diagnose` instead. Despite the verb, `diagnose` troubleshoots hatch3r, not your application.
 
 ---
 
@@ -163,7 +172,7 @@ You can also paste an error log, stack trace, or screenshot description and I'll
    - `docs/specs/` — project specifications (read TOC/headers first, expand relevant sections only)
    - `README.md` — project overview and setup instructions
    - `AGENTS.md` or `rules/` — agent rules and project conventions
-2. If `.hatch3r/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug description. Learnings are **consulted only** in this command — debug fixes the immediate defect and does not write new learnings (deliberate skip, parallel to `hatch3r-quick-change` Token-Saving Directive 4); durable bug-pattern learnings are captured by `hatch3r-workflow` Phase 4e and `hatch3r-revision` Step 10 when a fix lands through those flows. Iteration-summary item 9 ("Learnings Captured") therefore reads `None` for a standalone debug run.
+2. If `.hatch3r/learnings/` exists, scan for relevant learnings — test the affected file paths against each learning's `applies-to` glob and the affected area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback). Learnings are **consulted only** in this command — debug fixes the immediate defect and does not write new learnings (deliberate skip, parallel to `hatch3r-quick-change` Token-Saving Directive 4); durable bug-pattern learnings are captured by `hatch3r-workflow` Phase 4e and `hatch3r-revision` Step 10 when a fix lands through those flows. Iteration-summary item 9 ("Learnings Captured") therefore reads `None` for a standalone debug run.
 3. Scan the affected code area — read the primary files involved, trace imports and dependencies one level deep.
 
 **Knowledge hierarchy:** project specs → codebase exploration → Context7 MCP (`resolve-library-id` then `query-docs`) → web research. Exhaust each level before escalating to the next.
@@ -476,15 +485,15 @@ debug is long-running across a user-checkpoint boundary — Stage 2 instruments 
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in the Pre-Execution Cost Preview above before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** — the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.

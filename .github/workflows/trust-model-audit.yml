@@ -8,8 +8,21 @@ name: Trust model audit (weekly)
 # verification surface so the Weekly cadence has a machine-verifiable
 # attestation in the repo's Actions history.
 #
+# Verified-scope split (D4-SA4.3-07): the trust-reference doc is private
+# governance IP (gitignored; SSoT hatch3r-governance), absent on the PUBLIC
+# runner — so the doc-currency assertions run only where the governance overlay
+# is mounted (the doc is present at checkout). Every run of the doc-currency
+# step writes its verified scope to the job summary ($GITHUB_STEP_SUMMARY), so
+# the weekly green checkmark names exactly the evidence it holds (public:
+# pipeline-compliance surface only; overlay: + doc currency) instead of the
+# silent exit-0 skip implying the full review ran everywhere.
+#
 # Cron: every Monday 06:00 UTC (offset from the busiest publish window).
 # Manual: `gh workflow run trust-model-audit.yml` triggers an ad-hoc run.
+#
+# D4-SA4.3-01 (Cycle 12): a second job, branch-protection-drift, rides the
+# same weekly cron — it diffs the live `main` branch-protection payload
+# against the documented contract; see its comment block for the contract.
 
 on:
   schedule:
@@ -92,7 +105,19 @@ jobs:
           # finding-registry step. Where the governance overlay is mounted the
           # file is present and the full currency check below runs.
           if [ ! -f "$DOC" ]; then
-            echo "::notice::$DOC not present (private governance IP) — skipping trust-reference doc currency check."
+            echo "::notice::$DOC not present (private governance IP) — trust-reference doc-currency assertions skipped on this runner."
+            # D4-SA4.3-07: the skip is correct by construction (private-IP split),
+            # but a silent exit 0 lets the green check overclaim its scope. Write
+            # the narrowed verified scope to the job summary so the attestation
+            # names exactly the evidence this run holds (sign-off doctrine). Guard
+            # $GITHUB_STEP_SUMMARY (set -u) so a missing sink never fails the skip.
+            {
+              echo "### Trust-reference doc currency — SKIPPED (scope-narrowed)"
+              echo ""
+              echo "\`$DOC\` is private governance IP (gitignored; SSoT hatch3r-governance) and is absent on this runner, so the D15-30 doc-currency assertions (implementation paths resolve, \`accessed\` dates within ${WINDOW_DAYS}d, framework versions current) did **not** run here."
+              echo ""
+              echo "**Verified scope of this run:** the pipeline-compliance surface only (ASI01 / ASI02 / ASI03 / ASI07 + the D15-M12 monotonic-privilege check + the D15-M6 fixer write-scope assertion, via the \`Compliance verification (pipeline)\` step). Doc currency is attested only where the governance overlay is mounted (the doc is present at checkout)."
+            } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
             exit 0
           fi
           if ! grep -q "## Compliance Verification Schedule" "$DOC"; then
@@ -263,3 +288,161 @@ jobs:
           );
           CURRENCY_CHECK
           node "$RUNNER_TEMP/trust-crosswalk-currency.cjs"
+          # D4-SA4.3-07: doc present + assertions passed (set -e aborts the step
+          # above on any node exit 1, so this only runs on success). Write the
+          # affirmative doc-currency attestation to the job summary so the overlay
+          # run's checkmark names the doc-currency evidence it holds.
+          {
+            echo "### Trust-reference doc currency — VERIFIED"
+            echo ""
+            echo "\`$DOC\` present at checkout (governance overlay mounted). The D15-30 doc-currency assertions passed: every Control-to-Trust Mapping implementation path resolves on disk, every \`accessed\` provenance date is within the ${WINDOW_DAYS}d window, and each framework version in \`$VERSIONS\` still matches the crosswalk (no known-stale predecessor version cited)."
+          } >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+
+  # D4-SA4.3-01 (Cycle 12): branch-protection drift probe. Repo settings are
+  # invisible to CI — the required-check list drifted from the ci.yml contract
+  # for ~90 PRs (a phantom "Quality gates" context, dead since v1.1.0, made
+  # compliance impossible and admin bypass the routine merge mechanism; PR #117
+  # / v2.2.0 merged with the required "All CI checks" aggregator in FAILURE).
+  # ci.yml documents the contract ("Branch-protection required-check list"
+  # comment above the ci-success job); nothing verified live settings against
+  # it. This job reads the classic branch-protection payload weekly and fails
+  # on any drift from the contract below, so a settings regression surfaces in
+  # Actions history instead of silently re-enabling bypass-as-norm.
+  #
+  # Contract (mirrors the ci.yml comment + the D4-SA4.3-01 resolution):
+  #   - required contexts == exactly: "All CI checks",
+  #     "Validate PR title (conventional commits)", "DCO sign-off check",
+  #     "Bundle size gate" — never a rotating matrix leg like
+  #     "build (22, ubuntu-latest)", never the removed "Quality gates"
+  #   - strict up-to-date-branch: true
+  #   - enforce_admins: true (bypass is exceptional, not the merge mechanism)
+  #   - classic required_pull_request_reviews: absent — the review layer lives
+  #     in ruleset 13329941, reconciled to 0 required approvals (solo-
+  #     maintainer reality: self-approval never counts, so any count >= 1
+  #     forces bypass on every merge)
+  #
+  # Token: GET /repos/{owner}/{repo}/branches/main/protection needs repository
+  # Administration read access, which the workflow GITHUB_TOKEN cannot be
+  # granted (administration is not a grantable workflow-token permission).
+  # Provision a fine-grained PAT scoped to this repo with Repository
+  # permissions -> Administration: Read-only, stored as the
+  # BRANCH_PROTECTION_READ_TOKEN Actions secret. A missing secret fails this
+  # job with instructions rather than skipping: an unreadable contract is an
+  # unverified contract, and this probe exists to track exactly that class of
+  # human-only settings follow-up.
+  branch-protection-drift:
+    name: Branch protection drift probe
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Diff live branch protection against the documented contract
+        env:
+          GH_TOKEN: ${{ secrets.BRANCH_PROTECTION_READ_TOKEN }}
+          REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          if [ -z "$GH_TOKEN" ]; then
+            echo "::error::BRANCH_PROTECTION_READ_TOKEN secret is not set, so the probe cannot read branch protection (the workflow GITHUB_TOKEN cannot hold Administration:read). Create a fine-grained PAT scoped to $REPO with Repository permissions -> Administration: Read-only, then run: gh secret set BRANCH_PROTECTION_READ_TOKEN --repo $REPO"
+            exit 1
+          fi
+          if ! live="$(gh api "repos/$REPO/branches/main/protection" 2>&1)"; then
+            echo "::error::Cannot read branch protection for $REPO (token lacks Repository permissions -> Administration: Read-only?). gh api said: $live"
+            exit 1
+          fi
+          expected_contexts='["All CI checks","Bundle size gate","DCO sign-off check","Validate PR title (conventional commits)"]'
+          actual_contexts="$(jq -c '.required_status_checks.contexts | sort' <<<"$live")"
+          actual_strict="$(jq -r '.required_status_checks.strict' <<<"$live")"
+          actual_enforce="$(jq -r '.enforce_admins.enabled' <<<"$live")"
+          classic_reviews_present="$(jq -r 'has("required_pull_request_reviews")' <<<"$live")"
+          echo "live: contexts=$actual_contexts strict=$actual_strict enforce_admins=$actual_enforce classic_reviews_present=$classic_reviews_present"
+          drift=0
+          if [ "$actual_contexts" != "$expected_contexts" ]; then
+            echo "::error::Required-check contexts drifted. Contract: $expected_contexts — live: $actual_contexts"
+            drift=1
+          fi
+          if [ "$actual_strict" != "true" ]; then
+            echo "::error::strict up-to-date-branch is '$actual_strict' — contract says true"
+            drift=1
+          fi
+          if [ "$actual_enforce" != "true" ]; then
+            echo "::error::enforce_admins is '$actual_enforce' — contract says true (bypass must be exceptional, not the merge mechanism)"
+            drift=1
+          fi
+          if [ "$classic_reviews_present" != "false" ]; then
+            echo "::error::classic required_pull_request_reviews is present — contract says absent (review policy lives in ruleset 13329941 at 0 required approvals)"
+            drift=1
+          fi
+          if [ "$drift" -ne 0 ]; then
+            echo "::error::Branch protection drifted from the documented contract (ci.yml 'Branch-protection required-check list' + D4-SA4.3-01). Re-apply the contract settings, then re-run this probe."
+            exit 1
+          fi
+          echo "Branch protection matches the documented contract: contexts $expected_contexts, strict=true, enforce_admins=true, classic reviews absent."
+
+  # D15-SA15.6-02 (Cycle 12): live-currency oracle. The "Trust reference doc
+  # currency" step above is a closed doc<->manifest loop — both files are
+  # maintainer-owned, so it verifies internal agreement, never agreement with
+  # the live framework. It cannot observe that Anthropic shipped RSP v3.4 two
+  # days after a doc touch while the crosswalk still cited v3.3. This job fetches
+  # each cited framework's canonical page (expected-versions.json `probeUrl`) and
+  # warns when the cited current version (`liveCurrentRegex`) is no longer what
+  # the live page presents — i.e. the framework versioned past the citation.
+  # Warning-only by construction: networks flake, and a transient fetch failure
+  # must not red a scheduled hardening run; a real drift surfaces as a
+  # ::warning:: in Actions history for a human to reconcile via
+  # expected-versions.json. Reads only the committed manifest + public URLs, so
+  # (unlike the doc-currency step) it is NOT a no-op on the public repo where the
+  # private trust-reference doc is absent.
+  framework-version-live-probe:
+    name: Framework version live-currency probe (warning-only)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Harden Runner
+        uses: step-security/harden-runner@ab7a9404c0f3da075243ca237b5fac12c98deaa5 # v2.19.3
+        with:
+          egress-policy: audit
+
+      - name: Checkout
+        uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7.0.0
+        with:
+          persist-credentials: false
+
+      - name: Fetch each cited framework's canonical page and diff the live version against the manifest
+        env:
+          VERSIONS: expected-versions.json
+        run: |
+          set -euo pipefail
+          if [ ! -f "$VERSIONS" ]; then
+            echo "::notice::$VERSIONS not present — nothing to probe."
+            exit 0
+          fi
+          count="$(jq '.frameworks | length' "$VERSIONS")"
+          echo "Probing $count framework entr(y/ies) from $VERSIONS (warning-only, live-source oracle)."
+          warned=0
+          for i in $(seq 0 "$((count - 1))"); do
+            id="$(jq -r ".frameworks[$i].id" "$VERSIONS")"
+            url="$(jq -r ".frameworks[$i].probeUrl // empty" "$VERSIONS")"
+            live_re="$(jq -r ".frameworks[$i].liveCurrentRegex // empty" "$VERSIONS")"
+            if [ -z "$url" ] || [ -z "$live_re" ]; then
+              echo "::notice::$id: no probeUrl+liveCurrentRegex — live-currency probe skipped (annual/draft/unversioned framework, or not yet wired)."
+              continue
+            fi
+            echo "probe $id -> $url  (expect live current form /$live_re/)"
+            if ! body="$(curl -fsSL --max-time 25 --retry 2 --retry-delay 3 -A 'hatch3r-trust-model-audit/1.0' "$url" 2>/dev/null)"; then
+              echo "::warning::$id: could not fetch $url (network/transient) — live-currency unverified this run; re-run the workflow or verify by hand."
+              warned=$((warned + 1))
+              continue
+            fi
+            if printf '%s' "$body" | grep -Eq "$live_re"; then
+              echo "  ok: live page still presents the cited current version (/$live_re/ matched)."
+            else
+              echo "::warning::$id: live page $url no longer matches the cited current version /$live_re/ — the published framework may have versioned past expected-versions.json. Verify the live version, then bump the crosswalk cite in the trust-reference doc + this manifest (expectedRegex/staleRegex/liveCurrentRegex) together."
+              warned=$((warned + 1))
+            fi
+          done
+          echo "Live-currency probe complete: $warned warning(s). This job never fails the build (warning-only by design)."

@@ -97,5 +97,5 @@ Commands in the "Does NOT Support" column are documentation-only, planning-only,
 Use the browser automation MCP available in your environment:
 
 - **Cursor:** `cursor-ide-browser` MCP (browser_navigate, browser_snapshot, browser_click, browser_type, browser_screenshot, browser_tabs)
-- **Playwright MCP:** `@anthropic/mcp-playwright` for headless or headed browser automation
+- **Playwright MCP:** `@playwright/mcp` (Microsoft — `github.com/microsoft/playwright-mcp`) for headless or headed browser automation
 - **Fallback:** If no browser MCP is available, document that browser verification was skipped and why.

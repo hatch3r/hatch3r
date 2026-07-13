@@ -1,7 +1,7 @@
 ---
 id: hatch3r-dotnet-patterns
 type: rule
-description: .NET 9 + C# 13 conventions covering minimal APIs, nullable reference types, async/await, Entity Framework Core, dependency injection, structured logging, and xUnit testing
+description: .NET 10 + C# 14 conventions covering minimal APIs, nullable reference types, async/await, Entity Framework Core, dependency injection, structured logging, and xUnit testing
 scope: conditional
 globs: "**/*.cs,**/*.csproj,**/*.sln,**/*.fsproj,**/*.vbproj,**/Directory.Build.props,**/Directory.Build.targets,**/global.json,**/nuget.config,**/appsettings.json,**/appsettings.*.json,**/Program.cs,**/Startup.cs"
 tags: [implementation]
@@ -16,8 +16,8 @@ cache_friendly: true
 
 ## .NET / C# Language Floor
 
-- Target .NET 9.0 (LTS-supporting upgrade path) or the current LTS (.NET 8). Pin via `global.json` (`sdk.version`) and `*.csproj` `<TargetFramework>net9.0</TargetFramework>`.
-- Use C# 13+ features: collection expressions (`[1, 2, 3]`), primary constructors on non-record classes, `params Span<T>`. Avoid mixing older syntax with new — pick the modern form across the codebase.
+- Target .NET 10.0 (the current LTS — GA Nov 2025, supported to Nov 2028). .NET 9 (STS) left support 2026-05-12 and .NET 8 (LTS) reaches end of support 2026-11-10, so treat any project still on 8/9 as an upgrade candidate, not a floor. Pin via `global.json` (`sdk.version`) and `*.csproj` `<TargetFramework>net10.0</TargetFramework>`.
+- Use C# 14 features: field-backed properties (the `field` keyword — write a validating setter without declaring an explicit backing field), null-conditional assignment (`obj?.Prop = value` and compound forms, evaluated only when the left side is non-null), and extension members (extension properties + static extension members). The C# 13 baseline still applies: collection expressions (`[1, 2, 3]`), primary constructors on non-record classes, `params Span<T>`. Avoid mixing older syntax with new — pick the modern form across the codebase.
 - Enable nullable reference types (`<Nullable>enable</Nullable>` in `*.csproj`). Treat warnings as errors: `<TreatWarningsAsErrors>true</TreatWarningsAsErrors>`.
 - Use `Directory.Build.props` to centralize SDK version, lang version, code-analysis rules, and shared package versions across all projects.
 
@@ -54,7 +54,7 @@ cache_friendly: true
 
 ## Entity Framework Core
 
-- EF Core 9.x is the floor. Use `AddDbContextPool<>` for ASP.NET — context pooling reduces allocation overhead.
+- EF Core 10.x is the floor (ships with .NET 10; requires the .NET 10 SDK/runtime, LTS through 2028-11-10). Use `AddDbContextPool<>` for ASP.NET — context pooling reduces allocation overhead.
 - Migrations: `dotnet ef migrations add <Name>` per schema change; check generated files into VCS. Never edit migration `Designer.cs` by hand.
 - Query discipline: prefer projected `Select(x => new Dto { ... })` over fetching entities. Use `AsNoTracking()` for read-only queries — the change tracker is unnecessary overhead.
 - Avoid `.Include().Include()` chains beyond one level — denormalize the query into a projection.
@@ -92,10 +92,11 @@ cache_friendly: true
 
 ## References
 
-- .NET 9 release notes: https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-9 (accessed 2026-05-27, official-docs)
+- .NET support policy (LTS/STS lifecycle + EOL dates — check this vendor lifecycle page, not only the docs, at each refresh): https://dotnet.microsoft.com/en-us/platform/support/policy (accessed 2026-07-11, official-docs) — grounds the .NET 10 current-LTS floor and the .NET 8/9 EOL dates above.
+- .NET 10 release notes: https://learn.microsoft.com/en-us/dotnet/core/whats-new/dotnet-10/overview (accessed 2026-07-12, official-docs)
 - ASP.NET Core Minimal APIs: https://learn.microsoft.com/en-us/aspnet/core/fundamentals/minimal-apis/ (accessed 2026-05-27, official-docs)
-- EF Core 9.x: https://learn.microsoft.com/en-us/ef/core/what-is-new/ (accessed 2026-05-27, official-docs)
-- C# 13 features: https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-13 (accessed 2026-05-27, official-docs)
+- EF Core 10.x: https://learn.microsoft.com/en-us/ef/core/what-is-new/ef-core-10.0/whatsnew (accessed 2026-07-12, official-docs)
+- C# 14 features: https://learn.microsoft.com/en-us/dotnet/csharp/whats-new/csharp-14 (accessed 2026-07-12, official-docs)
 
 ## Cross-References
 

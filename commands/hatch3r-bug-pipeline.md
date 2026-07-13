@@ -4,6 +4,7 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer]
 description: Run a known-cause bug fix through a 3-phase test-first pipeline -- reproduce + root-cause, regression-test + fix together, then root-cause-depth review -- with full sub-agent delegation.
+disable-model-invocation: true
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,6 +16,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 4
   rationale: One researcher (merged reproduce + root-cause), one implementer (regression test + fix authored together, TDD-style), then a reviewer ↔ fixer loop on root-cause depth; the canonical four-phase Final Quality specialists collapse onto the implementer's bundled regression test plus the reviewer's root-cause-depth gate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -27,7 +29,7 @@ Before any action, scan the bug report for unresolved questions in scope, accept
 |-------|----------|----------|----------|
 | 1. Reproduce + Root-Cause | `hatch3r-researcher` (modes: `symptom-trace`, `root-cause`; `codebase-impact` for Tier 3) | Per mode | Yes |
 | 2. Regression-Test + Fix | `hatch3r-implementer` (failing test first, then minimal fix) | Per independent module | Yes |
-| 3. Root-Cause-Depth Review | `hatch3r-reviewer` -> `hatch3r-fixer` (max 4 iterations) | No (sequential) | Yes |
+| 3. Root-Cause-Depth Review | `hatch3r-reviewer` -> `hatch3r-fixer` (max 3 iterations) | No (sequential) | Yes |
 
 **Parallel-safety conditions** (per `rules/hatch3r-agent-orchestration.md` §Parallel Safety): every parallel fan-out above holds all three — read-only or disjoint writes (file- and contract-level), deterministic aggregation, no shared mutable state.
 
@@ -136,7 +138,7 @@ After the implementer returns, run the project quality gates (lint, typecheck, f
 
 ### Step 3: Root-Cause-Depth Review (Phase 3)
 
-Run an iterative review loop (max 4 iterations, matching `DEFAULT_MAX_REVIEW_ITERATIONS` in `src/pipeline/reviewLoop.ts`) until 0 Critical + 0 Warning findings remain. The review lens for a bug fix is **root-cause depth and regression-test validity**, not feature completeness.
+Run an iterative review loop — max 3 iterations (code-class cap per `REVIEW_LOOP_CLASS_CAPS` in `src/pipeline/reviewLoop.ts`: a bug-fix diff is a code diff, and code reviews diverge faster because a fix can spawn a regression the next iteration must catch) — until 0 Critical + 0 Warning findings remain. The review lens for a bug fix is **root-cause depth and regression-test validity**, not feature completeness.
 
 1. Spawn `hatch3r-reviewer` via the Task tool. The prompt MUST include the working-tree diff (`git diff`), the confirmed root cause from Step 1, the failing-then-passing test evidence from Step 2, all `scope: always` rule directives, the iteration number + prior findings (if not the first pass), the `correlation_id`, the confidence expression requirement, and a top-level `confidence: high | medium | low` output requirement so the gate can evaluate it deterministically. Focus the reviewer on:
    - **Root-cause depth** — does the fix address the cause or only mask the symptom? Reject suppression patterns (`eslint-disable`, `as any`, `as unknown as`, `@ts-ignore`, `test.skip`, empty catch blocks) per `rules/hatch3r-agent-orchestration.md` → Root-Cause Depth Requirements.
@@ -148,7 +150,7 @@ Run an iterative review loop (max 4 iterations, matching `DEFAULT_MAX_REVIEW_ITE
    - **0 Critical + 0 Warning AND reviewer confidence == low** → trigger a second reviewer pass before exiting; do not proceed until it returns non-low confidence OR the user explicitly accepts the low-confidence PASS.
    - **Critical or Warning findings remain** → spawn `hatch3r-fixer` with the full reviewer output + all `scope: always` directives + the confidence expression requirement, then re-run the reviewer (next iteration). After fixes, re-run quality gates.
 
-3. If 4 iterations complete and findings remain, surface a structured summary (iteration count, remaining Critical findings with file:line, remaining Warnings, fix-manually-vs-accept-risk recommendation) and **ASK** the user whether to proceed or fix manually. Never present raw reviewer output unsummarized.
+3. If the code-class cap of 3 iterations completes and findings remain, surface a structured summary (iteration count, remaining Critical findings with file:line, remaining Warnings, fix-manually-vs-accept-risk recommendation) and **ASK** the user whether to proceed or fix manually. Never present raw reviewer output unsummarized.
 
 ---
 
@@ -190,9 +192,9 @@ bug-pipeline is multi-phase — a Tier 2/3 run dispatches a researcher (Step 1),
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 

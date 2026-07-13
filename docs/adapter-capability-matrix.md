@@ -1,6 +1,6 @@
 # Adapter Capability Matrix
 
-> **Last verified**: 2026-06-06 | **hatch3r version**: 2.0.0
+> **Last verified**: 2026-07-11 (Cycle-12 D9-SA9.4-01 — File Path Mapping rows regenerated from a full in-memory run of all 3 adapters against the canonical root; the rule-path NN-prefix rows are pinned by `src/__tests__/adapters/base.test.ts`) | **hatch3r version**: 2.5.0
 
 Living reference for framework capabilities vs. adapter implementations. As of 1.9.0 hatch3r supports 3 adapters: Claude Code, Cursor, and GitHub Copilot. Twelve adapters (aider, amazonq, amp, antigravity, cline, codex, gemini, goose, kiro, opencode, windsurf, zed) were removed in a hard cut — see [CHANGELOG.md](../CHANGELOG.md) §[1.9.0]. This document tracks what each remaining adapter emits, what each platform supports natively, and where gaps remain.
 
@@ -25,10 +25,10 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 | **agents** | `agents/` | Agent definitions / custom modes |
 | **agent model** | `hatch.json`, agent frontmatter, `.hatch3r/agents/{id}.customize.yaml` | Per-agent AI model preference |
 | **skills** | `skills/*/SKILL.md` | On-demand instruction bundles for specific tasks |
-| **prompts** | `prompts/` | Reusable prompt templates |
+| **prompts** | `prompts/` (reserved — no content ships today) | Reusable prompt templates |
 | **commands** | `commands/` | Slash-command workflows |
 | **mcp** | `mcp/mcp.json` (bundled defaults), `.hatch3r/mcp/mcp.json` (user resolved) | Model Context Protocol server config |
-| **guardrails** | `policy/` | Deny lists, command restrictions |
+| **guardrails** | `policy/` (reserved — listed in `scripts/copy-content.ts::SOURCE_DIRS`; no content ships today) | Deny lists, command restrictions |
 | **githubAgents** | `github-agents/` | GitHub Copilot-specific agent definitions |
 | **hooks** | `hooks/` | Event-triggered automation (pre-commit, session-start, etc.) |
 | **agentTeams** | adapter-generated | Multi-agent team orchestration (Claude Code Agent Teams) |
@@ -41,10 +41,12 @@ Canonical content lives inside the bundled npm package (`<pkgRoot>/dist/content/
 | Adapter | rules | agents | skills | prompts | commands | mcp | guardrails | githubAgents | hooks | model | agentTeams |
 |---------|:-----:|:------:|:------:|:-------:|:--------:|:---:|:----------:|:------------:|:-----:|:-----:|:----------:|
 | **cursor** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | -- |
-| **copilot** | Y | Y | Y | --[^prompts] | Y | Y | -- | Y | -- | Y | -- |
+| **copilot** | Y | Y | Y | --[^prompts] | Y | Y | -- | Y[^ghagents] | -- | Y | -- |
 | **claude** | Y | Y | Y | -- | Y | Y | -- | -- | Y | Y | Y |
 
 [^prompts]: copilot `prompts: --` matches `ADAPTER_CAPABILITIES.copilot.prompts = false` (`src/adapters/index.ts:125`): hatch3r ships no canonical `prompts/` content, so no adapter emits a `.github/prompts/*.prompt.md` from a *prompts* source (D9-H-5, Cycle 10). The platform's native `.github/prompts/` picker stays an unutilized enhancement surface (`PLATFORM_CAPABILITY_SEED.copilot.prompts = supported`). Copilot's *commands* still route to `.github/prompts/hatch3r-{id}.prompt.md` under the separate `commands` flag (see [File Path Mapping → Copilot](#copilot)). The cell-vs-`ADAPTER_CAPABILITIES` agreement of every boolean-backed Implementation Matrix column is pinned by `src/__tests__/adapters/capability-matrix-doc.test.ts`.
+
+[^ghagents]: `Y` records the *capability* (`ADAPTER_CAPABILITIES.copilot.githubAgents = true`), not unconditional emission. The Copilot adapter emits `.github/agents/*.agent.md` from a `github-agents/` source ONLY when `features.githubAgents && !features.agents` (D5-41, `src/adapters/copilot.ts`): under the default init (both flags true) the regular-agent path supersedes the simplified twins and **zero** github-agent files emit. When they do emit, the authored frontmatter is normalized (`name`, `description`, gated `model`, per-role `tools`), not shipped raw. See [File Path Mapping → Copilot](#copilot) and Intentional Omissions.
 
 #### Hook-surface notes
 
@@ -70,7 +72,7 @@ Since 2.2.0, per-artifact model configuration extends beyond agents: `models.ski
 
 | Adapter | Emission | Notes |
 |---------|----------|-------|
-| **cursor** | Native | `model:` in agent YAML frontmatter. Also emits `readonly:` and `background:` for v2.5+ sub-agent control. |
+| **cursor** | Native | `model:` in agent YAML frontmatter. Also emits `readonly:` and `is_background:` for v2.5+ sub-agent control. |
 | **copilot** | Native (VS Code) | `model:` in agent YAML; ignored on github.com |
 | **claude** | Native (frontmatter `model:`) | Emits `model:` in sub-agent YAML frontmatter (authoritative per [sub-agents docs](https://code.claude.com/docs/en/sub-agents#choose-a-model), accessed 2026-05-27); also retains `## Recommended Model` prose (`/model` + `CLAUDE_CODE_SUBAGENT_MODEL`) in non-minimal mode for per-session override. |
 
@@ -81,7 +83,7 @@ Tracks whether the adapter exposes a documented platform-native question/triage 
 | Adapter | Native question tool | Notes |
 |---------|:--------------------:|-------|
 | **claude** | Y | `AskUserQuestion` tool (verified 2026-05-28 @ https://code.claude.com/docs/en/sub-agents) |
-| **cursor** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://cursor.com/docs/agent/subagents) |
+| **cursor** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://cursor.com/docs/subagents) |
 | **copilot** | -- | No native question tool documented; plain-text fallback applies (verified 2026-05-28 @ https://docs.github.com/en/copilot/reference/custom-agents-configuration) |
 
 When `nativeQuestionTool: false` (deny-by-default) the agent uses the plain-text numbered-options fallback per `agents/shared/user-question-protocol.md`.
@@ -116,12 +118,15 @@ Inlining ensures every platform receives orchestration guidance directly in cont
 
 | Capability | Output Path | Format |
 |------------|-------------|--------|
-| rules | `.cursor/rules/hatch3r-{id}.mdc` | MDC frontmatter (`description`, `alwaysApply`, `globs`) |
-| agents | `.cursor/agents/hatch3r-{id}.md` | YAML frontmatter (`name`, `description`, `model`, `readonly`, `background`) |
+| rules | `.cursor/rules/{NN}-hatch3r-{id}.mdc` | MDC frontmatter (`description`, `alwaysApply`, `globs`); `{NN}` = precedence prefix (`10` critical / `30` high / `50` normal / `70` low) |
+| agents | `.cursor/agents/hatch3r-{id}.md` | YAML frontmatter (`name`, `description`, `model`, `readonly`, `is_background`) |
 | skills | `.cursor/skills/hatch3r-{id}/SKILL.md` | YAML frontmatter (`name`, `description`) |
 | commands | `.cursor/commands/hatch3r-{id}.md` | Raw content |
 | mcp | `.cursor/mcp.json` | Direct copy of resolved MCP config |
-| hooks | `.cursor/rules/hatch3r-hook-{id}.mdc` | MDC rule with hook event metadata |
+| hooks (as rules) | `.cursor/rules/hatch3r-hook-{id}.mdc` | MDC rule with hook event metadata (no NN prefix — hook-derived rules are not precedence-sorted) |
+| hooks (runtime) | `.cursor/hooks.json`, `.cursor/hooks/subagent-guard.mjs` | Cursor hooks config + ASI02 sub-agent guard script |
+| tool allowlist | `.cursor/rules/hatch3r-tool-allowlist.mdc` | Deny-by-default per-agent tool policy (security; no NN prefix) |
+| agent policy | `.cursor/agents-policy.json` | Per-agent readonly/tool policy (security) |
 | bridge | `.cursor/rules/hatch3r-bridge.mdc` | Always-apply rule with inline orchestration + canonical reference + Cursor v2.5+ sub-agent configuration guidance |
 | environment | `.cursor/environment.json` | JSON with `instructions` array; emitted when `cursor` is in manifest tools |
 
@@ -131,12 +136,12 @@ Inlining ensures every platform receives orchestration guidance directly in cont
 |------------|-------------|--------|
 | rules (always) | `.github/copilot-instructions.md` | Managed block with inlined rules |
 | bridge | `.github/copilot-instructions.md` | Inline orchestration + canonical reference, above rules |
-| rules (scoped) | `.github/instructions/hatch3r-{id}.instructions.md` | YAML frontmatter (`applyTo`) |
-| agents | `.github/agents/hatch3r-{id}.md` | YAML frontmatter (`name`, `description`, `model`) |
+| rules (scoped) | `.github/instructions/{NN}-hatch3r-{id}.instructions.md` | YAML frontmatter (`applyTo`); `{NN}` = precedence prefix (`10`/`30`/`50`/`70`) |
+| agents | `.github/agents/hatch3r-{id}.agent.md` | YAML frontmatter (`name`, `description`, gated `model`, `tools`; orchestrator-only agents add `disable-model-invocation` + `user-invocable`) + managed body |
 | skills | `.github/skills/hatch3r-{id}/SKILL.md` | YAML frontmatter (`name`, `description`) |
 | prompts | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
 | commands | `.github/prompts/hatch3r-{id}.prompt.md` | Raw content |
-| githubAgents | `.github/agents/hatch3r-{id}.agent.md` | Raw content |
+| githubAgents | `.github/agents/hatch3r-{id}.agent.md` | Normalized frontmatter (`name`, `description`, gated `model`, per-role `tools`) + managed body. Emitted ONLY when `features.githubAgents && !features.agents` (D5-41); suppressed under the default init — see the `[^ghagents]` footnote |
 | mcp | `.vscode/mcp.json` | Canonical MCP config; STDIO secrets via `envFile` (`.env.mcp`), HTTP header secrets via `${input:NAME}` prompts |
 | setup | `.github/workflows/copilot-setup-steps.yml` | YAML build steps |
 
@@ -144,14 +149,17 @@ Inlining ensures every platform receives orchestration guidance directly in cont
 
 | Capability | Output Path | Format |
 |------------|-------------|--------|
-| rules | `.claude/rules/hatch3r-{id}.md` | Header + description + content |
-| agents | `.claude/agents/hatch3r-{id}.md` | YAML frontmatter (`description`) + model guidance in content |
+| rules | `.claude/rules/{NN}-hatch3r-{id}.md` | Header + description + content; `{NN}` = precedence prefix (`10`/`30`/`50`/`70`). Glob-scoped rules prepend a documented block-sequence `paths:` frontmatter fence |
+| agents | `.claude/agents/hatch3r-{id}.md` | YAML frontmatter (`description`, `tools`, `disallowedTools`, `permissionMode`, native `model:`) + `## Recommended Model` prose (non-minimal mode) |
 | skills | `.claude/skills/hatch3r-{id}/SKILL.md` | Raw content |
 | commands | `.claude/commands/hatch3r-{id}.md` | Raw content |
 | mcp | `.mcp.json` | Resolved MCP config with Claude Code compatibility transforms (see below) |
-| hooks | `.claude/settings.json` | Claude event mapping (PreToolUse, PostToolUse, etc.) |
+| hooks (settings) | `.claude/settings.json` | Claude event mapping (SessionStart, ConfigChange, etc.) |
+| hooks (config) | `.claude/hooks/hatch3r-hooks.json` | Hook event definitions (additively duplicated from settings.json) |
+| tool policies | `.claude/hooks/agent-tool-policies.json` | Per-agent tool allowlist policy (security) |
+| tool-use guard | `.claude/hooks/pretooluse-allowlist.mjs` | PreToolUse allowlist enforcement script (ASI02, security) |
 | permissions | `.claude/settings.json` | Configurable via `claude.permissions` and `claude.teammateMode` in `hatch.json` |
-| bridge | `CLAUDE.md` | Managed block with inline orchestration + canonical reference |
+| bridge | `CLAUDE.md` | Managed block with inline orchestration + canonical reference. The maturity/confidence directives ship as visible blockquote lines (Claude Code strips block-level HTML comments before context injection) |
 
 **Claude Code `.mcp.json` compatibility:** The Claude adapter applies two transforms to the resolved MCP config: (1) env var placeholders are converted from `${env:VAR}` to `${VAR}` syntax, and (2) a `type` field (`stdio` or `http`) is added to each server entry. These transforms ensure Claude Code can parse the MCP config without manual editing.
 
@@ -178,6 +186,30 @@ The Claude adapter generates `.claude/settings.json` with tool permissions and t
 | `teammateMode` | `"tool-using" \| "full-trust" \| "manual-approval"` | `"tool-using"` | How spawned teammates operate |
 
 When omitted, the adapter falls back to sensible defaults so existing projects continue to work without changes.
+
+### Companion content
+
+Support subdirectories under `agents/`, `commands/`, and `skills/` — `agents/modes/`, `agents/shared/`, `commands/board/`, `commands/revision/`, and per-skill `references/` — are reference material a parent artifact consumes, not standalone picker entries. Each adapter copies them verbatim into its native tree, preserving the relative subpath. Example (`agents/modes/architecture.md`):
+
+| Adapter | Companion output path |
+|---------|-----------------------|
+| **cursor** | `.cursor/agents/modes/architecture.md` |
+| **claude** | `.claude/agents/modes/architecture.md` |
+| **copilot** | `.github/agents/modes/architecture.md` |
+
+~52 companion files emit per adapter. Mechanism: the "Always copy support subdirectories" block in `src/content/index.ts::copySelectedContent`; these paths are excluded from the manifest `managedFiles` set and the `hatch3r-` prefix check (`.claude/rules/content-authoring.md` §2a).
+
+### Shared surfaces (co-tenancy)
+
+The tables above enumerate every emitted path; the classes below mark which of those paths co-tenant user- or IDE-native content, so a reader can tell which rows carry a collision surface (the "identify shared files" half of the output-path deliverable). Each path falls into one isolation class, and the class fixes how much of the file hatch3r may touch on `update` or `clean`:
+
+| Isolation class | Paths | Collision surface |
+|-----------------|-------|-------------------|
+| **Whole-file, no prefix** (highest risk) | `.cursor/mcp.json`, `.vscode/mcp.json`, `.mcp.json`, `.claude/settings.json` | IDE-native config files hatch3r writes in full; a user's own MCP servers / Claude settings live in the same JSON, so update must reconcile at the entry level and clean must preserve non-hatch3r keys |
+| **Managed-block** | `CLAUDE.md`, `.github/copilot-instructions.md` | User-owned files; hatch3r fences its bytes with `HATCH3R:BEGIN`/`HATCH3R:END` markers, so content outside the block is preserved on rewrite |
+| **Prefix-isolated dir** | `.github/{prompts,instructions,agents,skills}/hatch3r-{id}.*`, `.github/workflows/copilot-setup-steps.yml`, `.cursor/{rules,agents,skills,commands}/`, `.claude/{rules,agents,skills,commands}/` | IDE-native dirs shared with user/IDE files; hatch3r's leaf files carry the `hatch3r-` prefix (or, for `copilot-setup-steps.yml`, a fixed filename) so removal/update touch only hatch3r-named files |
+
+Every other emitted path (`.cursor/hooks.json`, `.cursor/agents-policy.json`, `.claude/hooks/*`, `.cursor/environment.json`) is a hatch3r-authored file the framework owns outright. The whole-file rows are the surfaces the removal-collateral and JSON-merge behaviors act on; the prefix and managed-block rows bound that blast radius to hatch3r-named content.
 
 ---
 
@@ -208,9 +240,9 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | Adapter | Capability | Reason |
 |---------|------------|--------|
 | **copilot** | hooks | No adapter hook file is emitted yet. A VS Code Preview `PreToolUse` deny-hook now exists (not GA, absent on github.com); emitting it is a CL-2 candidate, not a permanent omission (see Hook-surface notes above). |
-| **all** | guardrails | No adapter emits policy files. Canonical location `policy/` exists in bundled content for future use. |
+| **all** | guardrails | No adapter emits policy files. `policy/` is a reserved source dir (listed in `scripts/copy-content.ts::SOURCE_DIRS`); no `policy/` dir exists at the repo root and none ships in `dist/content/` today. |
 | **all** | prompts | No adapter emits a prompts file from a canonical `prompts/` source — hatch3r ships none (`ADAPTER_CAPABILITIES.{cursor,claude,copilot}.prompts = false`). Only Copilot's platform exposes a dedicated `.github/prompts/` picker, which stays an unutilized enhancement surface; Copilot's *commands* reuse that path under the separate `commands` flag (see Implementation Matrix `prompts` footnote). Cursor and Claude map commands to their own native command surface. |
-| **all** | githubAgents (except copilot) | Copilot-specific capability; only the Copilot adapter emits. |
+| **all** | githubAgents (except copilot) | Copilot-specific capability. The Copilot adapter emits github-agents ONLY when `features.githubAgents && !features.agents` (D5-41); under the default init (both flags true) the regular-agent path supersedes them and zero github-agent files emit (see the `[^ghagents]` footnote). |
 | **gemini → antigravity** | (retired adapter migration) | Gemini CLI (removed in the 1.9.0 hard cut) sunsets for AI Pro/Ultra/free tiers on 2026-06-18; Google's sanctioned migration target is Antigravity CLI ([Google Developers Blog](https://developers.googleblog.com/an-important-update-transitioning-gemini-cli-to-antigravity-cli/), accessed 2026-06-06). Antigravity is tracked but not re-introduced — Tier 3 keep-retired: it fails the SA9.5 re-introduction trigger T2. The current question is no longer days-since-launch but schema stability: Antigravity's config surface is now documented (the migration moves skills from `.gemini/skills/` to `.agents/skills/`, reads `GEMINI.md`/`AGENTS.md` context files unchanged, and relocates MCP config to `mcp_config.json` with the `url`→`serverUrl` rename — [Antigravity Gemini-CLI migration docs](https://antigravity.google/docs/gcli-migration), accessed 2026-06-06), yet T2 requires that schema be stable ≥6 months and no schema-stability dates are published for the post-migration surface. **`.agents/` collision note:** Antigravity's documented config directory `.agents/` is the same root-level path hatch3r removed in the 1.9.0 hard cut (the `/.agents/` materialization mirror was dropped in favor of bundled content per the 1.9.0 adapter hard-cut decision); re-introducing this adapter would re-collide an end-user repo path the framework deliberately deleted, so any future re-grade must resolve that path conflict before T2 can clear. Surveillance for the Gemini market position transfers from `gemini` to `antigravity`. Re-evaluation cadence: D09 SA9.5, each audit cycle. |
 
 ---
@@ -220,9 +252,9 @@ set -a && source .env.mcp && set +a && <editor-command> .
 | Topic | Docs |
 |-------|------|
 | **Agent model customization** | [model-selection.md](model-selection.md) — configuration, aliases, resolution order; [hatch3r-customize](../skills/hatch3r-customize/SKILL.md) — per-artifact overrides |
-| Cursor | [Cursor Rules](https://docs.cursor.com/context/rules-for-ai) / [Subagents](https://cursor.com/docs/context/subagents) / [Plugins](https://cursor.com/docs/plugins) |
-| Copilot | [Custom Instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) / [Agent Skills](https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills) / [VS Code Custom Agents](https://code.visualstudio.com/docs/copilot/customization/custom-agents) (Preview PreToolUse hook + handoffs) |
-| Claude | [Claude Code](https://docs.anthropic.com/en/docs/claude-code) |
+| Cursor | [Cursor Rules](https://cursor.com/docs/rules) / [Subagents](https://cursor.com/docs/subagents) / [Plugins](https://cursor.com/docs/plugins) |
+| Copilot | [Custom Instructions](https://docs.github.com/copilot/customizing-copilot/adding-custom-instructions-for-github-copilot) / [Custom Agents](https://docs.github.com/en/copilot/reference/custom-agents-configuration) / [Agent Skills](https://docs.github.com/copilot/how-tos/use-copilot-agents/coding-agent/create-skills) / [VS Code Custom Agents](https://code.visualstudio.com/docs/copilot/customization/custom-agents) (Preview PreToolUse hook + handoffs) |
+| Claude | [Claude Code](https://code.claude.com/docs) / [Memory (CLAUDE.md)](https://code.claude.com/docs/en/memory) / [Sub-agents](https://code.claude.com/docs/en/sub-agents) |
 
 ---
 

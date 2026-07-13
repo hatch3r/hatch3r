@@ -15,7 +15,7 @@ describe("emitsPerPackage (D14-6)", () => {
     expect(emitsPerPackage("claude")).toBe(false);
   });
 
-  it("returns false for copilot (root-only .github/copilot-instructions.md)", () => {
+  it("returns false for copilot (directory-nested copies unread; its path scoping is central applyTo globs, not nesting)", () => {
     expect(emitsPerPackage("copilot")).toBe(false);
   });
 });

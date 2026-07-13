@@ -5,6 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-performance]
 description: "Read open PR comments, evaluate each against current code via the rigor contract, implement accepted findings, reply inline. Multi-platform."
 argument-hint: "[pr-number]"
+disable-model-invocation: true
 tags: [implementation, review, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -16,6 +17,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 10
   rationale: Per-PR fanout — implementer, lint-fixer, testability (CQ5, FIX NOW group, parallel), reviewer ↔ fixer review loop (max 3 iterations), then parallel Tier-3 final-quality specialists (security (CQ3), docs-writer, performance (CQ7), plus ui (CQ1) and ux (CQ2) as mandatory-on-match Tier 2/3 gates — a trigger-glob match requires a dedicated instance) per the Tier-3 specialist mandate. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -704,15 +706,15 @@ pr-resolve is long-running — a Tier 3 PR with many open comments runs identity
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06). (The Step 10 block above is the domain rendering; the recap closes the run.)
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06). (The Step 10 block above is the domain rendering; the recap closes the run.)
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the Step 5 ASK gate (the only mutation gate; fan-out begins in Step 6). Each Step 9.5 re-poll round re-emits it before that round's Step 5 ASK — re-entry passes through Step 4e → Step 5, so the per-round estimate fires on the same path.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.

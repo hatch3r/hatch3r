@@ -8,7 +8,7 @@ title: Quick Start
 A copy-paste-runnable walkthrough that takes a project from empty to released using hatch3r. The path is the same for greenfield and brownfield work — the spec step (Step 4) auto-detects which one you are in and branches for you.
 
 :::info Last verified
-2026-06-11 against hatch3r 2.0.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency). MCP is pure opt-in since 2.0.0 — interactive init does not prompt for it; enable with `npx hatch3r init --mcp` or `npx hatch3r mcp setup`.
+2026-07-11 against hatch3r 2.5.0. URLs and credential flows reverified each audit cycle (P3 — Adapter & MCP Currency). MCP is pure opt-in since 2.0.0 — interactive init does not prompt for it; enable with `npx hatch3r init --mcp` or `npx hatch3r mcp setup`.
 :::
 
 ## Prerequisites
@@ -32,9 +32,10 @@ Interactive flow (~2 minutes). On a fresh GitHub greenfield repo hatch3r asks 6 
 1. **Platform** — GitHub, Azure DevOps, or GitLab. Auto-detected from your git remote; press Enter to accept.
 2. **Repo identity** — 2 sub-prompts for GitHub (owner + repo) and GitLab (namespace + project); 3 for Azure DevOps (org + project + repo). Auto-filled from git remote where possible. Default branch is git-detected, not prompted; project type and team size are inferred and no longer prompted.
 3. **Content profile** — `minimal`, `standard` (recommended), `full`, or `custom`. See the [profile table](#content-profiles) below.
-4. **Custom content items** — only when `custom` is selected at step 3.
-5. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
-6. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later (see [MCP Setup](../guides/mcp-setup)).
+4. **Project maturity** — `solo` / `team` / `scaleup` / `enterprise` investment dial, seeded at a git-inferred default; press Enter to accept. Shown unless you pass `--maturity`. See [Maturity Tiers](../guides/maturity-tiers).
+5. **Custom content items** — only when `custom` is selected at step 3.
+6. **Tools** — multi-select from the 3 supported adapters (Claude Code, Cursor, Copilot).
+7. **CLI tools** — tier-grouped picker (tier-1 + trigger-matched tier-2 pre-checked; enter-through equals the `--yes` smart default). MCP is not prompted — opt in with `npx hatch3r init --mcp` or `npx hatch3r mcp setup` later (see [MCP Setup](../guides/mcp-setup)).
 
 Headless `--yes` skips every prompt; the CLI-tools selection falls back to the smart default (tier-1 + trigger-matched tier-2). If detected CLI tools are missing from PATH, hatch3r prints copy-paste install commands and adds one `Mark these tools as 'install pending' and continue?` confirm.
 
@@ -60,10 +61,11 @@ Canonical content (agents, skills, rules, commands, hooks) is no longer material
 
 ### Migrating from another tool
 
-Already have a `.cursor/rules/` setup? Carry your existing rules across on the same `init` run with `--import`:
+Already have a `.cursor/rules/` setup — or Copilot, Windsurf, a legacy `.cursorrules` file, or a root `AGENTS.md`? Carry your existing rules across on the same `init` run with `--import`:
 
 ```bash
-npx hatch3r init --import cursor
+npx hatch3r init --import cursor   # or: copilot | windsurf | cursorrules | agents
+npx hatch3r init --import auto      # detect and import every supported format in one pass
 ```
 
 What happens:
@@ -72,7 +74,7 @@ What happens:
 - Before writing, hatch3r prints a preview and asks `Write N imported rule(s) (.md + .mdc) to .hatch3r/overrides/rules/?` (skipped under `--yes`).
 - The summary reports three counts — `converted`, `conflicts`, and `manual-review`. A **conflict** means an imported rule id collides with a shipped or already-imported rule (it is reported, not silently overwritten); a **manual-review** item is one that could not be auto-converted cleanly. Both are listed per-file so you know exactly what to reconcile by hand.
 
-`cursor` is the format wired into the CLI today. The `copilot`, `windsurf`, and `cursorrules` (legacy `.cursorrules`) parsers exist but are not yet reachable from `--import`; pass `--import cursor` for now.
+All five source formats — `cursor`, `copilot`, `windsurf`, `cursorrules` (legacy `.cursorrules`), and `agents` (a root `AGENTS.md`, or its `AGENT.md` singular alias) — are reachable from `--import`. Pass a single format to migrate one tool, or `--import auto` to run every format in one pass; each converted rule lands under `.hatch3r/overrides/rules/` as a paired `.md` + `.mdc`. An `AGENTS.md` that hatch3r itself emitted (it carries `HATCH3R:BEGIN`/`HATCH3R:END` markers) is skipped, never re-imported.
 
 ### Content profiles
 
@@ -87,7 +89,7 @@ The floor (security, UI/UX, content-quality specialists) ships at every profile 
 
 The profile is combined with greenfield/brownfield and solo/team filters, so a `solo + greenfield + standard` install carries materially less content than `team + brownfield + full`.
 
-Maturity is a separate axis. The `--maturity` dial (`solo`/`team`/`scaleup`/`enterprise`) does **not** change *what* installs — every tier installs the full corpus — only *how deeply* agents invest. See [Maturity Tiers](../guides/maturity-tiers).
+Maturity is a separate axis. `init` prompts for it interactively (the 4th prompt, seeded at a git-inferred tier — press Enter to accept), and you can also set it up front with the `--maturity` flag (`solo`/`team`/`scaleup`/`enterprise`). Either way, maturity does **not** change *what* installs — every tier installs the full corpus — only *how deeply* agents invest. See [Maturity Tiers](../guides/maturity-tiers).
 
 **Upgrading between profiles is additive.** A Minimal → Standard re-run of `npx hatch3r init` shows the explicit add count in the confirmation prompt (e.g. `Switching Minimal → Standard (+45 added). Continue?`). User overrides under `.hatch3r/overrides/`, learnings under `.hatch3r/learnings/`, and handoffs under `.hatch3r/handoffs/` survive the upgrade — only managed adapter outputs regenerate. Downgrades (e.g. Full → Standard) surface a `−N removed` line so the change is visible before commit.
 
@@ -97,7 +99,7 @@ Only the `init` row below is instrumented and measured; the spec and PR rows are
 
 | Milestone | Wall clock | Basis |
 |-----------|------------|-------|
-| `npx hatch3r init` (interactive ≤5 prompts, default flags) | 1-2 min | Measured: clean macOS / Linux box, Node 22, fresh git repo on `main` |
+| `npx hatch3r init` (interactive ≤6 prompts, default flags) | 1-2 min | Measured: clean macOS / Linux box, Node 22, fresh git repo on `main` |
 | First successful spec (`/hatch3r-spec` → committed plan) | 5-10 min (estimate) | Model-dependent — varies with model + task scope |
 | First PR from board pickup (`/hatch3r-board-pickup` → merged PR) | 30-60 min (estimate) | Model-dependent — varies with model, task scope, and review latency |
 

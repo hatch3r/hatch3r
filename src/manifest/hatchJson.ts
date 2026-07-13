@@ -314,7 +314,17 @@ export const MANIFEST_MIGRATIONS: readonly ManifestMigration[] = [
 ];
 
 export function migrateManifest(raw: Record<string, unknown>): Record<string, unknown> {
-  const migrated = { ...raw };
+  // D3-SA3.3-08 (Low, CQ8): deep-copy so migrations that mutate NESTED objects
+  // do not leak back into the caller's input. The prior shallow spread
+  // (`{ ...raw }`) protected only top-level fields, so `drop-shared-sentinel` —
+  // which deletes `_shared` from the nested `managedFilesByAdapter` object —
+  // mutated the CALLER's object while version bumps and other top-level writes
+  // stayed copy-on-write. That asymmetric contract (pure for scalars, in-place
+  // for nested objects) read as an immutability promise it did not keep; the
+  // function is now uniformly pure. `structuredClone` is safe here because every
+  // caller passes `JSON.parse` output (readManifest) or a plain object (tests) —
+  // no functions/symbols/non-cloneable values that would throw.
+  const migrated = structuredClone(raw);
   for (const migration of MANIFEST_MIGRATIONS) {
     migration.apply(migrated);
   }
@@ -352,7 +362,10 @@ function validateStringUnion(
   }
 }
 
-function collectManifestErrors(data: unknown): string[] {
+// D3-SA3.3-11: exported alongside {@link validateManifest} so the parity
+// property test can assert their equivalence directly (the readManifest
+// double-check's contract, made executable).
+export function collectManifestErrors(data: unknown): string[] {
   const errors: string[] = [];
   if (!data || typeof data !== "object") {
     errors.push("manifest is not an object");
@@ -826,7 +839,16 @@ function collectManifestErrors(data: unknown): string[] {
   return errors;
 }
 
-function validateManifest(data: unknown): data is HatchManifest {
+/**
+ * D3-SA3.3-11: exported (with {@link collectManifestErrors}) so the parity
+ * property test can assert the invariant
+ * `validateManifest(x) === (collectManifestErrors(x).length === 0)` directly,
+ * making the readManifest defense-in-depth double-check's contract executable
+ * rather than a comment-only aspiration. Callers wanting field-level
+ * diagnostics use {@link collectManifestErrors}; this returns only the boolean
+ * `data is HatchManifest` type-guard.
+ */
+export function validateManifest(data: unknown): data is HatchManifest {
   return collectManifestErrors(data).length === 0;
 }
 
@@ -892,9 +914,14 @@ export async function readManifest(
   try {
     parsed = JSON.parse(raw);
   } catch (err: unknown) {
+    // D8-SA8.1-01: pass `undefined` (not a hand-picked `1`) so CONFIG_ERROR
+    // resolves through ERROR_CODE_TO_EXIT_CODE to sysexits EX_DATAERR (65),
+    // matching writeManifest below and the missing-manifest path in the CLI
+    // commands. Explicit exit codes stay reserved for 0 (cancel) / 2 (usage)
+    // per the ERROR_CODE_TO_EXIT_CODE contract in src/types.ts.
     throw new HatchError(
       `Malformed JSON in ${manifestPath}: ${err instanceof Error ? err.message : String(err)}`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       `Fix the JSON syntax in ${manifestPath}, or delete the file and run \`hatch3r init\` to regenerate it. If you have version control, \`git checkout -- ${HATCH3R_DIR}/${MANIFEST_FILE}\` restores the last committed copy.`,
     );
@@ -911,20 +938,29 @@ export async function readManifest(
   if (fieldErrors.length > 0) {
     throw new HatchError(
       `Invalid manifest in ${manifestPath}: ${fieldErrors.join("; ")}. Run hatch3r init to regenerate.`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       `Correct the field(s) listed above in ${manifestPath}, or run \`hatch3r init\` to regenerate a valid manifest.`,
     );
   }
   if (!validateManifest(migrated)) {
     // Defense in depth — collectManifestErrors must keep parity with
-    // validateManifest. This branch is unreachable when both stay in sync.
+    // validateManifest, which is DEFINED as
+    // `collectManifestErrors(x).length === 0`. This throw is unreachable while
+    // both stay in sync: the fieldErrors check above already threw on any
+    // collectManifestErrors entry, so validateManifest cannot return false
+    // here. D3-SA3.3-11: the parity contract is pinned executably by the
+    // "validateManifest ⇄ collectManifestErrors parity" property test in
+    // src/__tests__/manifest/hatchJson.test.ts, so a future independent
+    // reimplementation that drifts is caught there — not by this dead branch.
+    /* v8 ignore start -- D3-SA3.3-11: parity dead branch; see parity property test */
     throw new HatchError(
       `Invalid manifest in ${manifestPath}: shape mismatch beyond per-field checks. Run hatch3r init to regenerate.`,
-      1,
+      undefined,
       "CONFIG_ERROR",
       `Run \`hatch3r init\` to regenerate ${manifestPath}; if you hand-edited it, restore the last committed copy with \`git checkout -- ${HATCH3R_DIR}/${MANIFEST_FILE}\`.`,
     );
+    /* v8 ignore stop */
   }
   return migrated;
 }
@@ -947,12 +983,30 @@ export async function writeManifest(
     );
   }
   const manifestPath = join(rootDir, HATCH3R_DIR, MANIFEST_FILE);
+  const serialized = JSON.stringify(manifest, null, 2) + "\n";
+  // D11-SA11.4-05 (Info, CQ4): mirror safeWriteFile's G3 skip-unchanged guard
+  // (src/merge/safeWrite.ts) so a redundant sync/update/init that produces a
+  // byte-identical manifest does not rewrite `.hatch3r/hatch.json` and bump its
+  // mtime. `atomicWriteFile` always performs the temp+rename, so without this
+  // short-circuit the manifest churned its mtime on every idempotent run — an
+  // asymmetry with the no-mtime-churn contract adapter writes already honor
+  // (content is git-diff-clean either way; this extends the guarantee to mtime,
+  // so mtime-based caching/incremental tooling layered on the manifest is not
+  // defeated by a no-op sync).
+  try {
+    const existing = await readFile(manifestPath, "utf-8");
+    if (existing === serialized) return;
+  } catch (err) {
+    // Absent file (first write) → fall through and write. Re-throw anything
+    // else so a genuine read failure is not silently swallowed.
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") throw err;
+  }
   // Wave 6: ensure the destination directory exists. `writeManifest` is the
   // first writer touching `.hatch3r/` in several pipelines (workspace init,
   // some test fixtures); pre-creating the directory keeps the atomic write
   // from failing with ENOENT on the temp-file path.
   await mkdir(dirname(manifestPath), { recursive: true });
-  await atomicWriteFile(manifestPath, JSON.stringify(manifest, null, 2) + "\n");
+  await atomicWriteFile(manifestPath, serialized);
 }
 
 export function addManagedFile(
@@ -1161,6 +1215,16 @@ export function readMaturityTier(m: HatchManifest | null | undefined): MaturityT
  * for the same canonical input. The per-adapter tests assert the interpolated
  * `right-size to maturity=<tier>` substring + the `rules/hatch3r-right-sizing.md`
  * pointer, both of which this string carries.
+ *
+ * D14-SA14.3-04 (Info, design record for the queued CQ10 / governance lens):
+ * this directive is maturity's PRIMARY but ADVISORY lever — a prompt string an
+ * agent MAY follow, not a runtime gate (the Decision-16 dial-not-gate posture).
+ * Maturity's only DETERMINISTIC runtime effects are the team+ user-content
+ * strict-gate promotion in `src/content/userContent.ts` (fires on `hatch3r add`
+ * only) and the confidence-floor default in {@link readConfidenceFloor}. A team
+ * that never authors user content via `hatch3r add` therefore sees maturity
+ * reduce to this non-binding header — the enforcement inventory recorded here
+ * so the CQ10 lens does not re-derive it.
  */
 export function maturityDirective(tier: MaturityTier): string {
   return `hatch3r: right-size to maturity=${tier}. Invest only as deep as this tier needs; never default to enterprise-grade. Universal floor (security, correctness, a11y basics, baseline tests on changed surfaces) always binds. See rules/hatch3r-right-sizing.md.`;

@@ -15,12 +15,23 @@
  * `src/cliTools/skill.ts` — Wave 2 emits scaffolding with placeholders that
  * Wave 4b/c/d sub-agents replace per-tool. Wave 4a only generates structure.
  *
- * Idempotency: every generated file carries the marker
- * `<!-- HATCH3R-CLI-SKILL-GENERATED v1 -->` immediately after the YAML
+ * Idempotency + content-state protection: every generated file carries the
+ * marker `<!-- HATCH3R-CLI-SKILL-GENERATED v1 -->` immediately after the YAML
  * frontmatter. Re-running the generator:
- *   - replaces the file when the marker is present (or the file is absent)
- *   - refuses to overwrite a file whose marker is absent (human-authored)
- *   - `--force` bypasses the refusal; use sparingly
+ *   - writes the file when it is absent
+ *   - refuses when the marker is absent (human-authored from scratch)
+ *   - refuses when regenerating would revert a hand-authored section back to a
+ *     scaffold placeholder — the marker records provenance (generated-once),
+ *     NOT content state, so a hand-finished skill keeps its marker; this
+ *     content-state guard (D1-SA1.7-02) stops a plain re-run from silently
+ *     clobbering authored Recipes / Wrong-Choice / Alternatives
+ *   - otherwise replaces the file (marker present, no authored content at risk)
+ *   - `--force` bypasses every refusal; use sparingly
+ *
+ * Host neutrality (D5-SA5.6-05): the renderer highlights the generation host's
+ * OS ("Install (macOS — default for this machine):"). That per-machine
+ * assertion is stripped here at the canonical-generation boundary so the
+ * checked-in skills carry plain per-OS labels and assert no build-host identity.
  *
  * Pillars: P3 (CLI-Tool Currency), P4 (Lean Coverage), P5 (Governance Self-Quality).
  *
@@ -45,14 +56,46 @@ const SKILLS_DIR = join(ROOT, "skills");
 
 const GENERATED_MARKER = "<!-- HATCH3R-CLI-SKILL-GENERATED v1 -->";
 
+/**
+ * Scaffold sentinel that `renderCliToolSkillBody` emits for an unauthored
+ * Recipes / Wrong-Choice / Alternatives section. Canonical home:
+ * `src/cliTools/skill.ts::SCAFFOLD_SECTION_PLACEHOLDER` (kept as the exact
+ * literal so the {@link classify} content-state guard matches the renderer's
+ * output byte-for-byte). D1-SA1.7-02: a re-run whose new body would introduce
+ * this token into a file that currently has none would revert hand-authored
+ * prose to scaffold — {@link classify} refuses that.
+ */
+const SCAFFOLD_PLACEHOLDER_TOKEN = "<placeholder — replaced in Wave 4>";
+
+/**
+ * The host-dependent "— default for this machine" highlight that
+ * `renderCliToolSkillBody` appends to the generation host's install label
+ * (`Install (macOS — default for this machine):`). D5-SA5.6-05: a per-machine
+ * assertion has no place in a build-once-ship-everywhere canonical artifact.
+ * The lookahead for `):` scopes the strip to the install label only, so
+ * incidental prose containing the phrase is left untouched.
+ */
+const HOST_DEFAULT_SUFFIX = / — default for this machine(?=\):)/g;
+
+/**
+ * Remove the host-dependent install-label highlight so canonical generator
+ * output asserts no build-host identity (D5-SA5.6-05):
+ *   `Install (macOS — default for this machine):` → `Install (macOS):`
+ * The renderer keeps the highlight for interactive/runtime callers; only the
+ * canonical-generation path (this maintainer script) neutralizes it.
+ */
+function stripHostDefaultHighlight(body: string): string {
+  return body.replace(HOST_DEFAULT_SUFFIX, "");
+}
+
 interface Args {
   dryRun: boolean;
   force: boolean;
 }
 
-interface PlanEntry {
+export interface PlanEntry {
   path: string;
-  /** Action that will be taken: write (new), update (replace marker file), refuse (human-edited), force (forced overwrite). */
+  /** Action that will be taken: write (new), update (replace marker file), refuse (human-edited or content-state guard), force (forced overwrite). */
   action: "write" | "update" | "refuse" | "force";
   reason: string;
 }
@@ -126,9 +169,12 @@ function renderPerToolFrontmatter(meta: CliToolMeta): string {
   return lines.join("\n");
 }
 
-function renderPerToolFile(meta: CliToolMeta, os: OsKey): string {
+export function renderPerToolFile(meta: CliToolMeta, os: OsKey): string {
   const frontmatter = renderPerToolFrontmatter(meta);
-  const body = renderCliToolSkillBody(meta, os);
+  // D5-SA5.6-05: neutralize the renderer's host-OS highlight so the canonical
+  // checked-in skill carries plain per-OS labels (no "default for this
+  // machine" build-host assertion). All three OS install blocks stay present.
+  const body = stripHostDefaultHighlight(renderCliToolSkillBody(meta, os));
   // Marker sits between frontmatter and body so it is part of the generated
   // body — human-edits below the body still trip the refusal check.
   return `${frontmatter}\n${GENERATED_MARKER}\n${body}`;
@@ -161,6 +207,25 @@ async function classify(
     if (existing === newContent) {
       return { path, action: "update", reason: "marker present; identical content (no-op)" };
     }
+    // Content-state guard (D1-SA1.7-02). The marker records provenance
+    // (generated-once), not content state, so a hand-finished skill keeps it
+    // and would otherwise classify as a safe "update" while actually reverting
+    // its authored Recipes / Wrong-Choice / Alternatives to scaffold text.
+    // Refuse whenever the freshly-rendered body would introduce the scaffold
+    // placeholder into a file that no longer carries one — i.e. would replace
+    // authored content with a placeholder. (--force still overwrites: it is
+    // handled above and returns before reaching here.)
+    if (
+      newContent.includes(SCAFFOLD_PLACEHOLDER_TOKEN) &&
+      !existing.includes(SCAFFOLD_PLACEHOLDER_TOKEN)
+    ) {
+      return {
+        path,
+        action: "refuse",
+        reason:
+          "content-state guard — regeneration would revert hand-authored sections to scaffold placeholders; rerun with --force to overwrite",
+      };
+    }
     return { path, action: "update", reason: "marker present; content changed" };
   }
   return {
@@ -178,7 +243,7 @@ async function classify(
  */
 const STANDALONE_TOOLS = new Set(["ripgrep", "jq", "gh", "fd", "fzf"]);
 
-async function buildPlan(force: boolean): Promise<PlanEntry[]> {
+export async function buildPlan(force: boolean): Promise<PlanEntry[]> {
   const os = currentOs();
   const plan: PlanEntry[] = [];
 
@@ -285,8 +350,15 @@ async function main(): Promise<void> {
   // hand-authored a file. Reserve exit-1 for unexpected I/O errors only.
 }
 
-main().catch((err) => {
-  // eslint-disable-next-line no-console
-  console.error("generate-cli-skills failed:", err);
-  process.exit(1);
-});
+// Only auto-run when executed as a script, never when imported by tests.
+// `process.argv[1] ?? ""` is always a string, so `resolve` cannot throw — no
+// defensive catch is needed (a bare catch trips silent-failure/no-silent-catch).
+const isMain = resolve(process.argv[1] ?? "") === __filename;
+
+if (isMain) {
+  main().catch((err) => {
+    // eslint-disable-next-line no-console
+    console.error("generate-cli-skills failed:", err);
+    process.exit(1);
+  });
+}

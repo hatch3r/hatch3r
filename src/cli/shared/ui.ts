@@ -38,6 +38,19 @@ function gradient(
 }
 
 // ANSI Shadow style — 6-row glyphs with 3D depth via block + box-drawing chars
+//
+// D10-SA10.2-05 (Cycle 12, Info — recorded tension, not a defect): the six
+// LOGO rows are ~330 non-semantic block/box-drawing codepoints. A screen
+// reader announces them as noise before reaching the two text lines below
+// (tagline + version), which are the banner's only text alternative. Four
+// suppression paths exist — `--no-banner` (src/cli/program.ts), `--quiet`,
+// `--json` (both via setQuiet/setJson), and the compact-banner path
+// (`printBanner(true)`) — but none is screen-reader-specific: `NO_COLOR`
+// (https://no-color.org/, accessed 2026-05-29) strips only the chalk
+// gradient, NOT the glyph codepoints themselves. Optional future improvement
+// (deferred, not implemented this cycle): treat `NO_COLOR` and/or
+// `HATCH3R_ASCII=1` as implying the compact/no-banner path so the standard
+// non-visual-environment signals also quiet the decorative block.
 const LOGO = [
   "██╗  ██╗ █████╗ ████████╗ ██████╗██╗  ██╗██████╗ ██████╗ ",
   "██║  ██║██╔══██╗╚══██╔══╝██╔════╝██║  ██║╚════██╗██╔══██╗",
@@ -205,12 +218,32 @@ export function printBox(
   const content = lines.join("\n");
   // D10-M5 (Cycle 10): `dimBorder` was previously applied to `style === "info"`,
   // which made the most common box variant the least readable in low-contrast
-  // terminals (white-on-light themes, dimmed remote sessions). All four
-  // styles now use full-saturation borders — colour alone differentiates
-  // success / info / error / warning per WCAG-equivalent contrast intent.
+  // terminals (white-on-light themes, dimmed remote sessions). All four styles
+  // use full-saturation borders, which satisfies WCAG 1.4.3 (contrast) — and
+  // ONLY 1.4.3. Border colour is NOT a sufficient severity signal on its own:
+  // WCAG 1.4.1 (Use of Color) prohibits colour as the only visual means of
+  // conveying information (https://www.w3.org/WAI/WCAG21/Understanding/
+  // use-of-color.html, accessed 2026-07-11), and chalk strips the border
+  // colour entirely under NO_COLOR / non-TTY. The semantic must live in the
+  // title or body text.
+  //
+  // D10-SA10.2-04 + D12-SA12.1-04 (Cycle 12): redundant-coding guarantee —
+  // for `error`/`warning` boxes the severity glyph (`✖`/`⚠`, ASCII `[X]`/`[!]`
+  // via glyph()) is prepended to the title HERE, at the render layer, so an
+  // alarm box is never border-colour-only regardless of the caller's title
+  // text. `info`/`success` titles stay undecorated by design: absence of an
+  // alarm glyph is itself the non-alarming signal, which keeps the
+  // errors-vs-warnings-vs-informational triple distinguishable in monochrome
+  // without stamping a glyph on the most common (info) box variant.
+  const decoratedTitle =
+    style === "error"
+      ? `${glyph("error")} ${title}`
+      : style === "warning"
+        ? `${glyph("warn")} ${title}`
+        : title;
   console.log(
     boxen(content, {
-      title,
+      title: decoratedTitle,
       titleAlignment: "left",
       padding: { top: 0, bottom: 0, left: 1, right: 1 },
       margin: { top: 0, bottom: 1, left: 1, right: 0 },
@@ -260,12 +293,20 @@ function supportsUnicode(): boolean {
  * accessor resolves at call time so a per-invocation env toggle (`HATCH3R_ASCII=1`)
  * exercises the fallback. The glyphs keep their prior codepoints on capable
  * terminals so no interactive UX changes.
+ *
+ * D10-SA10.2-03 (Cycle 12): also carries the key-cap glyphs (`upDown`,
+ * `enter`) the interactive-prompt help chrome renders, so the
+ * `backablePrompts.ts` fork consumes the SAME fallback path instead of
+ * hardcoding `↑↓`/`⏎` literals that degrade to `?` on non-Unicode terminals.
+ * One shared map removes the fork/ui.ts divergence class.
  */
 const GLYPHS = {
   error: { unicode: "✖", ascii: "[X]" },
   warn: { unicode: "⚠", ascii: "[!]" },
   info: { unicode: "ℹ", ascii: "[i]" },
   success: { unicode: "✔", ascii: "[OK]" },
+  upDown: { unicode: "↑↓", ascii: "up/down" },
+  enter: { unicode: "⏎", ascii: "enter" },
 } as const;
 
 /** Resolve a status glyph to its Unicode or ASCII form for the active terminal. */
@@ -285,6 +326,32 @@ export function warn(msg: string): void {
 export function info(msg: string): void {
   if (quietEnabled) return;
   console.log(`  ${CYAN(glyph("info"))} ${msg}`);
+}
+
+/**
+ * D1-SA1.7-06 (Cycle 12, P1): quiet-immune PAYLOAD writer for read-only
+ * inspection commands whose primary output IS the data (explain/show/deps).
+ *
+ * The W5 chrome/payload split was drawn at the render-helper layer: `printBox`
+ * and `info` self-gate under `--quiet`, so a command that routes 100% of its
+ * payload through them (e.g. `explain --cost … --quiet`) exits 0 having
+ * emitted zero bytes — `--quiet` negating a command's entire purpose violates
+ * the clig.dev quiet contract ("display less output", i.e. suppress the
+ * NON-essential output; https://clig.dev/, accessed 2026-07-11). This writer
+ * is the payload-side channel of that split:
+ *
+ * - NOT gated by quiet — `--quiet` strips chrome (banner, boxes, hints),
+ *   never the payload.
+ * - Gated by json — in `--format json` mode stdout carries exactly one JSON
+ *   envelope (see `emitJson` in src/cli/shared/output.ts); human payload must
+ *   not interleave.
+ *
+ * Inspection commands route data lines through this writer and keep chrome on
+ * `printBox`/`info`, aligning show/deps/explain on one quiet contract.
+ */
+export function printPayload(msg: string): void {
+  if (jsonEnabled) return;
+  console.log(msg);
 }
 
 export function step(n: number, total: number, msg: string): string {

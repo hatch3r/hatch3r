@@ -8,6 +8,8 @@ precedence: high
 
 Logging and error reporting conventions. For metrics, SLOs, alerting, and dashboards see `hatch3r-observability-metrics`. For distributed tracing and OpenTelemetry conventions see `hatch3r-observability-tracing`.
 
+These rules split observability by signal for separate maintenance, not to load a single signal per edit on backend paths: this rule and `hatch3r-observability-metrics` share a backend-path glob (`observability/`, `routes/`, `handlers/`, `services/`, `api/`, `middleware/`, `controllers/`, `lib/`), so an edit under those paths activates both — a service handler there emits logs and metrics together. `hatch3r-observability-tracing` is `agent-requested`, so it loads on demand rather than by path.
+
 ## Structured Logging
 
 - Use structured JSON logging. No `console.log` in production code.

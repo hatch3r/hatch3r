@@ -5,6 +5,7 @@ orchestrator: true
 agentPipeline: [hatch3r-implementer, hatch3r-reliability]
 description: "Generate baseline SLI/SLO scaffolding for a user-facing service — availability + latency p95/p99 objectives, 28-day error budget, and Google-SRE multi-window multi-burn-rate alert rules in OpenSLO openslo/v1. Implementer writes the files; hatch3r-reliability gates them against the CQ4 floor."
 argument-hint: "[service-name]"
+disable-model-invocation: true
 tags: [devops, reliability, floor:content-quality]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -19,7 +20,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the request for unresolved questions in service scope, SLI source, and objective targets. If the request names two or more services, or omits the availability/latency targets, or does not name the metric source (Prometheus, OTel-derived, or platform-native), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — the burn-rate alert math depends on the target and window, so a guessed target produces an alert rule that fires wrong. Proceed without asking ONLY when one service, one metric source, and explicit availability + latency targets are all given. Source: `.claude/rules/clarification-default.md`.
+Before any action, scan the request for unresolved questions in service scope, SLI source, and objective targets. If the request names two or more services, or omits the availability/latency targets, or does not name the metric source (Prometheus, OTel-derived, or platform-native), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — the burn-rate alert math depends on the target and window, so a guessed target produces an alert rule that fires wrong. Proceed without asking ONLY when one service, one metric source, and explicit availability + latency targets are all given. Source: `rules/hatch3r-clarification-default.md`.
 
 ## Agent Pipeline
 

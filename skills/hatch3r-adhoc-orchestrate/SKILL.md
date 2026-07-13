@@ -2,7 +2,7 @@
 id: hatch3r-adhoc-orchestrate
 name: hatch3r-adhoc-orchestrate
 type: skill
-description: Scaffolds the ad-hoc Tier >= 2 orchestration protocol -- Per-Turn Pipeline-State Header, implementer delegation plan, End-of-Turn Delegation Attestation. Use for a maintainer multi-phase task with no registered command to avoid bypass mode.
+description: Scaffolds the ad-hoc Tier >= 2 orchestration protocol -- Per-Turn Pipeline-State Header, implementer delegation plan, End-of-Turn Delegation Attestation. Use for a multi-phase task with no registered command to avoid inline-implementation bypass mode.
 tags: [orchestration]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -27,9 +27,9 @@ Task Progress:
 - [ ] Step 5: Verify the bypass-protection checklist
 ```
 
-A multi-phase task driven by hand — research + implement + review, no registered `/h4tcher-*` command — is still bound by the **Orchestrator Self-Discipline (Bypass Protection)** contract in `CLAUDE.md` and `rules/hatch3r-agent-orchestration.md`. The CHANGELOG #73 failure mode is exactly this: running research and review sub-agents while inlining the implementation, escaping the protocol because no command was invoked. This skill is the turnkey scaffold that closes that loophole — it does not perform the work; it emits the three required protocol blocks so the maintainer's ad-hoc flow stays attributable.
+A multi-phase task driven by hand — research + implement + review, with no registered command running it — is still bound by the mandatory delegation contract in `rules/hatch3r-agent-orchestration.md` → Mandatory Delegation Directive (No Inline Implementation). The inline-implementation bypass mode is exactly this: running research and review sub-agents while inlining the implementation from the orchestrator turn, escaping the protocol because no command was invoked. This skill is the turnkey scaffold that closes that loophole — it does not perform the work; it emits the three required protocol blocks so the ad-hoc flow stays attributable.
 
-Use this skill at the start of any maintainer-side multi-phase task at Tier >= 2 that is NOT already running under a registered command (which carries these blocks itself). When the work matches a registered intent, prefer the command: `/h4tcher-capability-add`, `/h4tcher-capability-refactor`, `/h4tcher-capability-remove` for lifecycle work; `commands/hatch3r-*.md` for end-user content workflows.
+Use this skill at the start of any multi-phase task at Tier >= 2 that is NOT already running under a registered command (which carries these blocks itself). When the work matches a registered intent, prefer the command: a `commands/hatch3r-*.md` command (e.g. `hatch3r-workflow`, `hatch3r-board-pickup`) for a content workflow it already covers.
 
 ## Step 0 — Detect Ambiguity (P8 B1)
 
@@ -78,7 +78,7 @@ Delegation Plan:
   Phase 2 — implement:  hatch3r-implementer × {N}  ({1 per independent module}; correlation_id: {uuid})
   Phase 3 — review:     hatch3r-reviewer ↔ hatch3r-fixer (max 4 iterations)
   Phase 4 — quality:    {applicable specialists per the Phase 4 Specialist Trigger Table}
-  sub_agents_spawned:   { count: {N}, rationale: {one-sentence task-decomposition justification} }
+  sub_agents_spawned:   { count: {N}, rationale: {one-sentence task-decomposition justification}, task_structure: {parallelizable|sequential|mixed} }
 ```
 
 Fan-out scales with task decomposition, not token budget (P8 B2 dominates P7): N independent modules → N parallel Phase-2 implementers; serialize only on true dependency edges (shared files, ordered handoffs). Every delegation prompt carries the confidence expression requirement and the `correlation_id` per the orchestration rule.
@@ -99,20 +99,20 @@ Why it is forgery-resistant: the per-file `delegation_proof_id` is returned by `
 
 ## Step 5: Bypass-Protection Checklist
 
-Before declaring the turn complete, verify every item — a failed item is the CHANGELOG #73 bypass mode:
+Before declaring the turn complete, verify every item — a failed item is the inline-implementation bypass mode:
 
 - [ ] Task tier scored; protocol applied iff Tier >= 2 (Step 1).
 - [ ] Per-Turn Pipeline-State Header emitted at the start of every task-touching turn (Step 2).
 - [ ] Zero inline `Edit` / `Write` / `MultiEdit` from the orchestrator turn; every code mutation went through `hatch3r-implementer` or `hatch3r-fixer` (Step 3).
 - [ ] End-of-Turn Delegation Attestation emitted before the Iteration Summary, every mutated file attributed to a sub-agent with its `delegation_proof_id` quoted verbatim (Step 4).
-- [ ] `sub_agents_spawned: { count, rationale }` emitted as a first-class field per `rules/hatch3r-fan-out-discipline.md`.
+- [ ] `sub_agents_spawned: { count, rationale, task_structure }` emitted as a first-class field per `rules/hatch3r-fan-out-discipline.md`.
 - [ ] Iteration Summary follows per `rules/hatch3r-iteration-summary.md`.
 
 ## Error Handling
 
 - **Unattributable mutation row:** a file was mutated but no `delegation_proof_id` exists for it → the orchestrator inlined the edit. This is a P8 B2 violation. Halt the turn, queue re-delegation of that file through `hatch3r-implementer`/`hatch3r-fixer` next turn, and note the bypass in the attestation block.
 - **Tier misclassification surfaces mid-task:** a Tier-1-scored task that grows to touch multiple modules → re-score to Tier >= 2 immediately, begin emitting the header and attestation from the current turn, and re-delegate any already-inlined edits.
-- **Registered command exists for the intent:** if mid-scaffold you recognize the task matches a registered `/h4tcher-*` command or `commands/hatch3r-*.md`, stop scaffolding and route to that command — it carries these blocks natively and avoids hand-maintained drift.
+- **Registered command exists for the intent:** if mid-scaffold you recognize the task matches a registered `commands/hatch3r-*.md` command, stop scaffolding and route to that command — it carries these blocks natively and avoids hand-maintained drift.
 
 ## Definition of Done
 
@@ -120,11 +120,11 @@ Before declaring the turn complete, verify every item — a failed item is the C
 - [ ] Header emitted on every task-touching turn.
 - [ ] No inline orchestrator edits; all mutations attributed to a delegated sub-agent.
 - [ ] Attestation block emitted before the Iteration Summary with verbatim `delegation_proof_id`s.
-- [ ] `sub_agents_spawned` count + rationale present.
+- [ ] `sub_agents_spawned` count + rationale + task_structure present.
 
 ## References
 
-- `CLAUDE.md` -> "Orchestrator Self-Discipline (Bypass Protection)" — the three-requirement contract this skill scaffolds; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
+- `rules/hatch3r-agent-orchestration.md` -> Mandatory Delegation Directive (No Inline Implementation) — the delegation contract this skill scaffolds (the shipped runtime home of the bypass-protection discipline); accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
 - `rules/hatch3r-agent-orchestration.md` -> Per-Turn Pipeline-State Header, End-of-Turn Delegation Attestation, Mandatory Delegation Directive (No Inline Implementation) — block formats and rules reproduced here; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
 - `rules/hatch3r-fan-out-discipline.md` — P8 B2 fan-out scaling, `sub_agents_spawned` first-class field, attestation forgery-resistance rationale; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).
 - `skills/hatch3r-incident-response/SKILL.md` — canonical skill structure (Quick Start + Step pattern + Fan-out Discipline section) modeled here; accessed 2026-05-31; trust tier: official-docs (in-repo canonical).

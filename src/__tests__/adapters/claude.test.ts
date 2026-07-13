@@ -7,8 +7,10 @@ import {
   CACHE_BREAKPOINT_SENTINEL,
   CACHE_BREAKPOINT_SENTINEL_START,
   CACHE_BREAKPOINT_SENTINEL_END,
+  CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT,
 } from "../../adapters/claude.js";
 import { createManifest } from "../../manifest/hatchJson.js";
+import { maxIterationsForClass } from "../../pipeline/reviewLoop.js";
 import type { HatchManifest } from "../../types.js";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
@@ -103,9 +105,14 @@ describe("ClaudeAdapter", () => {
 
     const scopedRule = outputs.find((o) => o.path.includes("scoped-rule"));
     expect(scopedRule).toBeDefined();
-    // Glob scope `**/*.ts` -> `paths:` frontmatter (flow-sequence form),
-    // placed above the managed block (frontmatter is not managed content).
-    expect(scopedRule!.content).toMatch(/^---\npaths: \["\*\*\/\*\.ts"\]\n---\n/);
+    // Glob scope `**/*.ts` -> `paths:` frontmatter (documented block-sequence
+    // form per code.claude.com/docs/en/memory, D9-SA9.1-02), placed above the
+    // managed block (frontmatter is not managed content).
+    expect(scopedRule!.content).toMatch(/^---\npaths:\n  - "\*\*\/\*\.ts"\n---\n/);
+    // Regression guard (D9-SA9.1-02): must NOT revert to the docs-divergent
+    // flow-array form (`paths: ["**/*.ts"]`) that matched a silent-load-failure
+    // class on Claude Code.
+    expect(scopedRule!.content).not.toMatch(/paths: \[/);
     expect(scopedRule!.content.indexOf("paths:")).toBeLessThan(
       scopedRule!.content.indexOf(MANAGED_BLOCK_START),
     );
@@ -144,7 +151,7 @@ Applies to API code and protobufs.`,
       const rule = outputs.find((o) => o.path.includes("csv-rule"));
       expect(rule).toBeDefined();
       expect(rule!.content).toMatch(
-        /^---\npaths: \["src\/api\/\*\*", "\*\*\/\*\.proto"\]\n---\n/,
+        /^---\npaths:\n  - "src\/api\/\*\*"\n  - "\*\*\/\*\.proto"\n---\n/,
       );
     } finally {
       await rm(tempDir, { recursive: true, force: true });
@@ -183,7 +190,7 @@ Applies to API code and protobufs.`,
       const rule = outputs.find((o) => o.path.includes("conditional-rule"));
       expect(rule).toBeDefined();
       expect(rule!.content).toMatch(
-        /^---\npaths: \["src\/api\/\*\*", "\*\*\/\*\.proto"\]\n---\n/,
+        /^---\npaths:\n  - "src\/api\/\*\*"\n  - "\*\*\/\*\.proto"\n---\n/,
       );
       // The scope keyword must not survive into the resolved glob array.
       expect(rule!.content).not.toContain('"conditional"');
@@ -2120,10 +2127,53 @@ Low priority rule body.
     });
   });
 
+  // D15-SA15.2-04 (Cycle 12, D15/D9, P5): the reviewer-loop cap in the generated
+  // .claude/commands/hatch3r-agent-team.md is DERIVED from the review-loop
+  // code-class cap (maxIterationsForClass("code")), not a hardcoded literal.
+  // Pre-fix the "up to 3 iterations" string was a bare literal outside the
+  // CAP_SURFACE_REGISTRY parity guard (reviewLoop.test.ts scans canonical .md
+  // prose dirs, not adapter TS), so it could silently drift from the code
+  // constant. This block is the missing CI signal: it pins the rendered cap to
+  // the code-class cap and asserts the default/spec cap does not leak into this
+  // CODE-review surface — so a wrong-class wiring or a divergent literal fails.
+  describe("Agent-Teams reviewer-loop cap derivation (D15-SA15.2-04)", () => {
+    it("renders the review-loop code-class cap, not the default/spec cap or a stray literal", async () => {
+      const manifest = makeManifest();
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const agentTeam = outputs.find(
+        (o) => o.path === ".claude/commands/hatch3r-agent-team.md",
+      );
+      expect(agentTeam).toBeDefined();
+
+      const codeClassCap = maxIterationsForClass("code");
+      const defaultCap = maxIterationsForClass("default");
+      // The Agent-Teams reviewer↔fixer round runs over a CODE diff, so it opts
+      // down to the code-class cap — strictly below the default/spec cap. This
+      // relationship is the non-vacuous core: it documents why the surface
+      // states 3, not 4, and anchors the leak assertion below.
+      expect(codeClassCap).toBeLessThan(defaultCap);
+
+      // Every "up to N iterations" cap the command states equals the code cap.
+      // With the render interpolated the values move in lockstep with the
+      // constant; the loop still catches a stated cap that diverges from it.
+      const statedCaps = [
+        ...agentTeam!.content.matchAll(/up to (\d+) iterations/g),
+      ].map((m) => Number(m[1]));
+      expect(statedCaps.length).toBeGreaterThan(0);
+      for (const cap of statedCaps) {
+        expect(cap).toBe(codeClassCap);
+      }
+      // Genuinely non-vacuous guard: fails if the adapter is wired to the
+      // default class / DEFAULT_MAX_REVIEW_ITERATIONS, or a "up to 4 iterations"
+      // literal creeps back into this code-review surface.
+      expect(agentTeam!.content).not.toContain(`up to ${defaultCap} iterations`);
+    });
+  });
+
   // D3-M1 (Cycle 10 Wave-3 Medium rollover): adapters had no documented
   // error-path coverage. Pipeline timeouts surface as a pre-aborted
   // AbortSignal; `BaseAdapter.throwIfSignalAborted` is the documented
-  // contract (see src/adapters/base.ts:321). Pin the contract here so any
+  // contract (see src/adapters/base.ts::throwIfSignalAborted). Pin the contract here so any
   // future change that silently swallows the signal cannot regress.
   // D14-9 (D14, P3 / Decision 16): `claudeMaturityHeader` stamps the resolved
   // maturity tier atop the CLAUDE.md managed block. Pre-fix CLAUDE.md was
@@ -2170,6 +2220,29 @@ Low priority rule body.
       expect(claudeMd!.content).toContain("right-size to maturity=enterprise");
       expect(claudeMd!.content).toContain("rules/hatch3r-right-sizing.md");
     });
+
+    // D9-SA9.1-01 (Cycle 12): the tier directive must ship as a VISIBLE
+    // blockquote, not an HTML comment. Claude Code strips block-level HTML
+    // comments from CLAUDE.md before injecting the file into context
+    // (code.claude.com/docs/en/memory), so a comment-wrapped directive reaches
+    // the on-disk bytes but never the model — the exact calibration gap D14-9
+    // set out to close. Guards against a regression back to the `<!-- ... -->`
+    // form. Covers both standard and minimal modes.
+    for (const mode of ["standard", "minimal"] as const) {
+      it(`emits the maturity directive as a visible blockquote, not a stripped HTML comment (${mode})`, async () => {
+        const manifest: HatchManifest = { ...makeManifest(), maturity: "enterprise" };
+        const outputs = await adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, mode);
+        const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+        const line = claudeMd!.content
+          .split("\n")
+          .find((l) => l.includes("right-size to maturity=enterprise"));
+        expect(line).toBeDefined();
+        // Visible blockquote line (`> hatch3r: ...`), never inside an HTML comment.
+        expect(line!.startsWith("> ")).toBe(true);
+        expect(line).not.toContain("<!--");
+        expect(claudeMd!.content).not.toContain("<!-- hatch3r: right-size to maturity=");
+      });
+    }
   });
 
   // D1-17 (Cycle 11 Wave 3, D1, P1): `claudeConfidenceFloorHeader` stamps the
@@ -2225,6 +2298,23 @@ Low priority rule body.
       const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
       expect(claudeMd!.content).toContain("confidence floor=high");
     });
+
+    // D9-SA9.1-01 (Cycle 12): the confidence-floor directive must ship as a
+    // VISIBLE blockquote, not an HTML comment Claude Code strips before context
+    // injection (code.claude.com/docs/en/memory). Regression guard for the
+    // `<!-- ... -->` form.
+    it("emits the confidence-floor directive as a visible blockquote, not a stripped HTML comment", async () => {
+      const manifest: HatchManifest = { ...makeManifest(), confidenceFloor: "high" };
+      const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+      const claudeMd = outputs.find((o) => o.path === "CLAUDE.md");
+      const line = claudeMd!.content
+        .split("\n")
+        .find((l) => l.includes("confidence floor=high"));
+      expect(line).toBeDefined();
+      expect(line!.startsWith("> ")).toBe(true);
+      expect(line).not.toContain("<!--");
+      expect(claudeMd!.content).not.toContain("<!-- hatch3r: confidence floor=");
+    });
   });
 
   describe("error paths", () => {
@@ -2237,5 +2327,254 @@ Low priority rule body.
         adapter.generate(FIXTURES_DIR, manifest, FIXTURES_USER_REPO, "standard", controller.signal),
       ).rejects.toThrow("claude: pipeline timeout exceeded");
     });
+  });
+});
+
+/**
+ * D2-SA2.4-01 (Cycle 12 Wave 2, D2, P3): an mcp-granted agent's emitted Claude
+ * `tools:` frontmatter must carry a per-server `mcp__<server>` grant when MCP
+ * servers are selected. An enumerated `tools:` list otherwise EXCLUDES every MCP
+ * tool platform-side (code.claude.com/docs/en/sub-agents), so an agent whose
+ * body mandates an MCP workflow (e.g. hatch3r-researcher's Context7 tier) reaches
+ * no MCP server at runtime even when the operator configured one.
+ */
+describe("mcp-granted agent tools frontmatter carries per-server grants (D2-SA2.4-01)", () => {
+  async function writeMcpAgentRoot(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "hatch3r-claude-mcp-tools-"));
+    const agentsDir = join(root, "agents");
+    await mkdir(agentsDir, { recursive: true });
+    // id `researcher` → emitted id `hatch3r-researcher`, whose AGENT_TOOL_POLICIES
+    // grant includes the `mcp` category (read+search+web+mcp).
+    await writeFile(
+      join(agentsDir, "researcher.md"),
+      "---\nid: researcher\ntype: agent\ndescription: Read-only research agent.\n---\n# Researcher\n\nResearch body.\n",
+      "utf-8",
+    );
+    const mcpDir = join(root, "mcp");
+    await mkdir(mcpDir, { recursive: true });
+    await writeFile(
+      join(mcpDir, "mcp.json"),
+      JSON.stringify({
+        mcpServers: {
+          context7: { _description: "Test Context7 MCP", _trust_bypass: true, url: "https://mcp.context7.com/" },
+          github: { _description: "Test GitHub MCP", _trust_bypass: true, url: "https://api.githubcopilot.com/mcp/" },
+        },
+      }),
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("emits mcp__<server> in the tools: line for each selected server", async () => {
+    const root = await writeMcpAgentRoot();
+    try {
+      const manifest = createManifest({
+        tools: ["claude"],
+        mcpServers: ["context7", "github"],
+        features: { mcp: true },
+      });
+      const outputs = await new ClaudeAdapter().generate(root, manifest);
+      const agentOut = outputs.find((o) => o.path === ".claude/agents/hatch3r-researcher.md");
+      expect(agentOut, "expected the researcher agent output").toBeDefined();
+      const toolsLine = agentOut!.content.split("\n").find((l) => l.startsWith("tools:")) ?? "";
+      expect(toolsLine).toContain("mcp__context7");
+      expect(toolsLine).toContain("mcp__github");
+      // Additive — the read-only base grant survives alongside the MCP tokens.
+      expect(toolsLine).toContain("Read");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+
+  it("emits no mcp__ token when the MCP feature is off, even with servers listed (gate)", async () => {
+    const root = await writeMcpAgentRoot();
+    try {
+      // Explicit features.mcp=false wins over the server-list derivation, and the
+      // adapter suppresses the grant set when the feature is off.
+      const manifest = createManifest({
+        tools: ["claude"],
+        mcpServers: ["context7"],
+        features: { mcp: false },
+      });
+      const outputs = await new ClaudeAdapter().generate(root, manifest);
+      const agentOut = outputs.find((o) => o.path === ".claude/agents/hatch3r-researcher.md");
+      expect(agentOut).toBeDefined();
+      const toolsLine = agentOut!.content.split("\n").find((l) => l.startsWith("tools:")) ?? "";
+      expect(toolsLine).not.toContain("mcp__");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
+});
+
+// D9-SA9.1-05 / CL-2 U11 (Cycle 12, D9, P6/P7/CQ9): enforcement-parity cohort —
+// the native `maxTurns:` runaway-cost ceiling (default
+// CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT on every emitted subagent) and the
+// `memory:` scope map (default: hatch3r-learnings-loader → project, coexisting
+// with its `permissionMode: plan`). Field contracts per
+// code.claude.com/docs/en/sub-agents (accessed 2026-07-12).
+describe("ClaudeAdapter subagent maxTurns + memory (D9-SA9.1-05 / CL-2 U11)", () => {
+  function u11Manifest(claude?: HatchManifest["claude"]): HatchManifest {
+    const base = createManifest({ tools: ["claude"] });
+    if (claude !== undefined) base.claude = claude;
+    return base;
+  }
+
+  /** Frontmatter fence at byte 0 (the block Claude Code parses). */
+  function fmOf(content: string): string {
+    const match = content.match(/^---\n[\s\S]*?\n---/);
+    return match ? match[0] : "";
+  }
+
+  function topLevelAgents(outputs: Awaited<ReturnType<ClaudeAdapter["generate"]>>) {
+    return outputs.filter((o) => /^\.claude\/agents\/[^/]+\.md$/.test(o.path));
+  }
+
+  it("emits maxTurns with the default ceiling on every generated agent", async () => {
+    const outputs = await new ClaudeAdapter().generate(FIXTURES_DIR, u11Manifest());
+    const agents = topLevelAgents(outputs);
+    expect(agents.length).toBeGreaterThan(0);
+    for (const agent of agents) {
+      expect(fmOf(agent.content)).toContain(`maxTurns: ${CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT}`);
+      // The ceiling is frontmatter, not managed body content.
+      expect(agent.managedContent).not.toContain("maxTurns:");
+    }
+  });
+
+  it("honors a configured integer ceiling via claude.subagentMaxTurns", async () => {
+    const outputs = await new ClaudeAdapter().generate(
+      FIXTURES_DIR,
+      u11Manifest({ subagentMaxTurns: 40 }),
+    );
+    for (const agent of topLevelAgents(outputs)) {
+      expect(fmOf(agent.content)).toContain("maxTurns: 40");
+      expect(fmOf(agent.content)).not.toContain(`maxTurns: ${CLAUDE_SUBAGENT_MAX_TURNS_DEFAULT}`);
+    }
+  });
+
+  it("omits maxTurns entirely when subagentMaxTurns is false (opt-out)", async () => {
+    const adapter = new ClaudeAdapter();
+    const outputs = await adapter.generate(FIXTURES_DIR, u11Manifest({ subagentMaxTurns: false }));
+    for (const agent of topLevelAgents(outputs)) {
+      expect(agent.content).not.toContain("maxTurns:");
+    }
+    // Deliberate opt-out is not a misconfiguration — no warning.
+    expect(adapter.warnings.some((w) => w.includes("subagentMaxTurns"))).toBe(false);
+  });
+
+  it("omits maxTurns and warns exactly once on an invalid ceiling value", async () => {
+    const adapter = new ClaudeAdapter();
+    const outputs = await adapter.generate(FIXTURES_DIR, u11Manifest({ subagentMaxTurns: 0 }));
+    for (const agent of topLevelAgents(outputs)) {
+      expect(agent.content).not.toContain("maxTurns:");
+    }
+    const warnings = adapter.warnings.filter((w) => w.includes("subagentMaxTurns"));
+    // Resolved once per generate, not once per agent — a bad value warns once.
+    expect(warnings.length).toBe(1);
+    expect(warnings[0]).toContain("integer >= 1");
+  });
+
+  /**
+   * Canonical root with the learnings-loader (a real canonical id, so the
+   * readonly policy derives `permissionMode: plan`) plus a control agent.
+   */
+  async function writeMemoryRoot(): Promise<string> {
+    const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-claude-u11-memory-"));
+    const root = join(tempDir, "agents");
+    await mkdir(join(root, "agents"), { recursive: true });
+    await writeFile(
+      join(root, "agents", "learnings-loader.md"),
+      `---
+id: learnings-loader
+type: agent
+description: Loads prior learnings into context
+---
+
+You load prior learnings before the pipeline starts.`,
+      "utf-8",
+    );
+    await writeFile(
+      join(root, "agents", "control-agent.md"),
+      `---
+id: control-agent
+type: agent
+description: A control agent with no memory row
+---
+
+You are a control agent.`,
+      "utf-8",
+    );
+    return root;
+  }
+
+  it("emits memory: project on hatch3r-learnings-loader by default, coexisting with permissionMode: plan, and on no other agent", async () => {
+    const root = await writeMemoryRoot();
+    try {
+      const outputs = await new ClaudeAdapter().generate(root, u11Manifest());
+      const loader = outputs.find((o) => o.path === ".claude/agents/hatch3r-learnings-loader.md");
+      expect(loader, "expected the learnings-loader agent output").toBeDefined();
+      const loaderFm = fmOf(loader!.content);
+      expect(loaderFm).toContain("memory: project");
+      // Plan-mode coexistence by design: the readonly policy keeps its plan
+      // derivation; memory tools are platform-auto-enabled (docs, 2026-07-12).
+      expect(loaderFm).toContain("permissionMode: plan");
+      const control = outputs.find((o) => o.path === ".claude/agents/hatch3r-control-agent.md");
+      expect(control).toBeDefined();
+      expect(control!.content).not.toContain("memory:");
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("an explicit subagentMemory map replaces the default map (unprefixed keys normalize)", async () => {
+    const root = await writeMemoryRoot();
+    try {
+      const outputs = await new ClaudeAdapter().generate(
+        root,
+        u11Manifest({ subagentMemory: { "control-agent": "local" } }),
+      );
+      const control = outputs.find((o) => o.path === ".claude/agents/hatch3r-control-agent.md");
+      expect(fmOf(control!.content)).toContain("memory: local");
+      // Replaced, not merged: the default learnings-loader row is gone.
+      const loader = outputs.find((o) => o.path === ".claude/agents/hatch3r-learnings-loader.md");
+      expect(loader!.content).not.toContain("memory:");
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("subagentMemory: false disables all memory emission", async () => {
+    const root = await writeMemoryRoot();
+    try {
+      const outputs = await new ClaudeAdapter().generate(
+        root,
+        u11Manifest({ subagentMemory: false }),
+      );
+      for (const agent of topLevelAgents(outputs)) {
+        expect(agent.content).not.toContain("memory:");
+      }
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
+  });
+
+  it("skips an invalid memory scope with a warning instead of emitting it", async () => {
+    const root = await writeMemoryRoot();
+    try {
+      const adapter = new ClaudeAdapter();
+      const outputs = await adapter.generate(
+        root,
+        u11Manifest({
+          subagentMemory: { "learnings-loader": "everywhere" },
+        } as unknown as HatchManifest["claude"]),
+      );
+      const loader = outputs.find((o) => o.path === ".claude/agents/hatch3r-learnings-loader.md");
+      expect(loader!.content).not.toContain("memory:");
+      const warnings = adapter.warnings.filter((w) => w.includes("subagentMemory"));
+      expect(warnings.length).toBe(1);
+      expect(warnings[0]).toContain("user, project, local");
+    } finally {
+      await rm(dirname(root), { recursive: true, force: true });
+    }
   });
 });

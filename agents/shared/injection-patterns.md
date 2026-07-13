@@ -14,7 +14,7 @@ This file is the canonical human-readable catalog of prompt-injection patterns u
 2. `src/content/learningsValidation.ts` — stored-learnings content validation (`LEARNINGS_INJECTION_PATTERNS` constant). OWASP ASI06.
 3. `skills/hatch3r-learn/SKILL.md` — user-facing injection screening prose at Step 3 "Injection pattern screening". OWASP ASI06.
 
-The code constants remain the executable source of truth (typed `RegExp` with TypeScript validation). This file is the governance contract — when threat patterns evolve, update this catalog first, then update the code and prose in lockstep. A test in `src/__tests__/pipeline/injectionPatternsSync.test.ts` asserts that every ID in Section A and Section B below appears as a `// pattern-id: <id>` comment in the corresponding code constant, preventing silent drift.
+The code constants remain the executable source of truth (typed `RegExp` with TypeScript validation). This file is the governance contract — when threat patterns evolve, update this catalog first, then update the code and prose in lockstep. A test in `src/__tests__/pipeline/injectionPatternsSync.test.ts` imports the exported `PIPELINE_INJECTION_PATTERN_IDS` / `LEARNINGS_INJECTION_PATTERN_IDS` arrays (each `.map((p) => p.patternId)` over the code constant's required `patternId` object property) and asserts every code pattern ID appears as a catalog table row in Section A or Section B — a one-directional code→catalog check. Catalog rows ahead of the code are permitted for multi-wave authoring; the end-of-wave reviewer gate catches any that stay unimplemented.
 
 ### Section A — Pipeline Injection Patterns (promptGuard.ts)
 
@@ -37,7 +37,7 @@ Scope: content flowing between pipeline phases (researcher → implementer → r
 
 P-PIPE-08 through P-PIPE-12 added in Cycle 8 Wave 3 per finding `C8-D15-M1-deny-pattern-2026-variants`. Source citations live in the `INJECTION_PATTERNS` constant comment in `src/pipeline/promptGuard.ts` (OWASP LLM01:2025, AWS security blog on Unicode smuggling, Microsoft MSRC indirect prompt injection 2025-07, Promptfoo base64/homoglyph strategies, Simon Willison exfiltration-attacks corpus, Unit 42 AI Agent Prompt Injection 2025).
 
-Adding a pipeline pattern: append a new `P-PIPE-NN` row here, add the RegExp entry to `INJECTION_PATTERNS` in `src/pipeline/promptGuard.ts` with a `// pattern-id: P-PIPE-NN` comment on the object line, and update test assertions. The synchronization test fails if either side drifts.
+Adding a pipeline pattern: append a new `P-PIPE-NN` row here, add the RegExp entry to `INJECTION_PATTERNS` in `src/pipeline/promptGuard.ts` keyed on a `patternId: "P-PIPE-NN"` object property (the array type requires it — no code comment is scanned), and update test assertions. The synchronization test fails when a code pattern ID has no catalog row.
 
 ### Section B — Learnings Storage Patterns (learningsValidation.ts)
 
@@ -78,7 +78,7 @@ Category C-UI-04 (encoded payloads) is not covered by regex Section A or B — i
 ### Change Protocol
 
 1. Edit this catalog first — add rows, renumber IDs additively (never renumber existing IDs).
-2. Update the matching code constant (`INJECTION_PATTERNS` or `LEARNINGS_INJECTION_PATTERNS`) with the new RegExp and a `// pattern-id: <ID>` line comment.
+2. Update the matching code constant (`INJECTION_PATTERNS` or `LEARNINGS_INJECTION_PATTERNS`) with the new RegExp entry keyed on a `patternId: "<ID>"` object property (the TypeScript type requires it; no code comment is read by any check).
 3. Update `skills/hatch3r-learn/SKILL.md` Step 3 (Section "Injection pattern screening") if the change affects user-facing screening categories.
 4. Run `npm test -- injectionPatternsSync` to verify synchronization.
 5. Run the full test suite (`npm test`), typecheck (`npx tsc --noEmit`), and lint (`npm run lint`).

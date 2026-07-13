@@ -5,16 +5,25 @@
  * **E**fficiency — the five-axis developer-productivity framework introduced
  * by Forsgren, Storey, Maddila, Zimmermann, Houck, and Butler (Microsoft
  * Research / GitHub Next, ACM Queue 19(1):20-48, 2021). The {@link SpaceAxis}
- * type carries all five axes so a record can name any of them, but only the
- * **activity** and **performance** axes have live feeders today: the primary
- * metric `firstRunSuccessRate` (performance) recorded from `init.ts`, and the
- * activity counts a future host-runtime bridge would emit. The
+ * type carries all five axes so a record can name any of them. Three axes
+ * have live feeders today, all recorded from `init.ts`: **performance**
+ * (`firstRunSuccessRate`), **efficiency** (`timeToFirstValueMs`, at both the
+ * success and failure termini), and **activity** (`adaptersGenerated`). The
  * **satisfaction** and **communication** axes are reserved — no caller writes
  * them yet — so the "SPACE" label describes the data shape, not coverage of
- * all five axes (D10-40). `firstRunSuccessRate` is true if `npx hatch3r init`
+ * all five axes (D10-40, D10-SA10.8-01). `firstRunSuccessRate` is true if `npx hatch3r init`
  * completes without error AND the user reaches a first adapter output. Records
  * persist as JSONL under
  * `<projectRoot>/.hatch3r/telemetry/space-<YYYY-MM-DD>.jsonl` (gitignored).
+ *
+ * **Local-only, opt-out-able, bounded (D10-SA10.8-03).** This telemetry is
+ * written to the local repo and NEVER transmitted. Recording honours a
+ * `HATCH3R_NO_TELEMETRY=1` switch and the cross-tool `DO_NOT_TRACK` convention
+ * (see {@link isTelemetryDisabled}) — when either is set, nothing is written to
+ * memory or disk. Each write prunes day-files older than
+ * {@link SPACE_TELEMETRY_RETENTION_DAYS} days (see {@link pruneStaleTelemetry})
+ * so the store stays bounded. A user-facing disclosure of the `.hatch3r/telemetry/`
+ * write + the opt-out belongs in the getting-started docs.
  *
  * Pillar service:
  * - **P1 (CLI UX Excellence)** — `firstRunSuccessRate` is the canonical
@@ -48,7 +57,7 @@
  * {@link getSpaceSummary}, which only sees the current process's records.
  */
 
-import { appendFileSync, mkdirSync, readFileSync } from "node:fs";
+import { appendFileSync, mkdirSync, readFileSync, readdirSync, unlinkSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { createFailureLogEntry, FAILURE_LOG_FILE, formatLogEntry } from "./failureLog.js";
@@ -63,10 +72,12 @@ import { createFailureLogEntry, FAILURE_LOG_FILE, formatLogEntry } from "./failu
  *                   reserved; no feeder yet.
  * - `performance`   outcome quality — e.g. first-run success rate (boolean as
  *                   1.0/0.0), task completion %. Fed by `recordFirstRunSuccess`.
- * - `activity`      action counts — commands invoked, adapters generated.
+ * - `activity`      action counts — commands invoked, adapters generated. Fed by
+ *                   `init.ts` (`adaptersGenerated`).
  * - `communication` collaboration signal — handoff success, review turnaround —
  *                   reserved; no feeder yet.
- * - `efficiency`    flow signal — wall-clock minutes, token cost, latency.
+ * - `efficiency`    flow signal — wall-clock minutes, token cost, latency. Fed by
+ *                   `init.ts` (`timeToFirstValueMs`).
  */
 export type SpaceAxis =
   | "satisfaction"
@@ -167,6 +178,105 @@ export function resetSpaceMetricsBuffer(): void {
   ringBuffer.length = 0;
 }
 
+// ── Opt-out (D10-SA10.8-03) ──────────────────────────────────────
+
+/**
+ * Whether SPACE telemetry recording is disabled by an environment opt-out.
+ *
+ * Two switches are honoured, closing the control-coverage gap where the
+ * update-check (which contacts the npm registry) had an opt-out but the local
+ * telemetry write did not (D10-SA10.8-03):
+ *
+ * - `HATCH3R_NO_TELEMETRY=1` — hatch3r-specific opt-out, mirroring the
+ *   `HATCH3R_NO_UPDATE_CHECK=1` convention in `src/cli/shared/updateNotifier.ts`.
+ * - `DO_NOT_TRACK` — the cross-tool standard (https://consoledonottrack.com/):
+ *   any value other than unset, empty, `0`, or `false` (case-insensitive,
+ *   trimmed) opts out, so a single env var covers hatch3r alongside every other
+ *   DO_NOT_TRACK-aware tool.
+ *
+ * When either is set, {@link recordSpaceMetric} records nothing — no in-memory
+ * ring-buffer entry and no `.hatch3r/telemetry/*.jsonl` write. Pure; reads only
+ * its argument (defaulting to `process.env`) and never throws.
+ */
+export function isTelemetryDisabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  if (env.HATCH3R_NO_TELEMETRY === "1") return true;
+  const doNotTrack = env.DO_NOT_TRACK;
+  if (doNotTrack !== undefined) {
+    const normalized = doNotTrack.trim().toLowerCase();
+    if (normalized !== "" && normalized !== "0" && normalized !== "false") {
+      return true;
+    }
+  }
+  return false;
+}
+
+// ── Retention (D10-SA10.8-03) ────────────────────────────────────
+
+/**
+ * Retention cap on the number of trailing days of `space-<YYYY-MM-DD>.jsonl`
+ * telemetry files kept under `.hatch3r/telemetry/`. On each
+ * {@link recordSpaceMetric} write, day-files older than this window are pruned
+ * so the one-file-per-day store cannot grow unbounded — mirroring the
+ * count/byte retention caps on the sibling snapshot store
+ * (`src/pipeline/snapshot.ts` `MAX_SNAPSHOT_COUNT` / `MAX_SNAPSHOT_BYTES`).
+ * Set to 30 days: comfortably above the {@link DEFAULT_SPACE_LOAD_WINDOW_DAYS}
+ * default reader window (7) so the `hatch3r status` reader and typical
+ * explicit-range reads keep their data, while still bounding the store to ~30
+ * files.
+ */
+export const SPACE_TELEMETRY_RETENTION_DAYS = 30;
+
+/**
+ * Prune `space-<YYYY-MM-DD>.jsonl` telemetry files older than `retentionDays`
+ * so the local store stays bounded (D10-SA10.8-03).
+ *
+ * The retention window trails `anchorMs` (default `Date.now()`), which is
+ * wall-clock "now" in production. {@link recordSpaceMetric} passes the record's
+ * OWN timestamp as the anchor so an explicitly back-dated write is never
+ * deleted by the same call that created it, and the window trails the latest
+ * activity rather than deleting everything after a long idle gap.
+ *
+ * Best-effort and side-effect-tolerant: a missing telemetry directory is the
+ * EXPECTED negative case (returns 0 silently); any other fault routes through
+ * the failureLog channel and is swallowed (Silent Failure Contract,
+ * CONSTITUTION §2 P5) — pruning never throws into the recording path. Files
+ * whose name does not match the `space-<YYYY-MM-DD>.jsonl` pattern (or carry an
+ * unparseable date) are left untouched. Returns the number of files removed (0
+ * on any fault) for test assertions. `projectRoot` defaults to `process.cwd()`.
+ */
+export function pruneStaleTelemetry(
+  projectRoot: string = process.cwd(),
+  retentionDays: number = SPACE_TELEMETRY_RETENTION_DAYS,
+  anchorMs: number = Date.now(),
+): number {
+  const dir = join(projectRoot, SPACE_TELEMETRY_DIR_RELATIVE);
+  const anchor = Number.isFinite(anchorMs) ? anchorMs : Date.now();
+  const cutoffMs = anchor - Math.max(1, retentionDays) * 86_400_000;
+  let entries: string[];
+  try {
+    entries = readdirSync(dir);
+  } catch (err) {
+    if ((err as NodeJS.ErrnoException).code !== "ENOENT") {
+      routeReadFailure(projectRoot, err, dir);
+    }
+    return 0;
+  }
+  let removed = 0;
+  for (const name of entries) {
+    const match = /^space-(\d{4}-\d{2}-\d{2})\.jsonl$/.exec(name);
+    if (match === null) continue;
+    const dayMs = Date.parse(`${match[1]}T00:00:00.000Z`);
+    if (Number.isNaN(dayMs) || dayMs >= cutoffMs) continue;
+    try {
+      unlinkSync(join(dir, name));
+      removed += 1;
+    } catch (err) {
+      routeReadFailure(projectRoot, err, join(dir, name));
+    }
+  }
+  return removed;
+}
+
 // ── Public API ───────────────────────────────────────────────────
 
 /**
@@ -190,6 +300,12 @@ export function recordSpaceMetric(
   metric: SpaceMetric,
   projectRoot: string = process.cwd(),
 ): void {
+  // Opt-out gate (D10-SA10.8-03): a `HATCH3R_NO_TELEMETRY=1` /
+  // `DO_NOT_TRACK` operator records nothing — no ring-buffer entry and no disk
+  // write — so the local telemetry write has the same off-switch coverage the
+  // registry-contacting update check already had.
+  if (isTelemetryDisabled()) return;
+
   const record: SpaceMetricRecord = {
     ...metric,
     timestamp: metric.timestamp ?? new Date().toISOString(),
@@ -205,6 +321,13 @@ export function recordSpaceMetric(
   try {
     mkdirSync(dirname(filePath), { recursive: true });
     appendFileSync(filePath, line);
+    // Bound the local store (D10-SA10.8-03): drop day-files past the retention
+    // window so the one-file-per-day telemetry cannot grow unbounded. Anchor
+    // the window on THIS record's own timestamp (wall-clock now in production)
+    // so the write never deletes the file it just created. `pruneStaleTelemetry`
+    // is self-guarding (never throws), so it cannot re-route a successful write
+    // into the catch below.
+    pruneStaleTelemetry(projectRoot, SPACE_TELEMETRY_RETENTION_DAYS, Date.parse(record.timestamp));
   } catch (err) {
     // Silent Failure Contract: route through failureLog and swallow.
     try {

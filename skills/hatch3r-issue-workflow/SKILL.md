@@ -132,6 +132,10 @@ Fan-out scales with task size; token cost never justifies serializing independen
 
 Emit `sub_agents_spawned: { count, rationale }` in your output.
 
+## Related
+
+- **Command:** `hatch3r-workflow` — the orchestrated counterpart. This skill is the issue-number-driven 8-step guide that dispatches to the type-matched skill (bug-fix / feature / refactor / qa); `/hatch3r-workflow` runs the fully orchestrated 4-phase delivery pipeline (researcher → implementer → reviewer/fixer loop → CQ specialists) with sub-agent fan-out. Use this skill to work a single issue by its steps; use `/hatch3r-workflow` for the multi-agent guided lifecycle.
+
 ## Error Handling
 
 - **Issue description is too vague to implement**: Do not guess. Ask the user for clarification on acceptance criteria, scope boundaries, and expected behavior before starting Step 3 (planning).

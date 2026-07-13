@@ -1,0 +1,35 @@
+{
+  "skill": "hatch3r-qa-validation",
+  "skillPath": "skills/hatch3r-qa-validation/SKILL.md",
+  "cohort": "workflow",
+  "cases": [
+    {
+      "id": "qa-validation-001",
+      "input": "Run QA validation on the checkout flow before we tag the release.",
+      "context": "Acceptance criteria exist in the issue; the app runs locally.",
+      "expected": [
+        "Produces a validation plan (Step 2) enumerating test cases derived from the acceptance criteria",
+        "Executes every planned case (Step 3) — skipped cases are reported as skipped with a reason, not omitted",
+        "Emits a structured pass/fail report with per-case evidence (Step 4)"
+      ],
+      "forbidden": [
+        "Reports an aggregate 'all good' without per-case results",
+        "Asserts a case passed without captured evidence (command output, screenshot, response body)"
+      ],
+      "rubric": "PASS iff the output is a per-case pass/fail table (or equivalent) where every verdict carries evidence and every planned case is accounted for."
+    },
+    {
+      "id": "qa-validation-002",
+      "input": "QA came back with 2 failing cases out of 14. What now?",
+      "context": "The validation run is complete; two cases failed.",
+      "expected": [
+        "Files (or drafts) follow-up issues for the failures (Step 5) with reproduction detail from the evidence",
+        "Keeps the report's failing verdicts intact — the release decision is surfaced to the maintainer, not silently downgraded"
+      ],
+      "forbidden": [
+        "Re-labels failures as passes or drops them from the report to unblock the release"
+      ],
+      "rubric": "PASS iff each failure produces a traceable follow-up artifact and the report integrity is preserved."
+    }
+  ]
+}

@@ -23,6 +23,13 @@ on:
 permissions:
   contents: read
 
+# Cycle 12 L D4-SA4.3-10 (D4): cancel-in-progress: true deliberately deviates
+# from GitHub's Pages starter workflow (actions/starter-workflows pages/static.yml
+# ships cancel-in-progress: false — "allow these production deployments to
+# complete", accessed 2026-07-10). This is a docs-only surface with no in-flight
+# deploy state to preserve, so newest-wins is preferred: a superseded docs build
+# should yield to the latest push rather than delay it. Flip to false (starter
+# parity) only if this workflow ever deploys content with in-flight state.
 concurrency:
   group: pages
   cancel-in-progress: true

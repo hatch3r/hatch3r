@@ -4,7 +4,7 @@ type: rule
 description: Android Kotlin conventions covering Jetpack Compose, coroutines + Flow, Hilt DI, Room, modular Gradle, AGP 8.x, target SDK 35, and Compose testing
 scope: conditional
 globs: "**/*.kt,**/*.kts,**/build.gradle,**/build.gradle.kts,**/settings.gradle,**/settings.gradle.kts,**/gradle.properties,**/AndroidManifest.xml,**/proguard-rules.pro,**/app/src/**,**/android/app/**,**/libs.versions.toml"
-tags: [implementation, lang:java]
+tags: [implementation, lang:kotlin]
 quality_charter: agents/shared/quality-charter.md
 cache_friendly: true
 ---
@@ -16,7 +16,7 @@ cache_friendly: true
 
 ## Kotlin Language Floor
 
-- Target Kotlin 2.0+ with K2 compiler (`kotlin.experimental.tryK2=true`). Treat warnings as errors in CI.
+- Target Kotlin 2.0+ — the K2 compiler is the default from Kotlin 2.0.0, so no opt-in flag is needed (`kotlin.experimental.tryK2` was the pre-2.0 preview property and is obsolete on 2.0+). Treat warnings as errors in CI.
 - Use `data class` for value-equality types, `sealed class` / `sealed interface` for closed-set hierarchies (UI state, events, errors). Exhaust `when` over sealed types — the compiler enforces it.
 - Coroutines + Flow for concurrency. Never use `Thread` directly. Wrap legacy callback APIs with `suspendCancellableCoroutine` at the boundary.
 - Nullability: explicit `?` for nullable types; avoid `!!` (force-unwrap) outside test fixtures. Platform types from Java interop annotated with `@Nullable` / `@NonNull` where possible.
@@ -25,7 +25,7 @@ cache_friendly: true
 
 - Android Gradle Plugin (AGP) 8.7+ with Gradle 8.10+. Use the version catalog (`gradle/libs.versions.toml`) for every dependency — no hard-coded versions in `build.gradle.kts`.
 - Kotlin DSL (`build.gradle.kts`) for new modules. Migrate Groovy scripts during regular refactors; do not mix dialects in a single module's chain.
-- Target SDK 35 (Android 15) — Google Play requires `targetSdk = 35` for new apps and updates in 2025. Set `compileSdk = 35` alongside.
+- Target SDK 35 (Android 15) is the Google Play floor through 2026-08-31; from 2026-09-01 Play requires `targetSdk = 36` (Android 16) for new and updated apps, so plan the bump ahead of that cutoff. Set `compileSdk` to match the active `targetSdk`.
 - Min SDK: 24 (Android 7.0) covers >97% of active devices per Android Distribution Dashboard. Going below 24 means losing modern Kotlin stdlib calls that require API 24.
 
 ## Architecture

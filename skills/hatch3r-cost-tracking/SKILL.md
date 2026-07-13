@@ -57,9 +57,9 @@ Calculate estimated cost using named-model rates tied to model IDs. Published-ve
 
 | Model | Model ID | Input (per 1M) | Output (per 1M) | accessed |
 |-------|----------|---------------:|----------------:|----------|
-| Claude Haiku 4.5 | `claude-haiku-4-5` | $1.00 | $5.00 | 2026-06-05 |
-| Claude Sonnet 4.6 | `claude-sonnet-4-6` | $3.00 | $15.00 | 2026-06-05 |
-| Claude Opus 4.8 | `claude-opus-4-8` | $5.00 | $25.00 | 2026-06-05 |
+| Claude Haiku 4.5 | `claude-haiku-4-5` | $1.00 | $5.00 | 2026-06-06 |
+| Claude Sonnet 4.6 | `claude-sonnet-4-6` | $3.00 | $15.00 | 2026-06-06 |
+| Claude Opus 4.8 | `claude-opus-4-8` | $5.00 | $25.00 | 2026-06-06 |
 
 **Cache-read multiplier.** Cached input tokens (`cache_read_input_tokens` in the API `usage` block) bill at ~0.1× the model's base input rate; cache writes bill at 1.25× (5-minute TTL) or 2× (1-hour TTL). When a session reuses a large cached prefix, price `cache_read_input_tokens` separately at 0.1× base input — counting them at full input rate overstates spend by up to 10× on cache-heavy agent loops. Total prompt size = `input_tokens` (uncached) + `cache_creation_input_tokens` + `cache_read_input_tokens`.
 
@@ -160,5 +160,5 @@ Include total estimated tokens (uncached input + cache-read + cache-write + outp
 
 ## References
 
-- [Anthropic API pricing](https://www.anthropic.com/pricing) — accessed 2026-06-05, official-docs (Anthropic). Source for the per-million-token input/output rates per named model (Haiku 4.5 $1/$5, Sonnet 4.6 $3/$15, Opus 4.8 $5/$25) and the cache-read 0.1x / cache-write 1.25x-2x multipliers in Step 2; these drift between model releases — re-verify per Step 2a when running a cost report.
+- [Anthropic API pricing](https://www.anthropic.com/pricing) — accessed 2026-06-06, official-docs (Anthropic). Source for the per-million-token input/output rates per named model (Haiku 4.5 $1/$5, Sonnet 4.6 $3/$15, Opus 4.8 $5/$25) and the cache-read 0.1x / cache-write 1.25x-2x multipliers in Step 2; these drift between model releases — re-verify per Step 2a when running a cost report.
 - [Token counting — Anthropic API docs](https://docs.anthropic.com/en/docs/build-with-claude/token-counting) — accessed 2026-06-05, official-docs (Anthropic). Source for treating the ~4-characters-per-token figure as an approximation; the documented count-tokens endpoint is authoritative when exact counts are required.

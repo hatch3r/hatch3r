@@ -2,7 +2,7 @@
 id: hatch3r-feature-plan
 type: command
 orchestrator: true
-agentPipeline: [hatch3r-researcher, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability]
+agentPipeline: [hatch3r-researcher, hatch3r-docs-writer]
 description: Design a new capability -- draft user stories, acceptance criteria, data model, API surface, and sub-issue breakdown as an epic-shaped todo.md for greenfield features
 tags: [planning, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -13,8 +13,9 @@ efficiency_tier: deep
 triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:
-  count: 13
-  rationale: Four parallel hatch3r-researcher modes per feature brief — codebase-impact, feature-design, architecture, risk-pitfalls — dispatched concurrently in Step 3; a docs-writer composes the spec on their merged output; the 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) advise pre-write on the measurable floors that the spec must encode (axe-core threshold, OAuth depth, OTel + SLO scaffolding, mandate-map test class, etc.). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 6
+  rationale: Five parallel hatch3r-researcher modes per feature brief — codebase-impact, feature-design, architecture, risk-assessment, similar-implementation — dispatched concurrently in Step 3, plus a docs-writer that composes the spec on their merged output (full Tier-3 width; Tier 1/2 dispatch a reduced researcher set). The 9 CQ vector floors (axe-core threshold, OAuth depth, OTel + SLO scaffolding, mandate-map test class, etc.) are encoded inline into the spec by docs-writer and the orchestrator — no CQ specialist is delegated via the Task tool from this command, so they are floors the spec owns, not sub_agents_spawned line items. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -79,7 +80,7 @@ Before the first sub-agent dispatch (Step 3), surface the cost preview so a mult
 
 ```yaml
 cost_estimate:
-  expected_sa_count: <triage tier → Tier 1 ~2, Tier 2 ~6, Tier 3 up to 13>
+  expected_sa_count: <triage tier → Tier 1 ~2, Tier 2 ~6, Tier 3 up to 6>
   estimated_input_tokens_static_frame: <int>
   estimated_web_research_queries: <int>
   triage_tier: light | standard | deep
@@ -158,7 +159,7 @@ Answer these now, or say 'use defaults' for any where you're comfortable with a 
    - `.hatch3r/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the feature. Note duplicates or partial overlaps.
-3. If `.hatch3r/learnings/` exists, scan for learnings relevant to the feature area. Match by area and tags against the feature brief.
+3. If `.hatch3r/learnings/` exists, scan for relevant learnings — test the feature's target file paths against each learning's `applies-to` glob and the feature area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback).
 4. Present a context summary:
 
 ```
@@ -167,7 +168,7 @@ Context Loaded:
   ADRs:             {N} files in docs/adr/ ({relevant ones listed})
   Existing todo.md: {found with N items / not found}
   Related issues:   {N} open issues with overlap ({list issue numbers})
-  Learnings:        {N} relevant learnings ({areas})
+  Learnings:        {N} relevant learnings ({topics})
   Gaps:             {list any missing context}
 ```
 
@@ -356,50 +357,7 @@ Only proceed if the architecture researcher identified decisions requiring ADRs 
 
 From the architecture researcher's "Architectural Decisions Requiring ADRs" output, create one ADR per decision.
 
-#### ADR Format — `docs/adr/{NNNN}_{decision-slug}.md`
-
-Determine the next sequential number by scanning existing files in `docs/adr/`. Use slugified decision titles.
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Context
-
-{Why this decision is needed — business and technical context, derived from the feature brief and architecture researcher findings}
-
-## Decision
-
-{What was decided and why}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-
-## Related
-
-- Feature spec: `docs/specs/{NN}_{feature-slug}.md`
-```
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton. Per-command slots: context-guidance = "business and technical context, derived from the feature brief and architecture researcher findings"; related-ref = "Feature spec: `docs/specs/{NN}_{feature-slug}.md`".
 
 **ASK:** "Here are {N} ADR(s) generated from architectural decisions for this feature. Review before I write the files:
 {list with titles}
@@ -511,9 +469,9 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 
 ## Resumability (Decision 27/30)
 
-feature-plan is long-running — a Tier 3 cross-cutting feature fans out four parallel hatch3r-researcher modes (codebase-impact, feature-design, architecture, risk-pitfalls) in Step 3, then assembles the spec via docs-writer with the 9 CQ vector specialists (ui/ux/security/reliability/testability/scalability/performance/maintainability/enhancability) advising pre-write on the measurable floors the spec must encode. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the four-researcher + nine-specialist fan-out.
+feature-plan is long-running — a Tier 3 cross-cutting feature fans out five parallel hatch3r-researcher modes (codebase-impact, feature-design, architecture, risk-assessment, similar-implementation) in Step 3, then assembles the spec via docs-writer, which encodes the CQ vector floors (axe-core threshold, OAuth depth, OTel + SLO scaffolding, mandate-map test class) inline rather than dispatching a CQ specialist. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the five-researcher fan-out.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.feature-plan-workspace/`; step range Step 0 → Step 8; `wave` = researcher-batch index, then CQ-specialist-batch index; doc dirs `docs/specs/`, `docs/adr/`, `todo.md`; `meta` adds `featureSlug`. Write points: after Step 1 feature-brief context locks, after Step 2 scope ASK, after the Step 3 four-researcher fan-out returns, after the CQ-specialist advisory batch returns, after Step 4 spec synthesis is confirmed by ASK, after each Step 5 file write, after Step 6 todo.md epic + sub-item generation, and after the optional Step 7 chain-to-`hatch3r-board-fill` handoff.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.feature-plan-workspace/`; step range Step 0 → Step 8; `wave` = researcher-batch index; doc dirs `docs/specs/`, `docs/adr/`, `todo.md`; `meta` adds `featureSlug`. Write points: after Step 1 feature-brief context locks, after Step 2 scope ASK, after the Step 3 five-researcher fan-out returns, after Step 4 spec synthesis is confirmed by ASK, after each Step 5 file write, after Step 6 todo.md epic + sub-item generation, and after the optional Step 7 chain-to-`hatch3r-board-fill` handoff.
 
 ---
 
@@ -527,20 +485,20 @@ feature-plan is long-running — a Tier 3 cross-cutting feature fans out four pa
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** — the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 13` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 2 (reduced researcher set + docs-writer); Tier 2 ≈ 6; Tier 3 up to 13 (4-5 parallel researcher modes + docs-writer + the 9 CQ vector specialists advising pre-write). Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
+Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.count: 6` × tier heuristic in `rules/hatch3r-cost-visibility.md` Pre-Execution Estimate): Tier 1 ≈ 2 (reduced researcher set + docs-writer); Tier 2 ≈ 6 (5 researcher modes + docs-writer); Tier 3 up to 6 (same 5 researcher modes + docs-writer — Tier 3's added cost is research depth per researcher, not extra fan-out). The 9 CQ vector floors (axe-core threshold, OAuth depth, OTel + SLO scaffolding, mandate-map test class) are encoded inline into the spec by docs-writer, not delegated as Task-tool sub-agents, so they are not counted here. Deltas beyond 25% absolute value carry `flagged_for_review: true`. Token telemetry sources from `src/pipeline/observability.ts`; estimation primitives from `src/pipeline/costEstimator.ts`.
 
 ---
 
@@ -573,3 +531,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **All 4 researchers must complete before proceeding to Step 4.** Do not generate specs from partial research.
 - **Respect the project's tooling hierarchy** for knowledge augmentation: project docs first, then codebase exploration, then Context7 MCP, then web research.
 - **Preserve existing todo.md content.** Never overwrite or reorganize existing items without explicit user approval.
+
+## Related
+
+- **Skill:** `hatch3r-feature` — the implement-side counterpart to this plan-only command. This command fans out parallel researcher sub-agents and a docs-writer to produce a feature spec (`docs/specs/`), ADRs, and epic-shaped `todo.md` entries; it writes no product code. Use this command to design and spec a new capability (user stories, acceptance criteria, sub-issue breakdown); use the `hatch3r-feature` skill to implement an approved spec as a vertical slice. Sequential plan → implement seam.

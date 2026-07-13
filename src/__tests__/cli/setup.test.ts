@@ -183,6 +183,107 @@ describe("setup command", () => {
     expect(initCommand).not.toHaveBeenCalled();
   });
 
+  it("treats a directory holding only inert metadata (LICENSE/.gitignore/.DS_Store) as empty and scaffolds (D1-SA1.1-08)", async () => {
+    const target = join(tempDir, "ghclone");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "LICENSE"), "MIT");
+    await writeFile(join(target, ".gitignore"), "node_modules\n");
+    await writeFile(join(target, ".DS_Store"), "");
+
+    await expect(setupCommand("ghclone", { yes: true })).resolves.toBeUndefined();
+    expect(initCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("treats a directory holding only a .cursor/ config as empty and scaffolds (import-source scenario, D1-SA1.1-08)", async () => {
+    await mkdir(join(tempDir, "cursoronly", ".cursor"), { recursive: true });
+
+    await expect(setupCommand("cursoronly", { yes: true })).resolves.toBeUndefined();
+    expect(initCommand).toHaveBeenCalledTimes(1);
+  });
+
+  it("still blocks when README.md sits alongside inert metadata — README is not ignored (D1-SA1.1-08)", async () => {
+    const target = join(tempDir, "withreadme");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "LICENSE"), "MIT");
+    await writeFile(join(target, "README.md"), "# Real project");
+
+    let thrown: unknown;
+    try {
+      await setupCommand("withreadme", { yes: true });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(HatchError);
+    expect((thrown as HatchError).errorCode).toBe("FS_ERROR");
+    expect(initCommand).not.toHaveBeenCalled();
+  });
+
+  it("names the tolerated metadata entries in the `Using directory` info line (D1-SA1.1-08)", async () => {
+    const target = join(tempDir, "named");
+    await mkdir(target, { recursive: true });
+    await writeFile(join(target, "LICENSE"), "MIT");
+    await writeFile(join(target, ".gitignore"), "dist\n");
+
+    await setupCommand("named", { yes: true });
+
+    const logged = consoleSpy.mock.calls
+      .flat()
+      .filter((l): l is string => typeof l === "string")
+      .join("\n");
+    expect(logged).toMatch(/keeping/i);
+    expect(logged).toContain("LICENSE");
+    expect(logged).toContain(".gitignore");
+  });
+
+  it("throws an actionable CONFIG_ERROR naming git when git is missing from PATH (D1-SA1.1-06)", async () => {
+    // Every git spawn fails with ENOENT (binary absent). The preflight probe
+    // must convert this into a HatchError BEFORE any directory is created —
+    // previously the raw `spawnSync git ENOENT` fell through to the generic
+    // "unexpected error" funnel.
+    vi.mocked(execFileSync).mockImplementation((...callArgs: unknown[]) => {
+      const cmd = callArgs[0] as string;
+      if (cmd === "git") {
+        const err = new Error("spawnSync git ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      }
+      return Buffer.from("");
+    });
+
+    let thrown: unknown;
+    try {
+      await setupCommand("nogit", { yes: true });
+    } catch (err) {
+      thrown = err;
+    }
+    expect(thrown).toBeInstanceOf(HatchError);
+    expect((thrown as HatchError).errorCode).toBe("CONFIG_ERROR");
+    expect((thrown as HatchError).message).toContain("git");
+    expect((thrown as HatchError).recoveryHint).toContain("git-scm.com");
+    // Preflight fires before the scaffold: no directory, no init chain.
+    await expect(access(join(tempDir, "nogit"))).rejects.toThrow();
+    expect(initCommand).not.toHaveBeenCalled();
+  });
+
+  it("skips the git preflight when the target already has .git and no --remote (gated probe)", async () => {
+    // git absent AND unneeded: .git exists so `git init` is skipped and no
+    // remote was requested — setup must succeed without spawning git at all.
+    await mkdir(join(tempDir, "hasgit", ".git"), { recursive: true });
+    vi.mocked(execFileSync).mockImplementation((...callArgs: unknown[]) => {
+      const cmd = callArgs[0] as string;
+      if (cmd === "git") {
+        const err = new Error("spawnSync git ENOENT") as NodeJS.ErrnoException;
+        err.code = "ENOENT";
+        throw err;
+      }
+      return Buffer.from("");
+    });
+
+    await expect(setupCommand("hasgit", { yes: true })).resolves.toBeUndefined();
+    expect(execCalls().filter((c) => c.cmd === "git").length).toBe(0);
+    expect(initCommand).toHaveBeenCalledTimes(1);
+  });
+
   it("a failing `gh repo create` warns but does not abort the scaffold", async () => {
     // gh auth status + git succeed; gh repo create throws.
     vi.mocked(execFileSync).mockImplementation((...callArgs: unknown[]) => {

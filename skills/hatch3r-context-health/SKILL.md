@@ -73,7 +73,7 @@ Profile resolution: read `models` in `.hatch3r/hatch.json`; default to **Large**
 4. Re-plan remaining steps from the refreshed context
 
 ### If 4 checks degraded (Orange): Delegate
-1. Create a handoff document with all context
+1. Create a handoff document with all context by invoking the `hatch3r-handoff-preparer` agent (or the `hatch3r-handoff-prepare` skill directly)
 2. Spawn a sub-agent using the Task tool with the handoff
 3. Monitor the sub-agent's output
 4. Aggregate results

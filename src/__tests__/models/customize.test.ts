@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import {
   MAX_CUSTOMIZE_MD_BYTES,
   MAX_PROTECTED_CUSTOMIZE_MD_BYTES,
+  detectSnapshotDrift,
   readCustomization,
   readCustomizationMarkdown,
   readCustomizationSnapshot,
@@ -393,6 +394,122 @@ describe("readCustomizationSnapshot (C8-D2-M4 TOCTOU guard)", () => {
     expect(result.yaml).toBeUndefined();
     expect(result.md).toBeUndefined();
     expect(result.warnings).toEqual([]);
+  });
+});
+
+// D3-SA3.4-07 (Cycle 12 Wave 4): the two snapshot tests above race a real
+// `utimes` bump against the read window and assert the "changed during sync"
+// warning only inside `if (result.warnings.length > 0)` — so when the race
+// misses, the warning branch never runs yet the tests still pass, and a
+// regression in the message text, recovery guidance, or file naming cannot
+// fail CI. Those tests stay as best-effort integration smoke. The warning
+// EMISSION given a detected mtime mismatch is deterministic pure logic, so it
+// is unit-tested here against the extracted `detectSnapshotDrift` comparator
+// with no filesystem race: yaml-only, md-only, both-changed, no-change, and
+// existence-transition cases assert the exact warning unconditionally.
+describe("detectSnapshotDrift (D3-SA3.4-07 deterministic drift emission)", () => {
+  const expectedMessage = (id: string, which: string, type: string): string =>
+    `Customization file(s) for "${id}" changed during sync (${which}). ` +
+    `Snapshot may be inconsistent — the output for this run is based on a partial read. ` +
+    `To regenerate cleanly: save all .hatch3r/${type}/*.customize.{yaml,md} edits, then ` +
+    `run \`hatch3r sync\` (no flags needed).`;
+
+  it("returns no warnings when neither mtime changed", () => {
+    const warnings = detectSnapshotDrift(
+      "agents",
+      "hatch3r-reviewer",
+      { yaml: 1000, md: 2000 },
+      { yaml: 1000, md: 2000 },
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it("returns no warnings when both files are absent before and after (undefined pair)", () => {
+    const warnings = detectSnapshotDrift(
+      "agents",
+      "hatch3r-reviewer",
+      { yaml: undefined, md: undefined },
+      { yaml: undefined, md: undefined },
+    );
+    expect(warnings).toEqual([]);
+  });
+
+  it("emits exactly the yaml warning when only the yaml mtime changed", () => {
+    const warnings = detectSnapshotDrift(
+      "agents",
+      "hatch3r-reviewer",
+      { yaml: 1000, md: 2000 },
+      { yaml: 1500, md: 2000 },
+    );
+    expect(warnings).toEqual([
+      expectedMessage("hatch3r-reviewer", ".customize.yaml", "agents"),
+    ]);
+    expect(warnings[0]).not.toContain(".customize.md)");
+  });
+
+  it("emits exactly the md warning when only the md mtime changed", () => {
+    const warnings = detectSnapshotDrift(
+      "rules",
+      "hatch3r-testing",
+      { yaml: 1000, md: 2000 },
+      { yaml: 1000, md: 2500 },
+    );
+    expect(warnings).toEqual([
+      expectedMessage("hatch3r-testing", ".customize.md", "rules"),
+    ]);
+    expect(warnings[0]).not.toContain("(.customize.yaml");
+  });
+
+  it("names both files in yaml-then-md order when both mtimes changed", () => {
+    const warnings = detectSnapshotDrift(
+      "skills",
+      "hatch3r-issue-workflow",
+      { yaml: 1000, md: 2000 },
+      { yaml: 1500, md: 2500 },
+    );
+    expect(warnings).toEqual([
+      expectedMessage(
+        "hatch3r-issue-workflow",
+        ".customize.yaml, .customize.md",
+        "skills",
+      ),
+    ]);
+  });
+
+  it("treats an ENOENT->present transition (undefined -> number) as a change", () => {
+    const warnings = detectSnapshotDrift(
+      "commands",
+      "hatch3r-board-pickup",
+      { yaml: undefined, md: 2000 },
+      { yaml: 1500, md: 2000 },
+    );
+    expect(warnings).toEqual([
+      expectedMessage("hatch3r-board-pickup", ".customize.yaml", "commands"),
+    ]);
+  });
+
+  it("treats a present->ENOENT transition (number -> undefined) as a change", () => {
+    const warnings = detectSnapshotDrift(
+      "agents",
+      "hatch3r-reviewer",
+      { yaml: 1000, md: 2000 },
+      { yaml: 1000, md: undefined },
+    );
+    expect(warnings).toEqual([
+      expectedMessage("hatch3r-reviewer", ".customize.md", "agents"),
+    ]);
+  });
+
+  it("carries the recovery guidance and the type-scoped path in the message", () => {
+    const [warning] = detectSnapshotDrift(
+      "rules",
+      "hatch3r-testing",
+      { yaml: 1000, md: undefined },
+      { yaml: 2000, md: undefined },
+    );
+    expect(warning).toContain("run `hatch3r sync` (no flags needed).");
+    expect(warning).toContain(".hatch3r/rules/*.customize.{yaml,md}");
+    expect(warning).toContain("Snapshot may be inconsistent");
   });
 });
 

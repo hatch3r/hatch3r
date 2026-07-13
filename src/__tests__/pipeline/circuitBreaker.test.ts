@@ -139,6 +139,57 @@ describe("circuitBreaker", () => {
       };
       cb = recordFailure(cb, "transient");
       expect(cb.state).toBe("OPEN");
+      // Counter pinned at the threshold so the cooldown cycle restarts stably.
+      expect(cb.consecutiveFailures).toBe(3);
+    });
+
+    // D1-SA1.9-03 (Cycle 12 Wave 3, D1, P2): the HALF_OPEN re-open is gated on
+    // `transient`, honoring the module invariant "only transient failures trip
+    // the breaker" in the one state where it matters most. A non-transient
+    // probe outcome is a DEFINITIVE answer from a reachable dependency, so it
+    // resolves the probe by CLOSING the circuit (staying HALF_OPEN would
+    // deadlock: shouldAllowRequest blocks all requests in HALF_OPEN). The
+    // pre-fix unconditional re-open pinned a persistent substantive condition
+    // (e.g. a genuinely-missing package) into an OPEN/HALF_OPEN loop for the
+    // 24h persistence TTL.
+    function halfOpenState(): CircuitBreakerState {
+      return {
+        state: "HALF_OPEN",
+        consecutiveFailures: 3,
+        lastFailureAt: new Date().toISOString(),
+        lastSuccessAt: null,
+        totalFailures: 3,
+        totalSuccesses: 0,
+        config: { failureThreshold: 3, cooldownMs: 30_000, serviceId: "test" },
+      };
+    }
+
+    it("closes the circuit on a SUBSTANTIVE failure in HALF_OPEN (reachability proven, D1-SA1.9-03)", () => {
+      const cb = recordFailure(halfOpenState(), "substantive");
+      expect(cb.state).toBe("CLOSED");
+      expect(cb.consecutiveFailures).toBe(0); // transient streak resolved
+      expect(cb.totalFailures).toBe(4); // the failure is still recorded
+      expect(cb.lastFailureAt).not.toBeNull();
+    });
+
+    it("closes the circuit on an UNKNOWN failure in HALF_OPEN (non-transient never holds the circuit)", () => {
+      const cb = recordFailure(halfOpenState(), "unknown");
+      expect(cb.state).toBe("CLOSED");
+      expect(cb.consecutiveFailures).toBe(0);
+      expect(cb.totalFailures).toBe(4);
+    });
+
+    it("after a substantive probe close, fresh transient failures re-trip the breaker from zero", () => {
+      // The reset counter must give the dependency a full threshold budget
+      // again — not trip on the first transient after the close.
+      let cb = recordFailure(halfOpenState(), "substantive");
+      expect(cb.state).toBe("CLOSED");
+      cb = recordFailure(cb, "transient");
+      expect(cb.state).toBe("CLOSED");
+      cb = recordFailure(cb, "transient");
+      expect(cb.state).toBe("CLOSED");
+      cb = recordFailure(cb, "transient");
+      expect(cb.state).toBe("OPEN"); // threshold=3 reached again
     });
   });
 

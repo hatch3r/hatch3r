@@ -35,6 +35,7 @@ Targets align with Google's "Good" thresholds (measured at p75 from real user da
 - **LCP optimization**: preload hero images/fonts, inline critical CSS, use `fetchpriority="high"` on LCP elements, server-side render above-the-fold content.
 - **INP optimization**: break long tasks with `scheduler.yield()`, defer non-critical event handlers, avoid layout thrashing in input handlers, keep interaction callbacks < 100ms.
 - **CLS optimization**: set explicit `width`/`height` on images and embeds, reserve space for dynamic content, avoid inserting content above the viewport after load.
+- **UI/UX floor link**: the `fetchpriority="high"` LCP hint and deferred non-critical JS above are this rule's half of the generated-UI Core Web Vitals floor; the layout-stability half (`aspect-ratio`, explicit `width`/`height`, INP task-splitting) lives in `rules/hatch3r-ux-states-and-flows.md`, and `skills/hatch3r-ui-ux-verify` reaches both halves in one gate.
 
 ## API Response Time Budgets
 

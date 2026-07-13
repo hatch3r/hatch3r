@@ -248,7 +248,14 @@ export async function learnCaptureCommand(options: LearnCaptureOptions): Promise
     ],
     style: "success",
     nextSteps: [
-      "Captured. Learnings are consulted automatically via `.hatch3r/learnings/INDEX.md`.",
+      // D13-SA13.4-02: state the true post-condition. `learn capture` writes the
+      // learning file but does NOT regenerate `.hatch3r/learnings/INDEX.md` (an
+      // agent-maintained file — "no CLI writes it" per the INDEX.md Format
+      // contract in `rules/hatch3r-learning-system.md`). The INDEX-first
+      // consultation gate skips non-INDEXed rows, so claiming automatic
+      // consultation here would violate the Silent Failure Contract.
+      "Written to `.hatch3r/learnings/`. This command does not update `.hatch3r/learnings/INDEX.md`.",
+      "Regenerate INDEX.md (re-run the /learn skill, which rebuilds it) so the INDEX-first consultation gate can surface this learning.",
     ],
     json: {
       written: true,

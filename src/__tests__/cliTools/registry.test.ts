@@ -21,20 +21,48 @@ import {
 describe("AVAILABLE_CLI_TOOLS registry", () => {
   const allEntries = Object.values(AVAILABLE_CLI_TOOLS) as readonly CliToolMeta[];
 
-  it("contains the expected tier counts (11/13/10)", () => {
+  it("contains the expected tier counts (11/13/15)", () => {
     const tier1 = allEntries.filter((t) => t.tier === 1);
     const tier2 = allEntries.filter((t) => t.tier === 2);
     const tier3 = allEntries.filter((t) => t.tier === 3);
 
     // Cycle 10 D21-SA21.7-F-21.7.1: tier counts updated when the HTTP
-    // category (curl/httpie/xh), dasel, and container-use landed —
-    // 11 tier-1 default-on, 13 tier-2 conditional, 10 tier-3 opt-in.
+    // category (curl/httpie/xh), dasel, and container-use landed.
+    // Cycle 12 D21-SA21.7-05: tier-3 grew 10 → 15 with the CL-2 additions
+    // (crush, jaq, tombi, hurl, tea) — 11 tier-1 default-on, 13 tier-2
+    // conditional, 15 tier-3 opt-in.
     expect(tier1.length).toBe(11);
     expect(tier2.length).toBe(13);
-    expect(tier3.length).toBe(10);
-    // Total catalog size 34 — surfaces accidental tool additions without
+    expect(tier3.length).toBe(15);
+    // Total catalog size 39 — surfaces accidental tool additions without
     // tier classification updates.
-    expect(allEntries.length).toBe(34);
+    expect(allEntries.length).toBe(39);
+  });
+
+  it("tier arrays partition AVAILABLE_CLI_TOOLS exactly — the section-header counts are un-driftable (D21-SA21.4-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.4-05: the `// ── Tier N (M tools) ──` section-header
+    // comments in registry.ts are hand-maintained and had drifted — tier 1 read
+    // "10 tools" after curl's Cycle-11 admission made it 11. Comments are not
+    // runtime-readable, so this asserts the next-best invariant: each tier array
+    // is exactly the set of registry entries at that tier (both directions), and
+    // the three tiers partition the whole catalog. A tool added to the registry
+    // without a matching tier-array update — or vice versa — now fails here.
+    const registryTierIds = (n: 1 | 2 | 3): string[] =>
+      allEntries.filter((t) => t.tier === n).map((t): string => t.id).sort();
+    const sorted = (ids: readonly string[]): string[] => [...ids].sort();
+    expect(sorted(TIER1_CLI_TOOLS)).toEqual(registryTierIds(1));
+    expect(sorted(TIER3_CLI_TOOLS)).toEqual(registryTierIds(3));
+    // Tier-2 tools may appear under multiple triggers (taplo: rust + python), so
+    // compare the DISTINCT tool set across all triggers against the registry.
+    const tier2FromTriggers = sorted([
+      ...new Set(Object.values(TIER2_CLI_TOOLS_BY_TRIGGER).flat()),
+    ]);
+    expect(tier2FromTriggers).toEqual(registryTierIds(2));
+    // The partition sums to the full catalog — the count the section headers
+    // assert (11 + 13 + 10 = 34).
+    expect(
+      registryTierIds(1).length + registryTierIds(2).length + registryTierIds(3).length,
+    ).toBe(Object.keys(AVAILABLE_CLI_TOOLS).length);
   });
 
   it("snapshot of AVAILABLE_CLI_TOOLS keys (drift gate)", () => {
@@ -50,6 +78,7 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "bat",
         "comby",
         "container-use",
+        "crush",
         "csvkit",
         "curl",
         "dasel",
@@ -62,6 +91,8 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "gh",
         "glab",
         "httpie",
+        "hurl",
+        "jaq",
         "jq",
         "lazygit",
         "llm",
@@ -75,6 +106,8 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
         "sd",
         "stagehand",
         "taplo",
+        "tea",
+        "tombi",
         "xh",
         "yq",
         "zstd",
@@ -83,9 +116,10 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
   });
 
   it("registry replaces archived xsv with active qsv fork (D21-SA21.3-F01)", () => {
-    // BurntSushi/xsv was archived 2025-04-24; jqnatividad/qsv is the active
-    // successor with a superset of xsv's command set. The registry must not
-    // ship the archived id.
+    // BurntSushi/xsv was archived 2025-04-24; qsv — canonically dathere/qsv
+    // after the org transfer (Cycle 12 D21-SA21.3-05) — is the active successor
+    // with a superset of xsv's command set. The registry must not ship the
+    // archived id.
     const keys = Object.keys(AVAILABLE_CLI_TOOLS);
     expect(keys).toContain("qsv");
     expect(keys).not.toContain("xsv");
@@ -95,31 +129,42 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(qsv!.id).toBe("qsv");
     expect(qsv!.tier).toBe(2);
     expect(qsv!.trigger).toBe("data-project");
-    expect(qsv!.homepage).toContain("jqnatividad/qsv");
+    // Cycle 12 D21-SA21.3-05: the project transferred to the dathere org; the
+    // D15.7 provenance fields must point at the canonical repo, not the
+    // jqnatividad GitHub transfer-redirect.
+    expect(qsv!.homepage).toContain("dathere/qsv");
+    expect(qsv!.sourceRepo).toContain("dathere/qsv");
+    expect(qsv!.homepage).not.toContain("jqnatividad");
+    expect(qsv!.sourceRepo).not.toContain("jqnatividad");
   });
 
-  it("jq entry carries a minVersion floor at 1.8.1 (D21-SA21.3-F-21.3.1, Cycle 10)", () => {
-    // Cycle 10 D21-SA21.3-F-21.3.1 (F-21.7.1 work-unit jq pin refresh):
-    // 1.8.1 (2025-07-01) remains the only tagged release at audit time;
-    // pinning the floor forces older 1.7.x installs (still on Ubuntu 22.04
-    // LTS apt) to upgrade past the 2024 CVE-2023-49355 / CVE-2024-53427
-    // cluster before exposure to the 2026 advisory pressure.
+  it("jq entry floors at >=1.8.2 for the 16-CVE cluster fixed in 1.8.2 (D21-SA21.3-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.3-01: jq 1.8.2 (2026-06-20) superseded 1.8.1 as the
+    // security release, fixing a 16-CVE stack/integer-overflow + NUL-truncation
+    // + use-after-free cluster (CVE-2026-32316 … CVE-2026-54679). The prior
+    // >=1.8.1 floor certified the exact vulnerable build as acceptable; the
+    // floor is raised to >=1.8.2, which still clears the 2024 CVE-2023-49355 /
+    // CVE-2024-53427 1.7.x cluster the prior comment cited.
     const jq = AVAILABLE_CLI_TOOLS.jq;
-    expect(jq.minVersion).toBe(">=1.8.1");
+    expect(jq.minVersion).toBe(">=1.8.2");
   });
 
-  it("jq securityNote points at the upstream advisories page as canonical roster (D21-SA21.3-F-21.3.2, Cycle 10)", () => {
-    // Cycle 10 D21-SA21.3-F-21.3.2 (F-21.7.1 work-unit jq pin refresh):
-    // the upstream tab is the canonical CVE roster (10+ GHSA entries at
-    // audit time, growing). Enumerating specific CVE IDs in the registry
-    // comment created maintenance debt that aged out within weeks — the
-    // refreshed note routes consumers to the stable URL plus an install-
-    // side mitigation contract while no tagged release supersedes 1.8.1.
+  it("jq securityNote names the 1.8.2-fixed CVE cluster and drops the stale unfixed-advisory framing (D21-SA21.3-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.3-01: the prior note called the 2026 advisories
+    // "unfixed" and prescribed external validation / sandboxing as the only
+    // mitigation — wrong once jq 1.8.2 shipped the fixes. The refreshed note
+    // names the cluster bounds (CVE-2026-32316 … CVE-2026-54679), the patched
+    // version, and reframes the sandbox guidance as for-un-upgradable-builds-only.
     const jq = AVAILABLE_CLI_TOOLS.jq;
     expect(jq.securityNote).toBeDefined();
-    expect(jq.securityNote).toContain("https://github.com/jqlang/jq/security/advisories");
-    expect(jq.securityNote).toContain("1.8.1");
-    expect(jq.securityNote).toMatch(/sandbox|isolat/i);
+    expect(jq.securityNote).toContain("1.8.2");
+    expect(jq.securityNote).toContain("CVE-2026-32316");
+    expect(jq.securityNote).toContain("CVE-2026-54679");
+    expect(jq.securityNote).toMatch(/16-CVE/);
+    // The discredited "unfixed advisories" framing and the now-dead
+    // advisories-page roster pointer are gone.
+    expect(jq.securityNote).not.toMatch(/unfixed advisories/i);
+    expect(jq.securityNote).not.toContain("the only tagged release as of 2026-05-27");
   });
 
   it("az-devops entry declares an extensionProbe for the azure-devops extension (D21-M6, Cycle 10)", () => {
@@ -137,18 +182,39 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(azDevops!.extensionProbe!.name).toBe("azure-devops");
   });
 
-  it("gh entry floors at >=2.93.0 + securityNote attributes the Authorization-header leak to CVE-2026-48501 (D21-1/D21-2, Cycle 11)", () => {
-    // Cycle 11 D21-1/D21-2 (SA21.5-F1/F2): the prior note misattributed the
-    // token leak to GHSA-crc3-h8v6-qh57. That advisory is CVE-2026-45803 (LOW
-    // terminal-escape-sequence injection in `gh run view --log`, fixed 2.92.0).
-    // The real Authorization-header leak to TUF mirrors is CVE-2026-48501 /
-    // GHSA-8xvp-7hj6-mcj9, fixed in 2.93.0 — so the floor is raised to >=2.93.0
-    // and the securityNote attributes each advisory to its correct CVE.
+  it("ast-grep entry declares an extensionProbe disambiguating shadow-utils sg (D21-SA21.1-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.1-01: the `sg` probe false-positives on Linux, where the
+    // shadow-utils `login` package ships an unrelated /usr/bin/sg (setgroups) in
+    // the base system — `command -v sg` then resolves for a machine without
+    // ast-grep. The probe stays `sg` (the generated skill still invokes it) and
+    // this extensionProbe runs `sg --version`, reporting installed only when
+    // stdout carries "ast-grep" (mirrors the az-devops extensionProbe pattern).
+    const astGrep = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)["ast-grep"];
+    expect(astGrep).toBeDefined();
+    expect(astGrep!.probe).toBe("sg");
+    expect(astGrep!.extensionProbe).toBeDefined();
+    expect(astGrep!.extensionProbe!.args).toEqual(["--version"]);
+    expect(astGrep!.extensionProbe!.expectInStdout).toBe("ast-grep");
+    expect(astGrep!.extensionProbe!.name).toBe("ast-grep");
+  });
+
+  it("gh entry floors at >=2.96.0 for CVE-2026-59831 + securityNote enumerates the codespace-jupyter advisory (D21-SA21.5-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.5-01: GHSA-8cg3-r6g9-fpg2 / CVE-2026-59831 (CVSS 4.4,
+    // published 2026-07-02) makes `gh codespace jupyter` open an unvalidated
+    // `vscode://` URL from a malicious codespace → command execution on the
+    // host; affected v2.10.0+, patched only in v2.96.0. The prior >=2.93.0 floor
+    // recommended an affected build, so it is raised to >=2.96.0 and the
+    // advisory is appended while the Cycle-11 attributions are preserved.
     const gh = AVAILABLE_CLI_TOOLS.gh;
-    expect(gh.minVersion).toBe(">=2.93.0");
+    expect(gh.minVersion).toBe(">=2.96.0");
     expect(gh.securityNote).toBeDefined();
-    // The Authorization-header leak (the HIGH-impact token exposure) is the
-    // real CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9, fixed 2.93.0.
+    // The Cycle-12 codespace-jupyter advisory + its patched floor.
+    expect(gh.securityNote).toContain("CVE-2026-59831");
+    expect(gh.securityNote).toContain("GHSA-8cg3-r6g9-fpg2");
+    expect(gh.securityNote).toContain("2.96.0");
+    expect(gh.securityNote).toContain("codespace jupyter");
+    // The Cycle-11 Authorization-header leak (the HIGH-impact token exposure) is
+    // still the real CVE-2026-48501 / GHSA-8xvp-7hj6-mcj9, fixed 2.93.0.
     expect(gh.securityNote).toContain("CVE-2026-48501");
     expect(gh.securityNote).toContain("GHSA-8xvp-7hj6-mcj9");
     expect(gh.securityNote).toContain("2.93.0");
@@ -224,32 +290,60 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(docker.securityNote).toContain("29.3.1");
   });
 
-  it("curl entry tier-1 minVersion >=8.20.0 + securityNote cites the 8.20.0-specific CVEs with accurate severity (D21-14, Cycle 11)", () => {
-    // Cycle 11 D21-14 (SA21.4-F1): the prior note rolled seven CVEs together as
-    // "all fixed in 8.20.0" and labelled them "Medium-and-Low" — both wrong
-    // (CVE-2026-3805 fixed 8.18.0, CVE-2026-3783 fixed 8.17.0; CVE-2026-6253 is
-    // High). The corrected note cites the three advisories actually resolved by
-    // the 8.20.0 release (CVE-2026-5773/5545/4873) plus the earlier High
-    // CVE-2026-6253, and states the >=8.20.0 floor clears the cumulative
-    // backlog. The inaccurate CVE-2026-7168 roster is gone.
+  it("curl entry tier-1 minVersion >=8.21.0 + securityNote marks 8.20.0 advisory-affected and 8.21.0 the clean floor (D21-SA21.4-01, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.4-01: curl 8.21.0 shipped 2026-06-24; curl.se's
+    // vuln-8.20.0.html now lists 18 published problems for 8.20.0 (incl.
+    // CVE-2026-11856, fixed in 8.21.0), while vuln-8.21.0.html lists 0. The
+    // prior >=8.20.0 floor + its "8.20.0 documented clean" claim are stale, so
+    // the floor is raised to >=8.21.0 and the note reframes 8.20.0 as
+    // advisory-affected. The Cycle-11 historical roster
+    // (CVE-2026-5773/5545/4873 + the High CVE-2026-6253) is preserved.
     const curl = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).curl;
     expect(curl).toBeDefined();
     expect(curl!.id).toBe("curl");
     expect(curl!.tier).toBe(1);
     expect(curl!.category).toBe("http");
-    expect(curl!.minVersion).toBe(">=8.20.0");
+    expect(curl!.minVersion).toBe(">=8.21.0");
     expect(curl!.securityNote).toBeDefined();
-    // The three advisories specific to the 8.20.0 release.
+    // The new clean floor + the advisory that pushed 8.20.0 out of the floor.
+    expect(curl!.securityNote).toContain("8.21.0");
+    expect(curl!.securityNote).toContain("CVE-2026-11856");
+    // The Cycle-11 historical roster is preserved.
     expect(curl!.securityNote).toContain("CVE-2026-5773");
     expect(curl!.securityNote).toContain("CVE-2026-5545");
     expect(curl!.securityNote).toContain("CVE-2026-4873");
-    // The earlier High advisory is named with correct severity.
+    // The earlier High advisory is still named with correct severity.
     expect(curl!.securityNote).toContain("CVE-2026-6253");
     expect(curl!.securityNote).toMatch(/High/);
-    expect(curl!.securityNote).toContain("8.20.0");
-    // The discredited "all fixed in 8.20.0 / Medium-and-Low" framing is gone.
+    // The stale "8.20.0 documented clean" framing is retired.
+    expect(curl!.securityNote).not.toContain("documented clean");
+    // The discredited Cycle-10 framing stays gone.
     expect(curl!.securityNote).not.toContain("CVE-2026-7168");
     expect(curl!.securityNote).not.toMatch(/Medium-and-Low/);
+  });
+
+  it("zstd carries a drift-baseline minVersion 1.5.7 + securityNote citing CVE-2022-4899 (D15-SA15.7-02 / D21-SA21.2-02, Cycle 12)", () => {
+    // Cycle 12 D15-SA15.7-02: zstd was OSV-exempt with no compensating floor or
+    // note. D21-SA21.2-02 adds a Meta ~annual-cadence drift-baseline pin (1.5.7,
+    // bare doc-pin form per the glab/miller precedent) and a securityNote
+    // recording the historical CVE-2022-4899 (HIGH, cleared by any 1.5.x build).
+    const zstd = AVAILABLE_CLI_TOOLS.zstd;
+    expect(zstd.minVersion).toBe("1.5.7");
+    expect(zstd.securityNote).toBeDefined();
+    expect(zstd.securityNote).toContain("CVE-2022-4899");
+    expect(zstd.securityNote).toMatch(/HIGH/);
+  });
+
+  it("bat + fd declare Debian-rename probeFallbacks (batcat / fdfind) (D21-SA21.2-03, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.2-03: the recommended `apt install bat` / `apt install
+    // fd-find` channels install the binaries as `batcat` / `fdfind`, so a bare
+    // `command -v bat`/`fd` probe false-negatives on Debian/Ubuntu. The
+    // probeFallbacks let detect.ts resolve the renamed binary before reporting
+    // the tool absent.
+    const bat = AVAILABLE_CLI_TOOLS.bat;
+    const fd = AVAILABLE_CLI_TOOLS.fd;
+    expect(bat.probeFallbacks).toEqual(["batcat"]);
+    expect(fd.probeFallbacks).toEqual(["fdfind"]);
   });
 
   it("httpie entry registered as tier-2 web-project (D21-SA21.4-F03, Cycle 10)", () => {
@@ -278,19 +372,25 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(xh!.minVersion).toBe(">=0.25.3");
   });
 
-  it("playwright entry floors at >=1.55.1 + securityNote cites the installer-MitM + Chromium-roll CVEs (D21-4, Cycle 11)", () => {
-    // Cycle 11 D21-4 (SA21.6-F1): playwright was the only tier-2 browser tool
-    // with no version floor while its sandbox image is recommended for
-    // navigating untrusted URLs. CVE-2025-59288 (installer MitM in
-    // `npx playwright install`, CVSS 8.7) is fixed in 1.55.1; the bundled
-    // Chromium carries CVE-2026-2441 (rolled per monthly release). The entry
-    // pins >=1.55.1 and the securityNote carries the Chromium-currency caution.
+  it("playwright floors at >=1.60.0 to machine-cover the CVE-2026-2441 Chromium fix + retains the installer-MitM CVE note (D21-SA21.6-07, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.6-07: the prior >=1.55.1 floor machine-covered only the
+    // installer CVE (CVE-2025-59288, fixed 1.55.1), leaving the bundled-Chromium
+    // RCE CVE-2026-2441 (fixed in Chromium 146.0.7680.31, playwright issue
+    // #39574) to prose alone. v1.60.0 is the earliest release verified to bundle
+    // a Chromium past that fix (148.0.7778.96, per the playwright releases page
+    // accessed 2026-07-11) — 1.59.x's bundled Chromium is unlisted there — so the
+    // floor is raised to >=1.60.0 to enforce both CVEs. The installer-CVE tokens
+    // (CVE-2025-59288 / 1.55.1) and CVE-2026-2441 stay in the securityNote.
     const playwright = AVAILABLE_CLI_TOOLS.playwright;
-    expect(playwright.minVersion).toBe(">=1.55.1");
+    expect(playwright.minVersion).toBe(">=1.60.0");
     expect(playwright.securityNote).toBeDefined();
     expect(playwright.securityNote).toContain("CVE-2025-59288");
     expect(playwright.securityNote).toContain("CVE-2026-2441");
+    // The installer-CVE fix version is retained; the new browser-engine floor is named.
     expect(playwright.securityNote).toContain("1.55.1");
+    expect(playwright.securityNote).toContain("1.60.0");
+    // The Chromium fix build is cited so the floor's basis is auditable.
+    expect(playwright.securityNote).toContain("146.0.7680.31");
   });
 
   it("sd Linux recipe uses cargo binstall (v1.1.0 GitHub-release binary) + minVersion >=1.1.0 (D21-6, Cycle 11)", () => {
@@ -340,16 +440,272 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     expect(containerUse!.minVersion).toBe(">=0.4.2");
   });
 
-  it("podman entry carries minVersion + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-F03)", () => {
+  it("mods discloses the upstream archive + crush successor via caveat and description (D21-SA21.6-02 / D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.6-02: charmbracelet/mods was archived upstream
+    // (2026-03-09) with crush as the same-org successor, yet the entry carried
+    // no disclosure while staler peers (httpie, container-use) did. mods is
+    // retained (removal is a B1-gated owner decision, staged next cycle per
+    // rules/hatch3r-tool-currency.md:68); the caveat + description surface the
+    // EOL state to the picker and the toolbox.
+    const mods = AVAILABLE_CLI_TOOLS.mods;
+    expect(mods.caveat).toBe("upstream-archived-superseded-by-crush");
+    expect(mods.description).toContain("archived 2026-03-09");
+    expect(mods.description).toContain("crush");
+    expect(mods.tier).toBe(3);
+  });
+
+  it("crush registered as tier-3 ai — the archived-mods successor, signed channels on all 3 OSes (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P2; home D21-SA21.6-09): crush is
+    // charmbracelet's designated mods successor, verified v0.84.1 (2026-07-11)
+    // with 0 GitHub advisories, accessed 2026-07-12. The linux recipe must be
+    // the Charm signed-apt keyring one-liner (gh D21-17 precedent) — a bare
+    // `sudo apt install crush` fails without the repo.charm.sh repo.
+    const crush = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).crush;
+    expect(crush).toBeDefined();
+    expect(crush!.id).toBe("crush");
+    expect(crush!.tier).toBe(3);
+    expect(crush!.category).toBe("ai");
+    expect(crush!.minVersion).toBe("0.84.1");
+    expect(crush!.license).toBe("FSL-1.1-MIT");
+    const linux = crush!.install.linux.map((c) => c.command);
+    expect(linux).not.toContain("sudo apt install crush");
+    expect(linux.some((c) => c.includes("repo.charm.sh"))).toBe(true);
+    expect(linux.some((c) => c.includes("signed-by=/etc/apt/keyrings/charm.gpg"))).toBe(true);
+  });
+
+  it("jaq registered as tier-3 json — the memory-safe jq peer with --locked cargo recipes (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home D21-SA21.3-07): jaq is the
+    // security-audited memory-safe hedge against jq's 16-CVE 2026 cluster
+    // (D21-SA21.3-01). Verified v3.1.0 (2026-06-11), 0 advisories, accessed
+    // 2026-07-12. Cargo recipes pin --locked per the ast-grep/xh/qsv precedent.
+    const jaq = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).jaq;
+    expect(jaq).toBeDefined();
+    expect(jaq!.id).toBe("jaq");
+    expect(jaq!.tier).toBe(3);
+    expect(jaq!.category).toBe("json");
+    expect(jaq!.minVersion).toBe("3.1.0");
+    for (const os of ["linux", "win"] as const) {
+      const commands = jaq!.install[os].map((c) => c.command);
+      expect(commands).toContain("cargo install --locked jaq");
+    }
+  });
+
+  it("tombi registered as tier-3 yaml — the maintained taplo alternative, taplo retained (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home D21-SA21.3-02/-07): tombi is the
+    // active peer to the trajectory-negative taplo (maintainer stepdown,
+    // tamasfe/taplo#715). Verified v1.2.0 (2026-07-05), 0 advisories, accessed
+    // 2026-07-12. taplo stays registered — demotion is a B1-gated owner
+    // decision staged for the next cycle.
+    const tombi = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).tombi;
+    expect(tombi).toBeDefined();
+    expect(tombi!.id).toBe("tombi");
+    expect(tombi!.tier).toBe(3);
+    expect(tombi!.category).toBe("yaml");
+    expect(tombi!.minVersion).toBe("1.2.0");
+    // The unsigned curl-piped-shell vendor channel must not be registered.
+    for (const os of ["mac", "linux", "win"] as const) {
+      for (const c of tombi!.install[os]) {
+        expect(c.command).not.toContain("install.sh");
+      }
+    }
+    expect((AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).taplo).toBeDefined();
+  });
+
+  it("hurl registered as tier-3 http with the >=7.0.0 GHSA floor + securityNote (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home D21-SA21.4-06): hurl covers the
+    // assertion-based HTTP test-file cell none of curl/httpie/xh expresses.
+    // GHSA-v33j-v3x4-42qg (Moderate, no CVE assigned): `hurlfmt --out html`
+    // regex-literal injection on builds <=6.1.1, patched 7.0.0 — hence the
+    // range-form floor (delta precedent). Verified 8.0.1 (2026-04-29),
+    // accessed 2026-07-12.
+    const hurl = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).hurl;
+    expect(hurl).toBeDefined();
+    expect(hurl!.id).toBe("hurl");
+    expect(hurl!.tier).toBe(3);
+    expect(hurl!.category).toBe("http");
+    expect(hurl!.minVersion).toBe(">=7.0.0");
+    expect(hurl!.securityNote).toBeDefined();
+    expect(hurl!.securityNote).toContain("GHSA-v33j-v3x4-42qg");
+    expect(hurl!.securityNote).toContain("7.0.0");
+  });
+
+  it("tea registered as tier-3 forge with a Gitea-disambiguating extensionProbe + gitea.com sourceRepo (D21-SA21.7-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-05 (CL-2 P3; home D21-SA21.5-05): tea closes the
+    // Gitea/Forgejo/Codeberg forge-family coverage gap. The bare `tea` probe
+    // collides (Debian's TEA Qt editor at /usr/bin/tea; legacy teaxyz tea), so
+    // detection confirms identity via `tea --help` stdout containing "Gitea" —
+    // `tea --version` is unusable because gitea/tea's custom VersionPrinter
+    // prints the bare version with no name prefix (cmd/cmd.go, verified
+    // 2026-07-12). Verified v0.14.2 (2026-06-26), 0 advisories.
+    const tea = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).tea;
+    expect(tea).toBeDefined();
+    expect(tea!.id).toBe("tea");
+    expect(tea!.tier).toBe(3);
+    expect(tea!.category).toBe("forge");
+    expect(tea!.minVersion).toBe("0.14.2");
+    expect(tea!.extensionProbe).toBeDefined();
+    expect(tea!.extensionProbe!.args).toEqual(["--help"]);
+    expect(tea!.extensionProbe!.expectInStdout).toBe("Gitea");
+    expect(tea!.extensionProbe!.name).toBe("tea");
+    // Canonical VCS home is the Gitea forge itself (no GitHub mirror).
+    expect(tea!.sourceRepo).toBe("https://gitea.com/gitea/tea");
+    // The go-install recipes pin the documented release tag (dasel precedent).
+    for (const os of ["linux", "win"] as const) {
+      const commands = tea!.install[os].map((c) => c.command);
+      expect(commands).toContain("go install gitea.dev/tea@v0.14.2");
+    }
+  });
+
+  it("podman floor is normalized to the >=5.8.2 range form + Windows-only securityNote citing CVE-2026-33414 (D21-SA21.6-04, Cycle 12)", () => {
     // C9-H92: Podman 5.8.2 patches CVE-2026-33414 — Windows-only PowerShell
     // command injection on the Hyper-V backend via `podman machine init`.
-    // The securityNote carries an explicit `Windows only` prefix so mac /
-    // linux consumers see the platform scope inline.
+    // Cycle 12 D21-SA21.6-04: podman shipped a 6.x major that the unpinned
+    // channels now resolve to; the floor stays at 5.8.2 (still clears the only
+    // podman CVE) but is normalized from the bare "5.8.2" string to the
+    // ">=5.8.2" range form so it reads unambiguously as a floor (matching
+    // docker's ">=29.5.2"), not an exact pin.
     const podman = AVAILABLE_CLI_TOOLS.podman;
-    expect(podman.minVersion).toBe("5.8.2");
+    expect(podman.minVersion).toBe(">=5.8.2");
     expect(podman.securityNote).toBeDefined();
     expect(podman.securityNote).toContain("CVE-2026-33414");
     expect(podman.securityNote).toContain("Windows only");
+  });
+
+  it("ast-grep linux cargo recipe pins --locked for supply-chain reproducibility (D21-SA21.1-05, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.1-05: `cargo install ast-grep` omitted `--locked`,
+    // diverging from its own toolbox skill row and from every other
+    // cargo-installed registry tool (xh/taplo/qsv/difftastic). `--locked`
+    // resolves against the crate's committed Cargo.lock instead of
+    // channel-current transitive deps.
+    const astGrep = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>)["ast-grep"];
+    expect(astGrep).toBeDefined();
+    const linux = astGrep!.install.linux.map((c) => c.command);
+    expect(linux).toContain("cargo install ast-grep --locked");
+    expect(linux).not.toContain("cargo install ast-grep");
+  });
+
+  it("dasel linux go-install is pinned to the v3.11.0 floor tag, not @latest (D15-SA15.7-05, Cycle 12)", () => {
+    // Cycle 12 D15-SA15.7-05: the dasel linux recipe installed `@latest` while
+    // the entry's own minVersion is ">=3.11.0" and the securityNote says pin
+    // >=3.11.0 — a floating @latest cannot honor the stated floor. Pinned to the
+    // v3.11.0 tag (the go-module `/v3` path takes `v3.x.y` tags).
+    const dasel = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).dasel;
+    expect(dasel).toBeDefined();
+    const linux = dasel!.install.linux.map((c) => c.command);
+    expect(linux.some((c) => c.includes("dasel/v3/cmd/dasel@v3.11.0"))).toBe(true);
+    expect(linux.some((c) => c.includes("@latest"))).toBe(false);
+    // The pinned tag satisfies the entry's own stated floor.
+    expect(dasel!.minVersion).toBe(">=3.11.0");
+  });
+
+  it("stagehand is marked packageType: 'library' — its npm package ships no bin (D21-SA21.7-04, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-04 (detection-contract class C): @browserbasehq/stagehand
+    // is an npm library with no executable bin, so a `command -v stagehand` PATH
+    // probe can never resolve. packageType: "library" records that shape so the
+    // npm-global-bin gate below exempts it (and the class-C detection follow-on
+    // can suppress the meaningless PATH probe).
+    const stagehand = (AVAILABLE_CLI_TOOLS as Record<string, CliToolMeta | undefined>).stagehand;
+    expect(stagehand).toBeDefined();
+    expect(stagehand!.packageType).toBe("library");
+  });
+
+  it("registry invariant (i): every `npm install -g` tool declares a CLI bin or is packageType: 'library' (D21-SA21.7-04, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-04 (detection-contract class C — net-new gate): the
+    // detection contract resolves every tool by a single PATH probe, so a tool
+    // whose npm package ships NO executable (stagehand) registers a probe that
+    // can never resolve. This gate forces a bin-audit decision at every
+    // npm-global registration: the entry must EITHER be a bin-declaring package
+    // listed in NPM_GLOBAL_BIN_DECLARING (after verifying its published `bin`
+    // map) OR be explicitly marked packageType: "library". The curated allowlist
+    // is the offline-enforceable form of the finding's "fixture-checked" intent —
+    // no future tool can silently re-introduce the class-C bug.
+    const NPM_GLOBAL_BIN_DECLARING = new Set<string>([
+      // npm-global packages verified to ship an executable `bin`. Empty today:
+      // stagehand (the only `npm install -g` entry) ships no bin and is
+      // packageType: "library". Add an id here only after confirming the
+      // package's published `bin` map is non-empty.
+    ]);
+    for (const entry of allEntries) {
+      const npmGlobal = (["mac", "linux", "win"] as const).some((os) =>
+        entry.install[os].some((c) => /\bnpm install -g\b/.test(c.command)),
+      );
+      if (!npmGlobal) continue;
+      const accounted = NPM_GLOBAL_BIN_DECLARING.has(entry.id) || entry.packageType === "library";
+      expect(
+        accounted,
+        `${entry.id} installs via 'npm install -g' but neither declares a bin (add to NPM_GLOBAL_BIN_DECLARING after a bin audit) nor is marked packageType: "library" — a PATH probe on a no-bin package can never resolve (D21-SA21.7-04 class C)`,
+      ).toBe(true);
+    }
+  });
+
+  it("registry invariant (ii): every probe is collision-audited; colliding probes carry a disambiguation extensionProbe (D21-SA21.7-04, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.7-04 (detection-contract class A — net-new gate): a bare
+    // `command -v <probe>` false-positives when the probe name resolves for a
+    // machine that lacks the actual tool — either an unrelated system binary
+    // (ast-grep's `sg` => shadow-utils /usr/bin/sg) or a base CLI present without
+    // its extension (az-devops's `az` without the azure-devops extension). Every
+    // registry probe must carry an explicit collision verdict here (so adding a
+    // tool forces a probe audit), and any probe audited as colliding MUST declare
+    // an extensionProbe so detect.ts confirms identity before reporting installed.
+    const PROBE_COLLISION_AUDIT: Record<string, { collides: boolean; note?: string }> = {
+      rg: { collides: false },
+      fd: { collides: false },
+      jq: { collides: false },
+      yq: { collides: false },
+      gh: { collides: false },
+      delta: { collides: false },
+      bat: { collides: false },
+      sd: { collides: false },
+      sg: { collides: true, note: "shadow-utils /usr/bin/sg (setgroups) on Linux — ast-grep issue #706/#1659" },
+      zstd: { collides: false },
+      curl: { collides: false },
+      playwright: { collides: false },
+      http: { collides: false },
+      xh: { collides: false },
+      duckdb: { collides: false },
+      qsv: { collides: false },
+      taplo: { collides: false },
+      glab: { collides: false },
+      az: { collides: true, note: "base Azure CLI resolves without the azure-devops extension" },
+      docker: { collides: false },
+      llm: { collides: false },
+      fzf: { collides: false },
+      lazygit: { collides: false },
+      difft: { collides: false },
+      rtk: { collides: false },
+      stagehand: { collides: false },
+      aichat: { collides: false },
+      mods: { collides: false },
+      comby: { collides: false },
+      mlr: { collides: false },
+      csvlook: { collides: false },
+      podman: { collides: false },
+      dasel: { collides: false },
+      "container-use": { collides: false },
+      // Cycle 12 D21-SA21.7-05 CL-2 additions.
+      crush: { collides: false },
+      jaq: { collides: false },
+      tombi: { collides: false },
+      hurl: { collides: false },
+      tea: {
+        collides: true,
+        note:
+          "Debian ships an unrelated `tea` package (TEA Qt text editor, /usr/bin/tea) and legacy teaxyz tea installs (pre-pkgx rename) share the name — gitea/tea disambiguates via `tea --help` stdout containing 'Gitea'",
+      },
+    };
+    for (const entry of allEntries) {
+      const verdict = PROBE_COLLISION_AUDIT[entry.probe];
+      expect(
+        verdict,
+        `probe "${entry.probe}" (${entry.id}) is not in PROBE_COLLISION_AUDIT — add a collision verdict before registering the tool`,
+      ).toBeDefined();
+      if (verdict?.collides) {
+        expect(
+          entry.extensionProbe,
+          `probe "${entry.probe}" (${entry.id}) is audited as colliding but declares no extensionProbe to disambiguate (D21-SA21.7-04 class A)`,
+        ).toBeDefined();
+      }
+    }
   });
 
   it("optional schema fields are correctly typed on every entry (D15-SA15.7-F01 / D21-SA21.7-F02)", () => {
@@ -411,6 +767,9 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
       "GPL-2.0-only",
       "Unlicense",
       "curl", // `curl` is itself a registered SPDX license id.
+      // Functional Source License 1.1 with MIT future grant — a registered
+      // SPDX id; used by charmbracelet/crush (Cycle 12 D21-SA21.7-05).
+      "FSL-1.1-MIT",
     ]);
     // SPDX expression: one-or-more ids joined by OR / AND / WITH operators.
     // Validates the structural shape and that every leaf id is a known SPDX id.
@@ -423,11 +782,14 @@ describe("AVAILABLE_CLI_TOOLS registry", () => {
     };
 
     for (const entry of allEntries) {
-      // sourceRepo: a GitHub or GitLab https VCS URL (never a docs site).
+      // sourceRepo: a GitHub, GitLab, or Gitea https VCS URL (never a docs
+      // site). gitea.com joined the accepted hosts with the `tea` addition
+      // (Cycle 12 D21-SA21.7-05): the first-party Gitea CLI is canonically
+      // hosted on the Gitea forge itself, with no GitHub mirror documented.
       expect(entry.sourceRepo, `${entry.id} sourceRepo`).toBeTypeOf("string");
       expect(
-        /^https:\/\/(?:github\.com|gitlab\.com)\/[^/]+\/[^/]+/.test(entry.sourceRepo),
-        `${entry.id} sourceRepo "${entry.sourceRepo}" must be a github.com/gitlab.com VCS URL`,
+        /^https:\/\/(?:github\.com|gitlab\.com|gitea\.com)\/[^/]+\/[^/]+/.test(entry.sourceRepo),
+        `${entry.id} sourceRepo "${entry.sourceRepo}" must be a github.com/gitlab.com/gitea.com VCS URL`,
       ).toBe(true);
       // license: a valid SPDX expression built from known ids.
       expect(entry.license, `${entry.id} license`).toBeTypeOf("string");
@@ -526,11 +888,28 @@ describe("TIER2_CLI_TOOLS_BY_TRIGGER", () => {
       }
     }
   });
+
+  it("web-project orders xh ahead of httpie so the picker surfaces the maintained client first (D21-SA21.4-02, Cycle 12)", () => {
+    // Cycle 12 D21-SA21.4-02: httpie's upstream is dormant (last release 3.2.4,
+    // 2024-11-01) while xh is actively maintained (v0.26.1, 2026-06-19). The
+    // toolbox tells users to "prefer xh … for new web-project work", so xh is
+    // listed before httpie in the web-project pre-check array. httpie is
+    // retained (not dropped) so it stays installable/offered — the picker's
+    // tier-2 offer surface (pickers.ts::pickCliTools) reads this same array.
+    const web = TIER2_CLI_TOOLS_BY_TRIGGER["web-project"];
+    expect(web).toContain("xh");
+    expect(web).toContain("httpie");
+    expect(web.indexOf("xh")).toBeLessThan(web.indexOf("httpie"));
+    // playwright stays first (browser automation, orthogonal to the HTTP-client order).
+    expect(web[0]).toBe("playwright");
+  });
 });
 
 describe("TIER3_CLI_TOOLS", () => {
-  it("has exactly 10 entries", () => {
-    expect(TIER3_CLI_TOOLS.length).toBe(10);
+  it("has exactly 15 entries", () => {
+    // 10 pre-Cycle-12 entries + the 5 CL-2 additions (D21-SA21.7-05):
+    // crush, jaq, tombi, hurl, tea.
+    expect(TIER3_CLI_TOOLS.length).toBe(15);
   });
 
   it("every TIER3 id resolves to a tier-3 entry", () => {

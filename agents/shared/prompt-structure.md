@@ -31,6 +31,7 @@ Use each tag at most once per agent file — nested or repeated occurrences defe
 3. If a section already carries a clearer purpose (e.g., `## Boundaries`), keep the heading and wrap its body in `<rules>`.
 4. Do not introduce new tag names ad hoc — extend this list and update this file if a new category is needed (pillar-backed rationale required per P4 lean coverage).
 5. Preserve existing cross-references and links exactly — XML wrapping is additive, not a rewrite.
+6. Rollout obligation: any edit that pushes an agent file across the 200-line When-To-Apply threshold wraps it in `<task>`/`<context>`/`<rules>` in the same change — the author who crosses the threshold owns the wrapping, so coverage tracks the corpus without a separate rollout pass.
 
 ### Reference Implementations
 

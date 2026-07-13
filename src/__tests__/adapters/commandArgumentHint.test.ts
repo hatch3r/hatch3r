@@ -5,6 +5,7 @@ import { parse as parseYaml } from "yaml";
 import { ClaudeAdapter } from "../../adapters/claude.js";
 import { CursorAdapter } from "../../adapters/cursor.js";
 import { CopilotAdapter } from "../../adapters/copilot.js";
+import { extractArgumentHint } from "../../adapters/base.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import { resolveTestPath } from "../fixtures.js";
 import type { AdapterOutput, Tool } from "../../types.js";
@@ -96,4 +97,33 @@ describe("D5-33 command argument-hint affordance", () => {
       }
     });
   }
+});
+
+// D2-SA2.1-06 (D2, P1): `extractArgumentHint` must tolerate CRLF frontmatter.
+// The canonical reader (`canonical.ts` FRONTMATTER_REGEX) admits `\r?\n`, so a
+// CRLF user-override command — a Windows `core.autocrlf=true` working tree —
+// is a valid CanonicalFile. The pre-fix LF-only regex here missed such a file's
+// frontmatter and silently dropped the picker's argument-hint affordance for
+// exactly those users. These fixtures pin both the LF path (regression guard)
+// and the CRLF path (the fix) at the unit level.
+describe("D2-SA2.1-06 extractArgumentHint CRLF tolerance", () => {
+  it("extracts the argument-hint from LF frontmatter", () => {
+    const lf = "---\nargument-hint: <issue-url>\ndescription: x\n---\nbody\n";
+    expect(extractArgumentHint(lf)).toBe("<issue-url>");
+  });
+
+  it("extracts the argument-hint from CRLF frontmatter (parity with the canonical reader) with no trailing CR", () => {
+    const crlf = "---\r\nargument-hint: <issue-url>\r\ndescription: x\r\n---\r\nbody\r\n";
+    // Exact equality (not toContain) so a trailing `\r` left in the scalar — the
+    // failure mode the `\r`-strip closes — is caught, not just the regex miss.
+    expect(extractArgumentHint(crlf)).toBe("<issue-url>");
+  });
+
+  it("returns undefined when no frontmatter block is present", () => {
+    expect(extractArgumentHint("no frontmatter here\n")).toBeUndefined();
+  });
+
+  it("returns undefined when the frontmatter omits argument-hint", () => {
+    expect(extractArgumentHint("---\r\ndescription: x\r\n---\r\nbody\r\n")).toBeUndefined();
+  });
 });

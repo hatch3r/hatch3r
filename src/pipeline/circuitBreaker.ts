@@ -13,7 +13,10 @@
  *
  * #250 (D8-8.17): Failure classification differentiates transient
  * (network timeout, 503) from substantive (404, auth) failures.
- * Only transient failures trip the circuit breaker.
+ * Only transient failures trip the circuit breaker — in every state,
+ * including the HALF_OPEN probe: a substantive/unknown probe failure proves
+ * the dependency is reachable and CLOSES the circuit instead of re-opening
+ * it (D1-SA1.9-03; see `recordFailure`).
  */
 
 // ── Types ────────────────────────────────────────────────────────
@@ -360,8 +363,27 @@ export function recordSuccess(
 /**
  * Record a failed request through the circuit breaker.
  *
- * Only transient failures contribute to tripping the breaker.
- * Substantive failures are recorded but do not increment the counter.
+ * Only transient failures contribute to tripping the breaker — in EVERY
+ * state. Substantive/unknown failures are recorded (timestamps + totals) but
+ * never open or hold the circuit.
+ *
+ * HALF_OPEN probe resolution (D1-SA1.9-03, Cycle 12 Wave 3, D1, P2):
+ *   - transient probe failure → re-OPEN (the dependency is still
+ *     unavailable); counter pinned at the threshold.
+ *   - substantive/unknown probe failure → CLOSE and reset the counter. A
+ *     non-transient response (404, auth, bad config) is a DEFINITIVE answer
+ *     from a reachable dependency — the availability question the probe asks
+ *     is resolved positively; the failure itself surfaces to the caller
+ *     through the normal error path, exactly as it would from CLOSED (where
+ *     it also never trips the breaker).
+ *   The pre-fix branch re-opened on ANY probe failure, contradicting the
+ *   module invariant above and pinning a persistent substantive condition
+ *   (e.g. a genuinely-missing package) into an OPEN/HALF_OPEN cycle for the
+ *   24h persistence TTL. Leaving the state at HALF_OPEN instead was not an
+ *   option: `shouldAllowRequest` blocks every request in HALF_OPEN ("probe
+ *   already in flight"), so a neutral no-op would deadlock the breaker —
+ *   resolution to CLOSED is the single-probe analogue of resilience4j's
+ *   "ignored exceptions do not drive the half-open transition".
  */
 export function recordFailure(
   state: CircuitBreakerState,
@@ -381,12 +403,20 @@ export function recordFailure(
     if (newState.consecutiveFailures >= state.config.failureThreshold) {
       newState.state = "OPEN";
     }
-  }
 
-  // In HALF_OPEN, any failure re-opens the circuit
-  if (state.state === "HALF_OPEN") {
-    newState.state = "OPEN";
-    newState.consecutiveFailures = state.config.failureThreshold; // Keep at threshold
+    // Transient failure on the HALF_OPEN probe: re-open and pin the counter
+    // at the threshold (not threshold+1) so the cooldown cycle restarts from
+    // a stable count.
+    if (state.state === "HALF_OPEN") {
+      newState.state = "OPEN";
+      newState.consecutiveFailures = state.config.failureThreshold;
+    }
+  } else if (state.state === "HALF_OPEN") {
+    // Substantive/unknown failure on the probe: the dependency answered, so
+    // it is reachable — resolve the probe by closing the circuit and
+    // resetting the transient streak (see JSDoc above).
+    newState.state = "CLOSED";
+    newState.consecutiveFailures = 0;
   }
 
   return newState;

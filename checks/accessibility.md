@@ -2,7 +2,6 @@
 id: accessibility
 type: check
 description: Accessibility review criteria covering WCAG 2.2 AA compliance, semantic HTML, keyboard navigation, screen reader support, and inclusive design patterns
-tags: [accessibility]
 cache_friendly: true
 ---
 # Accessibility Check

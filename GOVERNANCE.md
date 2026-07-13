@@ -6,7 +6,7 @@ How hatch3r is run and how changes land. For contribution mechanics (setup, test
 
 ## Decision model
 
-hatch3r is a solo-maintainer open-source project (MIT). The maintainer reviews and merges every pull request, publishes every npm release, and approves every change to shipped agent behavior. There is no steering committee or voting process; the maintainer is the final decision authority.
+hatch3r is a solo-maintainer open-source project (MIT): one maintainer holds final decision, merge, publish, and consent authority — no steering committee, no voting. A second maintainer (@vicdotdevelop) is routed review requests on every path via [CODEOWNERS](CODEOWNERS), but that review is advisory: the `main` branch ruleset requires 0 approvals, so the solo maintainer merges every pull request, publishes every npm release, and approves every change to shipped agent behavior.
 
 ## Proposing changes
 
@@ -21,7 +21,7 @@ A pull request merges only when all of the following hold:
 1. **CI green** across the named gates: supply-chain security (lockfile lint, npm audit, dependency review, MCP + CLI-tool CVE checks, Socket scan); the build matrix on Node 22/24 across Ubuntu/macOS/Windows (build, lint, typecheck, tests with coverage); content + governance validation (`npm run validate` and the `hatch3r validate` CLI); inventory and finding-registry drift checks; bundle-size gate.
 2. **DCO sign-off** on every commit (`git commit -s`) — CI-verified.
 3. **Conventional Commits** PR title (`feat|fix|refactor|test|docs|chore|audit(scope): message`) — CI-verified.
-4. **Maintainer review and merge.** No force-push to `main`; work lands from feature branches.
+4. **Maintainer merge.** The solo maintainer merges; CODEOWNERS routes advisory review to a second maintainer (0 required approvals). No force-push to `main`; work lands from feature branches.
 
 Releases land via tagged release PRs; the maintainer tags and publishes to npm.
 

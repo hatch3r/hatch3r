@@ -92,7 +92,7 @@ Verify with:
 command -v fzf
 ```
 
-Install (macOS — default for this machine):
+Install (macOS):
 
 ```bash
 # brew

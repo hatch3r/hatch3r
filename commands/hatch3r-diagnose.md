@@ -15,11 +15,12 @@ triage_tiers: [1, 2, 3]
 sub_agents_spawned:
   count: 2
   rationale: One hatch3r-researcher (root-cause mode against the captured state bundle) plus one hatch3r-fixer (applies the single proposed remediation). Independent symptom domains fan out to N parallel researchers; serialization holds only on the diagnose -> fix dependency edge. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes the diagnosis from the fix when both are needed.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
 
-Before any action, scan the user's request for unresolved questions in symptom scope, target adapter, or expected-vs-actual behavior. If the symptom maps to two or more distinct failure domains (e.g., "sync is broken" could mean adapter output drift OR a manifest schema mismatch OR a path-traversal guard rejection), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not guess which subsystem to probe. Proceed without asking ONLY when the symptom names a single subsystem and a single expected behavior. Any residual ambiguity discovered mid-diagnosis re-invokes the same protocol. Source: `.claude/rules/clarification-default.md`.
+Before any action, scan the user's request for unresolved questions in symptom scope, target adapter, or expected-vs-actual behavior. If the symptom maps to two or more distinct failure domains (e.g., "sync is broken" could mean adapter output drift OR a manifest schema mismatch OR a path-traversal guard rejection), ask the user via the platform-native question tool per `agents/shared/user-question-protocol.md` — do not guess which subsystem to probe. Proceed without asking ONLY when the symptom names a single subsystem and a single expected behavior. Any residual ambiguity discovered mid-diagnosis re-invokes the same protocol. Source: `rules/hatch3r-clarification-default.md`.
 
 ## Agent Pipeline
 
@@ -150,7 +151,7 @@ ASK (only gate), per `agents/shared/user-question-protocol.md`:
 >
 > (accept / fix N / explain N / skip)
 
-If a proposed fix is irreversible (deletes a file, drops a manifest field, force-resets a managed block over uncommitted edits), the ASK MUST state that explicitly and default to `skip` per the irreversible-action trigger in `.claude/rules/clarification-default.md`. After the user accepts, the run is autonomous through Step 6.
+If a proposed fix is irreversible (deletes a file, drops a manifest field, force-resets a managed block over uncommitted edits), the ASK MUST state that explicitly and default to `skip` per the irreversible-action trigger in `rules/hatch3r-clarification-default.md`. After the user accepts, the run is autonomous through Step 6.
 
 ---
 
@@ -180,7 +181,7 @@ Re-run the relevant Step 1 probe(s) to confirm the fix cleared the symptom: re-r
 
 ### Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
 Worked example for this domain:
 

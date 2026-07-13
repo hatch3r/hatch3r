@@ -378,6 +378,48 @@ describe("sync command", () => {
     });
   });
 
+  // D8-SA8.4-02 / D1-SA1.9-02 (Cycle 12): one incomplete/timed-out adapter
+  // must advance the per-tool circuit breaker by EXACTLY one, not two. The
+  // prior `!completed` branch recorded the failure and then threw a synthetic
+  // HatchError that the enclosing catch recorded a second time, so a single
+  // transient timeout double-counted (`consecutiveFailures === 2`,
+  // `totalFailures === 2`) and the breaker tripped at 2/3 of its configured
+  // threshold.
+  describe("circuit-breaker single-count on incomplete adapter", () => {
+    it("records exactly one consecutive failure for a single timed-out adapter", async () => {
+      await createTestProject(tempDir, { tools: ["cursor"] });
+
+      // "timed out" classifies transient (circuitBreaker.ts classifyFailure,
+      // `/timeout|timed out/i`), so it is the sub-case that increments
+      // consecutiveFailures — the exact path the double-count corrupted.
+      const adapterTimeoutMod = await import("../../pipeline/adapterTimeout.js");
+      const spy = vi.spyOn(adapterTimeoutMod, "generateWithTimeout").mockResolvedValue({
+        tool: "cursor",
+        completed: false,
+        elapsedMs: 10,
+        error: 'Adapter "cursor" timed out after 180s and was skipped.',
+        warnings: [],
+      });
+
+      const { syncCommand } = await import("../../cli/commands/sync.js");
+      // 1/1 adapters fail → the terminal "All adapters failed" throw fires
+      // AFTER the breaker state is persisted; catch it, then inspect the file.
+      await expect(syncCommand()).rejects.toBeInstanceOf(HatchError);
+      spy.mockRestore();
+
+      const { hydrateBreakersFromLog, BREAKER_STATE_FILE } = await import(
+        "../../pipeline/circuitBreaker.js"
+      );
+      const breakerRaw = await readFile(join(tempDir, HATCH3R_DIR, BREAKER_STATE_FILE), "utf-8");
+      const breakers = hydrateBreakersFromLog(breakerRaw);
+      const cursorBreaker = breakers.get("adapter:cursor");
+      expect(cursorBreaker).toBeDefined();
+      // The whole point: 1, not 2. A regression to the double-count makes both 2.
+      expect(cursorBreaker?.consecutiveFailures).toBe(1);
+      expect(cursorBreaker?.totalFailures).toBe(1);
+    });
+  });
+
   // Task #11: orphan adapter-output cleanup on sync. Verifies that files
   // previously written by hatch3r but no longer emitted by the current
   // adapter set are unlinked, and that the manifest's

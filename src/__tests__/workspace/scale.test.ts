@@ -64,8 +64,9 @@ describeScale("workspace sync scale benchmark (D14-SA14.2-F6)", () => {
     execFileSync("git", ["config", "user.name", "Test"], { cwd: dir, stdio: "pipe" });
   }
 
-  // N values per the D14-SA14.2-F6 reference grid. 10 and 50 run in the
-  // default suite budget; 100 is the upper documented rung.
+  // N values per the D14-SA14.2-F6 reference grid. All three rungs are
+  // HATCH3R_SCALE-gated (describeScale); none runs in the default suite —
+  // 100 is the upper documented rung.
   for (const repoCount of [10, 50, 100] as const) {
     it(`syncs a ${repoCount}-repo workspace and records wall-clock`, async () => {
       tempDir = await mkdtemp(join(tmpdir(), `hatch3r-scale-${repoCount}-`));

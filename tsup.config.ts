@@ -22,14 +22,21 @@ export default defineConfig({
   // Cycle 10 L D4-SA4.1-F4.1.F6 (D4): esbuild-only tree-shaking, explicit.
   // tsup's `treeshake` option adds a second Rollup AST pass on top of the
   // tree-shaking esbuild already performs during bundling. For this single-
-  // entry (`splitting: false`) `bin`-only CLI the Rollup pass is not enabled:
-  // esbuild's pass is the chosen tree-shaker, traded in favour of build speed
-  // (esbuild bundles the ~700 KB output in tens of ms; the Rollup pass would
-  // dominate build time the way the removed `dts` pass did). The Rollup-pass
-  // size delta has not been A/B-measured this cycle — re-run the benchmark
-  // (build with `treeshake: true` vs this baseline, compare `dist/cli/index.js`
-  // size) and flip to `treeshake: true` only if the measured gain exceeds 5%.
-  // See governance/audit/domains/D04-build-cicd.md SA 4.1 "Tree-shaking".
+  // entry (`splitting: false`) `bin`-only CLI the Rollup pass is left off:
+  // esbuild's pass is the chosen tree-shaker, traded in favour of build speed.
+  //
+  // Cycle 12 D4-SA4.1-09 (D4): CLOSED — the Cycle-10 "re-run each cycle" note
+  // above is retired for this measured decision. A/B measured 2026-07-12
+  // (tsup 8.5.1, three-way, one source tree): `treeshake: true` = 1,325,930 B
+  // vs this `false` baseline = 1,359,021 B — a 33,091 B (2.4%) reduction, at
+  // ~9x build time (~480 ms vs ~55 ms for the Rollup pass). Omitting the key
+  // is byte-identical to `false` (1,359,021 B), which answers egoist/tsup#1136
+  // for this build: `false` and `undefined` both leave the Rollup pass off and
+  // keep esbuild's tree-shaker, so the explicit `false` is documentation, not
+  // a behavior change. Decision: keep `false` — the 2.4% gain is below the 5%
+  // flip threshold and does not justify the ~9x build-time cost. Re-open only
+  // on a bundle-budget breach, not per cycle.
+  // See governance/audit/domains/D04-build-cicd.md SA 4.1 (registry D4-SA4.1-09).
   treeshake: false,
   // Cycle 10 M D4-M1 (D4): the previous `sourcemap: true` produced
   // dist/cli/index.js.map at 2.49 MB — 271 % of the 919 KB runtime bundle —
@@ -39,8 +46,8 @@ export default defineConfig({
   // without serving end-user debugging value (npm package consumers cannot
   // step through a CLI invocation). Setting sourcemap to false drops the
   // .map file from `dist/` and from the published tarball — see
-  // governance/audit/domains/D04-build-cicd.md SA 4.1 "Sourcemaps" + 4.2
-  // "Minimal dependency surface". Local debugging during development can
+  // governance/audit/domains/D04-build-cicd.md SA 4.1 (Output hygiene /
+  // sourcemap posture; registry D4-M1). Local debugging during development can
   // re-enable via `npm run dev` (tsup --watch) + the TSX REPL, which both
   // run unbundled source.
   sourcemap: false,
@@ -51,11 +58,14 @@ export default defineConfig({
   banner: {
     js: "#!/usr/bin/env node",
   },
-  // Externalize inquirer's internals. They are transitive deps (not in our
-  // `dependencies`), so tsup would otherwise bundle them — and `@inquirer/core`
-  // pulls in CJS modules like `mute-stream` that use dynamic `require("stream")`,
-  // which a single ESM bundle cannot satisfy. Leaving them as runtime imports
-  // makes Node resolve them from node_modules where their CJS works natively.
+  // Externalize inquirer's internals. `@inquirer/core` pulls in CJS modules like
+  // `mute-stream` that use dynamic `require("stream")`, which a single ESM bundle
+  // cannot satisfy; leaving them as runtime imports makes Node resolve them from
+  // node_modules where their CJS works natively. `@inquirer/core` and
+  // `@inquirer/figures` are declared as exact-pinned direct dependencies in
+  // package.json so these externalized imports resolve deterministically in
+  // published installs — do not remove either the `external` entry or its
+  // package.json dependency (Cycle 12 L D4-SA4.1-07, D4).
   external: ["@inquirer/core", "@inquirer/figures"],
   // Cycle 10 L D4-SA4.1-F4.1.F2 (D4): prune stale empty output subdirectories.
   // `dist/cli/commands/` and `dist/cli/shared/` are relics of a prior build

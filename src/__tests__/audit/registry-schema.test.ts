@@ -1,11 +1,15 @@
 import { describe, expect, it } from "vitest";
 import {
+  checkClBalance,
+  countClRegistryEntries,
+  countClReportRows,
   CURRENT_REGISTRY_VERSION,
   migrate,
   parseRegistry,
   RegistryParseError,
   validateRegistry,
   type Finding,
+  type Reopened,
 } from "../../audit/registry-schema.js";
 
 const FIXED_DATE = "2026-04-28T00:00:00.000Z";
@@ -226,6 +230,69 @@ describe("validateRegistry — invariants", () => {
     expect(
       drifts.find((d) => d.reason === "shallow causal_chain_depth"),
     ).toBeDefined();
+  });
+});
+
+describe("validateRegistry — named cohort depth waiver (c12-depth2-close-accepted)", () => {
+  it("exempts a depth-2 entry with a registered depth_waiver in tolerant mode", () => {
+    const f = modernMinimal({
+      causal_chain_depth: 2,
+      depth_waiver: "c12-depth2-close-accepted",
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts).toEqual([]);
+  });
+
+  it("still reports the shallow-depth drift in strict mode despite a registered waiver (census visibility)", () => {
+    const f = modernMinimal({
+      causal_chain_depth: 2,
+      depth_waiver: "c12-depth2-close-accepted",
+    });
+    const parsed = parseRegistry({
+      schema_version: CURRENT_REGISTRY_VERSION,
+      generated_at: FIXED_DATE,
+      entries: [f],
+    });
+    const drifts = validateRegistry(parsed, { strict: true });
+    const shallow = drifts.find(
+      (d) => d.reason === "shallow causal_chain_depth",
+    );
+    expect(shallow).toBeDefined();
+    expect(shallow?.detail).toContain("c12-depth2-close-accepted");
+  });
+
+  it("flags an unregistered depth_waiver token in tolerant mode (no free bypass)", () => {
+    const f = modernMinimal({
+      causal_chain_depth: 2,
+      depth_waiver: "made-up-waiver",
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "unregistered depth_waiver token"),
+    ).toBeDefined();
+    expect(
+      drifts.find((d) => d.reason === "shallow causal_chain_depth"),
+    ).toBeDefined();
+  });
+
+  it("keeps existing shallow-depth behavior for entries without the field", () => {
+    const f = modernMinimal({ causal_chain_depth: 2 });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "shallow causal_chain_depth"),
+    ).toBeDefined();
+    expect(
+      drifts.find((d) => d.reason === "unregistered depth_waiver token"),
+    ).toBeUndefined();
+  });
+
+  it("treats a registered waiver on a depth>=3 entry as harmless (no drift, no special report)", () => {
+    const f = modernMinimal({
+      causal_chain_depth: 4,
+      depth_waiver: "c12-depth2-close-accepted",
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts).toEqual([]);
   });
 });
 
@@ -511,6 +578,343 @@ describe("validateRegistry — postPhase2", () => {
     });
     const drifts = validateRegistry(parsed, { postPhase2: true });
     expect(drifts).toEqual([]);
+  });
+});
+
+describe("validateRegistry — commit_sha value hygiene (Invariant 8 / D16-SA16.2-07)", () => {
+  const HYGIENE_REASON = "commit_sha not a git object name";
+
+  function strictV2(f: Finding) {
+    return parseRegistry({
+      schema_version: CURRENT_REGISTRY_VERSION,
+      generated_at: FIXED_DATE,
+      entries: [f],
+    });
+  }
+
+  it("flags a placeholder commit_sha in strict mode (D16-9 'phase7' fixture)", () => {
+    const f = modernMinimal({ execution_status: "done", commit_sha: "phase7" });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    const hit = drifts.find((d) => d.reason === HYGIENE_REASON);
+    expect(hit).toBeDefined();
+    expect(hit?.detail).toContain("Invariant 8 value hygiene");
+  });
+
+  it("accepts a bare 7-char hex abbreviation in strict mode", () => {
+    const f = modernMinimal({ execution_status: "done", commit_sha: "208c8f7" });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("accepts a full 40-char SHA-1 in strict mode", () => {
+    const f = modernMinimal({
+      execution_status: "done",
+      commit_sha: "0123456789abcdef0123456789abcdef01234567",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("accepts a <repo>:<sha> cross-repo pointer in strict mode (overlay:c0ca1c0 corpus form)", () => {
+    const f = modernMinimal({
+      execution_status: "done",
+      commit_sha: "overlay:c0ca1c0",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("does NOT apply in legacy-tolerant (non-strict) mode — grandfathers the phase7 corpus", () => {
+    const f = modernMinimal({ execution_status: "done", commit_sha: "phase7" });
+    const drifts = validateRegistry(strictV2(f) /* no strict flag */);
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("does NOT flag a null commit_sha in strict mode", () => {
+    const f = modernMinimal({ execution_status: "pending", commit_sha: null });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeUndefined();
+  });
+
+  it("flags a placeholder commit_sha regardless of disposition (universal value hygiene)", () => {
+    const f = modernMinimal({
+      disposition: "already_resolved",
+      execution_status: "done",
+      commit_sha: "phase7",
+    });
+    const drifts = validateRegistry(strictV2(f), { strict: true });
+    expect(drifts.find((d) => d.reason === HYGIENE_REASON)).toBeDefined();
+  });
+});
+
+describe("validateRegistry — reopened structural check (D16-SA16.2-07)", () => {
+  const validReopenedTrueFix: Reopened = {
+    cycle: 11,
+    finding_id: "D16-6",
+    prior_close:
+      "Cycle-10 commit 208c8f7 marked this done but its diff never built the forcing function.",
+    true_fix:
+      "Cycle-11 D16-6 built scripts/audit-stalled-strategic.ts and the terminal-evidence invariant.",
+  };
+
+  it("accepts and preserves the F16.2-C1 true_fix form", () => {
+    const parsed = parseRegistry([
+      modernMinimal({ reopened: validReopenedTrueFix }),
+    ]);
+    expect(validateRegistry(parsed)).toEqual([]);
+    const entries =
+      parsed.kind === "v2" ? parsed.registry.entries : parsed.entries;
+    expect(entries[0].reopened?.finding_id).toBe("D16-6");
+    expect(entries[0].reopened?.true_fix).toContain("audit-stalled-strategic");
+  });
+
+  it("accepts the D12-SA12.3-F07 outstanding form (still-open re-open)", () => {
+    const f = modernMinimal({
+      reopened: {
+        cycle: 12,
+        finding_id: "D12-SA12.3-01",
+        prior_close:
+          "Cycle-10 batch closed this already_resolved on a partial subject.",
+        outstanding: "The --rules and --render subjects remain unverified.",
+      },
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(drifts.filter((d) => d.reason.startsWith("reopened"))).toEqual([]);
+  });
+
+  it("flags reopened missing cycle", () => {
+    const f = modernMinimal({
+      reopened: {
+        finding_id: "X",
+        prior_close: "prior",
+        true_fix: "fix",
+      } as unknown as Reopened,
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "reopened missing cycle"),
+    ).toBeDefined();
+  });
+
+  it("flags reopened missing prior_close", () => {
+    const f = modernMinimal({
+      reopened: {
+        cycle: 12,
+        finding_id: "X",
+        true_fix: "fix",
+      } as unknown as Reopened,
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "reopened missing prior_close"),
+    ).toBeDefined();
+  });
+
+  it("flags reopened carrying neither true_fix nor outstanding", () => {
+    const f = modernMinimal({
+      reopened: {
+        cycle: 12,
+        finding_id: "X",
+        prior_close: "prior",
+      } as unknown as Reopened,
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find(
+        (d) => d.reason === "reopened missing re-disposition narrative",
+      ),
+    ).toBeDefined();
+  });
+
+  it("flags a reopened that is not an object", () => {
+    const f = modernMinimal({
+      reopened: "re-opened last cycle" as unknown as Reopened,
+    });
+    const drifts = validateRegistry(parseRegistry([f]));
+    expect(
+      drifts.find((d) => d.reason === "reopened not an object"),
+    ).toBeDefined();
+  });
+
+  it("does not flag an entry without a reopened field", () => {
+    const drifts = validateRegistry(parseRegistry([modernMinimal()]));
+    expect(drifts.filter((d) => d.reason.startsWith("reopened"))).toEqual([]);
+  });
+});
+
+describe("CL-row balance invariant (Cycle-12 CL-3 Proposal 6c)", () => {
+  // Mirrors the live AUDIT-REPORT.md shape: prose between heading and table,
+  // a bold count line after the table, and (for CL-3) a subsection with its
+  // own table that must never be counted.
+  const REPORT_FIXTURE = [
+    "# Audit Report",
+    "",
+    "## Phase CL-1: PRD Evolution Candidates",
+    "",
+    "**Trigger:** intro prose with | a stray pipe-free line.",
+    "",
+    "| Candidate | Domain |",
+    "|-----------|--------|",
+    "| Alpha | D17 |",
+    "| Beta | D18 |",
+    "",
+    "**CL-1 count: 2**",
+    "",
+    "---",
+    "",
+    "## Phase CL-2: Content Gap Artifacts",
+    "",
+    "| Gap | Priority |",
+    "|-----|----------|",
+    "| G1 | P2 |",
+    "",
+    "## Phase CL-3: Audit Self-Evolution Proposals",
+    "",
+    "**Trigger:** constraints prose.",
+    "",
+    "| # | Proposal |",
+    "|---|----------|",
+    "| 1 | First |",
+    "| 2 | Second |",
+    "| 3 | Third |",
+    "",
+    "**CL-3 count: 3**",
+    "",
+    "### Routed to EVOLVE (out of CL-3 scope)",
+    "",
+    "| Item | Source |",
+    "|------|--------|",
+    "| X | Y |",
+    "",
+  ].join("\n");
+
+  function clEntries(ids: ReadonlyArray<string>): Finding[] {
+    return ids.map((id) =>
+      modernMinimal({ finding_id: id, disposition: "phase_5_candidate" }),
+    );
+  }
+
+  describe("countClReportRows", () => {
+    it("counts CL-1 body rows (header + separator excluded)", () => {
+      expect(countClReportRows(REPORT_FIXTURE, "CL-1")).toBe(2);
+    });
+
+    it("counts CL-3 body rows without the Routed-to-EVOLVE subsection table", () => {
+      expect(countClReportRows(REPORT_FIXTURE, "CL-3")).toBe(3);
+    });
+
+    it("returns null when the phase section is absent", () => {
+      expect(countClReportRows("# Report\n\nNo CL sections.\n", "CL-1")).toBeNull();
+    });
+
+    it("returns null when the section ends before any table", () => {
+      const md = "## Phase CL-1: Candidates\n\nprose only\n\n## Phase CL-2: Gaps\n";
+      expect(countClReportRows(md, "CL-1")).toBeNull();
+    });
+
+    it("returns 0 for a table with header + separator but no body rows", () => {
+      const md = "## Phase CL-1: Candidates\n\n| A | B |\n|---|---|\n\ndone\n";
+      expect(countClReportRows(md, "CL-1")).toBe(0);
+    });
+  });
+
+  describe("countClRegistryEntries", () => {
+    it("counts only anchored ids of the requested cycle and phase", () => {
+      const entries = clEntries([
+        "C12-CL1-1",
+        "C12-CL1-2",
+        "C12-CL3-1",
+        "C11-CL1-1", // other cycle
+        "C12-CL1-x", // non-numeric suffix
+        "C12-CL1-1-extra", // suffixed
+      ]);
+      expect(countClRegistryEntries(entries, 12, "CL-1")).toBe(2);
+      expect(countClRegistryEntries(entries, 12, "CL-3")).toBe(1);
+      expect(countClRegistryEntries(entries, 11, "CL-1")).toBe(1);
+    });
+  });
+
+  describe("checkClBalance", () => {
+    it("passes when both phases balance", () => {
+      const entries = clEntries([
+        "C12-CL1-1",
+        "C12-CL1-2",
+        "C12-CL3-1",
+        "C12-CL3-2",
+        "C12-CL3-3",
+      ]);
+      expect(
+        checkClBalance(entries, 12, { cl1ReportRows: 2, cl3ReportRows: 3 }),
+      ).toEqual([]);
+    });
+
+    it("fails with a named, count-bearing report when CL-3 rows are not materialized", () => {
+      // The exact live shape at implementation time: 10 CL-3 report rows,
+      // registry entries not yet landed.
+      const entries = clEntries(["C12-CL1-1", "C12-CL1-2"]);
+      const failures = checkClBalance(entries, 12, {
+        cl1ReportRows: 2,
+        cl3ReportRows: 10,
+      });
+      expect(failures).toHaveLength(1);
+      expect(failures[0].reason).toBe("cl-row balance broken (CL-3)");
+      expect(failures[0].finding_id).toBe("C12-CL3-*");
+      expect(failures[0].detail).toContain("10 table row(s)");
+      expect(failures[0].detail).toContain("0 C12-CL3-<n>");
+      expect(failures[0].detail).toContain("materialize one registry entry per report CL row");
+    });
+
+    it("fails on orphan registry entries (more entries than report rows)", () => {
+      const entries = clEntries(["C12-CL1-1", "C12-CL1-2", "C12-CL1-3"]);
+      const failures = checkClBalance(entries, 12, {
+        cl1ReportRows: 2,
+        cl3ReportRows: 0,
+      });
+      expect(failures).toHaveLength(1);
+      expect(failures[0].reason).toBe("cl-row balance broken (CL-1)");
+      expect(failures[0].detail).toContain("prune orphan entries");
+    });
+
+    it("ignores other cycles' entries when balancing", () => {
+      const entries = clEntries(["C11-CL1-1", "C12-CL1-1"]);
+      expect(
+        checkClBalance(entries, 12, { cl1ReportRows: 1, cl3ReportRows: 0 }),
+      ).toEqual([]);
+    });
+
+    it("flags a missing phase table instead of silently passing", () => {
+      const failures = checkClBalance([], 12, {
+        cl1ReportRows: null,
+        cl3ReportRows: 0,
+      });
+      expect(failures).toHaveLength(1);
+      expect(failures[0].reason).toBe("cl-balance table missing (CL-1)");
+    });
+
+    it("reports both phases independently", () => {
+      const failures = checkClBalance([], 12, {
+        cl1ReportRows: 9,
+        cl3ReportRows: null,
+      });
+      const reasons = failures.map((f) => f.reason);
+      expect(reasons).toContain("cl-row balance broken (CL-1)");
+      expect(reasons).toContain("cl-balance table missing (CL-3)");
+    });
+  });
+
+  it("row counting composed with balancing passes on the fixture end-to-end", () => {
+    const entries = clEntries([
+      "C12-CL1-1",
+      "C12-CL1-2",
+      "C12-CL3-1",
+      "C12-CL3-2",
+      "C12-CL3-3",
+    ]);
+    const counts = {
+      cl1ReportRows: countClReportRows(REPORT_FIXTURE, "CL-1"),
+      cl3ReportRows: countClReportRows(REPORT_FIXTURE, "CL-3"),
+    };
+    expect(checkClBalance(entries, 12, counts)).toEqual([]);
   });
 });
 

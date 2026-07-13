@@ -108,6 +108,51 @@ const LANGUAGE_GATE_CONFIGS: readonly LanguageGateConfig[] = [
     lint: "dotnet format --verify-no-changes",
     typecheck: "dotnet build --no-restore",
   },
+  // D1-SA1.6-11 (Cycle 12 Wave 4, CQ5): the six languages below are detectable
+  // via LANGUAGE_INDICATORS (repoAnalyzer.ts) but previously had no gate row, so
+  // a positively-detected e.g. Scala repo fell through to DEFAULT_GATE_COMMANDS
+  // and emitted `npm run test` into a pure-sbt project — a wrong classification,
+  // not a safe default. Commands are the native toolchain defaults; a user may
+  // override via the manifest. Verified this pass: `sbt test` + `sbt compile`
+  // (scala-sbt.org/1.x/docs/Running.html, 2026-07-11) and `zig build test`
+  // (ziglang.org/learn/build-system/, 2026-07-11). The indicator ↔ gate
+  // exhaustiveness is now bound by a unit test iterating DETECTABLE_LANGUAGES.
+  {
+    language: "scala",
+    test: "sbt test",
+    lint: "sbt scalafmtCheckAll",
+    typecheck: "sbt compile",
+  },
+  {
+    language: "zig",
+    test: "zig build test",
+    lint: "zig fmt --check .",
+    typecheck: null,
+  },
+  {
+    language: "ocaml",
+    test: "dune test",
+    lint: "dune build @fmt",
+    typecheck: "dune build",
+  },
+  {
+    language: "haskell",
+    test: "stack test",
+    lint: "hlint .",
+    typecheck: "stack build",
+  },
+  {
+    language: "clojure",
+    test: "lein test",
+    lint: "clj-kondo --lint src",
+    typecheck: null,
+  },
+  {
+    language: "lua",
+    test: "busted",
+    lint: "luacheck .",
+    typecheck: null,
+  },
 ] as const;
 
 /**

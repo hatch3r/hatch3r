@@ -42,7 +42,7 @@ hatch3r's primary agent-tooling surface is CLI tools (ripgrep, fd, jq, yq, gh, d
 
 ### Full project (greenfield or brownfield)
 
-1. Run `/hatch3r-spec` -- on a new project it generates specs from your vision; on an existing codebase it reverse-engineers specs from the current code. It picks the branch by detecting project state, so you do not choose greenfield vs brownfield yourself. Produces `docs/specs/`, `docs/adr/`, and `todo.md`.
+1. Run `/hatch3r-spec` -- on a new project it generates specs from your vision; on an existing codebase it reverse-engineers specs from the current code. It picks the branch by detecting project state, so you do not choose greenfield vs brownfield yourself. Produces spec deliverables under `docs/specs/` (it does not emit `docs/adr/` or `todo.md` -- the `/hatch3r-roadmap` step below reads `docs/specs/` and produces the `todo.md`).
 2. Run `/hatch3r-roadmap` to refine the plan into dependency-ordered epics broken into milestones.
 3. Continue with board fill (step 4 below).
 

@@ -106,7 +106,12 @@ Translation strings are user-facing copy — write them as product copy, not as 
 
 - Use plain language. Default to second person ("you", "your") for end-user surfaces.
 - Use a corrective verb in error messages: "Try again", "Reconnect", "Enter a valid email" — not "Error" or "Oops".
-- Never expose to end users: protocol acronyms ("FIDO2", "WebAuthn"), raw HTTP status codes ("500", "401"), language sentinel values (`null`, `undefined`), or internal record/ID strings. Translate these into a user-visible cause + recovery.
+- Never expose raw system vocabulary to end users — translate each into a user-visible cause + recovery. The list below is the canonical banned-jargon token dictionary for this project; other UI/UX microcopy floors reference this set rather than restate divergent copies. Also never surface internal record/ID strings (raw DB ids, stack frames, trace ids):
+  ```
+  protocol/auth acronyms:    FIDO2 WebAuthn OAuth JWT
+  raw HTTP status codes:     401 403 500
+  language sentinel values:  null undefined
+  ```
 - CTA labels are action-oriented and specific: "Save changes" beats "Submit"; "Delete project" beats "Confirm"; "Send invite" beats "OK".
 - Error tone explains the cause and offers a recovery path. Do not blame the user. Replace "You entered an invalid value" with "This field needs a valid email address — for example, name@example.com".
 - Use ICU MessageFormat (1.0 or 2.0 per the MF2 section above) for every plural, gender, and select pattern. Never concatenate translated fragments to build a sentence — each complete sentence is a single translation key with its own placeholders.

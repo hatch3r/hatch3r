@@ -1,10 +1,14 @@
 #!/usr/bin/env tsx
 /**
- * postbuild: copy canonical content directories into `dist/content/` so the
- * published npm tarball can ship a single `dist/` tree containing both the
- * compiled CLI (`dist/cli/`) and the canonical content (`dist/content/`).
+ * Copies canonical content directories into `dist/content/` so the published
+ * npm tarball ships a single `dist/` tree containing both the compiled CLI
+ * (`dist/cli/`) and the canonical content (`dist/content/`).
  *
- * Runs after `tsup` via the `postbuild` npm script. Resolved at runtime by
+ * Invoked inline by the `build` npm script (`tsup && tsx
+ * scripts/copy-content.ts`) — NOT by a `postbuild` lifecycle hook. The
+ * committed `.npmrc` pins `ignore-scripts=true` repo-wide, so npm skips every
+ * pre/post lifecycle script (npm config docs); the inline `&&` chain is the
+ * live, environment-independent invocation path. Resolved at runtime by
  * `src/content/contentRoot.ts::resolveBundledContentRoot`.
  *
  * Pure stdlib (Node 22+): `node:fs/promises`, `node:path`, `node:url`.
@@ -14,6 +18,13 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { READER_CONFIG_DIRS } from "../src/adapters/canonical.js";
 
+// D9-SA9.4-01 (Cycle 12): `prompts` and `policy` are RESERVED source dirs — no
+// such directory exists at the repo root today, so `main()`'s `exists(src)` guard
+// skips them and nothing ships in `dist/content/` for either (verified: the
+// published bundle carries agents/checks/commands/github-agents/hooks/mcp/rules/
+// skills only). They stay listed so a future `prompts/` or `policy/` dir ships
+// automatically once populated. `docs/adapter-capability-matrix.md` documents
+// both as reserved-not-shipped; keep that doc and this list in agreement.
 const SOURCE_DIRS = [
   "agents",
   "skills",

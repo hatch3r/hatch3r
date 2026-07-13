@@ -26,7 +26,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
 [
   {
     "action": "create",
-    "bodyHash": "b731f3c75569da28d57e76dbc3c78dd6a752d0d50992780c4792b9f08f7d8f46",
+    "bodyHash": "05710a0509cdc318989dc228cc5c66c49fba13f3cb23696fe4aa0c1200f2b64f",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -36,7 +36,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "efac1c138be38c9b17cab4a9958224086721bc505f97a61da359ee97ce95b523",
+    "bodyHash": "9024c64cac49de7baca612d3e325913a22fe6e0d739572cdafb07171a8fde750",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -93,7 +93,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "1f66726280e0ebf465eb41b68bfa54218d39dfb61a180d2c5cd2ba349d86fe9e",
+    "bodyHash": "b871404e86bc21851b496bade7fc1a29c0bb466e567529dd8193989b9340d5e3",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -111,7 +111,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "05facd1d9b74fe4307956f40ea8612014973cfd738135dce8f197fc54228fcc4",
+    "bodyHash": "9650ab21f1e963a1f42915776a70dab04ff09ce7671657b7e049f564b53a5dcd",
     "contentMarkers": [],
     "hasManagedContent": false,
     "path": ".claude/hooks/pretooluse-allowlist.mjs",
@@ -127,7 +127,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "73f9e79d460f6838450f7eb93c63e5cc49e316f04a3d6041b722be6d54196b20",
+    "bodyHash": "2b4bdd35309643cd0236e838d60118ad42becbe7abee53390d9a2c96fadec463",
     "contentMarkers": [
       "FRONTMATTER",
       "MANAGED_BLOCK",
@@ -176,7 +176,7 @@ exports[`adapter output snapshots > ClaudeAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "aad057a5c584f2255e10ad8403ca31d53db3cda1b229de6bb647fac2467d0809",
+    "bodyHash": "1c5185177480b336fe9ec7ea10cca29941073e2da06d00247f3f0ddec80323cf",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "AGENT_TEAMS",
@@ -329,7 +329,9 @@ exports[`adapter output snapshots > CursorAdapter > file paths match snapshot 1`
   ".cursor/commands/hatch3r-test-command.md",
   ".cursor/environment.json",
   ".cursor/hooks.json",
+  ".cursor/hooks/mcp-guard.mjs",
   ".cursor/hooks/subagent-guard.mjs",
+  ".cursor/hooks/workdir-guard.mjs",
   ".cursor/mcp.json",
   ".cursor/rules/50-hatch3r-scoped-rule.mdc",
   ".cursor/rules/50-hatch3r-test-rule.mdc",
@@ -347,7 +349,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
 [
   {
     "action": "create",
-    "bodyHash": "1f66726280e0ebf465eb41b68bfa54218d39dfb61a180d2c5cd2ba349d86fe9e",
+    "bodyHash": "b871404e86bc21851b496bade7fc1a29c0bb466e567529dd8193989b9340d5e3",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -422,7 +424,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "65862275014bc9202aeede29bb97bb8eafc71c4dc6ce23f62c80c62d77c91103",
+    "bodyHash": "5397963610801fe74652238e5fd0c533bfcac98a942201584fcc6dda203ef506",
     "contentMarkers": [
       "VALID_JSON",
     ],
@@ -431,10 +433,26 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "faf3207c762d560f59fbe8664e9cc30b459bdcf6cdec5f403692ec7237dbd8e1",
+    "bodyHash": "a48349d176344094fa5074655db0ca553b84b07b54637e85e4d6528b17a8f4b7",
+    "contentMarkers": [
+      "MCP_CONFIG",
+    ],
+    "hasManagedContent": false,
+    "path": ".cursor/hooks/mcp-guard.mjs",
+  },
+  {
+    "action": "create",
+    "bodyHash": "cd048472ed19f88020e7d988343dbf13d724974e86697c58272260fa654d3bcd",
     "contentMarkers": [],
     "hasManagedContent": false,
     "path": ".cursor/hooks/subagent-guard.mjs",
+  },
+  {
+    "action": "create",
+    "bodyHash": "d886e5931680e081dfad385e9b0aab5d79a0304e5324b2d2175b2c07bacb46ca",
+    "contentMarkers": [],
+    "hasManagedContent": false,
+    "path": ".cursor/hooks/workdir-guard.mjs",
   },
   {
     "action": "create",
@@ -470,7 +488,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "97c572b438bbd313f835a78552f84778148d263a5005a6217432395eecd82cd8",
+    "bodyHash": "05c409ffbfb90d94fb1352f8cd276af8666749ee5afc5bf9d708f21e545f8f88",
     "contentMarkers": [
       "AGENT_QUICK_REFERENCE",
       "BRIDGE_SECTION",
@@ -529,7 +547,7 @@ exports[`adapter output snapshots > CursorAdapter > output structure matches sna
   },
   {
     "action": "create",
-    "bodyHash": "d2ebbbe25afc508938adbd765240455370cde85f0a1d2b3cfa1f72b538166144",
+    "bodyHash": "57ab0c4ad2a0e1c6e0e014ff0ea8895fdc33f438aac27565c74f7dbe01505743",
     "contentMarkers": [
       "CURSOR_ALWAYS_APPLY",
       "FRONTMATTER",

@@ -420,6 +420,78 @@ describe("content/index — cross-references", () => {
         expect(result.warnings).toEqual([]);
       });
     });
+
+    // D2-SA2.6-03 (Cycle 12): user-tier artifacts under `.hatch3r/overrides/`
+    // are indexed with a `sourceRoot` distinct from the canonical root, so
+    // validateCrossReferences must read each item from its OWN root. Before the
+    // fix the user body was joined onto the canonical root, missed the read, and
+    // its dangling references were silently skipped (no warning emitted).
+    describe("D2-SA2.6-03 user-tier cross-references", () => {
+      it("surfaces a dangling reference inside a .hatch3r/overrides user artifact", async () => {
+        const root = await makeTempDir();
+        const canonicalRoot = join(root, "canonical");
+        const userRoot = join(root, "overrides");
+        await mkdir(join(canonicalRoot, "agents"), { recursive: true });
+        await writeFile(
+          join(canonicalRoot, "agents", "hatch3r-real.md"),
+          mdFile({ id: "hatch3r-real", type: "agent", description: "Canonical agent" }),
+        );
+        await mkdir(join(userRoot, "agents"), { recursive: true });
+        await writeFile(
+          join(userRoot, "agents", "my-user-agent.md"),
+          mdFile({ id: "my-user-agent", type: "agent", description: "User agent" }) +
+            "\nDelegate to `hatch3r-does-not-exist` here.\n",
+        );
+
+        const index = await buildContentIndex(canonicalRoot, { userRoot });
+        const result = await validateCrossReferences(canonicalRoot, index);
+        const dangling = result.warnings.filter((w) =>
+          w.includes("hatch3r-does-not-exist"),
+        );
+        expect(dangling.length).toBe(1);
+        expect(dangling[0]).toContain("not in the content index");
+      });
+
+      it("does not warn when the user artifact's reference resolves in the merged index", async () => {
+        const root = await makeTempDir();
+        const canonicalRoot = join(root, "canonical");
+        const userRoot = join(root, "overrides");
+        await mkdir(join(canonicalRoot, "agents"), { recursive: true });
+        await writeFile(
+          join(canonicalRoot, "agents", "hatch3r-real.md"),
+          mdFile({ id: "hatch3r-real", type: "agent", description: "Canonical agent" }),
+        );
+        await mkdir(join(userRoot, "agents"), { recursive: true });
+        await writeFile(
+          join(userRoot, "agents", "my-user-agent.md"),
+          mdFile({ id: "my-user-agent", type: "agent", description: "User agent" }) +
+            "\nDelegate to `hatch3r-real` here.\n",
+        );
+
+        const index = await buildContentIndex(canonicalRoot, { userRoot });
+        const result = await validateCrossReferences(canonicalRoot, index);
+        expect(result.warnings).toEqual([]);
+      });
+
+      it("emits a probe-failure warning when an indexed artifact becomes unreadable", async () => {
+        const dir = await makeTempDir();
+        await mkdir(join(dir, "agents"), { recursive: true });
+        const filePath = join(dir, "agents", "hatch3r-vanisher.md");
+        await writeFile(
+          filePath,
+          mdFile({ id: "hatch3r-vanisher", type: "agent", description: "Removed mid-scan" }),
+        );
+        const index = await buildContentIndex(dir);
+        // Simulate a filesystem race: the file disappears after indexing but
+        // before the cross-reference read. Pre-D2-SA2.6-03 this hit a silent
+        // `catch { continue }`; now it surfaces on the warnings channel.
+        await rm(filePath);
+        const result = await validateCrossReferences(dir, index);
+        const probe = result.warnings.filter((w) => w.includes("hatch3r-vanisher"));
+        expect(probe.length).toBe(1);
+        expect(probe[0]).toContain("unreadable");
+      });
+    });
   });
 
   // ── validateOrchestrationDependencies ────────────────────

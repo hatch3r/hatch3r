@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 3
   rationale: Three-stage pipeline per agentPipeline — researcher gathers prior baselines, performance (CQ7) executes the suite, docs-writer assembles the report; each receives the run cache and emits a structured slice. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: sequential
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -453,15 +454,15 @@ benchmark is long-running — a Tier 3 full-suite run executes a multi-iteration
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch (Step 2 discovery).
 - **Post-execution `cost_actuals` + `delta`** — the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
@@ -496,6 +497,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 ## Related
 
 - **Agent:** `hatch3r-performance` (CQ7) — deep performance profiling and analysis
+- **Skill:** `hatch3r-perf-audit` — the optimize-side counterpart. This command measures, compares against a baseline, and reports regressions without changing source; the `hatch3r-perf-audit` skill profiles against defined budgets and applies optimizations (code splitting, memoization, bundle reduction). Use this command to measure and report; use the skill to profile and fix.
 - **Check:** `checks/performance.md` — performance budget checks
 - **Rule:** `hatch3r-performance-budgets` — performance budget thresholds and enforcement
 - **Command:** `hatch3r-refactor-plan` — plan optimizations identified by benchmark regressions

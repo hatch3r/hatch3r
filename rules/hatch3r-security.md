@@ -28,7 +28,7 @@ Source: pillar CQ3 (see `agents/shared/principles.md`). Every threshold below is
 
 | Threshold | Target | Measurement source |
 |-----------|--------|--------------------|
-| npm provenance | 100% on release artifacts | `npm publish --provenance`; verify via `npm view {pkg} --json | jq .provenance` |
+| npm provenance | 100% on release artifacts | `npm publish --provenance`; verify via `npm view {pkg} --json \| jq .provenance` |
 | SBOM (CycloneDX 1.6 or SPDX 3.0.1) | Attached to every release | CI artifact; `syft` or `cyclonedx-npm` output |
 | SHA-pinned GitHub Actions | 100% — 40-char commit SHA | `.github/workflows/*.yml` grep for `uses: .*@[a-f0-9]{40}` |
 | Cosign-signed containers | 100% on published images | `cosign verify --certificate-identity-regexp` against issuer + Rekor entry |

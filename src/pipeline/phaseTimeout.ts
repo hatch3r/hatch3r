@@ -56,7 +56,7 @@ const DEFAULT_PHASE_TIMEOUTS: Record<PhaseName, number> = {
   research: 5 * 60 * 1000,          // 5 min (D8-H8.3.1: per-agent researcher wall-clock)
   merge: 2 * 60 * 1000,             // 2 min
   review: 10 * 60 * 1000,           // 10 min
-  fix: 10 * 60 * 1000,              // 10 min
+  fix: 15 * 60 * 1000,              // 15 min (D5-SA5.1-06: >= hatch3r-fixer wall_clock_advisory_ms 900000, so the fixer's cited fix-phase outer bound is reachable under its own advisory)
   validation: 2 * 60 * 1000,        // 2 min
   integrity: 1 * 60 * 1000,         // 1 min
   adapter: 3 * 60 * 1000,           // 3 min

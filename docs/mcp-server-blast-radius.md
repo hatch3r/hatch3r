@@ -20,7 +20,7 @@ Two transport classes carry different security floors. The per-server blast radi
 
 Sources: [MCP 2025-06-18 transports](https://modelcontextprotocol.io/specification/2025-06-18/basic/transports), [MCP 2025-06-18 authorization](https://modelcontextprotocol.io/specification/2025-06-18/basic/authorization) (accessed 2026-05-26).
 
-## Known MCP CVEs (as of Cycle 11, 2026-06-05)
+## Known MCP CVEs (as of Cycle 12, 2026-07-10)
 
 This is the dated CVE audit trail for the MCP attack surface, distinct from the per-server blast radius below. The per-server `securityNote`/version-pin checks (postgres, brave-search) catch a CVE bound to one npm package; the entries here are **protocol/client-connect-class** CVEs that no single per-package pin surfaces, because they live in the connect path every STDIO/HTTP server exercises.
 
@@ -29,16 +29,29 @@ Ownership split (part of hatch3r's internal security audit machinery): **audit d
 | CVE | Class | CVSS | Affected | hatch3r exposure | Status / mitigation |
 |-----|-------|------|----------|-------------------|---------------------|
 | [CVE-2025-6514](https://nvd.nist.gov/vuln/detail/CVE-2025-6514) | Client-connect RCE (OS command injection via OAuth `authorization_endpoint` URL on connect to an untrusted server) | 9.6 | `mcp-remote` 0.0.5–0.1.15 (fixed 0.1.16) | Not bundled — `mcp/mcp.json` ships no `mcp-remote` launcher; users who add their own `mcp-remote` proxy to reach a remote server inherit it | Pin `mcp-remote>=0.1.16`; connect only to trusted servers over HTTPS. Surfaced by `npm run mcp:cve-check` if added to the pack |
+| No CVE id — supply-chain class | Malicious-version / rug-pull (a maintained MCP package publishes a trojaned new version; the postmark-mcp incident, 2026) | n/a | Any launcher on a floating spec (`@latest` or no `@version`) that auto-adopts a new version | None in the shipped pack — all 8 `npx` launchers pin an exact `@<ver>`; a user who adds an unpinned or `@latest` launcher inherits it | Version pinning — `checkVersionPin` (`src/adapters/mcp-utils.ts::checkVersionPin`) flags any floating-`latest`/no-version launcher; see the version-pin note below |
 
 Class-level note (no single CVE id): the OWASP Q1-2026 MCP wave catalogued 30+ CVEs across Jan–Feb 2026 (43% exec/shell injection, 38% of surveyed servers shipping no auth). The structural defenses in this repo that address the class are the STDIO/HTTP transport floors above (untrusted-connect is the CVE-2025-6514 trigger) and the `_description` strip below (tool-poisoning family); neither replaces pinning a maintained server version.
 
 Sources (accessed 2026-06-05): [JFrog CVE-2025-6514 analysis](https://jfrog.com/blog/2025-6514-critical-mcp-remote-rce-vulnerability/) (Trust Tier 1, vendor security research), [Wiz CVE-2025-6514](https://www.wiz.io/vulnerability-database/cve/cve-2025-6514) (Trust Tier 1, vendor vulnerability database), [WorkOS — vetting MCP tools / OWASP MCP Top 10](https://workos.com/blog/mcp-supply-chain-security) (Trust Tier 2, named-vendor analysis).
+
+**Version pinning — the control for the malicious-version row, and its residual (D15-SA15.5-03 / -04).** The rug-pull row above is answered by `checkVersionPin` (`src/adapters/mcp-utils.ts::checkVersionPin`): it flags, with a surfaced warning, any on-demand-fetch launcher on a floating spec (`@latest` or no `@version`), so an unpinned or `latest`-tagged server is never emitted silently. The bundled pack goes one step further than the gate requires — all 8 `npx` launchers carry an exact `@<ver>`, not a range. Because npm forbids republishing an existing version with different bytes, an exact `@<ver>` is effectively content-addressed: a maintainer who publishes a trojaned new version cannot reach a pinned consumer without an explicit, reviewable version bump.
+
+Recorded residual (Info, not actioned this cycle — D15-SA15.5-04): `npx -y <pkg>@<ver>` still re-fetches the pinned version from the registry on every editor launch, with no committed lockfile, no `--prefer-offline`, and no integrity subresource. The dominant residual — the registry serving tampered bytes for an already-published version — is closed by npm's version immutability, leaving only a first-fetch registry/DNS interception that a setup-time generator cannot mediate at runtime. The named next hardening rung, if hatch3r later ships it in end-user guidance, is a committed lockfile / `--prefer-offline` resolution or a minimum-release-age cooldown (adopt a new version only after it has been public for N days, so a malicious publish is likely yanked first).
+
+Supply-chain sources (accessed 2026-07-12): [OX Security — MCP supply-chain analysis](https://www.ox.security/blog/the-mother-of-all-ai-supply-chains-critical-systemic-vulnerability-at-the-core-of-the-mcp/) (Trust Tier 2, named-vendor analysis — malicious marketplace-distribution class), [Practical DevSecOps — MCP security statistics 2026](https://www.practical-devsecops.com/mcp-security-statistics-2026-report/) (Trust Tier 2, independent analysis — documents the postmark-mcp malicious-package incident).
 
 ## Tool-poisoning mitigation: `_description` strip
 
 Tool poisoning ([Invariant Labs, 2025](https://invariantlabs.ai/blog/mcp-security-notification-tool-poisoning-attacks)) plants attacker-controlled instructions inside an MCP server's tool/description metadata so the editor renders them into the agent's context. hatch3r blocks this at adapter emission: `BaseAdapter.readFilteredMcp` (`src/adapters/base.ts` → `const { _disabled, _description, ...clean } = entry;`) destructures `_description` out of every entry, so the field is **never written** to any generated `.mcp.json` / `.cursor/mcp.json` / `.vscode/mcp.json`.
 
 This is a positive control, not a best-effort scan: even a poisoned description that survives the sync-time deny-pattern scan (`src/pipeline/mcpDescriptionScan.ts`, which only warns) and canonical-file review cannot reach the editor's tool-description display surface, because the adapter output carries no description field at all. A contributor refactoring `readFilteredMcp` must preserve the `_description` strip — re-including the field would silently re-open the tool-poisoning display surface this control closes.
+
+## Scope boundary: emission-time controls vs. runtime compromise
+
+Every hatch3r MCP control above acts at **config-emission time** — the `_description` strip, the HTTP endpoint pin (`validateMcpHttpEndpoint`), the version-pin flag (`checkVersionPin`), and the refusal-grade argv scan all run as an adapter writes a client MCP config, before any server starts. They do not, and by architecture cannot, mediate what a server does once the editor launches it. A server that passes every emission-time check and is then compromised at runtime — a maintainer rug-pull, a hijacked upstream endpoint — is contained by the editor's per-tool approval prompt plus the per-server least-privilege guidance below, not by hatch3r.
+
+The concrete runtime surface this leaves open is a server's tool **results**: the `_description` strip closes the tool-description display surface at emission time, but it does not touch the content a server returns at runtime, which must be treated as untrusted data, not executable instruction ([arxiv 2601.17548](https://arxiv.org/html/2601.17548v1) §III-C, accessed 2026-07-12). An editor that renders a malicious tool result into the agent's context is the containment layer there — through its per-tool approval and the least-privilege server scoping in this document — not the generator. This is the honest posture for a setup-time tool: hatch3r hardens the config it writes; the editor and the mitigations below own the runtime.
 
 ## Blast Radius Classification
 

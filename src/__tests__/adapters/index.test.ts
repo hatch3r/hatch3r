@@ -1,24 +1,19 @@
-// ── Prompt Regression Testing Guidance ──────────────────────────
+// ── Prompt Regression Testing ──────────────────────────
 //
 // Adapter outputs contain prompt text derived from canonical content (agents,
-// rules, skills). Changes to adapter generation logic or prompt templates can
-// cause unintended regressions in the instructions delivered to AI tools.
-//
-// Future work: add snapshot tests for the main adapters (claude, cursor,
-// windsurf, copilot, cline, codex, etc.) that capture the full generated
-// output and compare against a stored snapshot. This catches unintended
-// prompt changes during refactors. To implement:
-//   1. Create a __snapshots__/ directory in this test folder.
-//   2. For each adapter, call adapter.generate() with the fixtures and
-//      snapshot the output array using expect(outputs).toMatchSnapshot().
-//   3. Review snapshot diffs carefully on any adapter or content change --
-//      intentional prompt changes should update snapshots explicitly.
-//
-// Until snapshots are in place, reviewers should manually verify adapter
-// output structure when modifying adapter logic or canonical content.
+// rules, skills), so adapter-generation or template changes can regress the
+// instructions delivered to AI tools. Snapshot regression coverage for the 3
+// supported adapters (claude, cursor, copilot) lives in
+// `src/__tests__/adapters/snapshots.test.ts`; update those snapshots explicitly
+// when an adapter-generation or canonical-content change is intentional.
 
 import { describe, it, expect } from "vitest";
-import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
+import {
+  ADAPTER_CAPABILITIES,
+  ADAPTER_CAPABILITY_KEYS,
+  getAdapter,
+  getUnsupportedFeatureWarnings,
+} from "../../adapters/index.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import { HatchError, type HatchManifest, type Tool } from "../../types.js";
 import { resolveTestPath } from "../fixtures.js";
@@ -40,14 +35,20 @@ describe("getAdapter", () => {
 
   // C7-H14: getAdapter throws HatchError (not plain Error) so the CLI can
   // surface a structured exitCode for unknown tool selections.
-  it("throws HatchError with VALIDATION_ERROR code for unknown tool", () => {
+  // D2-SA2.5-01 (Cycle 12 Wave 3): the exitCode is DERIVED from the
+  // errorCode via ERROR_CODE_TO_EXIT_CODE (VALIDATION_ERROR -> 64, sysexits
+  // EX_USAGE), not a literal. The prior pin asserted `1`, which contradicted
+  // the docs/troubleshooting.md "no exit 1 for command failures" contract and
+  // froze the wrong value in CI. Pinning 64 keeps the mapping the single
+  // source of truth for this call site.
+  it("throws HatchError with VALIDATION_ERROR code (exit 64) for unknown tool", () => {
     try {
       getAdapter("unknown" as Tool);
       throw new Error("expected throw did not occur");
     } catch (e) {
       expect(e).toBeInstanceOf(HatchError);
       expect((e as HatchError).errorCode).toBe("VALIDATION_ERROR");
-      expect((e as HatchError).exitCode).toBe(1);
+      expect((e as HatchError).exitCode).toBe(64);
     }
   });
 
@@ -175,6 +176,26 @@ describe("getUnsupportedFeatureWarnings", () => {
     expect(warnings).toEqual([]);
   });
 
+  // ── D2-SA2.5-02: handoffs joins the warning surface ──
+  //
+  // `Features.handoffs` toggles the `.hatch3r/handoffs/` bridge segment for
+  // every adapter (base.ts threads `ctx.features.handoffs`). The matrix now
+  // carries a `handoffs` column (true for all 3 adapters) and the warning loop
+  // enumerates it, so the matrix contract "every emission-affecting Features key
+  // has a column + a warning row" holds. Because all 3 adapters support it, the
+  // warning never fires — pin that so a future `handoffs: false` adapter (or a
+  // dropped column) surfaces here.
+  it("does not warn when handoffs is enabled (all 3 adapters support it)", () => {
+    for (const tool of ["cursor", "claude", "copilot"] as Tool[]) {
+      const manifest = makeManifest({ handoffs: true });
+      const warnings = getUnsupportedFeatureWarnings(tool, manifest);
+      expect(
+        warnings.some((w) => w.includes("handoffs")),
+        `${tool}: handoffs is supported by every adapter — must not warn (got: ${JSON.stringify(warnings)})`,
+      ).toBe(false);
+    }
+  });
+
   // ── Cycle 11 D2-3 regression: default `prompts` warns no adapter ──
   //
   // A fresh `createManifest({ tools: [tool] })` applies DEFAULT_FEATURES
@@ -201,11 +222,53 @@ describe("getUnsupportedFeatureWarnings", () => {
   });
 });
 
+// ── D2-SA2.5-07: ADAPTER_CAPABILITY_KEYS runtime closed-enum ──
+//
+// pack-trust-model §5.2 binds a pack manifest's `required_capabilities` to the
+// key set of the `AdapterCapability` interface, promising "keys added to
+// AdapterCapability in future cycles join the enum automatically". A TS
+// interface erases at compile time, so the runtime list must be DERIVED from a
+// live matrix row (not hand-copied) for that promise to hold structurally.
+// These tests pin the derivation and the per-adapter row-key uniformity the
+// enum depends on.
+describe("ADAPTER_CAPABILITY_KEYS (D2-SA2.5-07)", () => {
+  it("derives the runtime key list from the live matrix row keys", () => {
+    const claudeKeys = Object.keys(ADAPTER_CAPABILITIES.claude).sort();
+    expect([...ADAPTER_CAPABILITY_KEYS].sort()).toEqual(claudeKeys);
+  });
+
+  it("every registered adapter row exposes exactly the ADAPTER_CAPABILITY_KEYS set", () => {
+    // The §5.2 closed enum is only well-defined if every adapter row carries the
+    // same key set as the derived list — a row that gained or dropped a key
+    // would make `required_capabilities` validation adapter-dependent.
+    const expected = [...ADAPTER_CAPABILITY_KEYS].sort();
+    for (const [tool, caps] of Object.entries(ADAPTER_CAPABILITIES)) {
+      expect(
+        Object.keys(caps).sort(),
+        `${tool}: row key set must equal ADAPTER_CAPABILITY_KEYS`,
+      ).toEqual(expected);
+    }
+  });
+
+  it("includes the feature-flag, extended, and handoffs columns", () => {
+    for (const key of [
+      "agents",
+      "commands",
+      "handoffs",
+      "worktree",
+      "cliTools",
+      "nativeQuestionTool",
+    ] as const) {
+      expect(ADAPTER_CAPABILITY_KEYS).toContain(key);
+    }
+  });
+});
+
 // ── C9-H39 (D11-SA11.1-01): sourceFiles provenance non-emptiness gate ──
 //
 // Every adapter that reads canonical content must populate `sourceFiles` on
 // at least one of its outputs so the per-output provenance manifest emitted
-// by `src/integrity/provenance.ts` can attribute generated artifacts back to
+// by `src/manifest/provenance.ts` can attribute generated artifacts back to
 // the canonical files that shaped them. Adapters that bypass
 // `BaseAdapter.readTrackedCanonicalFiles` (the wrapper that pushes into
 // `_trackedSourceFiles`) by calling `readCanonicalFiles` directly leave the

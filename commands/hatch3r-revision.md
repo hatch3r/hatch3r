@@ -4,6 +4,8 @@ type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-lint-fixer, hatch3r-testability, hatch3r-reviewer, hatch3r-fixer, hatch3r-security, hatch3r-docs-writer, hatch3r-ui, hatch3r-ux, hatch3r-performance]
 description: User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done, interviews the user for feedback, fixes issues, cleans up leftovers, and drives toward merge readiness. Delegation, quality pipeline, modes, and board integration details are in commands/revision/.
+argument-hint: "[--review-only] [--auto] [--confidence-floor=any|medium|high]"
+disable-model-invocation: true
 tags: [implementation, ctx:team-only]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -15,6 +17,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 11
   rationale: Per-revision fanout — researcher (conditional, Tier 2/3 pre-implementation context per commands/revision/revision-delegation.md Step 6.pre), implementer, lint-fixer, testability (Stage 1 fix group), reviewer ↔ fixer review loop, then parallel Stage 2 final-quality CQ specialists (security, docs-writer, ui, ux, performance — a triggered mandatory-on-match ui/ux each spawns as its own dedicated instance at Tier 2/3) bounded by max_phase4_parallel. Tier 1 cleanup-only revisions spawn a subset. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: mixed
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -131,7 +134,7 @@ The Step 3 user-feedback interview is user-driven and excluded from the duration
 
 ### Review-Only Mode (D13-SA13.1-F2)
 
-`--review-only` turns this command into a **read-only code-review surface** — the standalone "review this code, no changes" entry for development-workflow activity (3) Code review (`governance/audit/domains/D13-human-ai-collaboration.md` §13.1). It runs Steps 1–5 + a single `hatch3r-reviewer` pass and emits a review report, then stops: Step 6 fix delegation, Step 7 fixer/re-review loop and Stage 2 specialists, Step 8 commit/push, and Step 10 learnings write are all skipped, so the run mutates nothing. Full behavior table, report format, and `--auto` interaction: `commands/revision/revision-modes.md` -> Review-Only Mode.
+`--review-only` turns this command into a **read-only code-review surface** — the standalone "review this code, no changes" entry for development-workflow activity (3) Code review. It runs Steps 1–5 + a single `hatch3r-reviewer` pass and emits a review report, then stops: Step 6 fix delegation, Step 7 fixer/re-review loop and Stage 2 specialists, Step 8 commit/push, and Step 10 learnings write are all skipped, so the run mutates nothing. Full behavior table, report format, and `--auto` interaction: `commands/revision/revision-modes.md` -> Review-Only Mode.
 
 ---
 
@@ -168,7 +171,7 @@ Read all `scope: always` rules from `rules/`. These must be included in every su
 
 #### 1d. Consult Learnings
 
-If `.hatch3r/learnings/` exists, scan for learnings with matching areas or tags that overlap with the affected areas from Step 1a.5. Cache relevant learnings for Step 6.
+If `.hatch3r/learnings/` exists, scan for learnings whose `applies-to` glob matches the affected file paths from Step 1a.5 or whose `topic` matches the affected areas (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback). Cache relevant learnings for Step 6.
 
 ---
 
@@ -405,6 +408,8 @@ If all findings were deferred (no [FIX NOW] items), skip Step 6 entirely and pro
 
 Two-stage quality pipeline: Stage 1 runs a sequential review loop (`hatch3r-reviewer` -> `hatch3r-fixer`, max 3 iterations). Stage 2 spawns final quality CQ specialists in parallel — mandatory (`hatch3r-testability`, `hatch3r-security`), evaluated (`hatch3r-docs-writer`), mandatory-on-match (`hatch3r-ui`, `hatch3r-ux` — each triggered one MUST spawn as its own dedicated instance at Tier 2/3), and conditional (`hatch3r-performance`, `hatch3r-lint-fixer`).
 
+> **Conditional-CQ scope (D7-SA7.5-02):** revision Stage 2 dispatches CQ1/CQ2/CQ3/CQ5/CQ7 (+ docs-writer, lint-fixer). CQ4 `hatch3r-reliability`, CQ6 `hatch3r-scalability`, CQ8 `hatch3r-maintainability`, and CQ9 `hatch3r-enhancability` are a stated deferral on the revision path, not silent drift: they run when the same code passes through `hatch3r-workflow` (Phase 4b dispatches every triggered CQ1-CQ9 specialist per `SPECIALIST_TRIGGER_TABLE`) or an audit cycle.
+
 ---
 
 ### Step 8: Commit and Push
@@ -524,15 +529,15 @@ revision is long-running — a Tier 2/3 run walks 10 sequential steps (context r
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first sub-agent dispatch (Step 6 fix delegation).
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.

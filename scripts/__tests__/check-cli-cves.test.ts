@@ -638,7 +638,7 @@ describe("formatTextReport", () => {
     const out = formatTextReport(
       report({
         targets: [
-          { tool: "docker", category: "container", ecosystem: "Go", name: "github.com/moby/moby" },
+          { tool: "docker", category: "container", ecosystem: "Go", name: "github.com/moby/moby", citesAdvisoryId: false },
         ],
         exempted: [{ meta: meta("rtk", { category: "ai" }), reason: "no OSV advisory package" }],
       }),
@@ -652,7 +652,7 @@ describe("formatTextReport", () => {
 
   it("(6b) renders an acknowledged advisory with the [ack] tag + reason and excludes it from the gate line", () => {
     const ackFinding = {
-      target: { tool: "llm", category: "ai", ecosystem: "PyPI", name: "llm", version: undefined },
+      target: { tool: "llm", category: "ai", ecosystem: "PyPI", name: "llm", version: undefined, citesAdvisoryId: false },
       id: "GHSA-g76p-4vg5-f4qh",
       summary: "code-injection",
       severity: "CRITICAL" as const,
@@ -664,7 +664,7 @@ describe("formatTextReport", () => {
     const out = formatTextReport(
       report({
         targets: [
-          { tool: "llm", category: "ai", ecosystem: "PyPI", name: "llm", version: undefined },
+          { tool: "llm", category: "ai", ecosystem: "PyPI", name: "llm", version: undefined, citesAdvisoryId: false },
         ],
         findings: [ackFinding],
         staleFindings: [],
@@ -682,7 +682,7 @@ describe("formatTextReport", () => {
 
   it("prints a 'review overdue' note when reviewBy is in the past (no exit-code change)", () => {
     const ackFinding = {
-      target: { tool: "llm", category: "ai", ecosystem: "PyPI", name: "llm", version: undefined },
+      target: { tool: "llm", category: "ai", ecosystem: "PyPI", name: "llm", version: undefined, citesAdvisoryId: false },
       id: "GHSA-g76p-4vg5-f4qh",
       summary: "code-injection",
       severity: "CRITICAL" as const,
@@ -701,7 +701,7 @@ describe("formatTextReport", () => {
 
   it("surfaces a stale non-acknowledged finding with the FAIL marker", () => {
     const staleFinding = {
-      target: { tool: "docker", category: "container", ecosystem: "Go", name: "github.com/moby/moby", version: ">=29.5.2" },
+      target: { tool: "docker", category: "container", ecosystem: "Go", name: "github.com/moby/moby", version: ">=29.5.2", citesAdvisoryId: false },
       id: "GHSA-not-acknowledged",
       summary: "Test summary",
       severity: "CRITICAL" as const,

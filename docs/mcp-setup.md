@@ -122,7 +122,7 @@ Playwright, Context7, and Filesystem are pre-checked in the MCP picker and requi
 
 ### GitHub PAT scopes
 
-For the remote GitHub MCP server (repos, issues, pull_requests, projects):
+For the remote GitHub MCP server (`X-MCP-Toolsets`: repos, issues, pull_requests). Board commands additionally need the `project` PAT scope below — it is consumed by the `hatch3r-board-*` gh-CLI path, not by the MCP toolset (the shipped header does not enable `projects`):
 
 **Classic PAT** (Settings → Developer settings → Personal access tokens → Tokens (classic)):
 - `repo` — full control of private repositories (read/write code, issues, PRs)
@@ -238,7 +238,7 @@ GITLAB_HOST=https://gitlab.example.com
 
 > **Transport trust floor.** GitHub uses HTTP transport (TLS + a fine-grained PAT); the other nine servers use STDIO transport, which carries **no authentication or encryption** and runs the server as a child process with the editor's full privileges. STDIO is not "safer" than HTTP because it has no `url:` — see [mcp-server-blast-radius.md → MCP transport trust model](mcp-server-blast-radius.md#mcp-transport-trust-model) for the per-transport security floors.
 
-- **GitHub** — Remote server at `https://api.githubcopilot.com/mcp/`. Uses `X-MCP-Toolsets` for repos, issues, pull_requests, projects.
+- **GitHub** — Remote server at `https://api.githubcopilot.com/mcp/`. Uses `X-MCP-Toolsets` for repos, issues, pull_requests. `projects` is deliberately excluded from the shipped header as a high-blast-radius toolset (see [mcp-server-blast-radius.md](mcp-server-blast-radius.md)); board Projects V2 runs through the `hatch3r-board-*` gh-CLI path (the `project` PAT scope below), so to drive Projects V2 through MCP instead an operator must add `projects` to `X-MCP-Toolsets` in their own MCP config.
 - **Azure DevOps** — STDIO server via `@tiberriver256/mcp-server-azure-devops`. Requires `AZURE_DEVOPS_PAT` and `AZURE_DEVOPS_ORG`.
 - **GitLab** — STDIO server via `glab mcp serve` (requires the GitLab CLI; `glab mcp` alone prints help). Requires `GITLAB_TOKEN`. Supports self-hosted instances via `GITLAB_HOST`.
 - **Context7** — No secrets. Fetches up-to-date library docs.

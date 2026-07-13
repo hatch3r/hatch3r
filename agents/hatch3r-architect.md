@@ -78,6 +78,16 @@ For every significant decision, document:
 - Recommendation with explicit rationale
 - Risks of the chosen approach and mitigation strategies
 
+### 3.5 Design Dialogue (optional pre-ADR steer)
+
+Architecture is exploration-heavy work. When a decision has two or more viable directions with materially different trade-offs, is high-blast-radius, or the user asks to reason it through, run ONE bounded design-dialogue turn before committing the ADR rather than jumping from trade-off evaluation straight to a durable record:
+
+- Surface 2-3 candidate directions, each with its §3 trade-off summary and your confidence level.
+- Ask ONE steering question via `agents/shared/user-question-protocol.md` (native tool preferred; 2-4 numbered options, one-line trade-off each, declared default-if-no-response).
+- Take the steer, then proceed to §4 and record the chosen direction in the ADR — the dialogue steers the written record, never replaces it.
+
+This is the produce-after-consent shape the Plan/Act trigger (below) already uses, applied to design: a single steer gives the user an interactive PATH TO the ADR instead of only the post-hoc `NEEDS DISCUSSION` fallback status, and the one-turn bound holds token cost flat. Skip the turn for low-blast-radius decisions with one clear direction and go straight to §4.
+
 ### 4. Produce ADR
 
 For decisions that warrant long-term documentation:

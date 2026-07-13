@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import chalk from "chalk";
 import inquirer from "inquirer";
 import { readManifest, writeManifest, addManagedFile } from "../../manifest/hatchJson.js";
-import { writeProvenance, type PerAdapterOutputs } from "../../manifest/provenance.js";
+import { writeProvenance, type PerAdapterOutputs, type ProvenanceCommand } from "../../manifest/provenance.js";
 import { getApplicableCheckpoints } from "../../version/checkpoints.js";
 import { getAdapter, getUnsupportedFeatureWarnings } from "../../adapters/index.js";
 import { safeWriteFile, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic } from "../../merge/safeWrite.js";
@@ -41,7 +41,9 @@ import {
 } from "../../pipeline/pipelineTimeout.js";
 import {
   writeCheckpoint,
+  workspaceDir,
   type CheckpointMeta,
+  type CheckpointWorkspaceCommand,
 } from "../../pipeline/checkpoint.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
 import { retryWithBackoff } from "../../pipeline/retryWithBackoff.js";
@@ -175,6 +177,53 @@ export function throwOnPartialAdapterFailure(failedTools: number, totalTools: nu
   );
 }
 
+/**
+ * D15-SA15.4-03 (Cycle 12 Wave 4, D15, P6): validate a `--pin-version` value
+ * before it is persisted to `.hatch3r/hatch.json::versionConstraint` and fed to
+ * `npm install hatch3r@<spec>` (`selfUpdate.ts::buildInvocation`). Without this
+ * guard a typo'd pin (`2.2.o`, `^2,2`, a stray surrounding space) is written
+ * verbatim and re-read on every subsequent `hatch3r update`, which then runs
+ * `npm install hatch3r@<garbage>` — a failure that recurs until the manifest is
+ * hand-cleared and reads like a registry problem rather than a self-inflicted
+ * typo. `latest` is the pin-clearing sentinel handled by the caller and is not
+ * passed here.
+ *
+ * Accepts an exact semver version OR a semver RANGE (the forms
+ * `npm install hatch3r@<spec>` resolves): an optional comparator operator
+ * (`^ ~ > >= < <= =`) and optional leading `v`, a version core (`1` / `1.2` /
+ * `1.2.3` or an `x`/`*` wildcard segment), optional `-prerelease` and `+build`,
+ * composed into hyphen ranges (`1.2.3 - 2.3.4`), whitespace-joined comparator
+ * sets (`>=1.0.0 <2.0.0`), and `||` unions. Validated inline rather than via
+ * `node-semver`: that package is only a transitive dependency here (no
+ * `@types/semver`, and `package.json` is release-owned), so importing it
+ * directly would not type-check.
+ */
+export function isValidVersionPin(spec: string): boolean {
+  if (typeof spec !== "string") return false;
+  // Reject surrounding whitespace outright (`npm install hatch3r@ 2.2.0` cannot
+  // resolve); internal whitespace between comparators stays legal below.
+  if (spec.length === 0 || spec.trim() !== spec) return false;
+  const seg = "(?:[0-9]+|[xX*])"; // numeric or x-range wildcard segment
+  const core = `${seg}(?:\\.${seg})?(?:\\.${seg})?`; // 1 | 1.2 | 1.2.3 | 1.x
+  const pre = "(?:-[0-9A-Za-z][0-9A-Za-z.-]*)?"; // -beta.1
+  const build = "(?:\\+[0-9A-Za-z][0-9A-Za-z.-]*)?"; // +build.5
+  const comparator = new RegExp(`^(?:[<>]=?|[=~^])?v?${core}${pre}${build}$`);
+  for (const orClause of spec.split("||")) {
+    const clause = orClause.trim();
+    if (clause.length === 0) return false;
+    // Hyphen range `A - B` (spaces mandatory around the hyphen per the semver
+    // grammar) → validate both endpoints; otherwise a whitespace-joined
+    // comparator set where every token must parse.
+    const hyphen = clause.split(/\s+-\s+/);
+    const tokens =
+      hyphen.length === 2
+        ? hyphen.map((t) => t.trim())
+        : clause.split(/\s+/).filter((t) => t.length > 0);
+    if (tokens.length === 0 || !tokens.every((t) => comparator.test(t))) return false;
+  }
+  return true;
+}
+
 export interface UpdateResult {
   /**
    * D1-19 (Cycle 11 Wave 3, D1, P1): count of adapter-output files actually
@@ -186,6 +235,24 @@ export interface UpdateResult {
    * files the regenerate genuinely produced.
    */
   copiedFiles: number;
+  /**
+   * D10-SA10.4-02 (Cycle 12, D10, P1): per-write disposition tally for the
+   * regenerate's adapter writes — `created` / `merged` (managed-block merge,
+   * user edits outside the markers preserved) / `regenerated` (full-file
+   * rewrite) / `unchanged` / `skipped`. The five counters sum to
+   * {@link copiedFiles}. Lets `update`'s and `config`'s summaries answer
+   * "did it keep my edits?" the way sync's D10-M11 tally does, instead of a
+   * bare file count. Always populated by `runRegenerate`; optional so
+   * callers that stub an UpdateResult (test fixtures) stay source-compatible
+   * — consumers must guard for absence.
+   */
+  writeActions?: {
+    created: number;
+    merged: number;
+    regenerated: number;
+    unchanged: number;
+    skipped: number;
+  };
   syncedTools: number;
   failedTools: number;
   version: string;
@@ -239,7 +306,7 @@ export async function runPackageUpdate(
 export async function runRegenerate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string; reuseSessionId?: string; force?: boolean } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: CheckpointWorkspaceCommand; reuseSessionId?: string; force?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 3;
@@ -342,7 +409,7 @@ export async function runRegenerate(
   // hatch3r version" so a future resume read (or an operator inspecting state)
   // sees an authoritative progress marker. Best-effort: a checkpoint-write
   // failure routes through verbose() and never aborts the regenerate.
-  const regenWorkspace = join(rootDir, `.${snapshotCommandName}-workspace`);
+  const regenWorkspace = workspaceDir(rootDir, snapshotCommandName);
   const recordPhase = async (
     wave: number,
     status: "in-progress" | "passed" | "failed",
@@ -460,6 +527,18 @@ export async function runRegenerate(
     ? { ...manifest.managedFilesByAdapter }
     : {};
   const newManagedByAdapter: Record<string, string[]> = {};
+  // D10-SA10.4-02 (Cycle 12, D10, P1): tally each write's user-visible
+  // disposition (same merged/regenerated split sync's D10-M11 summary uses)
+  // so update/config can render "M merged (your edits preserved) · K
+  // regenerated (full overwrite)" instead of a bare file count. The prior
+  // loop discarded safeWriteFile's return entirely.
+  const writeActions: NonNullable<UpdateResult["writeActions"]> = {
+    created: 0,
+    merged: 0,
+    regenerated: 0,
+    unchanged: 0,
+    skipped: 0,
+  };
   const orphanEntries: OrphanCleanupEntry[] = [];
   // D12-4 (Cycle 11 Wave 2, D12, P2): collect each successful adapter's
   // outputs so `writeProvenance` can refresh `.hatch3r/provenance.json` after
@@ -579,13 +658,43 @@ export async function runRegenerate(
           // managed file even if the user stripped its HATCH3R:BEGIN/END
           // markers. Without `--force`, the safeWrite filename-prefix guard
           // still protects unmarked files.
-          if (out.managedContent) {
-            await safeWriteFile(fullPath, out.content, {
-              managedContent: out.managedContent,
-              force: options.force,
-            });
-          } else {
-            await safeWriteFile(fullPath, out.content, { force: options.force });
+          const writeResult = out.managedContent
+            ? await safeWriteFile(fullPath, out.content, {
+                managedContent: out.managedContent,
+                // D10-SA10.4-01 (Cycle 12, D10, P1): splice the managed block
+                // back into a file whose HATCH3R:BEGIN/END markers were
+                // stripped, matching sync.ts's D11-H-3 write. Without this,
+                // update/config/verify --fix (which all regenerate through
+                // this loop) hit safeWrite's no-marker branch and returned
+                // action "skipped" on every run — the managed block silently
+                // stayed at the OLD canonical version after a version bump,
+                // and only `hatch3r sync` could recover the file.
+                appendIfNoBlock: true,
+                force: options.force,
+              })
+            : await safeWriteFile(fullPath, out.content, { force: options.force });
+          // Surface per-write warnings (marker recovery, managed-block
+          // auto-repair, forced overwrite) exactly like sync does — dropping
+          // them violates the Silent Failure Contract (CONSTITUTION §2 P5).
+          if (writeResult.warning) warn(writeResult.warning);
+          // D10-SA10.4-02: record the disposition. `updated` splits into
+          // merged (managed-block merge, user edits preserved) vs regenerated
+          // (full-file rewrite) via out.managedContent — the same
+          // classification sync.ts::renderAction applies.
+          switch (writeResult.action) {
+            case "created":
+              writeActions.created += 1;
+              break;
+            case "updated":
+              if (out.managedContent) writeActions.merged += 1;
+              else writeActions.regenerated += 1;
+              break;
+            case "unchanged":
+              writeActions.unchanged += 1;
+              break;
+            case "skipped":
+              writeActions.skipped += 1;
+              break;
           }
           addManagedFile(manifest, out.path);
           toolPaths.push(out.path);
@@ -789,11 +898,21 @@ export async function runRegenerate(
   // and `hatch3r explain --source` reflect the regenerated outputs after an
   // `update` — previously only `sync` rewrote the baseline, so post-update the
   // provenance manifest was stale (its `lastCommand` was even hard-coded
-  // "sync"). `lastCommand: "update"` records the originating command;
-  // `failedAdapters` drives the D11-M2 carry-forward so a partially-failed
-  // update keeps the failed adapters' prior rows. Write failures surface via
-  // `warn()` and never abort the regenerate (Silent Failure Contract, P5).
-  await writeProvenance(rootDir, perAdapterOutputs, "update", {
+  // "sync"). `failedAdapters` drives the D11-M2 carry-forward so a partially-
+  // failed update keeps the failed adapters' prior rows. Write failures surface
+  // via `warn()` and never abort the regenerate (Silent Failure Contract, P5).
+  //
+  // D12-SA12.2-02 (Cycle 12 Wave 4, D12, P5): attribute `lastCommand` to the
+  // ORIGINATING command, not the shared regeneration mechanism. `runRegenerate`
+  // backs three entrypoints (`update`, `config <k>=<v>`, `verify --fix`) and
+  // already receives their distinct identity as `snapshotCommandName`; thread
+  // it into the provenance command so a `config` run stamps `"config"` instead
+  // of masquerading as `"update"`. `verify-fix` deliberately maps to `"update"`
+  // (a repair-regeneration is mechanically an update); every other name is
+  // identity — and, being a `ProvenanceCommand` member, type-checks directly.
+  const provenanceCommand: ProvenanceCommand =
+    snapshotCommandName === "verify-fix" ? "update" : snapshotCommandName;
+  await writeProvenance(rootDir, perAdapterOutputs, provenanceCommand, {
     failedAdapters: adapterFailures.map((f) => f.tool),
     onWarn: warn,
   });
@@ -821,6 +940,7 @@ export async function runRegenerate(
 
   return {
     copiedFiles: filesWritten,
+    writeActions,
     syncedTools: manifest.tools.length - adapterFailures.length,
     failedTools: adapterFailures.length,
     version: HATCH3R_VERSION,
@@ -931,7 +1051,7 @@ export async function runUpdateDryRun(
 export async function runUpdate(
   rootDir: string,
   manifest: HatchManifest,
-  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: string; force?: boolean } = {},
+  options: { stepOffset?: number; totalSteps?: number; diff?: boolean; snapshotCommandName?: CheckpointWorkspaceCommand; force?: boolean } = {},
 ): Promise<UpdateResult> {
   const offset = options.stepOffset ?? 0;
   const total = options.totalSteps ?? 4;
@@ -950,7 +1070,12 @@ export async function runUpdate(
 interface MigrationCheckpoint {
   id: string;
   condition: (manifest: HatchManifest, rootDir: string) => Promise<boolean>;
-  execute: (manifest: HatchManifest, rootDir: string, headless: boolean) => Promise<{ manifest: HatchManifest; notices: string[] }>;
+  // D1-SA1.3-02 (Cycle 12, D1, P2): `dryRun` lets a checkpoint suppress its
+  // disk write during a `--dry-run` preview while still returning the
+  // in-memory manifest mutation + a preview notice. Only the worktree
+  // checkpoint (the sole disk-writing checkpoint) reads it; the others accept
+  // the argument via structural typing and ignore it.
+  execute: (manifest: HatchManifest, rootDir: string, headless: boolean, dryRun: boolean) => Promise<{ manifest: HatchManifest; notices: string[] }>;
 }
 
 const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
@@ -1034,6 +1159,16 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
             default: "github",
           },
         ]);
+        // D3-SA3.2-01 (Cycle 12, D3/D1, CQ5): `update` is in BACKABLE_COMMANDS
+        // (src/cli/index.ts), so Shift+Tab resolves this select to the BACK
+        // sentinel. Without this guard the sentinel is assigned to `platform`,
+        // routing the user into the GitLab/ADO identity branch and ultimately
+        // failing manifest validation with a CONFIG_ERROR — mirror the
+        // content-selections-init guard above and cancel cleanly instead.
+        if (isBack(answer.platform)) {
+          info("Update cancelled (Shift+Tab).");
+          throw new HatchError("Update cancelled.", 0);
+        }
         platform = answer.platform;
       }
 
@@ -1050,6 +1185,16 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
           { type: "input", name: "project", message: platform === "azure-devops" ? "Azure DevOps project:" : "Project name:", default: updated.repo || undefined },
           { type: "input", name: "repo", message: "Repository name:", default: updated.repo || undefined },
         ]);
+        // D3-SA3.2-01 (Cycle 12, D3/D1, CQ5): guard every identity input for the
+        // Shift+Tab BACK sentinel before assigning. Without this, a BACK symbol
+        // is written to owner/repo/namespace/project and then silently dropped
+        // by JSON.stringify at manifest-write time (symbols do not serialize) —
+        // fail-silent identity loss, a Silent Failure Contract violation.
+        // Cancel cleanly instead.
+        if (isBack(answers.namespace) || isBack(answers.project) || isBack(answers.repo)) {
+          info("Update cancelled (Shift+Tab).");
+          throw new HatchError("Update cancelled.", 0);
+        }
         updated.owner = answers.namespace;
         updated.repo = answers.repo;
         updated.namespace = answers.namespace;
@@ -1113,9 +1258,22 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
       if (manifest.worktree !== undefined) return false;
       return manifest.tools.some(t => WORKTREE_CAPABLE_TOOLS.has(t));
     },
-    execute: async (manifest, rootDir, _headless) => {
+    execute: async (manifest, rootDir, _headless, dryRun) => {
       const enabled = true;
       const updated = { ...manifest, worktree: { enabled } };
+      // D1-SA1.3-02 (Cycle 12, D1, P2): this checkpoint runs BEFORE the dry-run
+      // fork in updateCommand, so a `--dry-run` upgrade of a pre-worktree
+      // manifest would write `.worktreeinclude` into the working tree despite
+      // the command's printed "without writing files" contract. Preview-only
+      // under dry-run: return the enabled manifest (so the dry-run adapter
+      // enumeration reflects it) but skip the disk write and report the
+      // would-be action.
+      if (dryRun) {
+        return {
+          manifest: updated,
+          notices: ["Worktree isolation would be enabled — .worktreeinclude would be generated (dry-run: not written)"],
+        };
+      }
       const wtContent = await generateWorktreeInclude(updated, rootDir);
       await safeWriteFile(join(rootDir, WORKTREE_INCLUDE_FILE), wtContent, {
         appendIfNoBlock: true,
@@ -1125,13 +1283,13 @@ const MIGRATION_CHECKPOINTS: MigrationCheckpoint[] = [
   },
 ];
 
-async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string, headless = false): Promise<{ manifest: HatchManifest; allNotices: string[] }> {
+async function runMigrationCheckpoints(manifest: HatchManifest, rootDir: string, headless = false, dryRun = false): Promise<{ manifest: HatchManifest; allNotices: string[] }> {
   let current = manifest;
   const allNotices: string[] = [];
 
   for (const checkpoint of MIGRATION_CHECKPOINTS) {
     if (await checkpoint.condition(current, rootDir)) {
-      const { manifest: updated, notices } = await checkpoint.execute(current, rootDir, headless);
+      const { manifest: updated, notices } = await checkpoint.execute(current, rootDir, headless, dryRun);
       current = updated;
       allNotices.push(...notices);
     }
@@ -1268,7 +1426,22 @@ export async function updateCommand(
   // implies quiet) so info()/box chrome cannot interleave with the single
   // JSON document on stdout. `--verbose` is intentionally NOT registered on
   // `update` (program.ts), so beginCommand's verbose wiring stays inert here.
-  const format: CliOutputFormat = beginCommand(_opts ?? {}, { banner: "compact" });
+  // D1-SA1.3-04 (Cycle 12, D1, P1): declare interactivity so beginCommand rejects
+  // `--format json` without `--yes` (exit 2) BEFORE a migration-checkpoint prompt can
+  // interleave with the single JSON document / hang non-TTY CI. `update` prompts via
+  // the `content-selections-init` and `platform-selection` checkpoints whenever the
+  // run is NOT headless and the manifest predates content-tracking / multi-platform
+  // (manifest.content === undefined || !manifest.platform). Those checkpoints gate
+  // ONLY on `headless` (= !--yes) and ignore the dryRun arg (see MIGRATION_CHECKPOINTS
+  // + runMigrationCheckpoints), so — unlike rollback/clean, whose dry-run never
+  // prompts — the discriminator here is `--yes`, not `--dry-run`: a `--format json
+  // --dry-run` run on a legacy manifest would still reach a prompt. The manifest is
+  // read only after this call, so the declaration is command-level (mirrors setup.ts's
+  // `!headless`); `--format json --yes` is the headless CI escape.
+  const format: CliOutputFormat = beginCommand(_opts ?? {}, {
+    banner: "compact",
+    interactive: _opts?.yes !== true,
+  });
   const jsonMode = format === "json";
 
   // F8.3.4 (D8): the pipeline wall-clock deadman now lives inside
@@ -1286,6 +1459,17 @@ export async function updateCommand(
   // Guidelines (clig.dev#output) cite for showing elapsed time.
   const updateStartMs = Date.now();
   // Wave 6: relocate pre-1.9 `.agents/` state before reading the manifest.
+  // D1-SA1.3-02 (Cycle 12, D1, P2): this relocation runs unconditionally,
+  // including under `--dry-run` — a deliberate, graded exception to the
+  // "without writing files" contract. It is load-bearing: a pre-1.9 manifest
+  // physically cannot be read from its new `.hatch3r/` location without first
+  // relocating it (the `readManifest` on the next line depends on it), and the
+  // shim is a no-op on an already-migrated tree. The two NON-load-bearing
+  // writes that also once fired before the dry-run fork — the `--pin-version`
+  // manifest persist and the worktree-config-init `.worktreeinclude` write —
+  // ARE now gated on `!dryRun`. A read-only legacy-location fallback in
+  // `readManifest` would remove even this write, but that is a manifest-reader
+  // design change outside this fix's file scope.
   await migrateAgentsToHatch3r(rootDir);
   const manifest = await readManifest(rootDir);
 
@@ -1325,7 +1509,10 @@ export async function updateCommand(
   }
 
   const headless = !!(_opts?.yes);
-  const { manifest: migrated, allNotices } = await runMigrationCheckpoints(manifest, rootDir, headless);
+  // D1-SA1.3-02 (Cycle 12, D1, P2): thread the dry-run flag so the
+  // disk-writing worktree checkpoint previews instead of writing. This call
+  // precedes the `dryRun` const below, so read `_opts?.dryRun` directly.
+  const { manifest: migrated, allNotices } = await runMigrationCheckpoints(manifest, rootDir, headless, !!_opts?.dryRun);
   const m = migrated;
 
   for (const notice of allNotices) {
@@ -1388,15 +1575,42 @@ export async function updateCommand(
   // subsequent runs honor the pin without re-passing the flag.
   let versionConstraint: string | undefined = _opts?.pinVersion ?? m.versionConstraint;
   if (_opts?.pinVersion) {
+    // D15-SA15.4-03 (Cycle 12 Wave 4, D15, P6): reject a malformed pin at accept
+    // time — before the dry-run fork, before `writeManifest`, before any install
+    // — so a typo cannot be persisted and silently re-break every future
+    // `update`. `latest` is the valid pin-clearing sentinel and skips the check.
+    if (_opts.pinVersion !== "latest" && !isValidVersionPin(_opts.pinVersion)) {
+      throw new HatchError(
+        `Invalid --pin-version value '${_opts.pinVersion}'. Expected a semver version or range (e.g. '2.2.0', '^2.2.0', '>=2.0.0 <3.0.0'), or 'latest' to clear the pin.`,
+        undefined,
+        "VALIDATION_ERROR",
+        "Pass a valid npm version spec, or `--pin-version latest` to remove the pin.",
+      );
+    }
     if (_opts.pinVersion === "latest") {
       versionConstraint = undefined;
-      info("Cleared version pin: future `hatch3r update` runs will install hatch3r@latest.");
+      info(
+        dryRun
+          ? "Dry-run: would clear the version pin — future `hatch3r update` runs would install hatch3r@latest. No manifest write."
+          : "Cleared version pin: future `hatch3r update` runs will install hatch3r@latest.",
+      );
     } else {
-      info(`Pinning hatch3r to '${_opts.pinVersion}' (persisted to .hatch3r/hatch.json::versionConstraint).`);
+      info(
+        dryRun
+          ? `Dry-run: would pin hatch3r to '${_opts.pinVersion}' (.hatch3r/hatch.json::versionConstraint). No manifest write.`
+          : `Pinning hatch3r to '${_opts.pinVersion}' (persisted to .hatch3r/hatch.json::versionConstraint).`,
+      );
     }
-    const persisted: HatchManifest = { ...m, versionConstraint };
-    await writeManifest(rootDir, persisted);
-    m.versionConstraint = versionConstraint;
+    // D1-SA1.3-02 (Cycle 12, D1, P2): persist the pin only on a real run. A
+    // `--dry-run --pin-version` preview must not durably change the install
+    // spec of every FUTURE `update` — that is the opposite of a no-op preview
+    // and contradicts the "without writing files" contract printed at the
+    // dry-run banner. The info() line above previews the pin either way.
+    if (!dryRun) {
+      const persisted: HatchManifest = { ...m, versionConstraint };
+      await writeManifest(rootDir, persisted);
+      m.versionConstraint = versionConstraint;
+    }
   } else if (versionConstraint) {
     info(`Using pinned version '${versionConstraint}' from .hatch3r/hatch.json. Pass --pin-version latest to remove the pin.`);
   }
@@ -1556,6 +1770,23 @@ export async function updateCommand(
     label("Tools", `${compactedResult.syncedTools} tool(s) re-synced`),
     label("Version", `v${compactedResult.version}`),
   ];
+  // D10-SA10.4-02 (Cycle 12, D10, P1): render the same preserved-vs-overwritten
+  // tally sync's D10-M11 summary shows, so the upgrader — the user most afraid
+  // a version bump wiped their hand edits — reads "did it keep my edits?"
+  // directly instead of a bare file count (clig.dev: "if you change state,
+  // tell the user"; NN/g visibility-of-system-status).
+  const wa = result.writeActions;
+  const changeParts: string[] = [];
+  if (wa) {
+    if (wa.created) changeParts.push(chalk.green(`${wa.created} created`));
+    if (wa.merged) changeParts.push(chalk.cyan(`${wa.merged} merged (your edits preserved)`));
+    if (wa.regenerated) changeParts.push(chalk.yellow(`${wa.regenerated} regenerated (full overwrite)`));
+    if (wa.unchanged) changeParts.push(chalk.dim(`${wa.unchanged} unchanged`));
+    if (wa.skipped) changeParts.push(chalk.dim(`${wa.skipped} skipped`));
+  }
+  if (changeParts.length > 0) {
+    updateSummaryLines.splice(1, 0, label("Changes", changeParts.join(chalk.dim(" · "))));
+  }
   if (result.snapshotSessionId) {
     updateSummaryLines.push(
       label(
@@ -1581,6 +1812,10 @@ export async function updateCommand(
     json: {
       status: result.failedTools > 0 ? "partial" : "passed",
       copiedFiles: result.copiedFiles,
+      // D10-SA10.4-02: additive field — CI consumers can branch on the
+      // preserved-vs-overwritten split without parsing the human tally line.
+      // Explicit null when a stubbed result omitted the tally.
+      writeActions: result.writeActions ?? null,
       syncedTools: result.syncedTools,
       failedTools: result.failedTools,
       version: result.version,

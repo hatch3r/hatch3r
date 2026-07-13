@@ -744,6 +744,128 @@ describe("explainCommand", () => {
     });
   });
 
+  // D1-SA1.7-05 (Cycle 12 Wave 3, D1, P4): `--cost` id resolution routes
+  // through the shared content index (same 4-candidate lookup as show/deps),
+  // so user commands under `.hatch3r/overrides/commands/` and canonical
+  // overrides resolve — the pre-fix bespoke path probed only the legacy
+  // `.agents/` tree and the bundled `commands/` dir.
+  describe("--cost content-index resolution (D1-SA1.7-05)", () => {
+    let consoleWarnSpy: MockInstance;
+
+    beforeEach(() => {
+      // The canonical-override case legitimately triggers the index's
+      // user-shadow-canonical console.warn; keep test output clean.
+      consoleWarnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    });
+
+    afterEach(() => {
+      consoleWarnSpy.mockRestore();
+    });
+
+    async function writeOverrideCommandFile(
+      filename: string,
+      frontmatter: Record<string, unknown>,
+    ): Promise<void> {
+      const dir = join(tempDir, ".hatch3r", "overrides", "commands");
+      await mkdir(dir, { recursive: true });
+      const lines: string[] = ["---"];
+      for (const [key, value] of Object.entries(frontmatter)) {
+        if (Array.isArray(value)) {
+          lines.push(`${key}: [${value.map((v) => String(v)).join(", ")}]`);
+        } else if (typeof value === "boolean") {
+          lines.push(`${key}: ${value ? "true" : "false"}`);
+        } else {
+          lines.push(`${key}: ${String(value)}`);
+        }
+      }
+      lines.push("---", "", "override body");
+      await writeFile(join(dir, filename), lines.join("\n"));
+    }
+
+    it("resolves a user-authored command under .hatch3r/overrides/commands/ (bare id, no forced prefix)", async () => {
+      // Pre-fix: 'Command not found' — the bespoke probes never looked at the
+      // overrides tier, and the id was force-prefixed to `hatch3r-`.
+      await writeOverrideCommandFile("my-costed-cmd.md", {
+        id: "my-costed-cmd",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "user command",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "my-costed-cmd" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Tier 1");
+      expect(output).not.toContain("Tier 2");
+    });
+
+    it("costs the canonical OVERRIDE, not the bundled copy, when .hatch3r/overrides shadows a canonical id", async () => {
+      // Bundled hatch3r-quick-change declares triage_tiers [1, 2, 3]; the
+      // override narrows to [1]. Pre-fix the bundled copy was costed (3 tier
+      // rows) — the user got figures for the artifact they are NOT running.
+      await writeOverrideCommandFile("hatch3r-quick-change.md", {
+        id: "hatch3r-quick-change",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "narrowed override",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-quick-change" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Tier 1");
+      expect(output).not.toContain("Tier 3"); // bundled copy would print 3 rows
+    });
+
+    it("keeps the legacy .agents/commands/ probe FIRST (Wave-7 back-compat order)", async () => {
+      // Both a legacy installed copy and an override exist: the legacy tree
+      // wins, preserving the documented pre-1.9 resolution order.
+      await writeCommandFile(tempDir, "hatch3r-order.md", "legacy body", {
+        id: "hatch3r-order",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "legacy",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+      await writeOverrideCommandFile("hatch3r-order.md", {
+        id: "hatch3r-order",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "override",
+        tags: ["core"],
+        triage_tiers: [1, 2],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-order" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("Tier 1");
+      expect(output).not.toContain("Tier 2"); // legacy copy (single tier) won
+    });
+
+    it("still resolves a bundled canonical command by id (regression: pre-fix behavior kept)", async () => {
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-quick-change" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Bundled quick-change carries triage_tiers [1, 2, 3].
+      expect(output).toContain("Tier 1");
+      expect(output).toContain("Tier 3");
+    });
+  });
+
   // D12-9 (Cycle 11 Wave 3): `--customizations` table is responsive to terminal
   // width and wraps long reasons into continuation lines instead of truncating,
   // so it stays legible at the 80-col non-TTY/CI fallback width.
@@ -791,6 +913,194 @@ describe("explainCommand", () => {
       // The reason tail that the old 50-col truncation dropped is now present
       // (wrapped onto a continuation line), proving wrap-not-truncate.
       expect(output).toContain("Ignoring enabled");
+    });
+  });
+
+  // D6-SA6.3-06 (Cycle 12 Wave 4): `explain --cost` shows a second "typical
+  // cached" figure by default so the headline is not the undiscoverably
+  // pessimistic uncached upper bound — the framework's efficiency thesis is
+  // static-first prompt-cache reuse (cached input bills at 0.1× base). A pinned
+  // --cache-hit is the user's own scenario and suppresses the projection.
+  describe("--cost typical-cache projection (D6-SA6.3-06)", () => {
+    it("shows both the uncached ceiling and a typical-cached figure by default", async () => {
+      const body = "x".repeat(8000);
+      await writeCommandFile(tempDir, "hatch3r-typcache.md", body, {
+        id: "hatch3r-typcache",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "typcache",
+        tags: ["core"],
+        triage_tiers: [1, 2],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-typcache" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // The uncached table headline is still present...
+      expect(output).toContain("All tiers (sum)");
+      // ...and the second (typical-cached) figure now accompanies it by default.
+      expect(output).toContain("Typical cached");
+      expect(output).toContain("90% input cache-hit");
+      // The flag is surfaced at point-of-use (its registration lives in the
+      // separately owned CLI wiring, but the default output now names it).
+      expect(output).toContain("--cache-hit");
+    });
+
+    it("suppresses the typical projection when the user pins --cache-hit", async () => {
+      const body = "x".repeat(8000);
+      await writeCommandFile(tempDir, "hatch3r-pinned.md", body, {
+        id: "hatch3r-pinned",
+        type: "command",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        description: "pinned",
+        tags: ["core"],
+        triage_tiers: [1],
+      });
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ cost: "hatch3r-pinned", cacheHit: "0.5" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // The pinned ratio is the chosen scenario — no second projection line.
+      expect(output).not.toContain("Typical cached");
+      // The existing pinned-ratio footer note still renders.
+      expect(output).toContain("50% input cache-hit");
+    });
+
+    it("adds a `typical` block to --cost --format json by default, null when pinned", async () => {
+      await writeCommandFile(tempDir, "hatch3r-typjson.md", "Body.", {
+        id: "hatch3r-typjson",
+        orchestrator: true,
+        agentPipeline: ["hatch3r-implementer"],
+        triage_tiers: [1, 2],
+      });
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      try {
+        await explainCommand({ cost: "hatch3r-typjson", format: "json" });
+        const def = JSON.parse(
+          stdoutSpy.mock.calls.map((c) => String(c[0])).join("").trim(),
+        ) as Record<string, unknown>;
+        const typical = def.typical as Record<string, unknown> | null;
+        expect(typical).not.toBeNull();
+        expect((typical as Record<string, unknown>).cacheHitRatio).toBe(0.9);
+        expect(typeof (typical as Record<string, unknown>).totalUsd).toBe("number");
+
+        stdoutSpy.mockClear();
+        await explainCommand({ cost: "hatch3r-typjson", format: "json", cacheHit: "0.3" });
+        const pinned = JSON.parse(
+          stdoutSpy.mock.calls.map((c) => String(c[0])).join("").trim(),
+        ) as Record<string, unknown>;
+        expect(pinned.typical).toBeNull();
+      } finally {
+        stdoutSpy.mockRestore();
+      }
+    });
+  });
+
+  // D12-SA12.3-03 (Cycle 12 Wave 4): `explain --customizations` human mode now
+  // renders the RESOLVED value of a description/model/scope override (not just
+  // WHICH field applied), so a value override can be confirmed from the table —
+  // previously only `enabled` showed its value and the rest needed --format json.
+  describe("--customizations resolved values (D12-SA12.3-03)", () => {
+    it("renders the resolved value of a model override in the human table", async () => {
+      // A model override on a canonical agent (hatch3r-reviewer) is accepted
+      // (only rules/prompts/hooks lack a model), so appliedOverrides.model is
+      // populated and the row classifies `active`.
+      const customDir = join(tempDir, ".hatch3r", "agents");
+      await mkdir(customDir, { recursive: true });
+      await writeFile(
+        join(customDir, "hatch3r-reviewer.customize.yaml"),
+        "model: claude-haiku-4-5\n",
+        "utf-8",
+      );
+
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ customizations: true });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("hatch3r-reviewer");
+      // The compact Overrides cell still names the field...
+      expect(output).toContain("model");
+      // ...and the resolved VALUE is now rendered too (the D12-SA12.3-03 gap).
+      expect(output).toContain("claude-haiku-4-5");
+    });
+  });
+
+  // D12-SA12.4-02 (Cycle 12 Wave 4, consumer half): `explain --source` renders
+  // an empty sourceFiles list by its `sourceKind` discriminator when present —
+  // distinguishing a config-only output from a tracking failure — and, when the
+  // discriminator is absent (real manifests until the producer half lands in
+  // base.ts/provenance.ts), names both possibilities instead of the bare,
+  // ambiguous "(none recorded)".
+  describe("--source empty-sourceFiles discriminator (D12-SA12.4-02)", () => {
+    async function writeEmptySourceFixture(): Promise<void> {
+      const dir = join(tempDir, ".hatch3r");
+      await mkdir(dir, { recursive: true });
+      const manifest = {
+        schemaVersion: 1,
+        hatch3rVersion: "2.5.0",
+        generatedAt: "2026-07-11T00:00:00.000Z",
+        lastCommand: "sync",
+        lastRunId: "hr-d1244-test",
+        outputs: [
+          { path: ".mcp.json", adapter: "claude", sourceFiles: [], sourceKind: "config" },
+          { path: "weird-output.md", adapter: "cursor", sourceFiles: [], sourceKind: "untracked" },
+          { path: "legacy-empty.txt", adapter: "copilot", sourceFiles: [] },
+        ],
+      };
+      await writeFile(join(dir, "provenance.json"), JSON.stringify(manifest, null, 2) + "\n", "utf-8");
+    }
+
+    it("renders a config-only output distinctly (not the bare '(none recorded)')", async () => {
+      await writeEmptySourceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: ".mcp.json" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("config-only output");
+      expect(output).not.toContain("(none recorded");
+    });
+
+    it("renders an untracked output as a tracking failure with a remediation", async () => {
+      await writeEmptySourceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "weird-output.md" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      expect(output).toContain("source tracking unavailable");
+      expect(output).toContain("hatch3r sync");
+    });
+
+    it("names both possibilities when no discriminator is persisted (real-manifest fallback)", async () => {
+      await writeEmptySourceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      await explainCommand({ source: "legacy-empty.txt" });
+
+      const output = consoleSpy.mock.calls.map((c) => String(c[0])).join("\n");
+      // Honest dual-possibility message — improves on the bare, ambiguous prior.
+      expect(output).toContain("either a config-only output");
+      expect(output).toContain("re-run");
+    });
+
+    it("passes sourceKind through --source --format json", async () => {
+      await writeEmptySourceFixture();
+      const { explainCommand } = await import("../../cli/commands/explain.js");
+      const stdoutSpy = vi.spyOn(process.stdout, "write").mockImplementation(() => true);
+      try {
+        await explainCommand({ source: ".mcp.json", format: "json" });
+        const payload = JSON.parse(
+          stdoutSpy.mock.calls.map((c) => String(c[0])).join("").trim(),
+        ) as Record<string, unknown>;
+        expect(payload.status).toBe("present");
+        expect(payload.sourceKind).toBe("config");
+        expect(payload.sourceFiles).toEqual([]);
+      } finally {
+        stdoutSpy.mockRestore();
+      }
     });
   });
 });

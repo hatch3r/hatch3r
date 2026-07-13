@@ -17,7 +17,7 @@ Source: `governance/CONSTITUTION.md` §2 P8.
 
 ## Canonical surface
 
-This rule lives under `.claude/rules/` — framework-dev only; adapters do not ship it to end-user repos (they read from canonical `rules/` via `src/adapters/canonical.ts::readCanonicalFiles`). The end-user runtime surface ships the dedicated canonical twin `rules/hatch3r-fan-out-discipline.md` (+ `.mdc`, `scope: always`, `precedence: high`) — authored under D7-SA7.6-L-1 / C-1 — so runtime agents that delegate via the Task tool receive the identical P8 B2 directive directly, and not only by inheritance from `rules/hatch3r-agent-orchestration.md` → §Scaling Heuristic + §Cost-Dominance Principle. Keep this framework-dev rule and the canonical twin aligned on the B2 directive text when either changes (B2 text updated 2026-07-09 from CONSTITUTION §2 P8; the twin's alignment is queued through the capability lifecycle — canonical `rules/` is outside EVOLVE write scope).
+This rule lives under `.claude/rules/` — framework-dev only; adapters do not ship it to end-user repos (they read from canonical `rules/` via `src/adapters/canonical.ts::readCanonicalFiles`). The end-user runtime surface ships the dedicated canonical twin `rules/hatch3r-fan-out-discipline.md` (+ `.mdc`, `scope: always`, `precedence: high`) — authored under D7-SA7.6-L-1 / C-1 — so runtime agents that delegate via the Task tool receive the identical P8 B2 directive directly, and not only by inheritance from `rules/hatch3r-agent-orchestration.md` → §Scaling Heuristic + §Cost-Dominance Principle. Keep this framework-dev rule and the canonical twin aligned on the B2 directive text when either changes (B2 text updated 2026-07-09 from CONSTITUTION §2 P8; the twin `rules/hatch3r-fan-out-discipline.md` now carries the same `task_structure` companion clause, reconciled through the capability lifecycle — canonical `rules/` is outside EVOLVE write scope. Emitting the companion from the 8 delegating `.claude/skills/` bodies and requiring it in `scripts/validate-fanout-emission.ts` remain queued through the capability lifecycle).
 
 ## B2 directive (verbatim)
 
@@ -34,6 +34,14 @@ Sub-agent count tracks task decomposition:
 When work is independent under the three parallel-safety conditions (read-only or disjoint writes, deterministic aggregation, no shared mutable state per `rules/hatch3r-agent-orchestration.md`), fan out. Only true dependency edges justify serialization.
 
 Past ~8 concurrent sub-agents, keep the task-derived count but split it into a two-level tree per `rules/hatch3r-fan-out-discipline.md` → Hierarchical delegation; never compress the count to ease integration.
+
+## Topology & single-writer
+
+Source: `governance/CONSTITUTION.md` §2 P8 (Topology rule + Single-writer synthesis).
+
+**Topology rule:** one accountable orchestrator per flow; supervisor layers above it require a named, measured justification; peer-to-peer coordination is reserved for dynamic-environment work whose decomposition shifts mid-flight. The two-level tree above IS such a supervisor layer — admissible past ~8 width only with the reviewability-ceiling justification recorded in the orchestrator's fan-out rationale; below the ceiling, one accountable orchestrator per flow is the default.
+
+**Single-writer synthesis:** fan out reads; exactly one writer merges results into a given artifact — parallel writers on one file are a P8 violation. This is the disjoint-writes safety condition applied at synthesis time: N sub-agents may READ in parallel, but the merge into any one artifact stays single-writer. Framework-dev multi-SA flows are its subject — audit fan-out writing `.audit-workspace/` files included: each SA writes only its own results file, and one orchestrator merges into shared registries and SUMMARY files.
 
 ## Cost-dominance clause
 

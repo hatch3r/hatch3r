@@ -5,7 +5,7 @@ title: Quality-Vector Specialists
 
 # Quality-Vector Specialists (2.0.0)
 
-hatch3r 2.0.0 introduces a two-axis pillar framework. The **governance axis** (P1-P8) defines how the framework operates -- CLI UX, scientific quality, adapter currency, lean coverage, self-quality, security, speed, and clarification/fan-out discipline. The **content-quality axis** (CQ1-CQ9) defines what the framework produces in end-user code. Each CQ pillar is owned by a specialist agent invoked at quality gates with measurable thresholds and a structured proof_trace contract.
+hatch3r 2.0.0 introduces a two-axis pillar framework. The **governance axis** (P1-P8) defines how the framework operates -- CLI UX, scientific quality, adapter currency, lean coverage, self-quality, security, speed, and clarification/fan-out discipline. The **content-quality axis** (CQ1-CQ10) defines what the framework produces in end-user code and its upstream spec artifacts. Each of the ten CQ pillars is owned by a specialist agent invoked at quality gates with measurable thresholds and a structured proof_trace contract; CQ10 (Product & Spec Quality, added 2026-07-09) gained its specialist, `hatch3r-product-spec`, in the Cycle-12 content-gap drain.
 
 See the [pillar framework overview](https://docs.hatch3r.com/docs/about#pillar-framework) for the pillar definitions.
 
@@ -22,10 +22,11 @@ See the [pillar framework overview](https://docs.hatch3r.com/docs/about#pillar-f
 | **CQ7 Performance** | `hatch3r-performance` | Latency budgets per critical path, bundle-size budgets, runtime profiling baseline, regression gates |
 | **CQ8 Maintainability** | `hatch3r-maintainability` | Lean thresholds, cross-file duplication <5%, module cohesion, dead-code budget |
 | **CQ9 Enhancability** | `hatch3r-enhancability` | Extension-point contracts, customization escape hatches, migration paths, deprecation discipline |
+| **CQ10 Product & Spec** | `hatch3r-product-spec` | Acceptance-criteria testability 100%, discovery claims evidence-cited 100%, spec-to-outcome traceability 100% |
 
 ## How Specialists Are Invoked
 
-Each specialist agent declares a Phase-4 trigger in its frontmatter -- conditional file patterns that match changes touching its pillar's surface. When `hatch3r-board-pickup` (or the manual workflow) reaches the final-quality phase, the orchestrator dispatches the specialists whose triggers match the changed files, in parallel.
+Each specialist agent declares a Phase-4 trigger in its frontmatter -- conditional file patterns that match changes touching its pillar's surface. When `hatch3r-board-pickup` (or the manual workflow) reaches the final-quality phase, the orchestrator dispatches the specialists whose triggers match the changed files, in parallel. One exception: `hatch3r-product-spec` (CQ10) dispatches from the shared CQ roster at spec review points while its trigger-table registration is pending.
 
 Each specialist returns a structured `proof_trace` with the measurements it took, the thresholds it compared against, and an `impact_horizon` classifier (short / medium / long) attached to every audit finding.
 
@@ -43,5 +44,5 @@ Every governance or content change in hatch3r answers six questions:
 ## Reference
 
 - [Pillar framework overview](https://docs.hatch3r.com/docs/about#pillar-framework)
-- [agents/hatch3r-ui.md](https://github.com/hatch3r/hatch3r/blob/main/agents/hatch3r-ui.md) (and the other 8 specialist agent files alongside it)
+- [agents/hatch3r-ui.md](https://github.com/hatch3r/hatch3r/blob/main/agents/hatch3r-ui.md) (and the other 9 specialist agent files alongside it)
 - [Agent Teams](./agent-teams) -- how specialists coordinate with reviewer, fixer, and test-writer roles

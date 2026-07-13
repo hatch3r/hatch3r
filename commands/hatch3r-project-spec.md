@@ -15,6 +15,7 @@ supports_resume: true
 sub_agents_spawned:
   count: 7
   rationale: Seven parallel hatch3r-researcher domains per vision brief in Step 3 — stack, features, architecture, pitfalls, UX, business-model-and-market, production-and-scale; docs-writers fan out in a second parallel batch in Step 7 (one per document category). Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -24,6 +25,15 @@ sub_agents_spawned:
 # Project Spec — Greenfield Project Specification from Vision to Docs
 
 Take a project idea or vision and produce complete project documentation across **two dimensions**: business strategy and technical architecture. Spawns parallel researcher sub-agents (stack, features, architecture, pitfalls, UX, business model & market, production & scale) to analyze the vision from every angle before generating artifacts. Outputs business specs to `docs/specs/business/` (business model, competitive analysis, GTM strategy, production blueprint), technical specs to `docs/specs/technical/` (glossary, overview, per-module specs), ADRs to `docs/adr/`, and a `todo.md` ready for `hatch3r-board-fill`. Optionally generates a root-level `AGENTS.md` as the project's "README for agents." AI proposes all outputs; user confirms before any files are written.
+
+## Relationship to /hatch3r-spec
+
+`/hatch3r-project-spec` and `/hatch3r-spec` are both greenfield entry points and overlap on business research (market, competitive analysis, personas). They are meant to run in sequence, not in parallel:
+
+- **`/hatch3r-spec`** produces the **PRD** (`docs/specs/prd.md`) plus market/competitive/persona/tech-stack research — the product-requirements layer.
+- **This command** produces the **technical-design tree** (ADRs, domain model, per-module specs, `todo.md`, `AGENTS.md`) plus business-doc specs — the layer that consumes the PRD.
+
+If a PRD already exists, share it at the **Step 1** ASK ("Gather Project Vision & Business Context") — this command extracts vision, personas, and market context from it instead of re-interviewing, and shrinks Sub-Agent 6 (Business Model & Market) to a reconciliation pass rather than regenerating the market/competitive research `/hatch3r-spec` already wrote. If no PRD exists and you want the requirements layer first, run `/hatch3r-spec` before this command. With no PRD supplied, this command interviews from scratch.
 
 ## Agent Pipeline
 
@@ -958,54 +968,7 @@ Confirm, or tell me what to adjust."
 
 From the architecture researcher's "Architectural Decisions Requiring ADRs" output and the business model researcher's strategic decisions, create one ADR per decision. Include both technical and business-driven decisions.
 
-#### ADR Format — `docs/adr/0001_{decision-slug}.md`
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Scope
-
-{Technical / Business / Both}
-
-## Decision Makers
-
-{tbd}
-
-## Context
-
-{Why this decision is needed — business and technical context}
-
-## Decision
-
-{What was decided and why}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-```
-
-Number ADRs sequentially: `0001_`, `0002_`, etc. Use slugified decision titles.
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton + Dual-lens variant (project-spec). Per-command slots: context-guidance = "business and technical context"; related-ref = none. The dual-lens variant inserts `## Scope` ({Technical / Business / Both}) and `## Decision Makers` ({tbd}) after `## Date`, and omits the trailing `## Related` section.
 
 **ASK:** "Here are {N} ADRs generated from architectural and business decisions (scope marked as Technical/Business/Both). Review before I write the files:
 {list with titles and scopes}
@@ -1236,15 +1199,15 @@ project-spec is long-running — a Tier 3 enterprise-scale greenfield fans out s
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; both land in the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** — appended to the Iteration Summary recap (cost facet; full blocks on the `Cost:` exception line beyond ±25%) per `rules/hatch3r-cost-visibility.md`.

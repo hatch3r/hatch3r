@@ -265,3 +265,50 @@ describe("bundled mcp.json — bypass-warning hygiene (D11-15)", () => {
     ).toEqual([]);
   });
 });
+
+// D15-SA15.5-01 (Cycle 12 Wave 3, Medium, P6 Security & Trust): the docs' GitHub
+// MCP toolset enumeration (docs/mcp-setup.md "Server details") must equal the
+// shipped `X-MCP-Toolsets` header in mcp/mcp.json as a SET. Before this guard,
+// mcp-setup.md claimed the header enabled `projects` while the shipped header
+// enabled only repos,issues,pull_requests — a least-privilege security doc
+// misstating the granted tool surface (`projects` is deliberately excluded as a
+// high-blast-radius toolset per docs/mcp-server-blast-radius.md). This loads the
+// REAL bundled pack + the REAL doc (Decision 20, real-deal-first) so the two
+// surfaces cannot drift again without failing here.
+describe("github MCP toolset — docs/config parity (D15-SA15.5-01)", () => {
+  function csvToSet(csv: string): Set<string> {
+    return new Set(csv.split(",").map((t) => t.trim()).filter((t) => t.length > 0));
+  }
+
+  function githubHeaderToolsets(): Set<string> {
+    const servers = loadBundledMcpServers() as Record<
+      string,
+      McpServerEntry & { headers?: Record<string, unknown> }
+    >;
+    const github = servers.github;
+    expect(github, "github server entry must exist in the bundled pack").toBeTruthy();
+    const raw = github.headers?.["X-MCP-Toolsets"];
+    expect(typeof raw, "github server must carry an X-MCP-Toolsets header string").toBe("string");
+    return csvToSet(raw as string);
+  }
+
+  function docsEnumeratedToolsets(): Set<string> {
+    const raw = readFileSync(join(PKG_ROOT, "docs", "mcp-setup.md"), "utf-8");
+    const m = raw.match(/Uses `X-MCP-Toolsets` for ([^.\n]+)\./);
+    expect(
+      m,
+      "docs/mcp-setup.md must enumerate the GitHub X-MCP-Toolsets set in the Server details section",
+    ).toBeTruthy();
+    return csvToSet((m as RegExpMatchArray)[1]);
+  }
+
+  it("the docs' GitHub toolset enumeration matches the shipped X-MCP-Toolsets header", () => {
+    const header = [...githubHeaderToolsets()].sort();
+    const docs = [...docsEnumeratedToolsets()].sort();
+    expect(
+      docs,
+      `docs/mcp-setup.md enumerates GitHub toolsets ${JSON.stringify(docs)} but the shipped ` +
+        `mcp/mcp.json X-MCP-Toolsets header grants ${JSON.stringify(header)} — reconcile the doc with the config`,
+    ).toEqual(header);
+  });
+});

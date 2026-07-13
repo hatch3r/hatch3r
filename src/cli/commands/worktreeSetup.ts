@@ -221,9 +221,21 @@ function emitDryRunJson(
   });
 }
 
+/**
+ * D1-SA1.10-04 (Cycle 12 Wave 3, D1, P1): spawn the RUNNING CLI directly —
+ * `process.execPath` (the node binary) + `process.argv[1]` (this CLI's entry
+ * script) — instead of `execFileSync("npx", ...)`. Two defects in the npx
+ * form: (1) on native Windows the npx binary is `npx.cmd`, and .bat/.cmd
+ * files cannot be launched via `execFile` without a shell (Node docs;
+ * CVE-2024-27980 hardening), so every Windows `worktree-setup` run failed
+ * the auto-sync step with FS_ERROR; (2) with `stdio: ["ignore", ...]` npx's
+ * install prompt received EOF and aborted whenever hatch3r was not locally
+ * resolvable, so even POSIX auto-sync silently depended on the npx cache.
+ * Same-binary re-invocation has neither failure mode on any platform.
+ */
 function syncWorktree(targetRoot: string): { ok: boolean; output: string } {
   try {
-    const out = execFileSync("npx", ["hatch3r", "sync"], {
+    const out = execFileSync(process.execPath, [process.argv[1], "sync"], {
       cwd: targetRoot,
       stdio: ["ignore", "pipe", "pipe"],
     });

@@ -24,6 +24,7 @@ import { checkContextBudget, formatBudgetWarning } from "../../adapters/contextB
 import { safeWriteFile, predictMergeAction, enableDefaultCrossProcessLocking, sweepOrphanTmpFiles, formatOrphanTmpSweepDiagnostic, detectConcurrentWriteRisk } from "../../merge/safeWrite.js";
 import { withSnapshot } from "../../pipeline/snapshot.js";
 import { sweepOrphansForAdapter, formatOrphanCleanupDiagnostic, type OrphanCleanupEntry } from "../../merge/orphanCleanup.js";
+import { extractManagedBlock } from "../../merge/managedBlocks.js";
 import { generateWorktreeInclude, extractManagedContent } from "../../worktree/index.js";
 import { HATCH3R_DIR, HatchError, WORKTREE_INCLUDE_FILE, type AdapterOutput, type GenerationMode } from "../../types.js";
 import { assertManifest } from "../shared/requireManifest.js";
@@ -63,6 +64,7 @@ import {
 import {
   writeCheckpoint,
   readCheckpoint,
+  workspaceDir,
   type CheckpointMeta,
 } from "../../pipeline/checkpoint.js";
 import { compactPhaseOutput } from "../../pipeline/phaseOutputSchema.js";
@@ -207,6 +209,81 @@ async function readFileOrNull(filePath: string): Promise<string | null> {
   }
 }
 
+/**
+ * D8-SA8.4-03: extract a Node errno (`.code`) from an unknown error, or
+ * undefined when absent. Preserved on `adapterFailures` so the aggregate
+ * recovery-guidance path can reconstruct an errno-bearing Error and let
+ * `classifyDependency` resolve filesystem/network dependency classes instead
+ * of downgrading disk/permission failures to generic "unknown" guidance.
+ */
+function extractErrorCode(err: unknown): string | undefined {
+  if (err instanceof Error) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (typeof code === "string") return code;
+  }
+  return undefined;
+}
+
+/**
+ * D12-SA12.2-05: render the managed-block content delta between the on-disk
+ * `before` and the would-be/after `after` content for a `--diff --verbose`
+ * run. Bounds output to the HATCH3R:BEGIN/END managed block (the only region a
+ * sync overwrites) via {@link extractManagedBlock}, falling back to the full
+ * file for marker-less (full-regenerate) outputs. Trims the common leading and
+ * trailing lines so only the changed region shows, and caps removed/added line
+ * counts so a large regenerated block stays a short preview rather than dumping
+ * the whole file. Returns [] when the bounded content is identical (e.g. only
+ * out-of-block user text differs).
+ */
+function renderManagedBlockDelta(
+  before: string,
+  after: string,
+  filePath: string,
+): string[] {
+  const oldBlock = extractManagedBlock(before, filePath) ?? before;
+  const newBlock = extractManagedBlock(after, filePath) ?? after;
+  if (oldBlock === newBlock) return [];
+
+  const oldLines = oldBlock.split("\n");
+  const newLines = newBlock.split("\n");
+
+  // Trim the common prefix, then the common suffix (not overlapping the prefix)
+  // so only the changed region is rendered.
+  let prefix = 0;
+  while (
+    prefix < oldLines.length &&
+    prefix < newLines.length &&
+    oldLines[prefix] === newLines[prefix]
+  ) {
+    prefix++;
+  }
+  let suffix = 0;
+  while (
+    suffix < oldLines.length - prefix &&
+    suffix < newLines.length - prefix &&
+    oldLines[oldLines.length - 1 - suffix] === newLines[newLines.length - 1 - suffix]
+  ) {
+    suffix++;
+  }
+
+  const removed = oldLines.slice(prefix, oldLines.length - suffix);
+  const added = newLines.slice(prefix, newLines.length - suffix);
+
+  const CAP = 20;
+  const lines: string[] = [
+    chalk.dim(`    managed-block Δ (${prefix} line(s) unchanged above, ${suffix} below):`),
+  ];
+  for (const l of removed.slice(0, CAP)) lines.push(chalk.red(`    - ${l}`));
+  if (removed.length > CAP) {
+    lines.push(chalk.dim(`    - … ${removed.length - CAP} more removed line(s)`));
+  }
+  for (const l of added.slice(0, CAP)) lines.push(chalk.green(`    + ${l}`));
+  if (added.length > CAP) {
+    lines.push(chalk.dim(`    + … ${added.length - CAP} more added line(s)`));
+  }
+  return lines;
+}
+
 export async function syncCommand(
   opts: {
     repos?: string[] | true;
@@ -343,7 +420,7 @@ export async function syncCommand(
   // checkpoint left by a different hatch3r version is correctly flagged as
   // drift and re-run from scratch. `readCheckpoint` throws on a corrupt file
   // (with a preserved-backup recovery hint), so resume fails loud.
-  const syncWorkspace = join(rootDir, ".sync-workspace");
+  const syncWorkspace = workspaceDir(rootDir, "sync");
   const checkpointMeta = (): CheckpointMeta => ({
     baselineSha: HATCH3R_VERSION,
     lastPassedGateN: 0,
@@ -738,7 +815,7 @@ export async function syncCommand(
   // adapters.
   const outputPathOwners = new Map<string, string>();
 
-  const adapterFailures: { tool: string; error: string }[] = [];
+  const adapterFailures: { tool: string; error: string; code?: string }[] = [];
   // C8-D12-M3: Per-adapter output collector for `.agents/.provenance.json`
   // persistence after the adapter loop completes. Entries are captured only
   // on successful generation so failed adapters leave no stale provenance
@@ -887,16 +964,32 @@ export async function syncCommand(
         { maxAttempts: 2 },
       );
       if (!generationResult.completed) {
+        // D8-SA8.4-02 / D1-SA1.9-02 (Cycle 12, D8/D1): single-count this
+        // adapter-incomplete/timeout failure. The prior shape called
+        // `recordFailure` here AND threw a synthetic HatchError that the
+        // enclosing per-tool catch (below) caught and passed to `recordFailure`
+        // a SECOND time on the same failure event. An AdapterTimeoutError
+        // message classifies `transient` (circuitBreaker.ts classifyFailure
+        // `/timeout|timed out/i`), so one timed-out adapter advanced
+        // `consecutiveFailures` by 2 — the breaker reached OPEN after 2 failing
+        // invocations instead of the configured `failureThreshold` (default 3),
+        // and `totalFailures` telemetry over-reported. Mirror the
+        // `--strict-budget` branch above (record once → set → push → append →
+        // continue): this path now owns its own single count and no longer
+        // round-trips through the catch, which is left to own only
+        // genuinely-thrown generic errors. The prior synthetic HatchError's
+        // recovery hint was already discarded by that catch (it stored only
+        // `err.message`), so removing the throw loses no surfaced guidance —
+        // the aggregate `getRecoveryGuidance` block still reconstructs
+        // actionable guidance from the recorded error string.
         const errMessage = generationResult.error ?? `Adapter ${tool} did not complete`;
         for (const w of generationResult.warnings) { warn(w); }
+        s.fail(step(currentStep, totalSteps, `Failed to generate ${tool} output`));
         breaker = recordFailure(breaker, classifyFailure(new Error(errMessage)));
         breakers.set(tool, breaker);
-        throw new HatchError(
-          errMessage,
-          undefined,
-          "ADAPTER_ERROR",
-          `Re-run with --verbose for ${tool} detail, or run \`npx hatch3r validate\` to check canonical content.`,
-        );
+        adapterFailures.push({ tool, error: errMessage });
+        await appendFailure(hatch3rDir, "sync:adapter-generate", new Error(errMessage), tool);
+        continue;
       }
       const outputs = generationResult.outputs ?? [];
       for (const w of generationResult.warnings) { warn(w); }
@@ -973,6 +1066,20 @@ export async function syncCommand(
           }
         }
       } else {
+        // D11-SA11.1-04: build the per-adapter path list incrementally, in
+        // lockstep with the flat-list `addManagedFile` below, so a mid-loop
+        // `safeWriteFile` throw leaves BOTH inventories reflecting the same
+        // partial reality. Seed from the PRIOR run's paths (not []): the flat
+        // `m.managedFiles` is cumulative across runs, so on a first-output
+        // throw it retains the prior paths — seeding this list from prior keeps
+        // the two consistent in that case too. On full loop completion the
+        // post-loop `newManagedByAdapter[tool] = [...currentPaths]` overwrites
+        // this with the fresh current set (needed for orphan detection); this
+        // seed only survives when the loop throws before reaching that line.
+        const managedPathsForTool: string[] = previousManagedByAdapter[tool]
+          ? [...previousManagedByAdapter[tool]]
+          : [];
+        newManagedByAdapter[tool] = managedPathsForTool;
         for (const out of outputs) {
           if (opts.diff) {
             diffBefore.set(out.path, await readFileOrNull(join(rootDir, out.path)));
@@ -1014,6 +1121,10 @@ export async function syncCommand(
           // a sync-only adoption path populates the flat list. Mirrors
           // init.ts:598 and update.ts:386. addManagedFile is idempotent.
           addManagedFile(m, out.path);
+          // D11-SA11.1-04: mirror the flat-list add into the per-adapter list
+          // in the same iteration so the two inventories never diverge on a
+          // mid-loop write failure (dedup keeps a re-emitted prior path single).
+          if (!managedPathsForTool.includes(out.path)) managedPathsForTool.push(out.path);
           if (opts.diff) {
             diffAfter.set(out.path, await readFileOrNull(join(rootDir, out.path)));
           }
@@ -1149,6 +1260,12 @@ export async function syncCommand(
       adapterFailures.push({
         tool,
         error: err instanceof Error ? err.message : String(err),
+        // D8-SA8.4-03: preserve the Node errno so the aggregate recovery-
+        // guidance path below resolves EACCES/ENOSPC (and network errnos) to
+        // filesystem/network-specific guidance instead of downgrading to a
+        // generic "unknown" hint — reconstructing a bare Error from the message
+        // string alone drops `.code`, the field `classifyDependency` matches first.
+        code: extractErrorCode(err),
       });
       // Record to persistent failure log for post-hoc debugging
       await appendFailure(hatch3rDir, "sync:adapter-generate", err, tool);
@@ -1230,6 +1347,11 @@ export async function syncCommand(
   if (adapterFailures.length > 0) {
     for (const f of adapterFailures) {
       const reconstructed = new Error(f.error);
+      // D8-SA8.4-03: restore the captured errno onto the reconstructed Error so
+      // classifyDependency's code-first branch (EACCES/ENOSPC/ECONNREFUSED/…)
+      // resolves the filesystem/network class instead of falling through to
+      // "unknown" on a message that carries no bare errno token.
+      if (f.code) (reconstructed as NodeJS.ErrnoException).code = f.code;
       const depClass = classifyDependency(reconstructed);
       const failType = classifyFailure(reconstructed);
       classifiedFailures.push({ tool: f.tool, depClass, failType });
@@ -1545,9 +1667,16 @@ export async function syncCommand(
   // replaced by the `runWithPipelineDeadman` wrapper around the adapter phase
   // above, which aborts in-flight on a wall-clock breach.
 
-  // --diff: show file change summary
+  // --diff: show file change summary. D12-SA12.2-05: under `--diff --verbose`,
+  // also render the managed-block content delta for MODIFIED files from the
+  // already-captured before/after content, so an operator previewing a
+  // (destructive) managed-block overwrite — notably `sync --dry-run --diff
+  // --verbose`, the one case git diff cannot serve because nothing is on disk
+  // yet — sees WHAT changes, not only WHICH files. Bounded to the managed block
+  // and capped per file to keep the preview short.
   if (opts.diff && diffBefore.size > 0) {
     const diffLines: string[] = [];
+    let anyModified = false;
     for (const [filePath] of diffBefore) {
       const before = diffBefore.get(filePath) ?? null;
       const after = diffAfter.get(filePath) ?? null;
@@ -1555,9 +1684,18 @@ export async function syncCommand(
         diffLines.push(`${chalk.green("+ added")}    ${filePath}`);
       } else if (before !== null && after !== null && before !== after) {
         diffLines.push(`${chalk.yellow("~ modified")} ${filePath}`);
+        anyModified = true;
+        if (opts.verbose) {
+          diffLines.push(...renderManagedBlockDelta(before, after, filePath));
+        }
       } else if (before !== null && after !== null && before === after) {
         diffLines.push(`${chalk.dim("= unchanged")} ${filePath}`);
       }
+    }
+    if (!opts.verbose && anyModified) {
+      diffLines.push(
+        chalk.dim("Re-run with --verbose to see the managed-block content delta for modified files."),
+      );
     }
     if (diffLines.length > 0) {
       printBox("Diff summary", diffLines, "info");
@@ -1677,9 +1815,28 @@ export async function syncCommand(
     }
   }
 
-  // Dry-run: skip error throwing and return before workspace cascade
-  // (workspace sync has its own dry-run handling below)
-  if (opts.dryRun) return;
+  // D1-SA1.3-12: Dry-run returns here without throwing on partial adapter
+  // failure. The workspace cascade below carries write-free dry-run support
+  // (`syncWorkspaceRepos` short-circuits at `options.dryRun` before any write),
+  // but this root-repo preview does not drive the sub-repo previews from a
+  // `--dry-run` root run. Rather than silently ignore a requested `--repos`
+  // (or on-sync) propagation under `--dry-run` (Silent Failure Contract,
+  // CONSTITUTION §2 P5), surface the un-previewed cascade explicitly.
+  if (opts.dryRun) {
+    const dryRunWsManifest = await readWorkspaceManifest(rootDir);
+    if (dryRunWsManifest) {
+      const cascadeWouldRun =
+        opts.repos !== undefined || dryRunWsManifest.syncStrategy === "on-sync";
+      const cascadeRepoCount = dryRunWsManifest.repos.filter((r) => r.sync).length;
+      if (cascadeWouldRun && cascadeRepoCount > 0) {
+        warn(
+          `--dry-run: workspace propagation to ${cascadeRepoCount} repo(s) not previewed. ` +
+            `Re-run without --dry-run to propagate, or preview the root-repo output above.`,
+        );
+      }
+    }
+    return;
+  }
 
   // #253 (D8-8.20): Exit non-zero on partial adapter failure
   // so CI pipelines can detect incomplete syncs.
@@ -1766,6 +1923,10 @@ export async function syncCommand(
 
   const wsResult = await syncWorkspaceRepos(rootDir, {
     repos: repoPaths,
+    // D1-SA1.3-12: forward-compatible plumbing. A `--dry-run` root run returns
+    // earlier (with the un-previewed-cascade advisory) and never reaches here,
+    // so `opts.dryRun` is falsy at this call today; the pass-through is retained
+    // so wiring a root-driven sub-repo dry-run preview later needs no change.
     dryRun: opts.dryRun,
     force: opts.force,
     concurrency: concurrencyOverride,

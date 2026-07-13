@@ -13,8 +13,9 @@ efficiency_tier: deep
 triage_tiers: [1, 2, 3]
 supports_resume: true
 sub_agents_spawned:
-  count: 4
-  rationale: Four parallel hatch3r-researcher modes per bug brief — symptom-trace, root-cause-hypothesis, impact-assessment, regression-research — dispatched concurrently in Step 3; a docs-writer assembles the investigation report on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  count: 5
+  rationale: Five parallel hatch3r-researcher modes per bug brief — symptom-trace, root-cause, impact-analysis, regression, requirements-elicitation — dispatched concurrently in Step 3; a docs-writer assembles the investigation report on their merged output. Cost-dominance per CONSTITUTION §2 P8 — token cost never serializes independent work.
+  task_structure: parallelizable
 ---
 
 ## §0 Detect Ambiguity (P8 B1)
@@ -134,7 +135,7 @@ Bug Brief:
    - `.hatch3r/hatch.json` — board configuration
    - Existing `todo.md` — current backlog (check for overlap or related items)
 2. Scan GitHub issues via `search_issues` for existing work related to the bug. Note duplicates, related bugs, or prior investigations.
-3. If `.hatch3r/learnings/` exists, scan for learnings relevant to the affected area. Match by area and tags against the bug brief.
+3. If `.hatch3r/learnings/` exists, scan for relevant learnings — test the affected file paths against each learning's `applies-to` glob and the affected area against its `topic` (canonical match keys per `rules/hatch3r-learning-system.md`; accept legacy `area`/`tags` only as a transitional fallback).
 4. Present a context summary:
 
 ```
@@ -144,7 +145,7 @@ Context Loaded:
   Prior investigations: {N} in docs/investigations/ ({related ones listed})
   Existing todo.md:   {found with N items / not found}
   Related issues:     {N} open issues with overlap ({list issue numbers})
-  Learnings:          {N} relevant learnings ({areas})
+  Learnings:          {N} relevant learnings ({topics})
   Gaps:               {list any missing context}
 ```
 
@@ -323,52 +324,9 @@ Confirm, or tell me what to adjust."
 
 Only proceed if the fix requires significant architectural decisions — for example, replacing an error-prone pattern across the codebase, introducing a new resilience mechanism, or changing a data model to prevent recurrence. Most bug investigations will NOT need ADRs.
 
-If ADRs are needed, generate them following the same format as `hatch3r-feature-plan` Step 6.
+If ADRs are needed, generate one per decision using the shared skeleton:
 
-#### ADR Format — `docs/adr/{NNNN}_{decision-slug}.md`
-
-Determine the next sequential number by scanning existing files in `docs/adr/`. Use slugified decision titles.
-
-```markdown
-# ADR-{NNNN}: {Decision Title}
-
-## Status
-
-Proposed
-
-## Date
-
-{today's date}
-
-## Context
-
-{Why this decision is needed — the bug revealed a systemic issue that requires an architectural response, not just a point fix}
-
-## Decision
-
-{What was decided and why}
-
-## Alternatives Considered
-
-| Alternative | Pros | Cons | Why Not |
-|-------------|------|------|---------|
-| {option} | {pros} | {cons} | {reason} |
-
-## Consequences
-
-### Positive
-- {consequence}
-
-### Negative
-- {consequence}
-
-### Risks
-- {risk}: {mitigation}
-
-## Related
-
-- Investigation report: `docs/investigations/{NN}_{bug-slug}.md`
-```
+> ADR artifact template: see `commands/shared/adr-template.md` → ADR Skeleton. Per-command slots: context-guidance = "the bug revealed a systemic issue that requires an architectural response, not just a point fix"; related-ref = "Investigation report: `docs/investigations/{NN}_{bug-slug}.md`".
 
 If no ADRs are needed, state so and skip to Step 7.
 
@@ -454,9 +412,9 @@ If yes, instruct the user to invoke the `hatch3r-board-fill` command. Note that 
 
 ## Resumability (Decision 27/30)
 
-bug-plan is long-running — a Tier 2/3 investigation fans out four parallel hatch3r-researcher modes (symptom-trace, root-cause-hypothesis, impact-assessment, regression-research) in Step 3, then assembles the investigation report under `docs/investigations/`, ADRs under `docs/adr/`, and structured `todo.md` entries via the docs-writer. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the four-researcher fan-out.
+bug-plan is long-running — a Tier 2/3 investigation fans out five parallel hatch3r-researcher modes (symptom-trace, root-cause, impact-analysis, regression, requirements-elicitation) in Step 3, then assembles the investigation report under `docs/investigations/`, ADRs under `docs/adr/`, and structured `todo.md` entries via the docs-writer. Per hatch3r's workspace-checkpointed resumability contract, checkpoint progress so an interrupted run re-enters at the last completed step rather than re-running the five-researcher fan-out.
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.bug-plan-workspace/`; step range the Step 0 → Step 8 progression; `wave` = researcher-batch index across the 4 parallel modes; snapshot/rollback paths `docs/investigations/`, `docs/adr/`, and `todo.md`; `meta` adds `bugSlug`. Write points: after Step 1 bug-brief context locks, after Step 2 hypothesis space ASK, after the Step 3 four-researcher fan-out returns (all modes complete), after Step 4 root-cause synthesis is confirmed by ASK, after each Step 5 file write (investigation report, ADRs) so already-generated artifacts survive a crash, after Step 6 todo.md entry generation, and after the optional Step 7 chain-to-`hatch3r-board-fill` handoff.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Checkpoint Contract. Per-command slots: workspace `.bug-plan-workspace/`; step range the Step 0 → Step 8 progression; `wave` = researcher-batch index across the 5 parallel modes; snapshot/rollback paths `docs/investigations/`, `docs/adr/`, and `todo.md`; `meta` adds `bugSlug`. Write points: after Step 1 bug-brief context locks, after Step 2 hypothesis space ASK, after the Step 3 five-researcher fan-out returns (all modes complete), after Step 4 root-cause synthesis is confirmed by ASK, after each Step 5 file write (investigation report, ADRs) so already-generated artifacts survive a crash, after Step 6 todo.md entry generation, and after the optional Step 7 chain-to-`hatch3r-board-fill` handoff.
 
 ---
 
@@ -470,15 +428,15 @@ bug-plan is long-running — a Tier 2/3 investigation fans out four parallel hat
 
 ## Iteration Summary (mandatory output)
 
-Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 23, superseded in place 2026-07-06).
+Close the run with the recap-contract Iteration Summary per `rules/hatch3r-iteration-summary.md`: a 1–2 line recap (status, outcome, files · sub-agents · gates · cost delta) plus every exception line whose firing condition holds — silence asserts the default. Omitting the recap fails that rule's Validation Gate (CONSTITUTION §6 Decision 28, superseded in place 2026-07-06).
 
-### Cost Visibility (Decision 24)
+### Cost Visibility (Decision 29)
 
 > Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → Cost Estimate for the 5-field `cost_estimate` schema and the post-execution `cost_actuals` + `delta` contract; the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
 
-## Cost estimate (Decision 24)
+## Cost estimate (Decision 29)
 
-This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 24/29:
+This command emits cost transparency per `rules/hatch3r-cost-visibility.md` and CONSTITUTION §6 Decision 29:
 
 - **Pre-execution `cost_estimate`** — emitted in Step 0.5 before the first researcher dispatch.
 - **Post-execution `cost_actuals` + `delta`** — the delta figure lands in the Iteration Summary recap (cost facet); full blocks surface on the `Cost:` exception line beyond ±25%, per `rules/hatch3r-cost-visibility.md`.
