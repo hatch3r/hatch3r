@@ -9,17 +9,18 @@ updates:
         dependency-type: "production"
       development:
         dependency-type: "development"
-  # Cycle 12 L D4-SA4.2-05 (D4): TypeScript 7.0 went GA 2026-07-08 (Go-native
-  # compiler; Microsoft states identical type-checking semantics). The manifest
-  # pins `typescript: ^6.0.2`, so a 7.x bump rewrites the major range — a
-  # deliberate migration decision, NOT routine dev-group drift. Migration
-  # surface is `npx tsc --noEmit` semantics + @types compatibility only: tsc is
-  # typecheck-only here (tsup/esbuild transpiles), so there is no runtime/build
-  # blast radius. No `ignore` rule is set — this records the tracked owner, it
-  # does not pre-empt the decision. Maintainer action: when a `typescript` 7.x
-  # major appears (verify whether the weekly dev-group PR carries typescript to
-  # 7.0.x vs a 6.0.x patch), run the `tsc --noEmit` + @types assessment before
-  # merge; do not auto-merge as routine dev-group drift. Adopt/defer pending.
+    # Cycle 12 L D4-SA4.2-05 (D4) resolution, 2026-07-13: TypeScript 7.0 went GA
+    # 2026-07-08; the weekly dev-group PR carried typescript 6.0.2 -> 7.0.2 and
+    # failed `npm ci` with ERESOLVE on every CI leg — typescript-eslint@8.63.0
+    # peer-rejects typescript 7.x, so adoption is mechanically blocked before
+    # the planned `tsc --noEmit` + @types assessment can even run. Decision:
+    # DEFER via the ignore rule below (majors only; 6.x minors/patches still
+    # flow). Revisit trigger: typescript-eslint publishes a release whose peer
+    # range admits typescript 7.x — then delete this ignore rule and run the
+    # assessment recorded in the D4-SA4.2-05 finding before merging the bump.
+    ignore:
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
   # Cycle 12 H D4-SA4.2-02 (D4): the website/ Docusaurus site ships its own
   # package.json + package-lock.json (committed 2026-03-02) that the root "/"
   # npm entry above does not cover — dependabot `directory` scoping is exact,
