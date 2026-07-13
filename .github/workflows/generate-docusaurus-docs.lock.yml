@@ -49,7 +49,7 @@ jobs:
       secret_verification_result: ${{ steps.validate-secret.outputs.verification_result }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@9441310fb463ae6c16e58a793e8cb1796c49d053 # v0.80.5
+        uses: github/gh-aw/actions/setup@eed4304d8740f0593f2797276cb8299d228ffd9b # v0.81.6
         with:
           destination: /opt/gh-aw/actions
       - name: Validate CODEX_API_KEY or OPENAI_API_KEY secret
@@ -235,7 +235,7 @@ jobs:
       output_types: ${{ steps.collect_output.outputs.output_types }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@9441310fb463ae6c16e58a793e8cb1796c49d053 # v0.80.5
+        uses: github/gh-aw/actions/setup@eed4304d8740f0593f2797276cb8299d228ffd9b # v0.81.6
         with:
           destination: /opt/gh-aw/actions
       - name: Checkout repository
@@ -942,7 +942,7 @@ jobs:
       total_count: ${{ steps.missing_tool.outputs.total_count }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@9441310fb463ae6c16e58a793e8cb1796c49d053 # v0.80.5
+        uses: github/gh-aw/actions/setup@eed4304d8740f0593f2797276cb8299d228ffd9b # v0.81.6
         with:
           destination: /opt/gh-aw/actions
       - name: Download agent output artifact
@@ -1060,7 +1060,7 @@ jobs:
       process_safe_outputs_temporary_id_map: ${{ steps.process_safe_outputs.outputs.temporary_id_map }}
     steps:
       - name: Setup Scripts
-        uses: github/gh-aw/actions/setup@9441310fb463ae6c16e58a793e8cb1796c49d053 # v0.80.5
+        uses: github/gh-aw/actions/setup@eed4304d8740f0593f2797276cb8299d228ffd9b # v0.81.6
         with:
           destination: /opt/gh-aw/actions
       - name: Download agent output artifact
