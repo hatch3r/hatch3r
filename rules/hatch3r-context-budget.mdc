@@ -26,7 +26,7 @@ The orchestrator-assembled spawn prompt (static frame first, task-variable input
 | 15,001–30,000 tokens | Permitted with a one-line justification in the spawn record (e.g. the reviewer receives the full diff; the fixer receives full reviewer output). |
 | >30,000 tokens | Decomposition trigger fires (below) — split the unit; do not dispatch one oversized spawn. |
 
-The 15k target derives from the Decision-24 standard cost envelope — 25–60k static-frame tokens across 4–9 sub-agents (`src/pipeline/costEstimator.ts` triage-tier bands) ≈ 6–15k per sub-agent. Token estimation: the platform token counter when exposed, else chars/4 (1 token ≈ 4 characters, the `skills/hatch3r-context-health` convention — note the approximation in the spawn record). Security-relevant (CQ3) context is excluded from all trimming, mirroring never-truncate strategy #4 of the Context-Degradation Policy.
+The 15k target derives from the Decision 29 standard cost envelope — 25–60k static-frame tokens across 4–9 sub-agents (`src/pipeline/costEstimator.ts` triage-tier bands) ≈ 6–15k per sub-agent. Token estimation: the platform token counter when exposed, else chars/4 (1 token ≈ 4 characters, the `skills/hatch3r-context-health` convention — note the approximation in the spawn record). Security-relevant (CQ3) context is excluded from all trimming, mirroring never-truncate strategy #4 of the Context-Degradation Policy.
 
 ## Scoped-input directive
 
@@ -79,7 +79,7 @@ Binds every hatch3r-invoked workflow that delegates via the Task tool — every 
 
 ## Threshold basis
 
-The 15k / 30k / 2k / 20-file values are SPEC-status calibrations anchored to the shipped Decision-24 cost envelopes (`src/pipeline/costEstimator.ts`) and the existing orchestration thresholds they mirror — not measured optima. Recalibration source: review-loop and cost telemetry at 30 samples, the same measured-promotion convention as `CALIBRATION.basis` in `src/pipeline/reviewLoop.ts`.
+The 15k / 30k / 2k / 20-file values are SPEC-status calibrations anchored to the shipped Decision 29 cost envelopes (`src/pipeline/costEstimator.ts`) and the existing orchestration thresholds they mirror — not measured optima. Recalibration source: review-loop and cost telemetry at 30 samples, the same measured-promotion convention as `CALIBRATION.basis` in `src/pipeline/reviewLoop.ts`.
 
 ## References
 

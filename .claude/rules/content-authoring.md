@@ -17,7 +17,7 @@ When creating or modifying canonical content artifacts in `agents/`, `skills/`, 
 
 1. **YAML frontmatter required:** `id`, `type` (agent|skill|rule|command|hook|prompt|github-agent), `description`, `tags`
 2. **Filename prefix:** `hatch3r-` on all top-level published content files (e.g., `hatch3r-implementer.md`). Two exception classes (no prefix required):
-   - **2a — Support/companion subdirectories:** `agents/shared/*`, `agents/modes/*`, `commands/board/*`, `commands/revision/*`. These files are reference/companion material consumed by a parent artifact, not standalone published artifacts.
+   - **2a — Support/companion subdirectories:** `agents/shared/*`, `agents/modes/*`, `commands/board/*`, `commands/rework/*`. These files are reference/companion material consumed by a parent artifact, not standalone published artifacts.
    - **2b — First-class artifact classes with class-internal naming:** `checks/*` (e.g., `checks/{accessibility,code-quality,performance,security,testing}.md`). These ARE a published artifact class (`type: check`, counted in `governance/inventory.json`) but use a class-internal naming convention instead of the `hatch3r-` prefix.
 
    Both classes are excluded from the prefix check; the "Always copy support subdirectories" block in `src/content/index.ts::copySelectedContent` and the substructure carve-out comment in `src/cli/commands/validate.ts::validateFrontmatter` model the split (manifest `managedFiles` excludes these paths).
