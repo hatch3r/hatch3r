@@ -1,0 +1,87 @@
+---
+id: hatch3r-context-budget
+type: rule
+description: "Per-sub-agent context budgets — input-frame token targets with a decomposition trigger, a scoped-input directive, a distilled-return contract backed by durable results files, per-sub-agent working-context ceilings, and orchestrator compaction boundaries. Budget bounds context width, never fan-out width (P8 dominates)."
+tags: [orchestration, floor:protocol]
+alwaysApply: true
+precedence: high
+quality_charter: agents/shared/quality-charter.md
+cache_friendly: true
+---
+# hatch3r Context Budget
+
+**Pillars:** P7 (Speed & Token Efficiency — leaner context is a correctness technique, not only an economy one: model accuracy degrades non-uniformly as input grows; References), P8 (Clarification & Fan-out Discipline — dominance stated first, below).
+
+## Budget bounds context width, never fan-out
+
+Any application of this rule that reduces sub-agent count, coverage, or specialist dispatch is a P8 B2 violation. Per `rules/hatch3r-fan-out-discipline.md` → Cost-dominance clause, cost governs HOW MUCH context each sub-agent receives; it never governs WHETHER to spawn. This rule is the mechanics of that "how much": every threshold below shapes a spawn's INPUT, and the only sanctioned response to an over-budget unit is MORE sub-agents with narrower inputs (Decomposition trigger), never fewer.
+
+## Input-frame budget
+
+The orchestrator-assembled spawn prompt (static frame first, task-variable inputs last) targets **≤15,000 tokens** per sub-agent:
+
+| Estimated input frame | Disposition |
+|-----------------------|-------------|
+| ≤15,000 tokens | Within budget — dispatch. |
+| 15,001–30,000 tokens | Permitted with a one-line justification in the spawn record (e.g. the reviewer receives the full diff; the fixer receives full reviewer output). |
+| >30,000 tokens | Decomposition trigger fires (below) — split the unit; do not dispatch one oversized spawn. |
+
+The 15k target derives from the Decision-24 standard cost envelope — 25–60k static-frame tokens across 4–9 sub-agents (`src/pipeline/costEstimator.ts` triage-tier bands) ≈ 6–15k per sub-agent. Token estimation: the platform token counter when exposed, else chars/4 (1 token ≈ 4 characters, the `skills/hatch3r-context-health` convention — note the approximation in the spawn record). Security-relevant (CQ3) context is excluded from all trimming, mirroring never-truncate strategy #4 of the Context-Degradation Policy.
+
+## Scoped-input directive
+
+Pass to each sub-agent:
+
+- File **paths + line ranges**, not file bodies — the sub-agent reads what it needs with its own tools.
+- The Phase 2 `filesChanged` list, the Phase 3 review-verdict summary, `researchFindings.blastRadius`, resolved requirements, and open `finding_id`s (`rules/hatch3r-findings-ledger.md`).
+
+Do NOT pass:
+
+- Prior sub-agent transcripts — synthesis output only.
+- Full research reports — pass distilled findings plus the durable results-file path (Distilled-return contract, below); the sub-agent opens the file only when it needs the detail.
+- Diffs to agents outside the review loop — the reviewer and fixer receive the diff; Phase 4 specialists receive the Specialist Prompt Enrichment set (`rules/hatch3r-agent-orchestration.md` → Specialist Prompt Enrichment), not the raw diff.
+
+## Distilled-return contract
+
+Every sub-agent closes with a two-channel return:
+
+1. **Durable detail on disk.** Write full findings and working detail to `.hatch3r/results/<YYYY-MM-DD>-<command>-<run8>/<phase>-<agent>-<seq>.results.md`, with `<command>` and `<run8>` derived exactly as in the findings-ledger filename convention (`rules/hatch3r-findings-ledger.md` → Store & Format). Results files are transient run-scoped working state, deletable after the Iteration Summary — they follow the same transient-`.hatch3r/`-state convention init seeds into `.gitignore` for snapshots/handoffs/telemetry/archive (`REQUIRED_GITIGNORE_ENTRIES`, `src/env/mcpEnv.ts`), so add `.hatch3r/results/` to `.gitignore` or delete the run directory after synthesis; they are NOT team memory, unlike `.hatch3r/findings/`, which stays committed for team visibility.
+2. **Distilled return in chat.** Return **≤2,000 tokens**: status (per `rules/hatch3r-agent-orchestration.md` → Status Codes), counts, top findings, decisions taken + constraints discovered, and the results-file path. Multi-agent systems that return 1,000–2,000-token distilled summaries while full detail stays isolated on disk preserve orchestrator accuracy as runs grow (References).
+
+The orchestrator synthesizes from the distilled returns. It re-opens a results file only when a downstream step depends on a fact the summary does not state, and it releases that file's content from context after the synthesis step that needed it.
+
+## Working-context ceiling (per sub-agent)
+
+Each sub-agent applies the Context-Degradation thresholds (`rules/hatch3r-agent-orchestration-detail.md` → Context-Degradation Policy) to its OWN window, not only the orchestrator's:
+
+- **Above 50%:** compress — drop re-read file bodies from working context; keep paths + conclusions.
+- **Above 75%:** STOP — write the results file (channel 1 above), then return `PARTIAL` with an explicit remaining-work list.
+
+**The orchestrator's mandatory response to a 75% PARTIAL:** decompose the remainder into MORE sub-agents along module/contract seams (`rules/hatch3r-contract-census.md` seams are the natural split lines) — never re-dispatch the same oversized unit unchanged, and never absorb the remainder inline (inline absorption is bypass mode per `rules/hatch3r-agent-orchestration.md` → Mandatory Delegation Directive).
+
+## Decomposition trigger
+
+Fires when ANY of:
+
+1. The estimated input frame exceeds 30,000 tokens.
+2. The unit spans more than 20 files — the same 20-file threshold as the auto-mode scope-containment escalation (`rules/hatch3r-agent-orchestration-detail.md` → Escalation Triggers).
+3. A sub-agent returned `PARTIAL` at its working-context ceiling.
+
+Action: split into **N ≥ 2 narrower units, one sub-agent each**, honoring the three parallel-safety conditions (`rules/hatch3r-fan-out-discipline.md`). Reducing scope, dropping coverage, or skipping a triggered specialist to fit a budget is prohibited — that is the under-fan-out P8 forbids.
+
+## Compaction boundaries (orchestrator)
+
+The orchestrator releases context at phase/synthesis boundaries only — after the Phase-1 findings union, after review-loop exit, after Phase-4 synthesis — never mid-derivation, and never on a budget threshold alone (a crossed threshold prompts a boundary check, not an immediate purge). Lossy phase-transition compression stays governed by the Context-Degradation Policy's handoff-loss measurement (`informationLossEstimate > 0.3` warns).
+
+## Scope
+
+Binds every hatch3r-invoked workflow that delegates via the Task tool — every `orchestrator: true` command, every delegating agent, every fan-out skill — on both sides of the spawn: the orchestrator owns the input-frame budget, the scoped-input directive, and the compaction boundaries; the sub-agent owns the distilled-return contract and its working-context ceiling. Include this rule's return contract in sub-agent prompts the same way `scope: always` rule directives are already included per `rules/hatch3r-agent-orchestration.md` → Rule Application.
+
+## Threshold basis
+
+The 15k / 30k / 2k / 20-file values are SPEC-status calibrations anchored to the shipped Decision-24 cost envelopes (`src/pipeline/costEstimator.ts`) and the existing orchestration thresholds they mirror — not measured optima. Recalibration source: review-loop and cost telemetry at 30 samples, the same measured-promotion convention as `CALIBRATION.basis` in `src/pipeline/reviewLoop.ts`.
+
+## References
+
+- Anthropic Engineering, "Effective context engineering for AI agents" — https://www.anthropic.com/engineering/effective-context-engineering-for-ai-agents (accessed 2026-07-14; official vendor engineering blog): context is a finite attention budget; sub-agents return distilled 1,000–2,000-token summaries while detailed work stays isolated in their own windows.
+- Chroma Research, "Context Rot: How Increasing Input Tokens Impacts LLM Performance" — https://research.trychroma.com/context-rot (accessed 2026-07-14; independent research lab): 18 models degrade non-uniformly as input length grows — grounding for bounding each spawn's input rather than filling the available window.

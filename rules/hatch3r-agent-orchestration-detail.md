@@ -235,7 +235,7 @@ Cross-command error-handling defaults: sub-agent failure → the 3-step ladder i
 
 ## Context-Degradation Policy
 
-Single canonical policy for every pipeline command (reconciles the per-command turn bullets, Finding D7-24). **Window-fraction is the authoritative axis**; the per-command turn count is a coarse fallback for the same threshold at that command's pace, used only when the host surfaces no context-window percentage. Commands cite this policy, not restated numbers.
+Single canonical policy for every pipeline command (reconciles the per-command turn bullets, Finding D7-24). **Window-fraction is the authoritative axis**; the per-command turn count is a coarse fallback for the same threshold at that command's pace, used only when the host surfaces no context-window percentage. Commands cite this policy, not restated numbers; per-sub-agent input budgets + distilled returns: `rules/hatch3r-context-budget.md`.
 
 | Window fraction (primary) | Action | Turn-count fallback (coarse) |
 |---------------------------|--------|------------------------------|

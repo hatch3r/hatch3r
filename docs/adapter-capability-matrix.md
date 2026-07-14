@@ -76,6 +76,14 @@ Since 2.2.0, per-artifact model configuration extends beyond agents: `models.ski
 | **copilot** | Native (VS Code) | `model:` in agent YAML; ignored on github.com |
 | **claude** | Native (frontmatter `model:`) | Emits `model:` in sub-agent YAML frontmatter (authoritative per [sub-agents docs](https://code.claude.com/docs/en/sub-agents#choose-a-model), accessed 2026-05-27); also retains `## Recommended Model` prose (`/model` + `CLAUDE_CODE_SUBAGENT_MODEL`) in non-minimal mode for per-session override. |
 
+**Model-class routing (2.6.0).** Canonical agents declare a model **class** — `economy | default | strongest` (`src/models/tiers.ts`) — instead of a concrete id. Each adapter routes a class-word `model:` value through its own map at emission time; a `models.tiers.<class>` pin in `hatch.json` replaces the adapter map verbatim (then alias-expands). Legacy `fast`/`standard`/`reasoning` values normalize to classes on user overrides only — the canonical corpus carries class words exclusively (validator mode `--model-class`). See [model-selection.md → Model Classes](model-selection.md#model-classes).
+
+| Class | cursor | copilot | claude |
+|-------|--------|---------|--------|
+| `economy` | `model: fast` | omitted | `model: haiku` + `effort: medium` |
+| `default` | omitted (inherit-by-omission) | omitted | `model: sonnet` (no `effort:` line) |
+| `strongest` | advisory body line (no native value) | omitted | `model: opus` + `effort: high` |
+
 ### Native User-Question / Triage Tool
 
 Tracks whether the adapter exposes a documented platform-native question/triage tool (vs. the plain-text fallback). Source of truth: `ASK_USER_TOOLS` in `src/pipeline/adapterToolTranslator.ts` and the `nativeQuestionTool` column in `ADAPTER_CAPABILITIES` (`src/adapters/index.ts`). Capability-matrix invariant test: `src/__tests__/adapters/capability-matrix.test.ts`.

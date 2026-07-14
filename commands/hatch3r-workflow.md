@@ -328,6 +328,7 @@ You MUST spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_ty
 2. Do NOT execute the skill's PR creation steps inline — standalone `/workflow` leaves the PR decision to the user at the end of Phase 4 (see Integration with Board Workflow). (`hatch3r-board-pickup` owns PR creation in its own inline pipeline, Steps 7a–8 — not via this command.)
 3. For tasks spanning multiple independent parts, spawn one `hatch3r-implementer` per independent module. Launch as many in parallel as the platform supports.
 4. Coordinate changes across files to avoid conflicts.
+5. Allocate each implementer's model class per `rules/hatch3r-model-allocation.md` (matrix: `max(agent floor, task-tier class)`, passed explicitly per spawn) and scope each spawn prompt per `rules/hatch3r-context-budget.md` (paths + line ranges over file bodies; ≤15k-token input frame; distilled-return contract stated in the prompt).
 
 The implementer sub-agent prompt MUST include:
 - The task description, acceptance criteria, and type.
@@ -396,7 +397,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 #### 4b. Final Quality (Parallel Specialists)
 
-**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by the orchestrator-honored fan-out width `max_phase4_parallel` (default `8`) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality — LLM-honored guidance, not a code-enforced cap (the host Task tool applies no platform fan-out limit). The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
+**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by the orchestrator-honored fan-out width `max_phase4_parallel` (default `8`) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality — LLM-honored guidance, not a code-enforced cap (the host Task tool applies no platform fan-out limit). The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next. Allocate each specialist's model class per `rules/hatch3r-model-allocation.md` (verdict-class specialists carry floor `strongest`, so allocation resolves to `strongest` at every tier) and scope each specialist prompt to the Specialist Prompt Enrichment set per `rules/hatch3r-context-budget.md`.
 
 **Always spawn (mandatory for every code change):**
 

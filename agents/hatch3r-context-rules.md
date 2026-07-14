@@ -119,7 +119,7 @@ This agent and `hatch3r-reviewer` both read `rules/` and report violations, but 
 | Dimension | `hatch3r-context-rules` (this agent) | `hatch3r-reviewer` |
 | --- | --- | --- |
 | Trigger | File-save hook (`hooks/hatch3r-file-save.md`) | Phase 3 review loop, whole-PR |
-| Tier | `model: fast`, single-file, glob-scoped | `model: standard`, full diff + acceptance criteria |
+| Tier | `model: economy`, single-file, glob-scoped | `model: strongest`, full diff + acceptance criteria |
 | Disposition | Non-blocking inline suggestions on the saved file | Merge gate — REQUEST CHANGES / APPROVE verdict |
 | Unique path | `sanitizeUserContent` trust-boundary wrap on every rule body (closes D6-SA6.4-F1) + rule-conflict surfacing + file-save debounce | PR-scoped privacy/security/test-existence checklist |
 

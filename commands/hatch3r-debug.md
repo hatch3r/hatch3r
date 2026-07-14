@@ -511,7 +511,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **No clear root cause (Stage 4):** If all hypotheses are low-confidence, state this in the diagnosis report (named verdict: "Root cause unconfirmed; top hypothesis confidence=low"). Recommend adding more targeted debug logging (loop back to Stage 2 with refined instrumentation points) or switching to `hatch3r-bug-plan` for a broader investigation. ASK the user how to proceed.
 - **Debug artifacts remain after cleanup (Stage 5b):** If `[HATCH3R-DEBUG]` occurrences are found after the implementer's cleanup pass, remove them directly. Do not proceed until zero occurrences remain.
 - **Review loop exhaustion (Stage 5c):** After 3 iterations without a clean review, present remaining findings and ASK the user for direction.
-- **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback for this command is ~20 turns, at which point suggest a fresh chat with a progress summary capturing the current stage, diagnosis, and remaining work.
+- **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback for this command is ~20 turns, at which point suggest a fresh chat with a progress summary capturing the current stage, diagnosis, and remaining work. Per-sub-agent input budgets + distilled returns: `rules/hatch3r-context-budget.md`.
 
 ## Guardrails
 

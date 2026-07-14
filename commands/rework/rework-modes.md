@@ -116,7 +116,7 @@ Review-Only Report:
 - **Researcher failure (Step 6.pre)**: Retry once. If it fails again, proceed without enrichment and warn the user that the plan's suggested-approach column lacks reference conventions.
 - **Reviewer failure (Step 6a)**: Retry once. If it fails again, **ASK** the user: write the plan with every finding marked `unvalidated`, or abort. Never fall back to skipping validation silently.
 - **Plan write failure**: Report the error and print the full plan document in chat so the user can save it manually.
-- **Context degradation**: per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%` (the coarse turn-count fallback is ~25 turns). The rework command is designed for fresh contexts — at the restart threshold, suggest a fresh chat with a progress summary; it can be re-run.
+- **Context degradation**: per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%` (the coarse turn-count fallback is ~25 turns). The rework command is designed for fresh contexts — at the restart threshold, suggest a fresh chat with a progress summary; it can be re-run. Per-sub-agent input budgets + distilled returns: `rules/hatch3r-context-budget.md`.
 - **Board sync failure** (when board context exists): Warn and continue. Board sync is advisory in rework — it does not block the plan write.
 
 ---
