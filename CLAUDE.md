@@ -61,7 +61,7 @@ Every change must serve at least one pillar on at least one axis. Full definitio
 | P4 | Comprehensive Lean Coverage | No bloat, no duplication, single-source-of-truth, every file earns existence | D05, D09, D10, D16, D20, D22, D24 |
 | P5 | Governance Self-Quality | Governance passes its own tests, anti-slop, lean thresholds | D12, D16, D18, D19, D20, D22, D23, D24 |
 | P6 | Security & Trust Governance | OWASP ASI compliance, trust delegation, prompt injection guards | D15, D20.2 |
-| P7 | Speed & Token Efficiency (end-user runtime) | Static-first prompts, parallel tools, triage-first orchestration | D06 |
+| P7 | Speed & Token Efficiency (end-user runtime) | Static-first prompts, parallel tools, triage-first orchestration, model-class allocation + context budgets (per-spawn) | D06 |
 | P8 | Clarification & Fan-out Discipline | B1 ambiguity gate via `agents/shared/user-question-protocol.md`; B2 sub-agent count + rationale + task-structure emission on delegating artifacts | D05, D07, D13 |
 
 Domain cells reproduce the full `governance/CONSTITUTION.md` §3.1 sets — primary AND supporting domains; the (P)/(S) annotations live in §3.1.
