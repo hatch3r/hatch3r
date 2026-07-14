@@ -1716,7 +1716,7 @@ export interface ReviewGateInput {
    * `hatch3r config confidence_floor=<floor>` default (`ConfidenceFloor` in
    * `src/types.ts`). Tightens the clean-verdict threshold the four core
    * orchestrators document at `commands/hatch3r-{workflow,board-pickup,
-   * quick-change,revision}.md` (and `commands/board/pickup-delegation.md`):
+   * quick-change,rework}.md` (and `commands/board/pickup-delegation.md`):
    *
    * - `"any"`    (default): pass on `high`/`medium`; second_pass/escalate on
    *               `low`/`unknown`. The pre-D13-3 behaviour, unchanged.

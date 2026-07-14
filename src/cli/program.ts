@@ -78,9 +78,10 @@ export const AGENT_COMMAND_NAMES = new Set([
   "api-spec", "auth-scaffold", "benchmark", "board-fill", "board-pickup",
   "bug-pipeline", "bug-plan", "codebase-map", "create", "debug",
   "design-system-create", "diagnose", "feature-plan", "handoff", "healthcheck",
-  "incident-response", "migration-plan", "onboard", "pack-install", "pr-resolve",
-  "project-spec", "quick-change", "refactor-plan", "release", "revision",
-  "roadmap", "security-audit", "slo-scaffold", "spec", "test-plan", "workflow",
+  "incident-response", "migration-plan", "onboard", "pack-install", "plan",
+  "pr-resolve", "project-spec", "quick-change", "refactor-plan", "release",
+  "rework", "roadmap", "security-audit", "slo-scaffold", "spec", "test-plan",
+  "workflow",
   // skills/hatch3r-* commonly mistyped at the terminal (curated subset — the
   // drift guard requires each listed name to exist on disk, not that every
   // skill is listed). `customize` is the merged entry point that replaced the

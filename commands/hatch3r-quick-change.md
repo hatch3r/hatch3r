@@ -473,7 +473,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 - **Reviewer flags critical issues**: Present them and ASK whether to fix or proceed without fixing.
 - **Scope creep during implementation**: If actual changes exceed the soft guard thresholds (5 files / 200 lines), warn the user and suggest deferring remaining items to a `hatch3r-workflow` session.
 - **Push failure**: Present the error. Use `git push -u origin {branch}` for new branches. For diverged branches, suggest `git pull --rebase` and ASK before proceeding.
-- **Context degradation**: per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback for this fast-completion command is ~15 turns, at which point suggest starting fresh or switching to `hatch3r-workflow`.
+- **Context degradation**: per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback for this fast-completion command is ~15 turns, at which point suggest starting fresh or switching to `hatch3r-workflow`. Per-sub-agent input budgets + distilled returns: `rules/hatch3r-context-budget.md`.
 
 ## Guardrails
 

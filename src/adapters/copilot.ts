@@ -22,6 +22,8 @@ import {
 import { BaseAdapter, output, type AdapterContext, type CompanionSubdir } from "./base.js";
 import { sortByPrecedence, precedenceRank, resolveRuleGlobs } from "./canonical.js";
 import { resolveAgentModel } from "../models/resolve.js";
+import { resolveModelAlias } from "../models/aliases.js";
+import { normalizeModelClass, resolveTierModel } from "../models/tiers.js";
 import { applyCustomization } from "./customization.js";
 import { detectPackageManager } from "../detect/packageManager.js";
 import {
@@ -147,15 +149,16 @@ const COPILOT_AGENT_PROMPT_CAP = 30_000;
  * https://code.visualstudio.com/docs/agent-customization/custom-agents
  * (accessed 2026-06-06).
  *
- * The hatch3r-internal capacity tiers `standard` and `fast` (authored on 29 of
- * the canonical agents' `model:` frontmatter) are NOT in `MODEL_ALIASES`, so
- * `resolveAgentModel` → `resolveModelAlias` passes them through verbatim. Copilot
- * cannot resolve either word, so it silently falls back to the picker default —
- * the per-agent cost tier becomes a no-op AND the emitted file carries an
- * unrecognized value (a silent-failure surface, CONSTITUTION §2 P5). Gate native
- * emission to a recognizable value; an unmappable tier word is omitted (Copilot
- * then uses its default, which is the same effective behaviour but without
- * shipping a dead field). This mirrors `isClaudeRecognizableModel`
+ * The hatch3r-internal model-class words `economy`/`default`/`strongest`
+ * (authored on all 30 canonical agents' `model:` frontmatter; legacy synonyms
+ * `standard`/`fast`) are NOT in `MODEL_ALIASES`, so `resolveAgentModel` →
+ * `resolveModelAlias` passes them through verbatim. Copilot cannot resolve a
+ * class word, so it silently falls back to the picker default — the per-agent
+ * class becomes a no-op AND the emitted file carries an unrecognized value (a
+ * silent-failure surface, CONSTITUTION §2 P5). Gate native emission to a
+ * recognizable value; a class word without a `models.tiers` pin is omitted
+ * (Copilot then uses its default, which is the same effective behaviour but
+ * without shipping a dead field). This mirrors `isClaudeRecognizableModel`
  * (src/adapters/claude.ts) for the Copilot surface.
  */
 function isCopilotRecognizableModel(model: string): boolean {
@@ -171,16 +174,23 @@ function isCopilotRecognizableModel(model: string): boolean {
 
 /**
  * hatch3r-internal `model:` placeholders the Copilot surface omits by design, so
- * {@link CopilotAdapter.warnIfModelDropped} stays silent on them. Two provenance
- * groups: (1) the capacity-tier words authored on canonical agents' `model:`
- * frontmatter — `standard`/`fast` — plus the other `TriageTier` members `light`/`deep`
- * (src/pipeline/costEstimator.ts) for forward-compat if an agent adopts them; (2) the
- * `inherit` sentinel, which `resolveModelAlias` passes through verbatim and whose
- * emission IS omission (src/models/resolve.ts). None is a user model choice, so a drop
- * warning on any of them would be per-sync noise on the shipped agent corpus, not the
- * signal D9-SA9.3-06 targets (an unrecognized USER-configured model).
+ * {@link CopilotAdapter.warnIfModelDropped} stays silent on them. Three provenance
+ * groups: (1) the model-class words authored on canonical agents' `model:`
+ * frontmatter — `economy`/`default`/`strongest` (src/models/tiers.ts) — whose
+ * Copilot expression is omission unless a `models.tiers` pin supplies a
+ * recognizable model; (2) the legacy pre-2.6.0 tier words `standard`/`fast`
+ * (still accepted on user overrides) plus the other `TriageTier` members
+ * `light`/`deep` (src/pipeline/costEstimator.ts) for forward-compat if an agent
+ * adopts them; (3) the `inherit` sentinel, which `resolveModelAlias` passes
+ * through verbatim and whose emission IS omission (src/models/resolve.ts). None
+ * is a user model choice, so a drop warning on any of them would be per-sync
+ * noise on the shipped agent corpus, not the signal D9-SA9.3-06 targets (an
+ * unrecognized USER-configured model).
  */
 const COPILOT_INTENTIONALLY_OMITTED_MODELS: ReadonlySet<string> = new Set([
+  "economy",
+  "default",
+  "strongest",
   "standard",
   "fast",
   "light",
@@ -617,12 +627,24 @@ jobs:
         const prefixedId = toPrefixedId(agent.id);
         const lines = [`name: ${agent.id}`, `description: ${desc}`];
         // D9-16 (Cycle 11 Wave 3, P3 + P5): emit `model:` only when it resolves
-        // to a Copilot-recognizable value. The hatch3r-internal tier words
-        // `standard`/`fast` (on 29 canonical agents) are not Copilot picker
-        // names; emitting them ships a dead field Copilot silently ignores
-        // while falling back to its default. Omitting them yields the same
-        // effective model with no silent-failure surface.
-        if (model && isCopilotRecognizableModel(model)) lines.push(`model: ${model}`);
+        // to a Copilot-recognizable value. The model-class words
+        // `economy`/`default`/`strongest` (on all 30 canonical agents; legacy
+        // `standard`/`fast`) are not Copilot picker names; emitting them ships
+        // a dead field Copilot silently ignores while falling back to its
+        // default. A class word maps through the operator's `models.tiers`
+        // pin first (release/2.6.0) — a pinned value that passes the gate is
+        // emitted; otherwise the class is silently omitted (never a drop
+        // warning: class words are in COPILOT_INTENTIONALLY_OMITTED_MODELS).
+        const modelClass = model ? normalizeModelClass(model) : null;
+        if (modelClass) {
+          // Alias-expanded like every resolveAgentModel result (a pinned
+          // `fable` reaches the gate as `claude-fable-5` and passes).
+          const tierPinRaw = resolveTierModel(modelClass, ctx.manifest);
+          const tierPin = tierPinRaw === undefined ? undefined : resolveModelAlias(tierPinRaw);
+          if (tierPin && isCopilotRecognizableModel(tierPin)) lines.push(`model: ${tierPin}`);
+        } else if (model && isCopilotRecognizableModel(model)) {
+          lines.push(`model: ${model}`);
+        }
         // C7.5-W2B2-H41/H45 (D15, P6): emit Copilot `tools:` allowlist
         // translated from AGENT_TOOL_POLICIES so the downstream Copilot
         // agent runtime enforces the hatch3r monotonic-privilege
@@ -796,21 +818,32 @@ jobs:
     // or commands. Command emission to `.github/prompts/` is gated on
     // `features.commands` (D9-H-5 removed the dead canonical `prompts/`
     // read branch), so command companions follow `features.commands`.
-    const companionMappings: Array<[CompanionSubdir, boolean, (f: string) => string]> = [
+    // Slash-picker fix (release/2.6.0): the three `commands/*` companion rows
+    // opt into the byte-0 frontmatter stub (`emitFmStub`) for cross-adapter
+    // parity with claude/cursor. These are plain `.md` companions (not
+    // `.prompt.md`), so VS Code's prompt loader ignores them either way; the
+    // stub keeps editors that surface `description:` at byte 0 honest instead
+    // of showing the HATCH3R:BEGIN marker. `agents/*` rows stay raw —
+    // `.github/agents/**` is Copilot's custom-agent directory and a
+    // `name:`/`description:` stub could register reference material as an
+    // agent definition; `checks/` has no picker surface and stays raw.
+    const companionMappings: Array<
+      [CompanionSubdir, boolean, (f: string) => string, { emitFmStub?: boolean }?]
+    > = [
       ["agents/modes", ctx.features.agents, (f) => `.github/agents/modes/${f}`],
       ["agents/shared", ctx.features.agents, (f) => `.github/agents/shared/${f}`],
-      ["commands/board", ctx.features.commands, (f) => `.github/prompts/board/${f}`],
-      ["commands/revision", ctx.features.commands, (f) => `.github/prompts/revision/${f}`],
+      ["commands/board", ctx.features.commands, (f) => `.github/prompts/board/${f}`, { emitFmStub: true }],
+      ["commands/rework", ctx.features.commands, (f) => `.github/prompts/rework/${f}`, { emitFmStub: true }],
       // D2-SA2.1-01 (Cycle 12): the orchestration-frame companion referenced by
       // every emitted orchestrator command. Copilot routes command companions
-      // under `.github/prompts/` (matching the board/revision rows above), so the
+      // under `.github/prompts/` (matching the board/rework rows above), so the
       // shared frame ships to `.github/prompts/shared/` and its references resolve.
-      ["commands/shared", ctx.features.commands, (f) => `.github/prompts/shared/${f}`],
+      ["commands/shared", ctx.features.commands, (f) => `.github/prompts/shared/${f}`, { emitFmStub: true }],
       ["checks", ctx.features.agents || ctx.features.commands, (f) => `.github/checks/${f}`],
     ];
-    for (const [subdir, enabled, pathFn] of companionMappings) {
+    for (const [subdir, enabled, pathFn, subdirOpts] of companionMappings) {
       if (!enabled) continue;
-      results.push(...await this.processCompanionSubdir(ctx, subdir, pathFn));
+      results.push(...await this.processCompanionSubdir(ctx, subdir, pathFn, subdirOpts));
     }
 
     const mcp = await this.readFilteredMcp(ctx);

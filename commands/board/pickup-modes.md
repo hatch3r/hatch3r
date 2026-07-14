@@ -127,7 +127,7 @@ At the end of an auto session, generate a summary:
 - **Issue update failure:** warn and continue (labels not blocking).
 - **Quality verification failure:** max 2 fix attempts, then **ASK** the user for guidance: "Quality checks still failing after 2 fix attempts: {specific failures}. Fix confidence: {high/medium/low — based on whether root cause is identified}. Options: (a) commit the partial result and defer the issue, (b) keep trying, (c) abort." Do not loop unbounded before creating PR/MR.
 - **PR/MR creation failure:** present error and manual instructions.
-- **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback (inherited from `hatch3r-workflow`) is ~25 turns, at which point suggest splitting the batch or starting a fresh context with a progress summary of completed and remaining issues.
+- **Context degradation:** per the canonical Context-Degradation Policy (`rules/hatch3r-agent-orchestration-detail.md` -> Context-Degradation Policy) — compress at `>50%` context window, restart at `>75%`; the coarse turn-count fallback (inherited from `hatch3r-workflow`) is ~25 turns, at which point suggest splitting the batch or starting a fresh context with a progress summary of completed and remaining issues. Per-sub-agent input budgets + distilled returns: `rules/hatch3r-context-budget.md`.
 
 ---
 

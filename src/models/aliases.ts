@@ -3,32 +3,34 @@
  * Used in hatch.json `models` configuration and .customize.yaml files
  * so users can write `"opus"` instead of `"claude-opus-4-8"`.
  *
- * P3 currency note (D1-25, Cycle 11): each Anthropic row points at the current
- * GA model in that tier; the `opus` row was two GA generations stale
- * (`claude-opus-4-6`, last verified 2026-04-13) before this bump to
- * `claude-opus-4-8`. Re-verify every row against the vendor's published model
- * list before a release — the `opus`/`sonnet`/`haiku` targets must stay in lock
- * with `MODEL_RATES`/`TIER_ALIASES` in `src/pipeline/costEstimator.ts` (the rate
- * map and this alias map both name `claude-opus-4-8` for the opus tier) and with
+ * P3 currency note (D1-25, Cycle 11; sonnet bump + fable row 2026-07-14): each
+ * Anthropic row points at the current GA model in that tier; the `opus` row was
+ * two GA generations stale (`claude-opus-4-6`, last verified 2026-04-13) before
+ * the bump to `claude-opus-4-8`, and the `sonnet` row was one generation stale
+ * (`claude-sonnet-4-6`, D1-SA1.6-03) before the bump to `claude-sonnet-5`.
+ * Re-verify every row against the vendor's published model list before a
+ * release — the `opus`/`sonnet`/`haiku`/`fable` targets must stay in lock with
+ * `MODEL_RATES`/`TIER_ALIASES` in `src/pipeline/costEstimator.ts` (the rate map
+ * and this alias map both name `claude-sonnet-5` for the sonnet tier) and with
  * the user-facing table in `docs/model-selection.md`. Anthropic models last
- * verified 2026-06-09; codex/gemini rows last verified 2026-06-06.
+ * verified 2026-07-14; codex/gemini rows last verified 2026-06-06.
  *
- * NOT aliases by design: the hatch3r-internal capacity-tier words `standard` and
- * `fast` (authored on 29 canonical agents' `model:` frontmatter) are NOT keys
- * here. They are triage/cost tiers (`TriageTier` in costEstimator.ts), not model
- * IDs, so `resolveModelAlias` passes them through verbatim. The Claude and
- * Copilot adapters gate native `model:` emission to recognizable values
- * (`isClaudeRecognizableModel` in src/adapters/claude.ts,
- * `isCopilotRecognizableModel` in src/adapters/copilot.ts), so an unmapped tier
- * word is omitted from native frontmatter rather than shipped as a dead field
- * (CONSTITUTION §2 P5 silent-failure avoidance; D9-16). Adding them here would
- * make them recognizable and re-introduce the dead-field emission those gates
- * removed — do not.
+ * NOT aliases by design: the model-class words `economy`/`default`/`strongest`
+ * (authored on the 30 canonical agents' `model:` frontmatter) and their legacy
+ * synonyms `fast`/`standard`/`reasoning` are NOT keys here. They are capability
+ * classes (`ModelClass` in src/models/tiers.ts), not model IDs, so
+ * `resolveModelAlias` passes them through verbatim and each adapter maps the
+ * class to its own native vocabulary at emission time
+ * (`normalizeModelClass` + the per-adapter tier maps in src/models/tiers.ts).
+ * Adding them here would collapse every adapter onto one vendor mapping and
+ * re-introduce the dead-field emission the class machinery removed
+ * (CONSTITUTION §2 P5 silent-failure avoidance; D9-16) — do not.
  */
 export const MODEL_ALIASES: Record<string, string> = {
   "opus": "claude-opus-4-8",
-  "sonnet": "claude-sonnet-4-6",
+  "sonnet": "claude-sonnet-5",
   "haiku": "claude-haiku-4-5",
+  "fable": "claude-fable-5",
   "codex": "gpt-5.3-codex",
   "codex-prev": "gpt-5.2-codex",
   "codex-mini": "gpt-5.1-codex-mini",

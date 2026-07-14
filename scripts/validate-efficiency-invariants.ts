@@ -68,8 +68,29 @@
  *                     fenced structured-result block (structured outputs over
  *                     prose). The remaining 2 SA6.5 items (lazy-loading,
  *                     dispatch-gating) are prose-reviewed with no CI gate.
+ *   --model-class     Model-class vocabulary + floor pinning (release/2.6.0):
+ *                     (a) every `agents/hatch3r-*.md` declares `model:` as one
+ *                     of economy|default|strongest (MODEL-CLASS-VOCAB — legacy
+ *                     fast/standard are accepted only on USER overrides, never
+ *                     on the canonical corpus); (b) every always-mode
+ *                     SPECIALIST_TRIGGER_TABLE specialist (SSOT import from
+ *                     src/pipeline/pipelineContext.ts) and every CQ-roster
+ *                     specialist carries `model: strongest`
+ *                     (MODEL-CLASS-FLOOR) — verdict-class agents must never
+ *                     drift onto a cheaper class.
+ *   --plan-handoff    Plan-execution handoff contract (release/2.6.0):
+ *                     (a) every `commands/hatch3r-*.md` with
+ *                     `plan_handoff: true` carries the `## Execute This Plan`
+ *                     heading or a `Plan-Execution Handoff` pointer AFTER its
+ *                     `## Iteration Summary` heading (the one sanctioned
+ *                     post-recap trailer); (b) the pinned
+ *                     PLAN_HANDOFF_COMMANDS roster members each declare
+ *                     `plan_handoff: true` (catches silent key removal);
+ *                     (c) `commands/shared/orchestration-frame.md` contains
+ *                     the `## Plan-Execution Handoff` section and the literal
+ *                     `--plan-file=` template line.
  *
- * No flags → all nine modes run. Exit 0 unless >=1 error-level finding;
+ * No flags → all eleven modes run. Exit 0 unless >=1 error-level finding;
  * warnings never block. The audit-cycle prompt (`governance/AUDIT.md`,
  * `governance/EVOLVE.md`, `commands/hatch3r-audit-cycle*.md`) remains
  * hard-exempt; `governance/AUDIT-EXECUTE.md` is no longer exempt as of
@@ -85,6 +106,8 @@ import { readdir, readFile } from "node:fs/promises";
 import { dirname, join, posix, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { parse as parseYaml } from "yaml";
+
+import { SPECIALIST_TRIGGER_TABLE } from "../src/pipeline/pipelineContext.js";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -163,6 +186,10 @@ interface ModeFlags {
   ruleLineCap?: boolean;
   /** Mode I — cheaply-checkable SA6.5 runtime-efficiency gates (D6-11). */
   runtimeEfficiency?: boolean;
+  /** Mode J — model-class vocabulary + strongest-floor pinning (release/2.6.0). */
+  modelClass?: boolean;
+  /** Mode K — plan-execution handoff contract on plan-producing commands (release/2.6.0). */
+  planHandoff?: boolean;
 }
 
 interface RunOptions {
@@ -195,14 +222,16 @@ function parseArgs(argv: readonly string[]): ModeFlags {
   const known = new Set([
     "--triage-first", "--static-first", "--parallel-tool", "--proof-id",
     "--rule-narrative", "--orch-contract", "--efficiency-tier",
-    "--rule-line-cap", "--runtime-efficiency",
+    "--rule-line-cap", "--runtime-efficiency", "--model-class",
+    "--plan-handoff",
   ]);
   const requested = new Set(argv.filter((a) => known.has(a)));
   if (requested.size === 0) {
     return {
       triageFirst: true, staticFirst: true, parallelTool: true, proofId: true,
       ruleNarrative: true, orchContract: true, efficiencyTier: true,
-      ruleLineCap: true, runtimeEfficiency: true,
+      ruleLineCap: true, runtimeEfficiency: true, modelClass: true,
+      planHandoff: true,
     };
   }
   return {
@@ -215,6 +244,8 @@ function parseArgs(argv: readonly string[]): ModeFlags {
     efficiencyTier: requested.has("--efficiency-tier"),
     ruleLineCap: requested.has("--rule-line-cap"),
     runtimeEfficiency: requested.has("--runtime-efficiency"),
+    modelClass: requested.has("--model-class"),
+    planHandoff: requested.has("--plan-handoff"),
   };
 }
 
@@ -791,6 +822,196 @@ function checkStructuredResult(file: ParsedFile): Finding[] {
   }];
 }
 
+// ── Mode J: model-class (release/2.6.0) ─────────────────────────────
+//
+// Canonical agents declare a model CLASS (economy|default|strongest) in
+// `model:` frontmatter — see src/models/tiers.ts. Two error-level checks:
+//
+//   (a) MODEL-CLASS-VOCAB — every `agents/hatch3r-*.md` carries `model:` with
+//       one of the three class words. The legacy tier words (`fast`/
+//       `standard`) and the third legacy authoring word (`reasoning`) remain
+//       accepted at RUNTIME on user overrides via `normalizeModelClass`, but
+//       the canonical corpus is fully migrated, so any non-class value here —
+//       including a legacy word or a concrete model id — is a regression.
+//   (b) MODEL-CLASS-FLOOR — every always-mode SPECIALIST_TRIGGER_TABLE
+//       specialist (imported from the SSOT, src/pipeline/pipelineContext.ts —
+//       the validate-specialist-roster.ts import pattern) and every CQ-roster
+//       specialist must carry `model: strongest`. These are verdict-class
+//       agents: an always-mode floor or CQ quality gate evaluated on a
+//       cheaper class silently weakens every Phase 4 verdict.
+
+const MODEL_CLASS_VALUES: ReadonlySet<string> = new Set(["economy", "default", "strongest"]);
+
+/**
+ * The 10 CQ quality-vector specialists (CONSTITUTION §2B CQ1-CQ10). Enumerated
+ * here (not derived from the trigger table) because CQ membership — one agent
+ * per content-quality pillar — is the floor's contract even for CQ rows whose
+ * trigger mode is conditional/mandatory-on-match.
+ */
+const CQ_SPECIALIST_IDS: readonly string[] = [
+  "hatch3r-ui",
+  "hatch3r-ux",
+  "hatch3r-security",
+  "hatch3r-reliability",
+  "hatch3r-testability",
+  "hatch3r-scalability",
+  "hatch3r-performance",
+  "hatch3r-maintainability",
+  "hatch3r-enhancability",
+  "hatch3r-product-spec",
+];
+
+const STRONGEST_FLOOR_IDS: ReadonlySet<string> = new Set([
+  ...SPECIALIST_TRIGGER_TABLE.filter((t) => t.mode === "always").map((t) => t.specialist),
+  ...CQ_SPECIALIST_IDS,
+]);
+
+function checkModelClass(file: ParsedFile): Finding[] {
+  if (!file.relPath.startsWith("agents/hatch3r-")) return [];
+  const out: Finding[] = [];
+  const model = file.frontmatter.model;
+  const isClassWord = typeof model === "string" && MODEL_CLASS_VALUES.has(model);
+  if (!isClassWord) {
+    out.push({
+      level: "error", code: "MODEL-CLASS-VOCAB", file: file.relPath,
+      message:
+        `\`model:\` is ${model === undefined ? "missing" : JSON.stringify(model)}; canonical agents ` +
+        `declare a model class — one of economy|default|strongest (src/models/tiers.ts; ` +
+        `legacy fast/standard are user-override-only, never corpus values)`,
+    });
+  }
+  // Floor check: id = basename without .md (relPath is `agents/<id>.md`).
+  const id = file.relPath.slice("agents/".length, -".md".length);
+  if (STRONGEST_FLOOR_IDS.has(id) && model !== "strongest") {
+    out.push({
+      level: "error", code: "MODEL-CLASS-FLOOR", file: file.relPath,
+      message:
+        `\`${id}\` is a strongest-floor specialist (always-mode SPECIALIST_TRIGGER_TABLE entry ` +
+        `or CQ roster) and must declare \`model: strongest\` — found ${JSON.stringify(model)} ` +
+        `(a verdict agent on a cheaper class silently weakens Phase 4 gates)`,
+    });
+  }
+  return out;
+}
+
+// ── Mode K: plan-handoff (release/2.6.0) ─────────────────────────────
+//
+// Plan-producing orchestrator commands close with a Plan-Execution Handoff
+// block — one copy-pasteable prompt that executes the produced plan in a
+// fresh session. Format owner: `commands/shared/orchestration-frame.md` →
+// Plan-Execution Handoff (terminal block); requirement owner:
+// `rules/hatch3r-iteration-summary.md` → Plan-Execution Handoff. Three
+// error-level checks:
+//
+//   (a) PLAN-HANDOFF-BLOCK-MISS — a command declaring `plan_handoff: true`
+//       carries the literal `## Execute This Plan` heading OR a pointer line
+//       naming `Plan-Execution Handoff`, positioned AFTER its
+//       `## Iteration Summary` heading (string-offset check: the recap
+//       precedes the trailer — the one sanctioned post-recap block).
+//   (b) PLAN-HANDOFF-ROSTER-MISS — every PLAN_HANDOFF_COMMANDS roster member
+//       present in the scanned dir declares `plan_handoff: true`, so the
+//       contract cannot be dropped from a pinned command silently. An absent
+//       roster FILE is skipped here — corpus presence is owned by the
+//       AGENT_COMMAND_NAMES drift guard and the inventory gate, not this mode.
+//   (c) PLAN-HANDOFF-FRAME-MISS — the orchestration frame contains the
+//       `## Plan-Execution Handoff` section and the literal `--plan-file=`
+//       template line (single home of the block format).
+
+const PLAN_HANDOFF_COMMANDS: readonly string[] = [
+  "hatch3r-feature-plan.md",
+  "hatch3r-bug-plan.md",
+  "hatch3r-migration-plan.md",
+  "hatch3r-refactor-plan.md",
+  "hatch3r-test-plan.md",
+  "hatch3r-project-spec.md",
+  "hatch3r-api-spec.md",
+  "hatch3r-roadmap.md",
+  "hatch3r-spec.md",
+  "hatch3r-plan.md",
+  "hatch3r-rework.md",
+];
+
+const ITERATION_SUMMARY_HEADING = "## Iteration Summary";
+const EXEC_PLAN_HEADING = "## Execute This Plan";
+const PLAN_HANDOFF_POINTER = "Plan-Execution Handoff";
+const PLAN_FILE_TEMPLATE_LITERAL = "--plan-file=";
+const ORCH_FRAME_REL = "commands/shared/orchestration-frame.md";
+
+const hasPlanHandoff = (fm: Record<string, unknown>): boolean => fm.plan_handoff === true;
+
+function checkPlanHandoffBlock(file: ParsedFile): Finding[] {
+  if (!file.relPath.startsWith("commands/hatch3r-")) return [];
+  if (!hasPlanHandoff(file.frontmatter)) return [];
+  const recapIdx = file.body.indexOf(ITERATION_SUMMARY_HEADING);
+  const blockIdx = Math.max(
+    file.body.lastIndexOf(EXEC_PLAN_HEADING),
+    file.body.lastIndexOf(PLAN_HANDOFF_POINTER),
+  );
+  if (recapIdx !== -1 && blockIdx > recapIdx) return [];
+  const cause =
+    blockIdx === -1
+      ? "carries no `## Execute This Plan` heading and no `Plan-Execution Handoff` pointer"
+      : recapIdx === -1
+        ? "has no `## Iteration Summary` heading to anchor the trailer position"
+        : "places the handoff block BEFORE the `## Iteration Summary` heading";
+  return [{
+    level: "error", code: "PLAN-HANDOFF-BLOCK-MISS", file: file.relPath,
+    message:
+      `command declares \`plan_handoff: true\` but ${cause} — the Plan-Execution Handoff block ` +
+      `is the one sanctioned post-recap trailer (rules/hatch3r-iteration-summary.md → ` +
+      `Plan-Execution Handoff; format: ${ORCH_FRAME_REL} → Plan-Execution Handoff (terminal block))`,
+  }];
+}
+
+function checkPlanHandoffRoster(commandFiles: readonly ParsedFile[]): Finding[] {
+  const out: Finding[] = [];
+  const byBasename = new Map(commandFiles.map((f) => [posix.basename(f.relPath), f]));
+  for (const name of PLAN_HANDOFF_COMMANDS) {
+    const f = byBasename.get(name);
+    if (!f) continue;
+    if (!hasPlanHandoff(f.frontmatter)) {
+      out.push({
+        level: "error", code: "PLAN-HANDOFF-ROSTER-MISS", file: f.relPath,
+        message:
+          "pinned plan-handoff roster member (PLAN_HANDOFF_COMMANDS) lacks `plan_handoff: true` " +
+          "in frontmatter — removing the key silently drops the plan-execution handoff contract",
+      });
+    }
+  }
+  return out;
+}
+
+async function checkPlanHandoffFrame(frameAbs: string): Promise<Finding[]> {
+  let raw: string;
+  try {
+    raw = await readFile(frameAbs, "utf-8");
+    // Not silent: the read failure IS the diagnostic — the catch returns an
+    // error-level finding the caller prints and exits non-zero on.
+    // eslint-disable-next-line silent-failure/no-silent-catch
+  } catch {
+    return [{
+      level: "error", code: "PLAN-HANDOFF-FRAME-MISS", file: ORCH_FRAME_REL,
+      message:
+        "orchestration frame not found — it is the single home of the Plan-Execution Handoff " +
+        "block format (Mode K check (c))",
+    }];
+  }
+  const out: Finding[] = [];
+  if (!raw.includes("## Plan-Execution Handoff")) {
+    out.push({
+      level: "error", code: "PLAN-HANDOFF-FRAME-MISS", file: ORCH_FRAME_REL,
+      message: "missing the `## Plan-Execution Handoff` section (single home of the handoff block format)",
+    });
+  }
+  if (!raw.includes(PLAN_FILE_TEMPLATE_LITERAL)) {
+    out.push({
+      level: "error", code: "PLAN-HANDOFF-FRAME-MISS", file: ORCH_FRAME_REL,
+      message: "missing the literal `--plan-file=` template line (Shape A first line)",
+    });
+  }
+  return out;
+}
+
 // ── Orchestrator ──────────────────────────────────────────────────
 
 async function listSkillFiles(dir: string): Promise<string[]> {
@@ -939,6 +1160,14 @@ export async function runValidator(opts: RunOptions): Promise<RunResult> {
     for (const f of commandFiles) findings.push(...checkPlanActSplit(f));
     for (const f of agentFiles) findings.push(...checkStructuredResult(f));
     for (const f of skillFiles) findings.push(...checkSkillDescription(f));
+  }
+  if (opts.flags.modelClass) {
+    for (const f of agentFiles) findings.push(...checkModelClass(f));
+  }
+  if (opts.flags.planHandoff) {
+    for (const f of commandFiles) findings.push(...checkPlanHandoffBlock(f));
+    findings.push(...checkPlanHandoffRoster(commandFiles));
+    findings.push(...(await checkPlanHandoffFrame(join(cmdDir, "shared", "orchestration-frame.md"))));
   }
 
   let errorCount = 0, warningCount = 0;

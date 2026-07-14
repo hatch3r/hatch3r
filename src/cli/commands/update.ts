@@ -444,7 +444,10 @@ export async function runRegenerate(
   // hard errors; structural errors still block; benign advisories stay
   // warnings. ENOENT on either dir = clean state.
   try {
-    const learnings = await validateLearningsDirectory(join(rootDir, HATCH3R_DIR, "learnings"));
+    const learnings = await validateLearningsDirectory(
+      join(rootDir, HATCH3R_DIR, "learnings"),
+      { maxCount: manifest.learnings?.maxCount },
+    );
     const benignWarnings = learnings.warnings.filter((w) => !learnings.injectionHits.includes(w));
     if (benignWarnings.length > 0) {
       warn(`Learnings content scan: ${benignWarnings.length} advisory(ies):`);

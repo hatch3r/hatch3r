@@ -108,7 +108,7 @@ export function toBaseId(name: string): string {
 
 /**
  * Base ids of every published command: `commands/hatch3r-*.md`. Companion
- * subdirectories (`commands/board/`, `commands/revision/`) carry no top-level
+ * subdirectories (`commands/board/`, `commands/rework/`) carry no top-level
  * `hatch3r-*.md` slash command and are excluded — only `hatch3r-`-prefixed `.md`
  * files at the directory root are user-typed `/hatch3r-<base>` slashes.
  */

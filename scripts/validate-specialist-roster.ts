@@ -22,7 +22,7 @@
  *   3. Agent Roster — every SSOT specialist has an `agents/<id>.md` file; and
  *      `agents/hatch3r-implementer.md` + `agents/hatch3r-reviewer.md` Phase 4
  *      specialist enumerations name every SSOT specialist.
- *   4. Full-pipeline orchestrator commands (workflow / revision / board-pickup)
+ *   4. Full-pipeline orchestrator commands (workflow / board-pickup / pr-resolve)
  *      `agentPipeline:` frontmatter includes every always-mode + evaluate-mode
  *      + mandatory-on-match specialist (a full-pipeline orchestrator must be
  *      able to dispatch a hard-mandate Tier 2/3 specialist). Conditional-mode
@@ -140,7 +140,9 @@ const CQ_ROSTER_POINTER = CQ_ROSTER_REL;
 // always-mode floor.
 const FULL_PIPELINE_COMMANDS: readonly string[] = [
   "hatch3r-workflow.md",
-  "hatch3r-revision.md",
+  // 2.6.0: hatch3r-rework (formerly revision) left this roster — its redesigned
+  // 2-agent pipeline (researcher + reviewer validation pass) plans rework and
+  // never dispatches the Phase 4 specialist floor.
   "hatch3r-board-pickup.md",
   // 2.2.0: pr-resolve dispatches the full Tier 2/3 surface (review loop +
   // mandatory-on-match ui/ux at stage 7c), so it is held to the same

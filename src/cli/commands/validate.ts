@@ -206,7 +206,7 @@ async function validateFrontmatter(
         } else if (entry.isDirectory()) {
           // SKILL.md is only the convention under skills/. Other dirs have their
           // own substructure (agents/modes/, agents/shared/, commands/board/,
-          // commands/revision/) that doesn't carry SKILL.md.
+          // commands/rework/) that doesn't carry SKILL.md.
           if (dir !== "skills") continue;
           const skillPath = join(dirPath, entry.name, "SKILL.md");
           try {
@@ -714,6 +714,22 @@ async function validateModels(
       }
     }
   }
+  // release/2.6.0: models.tiers pins what each model class
+  // (economy|default|strongest) resolves to; consumed verbatim by
+  // `resolveTierModel` (src/models/tiers.ts). Mirrors `collectManifestErrors`.
+  const tiers = manifest.models.tiers;
+  if (tiers !== undefined) {
+    if (typeof tiers !== "object" || tiers === null || Array.isArray(tiers)) {
+      result.errors.push("hatch.json: models.tiers must be an object mapping model classes to model strings");
+    } else {
+      for (const cls of ["economy", "default", "strongest"] as const) {
+        const pin = tiers[cls];
+        if (pin !== undefined && typeof pin !== "string") {
+          result.errors.push(`hatch.json: models.tiers.${cls} must be a string`);
+        }
+      }
+    }
+  }
 }
 
 async function validateCostTracking(
@@ -1028,7 +1044,9 @@ async function validateContentConsistency(
   // bundled tree (which ships zero learnings) short-circuited via ENOENT and
   // silently passed poisoned user learnings.
   const learningsDir = join(rootDir, HATCH3R_DIR, "learnings");
-  const learningsResult = await validateLearningsDirectory(learningsDir);
+  const learningsResult = await validateLearningsDirectory(learningsDir, {
+    maxCount: manifest.learnings?.maxCount,
+  });
   for (const e of learningsResult.errors) {
     result.errors.push(e);
   }
@@ -1918,7 +1936,7 @@ export const COMPANION_SUBDIRS: readonly string[] = [
   "agents/shared/",
   "agents/modes/",
   "commands/board/",
-  "commands/revision/",
+  "commands/rework/",
   "commands/shared/", // shared command boilerplate (e.g. orchestration-frame.md, type: shared-context) — cited by orchestrators, not a standalone mutating command
   "skills/hatch3r-board-shared/", // board companion skill (parity with commands/board/)
 ];

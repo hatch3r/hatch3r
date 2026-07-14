@@ -1,8 +1,8 @@
 {
   "$schema": "https://json.schemastore.org/claude-code-plugin-manifest.json",
   "name": "hatch3r",
-  "version": "2.5.0",
-  "description": "Tool-agnostic agentic coding setup: 29 agents, 53 skills, 70 rules, 31 commands, 7 hooks, MCP servers, and a CLI-tool surface generated for 3 AI coding tools from a single canonical source. Counts derived from governance/inventory.json.",
+  "version": "2.6.0",
+  "description": "Tool-agnostic agentic coding setup: 30 agents, 53 skills, 72 rules, 32 commands, 7 hooks, MCP servers, and a CLI-tool surface generated for 3 AI coding tools from a single canonical source. Counts derived from governance/inventory.json.",
   "author": {
     "name": "hatch3r",
     "email": "support@hatch3r.com",

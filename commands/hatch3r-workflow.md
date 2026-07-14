@@ -3,8 +3,8 @@ id: hatch3r-workflow
 type: command
 orchestrator: true
 agentPipeline: [hatch3r-researcher, hatch3r-implementer, hatch3r-reviewer, hatch3r-fixer, hatch3r-docs-writer, hatch3r-lint-fixer, hatch3r-ui, hatch3r-ux, hatch3r-security, hatch3r-reliability, hatch3r-testability, hatch3r-scalability, hatch3r-performance, hatch3r-maintainability, hatch3r-enhancability, hatch3r-edge-case-analyst]
-description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks.
-argument-hint: "[--mode=full|quick] [--effort=light|standard|deep] [--confidence-floor=any|medium|high] [--auto]"
+description: Guided development lifecycle with 4 phases (Analyze, Plan, Implement, Review) and scale-adaptive Quick Mode for small tasks; --plan-file executes an approved plan document without re-deriving it.
+argument-hint: "[--plan-file=<path>] [--mode=full|quick] [--effort=light|standard|deep] [--confidence-floor=any|medium|high] [--auto]"
 disable-model-invocation: true
 tags: [implementation, orchestration]
 quality_charter: agents/shared/quality-charter.md
@@ -21,7 +21,7 @@ sub_agents_spawned:
 
 ## §0 Detect Ambiguity (P8 B1)
 
-> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: unstated mode (Full vs Quick) or effort tier when scope is ambiguous; a target spanning >1 module with no stated boundary; acceptance criteria absent from the issue or description; a requested change that alters user-visible behavior beyond the issue's stated scope.
+> Orchestration boilerplate: see `commands/shared/orchestration-frame.md` → §0 Detect Ambiguity (P8 B1). Triggers: unstated mode (Full vs Quick) or effort tier when scope is ambiguous; a target spanning >1 module with no stated boundary; acceptance criteria absent from the issue or description; a requested change that alters user-visible behavior beyond the issue's stated scope; a stale plan file (freshness drift between a `--plan-file` plan and the files it names — see 1a-plan).
 
 # Development Workflow -- Guided Lifecycle for Structured Implementation
 
@@ -181,9 +181,25 @@ Auto-tiering (Step 0 mode selection) can misclassify — a single-file edit scor
 
 #### 1a. Parse the Task
 
+- **Plan file (--plan-file):** an approved plan document is the task source — run the Plan-File Intake below (1a-plan) instead of deriving the task from an issue or description.
 - **GitHub issue:** Read issue body, acceptance criteria, labels, parent epic context using `gh issue view` (fall back to `issue_read` MCP).
 - **User description:** Extract requirements, scope, constraints from the provided description.
 - **No board-pickup handoff:** `/workflow` runs standalone, so Phase 1a always fetches issue context fresh; `hatch3r-board-pickup` gathers its own context inside its inline pipeline and does not invoke this command (see Integration with Board Workflow).
+
+#### 1a-plan. Plan-File Intake
+
+Runs only when `--plan-file=<path>` is passed — typically pasted from the Plan-Execution Handoff block a `plan_handoff: true` planning command emitted (`commands/shared/orchestration-frame.md` → Plan-Execution Handoff (terminal block)).
+
+1. **Existence guard.** If `<path>` does not resolve to a file, stop with this actionable error and do not proceed:
+
+   > Plan file not found: `<path>`. Check the planning output directories — `docs/specs/`, `docs/investigations/`, `docs/migrations/`, `docs/rework/`, `docs/api/` — for the plan document, or re-run `/hatch3r-workflow` without `--plan-file` and describe the task instead.
+
+2. **Parse the plan into task context:** scope, acceptance criteria, files to create/modify, implementation order, dependencies, constraints/ADR references, and out-of-scope items.
+3. **Freshness guard.** For each file the plan names, compare its last-commit time (`git log -1 --format=%cI -- <file>`) against the plan document's own last-commit time (for an uncommitted plan, use its working-tree mtime). If any named file is newer than the plan, list the drifted files and **ASK:** "(a) proceed — drift is compatible with the plan (b) re-validate the plan first — re-run the producing planning command (c) abort". Never execute a stale plan silently.
+4. **Skip re-derivation.** Phase 1b scores complexity from the plan's stated scope; Phase 1c loads ONLY the specs/ADRs the plan references; Phase 2a presents the PARSED plan — **ASK:** "Execute this plan as written? (yes / adjust / re-plan)" — instead of drafting a new one. Phases 3–4 run unchanged.
+5. **Conflicting sources.** `--plan-file` combined with a GitHub issue or user description → ASK which source is authoritative before parsing anything.
+
+Quick Mode's Step 1 accepts `--plan-file` identically (same guards, same parsed-plan presentation). Recommend Quick Mode when the plan lists ≤3 files.
 
 #### 1b. Complexity Scoring and Deep Context
 
@@ -312,6 +328,7 @@ You MUST spawn a `hatch3r-implementer` sub-agent via the Task tool (`subagent_ty
 2. Do NOT execute the skill's PR creation steps inline — standalone `/workflow` leaves the PR decision to the user at the end of Phase 4 (see Integration with Board Workflow). (`hatch3r-board-pickup` owns PR creation in its own inline pipeline, Steps 7a–8 — not via this command.)
 3. For tasks spanning multiple independent parts, spawn one `hatch3r-implementer` per independent module. Launch as many in parallel as the platform supports.
 4. Coordinate changes across files to avoid conflicts.
+5. Allocate each implementer's model class per `rules/hatch3r-model-allocation.md` (matrix: `max(agent floor, task-tier class)`, passed explicitly per spawn) and scope each spawn prompt per `rules/hatch3r-context-budget.md` (paths + line ranges over file bodies; ≤15k-token input frame; distilled-return contract stated in the prompt).
 
 The implementer sub-agent prompt MUST include:
 - The task description, acceptance criteria, and type.
@@ -380,7 +397,7 @@ Each reviewer/fixer sub-agent prompt MUST include:
 
 #### 4b. Final Quality (Parallel Specialists)
 
-**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by the orchestrator-honored fan-out width `max_phase4_parallel` (default `8`) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality — LLM-honored guidance, not a code-enforced cap (the host Task tool applies no platform fan-out limit). The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next.
+**ONLY after the review loop (4a) reports 0 Critical + 0 Warning findings**, spawn the remaining specialist sub-agents. Use the Task tool with `subagent_type: "generalPurpose"`. Dispatch is bounded by the orchestrator-honored fan-out width `max_phase4_parallel` (default `8`) per `rules/hatch3r-agent-orchestration.md` Phase 4 — Final Quality — LLM-honored guidance, not a code-enforced cap (the host Task tool applies no platform fan-out limit). The bound exists for upstream provider rate-limit headroom, not per-orchestrator context cost (P8 dominates P7). When the applicable specialists exceed the bound, batch by severity priority `CRITICAL → HIGH → MEDIUM → LOW`; each batch runs to completion before the next. Allocate each specialist's model class per `rules/hatch3r-model-allocation.md` (verdict-class specialists carry floor `strongest`, so allocation resolves to `strongest` at every tier) and scope each specialist prompt to the Specialist Prompt Enrichment set per `rules/hatch3r-context-budget.md`.
 
 **Always spawn (mandatory for every code change):**
 
@@ -479,6 +496,8 @@ If `.hatch3r/learnings/` exists:
 Collapses the 4 phases into a streamlined flow for small, well-defined tasks. Sub-agent delegation is still mandatory — Quick Mode uses lighter prompts, not fewer sub-agents.
 
 ### Quick Step 1: Rapid Analysis + Plan (Combined)
+
+With `--plan-file`, run the Plan-File Intake guards first (1a-plan: existence, parse, freshness), then present the parsed plan at the ASK below instead of drafting one — Quick Mode accepts the flag identically to Full Mode.
 
 1. Score complexity per `hatch3r-deep-context`. If the score yields Tier 3, recommend switching to Full Mode.
 2. Spawn `hatch3r-researcher` with depth `quick` for brief context gathering. Skip Phase 1 only per the canonical Phase Skip Criteria (`rules/hatch3r-agent-orchestration.md` → Phase Skip Criteria / `PHASE_SKIP_CRITERIA`): trivial single-line edit, Tier-1 single-file no-cross-module change, or cached research. For Tier 2, include `requirements-elicitation` and `similar-implementation` at `quick` depth.

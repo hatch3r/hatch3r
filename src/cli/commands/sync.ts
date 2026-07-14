@@ -604,7 +604,10 @@ export async function syncCommand(
   // (non-.md files) stay warnings. Missing dirs are a valid clean state (both
   // validators return valid+empty on ENOENT).
   try {
-    const learnings = await validateLearningsDirectory(join(rootDir, HATCH3R_DIR, "learnings"));
+    const learnings = await validateLearningsDirectory(
+      join(rootDir, HATCH3R_DIR, "learnings"),
+      { maxCount: m.learnings?.maxCount },
+    );
     // Surface every advisory; inject-pattern hits are also listed in
     // `injectionHits` and gated below.
     const benignWarnings = learnings.warnings.filter((w) => !learnings.injectionHits.includes(w));

@@ -70,7 +70,7 @@ interface InventoryCounts {
   agentsModes: number;
   agentsShared: number;
   commandsBoard: number;
-  commandsRevision: number;
+  commandsRework: number;
   checks: number;
   githubAgents: number;
   /**
@@ -119,7 +119,7 @@ interface InventoryFiles {
   agentsModes: string[];
   agentsShared: string[];
   commandsBoard: string[];
-  commandsRevision: string[];
+  commandsRework: string[];
   checks: string[];
   githubAgents: string[];
   /** File list backing `counts.testFiles` (repo-relative, sorted). */
@@ -374,7 +374,7 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
     agentsModes,
     agentsShared,
     commandsBoard,
-    commandsRevision,
+    commandsRework,
     checks,
     githubAgents,
     testFiles,
@@ -391,7 +391,7 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
     listCompanionMd("agents/modes"),
     listCompanionMd("agents/shared"),
     listCompanionMd("commands/board"),
-    listCompanionMd("commands/revision"),
+    listCompanionMd("commands/rework"),
     listCompanionMd("checks"),
     listCompanionMd("github-agents"),
     listTestFiles(),
@@ -426,7 +426,7 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
       agentsModes: agentsModes.length,
       agentsShared: agentsShared.length,
       commandsBoard: commandsBoard.length,
-      commandsRevision: commandsRevision.length,
+      commandsRework: commandsRework.length,
       checks: checks.length,
       githubAgents: githubAgents.length,
       testFiles: testFiles.length,
@@ -449,7 +449,7 @@ export async function buildInventory(today: string): Promise<InventoryDocument> 
       agentsModes,
       agentsShared,
       commandsBoard,
-      commandsRevision,
+      commandsRework,
       checks,
       githubAgents,
       testFiles,

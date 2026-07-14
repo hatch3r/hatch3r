@@ -59,7 +59,9 @@ Calculate estimated cost using named-model rates tied to model IDs. Published-ve
 |-------|----------|---------------:|----------------:|----------|
 | Claude Haiku 4.5 | `claude-haiku-4-5` | $1.00 | $5.00 | 2026-06-06 |
 | Claude Sonnet 4.6 | `claude-sonnet-4-6` | $3.00 | $15.00 | 2026-06-06 |
+| Claude Sonnet 5 | `claude-sonnet-5` | $3.00 | $15.00 | 2026-07-13 |
 | Claude Opus 4.8 | `claude-opus-4-8` | $5.00 | $25.00 | 2026-06-06 |
+| Claude Fable 5 | `claude-fable-5` | $10.00 | $50.00 | 2026-07-13 |
 
 **Cache-read multiplier.** Cached input tokens (`cache_read_input_tokens` in the API `usage` block) bill at ~0.1× the model's base input rate; cache writes bill at 1.25× (5-minute TTL) or 2× (1-hour TTL). When a session reuses a large cached prefix, price `cache_read_input_tokens` separately at 0.1× base input — counting them at full input rate overstates spend by up to 10× on cache-heavy agent loops. Total prompt size = `input_tokens` (uncached) + `cache_creation_input_tokens` + `cache_read_input_tokens`.
 

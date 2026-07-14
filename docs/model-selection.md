@@ -6,7 +6,7 @@ hatch3r lets you configure preferred AI models for your agents — and, where th
 
 When you configure a model, hatch3r includes it in the generated config for each tool (Claude Code, Cursor, Copilot, etc.). Some platforms support native model selection in their config; others receive the recommendation as guidance text. Either way, the preference is preserved across `npx hatch3r sync` runs.
 
-**When no model is configured at any level**, hatch3r does not emit a model preference. Each platform (Claude Code, Cursor, Copilot, etc.) uses its own default.
+**When no model is configured at any level**, hatch3r does not emit a model preference. Each platform (Claude Code, Cursor, Copilot, etc.) uses its own default. Since 2.6.0 every canonical agent ships a model *class* in its frontmatter (see [Model Classes](#model-classes)), so for agents the "nothing configured" case no longer occurs — it still applies to skills and commands, which carry no canonical `model:`.
 
 **When you change a model on an already-generated artifact**, the new value lands in the YAML frontmatter stub at the top of the generated file — a region hatch3r treats as user-owned and preserves across `sync`/`update` (the managed `HATCH3R:BEGIN…END` block below it is what gets refreshed). To apply a model change to an existing file, delete that generated file and run `npx hatch3r update` (it re-emits missing files with current config); freshly generated files always carry the configured model.
 
@@ -31,6 +31,40 @@ The same four layers apply per artifact class (`agents`, `skills`, `commands`):
 3. **Canonical frontmatter** — `model:` in the bundled artifact
 4. **Manifest default** — `hatch.json` → `models.default` — applies to **agents only**. Skills and commands never inherit `models.default`: a default that fed them would add `model:` lines to every generated skill/command the moment it is set, and a command-level model switches the whole conversation model — that must stay an explicit per-id choice.
 5. **No model** — hatch3r emits nothing; the platform uses its own default.
+
+## Model Classes
+
+Canonical agents do not pin concrete models. Each declares a capability **class** in `model:` frontmatter — `economy`, `default`, or `strongest` (`src/models/tiers.ts`). A class travels through the resolution order above like any other `model:` value and is mapped to each platform's native vocabulary at emission time. The legacy tier words remain accepted as synonyms in user overrides (`fast` → `economy`, `standard` → `default`, `reasoning` → `strongest`); the canonical corpus itself uses only the three class words (enforced by the `--model-class` validator mode).
+
+| Class | Claude Code | Cursor | Copilot |
+|-------|-------------|--------|---------|
+| `economy` | `model: haiku` + `effort: medium` | `model: fast` | omitted |
+| `default` | `model: sonnet` (no `effort:` line — platform default applies) | omitted (inherit-by-omission) | omitted |
+| `strongest` | `model: opus` + `effort: high` | advisory body line (no native value) | omitted |
+
+- **Claude Code** maps classes to aliases (`haiku`/`sonnet`/`opus`), not pinned ids, so the platform tracks the current GA model in each tier without a per-release re-pin of every emitted agent file. `effort:` is emitted only alongside a tier-mapped model, never for a user-set concrete model.
+- **Cursor**'s native vocabulary is `fast`, `inherit`, or a concrete id, so only `economy` maps natively; `default` is expressed by omitting the field; `strongest` becomes an advisory body line unless a `models.tiers.strongest` pin supplies a concrete id.
+- **Copilot** emits no class-derived `model:` value — a class word emits nothing there unless a `models.tiers` pin supplies a concrete id.
+
+### Project-wide class remap (`models.tiers`)
+
+Pin what a class means in your repo — wherever a class word wins resolution, the pinned value replaces the adapter's mapping verbatim (then passes through alias expansion):
+
+```json
+{
+  "models": {
+    "tiers": {
+      "strongest": "fable"
+    }
+  }
+}
+```
+
+With this pin, every `model: strongest` agent emits `fable`'s resolved id on all three platforms instead of the per-adapter defaults above.
+
+### Floor pinning
+
+An agent's canonical class is its **floor**: runtime allocation may raise the class for a high-tier task, never lower it, and `hatch3r-security`, `hatch3r-testability`, and the other verdict-class specialists must not resolve below `default` from any override layer — an override that would is surfaced as a config error and the run proceeds at `default` or above. Per-spawn allocation semantics live in the `hatch3r-model-allocation` rule (`rules/hatch3r-model-allocation.md`).
 
 ## Emission Surfaces (per adapter)
 
@@ -101,20 +135,15 @@ model: codex
 
 ## Built-in Agent Defaults
 
-Some agents ship with a default model in their canonical frontmatter. These defaults are tuned for the agent's cognitive profile: mechanical tasks use a fast model to save cost, while quality-sensitive tasks lock in a balanced model as a floor.
+Every one of the 30 canonical agents ships a model **class** in its frontmatter (see [Model Classes](#model-classes)) — no concrete model id appears anywhere in the canonical corpus:
 
-| Agent | Default | Rationale |
-|-------|---------|-----------|
-| `hatch3r-lint-fixer` | `haiku` | Mechanical pattern fixes; speed and low cost matter most |
-| `hatch3r-ci-watcher` | `haiku` | Log parsing and pattern recognition; fast feedback loops |
-| `hatch3r-docs-writer` | `sonnet` | Writing quality and technical accuracy need a capable model |
-| `hatch3r-security` | `sonnet` | OAuth/OIDC/supply-chain analysis requires solid reasoning |
-| `hatch3r-ui` | `sonnet` | WCAG 2.2 AA + design-token interpretation requires solid reasoning |
-| `hatch3r-testability` | `sonnet` | Edge-case identification and test design need reasoning depth |
+| Class | Agents | Rationale |
+|-------|--------|-----------|
+| `strongest` (16) | the 10 CQ specialists (`ui`, `ux`, `security`, `reliability`, `testability`, `scalability`, `performance`, `maintainability`, `enhancability`, `product-spec`) + `reviewer`, `architect`, `edge-case-analyst`, `incident-responder`, `greenfield-spec`, `brownfield-spec` | Verdict/sign-off agents — a quality gate evaluated on a cheaper class silently weakens every verdict |
+| `default` (9) | `implementer`, `fixer`, `researcher`, `docs-writer`, `devops`, `creator`, `pack-installer`, `dependency-drafter`, `handoff-preparer` | Work agents — routine multi-file execution; runtime allocation raises them to `strongest` on Tier-3 tasks |
+| `economy` (5) | `lint-fixer`, `ci-watcher`, `context-rules`, `handoff-loader`, `learnings-loader` | Mechanical agents — bounded transformations, re-verified downstream by the review gate and the Phase 4 validation pass |
 
-Agents without a default (`hatch3r-implementer`, `hatch3r-researcher`, `hatch3r-reviewer`, `hatch3r-performance`, `hatch3r-architect`, `hatch3r-context-rules`, `hatch3r-devops`, `hatch3r-fixer`, `hatch3r-learnings-loader`) use the platform's own default. Their task complexity varies too widely for a single tier to fit.
-
-These defaults sit at precedence level 3 (canonical frontmatter). Override them at any higher level:
+These classes sit at precedence level 3 (canonical frontmatter). Override at any higher level — a per-agent concrete id, a per-agent class, or a project-wide `models.tiers` remap:
 
 ```json
 {
@@ -128,21 +157,21 @@ These defaults sit at precedence level 3 (canonical frontmatter). Override them 
 
 ### Cross-Platform Override
 
-The built-in defaults resolve to Anthropic model IDs (`claude-haiku-4-5`, `claude-sonnet-4-6`). On platforms that only support their own models (e.g., Codex CLI, Gemini CLI), set a project-wide override in `hatch.json`:
+Class words map per adapter (see [Model Classes](#model-classes)), so nothing vendor-specific ships by default on platforms without a mapping. To route every class to another vendor's models, pin the classes project-wide:
 
 ```json
 {
   "models": {
-    "default": "codex",
-    "agents": {
-      "hatch3r-lint-fixer": "codex-spark",
-      "hatch3r-ci-watcher": "codex-spark"
+    "tiers": {
+      "economy": "codex-spark",
+      "default": "codex",
+      "strongest": "codex"
     }
   }
 }
 ```
 
-Manifest-level overrides (precedence 2 and 4) take priority over canonical frontmatter defaults, so all agents will use your platform's models.
+`models.tiers` pins replace the adapter maps verbatim wherever a class word wins resolution; per-agent `models.agents` entries and `.customize.yaml` files continue to take resolution-order priority over canonical frontmatter.
 
 ## Platform Behavior
 

@@ -62,7 +62,7 @@ A fan-out that fails any condition is serialized or gated by a merge-conflict ch
 
 ## Cost-dominance clause
 
-Token cost of sub-agent invocation never justifies under-fan-out. Cost governs HOW MUCH context each sub-agent receives (the P7 static-first prompt frame); it does not govern WHETHER to spawn the sub-agent at all. P8 dominates P7: when an edit would compress fan-out to save tokens, reject it. When in doubt, fan out. Reviewability is a separate, non-cost axis: it governs the SHAPE of the fan-out tree (flat vs two-level per Hierarchical delegation), never WHETHER to spawn — so reviewability never serializes independent work either.
+Token cost of sub-agent invocation never justifies under-fan-out. Cost governs HOW MUCH context each sub-agent receives (the P7 static-first prompt frame); it does not govern WHETHER to spawn the sub-agent at all. P8 dominates P7: when an edit would compress fan-out to save tokens, reject it. When in doubt, fan out. Reviewability is a separate, non-cost axis: it governs the SHAPE of the fan-out tree (flat vs two-level per Hierarchical delegation), never WHETHER to spawn — so reviewability never serializes independent work either. The mechanics of "how much context" — per-spawn input budgets, distilled returns, decomposition triggers — live in `rules/hatch3r-context-budget.md`.
 
 ## Required output field
 

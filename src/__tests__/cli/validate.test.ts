@@ -1177,7 +1177,7 @@ describe("requiresAmbiguityGate", () => {
     expect(requiresAmbiguityGate("agents", "agents/shared/quality-charter.md")).toBe(false);
     expect(requiresAmbiguityGate("agents", "agents/modes/user-flows.md")).toBe(false);
     expect(requiresAmbiguityGate("commands", "commands/board/foo.md")).toBe(false);
-    expect(requiresAmbiguityGate("commands", "commands/revision/foo.md")).toBe(false);
+    expect(requiresAmbiguityGate("commands", "commands/rework/foo.md")).toBe(false);
     // commands/shared/ holds shared command boilerplate (orchestration-frame.md,
     // type: shared-context) — companion material cited by orchestrators, not a
     // standalone mutating command, so it carries no §0 gate.

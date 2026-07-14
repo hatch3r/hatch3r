@@ -43,7 +43,7 @@ describe("scanBody — flags pre-migration mis-keys", () => {
 
   it("flags `matching areas or tags`", () => {
     const body = "If `.hatch3r/learnings/` exists, scan for learnings with matching areas or tags.";
-    expect(scanBody(body, "commands/revision.md")).toHaveLength(1);
+    expect(scanBody(body, "commands/rework.md")).toHaveLength(1);
   });
 });
 

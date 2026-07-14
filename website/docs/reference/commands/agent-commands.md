@@ -7,9 +7,13 @@ title: Agent Commands
 
 Commands invoked inside your coding tool (e.g. as Cursor commands or Claude Code slash commands). A command is an **orchestrator**: it delegates to one or more hatch3r agents via the Task tool. Single-pass procedures, dispatchers, and inline workflows ship as [Skills](../skills) instead, so board grooming, customization, cost tracking, learning capture, and the other non-orchestrating flows live on the Skills page, not here.
 
-There are 31 agent commands.
+There are 32 agent commands.
 
 ## Spec and Planning Commands
+
+### plan
+
+Planning router. Classifies a free-form planning request against the nine planning flows (feature-plan, bug-plan, migration-plan, refactor-plan, test-plan, api-spec, project-spec, roadmap, spec), confirms the match, and drives the matched flow(s) with shared intake context. Produces one consolidated outcome and a single copy-paste plan-execution prompt for a fresh session.
 
 ### spec
 
@@ -87,9 +91,9 @@ Run a known-cause bug fix through a 3-phase test-first pipeline -- reproduce + r
 
 Standalone debug-and-fix workflow. Adds strategic debug logging (`[HATCH3R-DEBUG]` prefixed), pauses for the user to reproduce the issue and provide runtime logs, performs root-cause analysis, implements the fix, removes all debug artifacts, and runs the full review-fix-test-security pipeline.
 
-### revision
+### rework
 
-User-guided revision of agent-implemented code in a fresh context window. Reconstructs what was done from the git diff, interviews the user for structured feedback, scans for agent leftovers (dead code, TODOs, type issues), delegates fixes to specialist sub-agents, and assesses merge readiness.
+User-guided rework planning for agent-implemented code in a fresh context window. Reconstructs what was delivered from the git diff, interviews the user for feedback, scans for agent leftovers (dead code, TODOs, type issues), validates the findings read-only against the code, and ends at a rework plan (`docs/rework/`) plus a copy-paste fresh-session execution prompt — it never fixes inline, never commits, never pushes.
 
 ### quick-change
 

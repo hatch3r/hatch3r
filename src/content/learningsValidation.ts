@@ -13,11 +13,29 @@ import {
 /** Maximum size of a single learning file in bytes (64 KB). */
 export const MAX_LEARNING_FILE_BYTES = 65_536;
 
-/** Maximum total size of all learnings combined in bytes (512 KB). */
-export const MAX_LEARNINGS_TOTAL_BYTES = 524_288;
+/**
+ * Default maximum number of active learning files (2.6.0: raised from the
+ * fixed 50 and made configurable via `learnings.maxCount` in
+ * `.hatch3r/hatch.json` — see {@link resolveLearningsCaps}).
+ * `src/pipeline/snapshot.ts::MAX_SNAPSHOT_COUNT` imports this constant so both
+ * durable on-disk stores keep one bounding default in one physical home.
+ */
+export const DEFAULT_LEARNING_FILE_COUNT = 150;
 
-/** Maximum number of learning files allowed. */
-export const MAX_LEARNING_FILE_COUNT = 50;
+/**
+ * Floor for `learnings.maxCount`: configured values below this clamp up to it
+ * with a validation warning (never a hard error), so no project can configure
+ * itself below the pre-2.6.0 capacity.
+ */
+export const MIN_LEARNING_FILE_COUNT = 50;
+
+/**
+ * Total-bytes budget granted per allowed learning file. The directory-level
+ * byte cap derives as `Math.round(maxCount * LEARNING_TOTAL_BYTES_PER_FILE)`:
+ * at the legacy cap of 50 that is exactly 524_288 (byte-for-byte the pre-2.6.0
+ * fixed 512 KB cap), and at the default 150 it is 1_572_864 (3x scaling).
+ */
+export const LEARNING_TOTAL_BYTES_PER_FILE = 10_485.76;
 
 /** Allowed file extensions for learning files. */
 const ALLOWED_EXTENSIONS = new Set([".md"]);
@@ -107,6 +125,61 @@ export interface SingleLearningValidation {
   warnings: string[];
   /** See {@link LearningValidationResult.injectionHits}. */
   injectionHits: string[];
+}
+
+/** Resolved capacity caps for a learnings directory (see {@link resolveLearningsCaps}). */
+export interface ResolvedLearningsCaps {
+  /** Active cap on top-level `.md` files in `.hatch3r/learnings/`. */
+  maxCount: number;
+  /** Directory-level byte cap; scales linearly with `maxCount`. */
+  maxTotalBytes: number;
+  /**
+   * True when the configured value was below {@link MIN_LEARNING_FILE_COUNT}
+   * and was clamped up to it. Callers surface this as a warning, never an error.
+   */
+  clamped: boolean;
+}
+
+/** Options for {@link validateLearningsDirectory}. */
+export interface LearningsDirectoryOptions {
+  /**
+   * Configured cap on active learning files — the manifest's
+   * `learnings.maxCount` (`.hatch3r/hatch.json`). Absent or non-finite falls
+   * back to {@link DEFAULT_LEARNING_FILE_COUNT}; values below
+   * {@link MIN_LEARNING_FILE_COUNT} clamp to the floor with a warning.
+   */
+  maxCount?: number;
+}
+
+/**
+ * Derive the active learnings caps from a configured `learnings.maxCount`
+ * (2.6.0). One derivation site for every consumer: the directory validator
+ * below, the `hatch3r learn capture` capacity advisory
+ * (`src/cli/commands/learn.ts`), and tests.
+ *
+ * - Absent / non-finite input → default cap {@link DEFAULT_LEARNING_FILE_COUNT}.
+ * - Below {@link MIN_LEARNING_FILE_COUNT} → clamped to the floor, `clamped: true`.
+ * - Fractional values floor to the next-lower integer.
+ * - `maxTotalBytes = Math.round(maxCount * LEARNING_TOTAL_BYTES_PER_FILE)`,
+ *   preserving the legacy 524_288-byte cap exactly at `maxCount === 50`.
+ */
+export function resolveLearningsCaps(configuredMaxCount?: number): ResolvedLearningsCaps {
+  let maxCount = DEFAULT_LEARNING_FILE_COUNT;
+  let clamped = false;
+  if (typeof configuredMaxCount === "number" && Number.isFinite(configuredMaxCount)) {
+    const floored = Math.floor(configuredMaxCount);
+    if (floored < MIN_LEARNING_FILE_COUNT) {
+      maxCount = MIN_LEARNING_FILE_COUNT;
+      clamped = true;
+    } else {
+      maxCount = floored;
+    }
+  }
+  return {
+    maxCount,
+    maxTotalBytes: Math.round(maxCount * LEARNING_TOTAL_BYTES_PER_FILE),
+    clamped,
+  };
 }
 
 // ── Single-file validation ───────────────────────────────────────
@@ -289,17 +362,19 @@ export function sanitizeLearningsContent(
 // ── Directory validation ─────────────────────────────────────────
 
 /**
- * Validate all learning files in a directory.
- *
- * Performs comprehensive validation of the learnings system:
- * 1. File count limit
- * 2. Total size limit
+ * Validate all learning files in a directory. Checks, in order:
+ * 1. File count against the configured cap (`learnings.maxCount`, default
+ *    {@link DEFAULT_LEARNING_FILE_COUNT}; floor {@link MIN_LEARNING_FILE_COUNT})
+ * 2. Total size against the cap derived from the same count
+ *    (see {@link resolveLearningsCaps})
  * 3. Per-file name validation
  * 4. Per-file content validation (schema, encoding, size, denied patterns)
  */
 export async function validateLearningsDirectory(
   learningsDir: string,
+  options: LearningsDirectoryOptions = {},
 ): Promise<LearningValidationResult> {
+  const caps = resolveLearningsCaps(options.maxCount);
   const errors: string[] = [];
   const warnings: string[] = [];
   const injectionHits: string[] = [];
@@ -316,14 +391,26 @@ export async function validateLearningsDirectory(
     throw err;
   }
 
+  // Below-floor configuration is a warning, never a hard error — the floor
+  // value is used in its place so validation cannot be configured stricter
+  // than the pre-2.6.0 capacity.
+  if (caps.clamped) {
+    warnings.push(
+      `Configured learnings.maxCount (${options.maxCount}) is below the floor of ` +
+      `${MIN_LEARNING_FILE_COUNT}; using ${MIN_LEARNING_FILE_COUNT}. Set learnings.maxCount in ` +
+      `.hatch3r/hatch.json to ${MIN_LEARNING_FILE_COUNT} or higher.`,
+    );
+  }
+
   const mdFiles = entries.filter((f) => f.endsWith(".md"));
   fileCount = mdFiles.length;
 
-  // File count limit
-  if (fileCount > MAX_LEARNING_FILE_COUNT) {
+  // File count limit (active cap — configurable per project)
+  if (fileCount > caps.maxCount) {
     errors.push(
-      `Too many learning files (${fileCount}). Maximum is ${MAX_LEARNING_FILE_COUNT}. ` +
-      `Consolidate related learnings into fewer files.`,
+      `Too many learning files (${fileCount}). The active cap is ${caps.maxCount} ` +
+      `(configurable via learnings.maxCount in .hatch3r/hatch.json; default ` +
+      `${DEFAULT_LEARNING_FILE_COUNT}). Consolidate related learnings into fewer files.`,
     );
   }
 
@@ -361,11 +448,12 @@ export async function validateLearningsDirectory(
     );
   }
 
-  // Total size limit
-  if (totalBytes > MAX_LEARNINGS_TOTAL_BYTES) {
+  // Total size limit (scales with the active count cap)
+  if (totalBytes > caps.maxTotalBytes) {
     errors.push(
-      `Total learnings size (${totalBytes} bytes) exceeds ${MAX_LEARNINGS_TOTAL_BYTES} byte limit. ` +
-      `Remove or consolidate learning files.`,
+      `Total learnings size (${totalBytes} bytes) exceeds the ${caps.maxTotalBytes} byte limit ` +
+      `for the active cap of ${caps.maxCount} files (both scale with learnings.maxCount in ` +
+      `.hatch3r/hatch.json). Remove or consolidate learning files.`,
     );
   }
 

@@ -7,6 +7,7 @@ import { CursorAdapter } from "../../adapters/cursor.js";
 import { createManifest } from "../../manifest/hatchJson.js";
 import type { HatchManifest } from "../../types.js";
 import { MANAGED_BLOCK_START, MANAGED_BLOCK_END } from "../../types.js";
+import { safeWriteFile, isLegacyGeneratedNoMarkerFile } from "../../merge/safeWrite.js";
 import { resolveTestPath } from "../fixtures.js";
 
 const FIXTURES_DIR = resolveTestPath(import.meta.url, "../fixtures/agents");
@@ -233,7 +234,7 @@ Applies to API code and protobufs.`,
 
     const agentFile = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
     expect(agentFile).toBeDefined();
-    expect(agentFile!.content).toContain("model: claude-sonnet-4-6");
+    expect(agentFile!.content).toContain("model: claude-sonnet-5");
   });
 
   it("emits model from manifest when no customization file", async () => {
@@ -263,6 +264,79 @@ You are a test agent.`,
     } finally {
       await rm(tempDir, { recursive: true, force: true });
     }
+  });
+
+  // Model classes (release/2.6.0, dead-value fix): Cursor natively understands
+  // only `fast`, `inherit`, or a concrete model id, so class words never ship
+  // verbatim — economy maps to `fast`, default omits the field, strongest gets
+  // an advisory body line (unless a models.tiers pin supplies a concrete id).
+  describe("model-class emission (release/2.6.0)", () => {
+    async function generateAgentWithModel(
+      model: string,
+      manifestOverrides: Parameters<typeof makeManifest>[0] = {},
+    ): Promise<{ content: string; fm: string }> {
+      const tempDir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-class-"));
+      try {
+        const agentsDir = join(tempDir, "agents");
+        await mkdir(join(agentsDir, "agents"), { recursive: true });
+        await writeFile(
+          join(agentsDir, "agents", "test-agent.md"),
+          `---\nid: test-agent\ntype: agent\ndescription: A class-model test agent\nmodel: ${model}\n---\n# Test Agent\n\nYou are a test agent.`,
+          "utf-8",
+        );
+        const outputs = await adapter.generate(agentsDir, makeManifest(manifestOverrides));
+        const agentFile = outputs.find((o) => o.path === ".cursor/agents/hatch3r-test-agent.md");
+        expect(agentFile).toBeDefined();
+        const fmMatch = agentFile!.content.match(/^---\n([\s\S]*?)\n---/);
+        expect(fmMatch).not.toBeNull();
+        return { content: agentFile!.content, fm: fmMatch![1] };
+      } finally {
+        await rm(tempDir, { recursive: true, force: true });
+      }
+    }
+
+    it("economy → model: fast (Cursor's native cost keyword)", async () => {
+      const { fm } = await generateAgentWithModel("economy");
+      expect(fm).toMatch(/^model: fast$/m);
+    });
+
+    it("default → NO model line (inherit-by-omission)", async () => {
+      const { fm } = await generateAgentWithModel("default");
+      expect(fm).not.toMatch(/^model:/m);
+    });
+
+    it("strongest → no native field + one advisory body line", async () => {
+      const { content, fm } = await generateAgentWithModel("strongest");
+      expect(fm).not.toMatch(/^model:/m);
+      expect(content).toContain(
+        "Model class: strongest — pin this agent to the highest-capability model in the Cursor model picker.",
+      );
+    });
+
+    it("models.tiers.strongest concrete id → emitted (alias-expanded), no advisory line", async () => {
+      const { content, fm } = await generateAgentWithModel("strongest", {
+        models: { tiers: { strongest: "fable" } },
+      });
+      expect(fm).toMatch(/^model: claude-fable-5$/m);
+      expect(content).not.toContain("pin this agent to the highest-capability model");
+    });
+
+    it("non-class values still emit verbatim (concrete id, inherit, user fast)", async () => {
+      const concrete = await generateAgentWithModel("claude-opus-4-8");
+      expect(concrete.fm).toMatch(/^model: claude-opus-4-8$/m);
+      const inherit = await generateAgentWithModel("inherit");
+      expect(inherit.fm).toMatch(/^model: inherit$/m);
+    });
+
+    it("REGRESSION: `model: standard` can never ship (legacy word maps through the class path)", async () => {
+      // The pre-2.6.0 emission wrote the tier word verbatim, shipping a dead
+      // `model: standard` field on 23 agents. `standard` now normalizes to the
+      // `default` class -> the field is OMITTED entirely.
+      const { content } = await generateAgentWithModel("standard");
+      expect(content).not.toContain("model: standard");
+      const fmMatch = content.match(/^---\n([\s\S]*?)\n---/);
+      expect(fmMatch![1]).not.toMatch(/^model:/m);
+    });
   });
 
   // release/2.2.0: Cursor documents no per-file model field on skills or
@@ -325,12 +399,36 @@ You are a test agent.`,
     expect(topLevelCommandPaths.some((p) => p.includes("pickup-fake"))).toBe(false);
   });
 
+  // Slash-picker fix (release/2.6.0, S1c): command companions under
+  // `.cursor/commands/board|rework|shared/` carry the byte-0 stub the
+  // primary command emission uses (Cursor's picker reads `description:` at
+  // byte 0); agent companions stay raw — `.cursor/agents/**` is parsed as
+  // subagent definitions and a stub would register reference files as agents.
+  it("emits a byte-0 frontmatter stub on command companions but not agent companions", async () => {
+    const manifest = makeManifest();
+    const outputs = await adapter.generate(FIXTURES_DIR, manifest);
+
+    const boardCompanion = outputs.find((o) => o.path === ".cursor/commands/board/pickup-fake.md");
+    expect(boardCompanion).toBeDefined();
+    expect(boardCompanion!.content.startsWith("---\n")).toBe(true);
+    expect(boardCompanion!.content.startsWith(MANAGED_BLOCK_START)).toBe(false);
+    const stub = boardCompanion!.content.slice(0, boardCompanion!.content.indexOf(MANAGED_BLOCK_START));
+    expect(stub).toContain("name: pickup-fake");
+    expect(stub).toContain("description:");
+    expect(stub).not.toContain("HATCH3R:BEGIN");
+    expect(boardCompanion!.content).toContain(MANAGED_BLOCK_START);
+
+    const agentCompanion = outputs.find((o) => o.path === ".cursor/agents/modes/fake-mode.md");
+    expect(agentCompanion).toBeDefined();
+    expect(agentCompanion!.content.startsWith(MANAGED_BLOCK_START)).toBe(true);
+  });
+
   it("generates command files", async () => {
     const manifest = makeManifest();
     const outputs = await adapter.generate(FIXTURES_DIR, manifest);
 
     // Top-level picker entries — companion subtrees (`.cursor/commands/board/`,
-    // `.cursor/commands/revision/`) are emitted but excluded from this count.
+    // `.cursor/commands/rework/`) are emitted but excluded from this count.
     const commands = outputs.filter((o) => /^\.cursor\/commands\/[^/]+\.md$/.test(o.path));
     expect(commands.length).toBe(1);
 
@@ -952,6 +1050,122 @@ Low priority rule body.
           e.command.includes("workdir-guard.mjs"),
         ),
       ).toBe(true);
+    });
+  });
+
+  // release/2.6.0: the three guard .mjs scripts are MANAGED outputs, mirroring
+  // the claude adapter's pretooluse-allowlist.mjs fix. The raw pre-2.6.0
+  // emissions (no markers, no managedContent) fell into safeWrite's
+  // unmanaged-file fallback — the basenames carry no `hatch3r-` prefix — so
+  // every second `hatch3r sync` skipped each existing guard with a "managed
+  // block markers (HATCH3R:BEGIN/END) missing" warning.
+  describe("release/2.6.0 managed-block wrap for the guard .mjs outputs", () => {
+    const GUARD_PATHS = [
+      ".cursor/hooks/subagent-guard.mjs",
+      ".cursor/hooks/mcp-guard.mjs",
+      ".cursor/hooks/workdir-guard.mjs",
+    ];
+
+    it("wraps each guard in JS line-comment markers with the shebang above the block", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      for (const guardPath of GUARD_PATHS) {
+        const guard = outputs.find((o) => o.path === guardPath);
+        expect(guard, guardPath).toBeDefined();
+        const lines = guard!.content.split("\n");
+        // JS hashbang grammar permits `#!` only at byte 0 — the shebang must
+        // stay ABOVE the managed block, and the markers must be `//` comments
+        // (HTML `<!-- -->` markers are a JS SyntaxError).
+        expect(lines[0], guardPath).toBe("#!/usr/bin/env node");
+        expect(lines[1], guardPath).toBe("// HATCH3R:BEGIN");
+        expect(lines[lines.length - 2], guardPath).toBe("// HATCH3R:END");
+        expect(guard!.content, guardPath).not.toContain("<!--");
+        // managedContent is the block interior: the script body without the
+        // shebang and without the markers — safeWriteFile merges with it.
+        expect(guard!.managedContent, guardPath).toBeDefined();
+        expect(guard!.managedContent, guardPath).not.toContain("#!/usr/bin/env node");
+        expect(guard!.managedContent, guardPath).not.toContain("HATCH3R:BEGIN");
+        expect(guard!.content, guardPath).toContain(guard!.managedContent!.trim());
+      }
+    });
+
+    it("emits syntactically valid ESM — `node --check` accepts each marker-wrapped guard", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const { spawn } = await import("node:child_process");
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-guard-"));
+      try {
+        for (const guardPath of GUARD_PATHS) {
+          const guard = outputs.find((o) => o.path === guardPath)!;
+          const filePath = join(dir, guardPath.split("/").at(-1)!);
+          await writeFile(filePath, guard.content, "utf-8");
+          const result = await new Promise<{ code: number | null; stderr: string }>(
+            (resolve, reject) => {
+              const proc = spawn("node", ["--check", filePath], { stdio: "pipe" });
+              let stderr = "";
+              proc.stderr.on("data", (b) => (stderr += b.toString()));
+              proc.on("error", reject);
+              proc.on("close", (code) => resolve({ code, stderr }));
+            },
+          );
+          expect(result.stderr, guardPath).toBe("");
+          expect(result.code, guardPath).toBe(0);
+        }
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    });
+
+    it("every guard's pre-2.6.0 raw shape matches the legacy-adoption signature", async () => {
+      // Confirms isLegacyGeneratedNoMarkerFile recognizes the ACTUAL emitted
+      // headers (shebang + `// hatch3r — ` first body line) for all three
+      // guards, so a pre-2.6.0 marker-less guard is replaced wholesale on the
+      // first 2.6.0 sync instead of prepend-spliced (duplicate ESM imports).
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      for (const guardPath of GUARD_PATHS) {
+        const guard = outputs.find((o) => o.path === guardPath)!;
+        // The pre-2.6.0 emission was the identical script without markers.
+        const legacyRaw = guard.content
+          .split("\n")
+          .filter((line) => line !== "// HATCH3R:BEGIN" && line !== "// HATCH3R:END")
+          .join("\n");
+        expect(isLegacyGeneratedNoMarkerFile(legacyRaw), guardPath).toBe(true);
+      }
+    });
+
+    it("adopts a pre-2.6.0 marker-less guard on first write and is idempotent after", async () => {
+      const outputs = await adapter.generate(FIXTURES_DIR, makeManifest());
+      const guard = outputs.find((o) => o.path === ".cursor/hooks/mcp-guard.mjs")!;
+      const legacyRaw = guard.content
+        .split("\n")
+        .filter((line) => line !== "// HATCH3R:BEGIN" && line !== "// HATCH3R:END")
+        .join("\n");
+      const dir = await mkdtemp(join(tmpdir(), "hatch3r-cursor-legacy-"));
+      try {
+        const filePath = join(dir, "mcp-guard.mjs");
+        await writeFile(filePath, legacyRaw, "utf-8");
+
+        const first = await safeWriteFile(filePath, guard.content, {
+          managedContent: guard.managedContent,
+          appendIfNoBlock: true,
+        });
+        expect(first.action).toBe("updated");
+        expect(first.warning).toContain("Adopted");
+        const onDisk = await readFile(filePath, "utf-8");
+        expect(onDisk).toBe(guard.content);
+        // The prepend disposition would have kept a stale full copy of the
+        // script below the block — two `import { readFileSync }` bindings are
+        // a SyntaxError on every hook invocation.
+        expect(onDisk.match(/import \{ readFileSync \}/g)).toHaveLength(1);
+
+        const second = await safeWriteFile(filePath, guard.content, {
+          managedContent: guard.managedContent,
+          appendIfNoBlock: true,
+        });
+        expect(second.action).toBe("unchanged");
+        expect(second.warning).toBeUndefined();
+        expect(await readFile(filePath, "utf-8")).toBe(guard.content);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
     });
   });
 

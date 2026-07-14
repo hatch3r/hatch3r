@@ -76,6 +76,47 @@ describe("predictMergeAction", () => {
       });
       expect(action).toBe("updated");
     });
+
+    // release/2.6.0 — legacy-generated adoption mirror: a marker-less file
+    // recognized as raw hatch3r-generated output (shebang + `// hatch3r — `
+    // header) is REPLACED by the live write, so the prediction compares the
+    // full incoming bytes, not the would-be prepend.
+    describe("legacy-generated adoption mirror (release/2.6.0)", () => {
+      const legacy =
+        "#!/usr/bin/env node\n// hatch3r — Claude Code PreToolUse allowlist hook (C9-H49, D15 P6).\nold();\n";
+      const incoming =
+        "#!/usr/bin/env node\n// HATCH3R:BEGIN\n// hatch3r — Claude Code PreToolUse allowlist hook (C9-H49, D15 P6).\nnew_();\n// HATCH3R:END\n";
+
+      it("predicts 'updated' for a recognized legacy file (would replace wholesale)", () => {
+        expect(
+          predictMergeAction(legacy, incoming, "pretooluse-allowlist.mjs", {
+            managedContent: "new_();",
+            appendIfNoBlock: true,
+          }),
+        ).toBe("updated");
+      });
+
+      it("predicts 'unchanged' when the incoming bytes equal the legacy file", () => {
+        expect(
+          predictMergeAction(legacy, legacy, "pretooluse-allowlist.mjs", {
+            managedContent: "new_();",
+            appendIfNoBlock: true,
+          }),
+        ).toBe("unchanged");
+      });
+
+      it("still predicts the prepend path for an unrecognized marker-less file", () => {
+        // Prepend of `incoming` above the user file changes bytes → 'updated',
+        // and (unlike adoption) the on-disk result would CONTAIN the user text;
+        // the branch distinction is pinned by the live-write tests.
+        expect(
+          predictMergeAction("// my own hook\n", incoming, "my-hook.mjs", {
+            managedContent: "new_();",
+            appendIfNoBlock: true,
+          }),
+        ).toBe("updated");
+      });
+    });
   });
 
   describe("managedContent + existing file WITH a managed block", () => {
@@ -165,5 +206,44 @@ describe("predictMergeAction", () => {
     it("predicts 'skipped' for a non-managed filename without force", () => {
       expect(predictMergeAction("user content", "new", "custom.md")).toBe("skipped");
     });
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Frontmatter stub heal mirror (release/2.6.0, S1a): the live existing-markers
+// branch replaces a heal-eligible prefix (empty / stale pure-frontmatter stub)
+// with the freshly generated one, so the predictor must report "updated" for
+// those inputs — predicting "unchanged" would re-open the preview-vs-reality
+// gap this predictor closes.
+// ───────────────────────────────────────────────────────────────────────────
+describe("predictMergeAction stub heal mirror (release/2.6.0)", () => {
+  const STUB = '---\nname: hatch3r-test\ndescription: "A test command."\n---\n\n';
+  const BLOCK = `${START}\nbody line\n${END}\n`;
+
+  it("predicts updated when the live write would heal an empty prefix", () => {
+    expect(
+      predictMergeAction(BLOCK, `${STUB}${BLOCK}`, "cmd.md", { managedContent: "body line" }),
+    ).toBe("updated");
+  });
+
+  it("predicts updated when the live write would refresh a stale stub", () => {
+    const stale = `---\nname: hatch3r-test\ndescription: "Old."\n---\n\n${BLOCK}`;
+    expect(
+      predictMergeAction(stale, `${STUB}${BLOCK}`, "cmd.md", { managedContent: "body line" }),
+    ).toBe("updated");
+  });
+
+  it("predicts unchanged for a user-content prefix with an identical block", () => {
+    const userFile = `# Mine\n\n${BLOCK}`;
+    expect(
+      predictMergeAction(userFile, `${STUB}${BLOCK}`, "cmd.md", { managedContent: "body line" }),
+    ).toBe("unchanged");
+  });
+
+  it("predicts unchanged for an already-healed file", () => {
+    const healed = `${STUB}${BLOCK}`;
+    expect(
+      predictMergeAction(healed, healed, "cmd.md", { managedContent: "body line" }),
+    ).toBe("unchanged");
   });
 });

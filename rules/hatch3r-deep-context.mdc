@@ -33,7 +33,7 @@ Score every task against these signals before implementation. Each signal adds w
 | 3–5 | 2 | Standard | default |
 | 6+ | 3 | Deep | strongest |
 
-The **Model Class** column is an abstract effort lever: tier scales the model class the same way it scales researcher depth (`quick`/`deep`) and Phase 4 specialist depth — `economy` for cheap mechanical changes, `default` for routine multi-file work, `strongest` for high-blast-radius reasoning. It is a hint resolved per-adapter against that adapter's model map (`src/models/resolve.ts::resolveAgentModel`, `models.default`), not a literal model id — adapters with no model-routing surface ignore it. Model class is a first-order effort lever alongside depth (`hatch3r-agent-orchestration` -> Tier-to-Phase-4 specialist depth mapping).
+The **Model Class** column is an abstract effort lever: tier scales the model class the same way it scales researcher depth (`quick`/`deep`) and Phase 4 specialist depth — `economy` for cheap mechanical changes, `default` for routine multi-file work, `strongest` for high-blast-radius reasoning. It is a hint resolved per-adapter against that adapter's model map (`src/models/resolve.ts::resolveAgentModel`, `models.default`), not a literal model id — adapters with no model-routing surface ignore it. Model class is a first-order effort lever alongside depth (`hatch3r-agent-orchestration` -> Tier-to-Phase-4 specialist depth mapping); the per-agent class floor and the per-spawn allocation matrix (`max(agent floor, task-tier class)`) live in `rules/hatch3r-model-allocation.md`.
 
 ## Tier Actions
 
@@ -115,4 +115,4 @@ Weights are fixed integers — a signal fires at its full table weight or scores
 
 - **`hatch3r-quick-change` command**: Tier 1 items proceed without research. Tier 2 items get lightweight `similar-implementation` at `quick` depth. Tier 3 items must be routed to `hatch3r-workflow` (hard block).
 - **Trivial single-line edits**: Always Tier 1 regardless of scoring signals. This is the only valid basis for skipping research -- label-based shortcuts (e.g., `risk:low AND priority:p3`) are not sufficient alone.
-- **`hatch3r-revision` command**: Operates on already-implemented code. Deep context analysis applies to the original implementation, not the revision pass.
+- **`hatch3r-rework` command**: Operates on already-implemented code. Deep context analysis applies to the original implementation, not the rework planning pass.

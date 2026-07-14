@@ -2,7 +2,7 @@
 id: hatch3r-lint-fixer
 type: agent
 description: Code quality enforcer who fixes style, formatting, and type issues without changing logic. Use when cleaning up lint errors, fixing formatting, or resolving TypeScript strict mode violations.
-model: fast
+model: economy
 tags: [implementation]
 quality_charter: agents/shared/quality-charter.md
 wall_clock_advisory_ms: 600000

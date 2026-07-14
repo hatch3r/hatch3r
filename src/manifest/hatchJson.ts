@@ -23,6 +23,7 @@ import {
   type CustomizationManifest,
   type HatchManifest,
   type HooksConfig,
+  type LearningsConfig,
   type MaturityTier,
   type ModelConfig,
   type PackageEntry,
@@ -489,6 +490,20 @@ export function collectManifestErrors(data: unknown): string[] {
     }
   }
 
+  // 2.6.0: optional learnings capacity config. A below-floor `maxCount` is NOT
+  // an error here — `resolveLearningsCaps` (src/content/learningsValidation.ts)
+  // clamps it to the floor of 50 with a validation warning downstream.
+  if (obj.learnings !== undefined) {
+    if (typeof obj.learnings !== "object" || obj.learnings === null || Array.isArray(obj.learnings)) {
+      errors.push("`learnings` is not an object");
+    } else {
+      const ln = obj.learnings as Record<string, unknown>;
+      if (ln.maxCount !== undefined && (typeof ln.maxCount !== "number" || !Number.isFinite(ln.maxCount))) {
+        errors.push(`\`learnings.maxCount\` is not a finite number (got ${JSON.stringify(ln.maxCount)})`);
+      }
+    }
+  }
+
   if (obj.customization !== undefined) {
     if (typeof obj.customization !== "object" || obj.customization === null) {
       errors.push("`customization` is not an object");
@@ -729,11 +744,12 @@ export function collectManifestErrors(data: unknown): string[] {
   }
 
   // models (optional ModelConfig: { default?: string; agents?/skills?/
-  // commands?: Record<string,string> } — per-artifact maps extended to skills
-  // and commands in release/2.2.0). Mirrors `validateModels` in
-  // src/cli/commands/validate.ts so the value resolved by
-  // `resolveAgentModel` / `resolveArtifactModel` is a string at every adapter
-  // call site.
+  // commands?: Record<string,string>; tiers?: { economy?/default?/strongest?:
+  // string } } — per-artifact maps extended to skills and commands in
+  // release/2.2.0; model-class tier pins added in release/2.6.0). Mirrors
+  // `validateModels` in src/cli/commands/validate.ts so the value resolved by
+  // `resolveAgentModel` / `resolveArtifactModel` / `resolveTierModel` is a
+  // string at every adapter call site.
   if (obj.models !== undefined) {
     if (typeof obj.models !== "object" || obj.models === null || Array.isArray(obj.models)) {
       errors.push("`models` is not an object");
@@ -751,6 +767,20 @@ export function collectManifestErrors(data: unknown): string[] {
           for (const [artifactId, model] of Object.entries(map as Record<string, unknown>)) {
             if (typeof model !== "string") {
               errors.push(`\`models.${cls}.${artifactId}\` is not a string`);
+            }
+          }
+        }
+      }
+      // models.tiers (release/2.6.0): per-class model pins consumed verbatim
+      // by `resolveTierModel` (src/models/tiers.ts) at adapter emission time.
+      if (models.tiers !== undefined) {
+        if (typeof models.tiers !== "object" || models.tiers === null || Array.isArray(models.tiers)) {
+          errors.push("`models.tiers` is not an object");
+        } else {
+          for (const cls of ["economy", "default", "strongest"] as const) {
+            const pin = (models.tiers as Record<string, unknown>)[cls];
+            if (pin !== undefined && typeof pin !== "string") {
+              errors.push(`\`models.tiers.${cls}\` is not a string`);
             }
           }
         }
@@ -1038,6 +1068,12 @@ export function removeManagedFile(
 export interface PreservedManifestFields {
   board?: BoardConfig;
   costTracking?: CostTrackingConfig;
+  /**
+   * 2.6.0: learnings capacity config (`learnings.maxCount`). Preserved across
+   * `clean` -> reinit so a raised cap survives regeneration, mirroring the
+   * costTracking rule.
+   */
+  learnings?: LearningsConfig;
   specs?: HatchManifest["specs"];
   userContent?: HatchManifest["userContent"];
   hooks?: HooksConfig;
@@ -1065,6 +1101,7 @@ export function extractPreservedManifestFields(
   const out: PreservedManifestFields = {};
   if (manifest.board) out.board = manifest.board;
   if (manifest.costTracking) out.costTracking = manifest.costTracking;
+  if (manifest.learnings) out.learnings = manifest.learnings;
   if (manifest.specs) out.specs = manifest.specs;
   if (manifest.userContent) out.userContent = manifest.userContent;
   if (manifest.hooks) out.hooks = manifest.hooks;
@@ -1126,6 +1163,7 @@ export function applyPreservedManifestFields(
     }
   }
   if (preserved.costTracking) manifest.costTracking = preserved.costTracking;
+  if (preserved.learnings) manifest.learnings = preserved.learnings;
   if (preserved.specs) manifest.specs = preserved.specs;
   if (preserved.userContent) manifest.userContent = preserved.userContent;
   if (preserved.hooks) manifest.hooks = preserved.hooks;
@@ -1280,7 +1318,7 @@ export function readConfidenceFloor(m: HatchManifest | null | undefined): Confid
  * {@link maturityDirective}). This payload carries the resolved floor and its
  * second-pass effect into the same per-adapter marker surface, so the four core
  * orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`,
- * `hatch3r-quick-change`, `hatch3r-revision`) read the configured floor from the
+ * `hatch3r-quick-change`, `hatch3r-rework`) read the configured floor from the
  * artifact they already load instead of it being a write-only config key.
  *
  * The effect text mirrors the per-floor semantics documented on `ConfidenceFloor`

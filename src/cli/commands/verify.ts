@@ -8,6 +8,7 @@ import {
   renderDiffSummaryLines,
   renderDriftLines,
   type DriftReport,
+  type EmissionGapEntry,
   type VersionSkewDirection,
 } from "./status.js";
 import { runRegenerate } from "./update.js";
@@ -107,11 +108,40 @@ function buildSummaryLines(report: DriftReport): string[] {
   if (report.counts.unexpected > 0) {
     summaryLines.push(`${chalk.red("!")} Unexpected: ${report.counts.unexpected}`);
   }
+  // Emission-completeness rows (release/2.6.0, S2c): canonical artifacts no
+  // adapter output carries. Attributed rows are informational; `unexplained`
+  // rows count into the PASS/FAIL drift total (see driftCountOf).
+  const gaps = report.emissionGaps ?? [];
+  if (gaps.length > 0) {
+    const unexplained = unexplainedEmissionGapCount(report);
+    summaryLines.push(
+      `${chalk.yellow("○")} Not emitted: ${gaps.length}` +
+        (unexplained > 0 ? chalk.red(` (${unexplained} unexplained)`) : ""),
+    );
+  }
   return summaryLines;
 }
 
+/**
+ * Emission gaps with reason `unexplained` — no drop gate (feature flag,
+ * customization `enabled: false`, CLI-tools filter, adapter scope) accounts
+ * for the artifact's absence, so it is treated as ordinary drift (S2c).
+ */
+function unexplainedEmissionGapCount(report: DriftReport): number {
+  return (report.emissionGaps ?? []).filter((g) => g.reason === "unexplained").length;
+}
+
 function driftCountOf(report: DriftReport): number {
-  return report.counts.modified + report.counts.missing + report.counts.unexpected;
+  return (
+    report.counts.modified +
+    report.counts.missing +
+    report.counts.unexpected +
+    // S2c: an unexplained emission gap is ordinary drift — a canonical
+    // artifact is absent with no identifiable reason. Attributed gaps
+    // (feature-disabled / customization-disabled / cli-tools-filter /
+    // adapter-scope) stay informational and never affect PASS/FAIL.
+    unexplainedEmissionGapCount(report)
+  );
 }
 
 /**
@@ -216,6 +246,46 @@ function printTamperWarnings(tamperWarnings: string[]): void {
     `Managed-block structural warnings (${tamperWarnings.length})`,
     lines,
     "warning",
+  );
+}
+
+/**
+ * Emission-completeness box (release/2.6.0, S2c): one row per canonical
+ * user-facing artifact (command / agent / skill) that a tool does not emit,
+ * with its reason and an actionable next step. `feature-disabled` rows are
+ * grouped per tool+class (disabling `features.commands` drops the whole class
+ * — 30+ identical per-artifact rows would bury the signal; JSON mode carries
+ * every row). Rendered on PASS and FAIL alike; attributed rows never change
+ * the exit code, `unexplained` rows already count into driftCountOf.
+ */
+function printEmissionGaps(report: DriftReport): void {
+  const gaps = report.emissionGaps ?? [];
+  if (gaps.length === 0) return;
+  const lines: string[] = [];
+  const featureGroups = new Map<string, EmissionGapEntry[]>();
+  for (const g of gaps) {
+    if (g.reason === "feature-disabled") {
+      const key = `${g.tool} ${g.contentClass}`;
+      const arr = featureGroups.get(key) ?? [];
+      arr.push(g);
+      featureGroups.set(key, arr);
+      continue;
+    }
+    const icon = g.reason === "unexplained" ? chalk.red("✗") : chalk.yellow("○");
+    lines.push(`${icon} ${g.tool} ${g.contentClass}/${g.id} — ${g.reason}: ${g.action}`);
+  }
+  for (const [key, group] of featureGroups) {
+    const [tool, contentClass] = key.split(" ");
+    const first = group[0]!;
+    lines.push(
+      `${chalk.yellow("○")} ${tool} ${contentClass} (${group.length} artifact(s)) — feature-disabled: ${first.action}`,
+    );
+  }
+  const hasUnexplained = gaps.some((g) => g.reason === "unexplained");
+  printBox(
+    `Canonical artifacts not emitted (${gaps.length})`,
+    lines,
+    hasUnexplained ? "error" : "warning",
   );
 }
 
@@ -333,6 +403,11 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
       counts: report.counts,
       driftKindCounts: report.driftKindCounts,
       entries: report.entries,
+      // S2c (release/2.6.0): per-artifact emission-completeness rows —
+      // canonical user-facing artifacts no adapter output carries, each with
+      // reason + action. Attributed rows are informational; `unexplained`
+      // rows are already folded into `driftCount` above.
+      emissionGaps: report.emissionGaps ?? [],
       // D15-6 (D15, P6): structural marker-tamper findings (advisory; do not
       // affect `status`). Empty array when the marker structure is well-formed.
       tamperWarnings,
@@ -382,6 +457,10 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
     // while the marker STRUCTURE is broken — surface the structural scan even on
     // a drift-clean PASS so a hand-broken marker is not silently passed.
     printTamperWarnings(tamperWarnings);
+    // S2c (release/2.6.0): attributed emission gaps (customization-disabled,
+    // feature-disabled, ...) coexist with a drift-clean PASS — render them so
+    // a deliberately-disabled artifact is visible, not silently absent.
+    printEmissionGaps(report);
     // W5: PASS-path follow-up (self-gated under --quiet).
     printNextSteps(["No drift. `hatch3r validate` covers structural checks."]);
     return;
@@ -403,6 +482,9 @@ export async function verifyCommand(options: VerifyOptions = {}): Promise<void> 
   // the drift FAIL above — print them alongside so a run that both drifted AND
   // has broken markers reports both, not just the drift.
   printTamperWarnings(tamperWarnings);
+  // S2c (release/2.6.0): per-artifact emission gaps — on FAIL these may
+  // include the `unexplained` rows that contributed to driftCount above.
+  printEmissionGaps(report);
   if (options.fix) {
     // D1-SA1.4-07 / D2-SA2.7-06 (P1): the fix-path guidance is now drift-
     // category-aware. Reuse the same `recoveryHint` the non-fix path prints so

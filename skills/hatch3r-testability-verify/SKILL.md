@@ -36,7 +36,7 @@ Fan-out scales with task size; token cost never justifies serializing independen
 
 This skill is the verification HARNESS — it declares HOW each testability gate is checked. The DISPATCHER that decides WHEN to run it is the CQ specialist agent:
 
-- `agents/hatch3r-testability.md` — invokes this skill as the closing testability gate (CQ5) on PRs modifying test code or features in a mandate-map class. The agent contributes the review trigger and Phase-4 dispatch; this skill contributes the 8-gate procedure.
+- `agents/hatch3r-testability.md` — invokes this skill as the closing testability gate (CQ5) on PRs modifying test code or features in a mandate-map class (a skill-invocation timing cue for the maintainer, not an agent-dispatch condition). The agent contributes the review trigger and Phase-4 dispatch; this skill contributes the 8-gate procedure.
 
 No duplication: the agent decides WHEN, this skill defines HOW.
 

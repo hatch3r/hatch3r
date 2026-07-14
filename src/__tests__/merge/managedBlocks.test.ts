@@ -7,6 +7,8 @@ import {
   wrapInManagedBlock,
   wrapManagedFor,
   wouldChangeMarkerVariant,
+  splitAtManagedBlock,
+  isHealableManagedPrefix,
 } from "../../merge/managedBlocks.js";
 import { HatchError } from "../../types.js";
 
@@ -428,6 +430,82 @@ describe("managedBlocks", () => {
     });
   });
 
+  // release/2.6.0 — JS `//` line-comment variant for `.js`/`.mjs`/`.cjs`
+  // outputs (the claude adapter's `.claude/hooks/pretooluse-allowlist.mjs`).
+  // HTML markers are a JS SyntaxError; the pre-2.6.0 raw emission carried no
+  // markers at all, so every second sync skipped the file with a
+  // missing-markers warning.
+  describe("release/2.6.0 — JS line-comment marker variant (.js/.mjs/.cjs)", () => {
+    const JS_START = "// HATCH3R:BEGIN";
+    const JS_END = "// HATCH3R:END";
+    const JS_BODY = 'import { readFileSync } from "node:fs";\nprocess.exit(0);';
+
+    describe("wrapManagedFor / wrapInManagedBlock", () => {
+      it("emits JS markers for .mjs, .js, and .cjs paths", () => {
+        for (const p of [".claude/hooks/pretooluse-allowlist.mjs", "tool.js", "tool.cjs"]) {
+          const wrapped = wrapManagedFor(p, JS_BODY);
+          expect(wrapped).toBe(`${JS_START}\n${JS_BODY}\n${JS_END}\n`);
+          expect(wrapped).not.toContain("<!--");
+        }
+      });
+
+      it("is case-insensitive on the extension", () => {
+        expect(wrapInManagedBlock(JS_BODY, "Hook.MJS").startsWith(JS_START)).toBe(true);
+      });
+
+      it("does not bleed into .md or .yml outputs", () => {
+        expect(wrapManagedFor("AGENTS.md", "body")).toContain(START);
+        expect(wrapManagedFor("wf.yml", "a: b")).toContain("# HATCH3R:BEGIN");
+        expect(wrapManagedFor("AGENTS.md", "body")).not.toContain(JS_START);
+      });
+    });
+
+    describe("round-trip", () => {
+      it("wrap → detect → extract → insert is lossless and idempotent", () => {
+        const path = "hooks/guard.mjs";
+        const wrapped = wrapManagedFor(path, JS_BODY);
+        expect(hasManagedBlock(wrapped, path)).toBe(true);
+        expect(extractManagedBlock(wrapped, path)).toBe(JS_BODY);
+        const merged = insertManagedBlock(wrapped, JS_BODY, path);
+        expect(merged).toBe(wrapped);
+        expect(insertManagedBlock(merged, JS_BODY, path)).toBe(merged);
+      });
+
+      it("preserves a shebang prefix and user content outside the block", () => {
+        const path = "hooks/guard.mjs";
+        const content = `#!/usr/bin/env node\n${wrapManagedFor(path, JS_BODY)}// user tail\n`;
+        const merged = insertManagedBlock(content, "console.log(2);", path);
+        expect(merged.startsWith("#!/usr/bin/env node\n")).toBe(true);
+        expect(merged).toContain("// user tail");
+        expect(merged).toContain("console.log(2);");
+        expect(merged).not.toContain("readFileSync");
+        expect(extractCustomContent(content, path)).toContain("// user tail");
+        expect(extractCustomContent(content, path)).not.toContain("readFileSync");
+      });
+    });
+
+    describe("variant auto-repair", () => {
+      it("wouldChangeMarkerVariant flags HTML markers in a .mjs file", () => {
+        const broken = `${START}\n${JS_BODY}\n${END}\n`;
+        expect(wouldChangeMarkerVariant(broken, "guard.mjs")).toBe(true);
+        const correct = `${JS_START}\n${JS_BODY}\n${JS_END}\n`;
+        expect(wouldChangeMarkerVariant(correct, "guard.mjs")).toBe(false);
+      });
+
+      it("insertManagedBlock rewrites HTML markers in a .mjs to JS markers", () => {
+        const broken = `${START}\nold();\n${END}\n`;
+        const repaired = insertManagedBlock(broken, JS_BODY, "guard.mjs");
+        expect(repaired).toBe(`${JS_START}\n${JS_BODY}\n${JS_END}\n`);
+        expect(repaired).not.toContain("<!--");
+      });
+    });
+
+    it("line-anchoring: a JS line merely mentioning the marker token is not a boundary", () => {
+      const content = `const s = "${JS_START}";\nconst e = "${JS_END}";\n`;
+      expect(hasManagedBlock(content, "guard.mjs")).toBe(false);
+    });
+  });
+
   // D1-7 / D11-4 / D11-6 (Cycle 11 Wave 2, D1+D11, P6+CQ8): marker detection,
   // duplicate-counting, and variant selection are line-anchored and path-aware.
   // A marker token QUOTED inside user content (which lives on a line with other
@@ -759,5 +837,77 @@ describe("managedBlocks", () => {
       const content = ["```", START, "example", END, "```"].join("\n");
       expect(hasManagedBlock(content)).toBe(false);
     });
+  });
+});
+
+// ───────────────────────────────────────────────────────────────────────────
+// Slash-picker heal boundary helpers (release/2.6.0, S1a/S1b): shared by the
+// safeWrite stub heal and the status/verify stub-drift detection so both
+// sides agree byte-for-byte on the out-of-block prefix and its
+// heal-eligibility.
+// ───────────────────────────────────────────────────────────────────────────
+describe("splitAtManagedBlock", () => {
+  const START = "<!-- HATCH3R:BEGIN -->";
+  const END = "<!-- HATCH3R:END -->";
+
+  it("returns prefix + rest split at the BEGIN marker", () => {
+    const prefix = '---\nname: x\ndescription: "d"\n---\n\n';
+    const content = `${prefix}${START}\nbody\n${END}\n`;
+    const split = splitAtManagedBlock(content, "cmd.md");
+    expect(split).not.toBeNull();
+    expect(split!.prefix).toBe(prefix);
+    expect(split!.rest).toBe(`${START}\nbody\n${END}\n`);
+    expect(split!.prefix + split!.rest).toBe(content);
+  });
+
+  it("returns an empty prefix for marker-at-byte-0 content", () => {
+    const content = `${START}\nbody\n${END}\n`;
+    const split = splitAtManagedBlock(content, "cmd.md");
+    expect(split).not.toBeNull();
+    expect(split!.prefix).toBe("");
+    expect(split!.rest).toBe(content);
+  });
+
+  it("returns null when no managed block is present", () => {
+    expect(splitAtManagedBlock("just prose\n", "cmd.md")).toBeNull();
+  });
+
+  it("ignores a marker quoted inside a fenced code example (markdown host)", () => {
+    const content = ["```", START, "example", END, "```", "", START, "real", END, ""].join("\n");
+    const split = splitAtManagedBlock(content, "cmd.md");
+    expect(split).not.toBeNull();
+    // The prefix spans the whole fenced example — the real block starts after it.
+    expect(split!.prefix).toContain("```");
+    expect(split!.rest.startsWith(START)).toBe(true);
+    expect(split!.rest).toContain("real");
+  });
+});
+
+describe("isHealableManagedPrefix", () => {
+  it("accepts an empty or whitespace-only prefix", () => {
+    expect(isHealableManagedPrefix("")).toBe(true);
+    expect(isHealableManagedPrefix("\n\n  \n")).toBe(true);
+  });
+
+  it("accepts exactly one YAML frontmatter block plus trailing whitespace", () => {
+    expect(isHealableManagedPrefix('---\nname: x\n---\n\n')).toBe(true);
+    expect(isHealableManagedPrefix('---\nname: x\ndescription: "y: z"\n---\n')).toBe(true);
+    expect(isHealableManagedPrefix('\n---\nname: x\n---\n  \n')).toBe(true);
+  });
+
+  it("rejects prose prefixes", () => {
+    expect(isHealableManagedPrefix("# My notes\n\n")).toBe(false);
+  });
+
+  it("rejects frontmatter followed by user content", () => {
+    expect(isHealableManagedPrefix("---\na: 1\n---\n\nHand-written intro.\n")).toBe(false);
+  });
+
+  it("rejects an unterminated frontmatter fence", () => {
+    expect(isHealableManagedPrefix("---\na: 1\n")).toBe(false);
+  });
+
+  it("rejects content before the opening fence", () => {
+    expect(isHealableManagedPrefix("note\n---\na: 1\n---\n")).toBe(false);
   });
 });

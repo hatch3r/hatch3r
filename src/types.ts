@@ -39,7 +39,7 @@ export const MATURITY_TIER_RANK = Object.fromEntries(
 /**
  * Agent assertiveness calibration — the result-confidence floor at which the
  * core orchestrators (`hatch3r-workflow`, `hatch3r-board-pickup`,
- * `hatch3r-quick-change`, `hatch3r-revision`) tighten their review/ASK gate
+ * `hatch3r-quick-change`, `hatch3r-rework`) tighten their review/ASK gate
  * (D13-SA13.3-F13.3.3, Pillar P1). Orthogonal to `--effort` (work-effort depth)
  * and to the always-on four-trigger scope/intent ambiguity gate in
  * `rules/hatch3r-clarification-default.md` — the floor only adds ASK pressure on
@@ -92,6 +92,18 @@ export interface ModelConfig {
    * commands never carry one.
    */
   commands?: Record<string, string>;
+  /**
+   * Model-class pins (release/2.6.0): what each capability class
+   * (`economy | default | strongest`) authored on canonical agents' `model:`
+   * frontmatter resolves to in THIS repo. A set value is used verbatim and
+   * wins over every adapter's built-in class map
+   * (`src/models/tiers.ts::resolveTierModel`); an unset class falls back to
+   * the adapter map (Claude: haiku/sonnet/opus; Cursor: fast/omit/advisory).
+   * Example: `{ "tiers": { "strongest": "fable" } }` pins the strongest class
+   * to a specific top model. Values may be aliases or concrete ids; each
+   * adapter's recognizable-value gate still governs native emission.
+   */
+  tiers?: { economy?: string; default?: string; strongest?: string };
 }
 
 /**
@@ -219,6 +231,22 @@ export interface CostTrackingConfig {
 }
 
 /**
+ * 2.6.0: learnings capacity configuration. Additive optional manifest key —
+ * no schema-generation bump; absence resolves to the default caps in
+ * `src/content/learningsValidation.ts::resolveLearningsCaps`.
+ */
+export interface LearningsConfig {
+  /**
+   * Cap on active `.hatch3r/learnings/*.md` files enforced by
+   * `validateLearningsDirectory` (runs on `hatch3r validate`/`sync`/`update`).
+   * Default `DEFAULT_LEARNING_FILE_COUNT` (150); values below the floor of 50
+   * clamp to 50 with a validation warning, never a hard error. The directory
+   * total-bytes cap scales linearly with this value (exactly 512 KB at 50).
+   */
+  maxCount?: number;
+}
+
+/**
  * Versioned, additive customization payload persisted in `hatch.json`.
  *
  * Two-tier model:
@@ -288,6 +316,11 @@ export interface HatchManifest {
   copilot?: CopilotConfig;
   /** Token usage and cost tracking configuration. */
   costTracking?: CostTrackingConfig;
+  /**
+   * 2.6.0: configurable learnings capacity (`learnings.maxCount`). Additive
+   * optional field; absence = default caps. See {@link LearningsConfig}.
+   */
+  learnings?: LearningsConfig;
   /**
    * Optional customization payload that round-trips through
    * `clean` -> reinit so integration config (e.g. GitHub project IDs) and
@@ -997,6 +1030,21 @@ export const MANAGED_BLOCK_END = "<!-- HATCH3R:END -->";
 export const MANAGED_BLOCK_START_YAML = "# HATCH3R:BEGIN";
 export const MANAGED_BLOCK_END_YAML = "# HATCH3R:END";
 
+/**
+ * JS line-comment variant (release/2.6.0): the claude adapter emits
+ * `.claude/hooks/pretooluse-allowlist.mjs` as a managed output, but markers in
+ * HTML syntax are a JS SyntaxError and the pre-2.6.0 emission therefore
+ * carried NO markers at all — so every second `hatch3r sync` skipped the file
+ * with a "managed block markers missing" warning (safeWrite's unmanaged-file
+ * fallback). `//` line comments are valid at any statement boundary in both
+ * ESM and CommonJS, so `.js`/`.mjs`/`.cjs` outputs use this variant. The one
+ * placement constraint is the hashbang: `#!` is only grammar at byte 0, so a
+ * script's shebang line stays ABOVE the managed block (emission splits it off
+ * — see the claude adapter's allowlist-hook output).
+ */
+export const MANAGED_BLOCK_START_JS = "// HATCH3R:BEGIN";
+export const MANAGED_BLOCK_END_JS = "// HATCH3R:END";
+
 /** A pair of markers that delimit a hatch3r managed block in a specific host syntax. */
 export interface ManagedBlockMarkers {
   readonly start: string;
@@ -1012,11 +1060,13 @@ export interface ManagedBlockMarkers {
 export const MANAGED_BLOCK_VARIANTS: readonly ManagedBlockMarkers[] = [
   { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END },
   { start: MANAGED_BLOCK_START_YAML, end: MANAGED_BLOCK_END_YAML },
+  { start: MANAGED_BLOCK_START_JS, end: MANAGED_BLOCK_END_JS },
 ];
 
 /**
  * Choose the marker variant for a given output path. Currently:
  * - `.yml` / `.yaml` → YAML `#`-prefixed markers (issue #76)
+ * - `.js` / `.mjs` / `.cjs` → JS `//` line-comment markers (release/2.6.0)
  * - everything else  → HTML/Markdown `<!-- -->` markers (default)
  *
  * JSON files are never wrapped in managed blocks (adapters emit JSON
@@ -1027,6 +1077,9 @@ export function getMarkersForPath(filePath?: string): ManagedBlockMarkers {
     const lower = filePath.toLowerCase();
     if (lower.endsWith(".yml") || lower.endsWith(".yaml")) {
       return { start: MANAGED_BLOCK_START_YAML, end: MANAGED_BLOCK_END_YAML };
+    }
+    if (lower.endsWith(".js") || lower.endsWith(".mjs") || lower.endsWith(".cjs")) {
+      return { start: MANAGED_BLOCK_START_JS, end: MANAGED_BLOCK_END_JS };
     }
   }
   return { start: MANAGED_BLOCK_START, end: MANAGED_BLOCK_END };

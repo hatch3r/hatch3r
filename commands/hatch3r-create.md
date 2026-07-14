@@ -178,7 +178,7 @@ Cache as `adapters` (array, or `null` for full parity).
 
 Branch on the cached `type`:
 
-- **agent:** Ask for `model` preference (default: `standard`; options: `fast | standard | reasoning`). Ask for an optional tool-allowlist hint (free-text). Cache as `model` and `toolHint`. Then ask for a structured `tools` declaration (see §1.6a below) and cache as `tools`.
+- **agent:** Ask for `model` preference (default: `default`; options: `economy | default | strongest` — legacy synonyms `fast`/`standard`/`reasoning` remain accepted on user overrides). Ask for an optional tool-allowlist hint (free-text). Cache as `model` and `toolHint`. Then ask for a structured `tools` declaration (see §1.6a below) and cache as `tools`.
 - **skill:** Confirm the subdirectory layout. Show: "Skill files are stored as `.hatch3r/overrides/skills/{name}/SKILL.md` (a new directory will be created). Continue?" — ASK Y/n.
 - **rule:** Ask for scope: `always` (loaded every session) or `conditional` (loaded by glob match). If `conditional`, ASK for a comma-separated glob list (e.g., `src/**/*.ts, src/**/*.tsx`). Then ASK for `precedence` (one of `critical | high | normal | low`, default `normal`). Cache as `ruleScope`, `ruleGlobs`, `rulePrecedence`.
 - **command:** ASK whether this is an orchestrator command. If yes, ASK for the agent pipeline as a comma-separated list of agent IDs (each ID must reference an existing agent — canonical or under `.hatch3r/overrides/agents/`). Cache as `isOrchestrator` and `agentPipeline`.

@@ -19,6 +19,8 @@ import {
   hasManagedBlock,
   extractCustomContent,
   wouldChangeMarkerVariant,
+  splitAtManagedBlock,
+  isHealableManagedPrefix,
 } from "./managedBlocks.js";
 import { scanForDeniedPatterns } from "../adapters/customization.js";
 import { mapFsErrno } from "./fsErrors.js";
@@ -1066,6 +1068,41 @@ export function formatOrphanTmpSweepDiagnostic(
 }
 
 /**
+ * release/2.6.0 — legacy-generated adoption signatures. hatch3r ≤2.5.x
+ * emitted several hook SCRIPTS raw — no HATCH3R:BEGIN/END markers and no
+ * `managedContent` (the JS marker variant did not exist yet):
+ * `.claude/hooks/pretooluse-allowlist.mjs` plus the Cursor guards
+ * (`.cursor/hooks/{subagent,mcp,workdir}-guard.mjs`). Once such an output IS
+ * marker-wrapped, the upgrade write reaches the managedContent + no-markers +
+ * appendIfNoBlock branch, whose prepend disposition is WRONG for a generated
+ * script: splicing the new block above the old copy duplicates the ESM
+ * `import` bindings — a SyntaxError on every hook invocation. Every builder in
+ * `src/pipeline/agentToolAllowlist.ts` / `src/adapters/cursor.ts` opens with
+ * the same two-line header (`#!/usr/bin/env node` + `// hatch3r — <role>`),
+ * which no user-authored file legitimately claims, so that header identifies
+ * regenerable hatch3r output: replace it wholesale instead of preserving it.
+ * The shebang is optional in the signature so a headerless-shebang builder
+ * added later still matches; `\r?` tolerates CRLF checkouts.
+ */
+const LEGACY_GENERATED_NO_MARKER_SIGNATURES: readonly RegExp[] = [
+  /^(#!\/usr\/bin\/env node\r?\n)?\/\/ hatch3r — /,
+];
+
+/**
+ * True when a marker-less existing file is recognizable as hatch3r-generated
+ * output from a release that emitted it raw — see
+ * {@link LEGACY_GENERATED_NO_MARKER_SIGNATURES}. Consulted by the
+ * managedContent + no-markers + appendIfNoBlock branch of
+ * {@link safeWriteFile} (and mirrored by {@link predictMergeAction} /
+ * {@link predictDenyRefusal}): a match REPLACES the file with the incoming
+ * marker-wrapped content instead of prepend-splicing, which would keep a
+ * stale duplicate of the script body below the block.
+ */
+export function isLegacyGeneratedNoMarkerFile(existingContent: string): boolean {
+  return LEGACY_GENERATED_NO_MARKER_SIGNATURES.some((re) => re.test(existingContent));
+}
+
+/**
  * Predict the {@link MergeResult.action} a {@link safeWriteFile} call would
  * return for the given inputs — WITHOUT any disk I/O, throwing, deny-pattern
  * scan, or auto-repair side effect. Pure: depends only on its arguments.
@@ -1081,6 +1118,10 @@ export function formatOrphanTmpSweepDiagnostic(
  * Decision logic mirrors {@link safeWriteFile} branch-for-branch:
  * - `existingContent === null` (file absent) → `created`.
  * - With `managedContent`:
+ *   - existing has no managed block + `appendIfNoBlock` + recognized legacy
+ *     hatch3r-generated file ({@link isLegacyGeneratedNoMarkerFile}) → would
+ *     REPLACE wholesale; `unchanged` when the incoming bytes already match,
+ *     else `updated`.
  *   - existing has no managed block + `appendIfNoBlock` → would prepend; if the
  *     prepended bytes equal the existing file → `unchanged`, else `updated`.
  *   - existing has no managed block + no `appendIfNoBlock` → `skipped`
@@ -1119,6 +1160,13 @@ export function predictMergeAction(
   if (options.managedContent) {
     if (!hasManagedBlock(existingContent, filePath)) {
       if (options.appendIfNoBlock) {
+        // Mirror the live legacy-generated adoption branch (release/2.6.0):
+        // a recognized hatch3r-generated marker-less file is REPLACED, not
+        // prepend-spliced, so predict against the full incoming bytes.
+        if (isLegacyGeneratedNoMarkerFile(existingContent)) {
+          if (skipIfUnchanged && content === existingContent) return "unchanged";
+          return "updated";
+        }
         // Mirror the G6 trailing-\n parity the live appendIfNoBlock branch
         // applies so an unchanged prediction matches an unchanged write.
         let prepended = [content.trim(), "", existingContent.trimStart()].join("\n");
@@ -1143,6 +1191,22 @@ export function predictMergeAction(
           `predicting 'updated' — the live write auto-repairs the block.`,
       );
       return "updated";
+    }
+    // Mirror the live branch's slash-picker stub heal (release/2.6.0): a file
+    // whose healable prefix (empty or pure-frontmatter stub) differs from the
+    // freshly generated prefix is rewritten by the live write, so predicting
+    // "unchanged" from the block-only merge would re-open the
+    // preview-vs-reality gap this predictor exists to close.
+    const incomingSplit = splitAtManagedBlock(content, filePath);
+    if (incomingSplit && incomingSplit.prefix.trim() !== "") {
+      const mergedSplit = splitAtManagedBlock(merged, filePath);
+      if (
+        mergedSplit &&
+        mergedSplit.prefix !== incomingSplit.prefix &&
+        isHealableManagedPrefix(mergedSplit.prefix)
+      ) {
+        merged = incomingSplit.prefix + mergedSplit.rest;
+      }
     }
     if (skipIfUnchanged && merged === existingContent) return "unchanged";
     return "updated";
@@ -1362,7 +1426,10 @@ function updateDenyRefusalMessage(filePath: string, blocked: string[]): string {
  * - file absent, or no `managedContent` → the live write never deny-scans
  *   (the force path guards with a `.bak`, not a scan) → `null`.
  * - `managedContent` + no markers + `appendIfNoBlock` → the live path scans
- *   the ENTIRE existing body before splicing (C9-H41).
+ *   the ENTIRE existing body before splicing (C9-H41) — except a recognized
+ *   legacy hatch3r-generated file ({@link isLegacyGeneratedNoMarkerFile}),
+ *   which the live path replaces wholesale without preserving (or scanning)
+ *   any existing byte → `null`.
  * - `managedContent` + no markers, no `appendIfNoBlock` → live returns
  *   `skipped` without scanning → `null`.
  * - `managedContent` + markers present → the live path scans the
@@ -1379,6 +1446,10 @@ export async function predictDenyRefusal(
   if (existingContent === null || !options.managedContent) return null;
   if (!hasManagedBlock(existingContent, filePath)) {
     if (!options.appendIfNoBlock) return null;
+    // Mirror the live legacy-generated adoption branch (release/2.6.0): a
+    // recognized hatch3r-generated marker-less file is replaced wholesale —
+    // nothing from it is preserved, so the live path never deny-scans it.
+    if (isLegacyGeneratedNoMarkerFile(existingContent)) return null;
     const denied = scanForDeniedPatterns(existingContent);
     if (denied.length === 0) return null;
     const disposition = await applyDenyScanAllowlist(filePath, denied);
@@ -1498,6 +1569,33 @@ async function safeWriteFileLocked(
   if (options.managedContent) {
     if (!hasManagedBlock(existingContent, filePath)) {
       if (options.appendIfNoBlock) {
+        // release/2.6.0 — legacy-generated adoption. When the marker-less
+        // existing file is recognizable as raw hatch3r-generated output from
+        // a pre-marker release (see LEGACY_GENERATED_NO_MARKER_SIGNATURES:
+        // the `.claude/hooks/pretooluse-allowlist.mjs` script and the Cursor
+        // guard scripts), REPLACE it with the incoming marker-wrapped bytes
+        // instead of prepend-splicing. The prepend disposition below exists
+        // to preserve USER content beneath the new block; for a generated
+        // script it would instead keep a full stale copy of the body whose
+        // duplicate ESM `import` bindings are a SyntaxError on every hook
+        // invocation. The C9-H41 deny scan is deliberately not run on this
+        // branch: its threat model is attacker-controlled existing text being
+        // PRESERVED next to the managed block, and this branch preserves
+        // nothing — every existing byte is discarded. No `.bak` either: the
+        // file is regenerable from canonical content, matching the managed-
+        // filename fast path's no-backup contract. The warning is a one-time
+        // migration notice — the next sync finds markers and merges normally.
+        if (isLegacyGeneratedNoMarkerFile(existingContent)) {
+          if (skipIfUnchanged && content === existingContent) {
+            return { path: filePath, action: "unchanged" };
+          }
+          await atomicWriteFileUnlocked(filePath, content);
+          return {
+            path: filePath,
+            action: "updated",
+            warning: `Adopted ${filePath}: this hatch3r-generated file predates managed-block markers (HATCH3R:BEGIN/END), so it was regenerated with markers added. No action required.`,
+          };
+        }
         // C9-H41 (D11-SA11.2-01, P6): Scan existing user content for denied
         // patterns BEFORE splicing the managed block in front of it. The
         // companion `existing-markers` branch (below) scans `customContent`
@@ -1665,8 +1763,41 @@ async function safeWriteFileLocked(
         warning: `Rebuilt the managed block in ${filePath}: its HATCH3R:BEGIN/END markers were structurally corrupted (${failureReason}), so hatch3r regenerated the file from canonical content. Your previous file (including any content outside the markers) was preserved at ${bakPath}; to restore it, copy that file back or run \`hatch3r rollback --session=<id>\` (\`hatch3r rollback list\` shows session ids).`,
       };
     }
+    // Slash-picker stub heal (release/2.6.0): `insertManagedBlock` above
+    // re-splices ONLY the block interior and preserves the existing
+    // out-of-block prefix verbatim — so the freshly generated byte-0 YAML
+    // stub in `content` (whose `description:` the slash-command picker reads)
+    // never reached files written before the stub existed: their BEGIN marker
+    // sat at byte 0 forever, and the picker rendered the marker instead of
+    // the description. Heal the prefix when, and only when, the existing
+    // prefix carries no user-authored content per
+    // {@link isHealableManagedPrefix}: (i) whitespace-only, or (ii) exactly
+    // one YAML frontmatter block (a stale generated stub — description
+    // overrides belong in `.hatch3r/{type}/{id}.customize.yaml`, which the
+    // regeneration already folded into the incoming prefix). Any other prefix
+    // is user content outside the block and stays untouched (pre-heal
+    // behavior). Ordering note: the deny scan above runs on the USER-authored
+    // slice of the PRE-merge file — the healed-in prefix is hatch3r-generated
+    // output from the same trusted generation as `options.managedContent`, so
+    // it is deny-clean by authorship exactly like the managed body (see the
+    // D1-7-fix scope-narrow rationale above).
+    let stubHealed: "missing" | "stale" | null = null;
+    const incomingSplit = splitAtManagedBlock(content, filePath);
+    if (incomingSplit && incomingSplit.prefix.trim() !== "") {
+      const mergedSplit = splitAtManagedBlock(merged, filePath);
+      if (
+        mergedSplit &&
+        mergedSplit.prefix !== incomingSplit.prefix &&
+        isHealableManagedPrefix(mergedSplit.prefix)
+      ) {
+        stubHealed = mergedSplit.prefix.trim() === "" ? "missing" : "stale";
+        merged = incomingSplit.prefix + mergedSplit.rest;
+      }
+    }
     // F15.1-H1: any denied finding already threw above (fail-closed), so by
     // here `deniedFindings` is empty — no warning branch is reachable.
+    // G3: skipIfUnchanged compares the FINAL (post-heal) bytes, so a repeat
+    // write after a heal returns "unchanged" — the heal is idempotent.
     if (skipIfUnchanged && merged === existingContent) {
       return { path: filePath, action: "unchanged" };
     }
@@ -1674,12 +1805,21 @@ async function safeWriteFileLocked(
     // D11-SA11.2-F11: surface the issue #76 marker-syntax auto-repair on the
     // existing warning channel (callers aggregate MergeResult.warning into the
     // sync-completion summary) so the operator can attribute the rewrite.
+    // The stub heal reports on the same channel; when both fire, the parts
+    // are joined into one warning so the MergeResult shape stays single-warning.
+    const warningParts: string[] = [];
     if (variantChanged) {
-      return {
-        path: filePath,
-        action: "updated",
-        warning: `Auto-repaired marker syntax in ${filePath}: legacy HATCH3R:BEGIN/END markers used the wrong comment style for this file type and were rewritten to match (issue #76 legacy state). No action required.`,
-      };
+      warningParts.push(
+        `Auto-repaired marker syntax in ${filePath}: legacy HATCH3R:BEGIN/END markers used the wrong comment style for this file type and were rewritten to match (issue #76 legacy state). No action required.`,
+      );
+    }
+    if (stubHealed) {
+      warningParts.push(
+        `Restored the byte-0 frontmatter stub in ${filePath} (previous prefix was ${stubHealed === "missing" ? "empty" : "a stale generated stub"}): slash-command pickers read the \`description:\` field before the HATCH3R:BEGIN marker. To customize the description, use \`.hatch3r/<type>/<id>.customize.yaml\` — sync regenerates the stub itself.`,
+      );
+    }
+    if (warningParts.length > 0) {
+      return { path: filePath, action: "updated", warning: warningParts.join(" ") };
     }
     return { path: filePath, action: "updated" };
   }

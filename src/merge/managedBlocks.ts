@@ -429,6 +429,66 @@ export function extractManagedBlock(content: string, filePath?: string): string 
 }
 
 /**
+ * Split {@link content} at the start of its managed block: `prefix` is every
+ * byte BEFORE the line-anchored BEGIN marker; `rest` is the marker through
+ * end-of-content. Returns `null` when no managed block is detected.
+ *
+ * Slash-picker heal (release/2.6.0): `safeWriteFile`'s existing-markers merge
+ * branch and the `status`/`verify` drift comparison share this boundary so the
+ * sync-side stub heal and the drift report agree byte-for-byte on what the
+ * out-of-block prefix is. Uses the same {@link detectMarkers} resolution as
+ * every other read-side helper (line-anchored, path-preferred variant,
+ * fence-aware on markdown hosts).
+ */
+export function splitAtManagedBlock(
+  content: string,
+  filePath?: string,
+): { prefix: string; rest: string } | null {
+  const detected = detectMarkers(content, filePath);
+  if (!detected) return null;
+  return {
+    prefix: content.substring(0, detected.startIdx),
+    rest: content.substring(detected.startIdx),
+  };
+}
+
+/**
+ * True when {@link prefix} — the out-of-block slice BEFORE a managed block —
+ * carries no user-authored content, so the sync-side stub heal may replace it
+ * with the freshly generated prefix:
+ *
+ *   1. Whitespace-only (files written before the byte-0 frontmatter stub
+ *      existed have the BEGIN marker at byte 0), or
+ *   2. EXACTLY one leading YAML frontmatter block — an opening `---` line,
+ *      any interior lines, the first subsequent `---` line — followed by
+ *      nothing but whitespace. That is precisely the shape the generated
+ *      picker stub uses (`BaseAdapter.processCommandsWithFm` /
+ *      `processSkillsWithFmCliFiltered`), so a prefix of this shape is a
+ *      generated (possibly stale) stub owned by hatch3r. Hand customization
+ *      belongs in `.hatch3r/{type}/{id}.customize.yaml` — including
+ *      `description:` overrides — never in the stub itself.
+ *
+ * Anything else (prose, an unterminated `---` fence, content after the
+ * closing fence) is user content and the caller must preserve it verbatim.
+ */
+export function isHealableManagedPrefix(prefix: string): boolean {
+  if (prefix.trim() === "") return true;
+  const lines = prefix.split("\n");
+  let i = 0;
+  while (i < lines.length && (lines[i] ?? "").trim() === "") i++;
+  if (i >= lines.length || (lines[i] ?? "").trim() !== "---") return false;
+  // The first later line that trims to exactly `---` closes the frontmatter
+  // block (matching how editors and FRONTMATTER_REGEX consumers read it).
+  let close = i + 1;
+  while (close < lines.length && (lines[close] ?? "").trim() !== "---") close++;
+  if (close >= lines.length) return false; // unterminated — user content
+  for (let k = close + 1; k < lines.length; k++) {
+    if ((lines[k] ?? "").trim() !== "") return false; // trailing user content
+  }
+  return true;
+}
+
+/**
  * Extract user-authored content outside the managed block markers (any
  * variant). Pass {@link filePath} (D1-7/D11-6) so the boundary is computed from
  * the line-anchored, path-preferred variant — a user line that quotes a marker

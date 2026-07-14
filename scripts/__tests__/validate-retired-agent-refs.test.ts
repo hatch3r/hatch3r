@@ -326,17 +326,17 @@ describe("validate-retired-agent-refs", () => {
 
   // ── runValidator: recurses into nested subdirectories ───────────
 
-  it("recurses into nested subdirectories (e.g. commands/revision/)", async () => {
-    await mkdir(join(fx.rootDir, "commands", "revision"), { recursive: true });
+  it("recurses into nested subdirectories (e.g. commands/rework/)", async () => {
+    await mkdir(join(fx.rootDir, "commands", "rework"), { recursive: true });
     await seedFile(
       fx.rootDir,
-      "commands/revision/revision-delegation.md",
-      ["# Delegation", "highest-priority specialist: implementer > lint-fixer > test-writer."].join("\n"),
+      "commands/rework/rework-plan.md",
+      ["# Rework Plan", "highest-priority specialist: implementer > lint-fixer > test-writer."].join("\n"),
     );
 
     const r = await runValidator({ rootDir: fx.rootDir, scannedDirs: ["commands"] });
     expect(r.errorCount).toBe(1);
-    expect(r.findings[0].file).toMatch(/revision\/revision-delegation\.md$/);
+    expect(r.findings[0].file).toMatch(/rework\/rework-plan\.md$/);
   });
 
   // ── runValidator: dot dirs skipped ──────────────────────────────

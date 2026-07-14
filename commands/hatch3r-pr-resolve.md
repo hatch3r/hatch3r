@@ -50,7 +50,7 @@ sub_agents_spawned:
 
 Closes the **reviewer -> contributor** loop on an open PR. Fetches every comment (inline review comments + review summaries + general PR discussion), evaluates each against current code using the Scientific Rigor Contract, presents one consolidated triage ASK, then runs autonomously: delegates fixes to specialist sub-agents, runs the review-loop + final-quality pipeline, posts a per-comment reply with rationale, and commits.
 
-Use `hatch3r-pr-resolve` when reviewer feedback exists on a PR you want to address. Use `hatch3r-revision` when the feedback comes from you in a fresh window with no PR comments to read. Use `hatch3r-board-fill` to triage `todo.md` items into a project board.
+Use `hatch3r-pr-resolve` when reviewer feedback exists on a PR you want to address. Use `hatch3r-rework` when the feedback comes from you in a fresh window with no PR comments to read — it ends at a rework plan plus a fresh-session execution prompt instead of fixing inline. Use `hatch3r-board-fill` to triage `todo.md` items into a project board.
 
 ---
 
@@ -359,7 +359,7 @@ evaluation:
   applicability: current | outdated | already-addressed
 ```
 
-**Severity heuristic** (matches `commands/hatch3r-revision.md` triage table):
+**Severity heuristic** (matches `commands/hatch3r-rework.md` Step 5 triage vocabulary):
 - **Critical** — functional bug, security defect, data corruption risk, broken contract.
 - **Important** — UX defect, missing test for a new code path, incomplete behavior, performance regression on a hot path.
 - **Cleanup** — dead code, typo, missing type annotation, error-handling gap that does not affect functional behavior.
@@ -449,7 +449,7 @@ Total: {N} comments • {fix_now_n} fix now • {decline_n} decline • {clarify
 >
 > (accept / adjust / show N / fix all)
 
-If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-revision.md` §5b Routing ASK → Critical Deferral Protocol: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
+If the user attempts to defer a Critical finding, execute the Critical Deferral Protocol from `commands/hatch3r-rework.md` §5b Routing ASK → Critical Deferral Protocol: structured warning + required written rationale + `Critical-deferred` tag in todo.md + flag for elevated visibility in the next board-fill.
 
 After the user accepts, the round is autonomous through Step 9; Step 9.5 then gates any further round.
 
@@ -470,7 +470,7 @@ Cache the deferred list. For each DEFER item, also append a `deferred` ledger ro
 
 ## Step 6: Fix Implementation (Sub-Agent Delegation)
 
-Delegate every FIX NOW finding to specialist sub-agents using the delegation contract from `commands/revision/revision-delegation.md` (§6a–6c). Same blast-radius-aware grouping, same prompt requirements.
+Delegate every FIX NOW finding to specialist sub-agents per the contract below (6a–6c): blast-radius-aware grouping, the full prompt-requirement list, and cross-agent conflict resolution.
 
 #### 6a. Group Findings by Specialist
 
@@ -499,7 +499,7 @@ Each sub-agent prompt MUST include:
 
 #### 6c. Await and Integrate
 
-Await all sub-agents. Collect structured results: files changed, tests written, findings addressed, BLOCKED / PARTIAL items. Apply cross-agent conflict resolution per `commands/revision/revision-delegation.md` §6c → Cross-Agent Conflict Resolution (disjoint regions accept both; overlapping regions merge larger-scope; semantic conflicts surface in Step 10 Iteration Summary).
+Await all sub-agents. Collect structured results: files changed, tests written, findings addressed, BLOCKED / PARTIAL items. Apply cross-agent conflict resolution when sub-agents modified overlapping files: **disjoint regions** (different functions/sections) — accept both change sets; **overlapping regions** (same function or block) — merge using the larger-scope change as the base, applying the smaller change on top, and present both versions to the user when the merge is ambiguous; **semantic conflicts** (contradictory logic) — never auto-resolve; surface both sub-agents' rationale in Step 10 Iteration Summary.
 
 Update `run_cache.fix_results`.
 
@@ -517,7 +517,7 @@ If any gate fails, identify failures and either fix inline (single-line lint/typ
 
 #### 7b. Review Loop (Tier 2/3 only; Tier 1 skips)
 
-Spawn `hatch3r-reviewer` -> `hatch3r-fixer` per `commands/revision/revision-quality.md` Stage 1 (max 3 iterations, oscillation detection, confidence decay) — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points). The reviewer prompt MUST include:
+Run the Stage-1 review loop: spawn `hatch3r-reviewer`; on Critical/Warning findings spawn `hatch3r-fixer` with the reviewer output, then re-review (max 3 iterations, oscillation detection, confidence decay per `src/pipeline/reviewLoop.ts`) — append the W1 write-ahead rows before the fixer dispatch and the W2 disposition rows after the re-review (`rules/hatch3r-findings-ledger.md` → Write Points). The reviewer prompt MUST include:
 - The cached diff from Step 1e.
 - All `scope: always` rule directives.
 - Iteration number and prior findings.
@@ -545,7 +545,7 @@ After 7b is clean:
 - `hatch3r-performance` (CQ7) — when the diff includes hot-path changes (DB queries, API handlers, render loops).
 - `hatch3r-lint-fixer` — when residual lint/type errors surfaced after Step 6.
 
-Each specialist prompt mirrors the requirements in `commands/revision/revision-quality.md` §Stage 2 → Specialist Prompt Requirements (agent protocol, scope:always rules, diff, acceptance criteria, confidence requirement). Apply specialist outputs; re-run 7a gates if changes were made.
+Each specialist prompt MUST include: the agent protocol to follow (e.g., "Follow the hatch3r-testability agent protocol"), all `scope: always` rule directives from `rules/`, the diff or file changes to review, the linked issue's acceptance criteria (when available), the Confidence expression requirement (verbatim), and `correlation_id` (UUID v4 per top-level task per `rules/hatch3r-agent-orchestration.md` → Correlation ID). Apply specialist outputs; re-run 7a gates if changes were made.
 
 ---
 
@@ -632,7 +632,7 @@ If `git push` fails because the remote branch does not exist, run `git push -u o
 
 If `run_cache.fix_results.files_changed` is empty (every comment was DECLINE / DEFER / NEEDS_CLARIFICATION), skip the commit and push — Step 8 replies are the only artifact produced.
 
-**Post-commit board update (Tier 3 only).** When board context exists and Tier 3 was assigned, update the PR description with a pr-resolve summary per `commands/revision/revision-board-integration.md`. For Tier 1/2, skip.
+**Post-commit board update (Tier 3 only).** When board context exists and Tier 3 was assigned, append a pr-resolve summary section to the PR description ({date}, fixed findings with severities, deferred-to-todo.md list, quality agents spawned, overall confidence). Do NOT change issue status labels, and do NOT modify `Closes #N` / `Relates to #N` references — the originals from board-pickup stay authoritative. For Tier 1/2, skip.
 
 ---
 
@@ -734,7 +734,7 @@ Per-tier `expected_sa_count` calibration (from frontmatter `sub_agents_spawned.c
 | Sub-agent (Step 6) reports BLOCKED on a finding | Skip the finding for FIX NOW; surface in Step 10 `Not Done`; reply with "Attempted but blocked" template. |
 | Sub-agent (Step 6) returns PARTIAL | Apply partial changes; mark the unaddressed sub-findings as deferred; reply notes partial implementation. |
 | Reply POST persistently fails (Step 8c) | Continue run; record in `run_cache.reply_post_results`; surface in Step 10. |
-| Review loop hits 3 iterations with findings remaining | ASK the user per `commands/revision/revision-quality.md` §Stage 1 Review Loop step 3 (3-iteration ASK). |
+| Review loop hits 3 iterations with findings remaining | ASK the user how to proceed — the ASK lists the open `finding_id`s with legal closures; reconcile the ledger to the run-exit invariant (W3, `rules/hatch3r-findings-ledger.md`) on exit. |
 | Quality gate fails 2 retries (Step 7a) | Record in `run_cache.errors`; Step 10 `Status: PARTIAL`. |
 | `git push` rejected (e.g., upstream changed mid-run) | Halt at Step 9 with: "Remote branch changed during run. Run `git pull --rebase`, resolve conflicts, then re-run /hatch3r-pr-resolve to repost any failed replies." |
 | Step 9.5 poll budget exhausted (5 × 60s) with zero new comments | Report "No new comments after 300s."; re-ask 9.5a (keep polling / done). |

@@ -2,7 +2,7 @@
 id: hatch3r-learnings-loader
 type: agent
 description: Session-start agent that surfaces relevant project learnings, recent decisions, and context from previous sessions. Use at the beginning of a coding session to get up to speed.
-model: fast
+model: economy
 tags: [orchestration, maintenance]
 quality_charter: agents/shared/quality-charter.md
 efficiency_patterns: agents/shared/efficiency-patterns.md
@@ -241,7 +241,7 @@ Include confidence in the output: each surfaced learning already carries a confi
 
 ## Aggregate Briefing Budget
 
-The 40-line/file cap (Content Validation §Structural validation) bounds a single entry. It does NOT bound the whole briefing: a large `.hatch3r/learnings/` directory can match many under-cap entries and still flood the session context. The storage-side ceiling `MAX_LEARNINGS_TOTAL_BYTES` (512 KB, `src/content/learningsValidation.ts`) caps what may be *stored on disk* — it is far larger than what should be *surfaced into one session*. This budget is the load-side default that bounds the briefing itself, applying the signal-over-volume principle from the Anthropic context-engineering reference (References section).
+The 40-line/file cap (Content Validation §Structural validation) bounds a single entry. It does NOT bound the whole briefing: a large `.hatch3r/learnings/` directory can match many under-cap entries and still flood the session context. The storage-side ceiling (`resolveLearningsCaps` in `src/content/learningsValidation.ts`: `learnings.maxCount`, default 150 files, with a total-byte cap scaling proportionally — ~1.5 MB at the default) caps what may be *stored on disk* — it is far larger than what should be *surfaced into one session*. This budget is the load-side default that bounds the briefing itself, applying the signal-over-volume principle from the Anthropic context-engineering reference (References section).
 
 Apply this default after content-security filtering and before composing the briefing:
 

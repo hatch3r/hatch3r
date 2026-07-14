@@ -405,9 +405,10 @@ export function getManagedFilesForTool(
  * integer, so `HATCH3R_MAX_ARCHIVE_ENTRIES=100000` effectively disabled
  * pruning (`entries.slice(MAX_ARCHIVE_ENTRIES)` in pruneArchives yields an
  * empty slice) and `.hatch3r-archive/` grew without bound — unlike the
- * snapshot store, which carries both a count cap (MAX_SNAPSHOT_COUNT=50) and a
- * byte ceiling (MAX_SNAPSHOT_BYTES). Mirror the snapshot count cap here so the
- * override can lower retention but never lift it past 50.
+ * snapshot store, which carries both a count cap (MAX_SNAPSHOT_COUNT — now 150
+ * via DEFAULT_LEARNING_FILE_COUNT) and a byte ceiling (MAX_SNAPSHOT_BYTES).
+ * This ceiling keeps the 50 the snapshot store carried when the guard landed,
+ * so the override can lower retention but never lift it past 50.
  */
 export const MAX_ARCHIVE_ENTRIES_CEILING = 50;
 

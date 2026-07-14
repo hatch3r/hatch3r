@@ -2,7 +2,7 @@
 id: hatch3r-researcher
 type: agent
 description: Composable context researcher agent. Receives a research brief with mode selections and depth level, gathers context following the tooling hierarchy, returns structured findings. Does not create files or modify code — the parent orchestrator owns all artifacts.
-model: standard
+model: default
 tags: [planning, floor:protocol]
 protected: true
 quality_charter: agents/shared/quality-charter.md

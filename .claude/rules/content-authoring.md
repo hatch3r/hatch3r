@@ -17,7 +17,7 @@ When creating or modifying canonical content artifacts in `agents/`, `skills/`, 
 
 1. **YAML frontmatter required:** `id`, `type` (agent|skill|rule|command|hook|prompt|github-agent), `description`, `tags`
 2. **Filename prefix:** `hatch3r-` on all top-level published content files (e.g., `hatch3r-implementer.md`). Two exception classes (no prefix required):
-   - **2a — Support/companion subdirectories:** `agents/shared/*`, `agents/modes/*`, `commands/board/*`, `commands/revision/*`. These files are reference/companion material consumed by a parent artifact, not standalone published artifacts.
+   - **2a — Support/companion subdirectories:** `agents/shared/*`, `agents/modes/*`, `commands/board/*`, `commands/rework/*`. These files are reference/companion material consumed by a parent artifact, not standalone published artifacts.
    - **2b — First-class artifact classes with class-internal naming:** `checks/*` (e.g., `checks/{accessibility,code-quality,performance,security,testing}.md`). These ARE a published artifact class (`type: check`, counted in `governance/inventory.json`) but use a class-internal naming convention instead of the `hatch3r-` prefix.
 
    Both classes are excluded from the prefix check; the "Always copy support subdirectories" block in `src/content/index.ts::copySelectedContent` and the substructure carve-out comment in `src/cli/commands/validate.ts::validateFrontmatter` model the split (manifest `managedFiles` excludes these paths).
@@ -71,7 +71,7 @@ Canonical `.md` rule frontmatter supports `precedence: critical|high|normal|low`
 | Precedence | Rank | Filename prefix | Assignment policy |
 |------------|-----:|-----------------|-------------------|
 | `critical` | 100 | `10-` | Security and secrets rules — `hatch3r-security-patterns`, `hatch3r-secrets-management`, and any future rule with equivalent blast radius |
-| `high` | 300 | `30-` | Rules implementing CONSTITUTION §2 P2 hard-mandate floors (supply-chain, observability, migrations, API versioning, AI evals, accessibility, container hardening, dependency management, resilience patterns, design-system detection, ux-states-and-flows) AND framework-dev gatekeeper rules under `.claude/rules/` (pillar-compliance, governance-lean-thresholds, anti-slop-enforcement, security-patterns, content-authoring, test-requirements) AND pre-existing pipeline-protocol rules (agent-orchestration, iteration-summary, handoff-readiness, clarification-default, fan-out-discipline) |
+| `high` | 300 | `30-` | Rules implementing CONSTITUTION §2 P2 hard-mandate floors (supply-chain, observability, migrations, API versioning, AI evals, accessibility, container hardening, dependency management, resilience patterns, design-system detection, ux-states-and-flows) AND framework-dev gatekeeper rules under `.claude/rules/` (pillar-compliance, governance-lean-thresholds, anti-slop-enforcement, security-patterns, content-authoring, test-requirements) AND pre-existing pipeline-protocol rules (agent-orchestration, iteration-summary, handoff-readiness, clarification-default, fan-out-discipline) AND orchestration-protocol rules (`floor:protocol`-tagged spawn/return contracts: model-allocation, context-budget) |
 | `normal` | 500 | `50-` | Default. Cosmetic/style rules — theming, i18n, commit conventions, doc style |
 | `low` | 700 | `70-` | Deprecation hawks awaiting removal |
 
