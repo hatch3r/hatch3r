@@ -83,7 +83,7 @@ The submission requires a valid `.claude-plugin/plugin.json`. The current manife
 {
   "name": "hatch3r",
   "description": "10-cycle-audited agentic coding setup: 30 agents, 53 skills, 72 rules, 32 commands, 7 hooks, and MCP integrations. Counts derived from governance/inventory.json.",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "author": {
     "name": "hatch3r",
     "email": "support@hatch3r.com"
@@ -190,7 +190,7 @@ The Cursor form and listing draw from the committed manifest; keep the manifest 
 - **name:** `hatch3r`
 - **displayName:** `Hatch3r`
 - **description:** "Agentic coding setup audited each release across 24 governance domains: 30 agents, 53 skills, 72 rules, 32 commands, 7 hooks, and MCP integrations -- in one plugin. Counts derived from governance/inventory.json." (counts trace to `governance/inventory.json`)
-- **version:** `2.5.0`
+- **version:** `2.6.0`
 - **repository:** https://github.com/hatch3r/hatch3r
 - **homepage:** https://docs.hatch3r.com
 - **license:** MIT
